@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import type { ChangeEvent } from 'react'
-import type { MediaLibraryState } from '../lib/mediaLibrary'
+import type { LibraryClip, MediaLibraryState } from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
 import './MediaLibrary.css'
 
@@ -8,9 +8,15 @@ interface MediaLibraryProps {
   library: MediaLibraryState
   onImportFiles: (files: File[]) => void
   onDismissFailures: () => void
+  onAddToTimeline: (clip: LibraryClip) => void
 }
 
-export function MediaLibrary({ library, onImportFiles, onDismissFailures }: MediaLibraryProps) {
+export function MediaLibrary({
+  library,
+  onImportFiles,
+  onDismissFailures,
+  onAddToTimeline,
+}: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -63,6 +69,13 @@ export function MediaLibrary({ library, onImportFiles, onDismissFailures }: Medi
                 {clip.name}
               </span>
               <span className="clip-duration">{formatDuration(clip.duration)}</span>
+              <button
+                type="button"
+                aria-label={`Add ${clip.name} to timeline`}
+                onClick={() => onAddToTimeline(clip)}
+              >
+                Add
+              </button>
             </li>
           ))}
         </ul>
