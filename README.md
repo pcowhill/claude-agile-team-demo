@@ -19,6 +19,7 @@ Library, linted with oxlint — see
 npm ci             # install dependencies (Node 22)
 npm run dev        # local dev server
 npm test           # unit tests (Vitest)
+npm run test:e2e   # browser tests (Playwright; needs its Chromium — npx playwright install chromium)
 npm run lint       # oxlint
 npm run typecheck  # tsc -b
 npm run build      # production build to dist/
