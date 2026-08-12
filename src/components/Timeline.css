@@ -1,0 +1,65 @@
+.timeline-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.timeline-header h2 {
+  margin: 0;
+}
+
+.timeline-total {
+  color: #aaa;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.timeline-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  background: #222;
+  font-size: 0.9rem;
+}
+
+.entry-position {
+  color: #777;
+  min-width: 1.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-duration {
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.entry-actions button {
+  min-width: 2rem;
+}
