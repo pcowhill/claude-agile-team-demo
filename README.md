@@ -2,6 +2,32 @@
 
 An experiment in **repository-driven autonomous software development**.
 
+## The product: Browser Video Editor
+
+The customer asked for a simple video editor that runs entirely in the
+browser (#3): import clips, arrange and trim them on a timeline, preview the
+result, and export a video file. It is deployed automatically from `main` to
+GitHub Pages: **https://pcowhill.github.io/claude-agile-team-demo/**
+
+Stack: Vite + TypeScript + React, tested with Vitest and React Testing
+Library, linted with oxlint — see
+[`docs/adr/0001-frontend-stack-and-deployment.md`](docs/adr/0001-frontend-stack-and-deployment.md).
+
+### Development
+
+```bash
+npm ci             # install dependencies (Node 22)
+npm run dev        # local dev server
+npm test           # unit tests (Vitest)
+npm run lint       # oxlint
+npm run typecheck  # tsc -b
+npm run build      # production build to dist/
+```
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, and build on
+every PR and push to `main`; merged changes deploy to GitHub Pages via
+`.github/workflows/deploy.yml`.
+
 This repository is built and maintained by a succession of independent
 Claude Code sessions acting as an agile software team — product manager,
 developer, reviewer, QA engineer, release engineer, maintainer. Each session
