@@ -45,6 +45,10 @@ itself and acts:
   it authored. Opening an implementation PR is a handoff; a *later,
   independent* session reviews and merges it. Reviewing a PR that existed
   before your session began is allowed — and often the top priority.
+- **Handoff is permanent.** After opening an implementation PR, the
+  authoring session must not arrange to resume itself — no scheduled
+  self-check-ins, cron or `/loop` continuations, PR auto-fix automation, or
+  PR-activity subscriptions (see `.claude/rules/operating-model.md`).
 - **One implementation PR at a time.** Do not start unrelated implementation
   while an implementation PR is open and awaiting review or fixes.
 - **AI product ideas are not scope.** An idea labeled `ai-generated` may only

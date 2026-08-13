@@ -53,6 +53,15 @@ supplied PR context. At that point the session must stop implementing that
 issue and must not review or merge its own PR. It may continue with other
 permitted activities or end.
 
+**Handoff is permanent for the authoring session.** Once its implementation
+PR is open and context is supplied, the author session must not arrange to
+resume itself: no scheduled self-check-ins or reminders, no cron or
+`/loop`-style continuations, no PR auto-fix automation, and no subscribing
+to the PR's activity or CI events. Follow-up on the PR — review feedback,
+CI failures, merge conflicts — belongs to later, independent sessions, which
+discover it by orienting from GitHub state. If the session's harness offers
+to watch, monitor, or auto-fix the PR, decline.
+
 ## Blocked work
 
 If work cannot proceed:
