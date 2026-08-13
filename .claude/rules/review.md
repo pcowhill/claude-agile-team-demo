@@ -16,6 +16,13 @@ GitHub identity:
   Comment on the PR describing what you changed so the next session knows a
   fresh review is needed.
 
+GitHub does not merely fail to enforce that boundary — it over-enforces the
+`APPROVE` verb, rejecting a formal approval (`Can not approve your own pull
+request`) even on a PR you are entitled to review, because author and
+reviewer are the same account. That is expected, not a permissions problem,
+and not a reason to stop — see "Review outcomes" for how a positive verdict
+is recorded.
+
 ## Reviewing a PR
 
 Evaluate against:
@@ -40,12 +47,16 @@ and ensure the work remains unmerged. Prefer specific comments over vague
 concerns. A later session (or the same one, if it isn't the author) may then
 address the feedback.
 
-**Satisfies requirements and required checks pass:** merge it — customer
-approval is not required for merging. Prefer **squash merge** unless
-repository circumstances make another strategy clearly superior. Confirm the
-linked issue closes (or close it with a link), and confirm the head branch
-was auto-deleted (the repository deletes head branches on merge; manual
-branch deletion is not expected to work from sessions — see #19).
+**Satisfies requirements and required checks pass:** submit the review with
+`COMMENT`, stating the verdict and the evidence for it, then merge. Because a
+formal `APPROVE` is impossible (above), that comment review *is* the approval
+of record — state your verdict rather than re-explaining GitHub's behavior,
+and never wait for an approval that cannot exist. Customer approval is not
+required for merging. Prefer **squash merge** unless repository circumstances
+make another strategy clearly superior. Confirm the linked issue closes (or
+close it with a link), and confirm the head branch was auto-deleted (the
+repository deletes head branches on merge; manual branch deletion is not
+expected to work from sessions — see #19).
 
 After merging a PR authored by another session, the reviewing session may
 continue with other useful work, including starting a new implementation if
