@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import type { TimelineState } from '../lib/timeline'
-import { effectiveDuration, totalDuration } from '../lib/timeline'
+import type { TimelineState, TransitionSpec, TransitionType } from '../lib/timeline'
+import {
+  DEFAULT_TRANSITION_DURATION,
+  boundaryTransitions,
+  effectiveDuration,
+  totalDuration,
+} from '../lib/timeline'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
 
@@ -10,12 +15,19 @@ interface TimelineProps {
   onMoveEntry: (id: string, direction: 'up' | 'down') => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
+  onSetTransition: (beforeId: string, afterId: string, transition: TransitionSpec) => void
+  onRemoveTransition: (beforeId: string, afterId: string) => void
+}
+
+const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
+  crossfade: 'Crossfade',
+  'slide-from-above': 'Slide from above',
 }
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */
 const formatSeconds = (seconds: number) => String(Math.round(seconds * 100) / 100)
 
-interface TrimFieldProps {
+interface SecondsFieldProps {
   label: string
   value: number
   max: number
@@ -23,11 +35,12 @@ interface TrimFieldProps {
 }
 
 /**
- * Numeric trim input that commits on blur/Enter. The draft is local so the
- * user can type freely; the committed value is validated by the reducer, and
- * the field snaps back to the last valid state if the commit is rejected.
+ * Numeric seconds input (trim points, transition durations) that commits on
+ * blur/Enter. The draft is local so the user can type freely; the committed
+ * value is validated by the reducer, and the field snaps back to the last
+ * valid state if the commit is rejected.
  */
-function TrimField({ label, value, max, onCommit }: TrimFieldProps) {
+function SecondsField({ label, value, max, onCommit }: SecondsFieldProps) {
   const [draft, setDraft] = useState(() => formatSeconds(value))
 
   useEffect(() => {
@@ -62,8 +75,16 @@ function TrimField({ label, value, max, onCommit }: TrimFieldProps) {
   )
 }
 
-export function Timeline({ timeline, onMoveEntry, onRemoveEntry, onTrimEntry }: TimelineProps) {
+export function Timeline({
+  timeline,
+  onMoveEntry,
+  onRemoveEntry,
+  onTrimEntry,
+  onSetTransition,
+  onRemoveTransition,
+}: TimelineProps) {
   const { entries } = timeline
+  const transitions = boundaryTransitions(timeline)
 
   return (
     <section className="panel panel-wide" aria-label="Timeline">
@@ -117,14 +138,14 @@ export function Timeline({ timeline, onMoveEntry, onRemoveEntry, onTrimEntry }: 
                 </div>
                 <div className="timeline-entry-trim">
                   <span>In</span>
-                  <TrimField
+                  <SecondsField
                     label={`Trim in point of ${position} in seconds`}
                     value={entry.inPoint}
                     max={entry.duration}
                     onCommit={(inPoint) => onTrimEntry(entry.id, inPoint, entry.outPoint)}
                   />
                   <span>Out</span>
-                  <TrimField
+                  <SecondsField
                     label={`Trim out point of ${position} in seconds`}
                     value={entry.outPoint}
                     max={entry.duration}
@@ -135,6 +156,67 @@ export function Timeline({ timeline, onMoveEntry, onRemoveEntry, onTrimEntry }: 
                     {formatSeconds(entry.duration)}s
                   </span>
                 </div>
+                {index < entries.length - 1 &&
+                  (() => {
+                    const next = entries[index + 1]
+                    const boundary = `between position ${index + 1} and ${index + 2}`
+                    const transition = transitions[index]
+                    return transition === undefined ? (
+                      <div className="timeline-transition">
+                        <button
+                          type="button"
+                          className="timeline-transition-add"
+                          aria-label={`Add transition ${boundary}`}
+                          onClick={() =>
+                            onSetTransition(entry.id, next.id, {
+                              type: 'crossfade',
+                              duration: DEFAULT_TRANSITION_DURATION,
+                            })
+                          }
+                        >
+                          + Transition
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="timeline-transition">
+                        <select
+                          aria-label={`Transition type ${boundary}`}
+                          value={transition.type}
+                          onChange={(event) =>
+                            onSetTransition(entry.id, next.id, {
+                              type: event.target.value as TransitionType,
+                              duration: transition.duration,
+                            })
+                          }
+                        >
+                          {Object.entries(TRANSITION_TYPE_NAMES).map(([value, name]) => (
+                            <option key={value} value={value}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                        <SecondsField
+                          label={`Transition duration ${boundary} in seconds`}
+                          value={transition.duration}
+                          max={Math.min(effectiveDuration(entry), effectiveDuration(next))}
+                          onCommit={(duration) =>
+                            onSetTransition(entry.id, next.id, {
+                              type: transition.type,
+                              duration,
+                            })
+                          }
+                        />
+                        <span>s</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove transition ${boundary}`}
+                          onClick={() => onRemoveTransition(entry.id, next.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )
+                  })()}
               </li>
             )
           })}

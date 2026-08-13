@@ -100,3 +100,83 @@ describe('isAtSequenceEnd', () => {
     expect(isAtSequenceEnd(timeline, 16)).toBe(true)
   })
 })
+
+/**
+ * The same three entries with transitions at both boundaries (#41):
+ *   e1: sequence [0, 3]     ─┐ 1s crossfade: e2 starts at 2
+ *   e2: sequence [2, 12]     ─┐ 0.5s slide: e3 starts at 11.5
+ *   e3: sequence [11.5, 13.5]
+ * Total: 3 + 10 + 2 − 1 − 0.5 = 13.5.
+ */
+const withTransitions: TimelineState = {
+  ...timeline,
+  transitions: [
+    { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
+    { beforeId: 'e2', afterId: 'e3', type: 'slide-from-above', duration: 0.5 },
+  ],
+}
+
+describe('overlap-aware sequence math', () => {
+  it('pulls entry start times earlier by the preceding transitions', () => {
+    expect(entryStartTime(withTransitions, 0)).toBe(0)
+    expect(entryStartTime(withTransitions, 1)).toBe(2)
+    expect(entryStartTime(withTransitions, 2)).toBe(11.5)
+  })
+
+  it('outside any overlap, locates exactly as without transitions', () => {
+    expect(locateInSequence(withTransitions, 1)).toMatchObject({ index: 0, sourceTime: 3 })
+    expect(locateInSequence(withTransitions, 1)?.transition).toBeUndefined()
+    expect(locateInSequence(withTransitions, 5)).toMatchObject({ index: 1, sourceTime: 3 })
+  })
+
+  it('inside an overlap, keeps the outgoing entry primary and exposes the incoming one', () => {
+    const location = locateInSequence(withTransitions, 2.5)!
+    expect(location).toMatchObject({ index: 0, sourceTime: 4.5 })
+    expect(location.transition).toMatchObject({
+      type: 'crossfade',
+      progress: 0.5,
+      index: 1,
+      sourceTime: 0.5,
+    })
+    expect(location.transition?.entry.id).toBe('e2')
+  })
+
+  it('starts the overlap at progress 0 and hands over exactly where the outgoing entry ends', () => {
+    const start = locateInSequence(withTransitions, 2)!
+    expect(start).toMatchObject({ index: 0, sourceTime: 4 })
+    expect(start.transition).toMatchObject({ progress: 0, sourceTime: 0 })
+    // At the outgoing entry's end the incoming entry is primary and the
+    // transition is over.
+    const end = locateInSequence(withTransitions, 3)!
+    expect(end).toMatchObject({ index: 1, sourceTime: 1 })
+    expect(end.transition).toBeUndefined()
+  })
+
+  it('carries the transition type through', () => {
+    const location = locateInSequence(withTransitions, 11.75)!
+    expect(location).toMatchObject({ index: 1, sourceTime: 9.75 })
+    expect(location.transition).toMatchObject({
+      type: 'slide-from-above',
+      progress: 0.5,
+      index: 2,
+      sourceTime: 4.25,
+    })
+  })
+
+  it('shrinks the total and the sequence end accordingly', () => {
+    expect(isAtSequenceEnd(withTransitions, 13.49)).toBe(false)
+    expect(isAtSequenceEnd(withTransitions, 13.5)).toBe(true)
+    expect(locateInSequence(withTransitions, 13.5)).toMatchObject({ index: 2, sourceTime: 6 })
+    expect(locateInSequence(withTransitions, 99)).toMatchObject({ index: 2, sourceTime: 6 })
+  })
+
+  it('keeps sequenceTimeAt the inverse of the primary location', () => {
+    for (const time of [0, 0.5, 2, 2.5, 2.99, 3, 7.25, 11.5, 11.9, 12, 13.49]) {
+      const location = locateInSequence(withTransitions, time)!
+      expect(sequenceTimeAt(withTransitions, location.index, location.sourceTime)).toBeCloseTo(
+        time,
+        10,
+      )
+    }
+  })
+})

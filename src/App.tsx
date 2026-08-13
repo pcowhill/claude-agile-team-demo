@@ -122,6 +122,12 @@ function App() {
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
           }
+          onSetTransition={(beforeId, afterId, transition) =>
+            dispatchTimeline({ type: 'transition-set', beforeId, afterId, transition })
+          }
+          onRemoveTransition={(beforeId, afterId) =>
+            dispatchTimeline({ type: 'transition-removed', beforeId, afterId })
+          }
         />
         <ExportPanel timeline={timeline} />
       </main>
