@@ -1,5 +1,6 @@
 import { useCallback, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
+import { ExportPanel } from './components/ExportPanel'
 import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { Timeline } from './components/Timeline'
@@ -107,6 +108,7 @@ function App() {
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
           }
         />
+        <ExportPanel timeline={timeline} />
       </main>
     </div>
   )

@@ -1,0 +1,28 @@
+.export-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.export-progress {
+  flex: 1;
+  min-width: 120px;
+  max-width: 320px;
+}
+
+.export-download {
+  color: #7e8cff;
+}
+
+.export-error {
+  margin: 0.5rem 0 0;
+  color: #ff7a7a;
+  font-size: 0.9rem;
+}
+
+.export-note {
+  margin: 0.5rem 0 0;
+  color: #888;
+  font-size: 0.85rem;
+}
