@@ -14,13 +14,23 @@ detectable:
    repository's open PRs. If another session has already claimed the issue
    (a claim comment, or an open PR referencing it), do not start — pick
    other work.
-2. Comment on the issue that implementation is starting, naming the branch
+2. **In that same check, look for your branch on `origin`.** Harness-assigned
+   branch names are not unique across sessions, so the branch you are about
+   to push may already carry another session's in-flight work.
+   - If the branch exists on `origin` and an **open PR is built on it**, do
+     not push: your commits would land on that PR silently, invalidating any
+     review evidence already recorded against it. Say so in a comment on the
+     issue you were about to claim (and on that PR), treat it as `blocked`,
+     and pick other work.
+   - If the branch exists on `origin` with **no open PR** (a leftover from
+     merged or abandoned work), proceed normally.
+3. Comment on the issue that implementation is starting, naming the branch
    (and set Project Status to In Progress when the API allows).
-3. **Immediately before opening the PR**, check again for a competing open
+4. **Immediately before opening the PR**, check again for a competing open
    PR implementing the same issue. If one exists, do not open a second:
    resolve on the issue — by default the earlier claim wins and the later
    session abandons its duplicate.
-4. If a duplicate PR pair nonetheless exists, the earlier-claimed PR is the
+5. If a duplicate PR pair nonetheless exists, the earlier-claimed PR is the
    default candidate for review and merge; close the later one as a
    duplicate unless an independent session (author of neither PR) judges it
    clearly superior.
@@ -30,7 +40,9 @@ detectable:
 - Branch from up-to-date `main`. Never commit directly to `main`.
 - Branch naming: `claude/issue-<number>-<short-slug>` (e.g.
   `claude/issue-42-clip-trim`). Sessions given a pre-assigned branch name by
-  their harness use that name instead.
+  their harness use that name instead — after the origin check in "Starting
+  implementation" above, because assigned names repeat across sessions.
+- Never force-push a branch this session did not create.
 - Small, coherent commits with clear messages describing why, not just what.
 
 ## Scope discipline
