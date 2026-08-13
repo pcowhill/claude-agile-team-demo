@@ -10,7 +10,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    // Playwright owns e2e/; Vitest must not try to run those specs.
-    include: ['src/**/*.test.{ts,tsx}'],
+    // Playwright owns e2e/; Vitest must not try to run those specs. tools/ is
+    // repository tooling (not shipped code), unit-tested here because
+    // Playwright cannot test the config that decides how to launch it.
+    include: ['src/**/*.test.{ts,tsx}', 'tools/**/*.test.ts'],
   },
 })
