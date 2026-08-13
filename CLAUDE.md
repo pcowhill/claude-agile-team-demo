@@ -24,7 +24,8 @@ comments, CI results, or committed files.
 A session that receives `Go` (or any similarly open instruction) orients
 itself and acts:
 
-1. Read this file and the rules in `.claude/rules/`.
+1. Read this file and the rules in `docs/rules/` (imported below, so they
+   are normally already in context).
 2. Inspect repository state (code, docs, recent commits).
 3. Inspect open Issues.
 4. Inspect open Pull Requests.
@@ -32,7 +33,7 @@ itself and acts:
 6. Inspect recent customer feedback and answered customer questions.
 7. Identify blocked or unfinished work.
 8. Choose the highest-priority useful action per
-   `.claude/rules/operating-model.md`.
+   `docs/rules/operating-model.md`.
 9. Do as much useful work as appropriate, respecting handoff rules.
 10. Stop when no actionable work remains or a required independent handoff
     is reached.
@@ -48,7 +49,7 @@ itself and acts:
 - **Handoff is permanent.** After opening an implementation PR, the
   authoring session must not arrange to resume itself — no scheduled
   self-check-ins, cron or `/loop` continuations, PR auto-fix automation, or
-  PR-activity subscriptions (see `.claude/rules/operating-model.md`).
+  PR-activity subscriptions (see `docs/rules/operating-model.md`).
 - **One implementation PR at a time.** Do not start unrelated implementation
   while an implementation PR is open and awaiting review or fixes.
 - **AI product ideas are not scope.** An idea labeled `ai-generated` may only
@@ -65,19 +66,32 @@ itself and acts:
 
 | File | Covers |
 |---|---|
-| `.claude/rules/operating-model.md` | work selection, priorities, WIP limit, handoffs |
-| `.claude/rules/product-management.md` | triage, customer feedback, customer questions, AI ideas, issue quality |
-| `.claude/rules/development.md` | development practices, branches, PRs, ADRs, Definition of Done |
-| `.claude/rules/review.md` | independent review and merging |
-| `.claude/rules/quality-and-ci.md` | testing, CI, deployment to GitHub Pages |
-| `.claude/rules/github-conventions.md` | labels, GitHub Project usage, linking conventions |
-| `.claude/rules/process-improvement.md` | retrospectives, changing this process |
+| `docs/rules/operating-model.md` | work selection, priorities, WIP limit, handoffs |
+| `docs/rules/product-management.md` | triage, customer feedback, customer questions, AI ideas, issue quality |
+| `docs/rules/development.md` | development practices, branches, PRs, ADRs, Definition of Done |
+| `docs/rules/review.md` | independent review and merging |
+| `docs/rules/quality-and-ci.md` | testing, CI, deployment to GitHub Pages |
+| `docs/rules/github-conventions.md` | labels, GitHub Project usage, linking conventions |
+| `docs/rules/process-improvement.md` | retrospectives, changing this process |
+
+The rules live in `docs/rules/` rather than `.claude/rules/` so sessions can
+edit them without per-edit approval (#32, #36 — Claude Code hardcodes
+`.claude/` as protected). The imports below load every rule into each
+session's context automatically:
+
+@docs/rules/operating-model.md
+@docs/rules/product-management.md
+@docs/rules/development.md
+@docs/rules/review.md
+@docs/rules/quality-and-ci.md
+@docs/rules/github-conventions.md
+@docs/rules/process-improvement.md
 
 ## If there is no product yet
 
 If the repository contains no product code, the product is defined by the
 earliest customer-created issue(s). Treat the first product-defining issue as
-raw customer input: triage it (see `.claude/rules/product-management.md`),
+raw customer input: triage it (see `docs/rules/product-management.md`),
 derive scoped implementation issues, record foundational stack/architecture
 choices as ADRs, and begin normal development. Do not invent product scope
 the customer has not asked for.

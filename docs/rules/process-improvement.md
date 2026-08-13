@@ -25,7 +25,7 @@ learn, and keep it lightweight.
 
 ## Changing the process
 
-Meaningful changes to `CLAUDE.md`, `.claude/rules/`, CI configuration,
+Meaningful changes to `CLAUDE.md`, `docs/rules/`, CI configuration,
 testing strategy, or the development workflow must not be silently edited in.
 They originate from a `process` issue and go through a normal PR with
 independent review, like any other change. The repository history should show
