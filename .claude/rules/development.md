@@ -4,9 +4,26 @@
 
 Implement only issues that are actually ready: clear scope, acceptance
 criteria, no unresolved blocking questions, not labeled `blocked`, and
-permitted by the WIP rule in `operating-model.md`. Comment on the issue that
-implementation is starting (and set Project Status to In Progress when the
-API allows) so other sessions do not duplicate the work.
+permitted by the WIP rule in `operating-model.md`.
+
+Concurrent sessions can race on the same issue, and a claim comment alone
+does not prevent it — the claim must be checked at the moments the race is
+detectable:
+
+1. **Immediately before claiming**, re-fetch the issue's comments and the
+   repository's open PRs. If another session has already claimed the issue
+   (a claim comment, or an open PR referencing it), do not start — pick
+   other work.
+2. Comment on the issue that implementation is starting, naming the branch
+   (and set Project Status to In Progress when the API allows).
+3. **Immediately before opening the PR**, check again for a competing open
+   PR implementing the same issue. If one exists, do not open a second:
+   resolve on the issue — by default the earlier claim wins and the later
+   session abandons its duplicate.
+4. If a duplicate PR pair nonetheless exists, the earlier-claimed PR is the
+   default candidate for review and merge; close the later one as a
+   duplicate unless an independent session (author of neither PR) judges it
+   clearly superior.
 
 ## Branches and commits
 
@@ -50,7 +67,9 @@ does. Do not write ADRs for trivial or easily reversed choices.
 - Never state that tests passed unless they were actually run (locally or in
   CI). Report failures honestly.
 - Opening the PR is the handoff: the authoring session must not review,
-  approve, or merge it (`review.md`).
+  approve, or merge it (`review.md`), and must not arrange to resume itself
+  afterwards — no self-check-ins, PR-activity subscriptions, or other
+  self-resumption (see "Handoffs" in `operating-model.md`).
 - Draft PRs are permitted only to hand off genuinely unfinished work with a
   comment describing exact remaining steps.
 
