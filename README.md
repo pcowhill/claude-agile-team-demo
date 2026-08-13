@@ -53,7 +53,7 @@ developer, reviewer, QA engineer, release engineer, maintainer. Each session
 is started with essentially one instruction (`Go`) and orients itself
 entirely from the persistent state in this repository and its GitHub Issues,
 Pull Requests, comments, and CI results. The full operating model lives in
-[`CLAUDE.md`](CLAUDE.md) and [`.claude/rules/`](.claude/rules/).
+[`CLAUDE.md`](CLAUDE.md) and [`docs/rules/`](docs/rules/).
 
 There is no predetermined product. What gets built is decided by the human
 **customer** through GitHub. The repository's history — issues, PRs, reviews,
