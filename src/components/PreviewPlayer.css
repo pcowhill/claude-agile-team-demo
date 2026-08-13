@@ -1,14 +1,42 @@
+/* The panel is a flex column so the player can absorb whatever vertical
+   space the app grid gives the panel (#39). */
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .preview-player {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
+/* The video takes exactly the panel height left over after the controls and
+   now-playing line. The zero flex basis matters: the video must never make
+   the panel taller (which would grow the page and bring back scrolling) —
+   it adapts to whatever height the app grid gave the panel. object-fit
+   letterboxes/pillarboxes inside the box, so the frame is never cropped or
+   distorted. */
 .preview-video {
   width: 100%;
-  max-height: 260px;
+  flex: 1 1 0;
+  min-height: 0;
+  object-fit: contain;
   background: #000;
   border-radius: 6px;
+}
+
+@media (max-width: 700px) {
+  /* Single-column layout (App.css breakpoint): the grid row is
+     content-sized, so a zero flex basis would collapse the video to nothing.
+     Size it from its width instead. */
+  .preview-video {
+    flex: 0 0 auto;
+    aspect-ratio: 16 / 9;
+  }
 }
 
 .preview-controls {
