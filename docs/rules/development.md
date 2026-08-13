@@ -89,7 +89,12 @@ does. Do not write ADRs for trivial or easily reversed choices.
 
 An implementation issue is Done only when **all** of the following hold:
 
-- acceptance criteria are satisfied
+- acceptance criteria are satisfied — for a criterion marked
+  **customer-verifiable** (see "Verifiable acceptance criteria" in
+  `product-management.md`), the PR must name it as such, supply whatever
+  proxy evidence is feasible, and leave verification explicitly to the
+  customer; it must never be silently claimed as verified or silently
+  dropped
 - appropriate tests exist and pass
 - required CI passes
 - the implementation received independent review (different session)
