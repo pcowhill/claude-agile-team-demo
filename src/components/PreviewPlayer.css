@@ -1,0 +1,39 @@
+.preview-player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-video {
+  width: 100%;
+  max-height: 260px;
+  background: #000;
+  border-radius: 6px;
+}
+
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.preview-controls input[type='range'] {
+  flex: 1;
+}
+
+.preview-controls button {
+  min-width: 2.25rem;
+}
+
+.preview-position {
+  font-variant-numeric: tabular-nums;
+  color: #bbb;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.preview-now-playing {
+  margin: 0;
+  color: #888;
+  font-size: 0.85rem;
+}

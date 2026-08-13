@@ -1,6 +1,7 @@
 import { useCallback, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { MediaLibrary } from './components/MediaLibrary'
+import { PreviewPlayer } from './components/PreviewPlayer'
 import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
@@ -97,10 +98,7 @@ function App() {
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
         />
-        <section className="panel" aria-label="Preview">
-          <h2>Preview</h2>
-          <p className="placeholder">Playback preview is coming soon.</p>
-        </section>
+        <PreviewPlayer timeline={timeline} />
         <Timeline
           timeline={timeline}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
