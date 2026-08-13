@@ -141,6 +141,120 @@ describe('timeline', () => {
     expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:24')
   })
 
+  describe('transitions', () => {
+    const addTwoClips = async () => {
+      await importClip('a.mp4', 10)
+      await importClip('b.mp4', 20)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+    }
+
+    it('offers a transition only between entries, and adds a 1s crossfade by default', async () => {
+      render(<App />)
+      await addTwoClips()
+
+      expect(
+        screen.getAllByRole('button', { name: /Add transition between/ }),
+      ).toHaveLength(1)
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+
+      expect(
+        screen.getByRole('combobox', { name: 'Transition type between position 1 and 2' }),
+      ).toHaveValue('crossfade')
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Transition duration between position 1 and 2 in seconds',
+        }),
+      ).toHaveValue(1)
+      // 10 + 20 − 1
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:29')
+    })
+
+    it('changes the type and duration, clamping to the shorter neighbor', async () => {
+      render(<App />)
+      await addTwoClips()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+
+      await userEvent.selectOptions(
+        screen.getByRole('combobox', { name: 'Transition type between position 1 and 2' }),
+        'Slide from above',
+      )
+      const duration = screen.getByRole('spinbutton', {
+        name: 'Transition duration between position 1 and 2 in seconds',
+      })
+      await userEvent.clear(duration)
+      await userEvent.type(duration, '99')
+      await userEvent.tab()
+
+      // Clamped to a.mp4's 10s playable duration; total 10 + 20 − 10.
+      expect(duration).toHaveValue(10)
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:20')
+      expect(
+        screen.getByRole('combobox', { name: 'Transition type between position 1 and 2' }),
+      ).toHaveValue('slide-from-above')
+    })
+
+    it('removes the transition, restoring the hard cut and the total', async () => {
+      render(<App />)
+      await addTwoClips()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:29')
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Remove transition between position 1 and 2' }),
+      )
+
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:30')
+      expect(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      ).toBeInTheDocument()
+    })
+
+    it('drops the transition when its boundary dissolves by reordering', async () => {
+      render(<App />)
+      await addTwoClips()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: 'Move b.mp4 at position 2 up' }))
+
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:30')
+      expect(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      ).toBeInTheDocument()
+    })
+
+    it('re-clamps the transition when a trim shrinks a neighbor below it', async () => {
+      render(<App />)
+      await addTwoClips()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+
+      const outField = screen.getByRole('spinbutton', {
+        name: 'Trim out point of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(outField)
+      await userEvent.type(outField, '0.5')
+      await userEvent.tab()
+
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Transition duration between position 1 and 2 in seconds',
+        }),
+      ).toHaveValue(0.5)
+      // 0.5 + 20 − 0.5
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:20')
+    })
+  })
+
   it('removes an entry without touching the media library, updating the total', async () => {
     render(<App />)
     await importClip('a.mp4', 30)
