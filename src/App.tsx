@@ -1,12 +1,16 @@
 import { useCallback, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { MediaLibrary } from './components/MediaLibrary'
+import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
+import type { LibraryClip } from './lib/mediaLibrary'
+import { emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
 import { probeVideoFile } from './lib/probeVideo'
 import './App.css'
 
 function App() {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
+  const [timeline, dispatchTimeline] = useReducer(timelineReducer, emptyTimeline)
   const [isDragTarget, setIsDragTarget] = useState(false)
   // dragenter/dragleave fire for every child element crossed; only the
   // outermost balance matters.
@@ -40,6 +44,10 @@ function App() {
     },
     [importFiles],
   )
+
+  const handleAddToTimeline = useCallback((clip: LibraryClip) => {
+    dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
+  }, [])
 
   const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
@@ -87,15 +95,17 @@ function App() {
           library={library}
           onImportFiles={handleImportFiles}
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
+          onAddToTimeline={handleAddToTimeline}
         />
         <section className="panel" aria-label="Preview">
           <h2>Preview</h2>
           <p className="placeholder">Playback preview is coming soon.</p>
         </section>
-        <section className="panel panel-wide" aria-label="Timeline">
-          <h2>Timeline</h2>
-          <p className="placeholder">Clip arrangement is coming soon.</p>
-        </section>
+        <Timeline
+          timeline={timeline}
+          onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
+          onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
+        />
       </main>
     </div>
   )
