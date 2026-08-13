@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { TimelineState } from '../lib/timeline'
-import { totalDuration } from '../lib/timeline'
+import type { CSSProperties } from 'react'
+import type { TimelineState, TransitionType } from '../lib/timeline'
+import { boundaryTransitions, totalDuration } from '../lib/timeline'
 import { locateInSequence, sequenceTimeAt } from '../lib/playback'
-import type { PlaybackLocation } from '../lib/playback'
+import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { formatDuration } from '../lib/mediaLibrary'
 import './PreviewPlayer.css'
 
@@ -11,86 +12,200 @@ interface PreviewPlayerProps {
 }
 
 /**
- * Tolerance (seconds) when comparing the <video>'s clock against an entry's
+ * Tolerance (seconds) when comparing a <video>'s clock against an entry's
  * out-point: currentTime advances in discrete steps, so an exact match would
  * overshoot into the next clip's source material before switching.
  */
 const BOUNDARY_EPSILON = 0.02
 
+const TRANSITION_LABEL: Record<TransitionType, string> = {
+  crossfade: 'crossfade',
+  'slide-from-above': 'slide from above',
+}
+
+/**
+ * Style of the incoming video element mid-transition. Crossfade fades it in
+ * over the still-playing outgoing clip; slide-from-above moves it down from
+ * fully above the frame (clipped by the stage) to fully covering it.
+ */
+function transitionOverlayStyle(overlap: TransitionOverlap): CSSProperties {
+  return overlap.type === 'crossfade'
+    ? { opacity: overlap.progress }
+    : { transform: `translateY(${(overlap.progress - 1) * 100}%)` }
+}
+
 /**
  * Plays the timeline sequence — each entry from its in-point to its
- * out-point, in order — through a single <video> element whose src switches
- * between source clips at entry boundaries.
+ * out-point, in order — through two stacked <video> elements. Outside a
+ * transition only the primary element is visible and plays the current
+ * entry, src-switching at hard cuts exactly as before. Inside a transition
+ * overlap (#42) the secondary element plays the incoming entry on top of the
+ * still-playing outgoing one, styled by the transition's progress; when the
+ * outgoing entry ends the elements swap roles, so the incoming clip never
+ * has to be re-cued at the handover.
  */
 export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoARef = useRef<HTMLVideoElement>(null)
+  const videoBRef = useRef<HTMLVideoElement>(null)
   const frameRef = useRef(0)
-  // The entry index the <video> is currently cued to. Kept in a ref (not
-  // state) because the rAF loop reads and writes it between renders.
+  // The entry index the primary element is currently cued to. Kept in a ref
+  // (not state) because the rAF loop reads and writes it between renders.
   const indexRef = useRef(0)
+  // Which element is primary: a ref for the rAF loop, mirrored into state so
+  // the render can assign roles (testids, stacking, transition styles).
+  const primaryIsARef = useRef(true)
+  const [primaryIsA, setPrimaryIsA] = useState(true)
+  // Outgoing-entry index the secondary element is engaged for, or null while
+  // it is idle. Prevents re-cueing the incoming clip on every overlap frame.
+  const engagedForRef = useRef<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
 
   const total = totalDuration(timeline)
   const empty = timeline.entries.length === 0
 
+  const primaryVideo = () => (primaryIsARef.current ? videoARef.current : videoBRef.current)
+  const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
+
   /**
-   * Cues the <video> to a location, switching src when the location's entry
-   * uses a different source clip. currentTime is only settable once metadata
-   * is loaded, so after a src switch the seek (and optional play) waits for
+   * Cues one element to a source time, switching src when it plays a
+   * different source clip. currentTime is only settable once metadata is
+   * loaded, so after a src switch the seek (and optional play) waits for
    * loadedmetadata.
    */
-  const cueVideo = useCallback((location: PlaybackLocation, thenPlay: boolean) => {
-    const video = videoRef.current
-    if (!video) return
-    indexRef.current = location.index
-    const start = () => {
-      video.currentTime = location.sourceTime
-      // play() rejects (AbortError) when interrupted by pause or a src
-      // switch — an expected outcome here, not an error to surface.
-      if (thenPlay) video.play().catch(() => {})
-    }
-    if (video.currentSrc !== location.entry.url) {
-      video.src = location.entry.url
-      video.addEventListener('loadedmetadata', start, { once: true })
-    } else {
-      start()
-    }
-  }, [])
+  const cueElement = useCallback(
+    (video: HTMLVideoElement, url: string, sourceTime: number, thenPlay: boolean) => {
+      const start = () => {
+        video.currentTime = sourceTime
+        // play() rejects (AbortError) when interrupted by pause or a src
+        // switch — an expected outcome here, not an error to surface.
+        if (thenPlay) video.play().catch(() => {})
+      }
+      if (video.currentSrc !== url) {
+        video.src = url
+        video.addEventListener('loadedmetadata', start, { once: true })
+      } else {
+        start()
+      }
+    },
+    [],
+  )
+
+  const cuePrimary = useCallback(
+    (location: PlaybackLocation, thenPlay: boolean) => {
+      const video = primaryVideo()
+      if (!video) return
+      indexRef.current = location.index
+      cueElement(video, location.entry.url, location.sourceTime, thenPlay)
+    },
+    [cueElement],
+  )
+
+  /**
+   * Aligns the secondary element with a location: inside an overlap it is
+   * cued to the incoming entry and the two elements' audio is split by the
+   * transition's progress (a plain volume crossfade, for both transition
+   * types); outside one it is silenced and paused.
+   */
+  const syncSecondary = useCallback(
+    (location: PlaybackLocation, thenPlay: boolean) => {
+      const primary = primaryVideo()
+      const secondary = secondaryVideo()
+      if (!primary || !secondary) return
+      const overlap = location.transition
+      if (overlap) {
+        primary.volume = 1 - overlap.progress
+        secondary.volume = overlap.progress
+        engagedForRef.current = location.index
+        cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
+      } else {
+        primary.volume = 1
+        if (engagedForRef.current !== null) {
+          engagedForRef.current = null
+          secondary.pause()
+        }
+      }
+    },
+    [cueElement],
+  )
 
   const stopLoop = useCallback(() => {
     cancelAnimationFrame(frameRef.current)
   }, [])
 
   /**
-   * Per-frame while playing: publish the current sequence position and, when
-   * the clip reaches its out-point (or actually ends), either advance to the
-   * next entry or finish the sequence.
+   * Per-frame while playing: publish the current sequence position, run the
+   * transition overlap (engage the secondary element, split the audio), and
+   * when the outgoing clip reaches its out-point (or actually ends) either
+   * hand over to the next entry or finish the sequence.
    */
   const tick = useCallback(() => {
-    const video = videoRef.current
+    const video = primaryVideo()
     if (!video) return
     const index = indexRef.current
     const entry = timeline.entries[index]
     if (!entry) return
+    const next = timeline.entries[index + 1]
+    const overlap = boundaryTransitions(timeline)[index]
 
     const reachedOut = video.currentTime >= entry.outPoint - BOUNDARY_EPSILON || video.ended
     if (reachedOut) {
-      const next = timeline.entries[index + 1]
-      if (next) {
+      if (next && overlap) {
+        // Handover mid-transition: the incoming entry is already playing in
+        // the secondary element — promote it to primary instead of re-cueing.
+        const incoming = secondaryVideo()
+        if (!incoming) return
+        const wasEngaged = engagedForRef.current === index
+        video.pause()
+        video.volume = 1
+        incoming.volume = 1
+        engagedForRef.current = null
+        indexRef.current = index + 1
+        primaryIsARef.current = !primaryIsARef.current
+        setPrimaryIsA(primaryIsARef.current)
+        if (wasEngaged) {
+          setSequenceTime(sequenceTimeAt(timeline, index + 1, incoming.currentTime))
+        } else {
+          // The overlap was shorter than a frame (or engagement raced the
+          // out-point) — cue the incoming element where the handover lands.
+          setSequenceTime(sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration))
+          cueElement(incoming, next.url, next.inPoint + overlap.duration, true)
+        }
+      } else if (next) {
         setSequenceTime(sequenceTimeAt(timeline, index + 1, next.inPoint))
-        cueVideo({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
+        cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
       } else {
         video.pause()
+        secondaryVideo()?.pause()
         setPlaying(false)
         setSequenceTime(totalDuration(timeline))
         return
       }
     } else {
       setSequenceTime(sequenceTimeAt(timeline, index, video.currentTime))
+      if (next && overlap) {
+        const overlapStart = entry.outPoint - overlap.duration
+        if (video.currentTime >= overlapStart) {
+          const secondary = secondaryVideo()
+          if (secondary) {
+            if (engagedForRef.current !== index) {
+              engagedForRef.current = index
+              cueElement(
+                secondary,
+                next.url,
+                next.inPoint + (video.currentTime - overlapStart),
+                true,
+              )
+            }
+            const progress = Math.min((video.currentTime - overlapStart) / overlap.duration, 1)
+            video.volume = 1 - progress
+            secondary.volume = progress
+          }
+        }
+      }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueVideo])
+  }, [timeline, cueElement, cuePrimary])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.
@@ -99,14 +214,16 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
     if (!location) return
     setPlaying(true)
     setSequenceTime(from)
-    cueVideo(location, true)
+    cuePrimary(location, true)
+    syncSecondary(location, true)
     stopLoop()
     frameRef.current = requestAnimationFrame(tick)
-  }, [sequenceTime, total, timeline, cueVideo, stopLoop, tick])
+  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, stopLoop, tick])
 
   const pause = useCallback(() => {
     stopLoop()
-    videoRef.current?.pause()
+    primaryVideo()?.pause()
+    secondaryVideo()?.pause()
     setPlaying(false)
   }, [stopLoop])
 
@@ -115,17 +232,20 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       const location = locateInSequence(timeline, time)
       if (!location) return
       setSequenceTime(time)
-      cueVideo(location, playing)
+      cuePrimary(location, playing)
+      syncSecondary(location, playing)
     },
-    [timeline, cueVideo, playing],
+    [timeline, cuePrimary, syncSecondary, playing],
   )
 
   // Edits to the sequence invalidate the playback position (entries may be
   // gone, reordered, or retrimmed): stop and re-clamp rather than guessing.
   useEffect(() => {
     stopLoop()
-    const video = videoRef.current
-    if (video && !video.paused) video.pause()
+    for (const video of [videoARef.current, videoBRef.current]) {
+      if (video && !video.paused) video.pause()
+    }
+    engagedForRef.current = null
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
   }, [timeline, stopLoop])
@@ -133,6 +253,20 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   useEffect(() => stopLoop, [stopLoop])
 
   const location = locateInSequence(timeline, sequenceTime)
+  const overlap = location?.transition
+
+  /** Role-dependent props for one of the two stacked elements. */
+  const videoProps = (isA: boolean) => {
+    const isPrimary = isA === primaryIsA
+    if (isPrimary) {
+      return { className: 'preview-video', 'data-testid': 'preview-video' }
+    }
+    return {
+      className: `preview-video preview-video-incoming${overlap ? '' : ' preview-video-idle'}`,
+      style: overlap ? transitionOverlayStyle(overlap) : undefined,
+      'data-testid': overlap ? 'preview-video-incoming' : undefined,
+    }
+  }
 
   return (
     <section className="panel preview-panel" aria-label="Preview">
@@ -142,13 +276,10 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       ) : (
         <div className="preview-player">
           {/* Sized by CSS; sequence audio plays. Controls are the app's own. */}
-          <video
-            ref={videoRef}
-            className="preview-video"
-            data-testid="preview-video"
-            playsInline
-            preload="auto"
-          />
+          <div className="preview-stage">
+            <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
+            <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
+          </div>
           <div className="preview-controls">
             <button
               type="button"
@@ -173,6 +304,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
           {location && (
             <p className="preview-now-playing" data-testid="preview-now-playing">
               Clip {location.index + 1} of {timeline.entries.length}: {location.entry.name}
+              {overlap ? ` → ${overlap.entry.name} (${TRANSITION_LABEL[overlap.type]})` : ''}
             </p>
           )}
         </div>
