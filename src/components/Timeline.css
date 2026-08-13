@@ -27,13 +27,19 @@
 
 .timeline-entry {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.4rem 0.6rem;
   border: 1px solid #2c2c2c;
   border-radius: 6px;
   background: #222;
   font-size: 0.9rem;
+}
+
+.timeline-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .timeline-entry .clip-name {
@@ -50,4 +56,28 @@
 
 .timeline-entry-actions button {
   min-width: 2rem;
+}
+
+.timeline-entry-trim {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.timeline-entry-trim input {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-entry-effective {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
