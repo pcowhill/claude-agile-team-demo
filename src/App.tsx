@@ -51,6 +51,19 @@ function App() {
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
+  const handleRemoveClip = useCallback((clip: LibraryClip) => {
+    dispatch({ type: 'clip-removed', id: clip.id })
+    dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
+    // The clip and every timeline entry created from it are gone from state,
+    // so nothing can cue this URL again — release the imported file's memory.
+    URL.revokeObjectURL(clip.url)
+  }, [])
+
+  const timelineUseCount = useCallback(
+    (clipId: string) => timeline.entries.filter((entry) => entry.clipId === clipId).length,
+    [timeline],
+  )
+
   const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
   const handleDragEnter = (event: DragEvent) => {
@@ -98,6 +111,8 @@ function App() {
           onImportFiles={handleImportFiles}
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
+          onRemoveClip={handleRemoveClip}
+          timelineUseCount={timelineUseCount}
         />
         <PreviewPlayer timeline={timeline} />
         <Timeline

@@ -28,6 +28,24 @@ describe('mediaLibraryReducer', () => {
     expect(state.clips[0].id).not.toBe(state.clips[1].id)
   })
 
+  it('removes only the clip with the given id', () => {
+    const first = clip({ name: 'a.mp4' })
+    const second = clip({ name: 'b.mp4' })
+    const state: MediaLibraryState = { clips: [first, second], failures: [] }
+    const next = mediaLibraryReducer(state, { type: 'clip-removed', id: first.id })
+    expect(next.clips.map((c) => c.name)).toEqual(['b.mp4'])
+  })
+
+  it('leaves clips unchanged when removing an unknown id, and never touches failures', () => {
+    const state: MediaLibraryState = {
+      clips: [clip()],
+      failures: [{ id: 'f1', name: 'bad.txt', reason: 'not a video' }],
+    }
+    const next = mediaLibraryReducer(state, { type: 'clip-removed', id: 'nope' })
+    expect(next.clips).toHaveLength(1)
+    expect(next.failures).toHaveLength(1)
+  })
+
   it('records import failures without touching clips', () => {
     const withClip = mediaLibraryReducer(emptyLibrary, { type: 'clip-added', clip: clip() })
     const state = mediaLibraryReducer(withClip, {
