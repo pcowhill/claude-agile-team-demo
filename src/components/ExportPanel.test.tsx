@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportPanel } from './ExportPanel'
 import { ExportCanceledError, exportTimeline } from '../lib/exportVideo'
@@ -60,11 +60,17 @@ describe('ExportPanel', () => {
     expect(screen.getByRole('button', { name: 'Export video' })).toBeDisabled()
     expect(screen.getByRole('progressbar', { name: 'Export progress' })).toBeInTheDocument()
 
-    reportProgress!(0.5)
-    await waitFor(() => expect(screen.getByTestId('export-progress-text')).toHaveTextContent('50%'))
+    act(() => reportProgress!(0.5))
+    expect(screen.getByTestId('export-progress-text')).toHaveTextContent('50%')
 
-    finish!(new Blob(['x'.repeat(2000)], { type: 'video/webm' }))
-    const link = await screen.findByTestId('export-download')
+    // Resolve inside act() so the 'done' render AND its passive effects are
+    // flushed before asserting (#47): the download link enters the DOM at
+    // commit, but the auto-click fires from a useEffect afterwards. findBy*
+    // only waits for the DOM, so asserting the click after it was a race.
+    await act(async () => {
+      finish!(new Blob(['x'.repeat(2000)], { type: 'video/webm' }))
+    })
+    const link = screen.getByTestId('export-download')
     expect(link).toHaveAttribute('href', 'blob:export-result')
     expect(link).toHaveAttribute('download', 'sequence-export.webm')
     expect(link).toHaveTextContent('2 kB')
