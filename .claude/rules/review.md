@@ -43,7 +43,9 @@ address the feedback.
 **Satisfies requirements and required checks pass:** merge it — customer
 approval is not required for merging. Prefer **squash merge** unless
 repository circumstances make another strategy clearly superior. Confirm the
-linked issue closes (or close it with a link), and delete the merged branch.
+linked issue closes (or close it with a link), and confirm the head branch
+was auto-deleted (the repository deletes head branches on merge; manual
+branch deletion is not expected to work from sessions — see #19).
 
 After merging a PR authored by another session, the reviewing session may
 continue with other useful work, including starting a new implementation if
