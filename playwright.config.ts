@@ -1,9 +1,15 @@
-import { defineConfig, devices } from '@playwright/test'
+import { chromium, defineConfig, devices } from '@playwright/test'
+import { resolveChromiumExecutableFromEnvironment } from './tools/chromiumExecutable.ts'
 
 // The dev server serves under the same base path as GitHub Pages
 // (vite.config.ts), so e2e URLs mirror production paths.
 const PORT = 4173
 const BASE_URL = `http://localhost:${PORT}/claude-agile-team-demo/`
+
+// Which Chromium to launch. Undefined means "Playwright's own", which is the
+// normal case (CI included); a path means this environment ships a browser
+// whose revision differs from the pinned one. See tools/chromiumExecutable.ts.
+const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,12 +26,7 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Environments with a pre-installed browser (e.g. sandboxed agent
-        // containers) can point at it instead of downloading a matching
-        // revision via `npx playwright install`.
-        ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-          ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } }
-          : {}),
+        ...(executablePath === undefined ? {} : { launchOptions: { executablePath } }),
       },
     },
   ],

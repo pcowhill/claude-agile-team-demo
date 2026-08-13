@@ -19,15 +19,33 @@ Library, linted with oxlint — see
 npm ci             # install dependencies (Node 22)
 npm run dev        # local dev server
 npm test           # unit tests (Vitest)
-npm run test:e2e   # browser tests (Playwright; needs its Chromium — npx playwright install chromium)
+npm run test:e2e   # browser tests (Playwright — see "Browser tests" below)
 npm run lint       # oxlint
 npm run typecheck  # tsc -b
 npm run build      # production build to dist/
 ```
 
+#### Browser tests
+
+`npm run test:e2e` finds a Chromium by itself and needs no environment
+variable. It prefers the revision Playwright pins, and falls back to any
+other Chromium already installed in the browsers directory — which is what
+sandboxed agent containers ship, at a revision that rarely matches the pinned
+one. When nothing usable exists it says so, and names both remedies:
+
+```bash
+npx playwright install chromium               # ordinary machines
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/path/to/chrome npm run test:e2e   # pre-installed browser
+```
+
+The override wins over both, and must point at the browser binary rather
+than the directory holding it. See [`tools/chromiumExecutable.ts`](tools/chromiumExecutable.ts)
+for the resolution order and issue #24 for the failure it replaces.
+
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, and build on
 every PR and push to `main`; merged changes deploy to GitHub Pages via
-`.github/workflows/deploy.yml`.
+`.github/workflows/deploy.yml`. CI installs the pinned revision, so it takes
+the first branch above and is unaffected by the fallback.
 
 This repository is built and maintained by a succession of independent
 Claude Code sessions acting as an agile software team — product manager,
