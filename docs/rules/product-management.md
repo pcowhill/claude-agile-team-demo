@@ -20,6 +20,31 @@ Detail proportional to the work — do not make tickets bureaucratic. Use
 sub-issues only when they genuinely improve decomposition. Search existing
 issues before creating new ones; avoid duplicates.
 
+### Verifiable acceptance criteria
+
+Every acceptance criterion must pass a capability test when written: **can a
+session, in the environment sessions actually run in, execute this check and
+honestly report the result?** Do not enumerate today's tooling in the
+criterion — capabilities change; the test is executability by a session at
+the time the work is done.
+
+When a property the customer cares about genuinely needs something no
+session has, do not write it as an ordinary checkbox. Write it as one of:
+
+- a **proxy criterion** a session can execute that evidences the same
+  underlying property (e.g. "the exported file demuxes as WebM/VP9 with an
+  Opus audio track, verified with FFmpeg" instead of "plays in another
+  mainstream media player"); or
+- a criterion explicitly marked **customer-verifiable**: the issue states
+  that verification belongs to the customer, and the criterion is excluded
+  from the team-executed evidence in the Definition of Done
+  (`development.md`) rather than left for a session to decide whether
+  "met in substance" counts.
+
+A criterion nobody can execute is worse than none: it either gets waved
+through, eroding the honest-evidence invariant, or burns reviewer time
+re-deciding what it really meant.
+
 ## Processing customer feedback (`customer-feedback`)
 
 The customer writes feedback in completely free form — no user stories,
