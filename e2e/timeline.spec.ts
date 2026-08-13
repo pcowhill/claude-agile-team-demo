@@ -68,4 +68,23 @@ test('clips can be added to the timeline, reordered, and removed', async ({ page
   await expect(sequence.getByRole('listitem')).toHaveCount(1)
   await expect(sequence.getByRole('listitem')).toContainText('first.webm')
   await expect(library.getByRole('listitem')).toHaveCount(2)
+
+  // Trim the remaining ~1.2s entry down to 0.4s; commit happens on blur.
+  const outField = page.getByRole('spinbutton', {
+    name: 'Trim out point of first.webm at position 1 in seconds',
+  })
+  await outField.fill('0.4')
+  await outField.blur()
+  await expect(sequence.getByRole('listitem')).toContainText('plays 0.4s of')
+  // 0.4s rounds down to zero whole seconds — distinguishable from the untrimmed total.
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:00')
+
+  // An impossible range (in ≥ out) is rejected and the field snaps back.
+  const inField = page.getByRole('spinbutton', {
+    name: 'Trim in point of first.webm at position 1 in seconds',
+  })
+  await inField.fill('2')
+  await inField.blur()
+  await expect(inField).toHaveValue('0')
+  await expect(sequence.getByRole('listitem')).toContainText('plays 0.4s of')
 })

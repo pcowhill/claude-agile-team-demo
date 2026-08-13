@@ -61,6 +61,86 @@ describe('timeline', () => {
     expect(screen.getByRole('button', { name: 'Move a.mp4 at position 1 down' })).toBeDisabled()
   })
 
+  it('starts entries untrimmed, showing in/out and the effective duration', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim out point of a.mp4 at position 1 in seconds' }),
+    ).toHaveValue(30)
+    expect(screen.getByText('plays 30s of 30s')).toBeInTheDocument()
+  })
+
+  it('applies a trim: per-entry effective duration and the total both update', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const inField = screen.getByRole('spinbutton', {
+      name: 'Trim in point of a.mp4 at position 1 in seconds',
+    })
+    const outField = screen.getByRole('spinbutton', {
+      name: 'Trim out point of a.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(inField)
+    await userEvent.type(inField, '5')
+    await userEvent.tab()
+    await userEvent.clear(outField)
+    await userEvent.type(outField, '17')
+    await userEvent.tab()
+
+    expect(inField).toHaveValue(5)
+    expect(outField).toHaveValue(17)
+    expect(screen.getByText('plays 12s of 30s')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:12')
+  })
+
+  it('rejects an invalid trim range and snaps the field back', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const inField = screen.getByRole('spinbutton', {
+      name: 'Trim in point of a.mp4 at position 1 in seconds',
+    })
+    // In point at/after the out point (30) is impossible.
+    await userEvent.clear(inField)
+    await userEvent.type(inField, '45')
+    await userEvent.tab()
+
+    expect(inField).toHaveValue(0)
+    expect(screen.getByText('plays 30s of 30s')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:30')
+  })
+
+  it('trims one duplicate entry without affecting the other', async () => {
+    render(<App />)
+    await importClip('a.mp4', 20)
+    const addButton = screen.getByRole('button', { name: 'Add a.mp4 to timeline' })
+    await userEvent.click(addButton)
+    await userEvent.click(addButton)
+
+    const firstOut = screen.getByRole('spinbutton', {
+      name: 'Trim out point of a.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(firstOut)
+    await userEvent.type(firstOut, '4')
+    await userEvent.tab()
+
+    expect(firstOut).toHaveValue(4)
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim out point of a.mp4 at position 2 in seconds' }),
+    ).toHaveValue(20)
+    expect(screen.getByText('plays 4s of 20s')).toBeInTheDocument()
+    expect(screen.getByText('plays 20s of 20s')).toBeInTheDocument()
+    // 4s + 20s
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:24')
+  })
+
   it('removes an entry without touching the media library, updating the total', async () => {
     render(<App />)
     await importClip('a.mp4', 30)

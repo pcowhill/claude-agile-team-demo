@@ -105,6 +105,9 @@ function App() {
           timeline={timeline}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
           onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
+          onTrimEntry={(id, inPoint, outPoint) =>
+            dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
+          }
         />
       </main>
     </div>
