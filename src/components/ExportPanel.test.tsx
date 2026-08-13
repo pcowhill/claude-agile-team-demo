@@ -53,7 +53,8 @@ describe('ExportPanel', () => {
     }
     const user = userEvent.setup()
     render(<ExportPanel timeline={timeline} doExport={doExport} />)
-    expect(screen.getByText(/audio is not included yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/audio is not included/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/source audio is included/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Export video' }))
     expect(screen.getByRole('button', { name: 'Export video' })).toBeDisabled()

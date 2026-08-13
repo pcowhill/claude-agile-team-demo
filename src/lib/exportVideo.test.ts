@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { EXPORT_MIME_CANDIDATES, fitRect, pickExportMimeType } from './exportVideo'
+import {
+  createAudioCapture,
+  EXPORT_MIME_CANDIDATES,
+  EXPORT_MIME_CANDIDATES_WITH_AUDIO,
+  fitRect,
+  pickExportMimeType,
+} from './exportVideo'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -14,6 +20,118 @@ describe('pickExportMimeType', () => {
 
   it('returns null when nothing is supported', () => {
     expect(pickExportMimeType(() => false)).toBeNull()
+  })
+})
+
+describe('EXPORT_MIME_CANDIDATES_WITH_AUDIO', () => {
+  it('names an audio codec on every candidate that names a video codec', () => {
+    // A codecs= list that mentions only video makes browsers drop the audio
+    // track, which is exactly the bug this constant exists to avoid.
+    for (const type of EXPORT_MIME_CANDIDATES_WITH_AUDIO) {
+      if (type.includes('codecs=')) expect(type).toContain('opus')
+    }
+  })
+
+  it('keeps the video-only preference order (vp9 before vp8)', () => {
+    const videoCodecs = EXPORT_MIME_CANDIDATES_WITH_AUDIO.join(' ')
+    expect(videoCodecs.indexOf('vp9')).toBeLessThan(videoCodecs.indexOf('vp8'))
+  })
+})
+
+/** Minimal stand-in for the Web Audio graph, which jsdom does not implement. */
+function fakeAudioContext(state: AudioContextState = 'running') {
+  const track = { kind: 'audio', stopped: false, stop() { this.stopped = true } }
+  const streamDestination = { stream: { getAudioTracks: () => [track] } }
+  const connectedTo: unknown[] = []
+  const context = {
+    state,
+    closed: false,
+    resumeCount: 0,
+    /** The speakers. Connecting here would play the export out loud. */
+    destination: { name: 'speakers' },
+    createMediaElementSource: () => ({
+      connect: (target: unknown) => connectedTo.push(target),
+    }),
+    createMediaStreamDestination: () => streamDestination,
+    resume: async () => {
+      context.resumeCount++
+      context.state = 'running'
+    },
+    close: async () => {
+      context.closed = true
+    },
+  }
+  return { context, track, streamDestination, connectedTo }
+}
+
+const asAudioContext = (context: unknown) => context as AudioContext
+
+describe('createAudioCapture', () => {
+  it('feeds the element into a stream destination and returns its track', async () => {
+    const fake = fakeAudioContext()
+    const capture = await createAudioCapture(
+      document.createElement('video'),
+      () => asAudioContext(fake.context),
+    )
+    expect(capture?.track).toBe(fake.track)
+    expect(fake.connectedTo).toEqual([fake.streamDestination])
+  })
+
+  it('never connects the graph to the speakers', async () => {
+    // Otherwise exporting a 30 s sequence plays all 30 s out loud.
+    const fake = fakeAudioContext()
+    await createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context))
+    expect(fake.connectedTo).not.toContain(fake.context.destination)
+  })
+
+  it('resumes a suspended context, which would otherwise record silence', async () => {
+    const fake = fakeAudioContext('suspended')
+    const capture = await createAudioCapture(
+      document.createElement('video'),
+      () => asAudioContext(fake.context),
+    )
+    expect(fake.context.resumeCount).toBe(1)
+    expect(fake.context.state).toBe('running')
+    expect(capture).not.toBeNull()
+  })
+
+  it('disposing stops the track and closes the context', async () => {
+    const fake = fakeAudioContext()
+    const capture = await createAudioCapture(
+      document.createElement('video'),
+      () => asAudioContext(fake.context),
+    )
+    await capture?.dispose()
+    expect(fake.track.stopped).toBe(true)
+    expect(fake.context.closed).toBe(true)
+  })
+
+  it('falls back to null when Web Audio is unavailable', async () => {
+    // The caller reads null as "export video only" rather than as a failure.
+    await expect(
+      createAudioCapture(document.createElement('video'), () => null),
+    ).resolves.toBeNull()
+  })
+
+  it('falls back to null and closes the context when the element is refused', async () => {
+    // An element can be attached to only one MediaElementAudioSourceNode.
+    const fake = fakeAudioContext()
+    fake.context.createMediaElementSource = () => {
+      throw new Error('already connected')
+    }
+    await expect(
+      createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context)),
+    ).resolves.toBeNull()
+    expect(fake.context.closed).toBe(true)
+  })
+
+  it('falls back to null when the destination yields no audio track', async () => {
+    const fake = fakeAudioContext()
+    fake.context.createMediaStreamDestination = () => ({ stream: { getAudioTracks: () => [] } })
+    await expect(
+      createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context)),
+    ).resolves.toBeNull()
+    expect(fake.context.closed).toBe(true)
   })
 })
 

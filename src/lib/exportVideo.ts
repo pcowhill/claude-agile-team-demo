@@ -12,6 +12,17 @@ export const EXPORT_MIME_CANDIDATES: readonly string[] = [
   'video/webm',
 ]
 
+/**
+ * The same preference order for recordings that carry an audio track. Naming
+ * only a video codec makes some browsers drop the audio track, so the codec
+ * list has to spell out Opus — the only audio codec WebM carries in practice.
+ */
+export const EXPORT_MIME_CANDIDATES_WITH_AUDIO: readonly string[] = [
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm',
+]
+
 export const EXPORT_FRAME_RATE = 30
 
 /** Thrown when the browser lacks the APIs the export needs. */
@@ -66,6 +77,69 @@ export interface ExportOptions {
   frameRate?: number
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
+  /** Injectable for tests (jsdom has no Web Audio). */
+  createAudioContext?: () => AudioContext | null
+}
+
+/** An audio track to record, plus the teardown for the graph behind it. */
+export interface AudioCapture {
+  track: MediaStreamTrack
+  dispose: () => Promise<void>
+}
+
+function defaultAudioContext(): AudioContext | null {
+  return typeof AudioContext === 'undefined' ? null : new AudioContext()
+}
+
+/**
+ * Routes the replay element's audio into a MediaStream track that can be
+ * recorded alongside the canvas video.
+ *
+ * The graph is deliberately *not* connected to `context.destination`: taking
+ * the element's audio into Web Audio detaches it from the speakers, and
+ * leaving it that way is what keeps a 30-second export from playing the whole
+ * sequence out loud. A source without audio still yields a track — a silent
+ * one — so exports stay uniform whether or not the clips have sound.
+ *
+ * Returns null when Web Audio is unavailable or refuses the element, which
+ * the caller treats as "export video only" rather than as a failure.
+ */
+export async function createAudioCapture(
+  video: HTMLVideoElement,
+  createContext: () => AudioContext | null = defaultAudioContext,
+): Promise<AudioCapture | null> {
+  let context: AudioContext | null = null
+  try {
+    context = createContext()
+    if (context === null) return null
+    const source = context.createMediaElementSource(video)
+    const destination = context.createMediaStreamDestination()
+    source.connect(destination)
+    // Autoplay policy starts contexts suspended; a suspended context feeds
+    // the recorder nothing.
+    if (context.state === 'suspended') await context.resume()
+    const track = destination.stream.getAudioTracks()[0] ?? null
+    if (track === null) throw new Error('No audio track was produced.')
+    const owned = context
+    return {
+      track,
+      dispose: async () => {
+        track.stop()
+        try {
+          await owned.close()
+        } catch {
+          // A context that is already closed needs no teardown.
+        }
+      },
+    }
+  } catch {
+    try {
+      await context?.close()
+    } catch {
+      // Ignore: we are already on the video-only fallback path.
+    }
+    return null
+  }
 }
 
 /**
@@ -83,10 +157,13 @@ const FALLBACK_HEIGHT = 360
  * Exports the timeline — each entry from its in-point to its out-point, in
  * order — to a single WebM Blob.
  *
- * Approach: replay the sequence through an off-DOM muted <video>, draw each
- * frame onto a canvas, and record the canvas stream with MediaRecorder. This
- * re-encodes in real time (a ~30 s sequence takes ~30 s) but works entirely
- * client-side with broadly supported APIs. Audio is not captured.
+ * Approach: replay the sequence through an off-DOM <video>, draw each frame
+ * onto a canvas, and record the canvas stream with MediaRecorder. The
+ * element's audio is captured through Web Audio and recorded as a second
+ * track, so trims apply to sound and picture alike — both come from the same
+ * playback between the entry's in- and out-points. This re-encodes in real
+ * time (a ~30 s sequence takes ~30 s) but works entirely client-side with
+ * broadly supported APIs.
  */
 export async function exportTimeline(
   timeline: TimelineState,
@@ -99,16 +176,26 @@ export async function exportTimeline(
   if (typeof MediaRecorder === 'undefined') {
     throw new ExportUnsupportedError('This browser does not support recording video (MediaRecorder).')
   }
-  const mimeType = pickExportMimeType((type) => MediaRecorder.isTypeSupported(type))
-  if (mimeType === null) {
-    throw new ExportUnsupportedError('This browser cannot encode WebM video.')
-  }
 
   const { onProgress, signal, frameRate = EXPORT_FRAME_RATE } = options
   const video = (options.createVideo ?? (() => document.createElement('video')))()
-  video.muted = true
   video.playsInline = true
   video.preload = 'auto'
+
+  const audioCapture = await createAudioCapture(video, options.createAudioContext)
+  // Muting an element silences its Web Audio output too, so the replay can
+  // only stay muted when there is no audio to capture. Nothing reaches the
+  // speakers either way: createAudioCapture leaves the graph unconnected.
+  video.muted = audioCapture === null
+
+  const mimeType = pickExportMimeType(
+    (type) => MediaRecorder.isTypeSupported(type),
+    audioCapture === null ? EXPORT_MIME_CANDIDATES : EXPORT_MIME_CANDIDATES_WITH_AUDIO,
+  )
+  if (mimeType === null) {
+    await audioCapture?.dispose()
+    throw new ExportUnsupportedError('This browser cannot encode WebM video.')
+  }
 
   const canceled = () => new ExportCanceledError()
   const throwIfAborted = () => {
@@ -156,6 +243,12 @@ export async function exportTimeline(
     video.load()
   }
 
+  /** Tears down the replay element and the audio graph feeding the recorder. */
+  const releaseAll = async () => {
+    releaseVideo()
+    await audioCapture?.dispose()
+  }
+
   // Output frame size: the largest source dimensions in the sequence, so no
   // clip is downscaled; differently-sized clips are letterboxed into it.
   let width = 0
@@ -168,7 +261,7 @@ export async function exportTimeline(
       height = Math.max(height, video.videoHeight)
     }
   } catch (error) {
-    releaseVideo()
+    await releaseAll()
     throw error
   }
   if (width === 0 || height === 0) {
@@ -181,8 +274,23 @@ export async function exportTimeline(
   canvas.height = height
   const context = canvas.getContext('2d')
   if (context === null || typeof canvas.captureStream !== 'function') {
-    releaseVideo()
+    await releaseAll()
     throw new ExportUnsupportedError('This browser cannot capture canvas video.')
+  }
+
+  /**
+   * Autoplay policy can still refuse unmuted playback. Falling back to a
+   * muted replay costs the audio (the graph goes silent with the element) but
+   * keeps the export itself working.
+   */
+  const playReplay = async () => {
+    try {
+      await video.play()
+    } catch (error) {
+      if (video.muted) throw error
+      video.muted = true
+      await video.play()
+    }
   }
 
   const drawFrame = () => {
@@ -193,7 +301,17 @@ export async function exportTimeline(
   }
 
   const total = totalDuration(timeline)
-  const recorder = new MediaRecorder(canvas.captureStream(frameRate), { mimeType })
+  const stream = canvas.captureStream(frameRate)
+  if (audioCapture !== null) stream.addTrack(audioCapture.track)
+  let recorder: MediaRecorder
+  try {
+    recorder = new MediaRecorder(stream, { mimeType })
+  } catch (error) {
+    // A rejected track combination must not strand the audio context, which
+    // holds a rendering thread until it is closed.
+    await releaseAll()
+    throw error
+  }
   const chunks: Blob[] = []
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) chunks.push(event.data)
@@ -209,7 +327,7 @@ export async function exportTimeline(
       await cueEntry(entry)
       throwIfAborted()
       drawFrame()
-      await video.play()
+      await playReplay()
       // Draw every frame until the entry's out-point (or the source's actual
       // end, whichever comes first).
       await new Promise<void>((resolve, reject) => {
@@ -234,6 +352,8 @@ export async function exportTimeline(
     releaseVideo()
     recorder.stop()
     await stopped
+    // After the recorder has flushed, so the tail of the audio survives.
+    await audioCapture?.dispose()
   }
 
   onProgress?.(1)
