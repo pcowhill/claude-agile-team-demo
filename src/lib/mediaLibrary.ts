@@ -24,6 +24,7 @@ export const emptyLibrary: MediaLibraryState = { clips: [], failures: [] }
 
 export type MediaLibraryAction =
   | { type: 'clip-added'; clip: LibraryClip }
+  | { type: 'clip-removed'; id: string }
   | { type: 'import-failed'; failure: ImportFailure }
   | { type: 'failures-dismissed' }
 
@@ -34,6 +35,8 @@ export function mediaLibraryReducer(
   switch (action.type) {
     case 'clip-added':
       return { ...state, clips: [...state.clips, action.clip] }
+    case 'clip-removed':
+      return { ...state, clips: state.clips.filter((clip) => clip.id !== action.id) }
     case 'import-failed':
       return { ...state, failures: [...state.failures, action.failure] }
     case 'failures-dismissed':

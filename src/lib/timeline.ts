@@ -25,6 +25,7 @@ export const emptyTimeline: TimelineState = { entries: [] }
 export type TimelineAction =
   | { type: 'entry-added'; entry: TimelineEntry }
   | { type: 'entry-removed'; id: string }
+  | { type: 'entries-removed-for-clip'; clipId: string }
   | { type: 'entry-moved'; id: string; direction: 'up' | 'down' }
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
 
@@ -48,6 +49,12 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       return { entries: [...state.entries, action.entry] }
     case 'entry-removed':
       return { entries: state.entries.filter((entry) => entry.id !== action.id) }
+    case 'entries-removed-for-clip': {
+      const entries = state.entries.filter((entry) => entry.clipId !== action.clipId)
+      // Same reference when nothing matched: a library removal that touches
+      // no entries must not read as a timeline edit (which stops playback).
+      return entries.length === state.entries.length ? state : { entries }
+    }
     case 'entry-moved': {
       const from = state.entries.findIndex((entry) => entry.id === action.id)
       if (from === -1) return state

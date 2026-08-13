@@ -81,6 +81,29 @@ describe('timelineReducer', () => {
     expect(order(state)).toEqual(['a', 'c'])
   })
 
+  describe('entries-removed-for-clip', () => {
+    it('removes every entry created from the clip, leaving the rest in order', () => {
+      const source = clip({ id: 'lib-1' })
+      const other = clip({ id: 'lib-2', name: 'other.mp4' })
+      let state = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(source, 'a'),
+      })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(other, 'b') })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(source, 'c') })
+
+      const next = timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'lib-1' })
+      expect(order(next)).toEqual(['b'])
+    })
+
+    it('returns the same state when no entry uses the clip', () => {
+      const start = stateOf(['a'], ['b'])
+      expect(
+        timelineReducer(start, { type: 'entries-removed-for-clip', clipId: 'unused' }),
+      ).toBe(start)
+    })
+  })
+
   it('moves an entry up and down', () => {
     const start = stateOf(['a'], ['b'], ['c'])
     expect(order(timelineReducer(start, { type: 'entry-moved', id: 'c', direction: 'up' }))).toEqual(
