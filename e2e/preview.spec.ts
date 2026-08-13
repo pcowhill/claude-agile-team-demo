@@ -123,6 +123,46 @@ test('a trimmed 3-entry sequence (with a duplicated source) plays, pauses, and r
   expect(current).toBe(total)
 })
 
+test('preview video fills the panel and responds to viewport height (#39)', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto('./')
+
+  const webm = await recordWebm(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+
+  const video = page.getByTestId('preview-video')
+  await expect(video).toBeVisible()
+
+  // At desktop size the video grows past the old fixed 260px cap to use the
+  // panel's free height…
+  const tallBox = (await video.boundingBox())!
+  expect(tallBox.height).toBeGreaterThan(260)
+  // …without pushing the controls or now-playing line out of view, and
+  // without distorting the frame (the rendered box stays within the video's
+  // own letterboxed area only via object-fit, so the element itself may be
+  // any shape — what must hold is that everything stays visible).
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeInViewport()
+  await expect(page.getByTestId('preview-now-playing')).toBeInViewport()
+
+  // A shorter viewport means a shorter video: height tracks the panel, not a
+  // fixed pixel value.
+  await page.setViewportSize({ width: 1920, height: 700 })
+  await expect
+    .poll(async () => (await video.boundingBox())!.height)
+    .toBeLessThan(tallBox.height)
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeInViewport()
+
+  // Narrow single-column layout: the panel is content-sized; the controls
+  // and now-playing line stay visible without scrolling the panel.
+  await page.setViewportSize({ width: 600, height: 900 })
+  await expect(video).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeInViewport()
+  await expect(page.getByTestId('preview-now-playing')).toBeInViewport()
+})
+
 test('seeking jumps to the correct clip within the sequence', async ({ page }) => {
   await page.goto('./')
 

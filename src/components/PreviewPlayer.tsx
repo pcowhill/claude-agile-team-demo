@@ -135,7 +135,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   const location = locateInSequence(timeline, sequenceTime)
 
   return (
-    <section className="panel" aria-label="Preview">
+    <section className="panel preview-panel" aria-label="Preview">
       <h2>Preview</h2>
       {empty ? (
         <p className="placeholder">Add clips to the timeline to preview your edit.</p>
