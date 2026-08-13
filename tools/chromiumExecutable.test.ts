@@ -38,6 +38,30 @@ describe('resolveChromiumExecutable', () => {
     expect(resolveChromiumExecutable(environment([PINNED]))).toBeUndefined()
   })
 
+  it('defers to Playwright when only the pinned headless shell is installed', () => {
+    // `playwright install --only-shell chromium` is a documented CI setup, and
+    // Playwright launches from it happily. Throwing here refused a Chromium
+    // that was sitting right there (issue #27).
+    const shell =
+      '/opt/pw-browsers/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell'
+    expect(resolveChromiumExecutable(environment([shell]))).toBeUndefined()
+  })
+
+  it('recognizes either headless shell layout, since revisions disagree about it', () => {
+    // Older revisions ship chrome-linux/headless_shell instead.
+    const shell = '/opt/pw-browsers/chromium_headless_shell-1234/chrome-linux/headless_shell'
+    expect(resolveChromiumExecutable(environment([shell]))).toBeUndefined()
+  })
+
+  it('only defers to a headless shell matching the pinned revision', () => {
+    // A stale shell from an earlier browser bump says nothing about whether
+    // Playwright's current pin can launch, so it must not suppress the scan.
+    const stale =
+      '/opt/pw-browsers/chromium_headless_shell-1194/chrome-headless-shell-linux64/chrome-headless-shell'
+    const usable = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+    expect(resolveChromiumExecutable(environment([stale, usable]))).toBe(usable)
+  })
+
   it('falls back to another installed revision when the pinned one is missing', () => {
     const installed = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
     expect(resolveChromiumExecutable(environment([installed]))).toBe(installed)
@@ -65,8 +89,13 @@ describe('resolveChromiumExecutable', () => {
     expect(resolveChromiumExecutable(environment([partial, usable]))).toBe(usable)
   })
 
-  it('ignores directories that are not Chromium revisions', () => {
-    const shell = '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/chrome'
+  it('never hands back a shell binary from the fallback scan', () => {
+    // The scan supplies `executablePath`, which must be a full browser: a
+    // headless shell cannot serve a headed launch. A shell from a revision
+    // other than the pinned one is therefore no help at all — neither as a
+    // deferral (wrong revision) nor as a scan result (wrong kind of binary).
+    const shell =
+      '/opt/pw-browsers/chromium_headless_shell-1194/chrome-headless-shell-linux64/chrome-headless-shell'
     const ffmpeg = '/opt/pw-browsers/ffmpeg-1011/chrome-linux/chrome'
     expect(() => resolveChromiumExecutable(environment([shell, ffmpeg]))).toThrow(
       ChromiumNotFoundError,

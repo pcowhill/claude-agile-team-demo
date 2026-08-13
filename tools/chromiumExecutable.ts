@@ -12,9 +12,9 @@
  * Resolution order, first hit wins:
  *
  *   1. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH — an explicit override always wins.
- *   2. Playwright's own pinned revision, when it is actually installed. This
- *      is the CI case, and returning nothing there leaves Playwright's own
- *      selection alone (notably its headless-shell build).
+ *   2. Playwright's own pinned revision, when it is actually installed — as
+ *      either the full browser or the headless shell. This is the CI case, and
+ *      returning nothing there leaves Playwright's own selection alone.
  *   3. Any other Chromium revision already sitting in the browsers directory.
  *
  * When none of those yields a real binary this throws, because every remaining
@@ -22,7 +22,7 @@
  */
 
 import { readdirSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 /**
  * Layouts a downloaded Chromium uses, relative to its revision directory.
@@ -33,6 +33,16 @@ import { dirname, join } from 'node:path'
 const EXECUTABLE_LAYOUTS = [
   join('chrome-linux', 'chrome'),
   join('chrome-linux64', 'chrome'),
+] as const
+
+/**
+ * Layouts the headless shell uses, relative to its own revision directory.
+ * Like the browser layouts above, these differ across revisions — recent ones
+ * ship `chrome-headless-shell-linux64`, older ones `chrome-linux`.
+ */
+const SHELL_LAYOUTS = [
+  join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
+  join('chrome-linux', 'headless_shell'),
 ] as const
 
 /** Revision directories to consider, e.g. `chromium-1194`. */
@@ -63,6 +73,24 @@ export class ChromiumNotFoundError extends Error {}
  */
 function browsersDirectory(pinnedExecutable: string): string {
   return dirname(dirname(dirname(pinnedExecutable)))
+}
+
+/**
+ * Where the headless shell for the pinned revision would live. Playwright
+ * downloads it as a sibling of the browser — `chromium_headless_shell-1234`
+ * next to `chromium-1234` — and `chromium.executablePath()` never names it, so
+ * the path has to be derived from the pinned one.
+ *
+ * Returns nothing when the pinned path is not laid out as a revision directory,
+ * which is what an explicit override or an unfamiliar install looks like; the
+ * caller then falls through to the scan exactly as before.
+ */
+function pinnedShellExecutables(pinnedExecutable: string): string[] {
+  const revisionDirectory = dirname(dirname(pinnedExecutable))
+  const match = REVISION_DIRECTORY.exec(basename(revisionDirectory))
+  if (match === null) return []
+  const shellDirectory = join(dirname(revisionDirectory), `chromium_headless_shell-${match[1]}`)
+  return SHELL_LAYOUTS.map((layout) => join(shellDirectory, layout))
 }
 
 /**
@@ -114,6 +142,12 @@ export function resolveChromiumExecutable(environment: ChromiumEnvironment): str
   }
 
   if (isFile(pinnedExecutable)) return undefined
+
+  // A shell-only install (`playwright install --only-shell chromium`) is a
+  // documented CI setup, and Playwright launches happily from it. Defer rather
+  // than hand back some other revision's full browser — or, worse, throw while
+  // a perfectly usable Chromium sits on disk (see issue #27).
+  if (pinnedShellExecutables(pinnedExecutable).some(isFile)) return undefined
 
   const directory = browsersDirectory(pinnedExecutable)
   const fallback = installedExecutables(directory, environment)[0]
