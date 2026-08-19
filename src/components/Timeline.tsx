@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import type { TimelineState, TransitionSpec, TransitionType } from '../lib/timeline'
+import type { TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '../lib/timeline'
 import {
   DEFAULT_TRANSITION_DURATION,
+  DEFAULT_ZOOM,
   boundaryTransitions,
   effectiveDuration,
   totalDuration,
+  zoomForEntry,
 } from '../lib/timeline'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
@@ -17,7 +19,20 @@ interface TimelineProps {
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
   onSetTransition: (beforeId: string, afterId: string, transition: TransitionSpec) => void
   onRemoveTransition: (beforeId: string, afterId: string) => void
+  onSetZoom: (entryId: string, zoom: ZoomSpec) => void
+  onRemoveZoom: (entryId: string) => void
 }
+
+/** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
+const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: ZoomSpec): ZoomSpec => ({
+  start,
+  rampIn,
+  hold,
+  rampOut,
+  scale,
+  centerX,
+  centerY,
+})
 
 const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
   crossfade: 'Crossfade',
@@ -31,16 +46,19 @@ interface SecondsFieldProps {
   label: string
   value: number
   max: number
+  min?: number
+  step?: number
   onCommit: (value: number) => void
 }
 
 /**
- * Numeric seconds input (trim points, transition durations) that commits on
- * blur/Enter. The draft is local so the user can type freely; the committed
- * value is validated by the reducer, and the field snaps back to the last
- * valid state if the commit is rejected.
+ * Numeric input (trim points, transition durations, zoom parameters) that
+ * commits on blur/Enter. The draft is local so the user can type freely; the
+ * committed value is validated — and possibly clamped — by the reducer, and
+ * the field snaps back to (or shows) the stored state either way, so a
+ * clamp is visible rather than silent.
  */
-function SecondsField({ label, value, max, onCommit }: SecondsFieldProps) {
+function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: SecondsFieldProps) {
   const [draft, setDraft] = useState(() => formatSeconds(value))
 
   useEffect(() => {
@@ -63,8 +81,8 @@ function SecondsField({ label, value, max, onCommit }: SecondsFieldProps) {
     <input
       type="number"
       inputMode="decimal"
-      step={0.1}
-      min={0}
+      step={step}
+      min={min}
       max={max}
       aria-label={label}
       value={draft}
@@ -82,6 +100,8 @@ export function Timeline({
   onTrimEntry,
   onSetTransition,
   onRemoveTransition,
+  onSetZoom,
+  onRemoveZoom,
 }: TimelineProps) {
   const { entries } = timeline
   const transitions = boundaryTransitions(timeline)
@@ -156,6 +176,88 @@ export function Timeline({
                     {formatSeconds(entry.duration)}s
                   </span>
                 </div>
+                {(() => {
+                  const entryZoom = zoomForEntry(timeline, entry.id)
+                  if (entryZoom === undefined) {
+                    return (
+                      <div className="timeline-entry-zoom">
+                        <button
+                          type="button"
+                          className="timeline-zoom-add"
+                          aria-label={`Add zoom to ${position}`}
+                          onClick={() => onSetZoom(entry.id, DEFAULT_ZOOM)}
+                        >
+                          + Zoom
+                        </button>
+                      </div>
+                    )
+                  }
+                  const set = (change: Partial<ZoomSpec>) =>
+                    onSetZoom(entry.id, { ...zoomSpecOf(entryZoom), ...change })
+                  return (
+                    <div className="timeline-entry-zoom">
+                      <span>Zoom at</span>
+                      <SecondsField
+                        label={`Zoom start of ${position} in seconds`}
+                        value={entryZoom.start}
+                        max={effectiveDuration(entry)}
+                        onCommit={(start) => set({ start })}
+                      />
+                      <span>in</span>
+                      <SecondsField
+                        label={`Zoom ramp-in of ${position} in seconds`}
+                        value={entryZoom.rampIn}
+                        max={effectiveDuration(entry)}
+                        onCommit={(rampIn) => set({ rampIn })}
+                      />
+                      <span>hold</span>
+                      <SecondsField
+                        label={`Zoom hold of ${position} in seconds`}
+                        value={entryZoom.hold}
+                        max={effectiveDuration(entry)}
+                        onCommit={(hold) => set({ hold })}
+                      />
+                      <span>out</span>
+                      <SecondsField
+                        label={`Zoom ramp-out of ${position} in seconds`}
+                        value={entryZoom.rampOut}
+                        max={effectiveDuration(entry)}
+                        onCommit={(rampOut) => set({ rampOut })}
+                      />
+                      <span>×</span>
+                      <SecondsField
+                        label={`Zoom scale of ${position}`}
+                        value={entryZoom.scale}
+                        min={1}
+                        max={10}
+                        step={0.25}
+                        onCommit={(scale) => set({ scale })}
+                      />
+                      <span>centre</span>
+                      <SecondsField
+                        label={`Zoom centre X of ${position} (0 to 1)`}
+                        value={entryZoom.centerX}
+                        max={1}
+                        step={0.05}
+                        onCommit={(centerX) => set({ centerX })}
+                      />
+                      <SecondsField
+                        label={`Zoom centre Y of ${position} (0 to 1)`}
+                        value={entryZoom.centerY}
+                        max={1}
+                        step={0.05}
+                        onCommit={(centerY) => set({ centerY })}
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Remove zoom from ${position}`}
+                        onClick={() => onRemoveZoom(entry.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )
+                })()}
                 {index < entries.length - 1 &&
                   (() => {
                     const next = entries[index + 1]

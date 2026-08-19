@@ -38,6 +38,35 @@ export interface TimelineTransition extends TransitionSpec {
   afterId: string
 }
 
+/**
+ * A temporary zoom into part of the frame (#63). The window is phased —
+ * ramp in, hold, ramp out — and positioned by `start` seconds into the
+ * entry's *trimmed* range. Centre + scale (rather than a rectangle) keeps
+ * the zoomed region the frame's own aspect ratio by construction: the
+ * visible region is always the frame divided by `scale` on both axes.
+ */
+export interface ZoomSpec {
+  /** Seconds into the entry's trimmed range where the zoom-in begins. */
+  start: number
+  /** Seconds of zoom-in animation. */
+  rampIn: number
+  /** Seconds held at full zoom. */
+  hold: number
+  /** Seconds of zoom-out animation. */
+  rampOut: number
+  /** Magnification at full zoom. Always > 1; the reducer rejects less. */
+  scale: number
+  /** Centre of the zoomed region, as a fraction of frame width (0..1). */
+  centerX: number
+  /** Centre of the zoomed region, as a fraction of frame height (0..1). */
+  centerY: number
+}
+
+/** A zoom owned by one timeline entry, like a transition is owned by a pair. */
+export interface ZoomEffect extends ZoomSpec {
+  entryId: string
+}
+
 export interface TimelineState {
   entries: TimelineEntry[]
   /**
@@ -46,11 +75,32 @@ export interface TimelineState {
    * a missing or empty list means every boundary is a hard cut.
    */
   transitions?: TimelineTransition[]
+  /**
+   * Zooms on entries, at most one per entry (#63 — several per clip would be
+   * a follow-up if the customer wants it). Optional for the same reason
+   * `transitions` is; a missing or empty list means nothing zooms.
+   */
+  zooms?: ZoomEffect[]
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
 
 export const DEFAULT_TRANSITION_DURATION = 1
+
+/**
+ * What the "+ Zoom" control adds: a 2× zoom into the frame centre at the
+ * start of the entry, with gentle ramps. The reducer clamps the window to
+ * the entry's trimmed duration, so this is safe on any entry.
+ */
+export const DEFAULT_ZOOM: ZoomSpec = {
+  start: 0,
+  rampIn: 0.5,
+  hold: 1,
+  rampOut: 0.5,
+  scale: 2,
+  centerX: 0.5,
+  centerY: 0.5,
+}
 
 export type TimelineAction =
   | { type: 'entry-added'; entry: TimelineEntry }
@@ -60,6 +110,8 @@ export type TimelineAction =
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'transition-set'; beforeId: string; afterId: string; transition: TransitionSpec }
   | { type: 'transition-removed'; beforeId: string; afterId: string }
+  | { type: 'zoom-set'; entryId: string; zoom: ZoomSpec }
+  | { type: 'zoom-removed'; entryId: string }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
   return {
@@ -78,6 +130,16 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 /** The state's transitions, tolerating pre-transition states. */
 export function transitionsOf(state: TimelineState): TimelineTransition[] {
   return state.transitions ?? []
+}
+
+/** The state's zooms, tolerating pre-zoom states. */
+export function zoomsOf(state: TimelineState): ZoomEffect[] {
+  return state.zooms ?? []
+}
+
+/** The entry's zoom, if it has one. States are normalized to at most one. */
+export function zoomForEntry(state: TimelineState, entryId: string): ZoomEffect | undefined {
+  return zoomsOf(state).find((zoom) => zoom.entryId === entryId)
 }
 
 /**
@@ -137,30 +199,95 @@ export function boundaryTransitions(state: TimelineState): (TimelineTransition |
   return normalizedBoundaries(state.entries, transitionsOf(state))
 }
 
-function withTransitions(entries: TimelineEntry[], transitions: TimelineTransition[]): TimelineState {
+/**
+ * Clamps one zoom against its entry's trimmed duration and the frame:
+ *
+ * - the window never exceeds the trimmed duration — `start` first, then
+ *   `rampIn`, `hold`, `rampOut` absorb the shortfall in that order, so
+ *   retrimming re-clamps a zoom rather than dropping it;
+ * - the zoomed region stays inside the frame: at `scale`, the region extends
+ *   1 / (2·scale) from its centre on each axis, so the centre is clamped to
+ *   [1 / (2·scale), 1 − 1 / (2·scale)].
+ *
+ * Returns the same object when nothing changes, so no-op edits are cheap to
+ * detect.
+ */
+function clampZoom(zoom: ZoomEffect, entryDuration: number): ZoomEffect {
+  const start = clamp(zoom.start, 0, entryDuration)
+  const rampIn = clamp(zoom.rampIn, 0, entryDuration - start)
+  const hold = clamp(zoom.hold, 0, entryDuration - start - rampIn)
+  const rampOut = clamp(zoom.rampOut, 0, entryDuration - start - rampIn - hold)
+  const halfExtent = 1 / (2 * zoom.scale)
+  const centerX = clamp(zoom.centerX, halfExtent, 1 - halfExtent)
+  const centerY = clamp(zoom.centerY, halfExtent, 1 - halfExtent)
+  const next = { ...zoom, start, rampIn, hold, rampOut, centerX, centerY }
+  return zoomsEqual(zoom, next) ? zoom : next
+}
+
+function zoomsEqual(a: ZoomEffect, b: ZoomEffect): boolean {
+  return (
+    a.entryId === b.entryId &&
+    a.start === b.start &&
+    a.rampIn === b.rampIn &&
+    a.hold === b.hold &&
+    a.rampOut === b.rampOut &&
+    a.scale === b.scale &&
+    a.centerX === b.centerX &&
+    a.centerY === b.centerY
+  )
+}
+
+/**
+ * Restores the zoom invariants against a (possibly just edited) entry list:
+ * a zoom survives only while its entry exists, at most one zoom per entry
+ * (the latest wins), and each is clamped per `clampZoom`. Results follow
+ * entry order so states compare deterministically.
+ */
+function normalizedZooms(entries: TimelineEntry[], zooms: ZoomEffect[]): ZoomEffect[] {
+  const byEntry = new Map<string, ZoomEffect>()
+  const durations = new Map(entries.map((entry) => [entry.id, effectiveDuration(entry)]))
+  for (const zoom of zooms) {
+    const duration = durations.get(zoom.entryId)
+    if (duration !== undefined) byEntry.set(zoom.entryId, clampZoom(zoom, duration))
+  }
+  return entries
+    .filter((entry) => byEntry.has(entry.id))
+    .map((entry) => byEntry.get(entry.id) as ZoomEffect)
+}
+
+function withEffects(
+  entries: TimelineEntry[],
+  transitions: TimelineTransition[],
+  zooms: ZoomEffect[],
+): TimelineState {
   return {
     entries,
     transitions: normalizedBoundaries(entries, transitions).filter(
       (transition): transition is TimelineTransition => transition !== undefined,
     ),
+    zooms: normalizedZooms(entries, zooms),
   }
 }
 
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
   const transitions = transitionsOf(state)
+  const zooms = zoomsOf(state)
   switch (action.type) {
     case 'entry-added':
-      return withTransitions([...state.entries, action.entry], transitions)
+      return withEffects([...state.entries, action.entry], transitions, zooms)
     case 'entry-removed':
-      return withTransitions(
+      return withEffects(
         state.entries.filter((entry) => entry.id !== action.id),
         transitions,
+        zooms,
       )
     case 'entries-removed-for-clip': {
       const entries = state.entries.filter((entry) => entry.clipId !== action.clipId)
       // Same reference when nothing matched: a library removal that touches
       // no entries must not read as a timeline edit (which stops playback).
-      return entries.length === state.entries.length ? state : withTransitions(entries, transitions)
+      return entries.length === state.entries.length
+        ? state
+        : withEffects(entries, transitions, zooms)
     }
     case 'entry-moved': {
       const from = state.entries.findIndex((entry) => entry.id === action.id)
@@ -169,7 +296,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (to < 0 || to >= state.entries.length) return state
       const entries = [...state.entries]
       ;[entries[from], entries[to]] = [entries[to], entries[from]]
-      return withTransitions(entries, transitions)
+      return withEffects(entries, transitions, zooms)
     }
     case 'entry-trimmed': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -183,7 +310,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === entry.inPoint && outPoint === entry.outPoint) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, inPoint, outPoint }
-      return withTransitions(entries, transitions)
+      return withEffects(entries, transitions, zooms)
     }
     case 'transition-set': {
       const before = state.entries.findIndex((entry) => entry.id === action.beforeId)
@@ -197,13 +324,17 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         afterId: action.afterId,
         ...action.transition,
       }
-      const next = withTransitions(state.entries, [
-        ...transitions.filter(
-          (transition) =>
-            transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
-        ),
-        candidate,
-      ])
+      const next = withEffects(
+        state.entries,
+        [
+          ...transitions.filter(
+            (transition) =>
+              transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
+          ),
+          candidate,
+        ],
+        zooms,
+      )
       const applied = next.transitions?.find((transition) => transition.beforeId === action.beforeId)
       // Normalization can veto the whole transition (no room at this
       // boundary) or clamp it back to what is already there — both no-ops.
@@ -221,7 +352,40 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
           transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
       )
       if (remaining.length === transitions.length) return state
-      return withTransitions(state.entries, remaining)
+      return withEffects(state.entries, remaining, zooms)
+    }
+    case 'zoom-set': {
+      if (!state.entries.some((entry) => entry.id === action.entryId)) return state
+      const zoom = action.zoom
+      const values = [
+        zoom.start,
+        zoom.rampIn,
+        zoom.hold,
+        zoom.rampOut,
+        zoom.scale,
+        zoom.centerX,
+        zoom.centerY,
+      ]
+      if (values.some((value) => !Number.isFinite(value))) return state
+      // A magnification of 1 or less is not a zoom at all — reject rather
+      // than clamp, mirroring the zero-duration transition rule above.
+      if (zoom.scale <= 1) return state
+      const next = withEffects(state.entries, transitions, [
+        ...zooms.filter((existing) => existing.entryId !== action.entryId),
+        { entryId: action.entryId, ...zoom },
+      ])
+      const applied = next.zooms?.find((existing) => existing.entryId === action.entryId)
+      if (applied === undefined) return state
+      const existing = zooms.find((existing) => existing.entryId === action.entryId)
+      // Normalization can clamp the edit back to what is already stored — a
+      // no-op must keep the state reference (edits stop preview playback).
+      if (existing !== undefined && zoomsEqual(existing, applied)) return state
+      return next
+    }
+    case 'zoom-removed': {
+      const remaining = zooms.filter((zoom) => zoom.entryId !== action.entryId)
+      if (remaining.length === zooms.length) return state
+      return withEffects(state.entries, transitions, remaining)
     }
   }
 }

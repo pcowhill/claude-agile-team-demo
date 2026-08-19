@@ -128,6 +128,8 @@ function App() {
           onRemoveTransition={(beforeId, afterId) =>
             dispatchTimeline({ type: 'transition-removed', beforeId, afterId })
           }
+          onSetZoom={(entryId, zoom) => dispatchTimeline({ type: 'zoom-set', entryId, zoom })}
+          onRemoveZoom={(entryId) => dispatchTimeline({ type: 'zoom-removed', entryId })}
         />
         <ExportPanel timeline={timeline} />
       </main>
