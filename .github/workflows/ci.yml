@@ -79,10 +79,20 @@ jobs:
         continue-on-error: true
         run: npx playwright install-deps chromium
 
+      # A step timeout kills only the step's leader process: a timed-out
+      # first attempt leaves its apt-get orphaned and still holding the apt
+      # lock, which made this retry fail in seconds when it first fired
+      # (#89). Clear the holders and repair dpkg state before reinstalling.
+      # 6 minutes rather than 4 because the observed hang burns ~2¼ minutes
+      # waiting out a dead mirror before apt falls back and makes progress.
       - name: Install Playwright system dependencies (retry)
         if: steps.install-system-deps.outcome != 'success'
-        timeout-minutes: 4
-        run: npx playwright install-deps chromium
+        timeout-minutes: 6
+        run: |
+          sudo pkill -9 -x apt-get || true
+          sudo pkill -9 -x apt || true
+          sudo dpkg --configure -a
+          npx playwright install-deps chromium
 
       - name: Install Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
