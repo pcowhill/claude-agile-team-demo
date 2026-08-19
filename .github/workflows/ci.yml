@@ -66,8 +66,22 @@ jobs:
 
       # Split from the browser download so a hang is attributable to one
       # half or the other; apt is quick since ubuntu-latest already carries
-      # most of Playwright's system dependencies.
+      # most of Playwright's system dependencies. Quick when it works, that
+      # is: the underlying apt fetch has intermittently hung until the
+      # 20-minute job timeout (#85), so the step is bounded to minutes and
+      # retried once instead of letting the job timeout absorb the hang.
+      # continue-on-error keeps a first-attempt hang (which surfaces as a
+      # failed/cancelled step outcome) from failing the job before the
+      # retry runs; the retry's outcome is the one that counts.
       - name: Install Playwright system dependencies
+        id: install-system-deps
+        timeout-minutes: 4
+        continue-on-error: true
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright system dependencies (retry)
+        if: steps.install-system-deps.outcome != 'success'
+        timeout-minutes: 4
         run: npx playwright install-deps chromium
 
       - name: Install Playwright browser
