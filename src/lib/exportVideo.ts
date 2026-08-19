@@ -2,6 +2,8 @@ import type { TimelineEntry, TimelineState, TransitionType } from './timeline'
 import { boundaryTransitions, totalDuration } from './timeline'
 import { sequenceTimeAt } from './playback'
 import { transitionLayerSpec } from './transitionRender'
+import { zoomAt } from './zoom'
+import type { ZoomState } from './zoom'
 
 /**
  * Recorder MIME types in preference order. WebM is the only container
@@ -68,6 +70,33 @@ export function fitRect(
   const width = sourceWidth * scale
   const height = sourceHeight * scale
   return { x: (targetWidth - width) / 2, y: (targetHeight - height) / 2, width, height }
+}
+
+/**
+ * Maps a frame-space rectangle through a zoom (#65): scale about the zoom's
+ * centre so that the visible region — the frame divided by `scale`, centred
+ * on (`centerX`, `centerY`) — lands exactly on the frame edges. Formally each
+ * frame fraction p maps to 0.5 + scale·(p − centre) per axis: the same
+ * mapping the preview's CSS transform applies (#64), with all easing already
+ * baked into the ZoomState by zoomAt (#63). One uniform scale multiplies
+ * both axes, so the rectangle's aspect ratio is preserved by construction,
+ * and because the reducer clamps the centre to keep the region inside the
+ * frame, mapping the full frame always covers the full frame — nothing
+ * beyond a frame edge is ever pulled into view.
+ */
+export function zoomRect(
+  rect: FitRect,
+  zoom: ZoomState,
+  frameWidth: number,
+  frameHeight: number,
+): FitRect {
+  const { scale, centerX, centerY } = zoom
+  return {
+    x: frameWidth / 2 + scale * (rect.x - centerX * frameWidth),
+    y: frameHeight / 2 + scale * (rect.y - centerY * frameHeight),
+    width: rect.width * scale,
+    height: rect.height * scale,
+  }
 }
 
 export interface ExportOptions {
@@ -321,23 +350,55 @@ export async function exportTimeline(
   /** The incoming clip's frame to composite over the outgoing one, if any. */
   interface OverlayFrame {
     element: HTMLVideoElement
+    /** Timeline index of the incoming entry (owns any zoom on this layer). */
+    index: number
     type: TransitionType
     progress: number
   }
 
-  const drawFrame = (source: HTMLVideoElement, overlay: OverlayFrame | null = null) => {
+  const drawFrame = (
+    source: HTMLVideoElement,
+    entryIndex: number,
+    overlay: OverlayFrame | null = null,
+  ) => {
     context.fillStyle = '#000'
     context.fillRect(0, 0, width, height)
     const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
     const rect = fitRect(source.videoWidth, source.videoHeight, width, height)
+    // Each layer's zoom (#65) at its own source time: applied per element,
+    // before the transition compositing, so a zoomed clip can be either side
+    // of a transition. The identity zoom leaves the fitted rect untouched —
+    // a zoomless timeline draws exactly as before.
+    const zoom = zoomAt(timeline, entryIndex, source.currentTime)
+    const dest = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
     context.globalAlpha = spec?.outgoingAlpha ?? 1
-    context.drawImage(source, rect.x, rect.y, rect.width, rect.height)
+    context.drawImage(source, dest.x, dest.y, dest.width, dest.height)
     if (overlay !== null && spec !== null) {
       const incoming = fitRect(overlay.element.videoWidth, overlay.element.videoHeight, width, height)
+      const incomingZoom = zoomAt(timeline, overlay.index, overlay.element.currentTime)
+      const incomingDest =
+        incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
       context.globalAlpha = spec.incomingAlpha
       // `lighter` sums the two layers, making the crossfade a true dissolve
       // over the black stage (see transitionLayerSpec).
       context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
+      // A zoomed rect reaches beyond the frame; on a backed card that spill
+      // must not cover the outgoing clip outside the card's own slice of the
+      // frame, so clip to the card region — the same region the preview cuts
+      // with clip-path (#64). Unbacked (crossfade) layers spill only past the
+      // canvas edges, which clip by themselves.
+      const clipToCard = incomingZoom.scale !== 1 && spec.incomingBacking
+      if (clipToCard) {
+        context.save()
+        context.beginPath()
+        context.rect(
+          spec.incomingOffsetXFraction * width,
+          spec.incomingOffsetYFraction * height,
+          width,
+          height,
+        )
+        context.clip()
+      }
       if (spec.incomingBacking) {
         // The incoming layer is a full-frame card (#74): black backing the
         // size of the whole frame, moving with the clip fitted inside it.
@@ -351,11 +412,12 @@ export async function exportTimeline(
       }
       context.drawImage(
         overlay.element,
-        incoming.x + spec.incomingOffsetXFraction * width,
-        incoming.y + spec.incomingOffsetYFraction * height,
-        incoming.width,
-        incoming.height,
+        incomingDest.x + spec.incomingOffsetXFraction * width,
+        incomingDest.y + spec.incomingOffsetYFraction * height,
+        incomingDest.width,
+        incomingDest.height,
       )
+      if (clipToCard) context.restore()
       context.globalCompositeOperation = 'source-over'
     }
     context.globalAlpha = 1
@@ -430,7 +492,7 @@ export async function exportTimeline(
       if (!continuing) {
         await cueTo(primary, entry.url, entry.inPoint)
         throwIfAborted()
-        drawFrame(primary)
+        drawFrame(primary, index)
         await playReplay(primary)
       }
       // Preload the incoming clip's metadata while the outgoing entry plays,
@@ -468,10 +530,10 @@ export async function exportTimeline(
               const progress = Math.min((primary.currentTime - overlapStart) / overlap.duration, 1)
               primary.volume = 1 - progress
               secondary.volume = progress
-              overlayFrame = { element: secondary, type: overlap.type, progress }
+              overlayFrame = { element: secondary, index: index + 1, type: overlap.type, progress }
             }
           }
-          drawFrame(primary, overlayFrame)
+          drawFrame(primary, index, overlayFrame)
           reportProgress(sequenceTimeAt(timeline, index, primary.currentTime) / total)
           if (primary.currentTime >= entry.outPoint - OUT_POINT_EPSILON || primary.ended) {
             resolve()
