@@ -16,12 +16,20 @@ export interface TimelineEntry {
   outPoint: number
 }
 
-export type TransitionType =
-  | 'crossfade'
-  | 'slide-from-above'
-  | 'slide-from-below'
-  | 'slide-from-left'
-  | 'slide-from-right'
+/**
+ * Every transition the timeline can carry, as a runtime list so other layers
+ * (UI selects, serialization validation — #75) derive their set from this
+ * single source of truth instead of enumerating privately.
+ */
+export const TRANSITION_TYPES = [
+  'crossfade',
+  'slide-from-above',
+  'slide-from-below',
+  'slide-from-left',
+  'slide-from-right',
+] as const
+
+export type TransitionType = (typeof TRANSITION_TYPES)[number]
 
 export interface TransitionSpec {
   type: TransitionType
