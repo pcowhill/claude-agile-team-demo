@@ -13,7 +13,9 @@ detectable:
 1. **Immediately before claiming**, re-fetch the issue's comments and the
    repository's open PRs. If another session has already claimed the issue
    (a claim comment, or an open PR referencing it), do not start — pick
-   other work.
+   other work. Count the open implementation PRs in the same check: they are
+   what the WIP limit caps, and other sessions may have opened one since you
+   last looked.
 2. **In that same check, look for your branch on `origin`.** Harness-assigned
    branch names are not unique across sessions, so the branch you are about
    to push may already carry another session's in-flight work.
@@ -42,6 +44,13 @@ detectable:
   `claude/issue-42-clip-trim`). Sessions given a pre-assigned branch name by
   their harness use that name instead — after the origin check in "Starting
   implementation" above, because assigned names repeat across sessions.
+- **One branch per PR.** A session implementing more than one issue (see the
+  WIP limit in `operating-model.md`) uses its harness-assigned name for at
+  most one of them and `claude/issue-<number>-<short-slug>` for the rest.
+  Never stack two issues on one branch: the second issue's commits would land
+  on the first issue's open PR, invalidating review evidence already recorded
+  against it. Branch each one from `main`, not from the previous branch, so
+  the PRs stay independently reviewable and mergeable in any order.
 - Never force-push a branch this session did not create.
 - Small, coherent commits with clear messages describing why, not just what.
 

@@ -35,8 +35,8 @@ itself and acts:
 8. Choose the highest-priority useful action per
    `docs/rules/operating-model.md`.
 9. Do as much useful work as appropriate, respecting handoff rules.
-10. Stop when no actionable work remains or a required independent handoff
-    is reached.
+10. Stop when no actionable work remains, or when the handoff and
+    work-in-progress rules leave nothing further this session may do.
 
 **An idle backlog is an acceptable state. Never invent work to stay busy.**
 
@@ -50,8 +50,10 @@ itself and acts:
   authoring session must not arrange to resume itself — no scheduled
   self-check-ins, cron or `/loop` continuations, PR auto-fix automation, or
   PR-activity subscriptions (see `docs/rules/operating-model.md`).
-- **One implementation PR at a time.** Do not start unrelated implementation
-  while an implementation PR is open and awaiting review or fixes.
+- **Bounded parallel work.** At most three implementation PRs are open at a
+  time, and a session authors at most three. A session may only work on
+  several in parallel when the issues are genuinely independent of one another
+  (see `docs/rules/operating-model.md`); dependent work is serialized.
 - **AI product ideas are not scope.** An idea labeled `ai-generated` may only
   become implementable work after the customer applies `customer-approved`.
 - **Customer speaks informally.** Product management translates
