@@ -1,0 +1,20 @@
+.project-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.project-dirty {
+  margin-left: 0.4rem;
+  color: #ffb454;
+}
+
+.project-save-status {
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.project-save-error {
+  color: #ff7b72;
+  font-size: 0.85rem;
+}
