@@ -1,6 +1,7 @@
 import type { TimelineEntry, TimelineState, TransitionType } from './timeline'
 import { boundaryTransitions, totalDuration } from './timeline'
 import { sequenceTimeAt } from './playback'
+import { transitionLayerSpec } from './transitionRender'
 
 /**
  * Recorder MIME types in preference order. WebM is the only container
@@ -41,26 +42,6 @@ export function pickExportMimeType(
   candidates: readonly string[] = EXPORT_MIME_CANDIDATES,
 ): string | null {
   return candidates.find((type) => isSupported(type)) ?? null
-}
-
-/**
- * How to draw the incoming clip's frame over the outgoing one during a
- * transition overlap. Mirrors the preview's per-frame styling
- * (`transitionOverlayStyle` in PreviewPlayer) so the exported file shows the
- * same effect the preview showed: opacity for a crossfade, a vertical
- * translation for slide-from-above.
- */
-export interface OverlayDrawSpec {
-  /** Global alpha for the incoming frame. */
-  alpha: number
-  /** Vertical offset of the incoming frame, as a fraction of frame height. */
-  offsetYFraction: number
-}
-
-export function transitionOverlayDraw(type: TransitionType, progress: number): OverlayDrawSpec {
-  return type === 'crossfade'
-    ? { alpha: progress, offsetYFraction: 0 }
-    : { alpha: 1, offsetYFraction: progress - 1 }
 }
 
 export interface FitRect {
@@ -347,21 +328,26 @@ export async function exportTimeline(
   const drawFrame = (source: HTMLVideoElement, overlay: OverlayFrame | null = null) => {
     context.fillStyle = '#000'
     context.fillRect(0, 0, width, height)
+    const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
     const rect = fitRect(source.videoWidth, source.videoHeight, width, height)
+    context.globalAlpha = spec?.outgoingAlpha ?? 1
     context.drawImage(source, rect.x, rect.y, rect.width, rect.height)
-    if (overlay !== null) {
-      const spec = transitionOverlayDraw(overlay.type, overlay.progress)
+    if (overlay !== null && spec !== null) {
       const incoming = fitRect(overlay.element.videoWidth, overlay.element.videoHeight, width, height)
-      context.globalAlpha = spec.alpha
+      context.globalAlpha = spec.incomingAlpha
+      // `lighter` sums the two layers, making the crossfade a true dissolve
+      // over the black stage (see transitionLayerSpec).
+      context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
       context.drawImage(
         overlay.element,
         incoming.x,
-        incoming.y + spec.offsetYFraction * height,
+        incoming.y + spec.incomingOffsetYFraction * height,
         incoming.width,
         incoming.height,
       )
-      context.globalAlpha = 1
+      context.globalCompositeOperation = 'source-over'
     }
+    context.globalAlpha = 1
   }
 
   /**
