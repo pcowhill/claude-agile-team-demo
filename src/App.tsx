@@ -3,14 +3,22 @@ import type { DragEvent } from 'react'
 import { ExportPanel } from './components/ExportPanel'
 import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
+import { ProjectControls } from './components/ProjectControls'
 import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import { emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
 import { probeVideoFile } from './lib/probeVideo'
+import type { SavePort } from './lib/saveProject'
 import './App.css'
 
-function App() {
+interface AppProps {
+  /** Injectable for tests (jsdom can probe no real video and show no picker). */
+  probeVideo?: typeof probeVideoFile
+  savePort?: SavePort
+}
+
+function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, emptyTimeline)
   const [isDragTarget, setIsDragTarget] = useState(false)
@@ -18,11 +26,21 @@ function App() {
   // outermost balance matters.
   const dragDepth = useRef(0)
 
+  // What the last save wrote (or the startup state). The project is dirty
+  // exactly when the saveable state has moved past it — reference equality
+  // suffices because both reducers return the same reference for no-op
+  // actions, and `failures` (transient, never saved) lives outside `clips`.
+  const [savedState, setSavedState] = useState<{
+    clips: LibraryClip[]
+    timeline: typeof timeline
+  }>({ clips: emptyLibrary.clips, timeline: emptyTimeline })
+  const dirty = library.clips !== savedState.clips || timeline !== savedState.timeline
+
   const importFiles = useCallback(async (files: File[]) => {
     // Sequential so clips appear in the order the user picked them.
     for (const file of files) {
       try {
-        const { duration, url } = await probeVideoFile(file)
+        const { duration, url } = await probeVideo(file)
         dispatch({
           type: 'clip-added',
           clip: { id: crypto.randomUUID(), name: file.name, duration, url },
@@ -38,7 +56,7 @@ function App() {
         })
       }
     }
-  }, [])
+  }, [probeVideo])
 
   const handleImportFiles = useCallback(
     (files: File[]) => {
@@ -102,8 +120,17 @@ function App() {
       onDrop={handleDrop}
     >
       <header className="app-header">
-        <h1>Browser Video Editor</h1>
-        <p className="tagline">Import, arrange, trim, preview, export — all in your browser.</p>
+        <div>
+          <h1>Browser Video Editor</h1>
+          <p className="tagline">Import, arrange, trim, preview, export — all in your browser.</p>
+        </div>
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={dirty}
+          onSaved={setSavedState}
+          port={savePort}
+        />
       </header>
       <main className="app-main">
         <MediaLibrary
