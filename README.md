@@ -6,8 +6,12 @@ An experiment in **repository-driven autonomous software development**.
 
 The customer asked for a simple video editor that runs entirely in the
 browser (#3): import clips, arrange and trim them on a timeline, preview the
-result, and export a video file. It is deployed automatically from `main` to
-GitHub Pages: **https://pcowhill.github.io/claude-agile-team-demo/**
+result, and export a video file. Projects can be saved to a small `.bvep`
+file and reopened later (#71): the file stores edits and clip metadata, not
+the media itself, so opening asks you to re-select the original video files
+and matches them back up by filename and duration. It is deployed
+automatically from `main` to GitHub Pages:
+**https://pcowhill.github.io/claude-agile-team-demo/**
 
 Stack: Vite + TypeScript + React, tested with Vitest and React Testing
 Library, linted with oxlint — see

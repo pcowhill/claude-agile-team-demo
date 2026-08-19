@@ -6,6 +6,7 @@ import {
   effectiveDuration,
   emptyTimeline,
   entryFromClip,
+  normalizedTimelineState,
   timelineReducer,
   totalDuration,
   transitionsOf,
@@ -499,5 +500,52 @@ describe('zooms across entry edits', () => {
     expect(zoomsOf(state)).toEqual([])
     expect(zoomForEntry(state, 'a')).toBeUndefined()
     expect(totalDuration(state)).toBe(10)
+  })
+})
+
+describe('timeline-replaced (#77)', () => {
+  it('stores the given state by reference, so the dirty baseline can match it', () => {
+    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1' }
+    const replacement: TimelineState = {
+      entries: [entryFromClip(clip, 'e1')],
+      transitions: [],
+      zooms: [],
+    }
+    const populated = timelineReducer(emptyTimeline, {
+      type: 'entry-added',
+      entry: entryFromClip(clip, 'other'),
+    })
+    expect(timelineReducer(populated, { type: 'timeline-replaced', timeline: replacement })).toBe(
+      replacement,
+    )
+  })
+})
+
+describe('normalizedTimelineState (#77)', () => {
+  it('applies the reducer invariants to externally built state', () => {
+    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1' }
+    const first = entryFromClip(clip, 'e1')
+    const second = entryFromClip(clip, 'e2')
+    const state = normalizedTimelineState(
+      [first, second],
+      [
+        // Valid boundary, but longer than either neighbor allows → clamped.
+        { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 99 },
+        // Not an adjacent ordered pair → dropped.
+        { beforeId: 'e2', afterId: 'e1', type: 'crossfade', duration: 1 },
+      ],
+      [
+        // Window longer than the entry → clamped to fit.
+        { entryId: 'e1', start: 0, rampIn: 4, hold: 4, rampOut: 4, scale: 2, centerX: 0.5, centerY: 0.5 },
+        // Unknown entry → dropped.
+        { entryId: 'gone', start: 0, rampIn: 1, hold: 1, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 },
+      ],
+    )
+    expect(state.transitions).toEqual([
+      { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 5 },
+    ])
+    expect(state.zooms).toEqual([
+      expect.objectContaining({ entryId: 'e1', start: 0, rampIn: 4, hold: 1, rampOut: 0 }),
+    ])
   })
 })

@@ -164,3 +164,273 @@ describe('the keyboard shortcut', () => {
     expect(pickDestination).not.toHaveBeenCalled()
   })
 })
+
+describe('New Project and Open Project (#77)', () => {
+  /** Gzips a JSON document into project-file-shaped bytes. */
+  async function gzipJson(document: unknown): Promise<Uint8Array<ArrayBuffer>> {
+    const stream = new CompressionStream('gzip')
+    const writer = stream.writable.getWriter()
+    void writer.write(new TextEncoder().encode(JSON.stringify(document)))
+    void writer.close()
+    const chunks: Uint8Array[] = []
+    const reader = stream.readable.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+    const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0))
+    let offset = 0
+    for (const chunk of chunks) {
+      out.set(chunk, offset)
+      offset += chunk.length
+    }
+    return out
+  }
+
+  const uploadProjectFile = async (
+    user: ReturnType<typeof userEvent.setup>,
+    bytes: Uint8Array,
+    name = 'trip.bvep',
+  ) => {
+    await user.upload(
+      screen.getByTestId('project-file-input'),
+      new File([bytes as unknown as BlobPart], name, { type: 'application/gzip' }),
+    )
+  }
+
+  it('New Project with unsaved changes asks first, and cancelling keeps everything', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
+    expect(dialog).toHaveTextContent('Starting a new project will discard your unsaved changes.')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onProjectReplaced).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('confirming New Project resets to the empty startup state', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
+    expect(onProjectReplaced).toHaveBeenCalledOnce()
+    const replaced = onProjectReplaced.mock.calls[0][0]
+    expect(replaced.clips).toHaveLength(0)
+    expect(replaced.timeline.entries).toHaveLength(0)
+  })
+
+  it('New Project with a clean state resets without asking', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(onProjectReplaced).toHaveBeenCalledOnce()
+  })
+
+  it('Open Project with unsaved changes asks first, and cancelling opens nothing', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Open Project…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
+    expect(dialog).toHaveTextContent('Opening a project will discard your unsaved changes.')
+    expect(screen.getByRole('button', { name: 'Discard and open' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onProjectReplaced).not.toHaveBeenCalled()
+  })
+
+  it('a corrupt file reports the reason and leaves the current project untouched', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+    await uploadProjectFile(user, new TextEncoder().encode('not gzip at all'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not open: not a project file (the data is not valid gzip)',
+    )
+    expect(onProjectReplaced).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('a newer-version file reports the descriptive schema error', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+    await uploadProjectFile(
+      user,
+      await gzipJson({
+        format: 'browser-video-editor-project',
+        schemaVersion: 99,
+        clips: [],
+        timeline: { entries: [], transitions: [], zooms: [] },
+      }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'saved by a newer version of the editor',
+    )
+    expect(onProjectReplaced).not.toHaveBeenCalled()
+  })
+
+  it('opening a valid file runs the re-link dialog and replaces the project', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const probeVideo = vi.fn((file: File) =>
+      Promise.resolve({ duration: 10, url: `blob:probe/${file.name}` }),
+    )
+    URL.revokeObjectURL = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+        probeVideo={probeVideo}
+      />,
+    )
+
+    const { serializeProject } = await import('../lib/projectFile')
+    await uploadProjectFile(user, await serializeProject(library, timeline))
+
+    await screen.findByRole('dialog', { name: 'Open trip.bvep' })
+    await user.upload(
+      screen.getByTestId('relink-file-input'),
+      new File(['x'], 'holiday.mp4', { type: 'video/mp4' }),
+    )
+    const open = screen.getByRole('button', { name: 'Open project' })
+    await waitFor(() => expect(open).toBeEnabled())
+    await user.click(open)
+
+    expect(onProjectReplaced).toHaveBeenCalledOnce()
+    const replaced = onProjectReplaced.mock.calls[0][0]
+    expect(replaced.clips).toEqual([
+      { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:probe/holiday.mp4' },
+    ])
+    expect(replaced.timeline.entries[0]).toMatchObject({
+      clipId: 'c1',
+      url: 'blob:probe/holiday.mp4',
+      inPoint: 1,
+      outPoint: 8,
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('opening a project with no clips applies immediately, without the re-link step', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={{ clips: [], failures: [] }}
+        timeline={{ entries: [] }}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+      />,
+    )
+    const { serializeProject } = await import('../lib/projectFile')
+    await uploadProjectFile(
+      user,
+      await serializeProject({ clips: [], failures: [] }, { entries: [] }),
+    )
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(onProjectReplaced.mock.calls[0][0].clips).toHaveLength(0)
+  })
+
+  it('replacing the project resets the save destination and status text', async () => {
+    const { port, pickDestination, writes } = stubPort()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty
+        onSaved={vi.fn()}
+        onProjectReplaced={vi.fn()}
+        port={port}
+      />,
+    )
+
+    // Establish a destination, then start a new project.
+    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await screen.findByText('Saved as picked.bvep')
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
+
+    // The old project's status is gone, and the next Save asks again.
+    expect(screen.queryByText('Saved as picked.bvep')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Save(?! As)/ }))
+    await waitFor(() => expect(writes).toHaveLength(2))
+    expect(pickDestination).toHaveBeenCalledTimes(2)
+  })
+})

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { LibraryClip, MediaLibraryState } from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
+import { ConfirmDialog } from './ConfirmDialog'
 import './MediaLibrary.css'
 
 interface MediaLibraryProps {
@@ -12,69 +13,6 @@ interface MediaLibraryProps {
   onRemoveClip: (clip: LibraryClip) => void
   /** How many timeline entries were created from the given library clip. */
   timelineUseCount: (clipId: string) => number
-}
-
-interface ConfirmRemovalDialogProps {
-  clip: LibraryClip
-  timelineEntryCount: number
-  onCancel: () => void
-  onConfirm: () => void
-}
-
-/**
- * Modal confirmation for removing a library clip. Hand-rolled rather than
- * <dialog>.showModal() so focus and Escape behave identically under jsdom,
- * which does not run the native dialog's focus/cancel machinery.
- */
-function ConfirmRemovalDialog({
-  clip,
-  timelineEntryCount,
-  onCancel,
-  onConfirm,
-}: ConfirmRemovalDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-  const headingId = useId()
-
-  useEffect(() => {
-    // Focus starts on the safe action; Escape cancels from anywhere.
-    cancelRef.current?.focus()
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCancel])
-
-  return (
-    <div className="dialog-overlay" onClick={onCancel}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={headingId}
-        className="dialog"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 id={headingId}>Remove {clip.name}?</h3>
-        <p>
-          {timelineEntryCount > 0
-            ? `This also removes ${
-                timelineEntryCount === 1
-                  ? 'the 1 timeline entry'
-                  : `all ${timelineEntryCount} timeline entries`
-              } created from this clip.`
-            : 'The clip will be removed from the media library.'}
-        </p>
-        <div className="dialog-actions">
-          <button type="button" ref={cancelRef} onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="dialog-danger" onClick={onConfirm}>
-            Remove
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export function MediaLibrary({
@@ -165,9 +103,17 @@ export function MediaLibrary({
       )}
 
       {pendingRemoval && (
-        <ConfirmRemovalDialog
-          clip={pendingRemoval}
-          timelineEntryCount={timelineUseCount(pendingRemoval.id)}
+        <ConfirmDialog
+          title={`Remove ${pendingRemoval.name}?`}
+          body={(() => {
+            const count = timelineUseCount(pendingRemoval.id)
+            return count > 0
+              ? `This also removes ${
+                  count === 1 ? 'the 1 timeline entry' : `all ${count} timeline entries`
+                } created from this clip.`
+              : 'The clip will be removed from the media library.'
+          })()}
+          confirmLabel="Remove"
           onCancel={cancelRemoval}
           onConfirm={confirmRemoval}
         />

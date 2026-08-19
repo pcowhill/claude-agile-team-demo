@@ -14,7 +14,8 @@
   font-size: 0.85rem;
 }
 
-.project-save-error {
+.project-save-error,
+.project-open-error {
   color: #ff7b72;
   font-size: 0.85rem;
 }

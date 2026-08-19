@@ -116,6 +116,17 @@ export const DEFAULT_ZOOM: ZoomSpec = {
 }
 
 export type TimelineAction =
+  | {
+      /**
+       * Wholesale replacement, for opening a project or starting a new one
+       * (#77). The action's state is stored as-is — callers pass a state that
+       * already satisfies the invariants (see `normalizedTimelineState`) so
+       * that the stored reference is exactly the one they hold, which is what
+       * the unsaved-changes tracking compares against (#76).
+       */
+      type: 'timeline-replaced'
+      timeline: TimelineState
+    }
   | { type: 'entry-added'; entry: TimelineEntry }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
@@ -282,10 +293,26 @@ function withEffects(
   }
 }
 
+/**
+ * A timeline state with the reducer's invariants applied to the given lists:
+ * transitions only on surviving adjacent boundaries, zooms clamped to their
+ * entries. For building a state outside the reducer (opening a project, #77)
+ * so that `timeline-replaced` can store the caller's reference unchanged.
+ */
+export function normalizedTimelineState(
+  entries: TimelineEntry[],
+  transitions: TimelineTransition[],
+  zooms: ZoomEffect[],
+): TimelineState {
+  return withEffects(entries, transitions, zooms)
+}
+
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
   const transitions = transitionsOf(state)
   const zooms = zoomsOf(state)
   switch (action.type) {
+    case 'timeline-replaced':
+      return action.timeline
     case 'entry-added':
       return withEffects([...state.entries, action.entry], transitions, zooms)
     case 'entry-removed':
