@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
 import { boundaryTransitions, totalDuration } from '../lib/timeline'
-import { locateInSequence, sequenceTimeAt } from '../lib/playback'
+import { isTransitionOverlayActive, locateInSequence, sequenceTimeAt } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { formatDuration } from '../lib/mediaLibrary'
 import './PreviewPlayer.css'
@@ -57,7 +57,12 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   const [primaryIsA, setPrimaryIsA] = useState(true)
   // Outgoing-entry index the secondary element is engaged for, or null while
   // it is idle. Prevents re-cueing the incoming clip on every overlap frame.
+  // The ref is for the rAF loop; the state mirror is what the render keys
+  // the overlay on, so a role swap hides the outgoing element immediately
+  // even while the published sequence time still trails inside the overlap
+  // (#61 — element clocks drift, so that happens routinely at handover).
   const engagedForRef = useRef<number | null>(null)
+  const [engagedFor, setEngagedFor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
 
@@ -66,6 +71,12 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
 
   const primaryVideo = () => (primaryIsARef.current ? videoARef.current : videoBRef.current)
   const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
+
+  /** Single writer for the engagement, keeping the ref and its state mirror in step. */
+  const setEngaged = useCallback((value: number | null) => {
+    engagedForRef.current = value
+    setEngagedFor(value)
+  }, [])
 
   /**
    * Cues one element to a source time, switching src when it plays a
@@ -116,17 +127,17 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       if (overlap) {
         primary.volume = 1 - overlap.progress
         secondary.volume = overlap.progress
-        engagedForRef.current = location.index
+        setEngaged(location.index)
         cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
       } else {
         primary.volume = 1
         if (engagedForRef.current !== null) {
-          engagedForRef.current = null
+          setEngaged(null)
           secondary.pause()
         }
       }
     },
-    [cueElement],
+    [cueElement, setEngaged],
   )
 
   const stopLoop = useCallback(() => {
@@ -159,7 +170,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
         video.pause()
         video.volume = 1
         incoming.volume = 1
-        engagedForRef.current = null
+        setEngaged(null)
         indexRef.current = index + 1
         primaryIsARef.current = !primaryIsARef.current
         setPrimaryIsA(primaryIsARef.current)
@@ -189,7 +200,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
           const secondary = secondaryVideo()
           if (secondary) {
             if (engagedForRef.current !== index) {
-              engagedForRef.current = index
+              setEngaged(index)
               cueElement(
                 secondary,
                 next.url,
@@ -205,7 +216,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary])
+  }, [timeline, cueElement, cuePrimary, setEngaged])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.
@@ -245,15 +256,20 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
     for (const video of [videoARef.current, videoBRef.current]) {
       if (video && !video.paused) video.pause()
     }
-    engagedForRef.current = null
+    setEngaged(null)
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
-  }, [timeline, stopLoop])
+  }, [timeline, stopLoop, setEngaged])
 
   useEffect(() => stopLoop, [stopLoop])
 
   const location = locateInSequence(timeline, sequenceTime)
-  const overlap = location?.transition
+  // Gate the overlay on the actual engagement, not the recomputed location
+  // alone: right after a handover the published time can still trail inside
+  // the overlap, and then the top-layer element holds the outgoing clip (#61).
+  const overlap = isTransitionOverlayActive(location, engagedFor)
+    ? location?.transition
+    : undefined
 
   /** Role-dependent props for one of the two stacked elements. */
   const videoProps = (isA: boolean) => {
