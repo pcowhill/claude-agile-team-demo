@@ -36,14 +36,40 @@ GitHub Project `Priority` field (P0 critical → P3 nice-to-have) > labels
 
 ## Work-in-progress limit
 
-**At most one active implementation PR at a time.** While an implementation
-PR is open (awaiting review, fixes, or merge), do not start an unrelated
-implementation. Permitted concurrent activities: triage, feedback processing,
-answering/asking questions, reviewing the open PR (if you are not its
-author), fixing its CI, resolving blockers, documentation-only corrections.
+**At most three open implementation PRs at a time, and a session may author at
+most three of them.** The three include PRs opened by earlier sessions that are
+still open — the cap is on how much unreviewed work the repository carries, not
+on how much any one session produced.
 
-Prefer finishing existing work over creating new work. Prefer small, coherent
-PRs over large bundles of unrelated changes.
+Parallel work is allowed only where it is genuinely parallel. Before starting a
+second or third implementation, check that the issues are independent:
+
+- neither depends on the other's outcome, and either could be merged first
+  without the other needing changes;
+- they touch disjoint enough code that a reviewer can judge each on its own and
+  merging one does not conflict with the other;
+- neither one's acceptance criteria can only be evaluated once the other has
+  landed.
+
+If independence is doubtful, treat the issues as serialized: implement one and
+leave the other for a later session. Two entangled PRs cost a later session
+more untangling than the parallelism saved.
+
+Each PR is a separate handoff: its own branch (see `development.md`), its own
+linked issue, its own PR context, and its own independent review. Author ≠
+reviewer is unchanged — a session never reviews, approves, or merges any PR it
+opened, however many it opens.
+
+While three implementation PRs are open, do not start a fourth implementation.
+Permitted concurrent activities: triage, feedback processing, answering/asking
+questions, reviewing an open PR (if you are not its author), fixing its CI,
+resolving blockers, documentation-only corrections.
+
+The cap is a ceiling, not a target. Filling it is not a goal, and a session
+that opens one PR and stops has done nothing wrong. Prefer finishing existing
+work over creating new work — reviewing a PR you did not author still outranks
+starting a new implementation (see "Work selection priority"). Prefer small,
+coherent PRs over large bundles of unrelated changes.
 
 ## Handoffs
 
@@ -51,16 +77,19 @@ A natural handoff is reached when a session has, for one issue:
 implemented → tested → pushed the branch → opened the PR → linked the issue →
 supplied PR context. At that point the session must stop implementing that
 issue and must not review or merge its own PR. It may continue with other
-permitted activities or end.
+permitted activities — including implementing another independent issue while
+the WIP limit above allows it — or end.
 
-**Handoff is permanent for the authoring session.** Once its implementation
-PR is open and context is supplied, the author session must not arrange to
-resume itself: no scheduled self-check-ins or reminders, no cron or
+**Handoff is permanent for the authoring session.** Once an implementation PR
+is open and context is supplied, the author session must not arrange to resume
+itself for it: no scheduled self-check-ins or reminders, no cron or
 `/loop`-style continuations, no PR auto-fix automation, and no subscribing
-to the PR's activity or CI events. Follow-up on the PR — review feedback,
-CI failures, merge conflicts — belongs to later, independent sessions, which
-discover it by orienting from GitHub state. If the session's harness offers
-to watch, monitor, or auto-fix the PR, decline.
+to the PR's activity or CI events. This holds for every PR the session opened.
+Follow-up on a PR — review feedback, CI failures, merge conflicts — belongs to
+later, independent sessions, which discover it by orienting from GitHub state.
+If the session's harness offers to watch, monitor, or auto-fix the PR, decline.
+Moving on to another independent issue is not self-resumption; going back to
+one of your own open PRs is.
 
 ## Blocked work
 
