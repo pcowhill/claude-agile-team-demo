@@ -255,6 +255,138 @@ describe('timeline', () => {
     })
   })
 
+  describe('zoom effect (#63)', () => {
+    it('adds the default zoom to an entry and shows its editable parameters', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom start of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom ramp-in of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0.5)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom hold of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(1)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0.5)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' }),
+      ).toHaveValue(2)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom centre X of a.mp4 at position 1 (0 to 1)' }),
+      ).toHaveValue(0.5)
+      // The add button is gone: one zoom per entry.
+      expect(
+        screen.queryByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('edits a parameter, and shows the clamp when a value cannot fit', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      const hold = screen.getByRole('spinbutton', {
+        name: 'Zoom hold of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(hold)
+      await userEvent.type(hold, '3')
+      await userEvent.tab()
+      expect(hold).toHaveValue(3)
+
+      // A hold longer than the clip fits only partially: with start 0 and
+      // ramp-in 0.5 on a 10s entry, 99 clamps to 9.5 — and the ramp-out
+      // that no longer fits clamps to 0. The clamp is visible in the fields.
+      await userEvent.clear(hold)
+      await userEvent.type(hold, '99')
+      await userEvent.tab()
+      expect(hold).toHaveValue(9.5)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+    })
+
+    it('clamps an off-frame centre against the scale, visibly', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      const centreX = screen.getByRole('spinbutton', {
+        name: 'Zoom centre X of a.mp4 at position 1 (0 to 1)',
+      })
+      // At the default scale 2 the centre can reach no further than 0.75.
+      await userEvent.clear(centreX)
+      await userEvent.type(centreX, '0.95')
+      await userEvent.tab()
+      expect(centreX).toHaveValue(0.75)
+    })
+
+    it('rejects a scale of 1 or less, snapping the field back', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      const scale = screen.getByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' })
+      await userEvent.clear(scale)
+      await userEvent.type(scale, '1')
+      await userEvent.tab()
+      expect(scale).toHaveValue(2)
+    })
+
+    it('re-clamps the zoom when a trim shrinks the entry under it', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      const outField = screen.getByRole('spinbutton', {
+        name: 'Trim out point of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(outField)
+      await userEvent.type(outField, '0.75')
+      await userEvent.tab()
+
+      // 0.75s playable: ramp-in keeps 0.5, hold clamps from 1 to 0.25,
+      // ramp-out clamps to 0 — clamped, not dropped.
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom ramp-in of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0.5)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom hold of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0.25)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+    })
+
+    it('removes the zoom, restoring the add button', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Remove zoom from a.mp4 at position 1' }),
+      )
+
+      expect(
+        screen.queryByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
+      ).toBeInTheDocument()
+    })
+  })
+
   it('removes an entry without touching the media library, updating the total', async () => {
     render(<App />)
     await importClip('a.mp4', 30)
