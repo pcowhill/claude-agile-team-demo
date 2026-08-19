@@ -7,7 +7,8 @@
 | `customer-feedback` | Raw, free-form input from the customer. Processed per `product-management.md`, then closed; never deleted. |
 | `customer-question` | A question that requires the customer's judgment. Assigned to the customer; answered by normal comment. |
 | `customer-approved` | Applied **only by the customer**, to an `idea` issue, to approve it as product scope. |
-| `ai-generated` | The issue originated from the AI team rather than the customer. |
+| `ai-generated` | The issue was created by the AI team rather than the customer. See "Origin labels". |
+| `human-generated` | The issue was created by the customer. See "Origin labels". |
 | `idea` | A product idea. With `ai-generated` and without `customer-approved`, it is not implementable scope. |
 | `feature` | New or changed product functionality. |
 | `bug` | Something is wrong in the product, tests, or tooling. |
@@ -19,6 +20,21 @@ Keep the taxonomy small. Add a new label only for a clear, durable purpose,
 and document it in this table in the same PR. Do not create priority labels —
 priority lives in the GitHub Project's Priority field (and, when that is not
 writable, in the issue body/comments).
+
+## Origin labels
+
+Every issue carries exactly one of `ai-generated` or `human-generated`,
+chosen by **who created the issue** — comments never change it (customer
+requested this in #79). All sessions share one GitHub account, so the label
+is the only visible record of origin.
+
+- A session applies `ai-generated` to every issue it creates, whatever the
+  issue's kind (derived work, bugs, questions, ideas, process).
+- The customer may label their own issues `human-generated`; when they
+  forget, any session that touches or triages the issue adds it.
+- These labels record provenance only. Approval semantics are unchanged:
+  an `idea` + `ai-generated` issue still needs `customer-approved`
+  (see `CLAUDE.md` invariants).
 
 ## GitHub Project
 
