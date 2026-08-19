@@ -409,6 +409,148 @@ test('a crossfade between different aspect ratios fades the uncovered margins to
   expect(after).toBeLessThan(12)
 })
 
+test('a slide between different aspect ratios slides a black card over the margins (#74)', async ({
+  page,
+}) => {
+  await page.goto('./')
+
+  // Wide outgoing clip, square incoming one: the square clip pillarboxes,
+  // leaving side margins its fitted box never reaches — but the sliding
+  // element is a full-stage card with a black backing (#74), so those
+  // margins are covered by sliding black, at full brightness until the
+  // card's edge arrives and black after it.
+  const red = await recordSolidWebm(page, 'red', 320, 180)
+  const blue = await recordSolidWebm(page, 'blue', 180, 180)
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'red.webm', mimeType: 'video/webm', buffer: red },
+    { name: 'blue.webm', mimeType: 'video/webm', buffer: blue },
+  ])
+  await page.getByRole('button', { name: 'Add red.webm to timeline' }).click()
+  await page.getByRole('button', { name: 'Add blue.webm to timeline' }).click()
+  for (const [position, name] of [
+    [1, 'red'],
+    [2, 'blue'],
+  ] as const) {
+    const outField = page.getByRole('spinbutton', {
+      name: `Trim out point of ${name}.webm at position ${position} in seconds`,
+    })
+    await outField.fill('1')
+    await outField.blur()
+  }
+  await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+  await page
+    .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+    .selectOption('slide-from-above')
+  const duration = page.getByRole('spinbutton', {
+    name: 'Transition duration between position 1 and 2 in seconds',
+  })
+  await duration.fill('0.5')
+  await duration.blur()
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect(seek).toHaveAttribute('max', '1.5')
+
+  const stage = (await page.getByTestId('preview-video').boundingBox())!
+  const contain = (sourceWidth: number, sourceHeight: number) => {
+    const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
+    return {
+      x: stage.x + (stage.width - sourceWidth * scale) / 2,
+      y: stage.y + (stage.height - sourceHeight * scale) / 2,
+      width: sourceWidth * scale,
+      height: sourceHeight * scale,
+    }
+  }
+  const redBox = contain(320, 180)
+  const blueBox = contain(180, 180)
+  const marginWidth = blueBox.x - redBox.x - 6
+  // Layout sanity: the fixtures actually produce an uncovered margin.
+  expect(marginWidth).toBeGreaterThan(10)
+
+  // Two strips of the margin at different heights: the card's leading edge
+  // (at stage top + progress·stage height) passes the upper strip early in
+  // the overlap and the lower strip late, so one mid-overlap look shows
+  // black behind the edge and undimmed outgoing clip ahead of it.
+  const upper = {
+    x: redBox.x + 3,
+    y: redBox.y + redBox.height * 0.05,
+    width: marginWidth,
+    height: redBox.height * 0.15,
+  }
+  const lower = {
+    x: redBox.x + 3,
+    y: redBox.y + redBox.height * 0.6,
+    width: marginWidth,
+    height: redBox.height * 0.15,
+  }
+  // Progress at which the edge fully passes the upper strip / first touches
+  // the lower one, from the real geometry; the mid sample sits between them.
+  const passUpper = (upper.y + upper.height - stage.y) / stage.height
+  const reachLower = (lower.y - stage.y) / stage.height
+  const passLower = (lower.y + lower.height - stage.y) / stage.height
+  expect(passUpper + 0.05).toBeLessThan(reachLower)
+  expect(passLower).toBeLessThan(0.95)
+  const midProgress = (passUpper + reachLower) / 2
+  // String(…) rather than toFixed: a range input's fill rejects trailing
+  // zeros like "0.70" as malformed.
+  const overlapTime = (progress: number) => String(Math.round((0.5 + 0.5 * progress) * 100) / 100)
+
+  /** Seeks (paused), waits for decodable frames on both live elements. */
+  const seekAndSettle = async (time: string) => {
+    await seek.fill(time)
+    await expect
+      .poll(() =>
+        page.getByTestId('preview-video').evaluate((el: HTMLVideoElement) => el.readyState),
+      )
+      .toBeGreaterThanOrEqual(2)
+    if ((await page.getByTestId('preview-video-incoming').count()) > 0) {
+      await expect
+        .poll(() =>
+          page
+            .getByTestId('preview-video-incoming')
+            .evaluate((el: HTMLVideoElement) => el.readyState),
+        )
+        .toBeGreaterThanOrEqual(2)
+    }
+  }
+
+  // Solo: both strips show the outgoing clip at full brightness.
+  await seekAndSettle('0.25')
+  const soloUpper = (await sampleScreenRect(page, upper)).r
+  const soloLower = (await sampleScreenRect(page, lower)).r
+  expect(soloUpper).toBeGreaterThan(120)
+  expect(soloLower).toBeGreaterThan(120)
+
+  // Mid-overlap: black behind the card's edge, undimmed red ahead of it.
+  await seekAndSettle(overlapTime(midProgress))
+  const midUpper = await sampleScreenRect(page, upper)
+  const midLower = await sampleScreenRect(page, lower)
+  expect(midUpper.r).toBeLessThan(15)
+  expect(midUpper.b).toBeLessThan(15)
+  expect(midLower.r).toBeGreaterThan(soloLower * 0.85)
+  // The card carries its clip: within the visible slice of the translated
+  // blue box (clipped to the stage and to the card's covered region), the
+  // incoming clip shows, not backing.
+  const blueTop = blueBox.y + (midProgress - 1) * stage.height
+  const blueVisibleTop = Math.max(blueTop, stage.y)
+  const blueVisibleBottom = Math.min(blueTop + blueBox.height, stage.y + midProgress * stage.height)
+  expect(blueVisibleBottom - blueVisibleTop).toBeGreaterThan(10)
+  const blueProbe = {
+    x: blueBox.x + blueBox.width * 0.4,
+    y: blueVisibleTop + (blueVisibleBottom - blueVisibleTop) * 0.25,
+    width: blueBox.width * 0.2,
+    height: (blueVisibleBottom - blueVisibleTop) * 0.5,
+  }
+  expect((await sampleScreenRect(page, blueProbe)).b).toBeGreaterThan(100)
+
+  // Late in the overlap the edge has passed the lower strip too.
+  await seekAndSettle(overlapTime(passLower + 0.03))
+  expect((await sampleScreenRect(page, lower)).r).toBeLessThan(15)
+
+  // Past the handover the margins stay black — nothing pops back or lingers.
+  await seekAndSettle('1.2')
+  expect((await sampleScreenRect(page, upper)).r).toBeLessThan(15)
+  expect((await sampleScreenRect(page, lower)).r).toBeLessThan(15)
+})
+
 test('seeking into a slide-from-above overlap renders the mid-effect state', async ({ page }) => {
   await page.goto('./')
   await buildTwoEntrySequence(page)

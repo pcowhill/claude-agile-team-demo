@@ -167,7 +167,14 @@ async function sampleExportedFrame(
   page: Page,
   webm: Buffer,
   fromEndSeconds: number,
-  band: 'full' | 'top-quarter' | 'bottom-quarter' | 'left-fifth' | 'center-fifth',
+  band:
+    | 'full'
+    | 'top-quarter'
+    | 'bottom-quarter'
+    | 'left-fifth'
+    | 'center-fifth'
+    | 'margin-upper'
+    | 'margin-lower',
 ): Promise<FrameSample> {
   return await page.evaluate(
     async ({ base64, fromEndSeconds, band }) => {
@@ -226,6 +233,18 @@ async function sampleExportedFrame(
         } else if (band === 'left-fifth' || band === 'center-fifth') {
           bandWidth = Math.max(1, Math.floor(canvas.width / 5))
           bandX = band === 'center-fifth' ? Math.floor((canvas.width - bandWidth) / 2) : 0
+        } else if (band === 'margin-upper' || band === 'margin-lower') {
+          // Left-margin sub-bands for the slide card ladder (#74): x is the
+          // fifth of the frame a pillarboxed square incoming clip never
+          // reaches; y picks a strip the card's edge passes at a known
+          // progress (upper: 10%-30%, covered once progress ≥ 0.3; lower:
+          // 60%-75%, covered once progress ≥ 0.75).
+          bandWidth = Math.max(1, Math.floor(canvas.width / 5))
+          bandTop = Math.floor(canvas.height * (band === 'margin-upper' ? 0.1 : 0.6))
+          bandHeight = Math.max(
+            1,
+            Math.floor(canvas.height * (band === 'margin-upper' ? 0.2 : 0.15)),
+          )
         }
         const data = ctx.getImageData(bandX, bandTop, bandWidth, bandHeight).data
         let r = 0
@@ -384,6 +403,66 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   const centerMid = await sampleExportedFrame(page, exported, 0.75, 'center-fifth')
   expect(centerMid.r).toBeGreaterThan(BLENDED)
   expect(centerMid.b).toBeGreaterThan(BLENDED)
+})
+
+test('a slide between different aspect ratios exports a black card sliding over the margins (#74)', async ({
+  page,
+}) => {
+  test.setTimeout(150_000)
+  await page.goto('./')
+
+  // Solid-brightness fixtures (no pulse) so margin levels compare exactly
+  // across sample times; the square incoming clip pillarboxes to
+  // x ∈ [70, 250] of the 320×180 canvas, so the left fifth (x < 64) is
+  // margin its fitted box never reaches. The card, though, is the whole
+  // frame: black backing sliding down with the clip (#74).
+  const red = await recordFixtureWebm(page, { family: 'red', animate: false })
+  const blue = await recordFixtureWebm(page, {
+    family: 'blue',
+    animate: false,
+    width: 180,
+    height: 180,
+  })
+  await buildTransitionSequence(page, red, blue)
+  await page
+    .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+    .selectOption('slide-from-above')
+
+  const exported = await exportOnce(page)
+  expect(exported.byteLength).toBeGreaterThan(1000)
+
+  // The overlap occupies [end − 1.0, end − 0.5]; the card's leading edge is
+  // at y = progress·height. Ladder: solo, then progress 0.5 (upper margin
+  // band passed at 0.3 → black; lower band, reached at 0.75, still ahead of
+  // the edge → undimmed red), then progress 0.9 (lower band passed → black),
+  // then past the handover.
+  const soloUpper = (await sampleExportedFrame(page, exported, 1.25, 'margin-upper')).r
+  const soloLower = (await sampleExportedFrame(page, exported, 1.25, 'margin-lower')).r
+  expect(soloUpper).toBeGreaterThan(120)
+  expect(soloLower).toBeGreaterThan(120)
+
+  const midUpper = await sampleExportedFrame(page, exported, 0.75, 'margin-upper')
+  const midLower = await sampleExportedFrame(page, exported, 0.75, 'margin-lower')
+  // Behind the card's edge: the card's black backing, not the outgoing clip
+  // dimmed or still bright.
+  expect(midUpper.r).toBeLessThan(ABSENT)
+  expect(midUpper.b).toBeLessThan(ABSENT)
+  // Ahead of the card's edge: the outgoing clip at full, undimmed brightness.
+  expect(midLower.r).toBeGreaterThan(soloLower * 0.85)
+
+  const lateLower = (await sampleExportedFrame(page, exported, 0.55, 'margin-lower')).r
+  expect(lateLower).toBeLessThan(ABSENT)
+
+  const afterUpper = (await sampleExportedFrame(page, exported, 0.25, 'margin-upper')).r
+  const afterLower = (await sampleExportedFrame(page, exported, 0.25, 'margin-lower')).r
+  expect(afterUpper).toBeLessThan(ABSENT)
+  expect(afterLower).toBeLessThan(ABSENT)
+
+  // Where the card has arrived, its clip shows: mid-slide the center-fifth
+  // carries the incoming blue (top half) and the outgoing red (bottom half).
+  const centerMid = await sampleExportedFrame(page, exported, 0.75, 'center-fifth')
+  expect(centerMid.b).toBeGreaterThan(BLENDED)
+  expect(centerMid.r).toBeGreaterThan(BLENDED)
 })
 
 test('a slide-from-above exports with the incoming clip covering from the top', async ({

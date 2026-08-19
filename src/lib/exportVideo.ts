@@ -338,6 +338,12 @@ export async function exportTimeline(
       // `lighter` sums the two layers, making the crossfade a true dissolve
       // over the black stage (see transitionLayerSpec).
       context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
+      if (spec.incomingBacking) {
+        // The incoming layer is a full-frame card (#74): black backing the
+        // size of the whole frame, moving with the clip fitted inside it.
+        context.fillStyle = '#000'
+        context.fillRect(0, spec.incomingOffsetYFraction * height, width, height)
+      }
       context.drawImage(
         overlay.element,
         incoming.x,
