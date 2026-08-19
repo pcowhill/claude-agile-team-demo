@@ -148,4 +148,112 @@ describe('PreviewPlayer', () => {
       expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(label)
     })
   }
+
+  // Zoom rendering (#64). All magnification numbers come from zoomAt (#63):
+  // the component maps { scale, centerX, centerY } to CSS and adds no easing
+  // of its own, so these pin the mapping, not the maths.
+  describe('zoom', () => {
+    // e1 (4s) carries a 2× zoom into the left-centre region: window
+    // start 1s, 1s ramps around a 1s hold, centre (0.25, 0.5).
+    const withZoomOnFirst: TimelineState = {
+      entries: withTransition.entries,
+      zooms: [
+        {
+          entryId: 'e1',
+          start: 1,
+          rampIn: 1,
+          hold: 1,
+          rampOut: 1,
+          scale: 2,
+          centerX: 0.25,
+          centerY: 0.5,
+        },
+      ],
+    }
+
+    const seekTo = (value: string) =>
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value },
+      })
+
+    it('renders no zoom styling outside the window and full zoom during the hold', () => {
+      render(<PreviewPlayer timeline={withZoomOnFirst} />)
+      const video = screen.getByTestId('preview-video')
+
+      seekTo('0.5')
+      expect(video.style.transform).toBe('')
+      expect(video.style.clipPath).toBe('')
+
+      // Mid-hold (g = 1): scale 2 about the element centre, translated so
+      // the configured centre (0.25, 0.5) sits mid-frame, clipped to the
+      // visible region [0, 0.5] × [0.25, 0.75].
+      seekTo('2.5')
+      expect(video.style.transform).toBe('scale(2) translate(25%, 0%)')
+      expect(video.style.clipPath).toBe('inset(25% 50% 25% 0%)')
+    })
+
+    it('renders the eased intermediate magnification inside the ramps', () => {
+      render(<PreviewPlayer timeline={withZoomOnFirst} />)
+      const video = screen.getByTestId('preview-video')
+
+      // Ramp-in midpoint: g = smoothstep(0.5) = 0.5, so scale 1.5 and the
+      // centre halfway from 0.5 to 0.25 — exactly zoomAt's output.
+      seekTo('1.5')
+      expect(video.style.transform).toBe('scale(1.5) translate(12.5%, 0%)')
+
+      // Ramp-out midpoint mirrors it.
+      seekTo('3.5')
+      expect(video.style.transform).toBe('scale(1.5) translate(12.5%, 0%)')
+    })
+
+    it('composes a zoom with a slide transition on either side of the overlap', () => {
+      // Crossfade → slide-from-left between e1 and e2; e1 zooms at its tail
+      // (full zoom from 2.5s on), e2 zooms from its head (zero ramp-in
+      // starts at full zoom, per zoomAt).
+      const timeline: TimelineState = {
+        entries: withTransition.entries,
+        transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'slide-from-left', duration: 1 }],
+        zooms: [
+          {
+            entryId: 'e1',
+            start: 2.5,
+            rampIn: 0.5,
+            hold: 1,
+            rampOut: 0,
+            scale: 2,
+            centerX: 0.75,
+            centerY: 0.5,
+          },
+          {
+            entryId: 'e2',
+            start: 0,
+            rampIn: 0,
+            hold: 2,
+            rampOut: 1,
+            scale: 2,
+            centerX: 0.5,
+            centerY: 0.25,
+          },
+        ],
+      }
+      render(<PreviewPlayer timeline={timeline} />)
+      // Sequence 3.25: a quarter into the overlap — outgoing source time
+      // 3.25 (in e1's hold), incoming source time 0.25 (in e2's hold).
+      seekTo('3.25')
+
+      // Outgoing: zoom only (transitions never transform the primary).
+      const outgoing = screen.getByTestId('preview-video')
+      expect(outgoing.style.transform).toBe('scale(2) translate(-25%, 0%)')
+      expect(outgoing).toHaveStyle({ opacity: '1' })
+
+      // Incoming: the slide's card translate composes with the zoom, in
+      // card-then-zoom order, and the #74 backing plus clip keep the card
+      // covering exactly its slice of the stage.
+      const incoming = screen.getByTestId('preview-video-incoming')
+      expect(incoming.style.transform).toBe('translate(-75%, 0%) scale(2) translate(0%, 25%)')
+      expect(incoming.style.clipPath).toBe('inset(0% 25% 50% 25%)')
+      expect(incoming).toHaveStyle({ backgroundColor: '#000' })
+      expect(incoming).toHaveStyle({ opacity: '1' })
+    })
+  })
 })
