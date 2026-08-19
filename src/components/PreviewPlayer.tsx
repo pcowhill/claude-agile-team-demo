@@ -32,7 +32,10 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
  * is ADDED at `progress` (`plus-lighter`): covered regions blend exactly as
  * a plain opacity crossfade did, and any margin only one clip reaches fades
  * to/from the stage's black instead of popping at the handover. Slides move
- * the opaque incoming element down over an undimmed outgoing clip (#67).
+ * the incoming element as a full-frame card — the element's own opaque black
+ * background fills whatever its fitted clip does not (#74) — over an
+ * undimmed outgoing clip, so margins are covered by sliding black instead of
+ * popping at the handover.
  */
 function transitionLayerStyles(overlap: TransitionOverlap): {
   outgoing: CSSProperties
@@ -45,6 +48,7 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
       opacity: spec.incomingAlpha,
       transform: `translateY(${spec.incomingOffsetYFraction * 100}%)`,
       mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
+      backgroundColor: spec.incomingBacking ? '#000' : undefined,
     },
   }
 }

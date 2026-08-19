@@ -8,18 +8,21 @@ describe('transitionLayerSpec', () => {
       incomingAlpha: 0,
       additive: true,
       incomingOffsetYFraction: 0,
+      incomingBacking: false,
     })
     expect(transitionLayerSpec('crossfade', 0.25)).toEqual({
       outgoingAlpha: 0.75,
       incomingAlpha: 0.25,
       additive: true,
       incomingOffsetYFraction: 0,
+      incomingBacking: false,
     })
     expect(transitionLayerSpec('crossfade', 1)).toEqual({
       outgoingAlpha: 0,
       incomingAlpha: 1,
       additive: true,
       incomingOffsetYFraction: 0,
+      incomingBacking: false,
     })
   })
 
@@ -47,24 +50,27 @@ describe('transitionLayerSpec', () => {
     expect(transitionLayerSpec('crossfade', 1).outgoingAlpha).toBe(0)
   })
 
-  it('slide-from-above keeps both layers opaque and moves the incoming one (#67 pending)', () => {
+  it('slide-from-above moves both-opaque layers, the incoming one as a black-backed card (#74)', () => {
     expect(transitionLayerSpec('slide-from-above', 0)).toEqual({
       outgoingAlpha: 1,
       incomingAlpha: 1,
       additive: false,
       incomingOffsetYFraction: -1,
+      incomingBacking: true,
     })
     expect(transitionLayerSpec('slide-from-above', 0.5)).toEqual({
       outgoingAlpha: 1,
       incomingAlpha: 1,
       additive: false,
       incomingOffsetYFraction: -0.5,
+      incomingBacking: true,
     })
     expect(transitionLayerSpec('slide-from-above', 1)).toEqual({
       outgoingAlpha: 1,
       incomingAlpha: 1,
       additive: false,
       incomingOffsetYFraction: 0,
+      incomingBacking: true,
     })
   })
 })

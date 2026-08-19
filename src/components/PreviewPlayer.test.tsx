@@ -98,6 +98,9 @@ describe('PreviewPlayer', () => {
     // outgoing element fades to the stage's black at 1 − progress — so
     // margins the incoming clip does not cover dim instead of popping (#66).
     expect(incoming).toHaveStyle({ mixBlendMode: 'plus-lighter' })
+    // No backing on a crossfade's incoming element: the additive blend needs
+    // its fitted box's surroundings to stay empty (#74).
+    expect(incoming).not.toHaveStyle({ backgroundColor: '#000' })
     expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '0.5' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm → second.webm (crossfade)',
@@ -124,8 +127,12 @@ describe('PreviewPlayer', () => {
     })
     const incoming = screen.getByTestId('preview-video-incoming')
     expect(incoming).toHaveStyle({ transform: 'translateY(-75%)' })
-    // Slides keep both layers opaque and non-blended until #67 is answered.
+    // Slides keep both layers opaque and non-blended; the incoming element
+    // is a full-frame card with its own black backing, so the areas its
+    // fitted clip does not cover slide in as black (#74, the customer's
+    // decision on #67).
     expect(incoming).toHaveStyle({ opacity: '1' })
+    expect(incoming).toHaveStyle({ backgroundColor: '#000' })
     expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '1' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('(slide from above)')
   })

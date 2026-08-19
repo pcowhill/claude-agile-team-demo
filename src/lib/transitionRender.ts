@@ -18,6 +18,13 @@ export interface TransitionLayerSpec {
   additive: boolean
   /** Vertical offset of the incoming layer, as a fraction of frame height. */
   incomingOffsetYFraction: number
+  /**
+   * When true the incoming layer is a full-frame card: an opaque black
+   * backing the size of the whole frame with the clip aspect-fitted inside
+   * it, moving as one unit. Regions of the frame the clip's fitted box does
+   * not reach are the card's black, not whatever lies beneath (#74).
+   */
+  incomingBacking: boolean
 }
 
 /**
@@ -31,12 +38,29 @@ export interface TransitionLayerSpec {
  * handover. (Painter's-algorithm alphas without the additive blend would
  * double-attenuate the covered region to `(1 − progress)²·outgoing`.)
  *
- * Slides deliberately keep both layers at full opacity: whether a slide's
- * uncovered margins should dim too is an open product question (#67), and
- * until the customer answers it the effect stays exactly as it was.
+ * Slides keep both layers at full opacity, and the incoming layer slides in
+ * as a full-frame card with an opaque black backing (`incomingBacking`) —
+ * the customer's decision on #67 (#74): the outgoing clip stays at full
+ * brightness until the card's edge reaches it, margins the incoming clip's
+ * fitted box never covers are covered by the card's sliding black, and at
+ * the handover the card exactly covers the frame, so nothing pops.
+ * Crossfade needs no backing: its incoming layer is ADDED, so the fitted
+ * box's empty surroundings contribute nothing by construction.
  */
 export function transitionLayerSpec(type: TransitionType, progress: number): TransitionLayerSpec {
   return type === 'crossfade'
-    ? { outgoingAlpha: 1 - progress, incomingAlpha: progress, additive: true, incomingOffsetYFraction: 0 }
-    : { outgoingAlpha: 1, incomingAlpha: 1, additive: false, incomingOffsetYFraction: progress - 1 }
+    ? {
+        outgoingAlpha: 1 - progress,
+        incomingAlpha: progress,
+        additive: true,
+        incomingOffsetYFraction: 0,
+        incomingBacking: false,
+      }
+    : {
+        outgoingAlpha: 1,
+        incomingAlpha: 1,
+        additive: false,
+        incomingOffsetYFraction: progress - 1,
+        incomingBacking: true,
+      }
 }
