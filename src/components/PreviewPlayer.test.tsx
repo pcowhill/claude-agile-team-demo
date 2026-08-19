@@ -94,13 +94,19 @@ describe('PreviewPlayer', () => {
     fireEvent.change(slider, { target: { value: '3.5' } })
     const incoming = screen.getByTestId('preview-video-incoming')
     expect(incoming).toHaveStyle({ opacity: '0.5' })
+    // The incoming layer ADDS to the outgoing one (a true dissolve), and the
+    // outgoing element fades to the stage's black at 1 − progress — so
+    // margins the incoming clip does not cover dim instead of popping (#66).
+    expect(incoming).toHaveStyle({ mixBlendMode: 'plus-lighter' })
+    expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '0.5' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm → second.webm (crossfade)',
     )
 
-    // Seeking back out returns to single-clip rendering.
+    // Seeking back out returns to single-clip rendering at full opacity.
     fireEvent.change(slider, { target: { value: '1' } })
     expect(screen.queryByTestId('preview-video-incoming')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-video')).not.toHaveStyle({ opacity: '0.5' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm',
     )
@@ -118,6 +124,9 @@ describe('PreviewPlayer', () => {
     })
     const incoming = screen.getByTestId('preview-video-incoming')
     expect(incoming).toHaveStyle({ transform: 'translateY(-75%)' })
+    // Slides keep both layers opaque and non-blended until #67 is answered.
+    expect(incoming).toHaveStyle({ opacity: '1' })
+    expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '1' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('(slide from above)')
   })
 })

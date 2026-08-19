@@ -4,6 +4,7 @@ import type { TimelineState, TransitionType } from '../lib/timeline'
 import { boundaryTransitions, totalDuration } from '../lib/timeline'
 import { isTransitionOverlayActive, locateInSequence, sequenceTimeAt } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
+import { transitionLayerSpec } from '../lib/transitionRender'
 import { formatDuration } from '../lib/mediaLibrary'
 import './PreviewPlayer.css'
 
@@ -24,14 +25,28 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
 }
 
 /**
- * Style of the incoming video element mid-transition. Crossfade fades it in
- * over the still-playing outgoing clip; slide-from-above moves it down from
- * fully above the frame (clipped by the stage) to fully covering it.
+ * Styles for the two stacked video elements mid-transition, mapped from the
+ * shared layer spec (transitionRender.ts) that also drives the exporter, so
+ * preview and export render the same effect (#66). For a crossfade the
+ * outgoing element fades to black at `1 − progress` while the incoming one
+ * is ADDED at `progress` (`plus-lighter`): covered regions blend exactly as
+ * a plain opacity crossfade did, and any margin only one clip reaches fades
+ * to/from the stage's black instead of popping at the handover. Slides move
+ * the opaque incoming element down over an undimmed outgoing clip (#67).
  */
-function transitionOverlayStyle(overlap: TransitionOverlap): CSSProperties {
-  return overlap.type === 'crossfade'
-    ? { opacity: overlap.progress }
-    : { transform: `translateY(${(overlap.progress - 1) * 100}%)` }
+function transitionLayerStyles(overlap: TransitionOverlap): {
+  outgoing: CSSProperties
+  incoming: CSSProperties
+} {
+  const spec = transitionLayerSpec(overlap.type, overlap.progress)
+  return {
+    outgoing: { opacity: spec.outgoingAlpha },
+    incoming: {
+      opacity: spec.incomingAlpha,
+      transform: `translateY(${spec.incomingOffsetYFraction * 100}%)`,
+      mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
+    },
+  }
 }
 
 /**
@@ -271,15 +286,21 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
     ? location?.transition
     : undefined
 
+  const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
+
   /** Role-dependent props for one of the two stacked elements. */
   const videoProps = (isA: boolean) => {
     const isPrimary = isA === primaryIsA
     if (isPrimary) {
-      return { className: 'preview-video', 'data-testid': 'preview-video' }
+      return {
+        className: 'preview-video',
+        'data-testid': 'preview-video',
+        style: layerStyles?.outgoing,
+      }
     }
     return {
       className: `preview-video preview-video-incoming${overlap ? '' : ' preview-video-idle'}`,
-      style: overlap ? transitionOverlayStyle(overlap) : undefined,
+      style: layerStyles?.incoming,
       'data-testid': overlap ? 'preview-video-incoming' : undefined,
     }
   }

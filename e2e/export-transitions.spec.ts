@@ -19,14 +19,22 @@ interface FixtureOptions {
   family: 'red' | 'blue'
   /** Frequency of a steady tone mixed in from the start; omit for silence. */
   toneHz?: number
+  /** Frame size; defaults to 320×180. Differing sizes exercise #66. */
+  width?: number
+  height?: number
+  /**
+   * false = constant brightness (rgb 205 on the family channel), so pixel
+   * levels compare exactly across sample times (#66's margin ladder).
+   */
+  animate?: boolean
 }
 
 /** Records a real ~2 s WebM in-browser, color-coded and optionally with audio. */
 async function recordFixtureWebm(page: Page, options: FixtureOptions): Promise<Buffer> {
-  const webmBase64 = await page.evaluate(async ({ family, toneHz }) => {
+  const webmBase64 = await page.evaluate(async ({ family, toneHz, width, height, animate }) => {
     const canvas = document.createElement('canvas')
-    canvas.width = 320
-    canvas.height = 180
+    canvas.width = width ?? 320
+    canvas.height = height ?? 180
     const ctx = canvas.getContext('2d')!
     const stream = canvas.captureStream(30)
 
@@ -63,8 +71,12 @@ async function recordFixtureWebm(page: Page, options: FixtureOptions): Promise<B
       const draw = () => {
         // Brightness pulses (the clip is in motion) while the hue stays in
         // its family, so per-channel averages identify the clip regardless
-        // of which exact frame a sample lands on.
-        const pulse = Math.round(50 * (1 + Math.sin((performance.now() - start) / 100)))
+        // of which exact frame a sample lands on. Non-animated fixtures hold
+        // the pulse's midpoint so levels compare exactly across samples.
+        const pulse =
+          animate === false
+            ? 50
+            : Math.round(50 * (1 + Math.sin((performance.now() - start) / 100)))
         ctx.fillStyle =
           family === 'red' ? `rgb(${155 + pulse}, 0, 0)` : `rgb(0, 0, ${155 + pulse})`
         ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -155,7 +167,7 @@ async function sampleExportedFrame(
   page: Page,
   webm: Buffer,
   fromEndSeconds: number,
-  band: 'full' | 'top-quarter' | 'bottom-quarter',
+  band: 'full' | 'top-quarter' | 'bottom-quarter' | 'left-fifth' | 'center-fifth',
 ): Promise<FrameSample> {
   return await page.evaluate(
     async ({ base64, fromEndSeconds, band }) => {
@@ -204,10 +216,18 @@ async function sampleExportedFrame(
         canvas.height = video.videoHeight
         const ctx = canvas.getContext('2d')!
         ctx.drawImage(video, 0, 0)
-        const bandHeight =
-          band === 'full' ? canvas.height : Math.max(1, Math.floor(canvas.height / 4))
-        const bandTop = band === 'bottom-quarter' ? canvas.height - bandHeight : 0
-        const data = ctx.getImageData(0, bandTop, canvas.width, bandHeight).data
+        let bandX = 0
+        let bandWidth = canvas.width
+        let bandTop = 0
+        let bandHeight = canvas.height
+        if (band === 'top-quarter' || band === 'bottom-quarter') {
+          bandHeight = Math.max(1, Math.floor(canvas.height / 4))
+          bandTop = band === 'bottom-quarter' ? canvas.height - bandHeight : 0
+        } else if (band === 'left-fifth' || band === 'center-fifth') {
+          bandWidth = Math.max(1, Math.floor(canvas.width / 5))
+          bandX = band === 'center-fifth' ? Math.floor((canvas.width - bandWidth) / 2) : 0
+        }
+        const data = ctx.getImageData(bandX, bandTop, bandWidth, bandHeight).data
         let r = 0
         let g = 0
         let b = 0
@@ -312,6 +332,58 @@ test('a crossfade exports as a blended overlap with mixed, gapless audio', async
     })
     expect(peak).toBeGreaterThan(AUDIBLE_PEAK)
   }
+})
+
+test('a crossfade between different aspect ratios exports margins fading to black, not popping (#66)', async ({
+  page,
+}) => {
+  test.setTimeout(150_000)
+  await page.goto('./')
+
+  // Solid-brightness fixtures (no pulse) so margin levels compare exactly
+  // across sample times; different frame sizes so the incoming clip leaves
+  // uncovered margins. The export canvas takes the largest source (320×180)
+  // and pillarboxes the square incoming clip to x ∈ [70, 250], so the left
+  // fifth of the frame (x < 64) is margin the incoming clip never covers.
+  const red = await recordFixtureWebm(page, { family: 'red', animate: false })
+  const blue = await recordFixtureWebm(page, {
+    family: 'blue',
+    animate: false,
+    width: 180,
+    height: 180,
+  })
+  await buildTransitionSequence(page, red, blue)
+
+  const exported = await exportOnce(page)
+  expect(exported.byteLength).toBeGreaterThan(1000)
+
+  // The overlap occupies [end − 1.0, end − 0.5]. Margin ladder: solo red,
+  // progress 0.2, 0.5, 0.9, then past the handover (solo blue).
+  const solo = (await sampleExportedFrame(page, exported, 1.25, 'left-fifth')).r
+  const early = (await sampleExportedFrame(page, exported, 0.9, 'left-fifth')).r
+  const mid = (await sampleExportedFrame(page, exported, 0.75, 'left-fifth')).r
+  const late = (await sampleExportedFrame(page, exported, 0.55, 'left-fifth')).r
+  const after = (await sampleExportedFrame(page, exported, 0.25, 'left-fifth')).r
+
+  // Mid-overlap the margin is the outgoing clip blended toward black in
+  // proportion to progress — not the outgoing clip at full brightness.
+  expect(solo).toBeGreaterThan(120)
+  expect(mid).toBeGreaterThan(solo * 0.3)
+  expect(mid).toBeLessThan(solo * 0.7)
+
+  // The ladder decreases monotonically across the overlap into black after
+  // the handover — no frame steps the margin from bright to black at once.
+  expect(early).toBeLessThan(solo + 6)
+  expect(early).toBeGreaterThan(solo * 0.6)
+  expect(mid).toBeLessThan(early - 20)
+  expect(late).toBeLessThan(mid - 20)
+  expect(late).toBeLessThan(solo * 0.3)
+  expect(after).toBeLessThan(ABSENT)
+
+  // Where the clips do overlap, mid-crossfade still carries both families.
+  const centerMid = await sampleExportedFrame(page, exported, 0.75, 'center-fifth')
+  expect(centerMid.r).toBeGreaterThan(BLENDED)
+  expect(centerMid.b).toBeGreaterThan(BLENDED)
 })
 
 test('a slide-from-above exports with the incoming clip covering from the top', async ({

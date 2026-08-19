@@ -5,7 +5,6 @@ import {
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   fitRect,
   pickExportMimeType,
-  transitionOverlayDraw,
 } from './exportVideo'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
@@ -150,26 +149,8 @@ describe('createAudioCapture', () => {
   })
 })
 
-describe('transitionOverlayDraw', () => {
-  it('crossfade fades the incoming frame in with no displacement', () => {
-    expect(transitionOverlayDraw('crossfade', 0)).toEqual({ alpha: 0, offsetYFraction: 0 })
-    expect(transitionOverlayDraw('crossfade', 0.25)).toEqual({ alpha: 0.25, offsetYFraction: 0 })
-    expect(transitionOverlayDraw('crossfade', 1)).toEqual({ alpha: 1, offsetYFraction: 0 })
-  })
-
-  it('slide-from-above moves the opaque incoming frame down from fully above', () => {
-    // Matches the preview's translateY((progress - 1) * 100%).
-    expect(transitionOverlayDraw('slide-from-above', 0)).toEqual({
-      alpha: 1,
-      offsetYFraction: -1,
-    })
-    expect(transitionOverlayDraw('slide-from-above', 0.5)).toEqual({
-      alpha: 1,
-      offsetYFraction: -0.5,
-    })
-    expect(transitionOverlayDraw('slide-from-above', 1)).toEqual({ alpha: 1, offsetYFraction: 0 })
-  })
-})
+// The per-layer transition alphas live in transitionRender.ts (shared with
+// the preview) and are tested in transitionRender.test.ts.
 
 describe('fitRect', () => {
   it('fills the target when aspect ratios match', () => {

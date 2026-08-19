@@ -26,6 +26,11 @@
   background: #000;
   border-radius: 6px;
   overflow: hidden;
+  /* The crossfade blends the incoming element additively (plus-lighter,
+     #66); isolating the stage guarantees the blend composites against the
+     stage's own black and the outgoing element, never anything behind the
+     stage. */
+  isolation: isolate;
 }
 
 /* Both elements fill the stage; object-fit letterboxes/pillarboxes inside

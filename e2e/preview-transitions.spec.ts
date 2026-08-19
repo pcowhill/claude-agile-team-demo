@@ -217,6 +217,198 @@ for (const type of ['crossfade', 'slide-from-above'] as const) {
   })
 }
 
+/** Records a solid-color WebM of the given size (every frame identical). */
+async function recordSolidWebm(
+  page: import('@playwright/test').Page,
+  family: 'red' | 'blue',
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const webmBase64 = await page.evaluate(
+    async ({ family, width, height }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' })
+      const chunks: Blob[] = []
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data)
+      }
+      const stopped = new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve()
+      })
+      recorder.start()
+      const start = performance.now()
+      await new Promise<void>((resolve) => {
+        const draw = () => {
+          ctx.fillStyle = family === 'red' ? 'rgb(205, 0, 0)' : 'rgb(0, 0, 205)'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+          if (performance.now() - start > 1500) resolve()
+          else requestAnimationFrame(draw)
+        }
+        draw()
+      })
+      recorder.stop()
+      await stopped
+      const buffer = await new Blob(chunks, { type: 'video/webm' }).arrayBuffer()
+      let binary = ''
+      for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
+      return btoa(binary)
+    },
+    { family, width, height },
+  )
+  return Buffer.from(webmBase64, 'base64')
+}
+
+/** Per-channel average of a screenshot clip, decoded in-page. */
+async function sampleScreenRect(
+  page: import('@playwright/test').Page,
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<{ r: number; g: number; b: number }> {
+  const png = await page.screenshot({ clip: rect })
+  return page.evaluate(async (base64) => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${base64}`
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    let r = 0
+    let g = 0
+    let b = 0
+    const pixels = data.length / 4
+    for (let index = 0; index < data.length; index += 4) {
+      r += data[index]
+      g += data[index + 1]
+      b += data[index + 2]
+    }
+    return { r: r / pixels, g: g / pixels, b: b / pixels }
+  }, png.toString('base64'))
+}
+
+test('a crossfade between different aspect ratios fades the uncovered margins to black (#66)', async ({
+  page,
+}) => {
+  await page.goto('./')
+
+  // A wide outgoing clip and a square incoming one: inside the stage the
+  // square clip pillarboxes, leaving side margins only the outgoing clip
+  // reaches. Solid colors make every frame's level identical, so paused
+  // seeks compare exactly.
+  const red = await recordSolidWebm(page, 'red', 320, 180)
+  const blue = await recordSolidWebm(page, 'blue', 180, 180)
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'red.webm', mimeType: 'video/webm', buffer: red },
+    { name: 'blue.webm', mimeType: 'video/webm', buffer: blue },
+  ])
+  await page.getByRole('button', { name: 'Add red.webm to timeline' }).click()
+  await page.getByRole('button', { name: 'Add blue.webm to timeline' }).click()
+  for (const [position, name] of [
+    [1, 'red'],
+    [2, 'blue'],
+  ] as const) {
+    const outField = page.getByRole('spinbutton', {
+      name: `Trim out point of ${name}.webm at position ${position} in seconds`,
+    })
+    await outField.fill('1')
+    await outField.blur()
+  }
+  await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+  const duration = page.getByRole('spinbutton', {
+    name: 'Transition duration between position 1 and 2 in seconds',
+  })
+  await duration.fill('0.5')
+  await duration.blur()
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect(seek).toHaveAttribute('max', '1.5')
+
+  // Both elements fill the stage with object-fit: contain, so each clip's
+  // painted box is the aspect-fit of its source size into the stage box.
+  const stage = (await page.getByTestId('preview-video').boundingBox())!
+  const contain = (sourceWidth: number, sourceHeight: number) => {
+    const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
+    return {
+      x: stage.x + (stage.width - sourceWidth * scale) / 2,
+      y: stage.y + (stage.height - sourceHeight * scale) / 2,
+      width: sourceWidth * scale,
+      height: sourceHeight * scale,
+    }
+  }
+  const redBox = contain(320, 180)
+  const blueBox = contain(180, 180)
+  // A band inside the outgoing clip's box but left of the incoming clip's:
+  // the margin the incoming clip never covers.
+  const margin = {
+    x: redBox.x + 3,
+    y: redBox.y + redBox.height * 0.4,
+    width: blueBox.x - redBox.x - 6,
+    height: redBox.height * 0.2,
+  }
+  // Layout sanity: the fixtures actually produce an uncovered margin.
+  expect(margin.width).toBeGreaterThan(10)
+  const center = {
+    x: blueBox.x + blueBox.width * 0.4,
+    y: blueBox.y + blueBox.height * 0.4,
+    width: blueBox.width * 0.2,
+    height: blueBox.height * 0.2,
+  }
+
+  /** Seeks (paused), waits for decodable frames on both live elements. */
+  const seekAndSettle = async (time: string) => {
+    await seek.fill(time)
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('preview-video')
+          .evaluate((el: HTMLVideoElement) => el.readyState),
+      )
+      .toBeGreaterThanOrEqual(2)
+    if ((await page.getByTestId('preview-video-incoming').count()) > 0) {
+      await expect
+        .poll(() =>
+          page
+            .getByTestId('preview-video-incoming')
+            .evaluate((el: HTMLVideoElement) => el.readyState),
+        )
+        .toBeGreaterThanOrEqual(2)
+    }
+  }
+  const marginRedAt = async (time: string) => {
+    await seekAndSettle(time)
+    return (await sampleScreenRect(page, margin)).r
+  }
+
+  // Margin ladder across the overlap [0.5, 1.0): solo, progress 0.2, 0.5,
+  // 0.9, then past the handover.
+  const solo = await marginRedAt('0.25')
+  expect(solo).toBeGreaterThan(120)
+  const early = await marginRedAt('0.6')
+  const mid = await marginRedAt('0.75')
+  // Where the clips overlap, mid-crossfade carries both color families.
+  const centerMid = await sampleScreenRect(page, center)
+  expect(centerMid.r).toBeGreaterThan(40)
+  expect(centerMid.b).toBeGreaterThan(40)
+  const late = await marginRedAt('0.95')
+  const after = await marginRedAt('1.2')
+
+  // Mid-overlap the margin is the outgoing clip blended toward black in
+  // proportion to progress — not at full brightness (#66's failing case).
+  expect(mid).toBeGreaterThan(solo * 0.3)
+  expect(mid).toBeLessThan(solo * 0.7)
+
+  // Monotonic decrease into black: nothing pops at the handover.
+  expect(early).toBeLessThan(solo + 6)
+  expect(early).toBeGreaterThan(solo * 0.6)
+  expect(mid).toBeLessThan(early - 20)
+  expect(late).toBeLessThan(mid - 20)
+  expect(late).toBeLessThan(solo * 0.3)
+  expect(after).toBeLessThan(12)
+})
+
 test('seeking into a slide-from-above overlap renders the mid-effect state', async ({ page }) => {
   await page.goto('./')
   await buildTwoEntrySequence(page)
