@@ -22,6 +22,9 @@ const BOUNDARY_EPSILON = 0.02
 const TRANSITION_LABEL: Record<TransitionType, string> = {
   crossfade: 'crossfade',
   'slide-from-above': 'slide from above',
+  'slide-from-below': 'slide from below',
+  'slide-from-left': 'slide from left',
+  'slide-from-right': 'slide from right',
 }
 
 /**
@@ -46,7 +49,7 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
     outgoing: { opacity: spec.outgoingAlpha },
     incoming: {
       opacity: spec.incomingAlpha,
-      transform: `translateY(${spec.incomingOffsetYFraction * 100}%)`,
+      transform: `translate(${spec.incomingOffsetXFraction * 100}%, ${spec.incomingOffsetYFraction * 100}%)`,
       mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
       backgroundColor: spec.incomingBacking ? '#000' : undefined,
     },

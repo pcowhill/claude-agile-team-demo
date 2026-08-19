@@ -37,6 +37,9 @@ const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: Z
 const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
   crossfade: 'Crossfade',
   'slide-from-above': 'Slide from above',
+  'slide-from-below': 'Slide from below',
+  'slide-from-left': 'Slide from left',
+  'slide-from-right': 'Slide from right',
 }
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */

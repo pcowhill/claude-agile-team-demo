@@ -116,24 +116,36 @@ describe('PreviewPlayer', () => {
     expect(screen.getByTestId('preview-now-playing')).not.toHaveTextContent('→')
   })
 
-  it('renders slide-from-above as a translate of the incoming element', () => {
-    const slide: TimelineState = {
-      ...withTransition,
-      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'slide-from-above', duration: 1 }],
-    }
-    render(<PreviewPlayer timeline={slide} />)
-    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
-      target: { value: '3.25' },
+  // Seek 3.25 is a quarter into the 1s overlap, so the incoming element is
+  // still 75% of the frame away from exact cover, on each direction's own
+  // axis (#62).
+  const slideCases = [
+    ['slide-from-above', 'translate(0%, -75%)', '(slide from above)'],
+    ['slide-from-below', 'translate(0%, 75%)', '(slide from below)'],
+    ['slide-from-left', 'translate(-75%, 0%)', '(slide from left)'],
+    ['slide-from-right', 'translate(75%, 0%)', '(slide from right)'],
+  ] as const
+
+  for (const [type, transform, label] of slideCases) {
+    it(`renders ${type} as a translate of the incoming element`, () => {
+      const slide: TimelineState = {
+        ...withTransition,
+        transitions: [{ beforeId: 'e1', afterId: 'e2', type, duration: 1 }],
+      }
+      render(<PreviewPlayer timeline={slide} />)
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '3.25' },
+      })
+      const incoming = screen.getByTestId('preview-video-incoming')
+      expect(incoming).toHaveStyle({ transform })
+      // Slides keep both layers opaque and non-blended; the incoming element
+      // is a full-frame card with its own black backing, so the areas its
+      // fitted clip does not cover slide in as black (#74, the customer's
+      // decision on #67).
+      expect(incoming).toHaveStyle({ opacity: '1' })
+      expect(incoming).toHaveStyle({ backgroundColor: '#000' })
+      expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '1' })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(label)
     })
-    const incoming = screen.getByTestId('preview-video-incoming')
-    expect(incoming).toHaveStyle({ transform: 'translateY(-75%)' })
-    // Slides keep both layers opaque and non-blended; the incoming element
-    // is a full-frame card with its own black backing, so the areas its
-    // fitted clip does not cover slide in as black (#74, the customer's
-    // decision on #67).
-    expect(incoming).toHaveStyle({ opacity: '1' })
-    expect(incoming).toHaveStyle({ backgroundColor: '#000' })
-    expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '1' })
-    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('(slide from above)')
-  })
+  }
 })

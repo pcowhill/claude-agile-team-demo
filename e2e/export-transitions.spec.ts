@@ -172,6 +172,7 @@ async function sampleExportedFrame(
     | 'top-quarter'
     | 'bottom-quarter'
     | 'left-fifth'
+    | 'right-fifth'
     | 'center-fifth'
     | 'margin-upper'
     | 'margin-lower',
@@ -230,9 +231,14 @@ async function sampleExportedFrame(
         if (band === 'top-quarter' || band === 'bottom-quarter') {
           bandHeight = Math.max(1, Math.floor(canvas.height / 4))
           bandTop = band === 'bottom-quarter' ? canvas.height - bandHeight : 0
-        } else if (band === 'left-fifth' || band === 'center-fifth') {
+        } else if (band === 'left-fifth' || band === 'right-fifth' || band === 'center-fifth') {
           bandWidth = Math.max(1, Math.floor(canvas.width / 5))
-          bandX = band === 'center-fifth' ? Math.floor((canvas.width - bandWidth) / 2) : 0
+          bandX =
+            band === 'center-fifth'
+              ? Math.floor((canvas.width - bandWidth) / 2)
+              : band === 'right-fifth'
+                ? canvas.width - bandWidth
+                : 0
         } else if (band === 'margin-upper' || band === 'margin-lower') {
           // Left-margin sub-bands for the slide card ladder (#74): x is the
           // fifth of the frame a pillarboxed square incoming clip never
@@ -491,4 +497,33 @@ test('a slide-from-above exports with the incoming clip covering from the top', 
   expect(top.r).toBeLessThan(ABSENT)
   expect(bottom.r).toBeGreaterThan(DOMINANT)
   expect(bottom.b).toBeLessThan(ABSENT)
+})
+
+test('a slide-from-left exports with the incoming clip covering from the left (#62)', async ({
+  page,
+}) => {
+  test.setTimeout(150_000)
+  await page.goto('./')
+
+  const red = await recordFixtureWebm(page, { family: 'red' })
+  const blue = await recordFixtureWebm(page, { family: 'blue' })
+  await buildTransitionSequence(page, red, blue)
+  await page
+    .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+    .selectOption('slide-from-left')
+
+  const exported = await exportOnce(page)
+
+  const left = await sampleExportedFrame(page, exported, 0.75, 'left-fifth')
+  const right = await sampleExportedFrame(page, exported, 0.75, 'right-fifth')
+  expect(left.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(left.duration).toBeLessThan(1.5 + 1)
+
+  // Mid-slide the incoming (blue) clip covers the left of the frame while
+  // the outgoing (red) clip still shows on the right — the horizontal twin
+  // of the slide-from-above evidence above.
+  expect(left.b).toBeGreaterThan(DOMINANT)
+  expect(left.r).toBeLessThan(ABSENT)
+  expect(right.r).toBeGreaterThan(DOMINANT)
+  expect(right.b).toBeLessThan(ABSENT)
 })

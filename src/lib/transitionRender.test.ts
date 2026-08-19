@@ -7,6 +7,7 @@ describe('transitionLayerSpec', () => {
       outgoingAlpha: 1,
       incomingAlpha: 0,
       additive: true,
+      incomingOffsetXFraction: 0,
       incomingOffsetYFraction: 0,
       incomingBacking: false,
     })
@@ -14,6 +15,7 @@ describe('transitionLayerSpec', () => {
       outgoingAlpha: 0.75,
       incomingAlpha: 0.25,
       additive: true,
+      incomingOffsetXFraction: 0,
       incomingOffsetYFraction: 0,
       incomingBacking: false,
     })
@@ -21,6 +23,7 @@ describe('transitionLayerSpec', () => {
       outgoingAlpha: 0,
       incomingAlpha: 1,
       additive: true,
+      incomingOffsetXFraction: 0,
       incomingOffsetYFraction: 0,
       incomingBacking: false,
     })
@@ -50,27 +53,55 @@ describe('transitionLayerSpec', () => {
     expect(transitionLayerSpec('crossfade', 1).outgoingAlpha).toBe(0)
   })
 
-  it('slide-from-above moves both-opaque layers, the incoming one as a black-backed card (#74)', () => {
-    expect(transitionLayerSpec('slide-from-above', 0)).toEqual({
-      outgoingAlpha: 1,
-      incomingAlpha: 1,
-      additive: false,
-      incomingOffsetYFraction: -1,
-      incomingBacking: true,
+  // Each slide direction enters from its own edge: at progress 0 the incoming
+  // layer sits one full frame beyond that edge (entirely outside the frame),
+  // and at progress 1 it exactly covers the frame — offsets (0, 0) (#62).
+  const SLIDES = [
+    ['slide-from-above', { x: 0, y: -1 }],
+    ['slide-from-below', { x: 0, y: 1 }],
+    ['slide-from-left', { x: -1, y: 0 }],
+    ['slide-from-right', { x: 1, y: 0 }],
+  ] as const
+
+  for (const [type, edge] of SLIDES) {
+    it(`${type} moves both-opaque layers, the incoming one as a black-backed card (#74)`, () => {
+      expect(transitionLayerSpec(type, 0)).toEqual({
+        outgoingAlpha: 1,
+        incomingAlpha: 1,
+        additive: false,
+        incomingOffsetXFraction: edge.x,
+        incomingOffsetYFraction: edge.y,
+        incomingBacking: true,
+      })
+      expect(transitionLayerSpec(type, 0.5)).toEqual({
+        outgoingAlpha: 1,
+        incomingAlpha: 1,
+        additive: false,
+        incomingOffsetXFraction: edge.x * 0.5,
+        incomingOffsetYFraction: edge.y * 0.5,
+        incomingBacking: true,
+      })
+      expect(transitionLayerSpec(type, 1)).toEqual({
+        outgoingAlpha: 1,
+        incomingAlpha: 1,
+        additive: false,
+        incomingOffsetXFraction: 0,
+        incomingOffsetYFraction: 0,
+        incomingBacking: true,
+      })
     })
-    expect(transitionLayerSpec('slide-from-above', 0.5)).toEqual({
-      outgoingAlpha: 1,
-      incomingAlpha: 1,
-      additive: false,
-      incomingOffsetYFraction: -0.5,
-      incomingBacking: true,
-    })
-    expect(transitionLayerSpec('slide-from-above', 1)).toEqual({
-      outgoingAlpha: 1,
-      incomingAlpha: 1,
-      additive: false,
-      incomingOffsetYFraction: 0,
-      incomingBacking: true,
-    })
+  }
+
+  it('slides only ever offset along their own axis, so the card never drifts diagonally', () => {
+    for (const [type] of SLIDES) {
+      for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const spec = transitionLayerSpec(type, progress)
+        expect(spec.incomingOffsetXFraction === 0 || spec.incomingOffsetYFraction === 0).toBe(true)
+        expect(Math.abs(spec.incomingOffsetXFraction + spec.incomingOffsetYFraction)).toBeCloseTo(
+          1 - progress,
+          10,
+        )
+      }
+    }
   })
 })

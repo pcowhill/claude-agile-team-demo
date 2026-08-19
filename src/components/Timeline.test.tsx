@@ -160,9 +160,20 @@ describe('timeline', () => {
         screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
       )
 
+      const typeSelect = screen.getByRole('combobox', {
+        name: 'Transition type between position 1 and 2',
+      })
+      expect(typeSelect).toHaveValue('crossfade')
+      // All five effects are offered, each with a plain-language label (#62).
       expect(
-        screen.getByRole('combobox', { name: 'Transition type between position 1 and 2' }),
-      ).toHaveValue('crossfade')
+        Array.from(typeSelect.querySelectorAll('option'), (option) => option.textContent),
+      ).toEqual([
+        'Crossfade',
+        'Slide from above',
+        'Slide from below',
+        'Slide from left',
+        'Slide from right',
+      ])
       expect(
         screen.getByRole('spinbutton', {
           name: 'Transition duration between position 1 and 2 in seconds',

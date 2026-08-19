@@ -16,6 +16,8 @@ export interface TransitionLayerSpec {
    * covering it (canvas `lighter`, CSS `plus-lighter`).
    */
   additive: boolean
+  /** Horizontal offset of the incoming layer, as a fraction of frame width. */
+  incomingOffsetXFraction: number
   /** Vertical offset of the incoming layer, as a fraction of frame height. */
   incomingOffsetYFraction: number
   /**
@@ -46,21 +48,38 @@ export interface TransitionLayerSpec {
  * the handover the card exactly covers the frame, so nothing pops.
  * Crossfade needs no backing: its incoming layer is ADDED, so the fitted
  * box's empty surroundings contribute nothing by construction.
+ *
+ * Every slide direction is the same card on a different entry edge: the unit
+ * vector below is where the card sits at progress 0 (one full frame off,
+ * beyond that edge), and it travels to (0, 0) — exact cover — at progress 1.
  */
+const SLIDE_ENTRY_VECTOR: Record<Exclude<TransitionType, 'crossfade'>, { x: number; y: number }> = {
+  'slide-from-above': { x: 0, y: -1 },
+  'slide-from-below': { x: 0, y: 1 },
+  'slide-from-left': { x: -1, y: 0 },
+  'slide-from-right': { x: 1, y: 0 },
+}
+
 export function transitionLayerSpec(type: TransitionType, progress: number): TransitionLayerSpec {
-  return type === 'crossfade'
-    ? {
-        outgoingAlpha: 1 - progress,
-        incomingAlpha: progress,
-        additive: true,
-        incomingOffsetYFraction: 0,
-        incomingBacking: false,
-      }
-    : {
-        outgoingAlpha: 1,
-        incomingAlpha: 1,
-        additive: false,
-        incomingOffsetYFraction: progress - 1,
-        incomingBacking: true,
-      }
+  if (type === 'crossfade') {
+    return {
+      outgoingAlpha: 1 - progress,
+      incomingAlpha: progress,
+      additive: true,
+      incomingOffsetXFraction: 0,
+      incomingOffsetYFraction: 0,
+      incomingBacking: false,
+    }
+  }
+  const entry = SLIDE_ENTRY_VECTOR[type]
+  // `+ 0` turns the -0 of a negative entry vector times zero travel into
+  // plain 0, so progress 1 yields exact-cover offsets of (0, 0).
+  return {
+    outgoingAlpha: 1,
+    incomingAlpha: 1,
+    additive: false,
+    incomingOffsetXFraction: entry.x * (1 - progress) + 0,
+    incomingOffsetYFraction: entry.y * (1 - progress) + 0,
+    incomingBacking: true,
+  }
 }
