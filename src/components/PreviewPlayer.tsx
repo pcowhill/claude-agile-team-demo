@@ -5,6 +5,8 @@ import { boundaryTransitions, totalDuration } from '../lib/timeline'
 import { isTransitionOverlayActive, locateInSequence, sequenceTimeAt } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { transitionLayerSpec } from '../lib/transitionRender'
+import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
+import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import './PreviewPlayer.css'
 
@@ -53,6 +55,36 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
       mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
       backgroundColor: spec.incomingBacking ? '#000' : undefined,
     },
+  }
+}
+
+/**
+ * Composes an element's transition styles with its entry's zoom state (#64).
+ * The element box is the frame (it fills the stage), so the transform maps a
+ * frame fraction p to 0.5 + scale·(p − centre): the visible region
+ * centre ± 1/(2·scale) lands exactly on the frame edges. Uniform scale on
+ * both axes preserves the aspect ratio by construction, and the reducer's
+ * centre clamp keeps the region inside the frame, so nothing beyond a frame
+ * edge is ever pulled into view. The clip-path pre-cuts the element to that
+ * same region — the piece the transform maps onto the (possibly
+ * slide-translated) frame card — so a zoomed element, backing included
+ * (#74), never paints outside where its unzoomed card would be, and a
+ * zoomed slide still covers exactly its slice of the stage. The identity
+ * zoom returns the transition styles untouched, transform format included.
+ */
+function withZoom(style: CSSProperties | undefined, zoom: ZoomState): CSSProperties | undefined {
+  if (zoom.scale === 1) return style
+  const { scale, centerX, centerY } = zoom
+  const half = 1 / (2 * scale)
+  const pct = (value: number) => `${value * 100}%`
+  return {
+    ...style,
+    transform: [
+      ...(style?.transform ? [style.transform] : []),
+      `scale(${scale})`,
+      `translate(${pct(0.5 - centerX)}, ${pct(0.5 - centerY)})`,
+    ].join(' '),
+    clipPath: `inset(${pct(centerY - half)} ${pct(1 - centerX - half)} ${pct(1 - centerY - half)} ${pct(centerX - half)})`,
   }
 }
 
@@ -295,6 +327,18 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
 
   const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
 
+  // Each element's zoom (#64) at its entry's current source time: the
+  // primary element renders `location`'s entry, the incoming element (only
+  // while the overlay is active) the transition's incoming entry — so a zoom
+  // follows its clip through a transition on either side. Both derive from
+  // the published sequence time, exactly like the transition styles, so a
+  // rAF tick and a paused seek update them the same way. All easing lives in
+  // zoomAt (#63); this component only maps its output to CSS.
+  const primaryZoom = location
+    ? zoomAt(timeline, location.index, location.sourceTime)
+    : IDENTITY_ZOOM
+  const incomingZoom = overlap ? zoomAt(timeline, overlap.index, overlap.sourceTime) : IDENTITY_ZOOM
+
   /** Role-dependent props for one of the two stacked elements. */
   const videoProps = (isA: boolean) => {
     const isPrimary = isA === primaryIsA
@@ -302,12 +346,12 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       return {
         className: 'preview-video',
         'data-testid': 'preview-video',
-        style: layerStyles?.outgoing,
+        style: withZoom(layerStyles?.outgoing, primaryZoom),
       }
     }
     return {
       className: `preview-video preview-video-incoming${overlap ? '' : ' preview-video-idle'}`,
-      style: layerStyles?.incoming,
+      style: overlap ? withZoom(layerStyles?.incoming, incomingZoom) : undefined,
       'data-testid': overlap ? 'preview-video-incoming' : undefined,
     }
   }
