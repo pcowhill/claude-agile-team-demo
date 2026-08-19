@@ -5,6 +5,7 @@ import {
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   fitRect,
   pickExportMimeType,
+  transitionOverlayDraw,
 } from './exportVideo'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
@@ -43,15 +44,19 @@ function fakeAudioContext(state: AudioContextState = 'running') {
   const track = { kind: 'audio', stopped: false, stop() { this.stopped = true } }
   const streamDestination = { stream: { getAudioTracks: () => [track] } }
   const connectedTo: unknown[] = []
+  const sourcedElements: unknown[] = []
   const context = {
     state,
     closed: false,
     resumeCount: 0,
     /** The speakers. Connecting here would play the export out loud. */
     destination: { name: 'speakers' },
-    createMediaElementSource: () => ({
-      connect: (target: unknown) => connectedTo.push(target),
-    }),
+    createMediaElementSource: (element: unknown) => {
+      sourcedElements.push(element)
+      return {
+        connect: (target: unknown) => connectedTo.push(target),
+      }
+    },
     createMediaStreamDestination: () => streamDestination,
     resume: async () => {
       context.resumeCount++
@@ -61,7 +66,7 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       context.closed = true
     },
   }
-  return { context, track, streamDestination, connectedTo }
+  return { context, track, streamDestination, connectedTo, sourcedElements }
 }
 
 const asAudioContext = (context: unknown) => context as AudioContext
@@ -70,24 +75,34 @@ describe('createAudioCapture', () => {
   it('feeds the element into a stream destination and returns its track', async () => {
     const fake = fakeAudioContext()
     const capture = await createAudioCapture(
-      document.createElement('video'),
+      [document.createElement('video')],
       () => asAudioContext(fake.context),
     )
     expect(capture?.track).toBe(fake.track)
     expect(fake.connectedTo).toEqual([fake.streamDestination])
   })
 
+  it('mixes every element into the one destination (transition overlaps record both)', async () => {
+    const fake = fakeAudioContext()
+    const videos = [document.createElement('video'), document.createElement('video')]
+    const capture = await createAudioCapture(videos, () => asAudioContext(fake.context))
+    expect(capture?.track).toBe(fake.track)
+    expect(fake.sourcedElements).toEqual(videos)
+    // Both sources reach the same destination — one mixed recorded track.
+    expect(fake.connectedTo).toEqual([fake.streamDestination, fake.streamDestination])
+  })
+
   it('never connects the graph to the speakers', async () => {
     // Otherwise exporting a 30 s sequence plays all 30 s out loud.
     const fake = fakeAudioContext()
-    await createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context))
+    await createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context))
     expect(fake.connectedTo).not.toContain(fake.context.destination)
   })
 
   it('resumes a suspended context, which would otherwise record silence', async () => {
     const fake = fakeAudioContext('suspended')
     const capture = await createAudioCapture(
-      document.createElement('video'),
+      [document.createElement('video')],
       () => asAudioContext(fake.context),
     )
     expect(fake.context.resumeCount).toBe(1)
@@ -98,7 +113,7 @@ describe('createAudioCapture', () => {
   it('disposing stops the track and closes the context', async () => {
     const fake = fakeAudioContext()
     const capture = await createAudioCapture(
-      document.createElement('video'),
+      [document.createElement('video')],
       () => asAudioContext(fake.context),
     )
     await capture?.dispose()
@@ -109,18 +124,18 @@ describe('createAudioCapture', () => {
   it('falls back to null when Web Audio is unavailable', async () => {
     // The caller reads null as "export video only" rather than as a failure.
     await expect(
-      createAudioCapture(document.createElement('video'), () => null),
+      createAudioCapture([document.createElement('video')], () => null),
     ).resolves.toBeNull()
   })
 
-  it('falls back to null and closes the context when the element is refused', async () => {
+  it('falls back to null and closes the context when an element is refused', async () => {
     // An element can be attached to only one MediaElementAudioSourceNode.
     const fake = fakeAudioContext()
     fake.context.createMediaElementSource = () => {
       throw new Error('already connected')
     }
     await expect(
-      createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context)),
+      createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
     ).resolves.toBeNull()
     expect(fake.context.closed).toBe(true)
   })
@@ -129,9 +144,30 @@ describe('createAudioCapture', () => {
     const fake = fakeAudioContext()
     fake.context.createMediaStreamDestination = () => ({ stream: { getAudioTracks: () => [] } })
     await expect(
-      createAudioCapture(document.createElement('video'), () => asAudioContext(fake.context)),
+      createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
     ).resolves.toBeNull()
     expect(fake.context.closed).toBe(true)
+  })
+})
+
+describe('transitionOverlayDraw', () => {
+  it('crossfade fades the incoming frame in with no displacement', () => {
+    expect(transitionOverlayDraw('crossfade', 0)).toEqual({ alpha: 0, offsetYFraction: 0 })
+    expect(transitionOverlayDraw('crossfade', 0.25)).toEqual({ alpha: 0.25, offsetYFraction: 0 })
+    expect(transitionOverlayDraw('crossfade', 1)).toEqual({ alpha: 1, offsetYFraction: 0 })
+  })
+
+  it('slide-from-above moves the opaque incoming frame down from fully above', () => {
+    // Matches the preview's translateY((progress - 1) * 100%).
+    expect(transitionOverlayDraw('slide-from-above', 0)).toEqual({
+      alpha: 1,
+      offsetYFraction: -1,
+    })
+    expect(transitionOverlayDraw('slide-from-above', 0.5)).toEqual({
+      alpha: 1,
+      offsetYFraction: -0.5,
+    })
+    expect(transitionOverlayDraw('slide-from-above', 1)).toEqual({ alpha: 1, offsetYFraction: 0 })
   })
 })
 
