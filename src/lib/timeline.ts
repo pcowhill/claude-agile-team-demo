@@ -16,7 +16,12 @@ export interface TimelineEntry {
   outPoint: number
 }
 
-export type TransitionType = 'crossfade' | 'slide-from-above'
+export type TransitionType =
+  | 'crossfade'
+  | 'slide-from-above'
+  | 'slide-from-below'
+  | 'slide-from-left'
+  | 'slide-from-right'
 
 export interface TransitionSpec {
   type: TransitionType

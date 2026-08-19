@@ -18,7 +18,7 @@
    now-playing line. The zero flex basis matters: the stage must never make
    the panel taller (which would grow the page and bring back scrolling) —
    it adapts to whatever height the app grid gave the panel. It holds the two
-   stacked video elements and clips the slide-from-above transition's path. */
+   stacked video elements and clips the slide transitions' paths. */
 .preview-stage {
   position: relative;
   flex: 1 1 0;

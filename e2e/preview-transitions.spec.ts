@@ -576,7 +576,7 @@ test('seeking into a slide-from-above overlap renders the mid-effect state', asy
   await seek.fill('0.75')
   const incoming = page.getByTestId('preview-video-incoming')
   await expect(incoming).toBeVisible()
-  expect(await incoming.evaluate((el) => el.style.transform)).toBe('translateY(-50%)')
+  expect(await incoming.evaluate((el) => el.style.transform)).toBe('translate(0%, -50%)')
   await expect(page.getByTestId('preview-now-playing')).toHaveText(
     'Clip 1 of 2: first.webm → second.webm (slide from above)',
   )
@@ -594,4 +594,47 @@ test('seeking into a slide-from-above overlap renders the mid-effect state', asy
   await seek.fill('0.25')
   await expect(page.getByTestId('preview-video-incoming')).toHaveCount(0)
   await expect(page.getByTestId('preview-now-playing')).toHaveText('Clip 1 of 2: first.webm')
+})
+
+test('seeking into each other slide direction renders the mid-effect transform (#62)', async ({
+  page,
+}) => {
+  await page.goto('./')
+  await buildTwoEntrySequence(page)
+
+  await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+  const duration = page.getByRole('spinbutton', {
+    name: 'Transition duration between position 1 and 2 in seconds',
+  })
+  await duration.fill('0.5')
+  await duration.blur()
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect(seek).toHaveAttribute('max', '1.5')
+
+  // Same sequence and overlap as the slide-from-above spec above; each
+  // remaining direction is checked half-way through the overlap, where the
+  // incoming element must sit half a frame from its own entry edge.
+  const cases = [
+    ['slide-from-below', 'translate(0%, 50%)', 'slide from below'],
+    ['slide-from-left', 'translate(-50%, 0%)', 'slide from left'],
+    ['slide-from-right', 'translate(50%, 0%)', 'slide from right'],
+  ] as const
+  for (const [type, transform, label] of cases) {
+    // Leave the overlap before switching type so the re-entry re-renders
+    // the incoming element from a change event.
+    await seek.fill('0.25')
+    await expect(page.getByTestId('preview-video-incoming')).toHaveCount(0)
+    await page
+      .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+      .selectOption(type)
+    await seek.fill('0.75')
+    const incoming = page.getByTestId('preview-video-incoming')
+    await expect(incoming).toBeVisible()
+    expect(await incoming.evaluate((el) => el.style.transform)).toBe(transform)
+    // The #74 card backing applies to every direction.
+    expect(await incoming.evaluate((el) => el.style.backgroundColor)).toBe('rgb(0, 0, 0)')
+    await expect(page.getByTestId('preview-now-playing')).toHaveText(
+      `Clip 1 of 2: first.webm → second.webm (${label})`,
+    )
+  }
 })

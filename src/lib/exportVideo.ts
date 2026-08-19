@@ -342,11 +342,16 @@ export async function exportTimeline(
         // The incoming layer is a full-frame card (#74): black backing the
         // size of the whole frame, moving with the clip fitted inside it.
         context.fillStyle = '#000'
-        context.fillRect(0, spec.incomingOffsetYFraction * height, width, height)
+        context.fillRect(
+          spec.incomingOffsetXFraction * width,
+          spec.incomingOffsetYFraction * height,
+          width,
+          height,
+        )
       }
       context.drawImage(
         overlay.element,
-        incoming.x,
+        incoming.x + spec.incomingOffsetXFraction * width,
         incoming.y + spec.incomingOffsetYFraction * height,
         incoming.width,
         incoming.height,
