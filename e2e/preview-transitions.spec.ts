@@ -125,6 +125,98 @@ test('playing across a crossfade keeps both clips live, fading the incoming one 
   expect(current).toBe(total)
 })
 
+/**
+ * In-page frame watcher for #61: resolves once playback has finished (or a
+ * flash is caught, or 15s pass). A "flash" is the outgoing clip's src on the
+ * top layer while that element is effectively visible — opacity past mid-fade
+ * and translated into frame. During a correct transition the top layer only
+ * ever holds the *incoming* clip, so any sighting of the first clip's src
+ * there is the bug regardless of timing.
+ */
+function watchForEndFlash(page: import('@playwright/test').Page) {
+  return page.evaluate(
+    () =>
+      new Promise<{ sawOverlay: boolean; sawFlash: boolean; detail: string }>((resolve) => {
+        const result = { sawOverlay: false, sawFlash: false, detail: '' }
+        let firstSrc = ''
+        let sawPlaying = false
+        const started = performance.now()
+        const check = () => {
+          const primary = document.querySelector<HTMLVideoElement>(
+            '[data-testid="preview-video"]',
+          )
+          const incoming = document.querySelector<HTMLVideoElement>(
+            '[data-testid="preview-video-incoming"]',
+          )
+          const pauseButton = document.querySelector('[aria-label="Pause preview"]')
+          if (pauseButton) sawPlaying = true
+          if (!firstSrc && primary?.currentSrc) firstSrc = primary.currentSrc
+          if (incoming && firstSrc) {
+            result.sawOverlay = true
+            if (incoming.currentSrc === firstSrc) {
+              const style = getComputedStyle(incoming)
+              const opacity = Number(style.opacity)
+              const matrix = new DOMMatrixReadOnly(
+                style.transform === 'none' ? undefined : style.transform,
+              )
+              const inFrame = matrix.m42 > -incoming.clientHeight * 0.05
+              if (style.visibility !== 'hidden' && opacity > 0.5 && inFrame) {
+                result.sawFlash = true
+                result.detail = `outgoing clip on the top layer (opacity=${opacity.toFixed(3)}, translateY=${matrix.m42.toFixed(1)}px)`
+              }
+            }
+          }
+          const ended = sawPlaying && !pauseButton
+          if (result.sawFlash || ended || performance.now() - started > 15_000) resolve(result)
+          else requestAnimationFrame(check)
+        }
+        check()
+      }),
+  )
+}
+
+for (const type of ['crossfade', 'slide-from-above'] as const) {
+  test(`ending a ${type} never flashes the outgoing clip over the incoming one (#61)`, async ({
+    page,
+  }) => {
+    await page.goto('./')
+    await buildTwoEntrySequence(page)
+
+    // 0.5s transition, shorter than the 1s outgoing clip (#61's condition):
+    // the overlap covers sequence [0.5, 1.0) of the 1.5s total.
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    if (type !== 'crossfade') {
+      await page
+        .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+        .selectOption(type)
+    }
+    const duration = page.getByRole('spinbutton', {
+      name: 'Transition duration between position 1 and 2 in seconds',
+    })
+    await duration.fill('0.5')
+    await duration.blur()
+    await expect(page.getByRole('slider', { name: 'Seek within sequence' })).toHaveAttribute(
+      'max',
+      '1.5',
+    )
+
+    // Started before Play so the handover frame cannot be missed.
+    const watcher = watchForEndFlash(page)
+    await page.getByRole('button', { name: 'Play preview' }).click()
+    const result = await watcher
+    // The overlay must actually have rendered (otherwise a pass proves nothing)…
+    expect(result.sawOverlay).toBe(true)
+    // …and at no frame was the outgoing clip visible on the top layer.
+    expect(result.sawFlash, result.detail).toBe(false)
+
+    // After the handover the overlay element is gone and playback runs out.
+    await expect(page.getByTestId('preview-video-incoming')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible({
+      timeout: 10_000,
+    })
+  })
+}
+
 test('seeking into a slide-from-above overlap renders the mid-effect state', async ({ page }) => {
   await page.goto('./')
   await buildTwoEntrySequence(page)

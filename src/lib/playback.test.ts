@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineEntry, TimelineState } from './timeline'
-import { entryStartTime, isAtSequenceEnd, locateInSequence, sequenceTimeAt } from './playback'
+import {
+  entryStartTime,
+  isAtSequenceEnd,
+  isTransitionOverlayActive,
+  locateInSequence,
+  sequenceTimeAt,
+} from './playback'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
   clipId: 'clip-a',
@@ -178,5 +184,36 @@ describe('overlap-aware sequence math', () => {
         10,
       )
     }
+  })
+})
+
+describe('isTransitionOverlayActive', () => {
+  it('is active while the secondary element is engaged for the overlap it is inside', () => {
+    const location = locateInSequence(withTransitions, 2.5)!
+    expect(location.transition).toBeDefined()
+    expect(isTransitionOverlayActive(location, location.index)).toBe(true)
+  })
+
+  it('is inactive after the handover, even while the published time still trails inside the overlap (#61)', () => {
+    // The failing case behind the flash: the roles have swapped (engagement
+    // cleared) but the sequence time published from the incoming element's
+    // drifting clock still falls just short of the overlap's end, so the
+    // location alone would style the outgoing clip onto the top layer at
+    // progress ≈ 1.
+    const location = locateInSequence(withTransitions, 2.99)!
+    expect(location.transition?.progress).toBeCloseTo(0.99, 10)
+    expect(isTransitionOverlayActive(location, null)).toBe(false)
+  })
+
+  it('is inactive when the engagement belongs to a different boundary', () => {
+    const location = locateInSequence(withTransitions, 2.5)!
+    expect(isTransitionOverlayActive(location, location.index + 1)).toBe(false)
+  })
+
+  it('is inactive outside any overlap, whatever the engagement says', () => {
+    const location = locateInSequence(withTransitions, 5)!
+    expect(location.transition).toBeUndefined()
+    expect(isTransitionOverlayActive(location, location.index)).toBe(false)
+    expect(isTransitionOverlayActive(null, 0)).toBe(false)
   })
 })

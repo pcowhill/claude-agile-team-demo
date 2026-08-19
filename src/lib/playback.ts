@@ -108,6 +108,23 @@ export function sequenceTimeAt(state: TimelineState, index: number, sourceTime: 
   return entryStartTime(state, index) + (clamped - entry.inPoint)
 }
 
+/**
+ * Whether the secondary <video> element genuinely renders a transition
+ * overlay. The published location alone cannot decide this: element clocks
+ * drift by tens of milliseconds, so right after a handover the published
+ * sequence time can still fall just inside the overlap while the roles have
+ * already swapped — and then the element holding the *outgoing* clip's
+ * paused frame would be styled onto the top layer at progress ≈ 1 (#61).
+ * The overlay is only real while the secondary element is actually engaged
+ * for the location's outgoing entry.
+ */
+export function isTransitionOverlayActive(
+  location: PlaybackLocation | null,
+  engagedFor: number | null,
+): boolean {
+  return location?.transition !== undefined && engagedFor === location.index
+}
+
 /** True when `sequenceTime` is at (or past) the end of the sequence. */
 export function isAtSequenceEnd(state: TimelineState, sequenceTime: number): boolean {
   return sequenceTime >= totalDuration(state)
