@@ -5,6 +5,7 @@ import {
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   fitRect,
   pickExportMimeType,
+  zoomRect,
 } from './exportVideo'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
@@ -172,5 +173,64 @@ describe('fitRect', () => {
 
   it('falls back to the full target for degenerate source dimensions', () => {
     expect(fitRect(0, 0, 640, 360)).toEqual({ x: 0, y: 0, width: 640, height: 360 })
+  })
+})
+
+describe('zoomRect', () => {
+  // The visible region — the frame divided by scale, centred on the zoom's
+  // centre — must land exactly on the frame edges (#65): here a 2× zoom into
+  // (0.25, 0.5) of a 640×360 frame has visible region (0, 90, 320, 180).
+  it('maps the visible region onto the full frame', () => {
+    const zoom = { scale: 2, centerX: 0.25, centerY: 0.5 }
+    expect(zoomRect({ x: 0, y: 90, width: 320, height: 180 }, zoom, 640, 360)).toEqual({
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 360,
+    })
+  })
+
+  it('is the identity at scale 1 centred mid-frame', () => {
+    const rect = { x: 80, y: 45, width: 480, height: 270 }
+    expect(zoomRect(rect, { scale: 1, centerX: 0.5, centerY: 0.5 }, 640, 360)).toEqual(rect)
+  })
+
+  it('scales both axes by the same factor, preserving the aspect ratio', () => {
+    for (const scale of [1.5, 2, 3.25]) {
+      const rect = zoomRect(
+        { x: 40, y: 30, width: 320, height: 180 },
+        { scale, centerX: 0.4, centerY: 0.6 },
+        640,
+        360,
+      )
+      expect(rect.width).toBeCloseTo(320 * scale, 10)
+      expect(rect.height).toBeCloseTo(180 * scale, 10)
+      expect(rect.width / rect.height).toBeCloseTo(320 / 180, 10)
+    }
+  })
+
+  // The reducer clamps the centre so the visible region stays inside the
+  // frame; under any such centre the mapped frame covers the whole frame, so
+  // no area beyond a frame edge is ever pulled into view.
+  it('maps the full frame to a superset of the frame for any clamped centre', () => {
+    for (const scale of [1.5, 2, 4]) {
+      const half = 1 / (2 * scale)
+      for (const centerX of [half, 0.5, 1 - half]) {
+        for (const centerY of [half, 0.5, 1 - half]) {
+          const frame = zoomRect(
+            { x: 0, y: 0, width: 640, height: 360 },
+            { scale, centerX, centerY },
+            640,
+            360,
+          )
+          // Sub-picopixel float noise at the exact clamp bound is invisible
+          // on a canvas; assert coverage within a billionth of a pixel.
+          expect(frame.x).toBeLessThanOrEqual(1e-9)
+          expect(frame.y).toBeLessThanOrEqual(1e-9)
+          expect(frame.x + frame.width).toBeGreaterThanOrEqual(640 - 1e-9)
+          expect(frame.y + frame.height).toBeGreaterThanOrEqual(360 - 1e-9)
+        }
+      }
+    }
   })
 })
