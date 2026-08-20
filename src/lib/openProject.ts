@@ -1,5 +1,5 @@
 import type { LibraryClip } from './mediaLibrary'
-import type { Project, ProjectClip } from './projectFile'
+import type { ClipMedia, Project, ProjectClip } from './projectFile'
 import { normalizedTimelineState } from './timeline'
 import type { TimelineState } from './timeline'
 
@@ -93,4 +93,32 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       project.timeline.zooms,
     ),
   }
+}
+
+/**
+ * Restores a project whose file embedded its media (#97): every clip's
+ * bytes become a Blob-backed object URL, so the project opens fully linked
+ * with no re-link step. Deserialization guarantees `media` covers every
+ * clip; a gap here is programmer error and throws. The returned URLs are
+ * owned by the caller — the app revokes them when the project is replaced,
+ * exactly as it does for imported files. `createUrl` is injectable because
+ * jsdom has no `URL.createObjectURL`.
+ */
+export function restoreEmbeddedProject(
+  project: Project,
+  media: ReadonlyMap<string, ClipMedia>,
+  createUrl: (blob: Blob) => string = (blob) => URL.createObjectURL(blob),
+): RestoredProject {
+  const urls = new Map<string, string>()
+  for (const clip of project.clips) {
+    const clipMedia = media.get(clip.id)
+    if (clipMedia === undefined) {
+      throw new Error(`cannot restore: clip "${clip.id}" has no embedded media`)
+    }
+    urls.set(
+      clip.id,
+      createUrl(new Blob([clipMedia.bytes as BlobPart], { type: clipMedia.mimeType ?? '' })),
+    )
+  }
+  return restoreProject(project, urls)
 }
