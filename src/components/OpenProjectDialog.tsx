@@ -3,7 +3,7 @@ import type { ChangeEvent } from 'react'
 import { formatDuration } from '../lib/mediaLibrary'
 import { matchFileToClip, restoreProject } from '../lib/openProject'
 import type { RestoredProject } from '../lib/openProject'
-import { probeVideoFile } from '../lib/probeVideo'
+import { probeMediaFile } from '../lib/probeMedia'
 import type { Project } from '../lib/projectFile'
 import './dialog.css'
 import './OpenProjectDialog.css'
@@ -15,8 +15,8 @@ interface OpenProjectDialogProps {
   onCancel: () => void
   /** Called with the fully re-linked project; ownership of URLs transfers. */
   onOpen: (restored: RestoredProject) => void
-  /** Injectable for tests (jsdom cannot probe real video). */
-  probeVideo?: typeof probeVideoFile
+  /** Injectable for tests (jsdom cannot probe real media). */
+  probeMedia?: typeof probeMediaFile
 }
 
 /**
@@ -31,7 +31,7 @@ export function OpenProjectDialog({
   project,
   onCancel,
   onOpen,
-  probeVideo = probeVideoFile,
+  probeMedia = probeMediaFile,
 }: OpenProjectDialogProps) {
   const headingId = useId()
   const chooseRef = useRef<HTMLButtonElement>(null)
@@ -74,14 +74,14 @@ export function OpenProjectDialog({
     for (const file of files) {
       let probed
       try {
-        probed = await probeVideo(file)
+        probed = await probeMedia(file)
       } catch (error) {
         nextProblems.push(
           error instanceof Error ? error.message : `Could not read "${file.name}".`,
         )
         continue
       }
-      const match = matchFileToClip(project.clips, new Set(nextLinks.keys()), file.name, probed.duration)
+      const match = matchFileToClip(project.clips, new Set(nextLinks.keys()), file.name, probed.duration, probed.kind)
       if (match.kind === 'matched') {
         nextLinks.set(match.clipId, probed.url)
       } else {
@@ -128,6 +128,7 @@ export function OpenProjectDialog({
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>
+              {clip.kind === 'audio' && <span className="clip-kind">Audio</span>}
               <span className="clip-duration">{formatDuration(clip.duration)}</span>
               <span className={links.has(clip.id) ? 'relink-linked' : 'relink-missing'}>
                 {links.has(clip.id) ? 'Linked ✓' : 'Missing'}
@@ -149,7 +150,7 @@ export function OpenProjectDialog({
           <input
             ref={inputRef}
             type="file"
-            accept="video/*"
+            accept="video/*,audio/*"
             multiple
             hidden
             data-testid="relink-file-input"

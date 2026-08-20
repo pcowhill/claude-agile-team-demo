@@ -7,6 +7,7 @@ const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   name: 'clip.mp4',
   duration: 12,
   url: 'blob:test',
+  kind: 'video',
   ...overrides,
 })
 
@@ -100,10 +101,10 @@ describe('formatDuration', () => {
 describe('library-replaced (#77)', () => {
   it('stores the given clips by reference and clears transient failures', () => {
     const state: MediaLibraryState = {
-      clips: [{ id: 'old', name: 'old.mp4', duration: 2, url: 'blob:old' }],
+      clips: [{ id: 'old', name: 'old.mp4', duration: 2, url: 'blob:old', kind: 'video' }],
       failures: [{ id: 'f1', name: 'broken.mp4', reason: 'nope' }],
     }
-    const clips: LibraryClip[] = [{ id: 'new', name: 'new.mp4', duration: 3, url: 'blob:new' }]
+    const clips: LibraryClip[] = [{ id: 'new', name: 'new.mp4', duration: 3, url: 'blob:new', kind: 'video' }]
     const next = mediaLibraryReducer(state, { type: 'library-replaced', clips })
     // Reference identity is what the unsaved-changes tracking compares (#76).
     expect(next.clips).toBe(clips)

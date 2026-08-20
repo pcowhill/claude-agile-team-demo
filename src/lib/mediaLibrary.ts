@@ -1,11 +1,20 @@
+/**
+ * What a library clip's media fundamentally is (#101). Deliberately generic
+ * "audio", not "music": the same import path serves music, voice-overs and
+ * sound effects (#100).
+ */
+export type MediaKind = 'video' | 'audio'
+
 export interface LibraryClip {
   id: string
   /** Original filename, e.g. "holiday.mp4". */
   name: string
   /** Duration in seconds. Always finite and > 0. */
   duration: number
-  /** Object URL pointing at the imported file, usable as a <video> src. */
+  /** Object URL pointing at the imported file, usable as a media src. */
   url: string
+  /** Whether this is a video or an audio clip (#101). */
+  kind: MediaKind
 }
 
 export interface ImportFailure {

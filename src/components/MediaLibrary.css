@@ -55,3 +55,16 @@
   color: #aaa;
   font-variant-numeric: tabular-nums;
 }
+
+/* The kind badge (#101) carries its meaning as text ("Audio"), never by
+   color alone; the styling only sets it apart from the filename. */
+.clip-kind {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid #3a4a5a;
+  border-radius: 999px;
+  background: #263140;
+  color: #9fc3e8;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

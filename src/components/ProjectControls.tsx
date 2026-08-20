@@ -4,7 +4,7 @@ import { emptyLibrary } from '../lib/mediaLibrary'
 import type { MediaLibraryState } from '../lib/mediaLibrary'
 import { restoreEmbeddedProject, restoreProject } from '../lib/openProject'
 import type { RestoredProject } from '../lib/openProject'
-import { probeVideoFile } from '../lib/probeVideo'
+import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia, Project } from '../lib/projectFile'
 import { serializeProject } from '../lib/projectFile'
@@ -40,8 +40,8 @@ interface ProjectControlsProps {
   onProjectReplaced?: (project: RestoredProject) => void
   /** Injectable for tests (the real pickers cannot be driven by automation). */
   port?: SavePort
-  /** Injectable for tests (jsdom cannot probe real video). */
-  probeVideo?: typeof probeVideoFile
+  /** Injectable for tests (jsdom cannot probe real media). */
+  probeMedia?: typeof probeMediaFile
   /** Injectable for tests (jsdom cannot fetch object URLs). */
   fetchClipMedia?: (clip: LibraryClip) => Promise<ClipMedia>
   /** Injectable for tests (jsdom has no URL.createObjectURL). */
@@ -76,7 +76,7 @@ export function ProjectControls({
   onSaved,
   onProjectReplaced,
   port,
-  probeVideo,
+  probeMedia,
   fetchClipMedia,
   createMediaUrl,
 }: ProjectControlsProps) {
@@ -297,7 +297,7 @@ export function ProjectControls({
         <OpenProjectDialog
           fileName={pendingOpen.fileName}
           project={pendingOpen.project}
-          probeVideo={probeVideo}
+          probeMedia={probeMedia}
           onCancel={() => setPendingOpen(null)}
           onOpen={(restored) => {
             setPendingOpen(null)

@@ -37,8 +37,8 @@ async function gzipJson(document: unknown): Promise<Uint8Array<ArrayBuffer>> {
 
 const library: MediaLibraryState = {
   clips: [
-    { id: 'c1', name: 'holiday.mp4', duration: 12.375, url: 'blob:session/c1' },
-    { id: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2' },
+    { id: 'c1', name: 'holiday.mp4', duration: 12.375, url: 'blob:session/c1', kind: 'video' },
+    { id: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2', kind: 'video' },
   ],
   failures: [{ id: 'f1', name: 'broken.avi', reason: 'not decodable' }],
 }
@@ -63,8 +63,8 @@ const timeline: TimelineState = {
 /** What deserializing a file written from `library` + `timeline` yields. */
 const expectedProject: Project = {
   clips: [
-    { id: 'c1', name: 'holiday.mp4', duration: 12.375 },
-    { id: 'c2', name: 'city.webm', duration: 4 },
+    { id: 'c1', name: 'holiday.mp4', duration: 12.375, kind: 'video' },
+    { id: 'c2', name: 'city.webm', duration: 4, kind: 'video' },
   ],
   timeline: {
     entries: [
@@ -182,6 +182,76 @@ describe('project file round-trip', () => {
       entries: [{ ...timeline.entries[0], clipId: 'gone' }],
     }
     await expect(serializeProject(library, orphaned)).rejects.toThrow('not in the library')
+  })
+})
+
+describe('clip kinds (#101)', () => {
+  const mixedLibrary: MediaLibraryState = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' },
+      { id: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', kind: 'audio' },
+    ],
+    failures: [],
+  }
+  const videoOnlyTimeline: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 12 },
+    ],
+    transitions: [],
+    zooms: [],
+  }
+
+  it('round-trips a library holding both video and audio clips', async () => {
+    const bytes = await serializeProject(mixedLibrary, videoOnlyTimeline)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips.map(({ id, kind }) => ({ id, kind }))).toEqual([
+        { id: 'v1', kind: 'video' },
+        { id: 'a1', kind: 'audio' },
+      ])
+    }
+  })
+
+  it('round-trips audio media in an embedded (version 2) file', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 3), mimeType: 'video/mp4' }],
+      ['a1', { bytes: pseudoRandomBytes(48, 4), mimeType: 'audio/mpeg' }],
+    ])
+    const result = await deserializeProject(
+      await serializeProject(mixedLibrary, videoOnlyTimeline, media),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips[1].kind).toBe('audio')
+      expect(result.media).toEqual(media)
+    }
+  })
+
+  it('defaults a clip without a kind key to video (pre-#101 files)', async () => {
+    const document = validDocument()
+    for (const clip of document.clips as { kind?: unknown }[]) delete clip.kind
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips.every((clip) => clip.kind === 'video')).toBe(true)
+    }
+  })
+
+  it('refuses an unknown kind value', async () => {
+    const document = validDocument()
+    ;(document.clips[0] as { kind?: unknown }).kind = 'hologram'
+    await expectRefusal(await gzipJson(document), 'clips[0].kind must be "video" or "audio"')
+  })
+
+  it('refuses a sequence entry that references an audio clip', async () => {
+    const document = validDocument()
+    ;(document.clips[0] as { kind?: unknown }).kind = 'audio'
+    await expectRefusal(
+      await gzipJson(document),
+      'references an audio clip',
+      'the sequence carries video only',
+    )
   })
 })
 
@@ -439,6 +509,7 @@ describe('project file compression', () => {
       name: `recording-2026-08-${String(index + 1).padStart(2, '0')}.webm`,
       duration: 30 + index * 0.775,
       url: `blob:session/${index}`,
+      kind: 'video' as const,
     }))
     const entries = clips.map((clip, index) => ({
       id: `entry-${index}`,

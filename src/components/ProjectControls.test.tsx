@@ -9,7 +9,7 @@ import type { SaveDestination, SavePort } from '../lib/saveProject'
 import type { TimelineState } from '../lib/timeline'
 
 const library: MediaLibraryState = {
-  clips: [{ id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1' }],
+  clips: [{ id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', kind: 'video' }],
   failures: [],
 }
 const timeline: TimelineState = {
@@ -92,7 +92,7 @@ describe('ProjectControls saving', () => {
     const result = await deserializeProject(writes[0])
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.project.clips).toEqual([{ id: 'c1', name: 'holiday.mp4', duration: 10 }])
+      expect(result.project.clips).toEqual([{ id: 'c1', name: 'holiday.mp4', duration: 10, kind: 'video' }])
       expect(result.project.timeline.entries[0]).toMatchObject({ inPoint: 1, outPoint: 8 })
       expect(result.media?.get('c1')).toEqual({
         bytes: asciiBytes('media:c1'),
@@ -481,8 +481,8 @@ describe('New Project and Open Project (#77)', () => {
   it('opening a valid file runs the re-link dialog and replaces the project', async () => {
     const { port } = stubPort()
     const onProjectReplaced = vi.fn()
-    const probeVideo = vi.fn((file: File) =>
-      Promise.resolve({ duration: 10, url: `blob:probe/${file.name}` }),
+    const probeMedia = vi.fn((file: File) =>
+      Promise.resolve({ duration: 10, url: `blob:probe/${file.name}`, kind: 'video' as const }),
     )
     URL.revokeObjectURL = vi.fn()
     const user = userEvent.setup()
@@ -494,7 +494,7 @@ describe('New Project and Open Project (#77)', () => {
         onSaved={vi.fn()}
         onProjectReplaced={onProjectReplaced}
         port={port}
-        probeVideo={probeVideo}
+        probeMedia={probeMedia}
       />,
     )
 
@@ -513,7 +513,7 @@ describe('New Project and Open Project (#77)', () => {
     expect(onProjectReplaced).toHaveBeenCalledOnce()
     const replaced = onProjectReplaced.mock.calls[0][0]
     expect(replaced.clips).toEqual([
-      { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:probe/holiday.mp4' },
+      { id: 'c1', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:probe/holiday.mp4' },
     ])
     expect(replaced.timeline.entries[0]).toMatchObject({
       clipId: 'c1',
@@ -522,6 +522,57 @@ describe('New Project and Open Project (#77)', () => {
       outPoint: 8,
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('save → open round-trips a mixed video + audio library through re-linking (#101)', async () => {
+    const { port } = stubPort()
+    const onProjectReplaced = vi.fn()
+    // Kind follows the picked file's MIME type, as the real probe's would.
+    const probeMedia = vi.fn((file: File) =>
+      Promise.resolve({
+        duration: file.type.startsWith('audio/') ? 185 : 10,
+        url: `blob:probe/${file.name}`,
+        kind: file.type.startsWith('audio/') ? ('audio' as const) : ('video' as const),
+      }),
+    )
+    URL.revokeObjectURL = vi.fn()
+    const user = userEvent.setup()
+    const mixedLibrary: MediaLibraryState = {
+      clips: [
+        ...library.clips,
+        { id: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', kind: 'audio' },
+      ],
+      failures: [],
+    }
+    render(
+      <ProjectControls
+        library={mixedLibrary}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onProjectReplaced={onProjectReplaced}
+        port={port}
+        probeMedia={probeMedia}
+      />,
+    )
+
+    const { serializeProject } = await import('../lib/projectFile')
+    await uploadProjectFile(user, await serializeProject(mixedLibrary, timeline))
+
+    await screen.findByRole('dialog', { name: 'Open trip.bvep' })
+    await user.upload(screen.getByTestId('relink-file-input'), [
+      new File(['x'], 'holiday.mp4', { type: 'video/mp4' }),
+      new File(['x'], 'music.mp3', { type: 'audio/mpeg' }),
+    ])
+    const open = screen.getByRole('button', { name: 'Open project' })
+    await waitFor(() => expect(open).toBeEnabled())
+    await user.click(open)
+
+    const replaced = onProjectReplaced.mock.calls[0][0]
+    expect(replaced.clips).toEqual([
+      { id: 'c1', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:probe/holiday.mp4' },
+      { id: 'a1', name: 'music.mp3', duration: 185, kind: 'audio', url: 'blob:probe/music.mp3' },
+    ])
   })
 
   it('opening a project with no clips applies immediately, without the re-link step', async () => {
@@ -615,7 +666,7 @@ describe('New Project and Open Project (#77)', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const replaced = onProjectReplaced.mock.calls[0][0]
       expect(replaced.clips).toEqual([
-        { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:restored-c1' },
+        { id: 'c1', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:restored-c1' },
       ])
       expect(replaced.timeline.entries[0]).toMatchObject({ url: 'blob:restored-c1' })
       // The URL was minted from the embedded bytes.
@@ -634,8 +685,8 @@ describe('New Project and Open Project (#77)', () => {
     it('a references file opened through re-linking re-saves references-only without asking', async () => {
       const { port, writes } = stubPort()
       const onProjectReplaced = vi.fn()
-      const probeVideo = vi.fn((file: File) =>
-        Promise.resolve({ duration: 10, url: `blob:probe/${file.name}` }),
+      const probeMedia = vi.fn((file: File) =>
+        Promise.resolve({ duration: 10, url: `blob:probe/${file.name}`, kind: 'video' as const }),
       )
       URL.revokeObjectURL = vi.fn()
       const user = userEvent.setup()
@@ -649,7 +700,7 @@ describe('New Project and Open Project (#77)', () => {
           onSaved={vi.fn()}
           onProjectReplaced={onProjectReplaced}
           port={port}
-          probeVideo={probeVideo}
+          probeMedia={probeMedia}
         />,
       )
 

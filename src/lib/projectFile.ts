@@ -1,4 +1,4 @@
-import type { MediaLibraryState } from './mediaLibrary'
+import type { MediaKind, MediaLibraryState } from './mediaLibrary'
 import { TRANSITION_TYPES } from './timeline'
 import type {
   TimelineEntry,
@@ -16,7 +16,7 @@ import { transitionsOf, zoomsOf } from './timeline'
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
  *     "schemaVersion": 1 | 2,            // integer; bumped on breaking change
- *     "clips": [{ id, name, duration, mimeType?, byteSize? }],
+ *     "clips": [{ id, name, duration, kind?, mimeType?, byteSize? }],
  *     "media": {                         // schema version 2 only (#97)
  *       [clipId]: { byteLength, crc32, mimeType?, data }
  *     },
@@ -65,12 +65,16 @@ export const REFERENCES_SCHEMA_VERSION = 1
  * A library clip as stored in a project file: metadata for re-linking, not
  * media. `mimeType` and `byteSize` are optional — the format preserves them
  * for re-link matching whenever the library model knows them, and files
- * written before it did simply omit them.
+ * written before it did simply omit them. `kind` is always present after
+ * parsing: files written before the library knew audio (#101) omit the key,
+ * and every clip in them is a video — the additive-within-a-version
+ * contract above makes the default safe in both directions.
  */
 export interface ProjectClip {
   id: string
   name: string
   duration: number
+  kind: MediaKind
   mimeType?: string
   byteSize?: number
 }
@@ -158,7 +162,7 @@ export async function serializeProject(
   const document = {
     format: PROJECT_FORMAT,
     schemaVersion: media === undefined ? REFERENCES_SCHEMA_VERSION : PROJECT_SCHEMA_VERSION,
-    clips: library.clips.map(({ id, name, duration }) => ({ id, name, duration })),
+    clips: library.clips.map(({ id, name, duration, kind }) => ({ id, name, duration, kind })),
     ...(media === undefined
       ? {}
       : {
@@ -287,6 +291,12 @@ const asRecord = (value: unknown, path: string): Record<string, unknown> => {
   if (!isRecord(value)) throw new Error(`${path} must be an object`)
   return value
 }
+const asMediaKind = (value: unknown, path: string): MediaKind => {
+  if (value !== 'video' && value !== 'audio') {
+    throw new Error(`${path} must be "video" or "audio"`)
+  }
+  return value
+}
 
 function validateProject(document: Record<string, unknown>): Project {
   const clips = asArray(document.clips, 'clips').map((value, index) => {
@@ -295,6 +305,8 @@ function validateProject(document: Record<string, unknown>): Project {
       id: asString(raw.id, `clips[${index}].id`),
       name: asString(raw.name, `clips[${index}].name`),
       duration: asFinite(raw.duration, `clips[${index}].duration`),
+      // Absent in files saved before #101, whose clips are all videos.
+      kind: raw.kind === undefined ? 'video' : asMediaKind(raw.kind, `clips[${index}].kind`),
     }
     if (clip.duration <= 0) throw new Error(`clips[${index}].duration must be greater than 0`)
     if (raw.mimeType !== undefined) clip.mimeType = asString(raw.mimeType, `clips[${index}].mimeType`)
@@ -304,9 +316,11 @@ function validateProject(document: Record<string, unknown>): Project {
     return clip
   })
   const clipIds = new Set<string>()
+  const clipKinds = new Map<string, MediaKind>()
   for (const [index, clip] of clips.entries()) {
     if (clipIds.has(clip.id)) throw new Error(`clips[${index}].id "${clip.id}" is duplicated`)
     clipIds.add(clip.id)
+    clipKinds.set(clip.id, clip.kind)
   }
 
   const timelineRaw = asRecord(document.timeline, 'timeline')
@@ -324,6 +338,11 @@ function validateProject(document: Record<string, unknown>): Project {
     if (entry.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
     if (!clipIds.has(entry.clipId)) {
       throw new Error(`${path}.clipId "${entry.clipId}" does not match any clip`)
+    }
+    if (clipKinds.get(entry.clipId) !== 'video') {
+      // The sequence is video-only (#101/#102): an audio entry here could
+      // only come from a foreign writer, and would break preview and export.
+      throw new Error(`${path}.clipId "${entry.clipId}" references an audio clip, but the sequence carries video only`)
     }
     if (entry.inPoint >= entry.outPoint) {
       throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)

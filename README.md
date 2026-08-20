@@ -11,8 +11,10 @@ reopened later (#71, #92): by default the file embeds your media, so that
 single file moves to another computer and opens ready to edit with no
 re-linking. Choosing "references only" at first save (revisitable via Save
 As…) writes a small file with edits and clip metadata instead; opening one
-asks you to re-select the original video files and matches them back up by
-filename and duration. It is deployed
+asks you to re-select the original media files and matches them back up by
+filename and duration. Audio files (music, voice-overs, sound effects) can
+be imported into the media library alongside videos (#100); placing them on
+the timeline arrives with the audio-tracks work (#102–#105). It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 
