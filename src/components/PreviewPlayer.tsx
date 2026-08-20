@@ -9,6 +9,7 @@ import {
   sequenceTimeAt,
 } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
+import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
@@ -146,12 +147,13 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   /**
    * Aligns every audio track element with a sequence position (#103): a
    * track whose window covers the position plays from the matching source
-   * time (at full volume — gain control is #104) while `running`, and is
-   * paused otherwise. Elements are re-cued exactly when they start; while
-   * running they keep their own clock unless it drifts audibly. Each element
-   * keeps a single source for the track's lifetime (src set in the render),
-   * so cueing is only ever a seek — never the video elements' src-switch
-   * dance.
+   * time while `running`, and is paused otherwise. Its volume is set to the
+   * track's effective gain at that position on every call — the rAF loop
+   * calls this each frame, which is what renders fades as continuous ramps
+   * (#104). Elements are re-cued exactly when they start; while running they
+   * keep their own clock unless it drifts audibly. Each element keeps a
+   * single source for the track's lifetime (src set in the render), so
+   * cueing is only ever a seek — never the video elements' src-switch dance.
    */
   const syncAudioTracks = useCallback(
     (sequenceTime: number, running: boolean) => {
@@ -159,6 +161,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
         const element = audioRefs.current.get(track.id)
         if (!element) continue
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
+        element.volume = audioTrackGainAt(track, sequenceTime)
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
@@ -230,8 +233,10 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   /**
    * Aligns the secondary element with a location: inside an overlap it is
    * cued to the incoming entry and the two elements' audio is split by the
-   * transition's progress (a plain volume crossfade, for both transition
-   * types); outside one it is silenced and paused.
+   * transition's progress (a volume crossfade, for both transition types);
+   * outside one it is silenced and paused. Every volume routes through the
+   * composed gain (#104), so a muted or reduced entry stays that way through
+   * a transition.
    */
   const syncSecondary = useCallback(
     (location: PlaybackLocation, thenPlay: boolean) => {
@@ -240,12 +245,12 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       if (!primary || !secondary) return
       const overlap = location.transition
       if (overlap) {
-        primary.volume = 1 - overlap.progress
-        secondary.volume = overlap.progress
+        primary.volume = videoEntryGain(location.entry, 1 - overlap.progress)
+        secondary.volume = videoEntryGain(overlap.entry, overlap.progress)
         setEngaged(location.index)
         cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
       } else {
-        primary.volume = 1
+        primary.volume = videoEntryGain(location.entry)
         if (engagedForRef.current !== null) {
           setEngaged(null)
           secondary.pause()
@@ -283,8 +288,9 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
         if (!incoming) return
         const wasEngaged = engagedForRef.current === index
         video.pause()
-        video.volume = 1
-        incoming.volume = 1
+        // The incoming entry leaves its transition ramp for its own steady
+        // gain; the outgoing element is paused, its volume set when next cued.
+        incoming.volume = videoEntryGain(next)
         setEngaged(null)
         indexRef.current = index + 1
         primaryIsARef.current = !primaryIsARef.current
@@ -305,6 +311,9 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
         const time = sequenceTimeAt(timeline, index + 1, next.inPoint)
         setSequenceTime(time)
         syncAudioTracks(time, true)
+        // A hard cut continues in the same element — apply the next entry's
+        // gain (#104) where the transition path would have swapped roles.
+        video.volume = videoEntryGain(next)
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
       } else {
         video.pause()
@@ -337,8 +346,8 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
               )
             }
             const progress = Math.min((video.currentTime - overlapStart) / overlap.duration, 1)
-            video.volume = 1 - progress
-            secondary.volume = progress
+            video.volume = videoEntryGain(entry, 1 - progress)
+            secondary.volume = videoEntryGain(next, progress)
           }
         }
       }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fixtureV1Base64 from './fixtures/project-v1.bvep.base64?raw'
 import fixtureV2Base64 from './fixtures/project-v2-embedded.bvep.base64?raw'
 import fixtureV1AudioBase64 from './fixtures/project-v1-audio-tracks.bvep.base64?raw'
+import fixtureV1GainBase64 from './fixtures/project-v1-gain.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
@@ -378,6 +379,93 @@ describe('audio tracks (#102)', () => {
   })
 })
 
+describe('gain fields (#104)', () => {
+  const gainLibrary: MediaLibraryState = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' },
+      { id: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', kind: 'audio' },
+    ],
+    failures: [],
+  }
+  const gainTimeline: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 12, volume: 0.75 },
+      { id: 'e2', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 6, muted: true },
+    ],
+    transitions: [],
+    zooms: [],
+    audioTracks: [
+      { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', offset: 2, inPoint: 10, outPoint: 40, volume: 0.5, fadeIn: 2, fadeOut: 3 },
+    ],
+  }
+
+  const entryDocument = () => {
+    const document = validDocument()
+    ;(document.clips as unknown[]).push({ id: 'a1', name: 'music.mp3', duration: 185, kind: 'audio' })
+    ;(document.timeline as { audioTracks?: unknown[] }).audioTracks = [
+      { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 2, inPoint: 10, outPoint: 40 },
+    ]
+    return document as {
+      timeline: {
+        entries: Record<string, unknown>[]
+        audioTracks: Record<string, unknown>[]
+      }
+    } & Record<string, unknown>
+  }
+
+  it('round-trips entry volume/mute and track volume/fades', async () => {
+    const result = await deserializeProject(await serializeProject(gainLibrary, gainTimeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries).toEqual([
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 12, volume: 0.75 },
+        { id: 'e2', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 6, muted: true },
+      ])
+      expect(result.project.timeline.audioTracks).toEqual([
+        { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 2, inPoint: 10, outPoint: 40, volume: 0.5, fadeIn: 2, fadeOut: 3 },
+      ])
+    }
+  })
+
+  it('omits gain keys entirely when no volume, mute, or fade was ever set', async () => {
+    // Pre-#104 states keep producing byte-identical documents: the keys are
+    // written only when present, not as explicit defaults.
+    const document = (await gunzipJson(await serializeProject(library, timeline))) as {
+      timeline: { entries: Record<string, unknown>[]; audioTracks: Record<string, unknown>[] }
+    }
+    for (const entry of document.timeline.entries) {
+      expect(entry).not.toHaveProperty('volume')
+      expect(entry).not.toHaveProperty('muted')
+    }
+  })
+
+  it('refuses an out-of-range entry volume', async () => {
+    const document = entryDocument()
+    document.timeline.entries[0].volume = 1.5
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 1')
+    document.timeline.entries[0].volume = -0.1
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 1')
+  })
+
+  it('refuses a non-boolean mute flag', async () => {
+    const document = entryDocument()
+    document.timeline.entries[0].muted = 'yes'
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].muted must be a boolean')
+  })
+
+  it('refuses an out-of-range track volume and negative fades', async () => {
+    const document = entryDocument()
+    document.timeline.audioTracks[0].volume = 2
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].volume must be between 0 and 1')
+    delete document.timeline.audioTracks[0].volume
+    document.timeline.audioTracks[0].fadeIn = -1
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].fadeIn must not be negative')
+    delete document.timeline.audioTracks[0].fadeIn
+    document.timeline.audioTracks[0].fadeOut = 'long'
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].fadeOut must be a finite number')
+  })
+})
+
 describe('project file versioning', () => {
   it('carries the schema version', async () => {
     // Deserializing proves the marker + version were present and accepted;
@@ -714,6 +802,33 @@ describe('backwards compatibility', () => {
           audioTracks: [
             { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 0, inPoint: 10, outPoint: 40 },
             { id: 't2', clipId: 'a2', name: 'voice.wav', duration: 30, offset: 5, inPoint: 0, outPoint: 3.5 },
+          ],
+        },
+      },
+    })
+  })
+
+  it('deserializes the committed v1 gain fixture (#104)', async () => {
+    // Same never-rewrite contract as the other fixtures: this pins that
+    // files saved when volume/mute/fade fields landed keep opening forever.
+    const bytes = Uint8Array.from(atob(fixtureV1GainBase64.trim()), (char) => char.charCodeAt(0))
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: [
+          { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+          { id: 'a1', name: 'music.mp3', duration: 185, kind: 'audio' },
+        ],
+        timeline: {
+          entries: [
+            { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 12, volume: 0.75 },
+            { id: 'e2', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 6, muted: true },
+          ],
+          transitions: [],
+          zooms: [],
+          audioTracks: [
+            { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 2, inPoint: 10, outPoint: 40, volume: 0.5, fadeIn: 2, fadeOut: 3 },
           ],
         },
       },

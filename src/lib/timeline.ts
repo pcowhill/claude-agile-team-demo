@@ -14,6 +14,13 @@ export interface TimelineEntry {
   inPoint: number
   /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
   outPoint: number
+  /**
+   * Volume of the entry's own audio, 0..1 (#104). Absent means full volume —
+   * the fields are additive so pre-#104 states (and saved files) stay valid.
+   */
+  volume?: number
+  /** Whether the entry's own audio is silenced entirely (#104). Absent means false. */
+  muted?: boolean
 }
 
 /**
@@ -46,6 +53,16 @@ export interface AudioTrack {
   inPoint: number
   /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
   outPoint: number
+  /** Volume of the track, 0..1 (#104). Absent means full volume. */
+  volume?: number
+  /**
+   * Linear fade-in duration in seconds, from the start of the track's
+   * window (#104). Absent means no fade. The reducer clamps fadeIn and
+   * fadeOut so together they never exceed the trimmed length.
+   */
+  fadeIn?: number
+  /** Linear fade-out duration in seconds, ending at the window's end (#104). */
+  fadeOut?: number
 }
 
 /**
@@ -178,6 +195,10 @@ export type TimelineAction =
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
   | { type: 'audio-track-trimmed'; id: string; inPoint: number; outPoint: number }
+  | { type: 'entry-volume-set'; id: string; volume: number }
+  | { type: 'entry-mute-set'; id: string; muted: boolean }
+  | { type: 'audio-track-volume-set'; id: string; volume: number }
+  | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
   // The sequence carries video only; audio placement is its own model (#102).
@@ -357,6 +378,22 @@ function normalizedZooms(entries: TimelineEntry[], zooms: ZoomEffect[]): ZoomEff
     .map((entry) => byEntry.get(entry.id) as ZoomEffect)
 }
 
+/**
+ * Clamps one track's fades against its trimmed length (#104): each fade is
+ * non-negative and together they never exceed the length — `fadeIn` keeps
+ * its value first and `fadeOut` absorbs the shortfall, mirroring how zoom
+ * windows absorb a retrim. Fades meeting exactly in the middle (their sum
+ * equal to the length) are allowed. Returns the same object when nothing
+ * changes, so no-op edits are cheap to detect.
+ */
+function clampTrackFades(track: AudioTrack): AudioTrack {
+  const length = effectiveDuration(track)
+  const fadeIn = clamp(track.fadeIn ?? 0, 0, length)
+  const fadeOut = clamp(track.fadeOut ?? 0, 0, length - fadeIn)
+  if (fadeIn === (track.fadeIn ?? 0) && fadeOut === (track.fadeOut ?? 0)) return track
+  return { ...track, fadeIn, fadeOut }
+}
+
 function withEffects(
   entries: TimelineEntry[],
   transitions: TimelineTransition[],
@@ -371,8 +408,10 @@ function withEffects(
     zooms: normalizedZooms(entries, zooms),
     // Audio tracks are deliberately untouched by video edits: offsets are
     // absolute and never clamped to the sequence's (possibly new) length —
-    // see the AudioTrack doc comment.
-    audioTracks,
+    // see the AudioTrack doc comment. Fades, though, depend only on the
+    // track's own trim, so they are re-clamped here (a retrim shrinks them
+    // rather than leaving an envelope longer than the audio).
+    audioTracks: audioTracks.map(clampTrackFades),
   }
 }
 
@@ -553,6 +592,58 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === track.inPoint && outPoint === track.outPoint) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...track, inPoint, outPoint }
+      return withEffects(state.entries, transitions, zooms, tracks)
+    }
+    case 'entry-volume-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.volume)) return state
+      const volume = clamp(action.volume, 0, 1)
+      // Compare against the effective value: setting an untouched entry to
+      // full volume is a no-op, not an edit (edits stop preview playback).
+      if (volume === (state.entries[index].volume ?? 1)) return state
+      const entries = [...state.entries]
+      entries[index] = { ...entries[index], volume }
+      return withEffects(entries, transitions, zooms, audioTracks)
+    }
+    case 'entry-mute-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      if (action.muted === (state.entries[index].muted ?? false)) return state
+      const entries = [...state.entries]
+      entries[index] = { ...entries[index], muted: action.muted }
+      return withEffects(entries, transitions, zooms, audioTracks)
+    }
+    case 'audio-track-volume-set': {
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.volume)) return state
+      const volume = clamp(action.volume, 0, 1)
+      if (volume === (audioTracks[index].volume ?? 1)) return state
+      const tracks = [...audioTracks]
+      tracks[index] = { ...tracks[index], volume }
+      return withEffects(state.entries, transitions, zooms, tracks)
+    }
+    case 'audio-track-fades-set': {
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.fadeIn) || !Number.isFinite(action.fadeOut)) return state
+      const track = audioTracks[index]
+      // clampTrackFades (via withEffects) enforces the invariant; clamping
+      // negatives here keeps the no-op comparison honest.
+      const candidate = clampTrackFades({
+        ...track,
+        fadeIn: Math.max(0, action.fadeIn),
+        fadeOut: Math.max(0, action.fadeOut),
+      })
+      if (
+        (candidate.fadeIn ?? 0) === (track.fadeIn ?? 0) &&
+        (candidate.fadeOut ?? 0) === (track.fadeOut ?? 0)
+      ) {
+        return state
+      }
+      const tracks = [...audioTracks]
+      tracks[index] = candidate
       return withEffects(state.entries, transitions, zooms, tracks)
     }
   }

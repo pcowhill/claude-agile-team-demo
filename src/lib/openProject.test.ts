@@ -163,6 +163,35 @@ describe('restoreProject', () => {
       /no re-linked media/,
     )
   })
+
+  it('carries gain fields through, clamping overlong fades like a retrim (#104)', () => {
+    const withGain: Project = {
+      clips: [
+        ...project.clips,
+        { id: 'm', name: 'music.mp3', duration: 30, kind: 'audio' },
+      ],
+      timeline: {
+        ...project.timeline,
+        entries: [
+          { ...project.timeline.entries[0], volume: 0.75, muted: true },
+          project.timeline.entries[1],
+        ],
+        // Trimmed length 10; a foreign writer's 8 + 8 fades cannot fit, so
+        // opening clamps fadeOut exactly as an in-app retrim would.
+        audioTracks: [
+          { id: 't1', clipId: 'm', name: 'music.mp3', duration: 30, offset: 0, inPoint: 0, outPoint: 10, volume: 0.5, fadeIn: 8, fadeOut: 8 },
+        ],
+      },
+    }
+    const restored = restoreProject(withGain, new Map([...urls, ['m', 'blob:relinked-m']]))
+    expect(restored.timeline.entries[0]).toMatchObject({ volume: 0.75, muted: true })
+    expect(restored.timeline.audioTracks?.[0]).toMatchObject({
+      volume: 0.5,
+      fadeIn: 8,
+      fadeOut: 2,
+      url: 'blob:relinked-m',
+    })
+  })
 })
 
 describe('restoreEmbeddedProject', () => {

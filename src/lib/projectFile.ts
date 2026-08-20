@@ -22,12 +22,13 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *       [clipId]: { byteLength, crc32, mimeType?, data }
  *     },
  *     "timeline": {
- *       "entries": [{ id, clipId, name, duration, inPoint, outPoint }],
+ *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
+ *                     volume?, muted? }],
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
  *       "audioTracks": [{ id, clipId, name, duration, offset,
- *                         inPoint, outPoint }]
+ *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }]
  *     }
  *   }
  *
@@ -201,14 +202,20 @@ export async function serializeProject(
           ),
         }),
     timeline: {
-      entries: timeline.entries.map(({ id, clipId, name, duration, inPoint, outPoint }) => ({
-        id,
-        clipId,
-        name,
-        duration,
-        inPoint,
-        outPoint,
-      })),
+      // Gain fields (#104) are written only when present, so files touched
+      // by no volume/mute/fade edit stay byte-identical to pre-#104 output.
+      entries: timeline.entries.map(
+        ({ id, clipId, name, duration, inPoint, outPoint, volume, muted }) => ({
+          id,
+          clipId,
+          name,
+          duration,
+          inPoint,
+          outPoint,
+          ...(volume === undefined ? {} : { volume }),
+          ...(muted === undefined ? {} : { muted }),
+        }),
+      ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
         beforeId,
         afterId,
@@ -228,7 +235,7 @@ export async function serializeProject(
         }),
       ),
       audioTracks: audioTracksOf(timeline).map(
-        ({ id, clipId, name, duration, offset, inPoint, outPoint }) => ({
+        ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut }) => ({
           id,
           clipId,
           name,
@@ -236,6 +243,9 @@ export async function serializeProject(
           offset,
           inPoint,
           outPoint,
+          ...(volume === undefined ? {} : { volume }),
+          ...(fadeIn === undefined ? {} : { fadeIn }),
+          ...(fadeOut === undefined ? {} : { fadeOut }),
         }),
       ),
     },
@@ -327,6 +337,15 @@ const asMediaKind = (value: unknown, path: string): MediaKind => {
   }
   return value
 }
+const asVolume = (value: unknown, path: string): number => {
+  const numeric = asFinite(value, path)
+  if (numeric < 0 || numeric > 1) throw new Error(`${path} must be between 0 and 1`)
+  return numeric
+}
+const asBoolean = (value: unknown, path: string): boolean => {
+  if (typeof value !== 'boolean') throw new Error(`${path} must be a boolean`)
+  return value
+}
 
 function validateProject(document: Record<string, unknown>): Project {
   const clips = asArray(document.clips, 'clips').map((value, index) => {
@@ -380,6 +399,10 @@ function validateProject(document: Record<string, unknown>): Project {
     if (entry.outPoint > entry.duration) {
       throw new Error(`${path}.outPoint must not exceed the clip duration`)
     }
+    // Gain fields (#104): absent in files saved before them, meaning full
+    // volume and unmuted.
+    if (raw.volume !== undefined) entry.volume = asVolume(raw.volume, `${path}.volume`)
+    if (raw.muted !== undefined) entry.muted = asBoolean(raw.muted, `${path}.muted`)
     return entry
   })
   const entryIds = new Set<string>()
@@ -483,6 +506,14 @@ function validateProject(document: Record<string, unknown>): Project {
       if (track.outPoint > track.duration) {
         throw new Error(`${path}.outPoint must not exceed the clip duration`)
       }
+      // Gain fields (#104): absent means full volume, no fades. Fades are
+      // range-checked here (finite, non-negative); fitting within the
+      // trimmed length is the reducer's clamp, re-applied when the opened
+      // timeline is normalized — a foreign writer's overlong fade is
+      // shortened on open, exactly as a retrim would shorten it in-app.
+      if (raw.volume !== undefined) track.volume = asVolume(raw.volume, `${path}.volume`)
+      if (raw.fadeIn !== undefined) track.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
+      if (raw.fadeOut !== undefined) track.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
       if (trackIds.has(track.id)) {
         throw new Error(`${path}.id "${track.id}" is duplicated`)
       }

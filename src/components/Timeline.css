@@ -228,3 +228,50 @@
   font: inherit;
   font-variant-numeric: tabular-nums;
 }
+
+/* The entry's own-audio gain row (#104): volume plus a mute toggle. */
+.timeline-entry-audio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.timeline-entry-audio input[type='number'] {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-mute {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* The track's gain row (#104): volume and fade-in/fade-out durations. */
+.audio-track-gain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.audio-track-gain input {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}

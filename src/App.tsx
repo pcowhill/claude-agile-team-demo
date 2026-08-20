@@ -189,6 +189,16 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
           onTrimAudioTrack={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'audio-track-trimmed', id, inPoint, outPoint })
           }
+          onSetEntryVolume={(id, volume) =>
+            dispatchTimeline({ type: 'entry-volume-set', id, volume })
+          }
+          onSetEntryMuted={(id, muted) => dispatchTimeline({ type: 'entry-mute-set', id, muted })}
+          onSetAudioTrackVolume={(id, volume) =>
+            dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
+          }
+          onSetAudioTrackFades={(id, fadeIn, fadeOut) =>
+            dispatchTimeline({ type: 'audio-track-fades-set', id, fadeIn, fadeOut })
+          }
         />
         <ExportPanel timeline={timeline} />
       </main>

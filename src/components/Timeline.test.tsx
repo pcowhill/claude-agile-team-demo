@@ -547,3 +547,75 @@ describe('audio lane (#102)', () => {
     expect(screen.queryByText('music.mp3')).not.toBeInTheDocument()
   })
 })
+
+describe('gain controls (#104)', () => {
+  it('starts a video entry at full volume, unmuted, and commits edits', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const volume = screen.getByRole('spinbutton', {
+      name: 'Volume of a.mp4 at position 1 (0 to 1)',
+    })
+    const mute = screen.getByRole('checkbox', { name: 'Mute a.mp4 at position 1' })
+    expect(volume).toHaveValue(1)
+    expect(mute).not.toBeChecked()
+
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '0.4')
+    await userEvent.tab()
+    expect(volume).toHaveValue(0.4)
+
+    await userEvent.click(mute)
+    expect(mute).toBeChecked()
+    await userEvent.click(mute)
+    expect(mute).not.toBeChecked()
+  })
+
+  it('clamps an out-of-range entry volume and snaps the field to the stored value', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const volume = screen.getByRole('spinbutton', {
+      name: 'Volume of a.mp4 at position 1 (0 to 1)',
+    })
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '5')
+    await userEvent.tab()
+    // Clamped to the 0..1 range; full volume is the default, so the field
+    // snaps back to 1.
+    expect(volume).toHaveValue(1)
+  })
+
+  it('starts an audio track at full volume with no fades, and clamps fades to the trim', async () => {
+    render(<App />)
+    await importAudioClip('tone.wav', 20)
+    await userEvent.click(screen.getByRole('button', { name: 'Add tone.wav to timeline' }))
+
+    const position = 'audio track tone.wav at position 1'
+    const volume = screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` })
+    const fadeIn = screen.getByRole('spinbutton', { name: `Fade-in of ${position} in seconds` })
+    const fadeOut = screen.getByRole('spinbutton', { name: `Fade-out of ${position} in seconds` })
+    expect(volume).toHaveValue(1)
+    expect(fadeIn).toHaveValue(0)
+    expect(fadeOut).toHaveValue(0)
+
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '0.6')
+    await userEvent.tab()
+    expect(volume).toHaveValue(0.6)
+
+    await userEvent.clear(fadeIn)
+    await userEvent.type(fadeIn, '2')
+    await userEvent.tab()
+    expect(fadeIn).toHaveValue(2)
+
+    // 99s of fade-out cannot fit the 20s track with 2s already fading in:
+    // it clamps to the 18s that remain, visibly.
+    await userEvent.clear(fadeOut)
+    await userEvent.type(fadeOut, '99')
+    await userEvent.tab()
+    expect(fadeOut).toHaveValue(18)
+  })
+})
