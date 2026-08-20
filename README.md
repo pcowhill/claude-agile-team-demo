@@ -17,8 +17,8 @@ be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
-video entry's volume and mute (#104); hearing the full mix in the export
-(#105) is still to come. It is deployed
+video entry's volume and mute (#104), and the exported file carries that
+same mix (#105). It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 
