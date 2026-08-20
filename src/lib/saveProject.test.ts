@@ -111,8 +111,8 @@ describe('the download port', () => {
 
 describe('collecting clip media for an embedded save (#98)', () => {
   const clips: LibraryClip[] = [
-    { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1' },
-    { id: 'c2', name: 'city.webm', duration: 5, url: 'blob:c2' },
+    { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', kind: 'video' },
+    { id: 'c2', name: 'city.webm', duration: 5, url: 'blob:c2', kind: 'video' },
   ]
 
   it('collects every clip keyed by id, preserving each blob type', async () => {

@@ -50,7 +50,7 @@ export function MediaLibrary({
         <input
           ref={inputRef}
           type="file"
-          accept="video/*"
+          accept="video/*,audio/*"
           multiple
           hidden
           data-testid="clip-file-input"
@@ -73,7 +73,7 @@ export function MediaLibrary({
 
       {library.clips.length === 0 ? (
         <p className="placeholder">
-          No clips yet. Import video files, or drag and drop them anywhere in the app.
+          No clips yet. Import video or audio files, or drag and drop them anywhere in the app.
         </p>
       ) : (
         <ul className="clip-list" aria-label="Imported clips">
@@ -82,14 +82,20 @@ export function MediaLibrary({
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>
+              {clip.kind === 'audio' && <span className="clip-kind">Audio</span>}
               <span className="clip-duration">{formatDuration(clip.duration)}</span>
-              <button
-                type="button"
-                aria-label={`Add ${clip.name} to timeline`}
-                onClick={() => onAddToTimeline(clip)}
-              >
-                Add
-              </button>
+              {/* Audio cannot join the (video) sequence until it has its own
+                  placement on the timeline (#102): no Add button at all beats
+                  a disabled one that suggests a missing precondition. */}
+              {clip.kind === 'video' && (
+                <button
+                  type="button"
+                  aria-label={`Add ${clip.name} to timeline`}
+                  onClick={() => onAddToTimeline(clip)}
+                >
+                  Add
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={`Remove ${clip.name} from library`}

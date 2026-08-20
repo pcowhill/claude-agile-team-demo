@@ -2,16 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
-import { probeVideoFile } from '../lib/probeVideo'
+import { probeMediaFile } from '../lib/probeMedia'
 
-vi.mock('../lib/probeVideo', () => ({
-  probeVideoFile: vi.fn(),
+vi.mock('../lib/probeMedia', () => ({
+  probeMediaFile: vi.fn(),
 }))
 
-const probeMock = vi.mocked(probeVideoFile)
+const probeMock = vi.mocked(probeMediaFile)
 
 const importClip = async (name: string, duration: number) => {
-  probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}` })
+  probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}`, kind: 'video' })
   await userEvent.upload(
     screen.getByTestId('clip-file-input'),
     new File(['content'], name, { type: 'video/mp4' }),

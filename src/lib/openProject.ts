@@ -1,4 +1,4 @@
-import type { LibraryClip } from './mediaLibrary'
+import type { LibraryClip, MediaKind } from './mediaLibrary'
 import type { ClipMedia, Project, ProjectClip } from './projectFile'
 import { normalizedTimelineState } from './timeline'
 import type { TimelineState } from './timeline'
@@ -32,14 +32,15 @@ const seconds = (value: number): string => `${Number(value.toFixed(2))}s`
 /**
  * Matches one picked file against the project's still-unlinked clips.
  * Filename first (several project clips may share a name — the first
- * unlinked one whose duration also matches wins), then duration; each
- * failure mode gets its own human-readable reason.
+ * unlinked one whose duration and media kind also match wins), then
+ * duration and kind; each failure mode gets its own human-readable reason.
  */
 export function matchFileToClip(
   clips: readonly ProjectClip[],
   linked: ReadonlySet<string>,
   fileName: string,
   probedDuration: number,
+  probedKind: MediaKind,
 ): MatchResult {
   const sameName = clips.filter((clip) => clip.name === fileName)
   if (sameName.length === 0) {
@@ -49,8 +50,19 @@ export function matchFileToClip(
   if (candidates.length === 0) {
     return { kind: 'no-match', reason: `"${fileName}" is already linked.` }
   }
-  const match = candidates.find((clip) => durationsMatch(clip.duration, probedDuration))
+  const match = candidates.find(
+    (clip) => clip.kind === probedKind && durationsMatch(clip.duration, probedDuration),
+  )
   if (match === undefined) {
+    // Name the more surprising mismatch first: a kind clash means the wrong
+    // sort of file altogether, duration means likely a different cut.
+    const kindClash = candidates.every((clip) => clip.kind !== probedKind)
+    if (kindClash) {
+      return {
+        kind: 'no-match',
+        reason: `"${fileName}" is ${probedKind === 'audio' ? 'an audio' : 'a video'} file, but this project's clip of that name is ${candidates[0].kind}. It may be a different file.`,
+      }
+    }
     return {
       kind: 'no-match',
       reason: `"${fileName}" does not match this project's clip of the same name: expected a duration of ${seconds(candidates[0].duration)}, but the picked file is ${seconds(probedDuration)}. It may be a different file.`,
@@ -81,10 +93,11 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
     return url
   }
   return {
-    clips: project.clips.map(({ id, name, duration }) => ({
+    clips: project.clips.map(({ id, name, duration, kind }) => ({
       id,
       name,
       duration,
+      kind,
       url: urlOf(id),
     })),
     timeline: normalizedTimelineState(

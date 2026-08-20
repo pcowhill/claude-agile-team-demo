@@ -6,8 +6,8 @@ import type { Project } from '../lib/projectFile'
 
 const project: Project = {
   clips: [
-    { id: 'a', name: 'first.webm', duration: 5 },
-    { id: 'b', name: 'second.webm', duration: 8 },
+    { id: 'a', name: 'first.webm', duration: 5, kind: 'video' },
+    { id: 'b', name: 'second.webm', duration: 8, kind: 'video' },
   ],
   timeline: {
     entries: [
@@ -25,7 +25,11 @@ function stubProbe(durations: Record<string, number>) {
     const duration = durations[file.name]
     return duration === undefined
       ? Promise.reject(new Error(`"${file.name}" is not a video this browser can decode.`))
-      : Promise.resolve({ duration, url: `blob:probe/${file.name}` })
+      : Promise.resolve({
+          duration,
+          url: `blob:probe/${file.name}`,
+          kind: file.type.startsWith('audio/') ? ('audio' as const) : ('video' as const),
+        })
   })
 }
 
@@ -48,7 +52,7 @@ describe('OpenProjectDialog', () => {
       <OpenProjectDialog
         fileName="trip.bvep"
         project={project}
-        probeVideo={stubProbe({})}
+        probeMedia={stubProbe({})}
         onCancel={vi.fn()}
         onOpen={vi.fn()}
       />,
@@ -67,7 +71,7 @@ describe('OpenProjectDialog', () => {
         fileName="trip.bvep"
         project={project}
         // first.webm re-probes at its stored duration; second.webm does not.
-        probeVideo={stubProbe({ 'first.webm': 5, 'second.webm': 3, 'stranger.webm': 4 })}
+        probeMedia={stubProbe({ 'first.webm': 5, 'second.webm': 3, 'stranger.webm': 4 })}
         onCancel={vi.fn()}
         onOpen={vi.fn()}
       />,
@@ -103,7 +107,7 @@ describe('OpenProjectDialog', () => {
       <OpenProjectDialog
         fileName="trip.bvep"
         project={project}
-        probeVideo={stubProbe({})}
+        probeMedia={stubProbe({})}
         onCancel={vi.fn()}
         onOpen={vi.fn()}
       />,
@@ -121,7 +125,7 @@ describe('OpenProjectDialog', () => {
       <OpenProjectDialog
         fileName="trip.bvep"
         project={project}
-        probeVideo={stubProbe({ 'first.webm': 5, 'second.webm': 8 })}
+        probeMedia={stubProbe({ 'first.webm': 5, 'second.webm': 8 })}
         onCancel={vi.fn()}
         onOpen={onOpen}
       />,
@@ -135,8 +139,8 @@ describe('OpenProjectDialog', () => {
     expect(onOpen).toHaveBeenCalledOnce()
     const restored = onOpen.mock.calls[0][0]
     expect(restored.clips).toEqual([
-      { id: 'a', name: 'first.webm', duration: 5, url: 'blob:probe/first.webm' },
-      { id: 'b', name: 'second.webm', duration: 8, url: 'blob:probe/second.webm' },
+      { id: 'a', name: 'first.webm', duration: 5, kind: 'video', url: 'blob:probe/first.webm' },
+      { id: 'b', name: 'second.webm', duration: 8, kind: 'video', url: 'blob:probe/second.webm' },
     ])
     expect(restored.timeline.entries).toHaveLength(2)
     expect(restored.timeline.entries[1]).toMatchObject({
@@ -148,6 +152,53 @@ describe('OpenProjectDialog', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   })
 
+  it('re-links a mixed video + audio project, marking the audio clip (#101)', async () => {
+    const mixed: Project = {
+      clips: [
+        { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video' },
+        { id: 'm', name: 'music.mp3', duration: 185, kind: 'audio' },
+      ],
+      timeline: {
+        entries: [
+          { id: 'e1', clipId: 'v', name: 'holiday.mp4', duration: 10, inPoint: 0, outPoint: 10 },
+        ],
+        transitions: [],
+        zooms: [],
+      },
+    }
+    const onOpen = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <OpenProjectDialog
+        fileName="trip.bvep"
+        project={mixed}
+        probeMedia={stubProbe({ 'holiday.mp4': 10, 'music.mp3': 185 })}
+        onCancel={vi.fn()}
+        onOpen={onOpen}
+      />,
+    )
+
+    // The audio clip is visibly marked in the re-link list.
+    const audioRow = mediaList()
+      .getAllByRole('listitem')
+      .find((item) => item.textContent?.includes('music.mp3'))
+    expect(audioRow).toHaveTextContent('Audio')
+
+    await user.upload(screen.getByTestId('relink-file-input'), [
+      new File(['x'], 'holiday.mp4', { type: 'video/mp4' }),
+      new File(['x'], 'music.mp3', { type: 'audio/mpeg' }),
+    ])
+    const open = screen.getByRole('button', { name: 'Open project' })
+    await waitFor(() => expect(open).toBeEnabled())
+    await user.click(open)
+
+    const restored = onOpen.mock.calls[0][0]
+    expect(restored.clips).toEqual([
+      { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:probe/holiday.mp4' },
+      { id: 'm', name: 'music.mp3', duration: 185, kind: 'audio', url: 'blob:probe/music.mp3' },
+    ])
+  })
+
   it('cancelling releases every probed URL and opens nothing', async () => {
     const onCancel = vi.fn()
     const onOpen = vi.fn()
@@ -156,7 +207,7 @@ describe('OpenProjectDialog', () => {
       <OpenProjectDialog
         fileName="trip.bvep"
         project={project}
-        probeVideo={stubProbe({ 'first.webm': 5 })}
+        probeMedia={stubProbe({ 'first.webm': 5 })}
         onCancel={onCancel}
         onOpen={onOpen}
       />,
@@ -186,7 +237,7 @@ describe('OpenProjectDialog', () => {
       <OpenProjectDialog
         fileName="trip.bvep"
         project={project}
-        probeVideo={stubProbe({})}
+        probeMedia={stubProbe({})}
         onCancel={onCancel}
         onOpen={vi.fn()}
       />,

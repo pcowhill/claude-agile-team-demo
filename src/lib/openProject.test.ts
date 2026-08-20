@@ -25,27 +25,28 @@ describe('durationsMatch', () => {
 
 describe('matchFileToClip', () => {
   const clips = [
-    { id: 'a', name: 'holiday.mp4', duration: 10 },
-    { id: 'b', name: 'holiday.mp4', duration: 20 },
-    { id: 'c', name: 'city.webm', duration: 5 },
-  ]
+    { id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' },
+    { id: 'b', name: 'holiday.mp4', duration: 20, kind: 'video' },
+    { id: 'c', name: 'city.webm', duration: 5, kind: 'video' },
+    { id: 'd', name: 'music.mp3', duration: 30, kind: 'audio' },
+  ] as const
 
   it('matches by filename and duration', () => {
-    expect(matchFileToClip(clips, new Set(), 'city.webm', 5)).toEqual({
+    expect(matchFileToClip(clips, new Set(), 'city.webm', 5, 'video')).toEqual({
       kind: 'matched',
       clipId: 'c',
     })
   })
 
   it('distinguishes same-named clips by duration', () => {
-    expect(matchFileToClip(clips, new Set(), 'holiday.mp4', 20.05)).toEqual({
+    expect(matchFileToClip(clips, new Set(), 'holiday.mp4', 20.05, 'video')).toEqual({
       kind: 'matched',
       clipId: 'b',
     })
   })
 
   it('reports a file that is not part of the project', () => {
-    const result = matchFileToClip(clips, new Set(), 'other.mp4', 5)
+    const result = matchFileToClip(clips, new Set(), 'other.mp4', 5, 'video')
     expect(result.kind).toBe('no-match')
     if (result.kind === 'no-match') {
       expect(result.reason).toContain('"other.mp4" is not one of this project\'s media files')
@@ -53,7 +54,7 @@ describe('matchFileToClip', () => {
   })
 
   it('reports a duration mismatch instead of silently accepting the file', () => {
-    const result = matchFileToClip(clips, new Set(), 'city.webm', 9)
+    const result = matchFileToClip(clips, new Set(), 'city.webm', 9, 'video')
     expect(result.kind).toBe('no-match')
     if (result.kind === 'no-match') {
       expect(result.reason).toContain('expected a duration of 5s')
@@ -62,28 +63,44 @@ describe('matchFileToClip', () => {
   })
 
   it('reports an already-linked clip rather than re-linking it', () => {
-    const result = matchFileToClip(clips, new Set(['c']), 'city.webm', 5)
+    const result = matchFileToClip(clips, new Set(['c']), 'city.webm', 5, 'video')
     expect(result.kind).toBe('no-match')
     if (result.kind === 'no-match') expect(result.reason).toContain('already linked')
   })
 
   it('skips linked clips when several share a name', () => {
-    expect(matchFileToClip(clips, new Set(['a']), 'holiday.mp4', 10)).toEqual({
+    expect(matchFileToClip(clips, new Set(['a']), 'holiday.mp4', 10, 'video')).toEqual({
       kind: 'no-match',
       reason: expect.stringContaining('expected a duration of 20s'),
     })
-    expect(matchFileToClip(clips, new Set(['a']), 'holiday.mp4', 20)).toEqual({
+    expect(matchFileToClip(clips, new Set(['a']), 'holiday.mp4', 20, 'video')).toEqual({
       kind: 'matched',
       clipId: 'b',
     })
+  })
+
+  it('matches an audio file to its audio clip (#101)', () => {
+    expect(matchFileToClip(clips, new Set(), 'music.mp3', 30, 'audio')).toEqual({
+      kind: 'matched',
+      clipId: 'd',
+    })
+  })
+
+  it('reports a kind mismatch instead of linking the wrong sort of file', () => {
+    const result = matchFileToClip(clips, new Set(), 'music.mp3', 30, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') {
+      expect(result.reason).toContain('"music.mp3" is a video file')
+      expect(result.reason).toContain('is audio')
+    }
   })
 })
 
 describe('restoreProject', () => {
   const project: Project = {
     clips: [
-      { id: 'a', name: 'holiday.mp4', duration: 10 },
-      { id: 'b', name: 'city.webm', duration: 5 },
+      { id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' },
+      { id: 'b', name: 'city.webm', duration: 5, kind: 'video' },
     ],
     timeline: {
       entries: [
@@ -113,8 +130,8 @@ describe('restoreProject', () => {
   it('rebuilds library clips and timeline entries with the re-linked URLs', () => {
     const restored = restoreProject(project, urls)
     expect(restored.clips).toEqual([
-      { id: 'a', name: 'holiday.mp4', duration: 10, url: 'blob:relinked-a' },
-      { id: 'b', name: 'city.webm', duration: 5, url: 'blob:relinked-b' },
+      { id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:relinked-a' },
+      { id: 'b', name: 'city.webm', duration: 5, kind: 'video', url: 'blob:relinked-b' },
     ])
     expect(restored.timeline.entries).toEqual([
       expect.objectContaining({ id: 'e1', clipId: 'a', url: 'blob:relinked-a', inPoint: 1, outPoint: 8 }),
@@ -150,8 +167,8 @@ describe('restoreProject', () => {
 describe('restoreEmbeddedProject', () => {
   const project: Project = {
     clips: [
-      { id: 'a', name: 'holiday.mp4', duration: 10 },
-      { id: 'b', name: 'city.webm', duration: 5 },
+      { id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' },
+      { id: 'b', name: 'city.webm', duration: 5, kind: 'video' },
     ],
     timeline: {
       entries: [
@@ -181,8 +198,8 @@ describe('restoreEmbeddedProject', () => {
     const { blobs, createUrl } = recordingCreateUrl()
     const restored = restoreEmbeddedProject(project, media, createUrl)
     expect(restored.clips).toEqual([
-      { id: 'a', name: 'holiday.mp4', duration: 10, url: 'blob:embedded-1' },
-      { id: 'b', name: 'city.webm', duration: 5, url: 'blob:embedded-2' },
+      { id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:embedded-1' },
+      { id: 'b', name: 'city.webm', duration: 5, kind: 'video', url: 'blob:embedded-2' },
     ])
     expect(restored.timeline.entries.map((entry) => entry.url)).toEqual([
       'blob:embedded-1',

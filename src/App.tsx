@@ -8,17 +8,17 @@ import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import { emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
-import { probeVideoFile } from './lib/probeVideo'
+import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
 
 interface AppProps {
-  /** Injectable for tests (jsdom can probe no real video and show no picker). */
-  probeVideo?: typeof probeVideoFile
+  /** Injectable for tests (jsdom can probe no real media and show no picker). */
+  probeMedia?: typeof probeMediaFile
   savePort?: SavePort
 }
 
-function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
+function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, emptyTimeline)
   const [isDragTarget, setIsDragTarget] = useState(false)
@@ -40,10 +40,10 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
     // Sequential so clips appear in the order the user picked them.
     for (const file of files) {
       try {
-        const { duration, url } = await probeVideo(file)
+        const { duration, url, kind } = await probeMedia(file)
         dispatch({
           type: 'clip-added',
-          clip: { id: crypto.randomUUID(), name: file.name, duration, url },
+          clip: { id: crypto.randomUUID(), name: file.name, duration, url, kind },
         })
       } catch (error) {
         dispatch({
@@ -56,7 +56,7 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
         })
       }
     }
-  }, [probeVideo])
+  }, [probeMedia])
 
   const handleImportFiles = useCallback(
     (files: File[]) => {
@@ -66,6 +66,8 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
   )
 
   const handleAddToTimeline = useCallback((clip: LibraryClip) => {
+    // The sequence is video-only until audio gets its own placement (#102).
+    if (clip.kind !== 'video') return
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
@@ -144,7 +146,7 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
           onSaved={setSavedState}
           onProjectReplaced={handleProjectReplaced}
           port={savePort}
-          probeVideo={probeVideo}
+          probeMedia={probeMedia}
         />
       </header>
       <main className="app-main">

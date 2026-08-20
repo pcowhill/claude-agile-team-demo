@@ -18,6 +18,7 @@ const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
   name: 'clip.mp4',
   duration: 10,
+  kind: 'video',
   url: 'blob:test',
   ...overrides,
 })
@@ -50,6 +51,13 @@ describe('entryFromClip', () => {
       inPoint: 0,
       outPoint: 42,
     })
+  })
+
+  it('refuses an audio clip — the sequence carries video only (#101)', () => {
+    const audio = clip({ name: 'music.mp3', kind: 'audio' })
+    expect(() => entryFromClip(audio, 'e1')).toThrow(
+      'cannot add "music.mp3" to the sequence: it is not a video clip',
+    )
   })
 })
 
@@ -505,7 +513,7 @@ describe('zooms across entry edits', () => {
 
 describe('timeline-replaced (#77)', () => {
   it('stores the given state by reference, so the dirty baseline can match it', () => {
-    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1' }
+    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1', kind: 'video' }
     const replacement: TimelineState = {
       entries: [entryFromClip(clip, 'e1')],
       transitions: [],
@@ -523,7 +531,7 @@ describe('timeline-replaced (#77)', () => {
 
 describe('normalizedTimelineState (#77)', () => {
   it('applies the reducer invariants to externally built state', () => {
-    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1' }
+    const clip: LibraryClip = { id: 'c1', name: 'a.webm', duration: 5, url: 'blob:c1', kind: 'video' }
     const first = entryFromClip(clip, 'e1')
     const second = entryFromClip(clip, 'e2')
     const state = normalizedTimelineState(

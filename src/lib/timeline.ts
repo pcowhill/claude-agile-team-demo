@@ -138,6 +138,12 @@ export type TimelineAction =
   | { type: 'zoom-removed'; entryId: string }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
+  // The sequence carries video only; audio placement is its own model (#102).
+  // The UI never offers this path for audio — reaching here is programmer
+  // error, and a silent audio entry would break preview and export.
+  if (clip.kind !== 'video') {
+    throw new Error(`cannot add "${clip.name}" to the sequence: it is not a video clip`)
+  }
   return {
     id,
     clipId: clip.id,

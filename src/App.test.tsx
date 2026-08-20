@@ -47,13 +47,13 @@ describe('unsaved-changes tracking (#76)', () => {
     return { port, writes }
   }
 
-  const probeVideo = (file: File) =>
-    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}` })
+  const probeMedia = (file: File) =>
+    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}`, kind: 'video' as const })
 
   it('starts clean, dirties on edits, and clears on each save', async () => {
     const { port, writes } = stubPort()
     const user = userEvent.setup()
-    render(<App probeVideo={probeVideo} savePort={port} />)
+    render(<App probeMedia={probeMedia} savePort={port} />)
 
     // A fresh, empty session shows no unsaved-changes indicator.
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
@@ -95,7 +95,7 @@ describe('unsaved-changes tracking (#76)', () => {
   it('Ctrl+S mid-edit saves the committed state and leaves the field alone', async () => {
     const { port, writes } = stubPort()
     const user = userEvent.setup()
-    render(<App probeVideo={probeVideo} savePort={port} />)
+    render(<App probeMedia={probeMedia} savePort={port} />)
 
     await user.upload(
       screen.getByTestId('clip-file-input'),
@@ -150,15 +150,15 @@ describe('Open and New Project (#77)', () => {
     return { port, writes }
   }
 
-  const probeVideo = (file: File) =>
-    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}` })
+  const probeMedia = (file: File) =>
+    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}`, kind: 'video' as const })
 
   it('New Project discards the current state after confirmation and starts clean', async () => {
     const revokeSpy = vi.fn()
     URL.revokeObjectURL = revokeSpy
     const { port } = stubPort()
     const user = userEvent.setup()
-    render(<App probeVideo={probeVideo} savePort={port} />)
+    render(<App probeMedia={probeMedia} savePort={port} />)
 
     await user.upload(
       screen.getByTestId('clip-file-input'),
@@ -182,7 +182,7 @@ describe('Open and New Project (#77)', () => {
     URL.revokeObjectURL = vi.fn()
     const { port, writes } = stubPort()
     const user = userEvent.setup()
-    render(<App probeVideo={probeVideo} savePort={port} />)
+    render(<App probeMedia={probeMedia} savePort={port} />)
 
     // Build: one clip on the timeline, trimmed to [1, 4].
     await user.upload(
