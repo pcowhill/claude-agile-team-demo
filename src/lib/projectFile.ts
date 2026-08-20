@@ -11,15 +11,15 @@ import { transitionsOf, zoomsOf } from './timeline'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
- * continue editing, EXCEPT the video data itself. The customer asked for the
- * file to be "as small as it can reasonably be" (#71), so clips are stored as
- * metadata to re-link against on open (slice 3/3), never embedded. The file
- * is the gzip of a JSON document:
+ * continue editing. The file is the gzip of a JSON document:
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1,                // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2,            // integer; bumped on breaking change
  *     "clips": [{ id, name, duration, mimeType?, byteSize? }],
+ *     "media": {                         // schema version 2 only (#97)
+ *       [clipId]: { byteLength, crc32, mimeType?, data }
+ *     },
  *     "timeline": {
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint }],
  *       "transitions": [{ beforeId, afterId, type, duration }],
@@ -27,6 +27,25 @@ import { transitionsOf, zoomsOf } from './timeline'
  *                   centerX, centerY }]
  *     }
  *   }
+ *
+ * Two kinds of file share the format (#92/#97):
+ *
+ * - **References-only** (schema version 1): clips are metadata to re-link
+ *   against on open (#77), keeping the file "as small as it can reasonably
+ *   be" (#71). Written at version 1 — the lowest version that can represent
+ *   the content — so older builds keep opening them.
+ * - **Embedded media** (schema version 2): the `media` object additionally
+ *   carries every clip's bytes, so the single file moves to another
+ *   computer and opens fully linked with no re-link step. `data` is
+ *   standard base64: the format stays gzip-of-JSON (older builds refuse it
+ *   through the version gate with the "saved by a newer version" error
+ *   rather than a parse failure), and gzip's Huffman stage re-compresses
+ *   base64's 33% inflation down to a few percent even for media bytes that
+ *   are themselves incompressible — measured in the test suite against the
+ *   1.15 × (media + references file) budget from #97. `byteLength` and
+ *   `crc32` (of the decoded bytes, hex) let a truncated or mutated payload
+ *   be refused by name; a version-2 file whose `media` does not cover every
+ *   clip is refused rather than half-opened.
  *
  * Compatibility contract: a file with `schemaVersion` GREATER than this
  * build understands is refused with a clear error (it may mean something
@@ -37,7 +56,10 @@ import { transitionsOf, zoomsOf } from './timeline'
  * still open" (#71) checkable forever.
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
-export const PROJECT_SCHEMA_VERSION = 1
+/** The newest schema version this build understands (and writes when embedding). */
+export const PROJECT_SCHEMA_VERSION = 2
+/** The version written for references-only files, openable by older builds. */
+export const REFERENCES_SCHEMA_VERSION = 1
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -60,6 +82,16 @@ export interface ProjectClip {
  */
 export type ProjectEntry = Omit<TimelineEntry, 'url'>
 
+/**
+ * One clip's media, as passed to serialization and returned from
+ * deserializing an embedded file. `mimeType` is preserved so the restored
+ * Blob (see `openProject.ts`) plays back under its original type.
+ */
+export interface ClipMedia {
+  bytes: Uint8Array<ArrayBuffer>
+  mimeType?: string
+}
+
 /** The editing state a project file carries. Lists are always present. */
 export interface ProjectTimeline {
   entries: ProjectEntry[]
@@ -75,20 +107,29 @@ export interface Project {
 /**
  * Deserialization never throws for bad input — a project file comes from
  * outside the program and being unreadable is an expected outcome, reported
- * as a value with a human-readable reason.
+ * as a value with a human-readable reason. `media` is present exactly when
+ * the file embedded its media (schema version 2), keyed by clip id and
+ * covering every clip — the validator refuses partial coverage.
  */
-export type DeserializeResult = { ok: true; project: Project } | { ok: false; error: string }
+export type DeserializeResult =
+  | { ok: true; project: Project; media?: ReadonlyMap<string, ClipMedia> }
+  | { ok: false; error: string }
 
 /**
  * Serializes the current library + timeline into project-file bytes.
- * Import failures (transient UI state) are not part of a project. Throws
- * only on programmer error: a timeline entry referencing a clip that is not
- * in the library would produce a file our own deserializer refuses, so it
- * is rejected here, at the source.
+ * Import failures (transient UI state) are not part of a project. With
+ * `media` (bytes per clip id, covering the whole library) the file embeds
+ * the media at schema version 2; without it, a references-only version 1
+ * file is written, byte-compatible with what this function always produced.
+ * Throws only on programmer error: a timeline entry referencing a clip that
+ * is not in the library — or a media map that does not match the library
+ * exactly — would produce a file our own deserializer refuses, so it is
+ * rejected here, at the source.
  */
 export async function serializeProject(
   library: MediaLibraryState,
   timeline: TimelineState,
+  media?: ReadonlyMap<string, ClipMedia>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const clipIds = new Set(library.clips.map((clip) => clip.id))
   for (const entry of timeline.entries) {
@@ -98,10 +139,44 @@ export async function serializeProject(
       )
     }
   }
+  if (media !== undefined) {
+    for (const clip of library.clips) {
+      if (!media.has(clip.id)) {
+        throw new Error(
+          `cannot serialize: no media bytes supplied for clip "${clip.id}" ("${clip.name}")`,
+        )
+      }
+    }
+    for (const clipId of media.keys()) {
+      if (!clipIds.has(clipId)) {
+        throw new Error(
+          `cannot serialize: media bytes supplied for clip "${clipId}" which is not in the library`,
+        )
+      }
+    }
+  }
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: PROJECT_SCHEMA_VERSION,
+    schemaVersion: media === undefined ? REFERENCES_SCHEMA_VERSION : PROJECT_SCHEMA_VERSION,
     clips: library.clips.map(({ id, name, duration }) => ({ id, name, duration })),
+    ...(media === undefined
+      ? {}
+      : {
+          media: Object.fromEntries(
+            library.clips.map((clip) => {
+              const clipMedia = media.get(clip.id) as ClipMedia
+              return [
+                clip.id,
+                {
+                  byteLength: clipMedia.bytes.length,
+                  crc32: crc32Hex(clipMedia.bytes),
+                  ...(clipMedia.mimeType === undefined ? {} : { mimeType: clipMedia.mimeType }),
+                  data: encodeBase64(clipMedia.bytes),
+                },
+              ]
+            }),
+          ),
+        }),
     timeline: {
       entries: timeline.entries.map(({ id, clipId, name, duration, inPoint, outPoint }) => ({
         id,
@@ -169,7 +244,13 @@ export async function deserializeProject(
     )
   }
   try {
-    return { ok: true, project: validateProject(parsed) }
+    const project = validateProject(parsed)
+    if (version < 2) {
+      // A version-1 file never has media; any `media` key is an unknown
+      // extra key from some foreign writer and is ignored per the contract.
+      return { ok: true, project }
+    }
+    return { ok: true, project, media: validateMedia(parsed, project.clips) }
   } catch (error) {
     return refusal(`corrupt project file (${error instanceof Error ? error.message : error})`)
   }
@@ -324,6 +405,109 @@ function validateProject(document: Record<string, unknown>): Project {
   })
 
   return { clips, timeline: { entries, transitions, zooms } }
+}
+
+/**
+ * Validates a version-2 file's embedded media against its clips: exact
+ * coverage (no clip without bytes, no bytes for an unknown clip), valid
+ * base64, and the declared byteLength + crc32 matching what actually
+ * decoded — a truncated or mutated payload is refused by name, never
+ * half-opened (#97).
+ */
+function validateMedia(
+  document: Record<string, unknown>,
+  clips: readonly ProjectClip[],
+): Map<string, ClipMedia> {
+  if (document.media === undefined) {
+    throw new Error(
+      'this file declares embedded media (schema version 2) but the "media" section is missing',
+    )
+  }
+  const mediaRaw = asRecord(document.media, 'media')
+  const clipsById = new Map(clips.map((clip) => [clip.id, clip]))
+  for (const clipId of Object.keys(mediaRaw)) {
+    if (!clipsById.has(clipId)) {
+      throw new Error(`media["${clipId}"] does not match any clip`)
+    }
+  }
+  const media = new Map<string, ClipMedia>()
+  for (const clip of clips) {
+    const path = `media["${clip.id}"]`
+    if (mediaRaw[clip.id] === undefined) {
+      throw new Error(`media is missing the bytes for clip "${clip.id}" ("${clip.name}")`)
+    }
+    const raw = asRecord(mediaRaw[clip.id], path)
+    const byteLength = asNonNegative(raw.byteLength, `${path}.byteLength`)
+    if (!Number.isInteger(byteLength)) throw new Error(`${path}.byteLength must be an integer`)
+    const crc32 = typeof raw.crc32 === 'string' ? raw.crc32 : null
+    if (crc32 === null || !/^[0-9a-f]{8}$/.test(crc32)) {
+      throw new Error(`${path}.crc32 must be an 8-digit lowercase hex string`)
+    }
+    if (typeof raw.data !== 'string') throw new Error(`${path}.data must be a string`)
+    let bytes: Uint8Array<ArrayBuffer>
+    try {
+      bytes = decodeBase64(raw.data)
+    } catch {
+      throw new Error(`${path}.data is not valid base64`)
+    }
+    if (bytes.length !== byteLength) {
+      throw new Error(
+        `${path} is truncated: it declares ${byteLength} bytes but ${bytes.length} decoded`,
+      )
+    }
+    if (crc32Hex(bytes) !== crc32) {
+      throw new Error(
+        `${path} failed its integrity check (crc32 mismatch) — the embedded media for "${clip.name}" is damaged`,
+      )
+    }
+    const entry: ClipMedia = { bytes }
+    if (raw.mimeType !== undefined) entry.mimeType = asString(raw.mimeType, `${path}.mimeType`)
+    media.set(clip.id, entry)
+  }
+  return media
+}
+
+/**
+ * CRC-32 (the gzip/zlib polynomial) of the decoded media bytes, as 8 hex
+ * digits. Not cryptographic — it guards against damage, not adversaries:
+ * the whole file's gzip CRC already catches on-disk corruption, so this
+ * exists to catch a payload mangled before compression (a buggy or
+ * hand-edited writer) and name the clip it belongs to.
+ */
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    table[n] = c >>> 0
+  }
+  return table
+})()
+
+function crc32Hex(bytes: Uint8Array): string {
+  let crc = 0xffffffff
+  for (let i = 0; i < bytes.length; i++) {
+    crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8)
+  }
+  return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0')
+}
+
+/** Chunked so large media never builds a fromCharCode argument list. */
+function encodeBase64(bytes: Uint8Array): string {
+  const parts: string[] = []
+  const CHUNK = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+    parts.push(String.fromCharCode(...bytes.subarray(offset, offset + CHUNK)))
+  }
+  return btoa(parts.join(''))
+}
+
+/** Throws (from atob) on input that is not base64. */
+function decodeBase64(text: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(text)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
 }
 
 /**

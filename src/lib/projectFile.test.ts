@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import fixtureV1Base64 from './fixtures/project-v1.bvep.base64?raw'
+import fixtureV2Base64 from './fixtures/project-v2-embedded.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   PROJECT_FORMAT,
   PROJECT_SCHEMA_VERSION,
+  REFERENCES_SCHEMA_VERSION,
   deserializeProject,
   serializeProject,
 } from './projectFile'
-import type { Project } from './projectFile'
+import type { ClipMedia, Project } from './projectFile'
 
 /** Gzips a JSON document the way the serializer does, to craft bad files. */
 async function gzipJson(document: unknown): Promise<Uint8Array<ArrayBuffer>> {
@@ -75,13 +77,52 @@ const expectedProject: Project = {
   },
 }
 
-/** A structurally valid document to mutate one field at a time. */
+/** A structurally valid references-only document to mutate one field at a time. */
 const validDocument = () => ({
   format: PROJECT_FORMAT,
-  schemaVersion: PROJECT_SCHEMA_VERSION,
+  schemaVersion: REFERENCES_SCHEMA_VERSION,
   clips: structuredClone(expectedProject.clips),
   timeline: structuredClone(expectedProject.timeline),
 })
+
+/**
+ * Deterministic media-like bytes: high-entropy (so the size test measures
+ * the honest incompressible case) yet reproducible, so the committed v2
+ * fixture's expected bytes can be re-derived here forever.
+ */
+function pseudoRandomBytes(length: number, seed: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(length)
+  let state = seed >>> 0
+  for (let index = 0; index < length; index++) {
+    state = (state * 1664525 + 1013904223) >>> 0
+    bytes[index] = state >>> 24
+  }
+  return bytes
+}
+
+/** The media used by embedded-serialization tests and the v2 fixture. */
+const fixtureMedia = (): Map<string, ClipMedia> =>
+  new Map([
+    ['c1', { bytes: pseudoRandomBytes(2048, 1), mimeType: 'video/mp4' }],
+    ['c2', { bytes: pseudoRandomBytes(1024, 2), mimeType: 'video/webm' }],
+  ])
+
+/** Decompresses a project file back to its JSON document, for inspection. */
+async function gunzipJson(bytes: Uint8Array<ArrayBuffer>): Promise<Record<string, unknown>> {
+  const stream = new DecompressionStream('gzip')
+  const writer = stream.writable.getWriter()
+  void writer.write(bytes)
+  void writer.close()
+  let json = ''
+  const decoder = new TextDecoder()
+  const reader = stream.readable.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    json += decoder.decode(value, { stream: true })
+  }
+  return JSON.parse(json) as Record<string, unknown>
+}
 
 async function expectRefusal(bytes: Uint8Array<ArrayBuffer>, ...mentions: string[]) {
   const result = await deserializeProject(bytes)
@@ -147,9 +188,19 @@ describe('project file round-trip', () => {
 describe('project file versioning', () => {
   it('carries the schema version', async () => {
     // Deserializing proves the marker + version were present and accepted;
-    // this pins the constant so a bump is a conscious, reviewed change.
-    expect(PROJECT_SCHEMA_VERSION).toBe(1)
+    // this pins the constants so a bump is a conscious, reviewed change.
+    // Version 2 added embedded media (#97).
+    expect(PROJECT_SCHEMA_VERSION).toBe(2)
+    expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
+  })
+
+  it('still writes references-only files at version 1, with no media section', async () => {
+    // Older builds must keep opening files that embed nothing — the lowest
+    // version that can represent the content is the one written.
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(document).not.toHaveProperty('media')
   })
 
   it('refuses a file from a newer schema version with a clear error', async () => {
@@ -164,6 +215,148 @@ describe('project file versioning', () => {
     }
     const result = await deserializeProject(await gzipJson(withExtras))
     expect(result).toEqual({ ok: true, project: expectedProject })
+  })
+
+  it('ignores a media key on a version-1 file', async () => {
+    // Only version 2 declares embedded media; on version 1 the key is an
+    // unknown extra from some foreign writer, not something to validate.
+    const foreign = { ...validDocument(), media: { c1: 'nonsense' } }
+    const result = await deserializeProject(await gzipJson(foreign))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.media).toBeUndefined()
+  })
+})
+
+describe('embedded media (schema version 2)', () => {
+  const base64Of = (bytes: Uint8Array): string =>
+    btoa(String.fromCharCode(...bytes))
+
+  /** A valid embedded document to mutate — honest: taken from the serializer. */
+  const embeddedDocument = async () =>
+    (await gunzipJson(await serializeProject(library, timeline, fixtureMedia()))) as {
+      schemaVersion: number
+      media: Record<
+        string,
+        { byteLength: number; crc32: string; mimeType?: string; data: string }
+      >
+    } & Record<string, unknown>
+
+  it('round-trips media byte-for-byte, alongside the full editing state', async () => {
+    const media = fixtureMedia()
+    const bytes = await serializeProject(library, timeline, media)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedProject)
+      expect(result.media).toEqual(media)
+    }
+  })
+
+  it('writes schema version 2 with a media entry per clip', async () => {
+    const document = await embeddedDocument()
+    expect(document.schemaVersion).toBe(PROJECT_SCHEMA_VERSION)
+    expect(Object.keys(document.media).sort()).toEqual(['c1', 'c2'])
+    expect(document.media.c1.byteLength).toBe(2048)
+    expect(document.media.c1.mimeType).toBe('video/mp4')
+    expect(document.media.c2.byteLength).toBe(1024)
+  })
+
+  it('round-trips media with no mimeType', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['c1', { bytes: pseudoRandomBytes(64, 7) }],
+      ['c2', { bytes: pseudoRandomBytes(32, 8) }],
+    ])
+    const result = await deserializeProject(await serializeProject(library, timeline, media))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.media).toEqual(media)
+  })
+
+  it('refuses to serialize when a clip has no media bytes', async () => {
+    const partial = new Map([['c1', { bytes: pseudoRandomBytes(16, 1) }]])
+    await expect(serializeProject(library, timeline, partial)).rejects.toThrow(
+      'no media bytes supplied for clip "c2"',
+    )
+  })
+
+  it('refuses to serialize media for a clip that is not in the library', async () => {
+    const extra = fixtureMedia()
+    extra.set('c3', { bytes: pseudoRandomBytes(16, 3) })
+    await expect(serializeProject(library, timeline, extra)).rejects.toThrow(
+      'media bytes supplied for clip "c3" which is not in the library',
+    )
+  })
+
+  const embeddedMutations: [
+    string,
+    (document: Awaited<ReturnType<typeof embeddedDocument>>) => void,
+    string,
+  ][] = [
+    [
+      'a version-2 file without a media section',
+      (d) => delete (d as Record<string, unknown>).media,
+      'the "media" section is missing',
+    ],
+    [
+      'media missing one clip',
+      (d) => delete d.media.c2,
+      'media is missing the bytes for clip "c2" ("city.webm")',
+    ],
+    [
+      'media for an unknown clip',
+      (d) => (d.media.zzz = { ...d.media.c1 }),
+      'media["zzz"] does not match any clip',
+    ],
+    [
+      'media that is not base64',
+      (d) => (d.media.c1.data = '!!! not base64 !!!'),
+      'media["c1"].data is not valid base64',
+    ],
+    [
+      'a truncated media payload',
+      (d) => (d.media.c1.data = base64Of(pseudoRandomBytes(2048, 1).subarray(0, 512))),
+      'media["c1"] is truncated: it declares 2048 bytes but 512 decoded',
+    ],
+    [
+      'a mutated media payload of the right length',
+      (d) => (d.media.c1.data = base64Of(pseudoRandomBytes(2048, 99))),
+      'media["c1"] failed its integrity check',
+    ],
+    [
+      'a non-integer declared byteLength',
+      (d) => (d.media.c1.byteLength = 1.5),
+      'media["c1"].byteLength must be an integer',
+    ],
+    [
+      'a malformed crc32',
+      (d) => (d.media.c1.crc32 = 'not hex!'),
+      'media["c1"].crc32 must be an 8-digit lowercase hex string',
+    ],
+    [
+      'media data that is not a string',
+      (d) => ((d.media.c1 as Record<string, unknown>).data = 42),
+      'media["c1"].data must be a string',
+    ],
+  ]
+  for (const [label, mutate, mention] of embeddedMutations) {
+    it(`refuses ${label}`, async () => {
+      const document = await embeddedDocument()
+      mutate(document)
+      await expectRefusal(await gzipJson(document), mention)
+    })
+  }
+
+  it('costs little beyond the media itself (#97 size budget)', async () => {
+    // Incompressible media is the honest worst case: gzip cannot shrink it,
+    // so the budget measures pure format overhead — chiefly how much of
+    // base64's 4/3 inflation the gzip stage wins back.
+    const mediaBytes = 300_000
+    const media = new Map<string, ClipMedia>([
+      ['c1', { bytes: pseudoRandomBytes(200_000, 11), mimeType: 'video/mp4' }],
+      ['c2', { bytes: pseudoRandomBytes(100_000, 12), mimeType: 'video/webm' }],
+    ])
+    const references = await serializeProject(library, timeline)
+    const embedded = await serializeProject(library, timeline, media)
+    expect(embedded.length).toBeLessThanOrEqual(1.15 * (mediaBytes + references.length))
   })
 })
 
@@ -303,5 +496,18 @@ describe('backwards compatibility', () => {
     const bytes = Uint8Array.from(atob(fixtureV1Base64.trim()), (char) => char.charCodeAt(0))
     const result = await deserializeProject(bytes)
     expect(result).toEqual({ ok: true, project: expectedProject })
+  })
+
+  it('deserializes the committed v2 embedded-media fixture, media byte-for-byte', async () => {
+    // Same never-rewrite contract as the v1 fixture. Its media bytes are
+    // pseudoRandomBytes(2048, 1) / (1024, 2) — re-derived here rather than
+    // committed separately, so byte-identity stays checkable forever.
+    const bytes = Uint8Array.from(atob(fixtureV2Base64.trim()), (char) => char.charCodeAt(0))
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedProject)
+      expect(result.media).toEqual(fixtureMedia())
+    }
   })
 })

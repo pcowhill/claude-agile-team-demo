@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { durationsMatch, matchFileToClip, restoreProject } from './openProject'
-import type { Project } from './projectFile'
+import { durationsMatch, matchFileToClip, restoreEmbeddedProject, restoreProject } from './openProject'
+import type { ClipMedia, Project } from './projectFile'
 
 describe('durationsMatch', () => {
   it('accepts exact and near-exact durations', () => {
@@ -143,6 +143,74 @@ describe('restoreProject', () => {
   it('throws on a clip without a re-linked URL (callers gate on allLinked)', () => {
     expect(() => restoreProject(project, new Map([['a', 'blob:relinked-a']]))).toThrow(
       /no re-linked media/,
+    )
+  })
+})
+
+describe('restoreEmbeddedProject', () => {
+  const project: Project = {
+    clips: [
+      { id: 'a', name: 'holiday.mp4', duration: 10 },
+      { id: 'b', name: 'city.webm', duration: 5 },
+    ],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'a', name: 'holiday.mp4', duration: 10, inPoint: 1, outPoint: 8 },
+        { id: 'e2', clipId: 'b', name: 'city.webm', duration: 5, inPoint: 0, outPoint: 5 },
+      ],
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+      zooms: [],
+    },
+  }
+  const media = new Map<string, ClipMedia>([
+    ['a', { bytes: Uint8Array.from([1, 2, 3, 4]), mimeType: 'video/mp4' }],
+    ['b', { bytes: Uint8Array.from([5, 6]) }],
+  ])
+
+  /** Records the Blobs it is handed and mints a distinct URL per clip. */
+  const recordingCreateUrl = () => {
+    const blobs: Blob[] = []
+    const createUrl = (blob: Blob) => {
+      blobs.push(blob)
+      return `blob:embedded-${blobs.length}`
+    }
+    return { blobs, createUrl }
+  }
+
+  it('links every clip and entry to a URL minted from its embedded bytes', async () => {
+    const { blobs, createUrl } = recordingCreateUrl()
+    const restored = restoreEmbeddedProject(project, media, createUrl)
+    expect(restored.clips).toEqual([
+      { id: 'a', name: 'holiday.mp4', duration: 10, url: 'blob:embedded-1' },
+      { id: 'b', name: 'city.webm', duration: 5, url: 'blob:embedded-2' },
+    ])
+    expect(restored.timeline.entries.map((entry) => entry.url)).toEqual([
+      'blob:embedded-1',
+      'blob:embedded-2',
+    ])
+    // The Blobs carry the media bytes and their stored type.
+    expect(blobs.map((blob) => [blob.size, blob.type])).toEqual([
+      [4, 'video/mp4'],
+      [2, ''],
+    ])
+    expect(new Uint8Array(await blobs[0].arrayBuffer())).toEqual(
+      Uint8Array.from([1, 2, 3, 4]),
+    )
+  })
+
+  it('applies the same timeline normalization as a re-linked open', () => {
+    const { createUrl } = recordingCreateUrl()
+    const restored = restoreEmbeddedProject(project, media, createUrl)
+    expect(restored.timeline.transitions).toEqual([
+      { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
+    ])
+  })
+
+  it('throws on a clip without media (deserialization guarantees coverage)', () => {
+    const { createUrl } = recordingCreateUrl()
+    const partial = new Map([['a', media.get('a') as ClipMedia]])
+    expect(() => restoreEmbeddedProject(project, partial, createUrl)).toThrow(
+      /has no embedded media/,
     )
   })
 })
