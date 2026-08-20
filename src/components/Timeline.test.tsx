@@ -19,6 +19,15 @@ const importClip = async (name: string, duration: number) => {
   await screen.findByText(name)
 }
 
+const importAudioClip = async (name: string, duration: number) => {
+  probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}`, kind: 'audio' })
+  await userEvent.upload(
+    screen.getByTestId('clip-file-input'),
+    new File(['content'], name, { type: 'audio/mpeg' }),
+  )
+  await screen.findByText(name)
+}
+
 const sequence = () => screen.getByRole('list', { name: 'Sequence' })
 const sequenceNames = () =>
   within(sequence())
@@ -415,5 +424,126 @@ describe('timeline', () => {
     // Still in the library, so it can be re-added.
     const library = screen.getByRole('list', { name: 'Imported clips' })
     expect(library).toHaveTextContent('a.mp4')
+  })
+})
+
+describe('audio lane (#102)', () => {
+  const lane = () => screen.getByRole('list', { name: 'Audio tracks' })
+
+  it('adds overlapping audio tracks — twice from one clip and once from another', async () => {
+    render(<App />)
+    await importAudioClip('music.mp3', 30)
+    await importAudioClip('fx.wav', 6)
+
+    const addMusic = screen.getByRole('button', { name: 'Add music.mp3 to timeline' })
+    await userEvent.click(addMusic)
+    await userEvent.click(addMusic)
+    await userEvent.click(screen.getByRole('button', { name: 'Add fx.wav to timeline' }))
+
+    const items = within(lane()).getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    // All three start at 0 — fully overlapping ranges are legal (#100).
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of audio track music.mp3 at position 1 in seconds',
+      }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of audio track music.mp3 at position 2 in seconds',
+      }),
+    ).toHaveValue(0)
+    // The video sequence is untouched by any of it.
+    expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:00')
+  })
+
+  it('edits start time and trim from the lane; the bar tracks offset and length', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('music.mp3', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    const startField = screen.getByRole('spinbutton', {
+      name: 'Start time of audio track music.mp3 at position 1 in seconds',
+    })
+    const inField = screen.getByRole('spinbutton', {
+      name: 'Trim in point of audio track music.mp3 at position 1 in seconds',
+    })
+    const outField = screen.getByRole('spinbutton', {
+      name: 'Trim out point of audio track music.mp3 at position 1 in seconds',
+    })
+
+    await userEvent.clear(startField)
+    await userEvent.type(startField, '5')
+    await userEvent.tab()
+    await userEvent.clear(inField)
+    await userEvent.type(inField, '10')
+    await userEvent.tab()
+    await userEvent.clear(outField)
+    await userEvent.type(outField, '25')
+    await userEvent.tab()
+
+    expect(startField).toHaveValue(5)
+    expect(inField).toHaveValue(10)
+    expect(outField).toHaveValue(25)
+    expect(screen.getByText('plays 15s of 30s')).toBeInTheDocument()
+    // Track runs 5..20 on a lane spanning to 20 (past the 10s video — the
+    // silent tail renders instead of clipping): left 25%, width 75%.
+    const bar = screen.getByTestId('audio-track-bar-0')
+    expect(bar.style.left).toBe('25%')
+    expect(bar.style.width).toBe('75%')
+    // The video total is unchanged by audio (silent tail is #103's concern).
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:10')
+  })
+
+  it('rejects an inverted trim range and snaps the fields back', async () => {
+    render(<App />)
+    await importAudioClip('music.mp3', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    const inField = screen.getByRole('spinbutton', {
+      name: 'Trim in point of audio track music.mp3 at position 1 in seconds',
+    })
+    await userEvent.clear(inField)
+    await userEvent.type(inField, '45')
+    await userEvent.tab()
+
+    expect(inField).toHaveValue(0)
+    expect(screen.getByText('plays 30s of 30s')).toBeInTheDocument()
+  })
+
+  it('removes a single track from the lane', async () => {
+    render(<App />)
+    await importAudioClip('music.mp3', 30)
+    const add = screen.getByRole('button', { name: 'Add music.mp3 to timeline' })
+    await userEvent.click(add)
+    await userEvent.click(add)
+
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove audio track music.mp3 at position 1 from timeline',
+      }),
+    )
+    expect(within(lane()).getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  it('removing the library clip removes its tracks after the confirm dialog', async () => {
+    URL.revokeObjectURL = vi.fn()
+    render(<App />)
+    await importAudioClip('music.mp3', 30)
+    const add = screen.getByRole('button', { name: 'Add music.mp3 to timeline' })
+    await userEvent.click(add)
+    await userEvent.click(add)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove music.mp3 from library' }))
+    const dialog = screen.getByRole('dialog')
+    // Both audio tracks count as timeline uses in the warning.
+    expect(dialog).toHaveTextContent('all 2 timeline entries')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
+
+    expect(screen.queryByRole('list', { name: 'Audio tracks' })).not.toBeInTheDocument()
+    expect(screen.queryByText('music.mp3')).not.toBeInTheDocument()
   })
 })

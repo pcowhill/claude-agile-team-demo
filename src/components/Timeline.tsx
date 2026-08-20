@@ -4,6 +4,7 @@ import type { TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '..
 import {
   DEFAULT_TRANSITION_DURATION,
   DEFAULT_ZOOM,
+  audioTracksOf,
   boundaryTransitions,
   effectiveDuration,
   totalDuration,
@@ -21,6 +22,9 @@ interface TimelineProps {
   onRemoveTransition: (beforeId: string, afterId: string) => void
   onSetZoom: (entryId: string, zoom: ZoomSpec) => void
   onRemoveZoom: (entryId: string) => void
+  onRemoveAudioTrack: (id: string) => void
+  onRetimeAudioTrack: (id: string, offset: number) => void
+  onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
 }
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
@@ -105,9 +109,22 @@ export function Timeline({
   onRemoveTransition,
   onSetZoom,
   onRemoveZoom,
+  onRemoveAudioTrack,
+  onRetimeAudioTrack,
+  onTrimAudioTrack,
 }: TimelineProps) {
   const { entries } = timeline
   const transitions = boundaryTransitions(timeline)
+  const audioTracks = audioTracksOf(timeline)
+  // The lane's visual scale: long enough for the video sequence and for
+  // every track's end — a track past the sequence end (silent tail) still
+  // renders fully instead of overflowing.
+  const laneSpan = Math.max(
+    totalDuration(timeline),
+    ...audioTracks.map((track) => track.offset + effectiveDuration(track)),
+  )
+  const lanePercent = (seconds: number) =>
+    laneSpan > 0 ? `${(seconds / laneSpan) * 100}%` : '0%'
 
   return (
     <section className="panel panel-wide" aria-label="Timeline">
@@ -326,6 +343,73 @@ export function Timeline({
             )
           })}
         </ol>
+      )}
+
+      {audioTracks.length > 0 && (
+        <div className="audio-lane">
+          <h3 className="audio-lane-heading">Audio</h3>
+          <ol className="audio-track-list" aria-label="Audio tracks">
+            {audioTracks.map((track, index) => {
+              const position = `audio track ${track.name} at position ${index + 1}`
+              const trimmedLength = effectiveDuration(track)
+              return (
+                <li key={track.id} className="audio-track">
+                  {/* Position/size at a glance; the numeric fields below are
+                      the precise, accessible controls. */}
+                  <div className="audio-track-strip" aria-hidden="true">
+                    <div
+                      className="audio-track-bar"
+                      data-testid={`audio-track-bar-${index}`}
+                      style={{
+                        left: lanePercent(track.offset),
+                        width: lanePercent(trimmedLength),
+                      }}
+                    />
+                  </div>
+                  <div className="audio-track-main">
+                    <span className="clip-name" title={track.name}>
+                      {track.name}
+                    </span>
+                    <span className="clip-duration">{formatDuration(trimmedLength)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${position} from timeline`}
+                      onClick={() => onRemoveAudioTrack(track.id)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="audio-track-controls">
+                    <span>Starts at</span>
+                    <SecondsField
+                      label={`Start time of ${position} in seconds`}
+                      value={track.offset}
+                      max={laneSpan}
+                      onCommit={(offset) => onRetimeAudioTrack(track.id, offset)}
+                    />
+                    <span>In</span>
+                    <SecondsField
+                      label={`Trim in point of ${position} in seconds`}
+                      value={track.inPoint}
+                      max={track.duration}
+                      onCommit={(inPoint) => onTrimAudioTrack(track.id, inPoint, track.outPoint)}
+                    />
+                    <span>Out</span>
+                    <SecondsField
+                      label={`Trim out point of ${position} in seconds`}
+                      value={track.outPoint}
+                      max={track.duration}
+                      onCommit={(outPoint) => onTrimAudioTrack(track.id, track.inPoint, outPoint)}
+                    />
+                    <span className="timeline-entry-effective">
+                      plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
+                    </span>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
       )}
     </section>
   )

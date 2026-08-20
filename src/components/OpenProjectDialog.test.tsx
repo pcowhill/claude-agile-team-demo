@@ -16,6 +16,7 @@ const project: Project = {
     ],
     transitions: [],
     zooms: [],
+    audioTracks: [],
   },
 }
 
@@ -164,6 +165,9 @@ describe('OpenProjectDialog', () => {
         ],
         transitions: [],
         zooms: [],
+        audioTracks: [
+          { id: 't1', clipId: 'm', name: 'music.mp3', duration: 185, offset: 3, inPoint: 10, outPoint: 40 },
+        ],
       },
     }
     const onOpen = vi.fn()
@@ -196,6 +200,19 @@ describe('OpenProjectDialog', () => {
     expect(restored.clips).toEqual([
       { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video', url: 'blob:probe/holiday.mp4' },
       { id: 'm', name: 'music.mp3', duration: 185, kind: 'audio', url: 'blob:probe/music.mp3' },
+    ])
+    // The audio track (#102) came back re-linked to the picked file's URL.
+    expect(restored.timeline.audioTracks).toEqual([
+      {
+        id: 't1',
+        clipId: 'm',
+        name: 'music.mp3',
+        duration: 185,
+        url: 'blob:probe/music.mp3',
+        offset: 3,
+        inPoint: 10,
+        outPoint: 40,
+      },
     ])
   })
 

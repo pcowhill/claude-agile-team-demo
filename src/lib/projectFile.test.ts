@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fixtureV1Base64 from './fixtures/project-v1.bvep.base64?raw'
 import fixtureV2Base64 from './fixtures/project-v2-embedded.bvep.base64?raw'
+import fixtureV1AudioBase64 from './fixtures/project-v1-audio-tracks.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
@@ -74,6 +75,7 @@ const expectedProject: Project = {
     ],
     transitions: timeline.transitions!,
     zooms: timeline.zooms!,
+    audioTracks: [],
   },
 }
 
@@ -155,7 +157,7 @@ describe('project file round-trip', () => {
     const result = await deserializeProject(bytes)
     expect(result).toEqual({
       ok: true,
-      project: { clips: [], timeline: { entries: [], transitions: [], zooms: [] } },
+      project: { clips: [], timeline: { entries: [], transitions: [], zooms: [], audioTracks: [] } },
     })
   })
 
@@ -251,6 +253,127 @@ describe('clip kinds (#101)', () => {
       await gzipJson(document),
       'references an audio clip',
       'the sequence carries video only',
+    )
+  })
+})
+
+describe('audio tracks (#102)', () => {
+  const audioLibrary: MediaLibraryState = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' },
+      { id: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', kind: 'audio' },
+      { id: 'a2', name: 'voice.wav', duration: 30, url: 'blob:a2', kind: 'audio' },
+    ],
+    failures: [],
+  }
+  const audioTimeline: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 12 },
+    ],
+    transitions: [],
+    zooms: [],
+    audioTracks: [
+      // Overlapping on purpose: both audible from 5s to 8.5s.
+      { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, url: 'blob:a1', offset: 0, inPoint: 10, outPoint: 40 },
+      { id: 't2', clipId: 'a2', name: 'voice.wav', duration: 30, url: 'blob:a2', offset: 5, inPoint: 0, outPoint: 3.5 },
+    ],
+  }
+
+  const trackDocument = () => {
+    const document = validDocument()
+    ;(document.clips as unknown[]).push({ id: 'a1', name: 'music.mp3', duration: 185, kind: 'audio' })
+    ;(document.timeline as { audioTracks?: unknown[] }).audioTracks = [
+      { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 2, inPoint: 10, outPoint: 40 },
+    ]
+    return document
+  }
+
+  it('round-trips overlapping audio tracks, offsets and trims intact', async () => {
+    const result = await deserializeProject(await serializeProject(audioLibrary, audioTimeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.audioTracks).toEqual([
+        { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 0, inPoint: 10, outPoint: 40 },
+        { id: 't2', clipId: 'a2', name: 'voice.wav', duration: 30, offset: 5, inPoint: 0, outPoint: 3.5 },
+      ])
+    }
+  })
+
+  it('round-trips audio tracks in an embedded (version 2) file', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 5), mimeType: 'video/mp4' }],
+      ['a1', { bytes: pseudoRandomBytes(48, 6), mimeType: 'audio/mpeg' }],
+      ['a2', { bytes: pseudoRandomBytes(32, 7), mimeType: 'audio/wav' }],
+    ])
+    const result = await deserializeProject(await serializeProject(audioLibrary, audioTimeline, media))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.audioTracks).toHaveLength(2)
+      expect(result.media).toEqual(media)
+    }
+  })
+
+  it('defaults a file without an audioTracks key to none (pre-#102 files)', async () => {
+    const document = validDocument()
+    delete (document.timeline as { audioTracks?: unknown }).audioTracks
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.audioTracks).toEqual([])
+  })
+
+  it('refuses a track referencing a video clip', async () => {
+    const document = trackDocument()
+    ;(document.timeline as { audioTracks: { clipId: string }[] }).audioTracks[0].clipId = 'c1'
+    await expectRefusal(
+      await gzipJson(document),
+      'timeline.audioTracks[0].clipId "c1" references a video clip',
+    )
+  })
+
+  it('refuses a track referencing an unknown clip', async () => {
+    const document = trackDocument()
+    ;(document.timeline as { audioTracks: { clipId: string }[] }).audioTracks[0].clipId = 'ghost'
+    await expectRefusal(
+      await gzipJson(document),
+      'timeline.audioTracks[0].clipId "ghost" does not match any clip',
+    )
+  })
+
+  it('refuses a negative offset', async () => {
+    const document = trackDocument()
+    ;(document.timeline as { audioTracks: { offset: number }[] }).audioTracks[0].offset = -1
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].offset must not be negative')
+  })
+
+  it('refuses an empty trim range', async () => {
+    const document = trackDocument()
+    ;(document.timeline as { audioTracks: { inPoint: number; outPoint: number }[] }).audioTracks[0].inPoint = 40
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0] trim range is empty')
+  })
+
+  it('refuses a trim past the clip duration', async () => {
+    const document = trackDocument()
+    ;(document.timeline as { audioTracks: { outPoint: number }[] }).audioTracks[0].outPoint = 186
+    await expectRefusal(
+      await gzipJson(document),
+      'timeline.audioTracks[0].outPoint must not exceed the clip duration',
+    )
+  })
+
+  it('refuses a duplicated track id', async () => {
+    const document = trackDocument()
+    const tracks = (document.timeline as { audioTracks: { id: string }[] }).audioTracks
+    tracks.push({ ...tracks[0] })
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[1].id "t1" is duplicated')
+  })
+
+  it('refuses serializing a track whose clip is not in the library', async () => {
+    const orphaned: TimelineState = {
+      ...audioTimeline,
+      audioTracks: [{ ...audioTimeline.audioTracks![0], clipId: 'gone' }],
+    }
+    await expect(serializeProject(audioLibrary, orphaned)).rejects.toThrow(
+      'audio track "t1" references clip "gone" which is not in the library',
     )
   })
 })
@@ -567,6 +690,34 @@ describe('backwards compatibility', () => {
     const bytes = Uint8Array.from(atob(fixtureV1Base64.trim()), (char) => char.charCodeAt(0))
     const result = await deserializeProject(bytes)
     expect(result).toEqual({ ok: true, project: expectedProject })
+  })
+
+  it('deserializes the committed v1 audio-tracks fixture (#102)', async () => {
+    // Same never-rewrite contract as the other fixtures: this pins that
+    // files saved when audio tracks landed keep opening forever.
+    const bytes = Uint8Array.from(atob(fixtureV1AudioBase64.trim()), (char) => char.charCodeAt(0))
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: [
+          { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+          { id: 'a1', name: 'music.mp3', duration: 185, kind: 'audio' },
+          { id: 'a2', name: 'voice.wav', duration: 30, kind: 'audio' },
+        ],
+        timeline: {
+          entries: [
+            { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 12 },
+          ],
+          transitions: [],
+          zooms: [],
+          audioTracks: [
+            { id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, offset: 0, inPoint: 10, outPoint: 40 },
+            { id: 't2', clipId: 'a2', name: 'voice.wav', duration: 30, offset: 5, inPoint: 0, outPoint: 3.5 },
+          ],
+        },
+      },
+    })
   })
 
   it('deserializes the committed v2 embedded-media fixture, media byte-for-byte', async () => {

@@ -1,13 +1,14 @@
 import type { MediaKind, MediaLibraryState } from './mediaLibrary'
 import { TRANSITION_TYPES } from './timeline'
 import type {
+  AudioTrack,
   TimelineEntry,
   TimelineState,
   TimelineTransition,
   TransitionType,
   ZoomEffect,
 } from './timeline'
-import { transitionsOf, zoomsOf } from './timeline'
+import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -24,7 +25,9 @@ import { transitionsOf, zoomsOf } from './timeline'
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint }],
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ entryId, start, rampIn, hold, rampOut, scale,
- *                   centerX, centerY }]
+ *                   centerX, centerY }],
+ *       "audioTracks": [{ id, clipId, name, duration, offset,
+ *                         inPoint, outPoint }]
  *     }
  *   }
  *
@@ -86,6 +89,9 @@ export interface ProjectClip {
  */
 export type ProjectEntry = Omit<TimelineEntry, 'url'>
 
+/** An audio track as stored (#102): everything but `url`, like an entry. */
+export type ProjectAudioTrack = Omit<AudioTrack, 'url'>
+
 /**
  * One clip's media, as passed to serialization and returned from
  * deserializing an embedded file. `mimeType` is preserved so the restored
@@ -101,6 +107,12 @@ export interface ProjectTimeline {
   entries: ProjectEntry[]
   transitions: TimelineTransition[]
   zooms: ZoomEffect[]
+  /**
+   * Always present after parsing: files written before audio tracks (#102)
+   * omit the key and parse as an empty list — additive within a schema
+   * version per the contract above.
+   */
+  audioTracks: ProjectAudioTrack[]
 }
 
 export interface Project {
@@ -140,6 +152,13 @@ export async function serializeProject(
     if (!clipIds.has(entry.clipId)) {
       throw new Error(
         `cannot serialize: timeline entry "${entry.id}" references clip "${entry.clipId}" which is not in the library`,
+      )
+    }
+  }
+  for (const track of audioTracksOf(timeline)) {
+    if (!clipIds.has(track.clipId)) {
+      throw new Error(
+        `cannot serialize: audio track "${track.id}" references clip "${track.clipId}" which is not in the library`,
       )
     }
   }
@@ -206,6 +225,17 @@ export async function serializeProject(
           scale,
           centerX,
           centerY,
+        }),
+      ),
+      audioTracks: audioTracksOf(timeline).map(
+        ({ id, clipId, name, duration, offset, inPoint, outPoint }) => ({
+          id,
+          clipId,
+          name,
+          duration,
+          offset,
+          inPoint,
+          outPoint,
         }),
       ),
     },
@@ -423,7 +453,45 @@ function validateProject(document: Record<string, unknown>): Project {
     return zoom
   })
 
-  return { clips, timeline: { entries, transitions, zooms } }
+  // Absent in files saved before #102, which carry no audio tracks.
+  const trackIds = new Set<string>()
+  const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
+    (value, index) => {
+      const path = `timeline.audioTracks[${index}]`
+      const raw = asRecord(value, path)
+      const track: ProjectAudioTrack = {
+        id: asString(raw.id, `${path}.id`),
+        clipId: asString(raw.clipId, `${path}.clipId`),
+        name: asString(raw.name, `${path}.name`),
+        duration: asFinite(raw.duration, `${path}.duration`),
+        offset: asNonNegative(raw.offset, `${path}.offset`),
+        inPoint: asNonNegative(raw.inPoint, `${path}.inPoint`),
+        outPoint: asFinite(raw.outPoint, `${path}.outPoint`),
+      }
+      if (track.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
+      if (!clipIds.has(track.clipId)) {
+        throw new Error(`${path}.clipId "${track.clipId}" does not match any clip`)
+      }
+      if (clipKinds.get(track.clipId) !== 'audio') {
+        // Audio tracks carry audio clips only (#102): a video clip's audio
+        // stays bound to its sequence entry.
+        throw new Error(`${path}.clipId "${track.clipId}" references a video clip, but audio tracks carry audio only`)
+      }
+      if (track.inPoint >= track.outPoint) {
+        throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
+      }
+      if (track.outPoint > track.duration) {
+        throw new Error(`${path}.outPoint must not exceed the clip duration`)
+      }
+      if (trackIds.has(track.id)) {
+        throw new Error(`${path}.id "${track.id}" is duplicated`)
+      }
+      trackIds.add(track.id)
+      return track
+    },
+  )
+
+  return { clips, timeline: { entries, transitions, zooms, audioTracks } }
 }
 
 /**
