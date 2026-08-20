@@ -96,3 +96,17 @@ describe('formatDuration', () => {
     expect(formatDuration(-1)).toBe('–:––')
   })
 })
+
+describe('library-replaced (#77)', () => {
+  it('stores the given clips by reference and clears transient failures', () => {
+    const state: MediaLibraryState = {
+      clips: [{ id: 'old', name: 'old.mp4', duration: 2, url: 'blob:old' }],
+      failures: [{ id: 'f1', name: 'broken.mp4', reason: 'nope' }],
+    }
+    const clips: LibraryClip[] = [{ id: 'new', name: 'new.mp4', duration: 3, url: 'blob:new' }]
+    const next = mediaLibraryReducer(state, { type: 'library-replaced', clips })
+    // Reference identity is what the unsaved-changes tracking compares (#76).
+    expect(next.clips).toBe(clips)
+    expect(next.failures).toEqual([])
+  })
+})

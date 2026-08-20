@@ -69,6 +69,19 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
+  // Open Project / New Project (#77): the whole editing state is replaced.
+  // The outgoing clips' object URLs can never be cued again, so their memory
+  // is released here; the incoming state becomes the new clean baseline.
+  const handleProjectReplaced = useCallback(
+    (project: { clips: LibraryClip[]; timeline: typeof timeline }) => {
+      for (const clip of library.clips) URL.revokeObjectURL(clip.url)
+      dispatch({ type: 'library-replaced', clips: project.clips })
+      dispatchTimeline({ type: 'timeline-replaced', timeline: project.timeline })
+      setSavedState(project)
+    },
+    [library.clips],
+  )
+
   const handleRemoveClip = useCallback((clip: LibraryClip) => {
     dispatch({ type: 'clip-removed', id: clip.id })
     dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
@@ -129,7 +142,9 @@ function App({ probeVideo = probeVideoFile, savePort }: AppProps) {
           timeline={timeline}
           dirty={dirty}
           onSaved={setSavedState}
+          onProjectReplaced={handleProjectReplaced}
           port={savePort}
+          probeVideo={probeVideo}
         />
       </header>
       <main className="app-main">

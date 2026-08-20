@@ -23,6 +23,16 @@ export interface MediaLibraryState {
 export const emptyLibrary: MediaLibraryState = { clips: [], failures: [] }
 
 export type MediaLibraryAction =
+  | {
+      /**
+       * Wholesale replacement, for opening a project or starting a new one
+       * (#77). Stores the action's `clips` array by reference (what the
+       * unsaved-changes tracking compares, #76) and clears transient
+       * failures, which belong to the session being left behind.
+       */
+      type: 'library-replaced'
+      clips: LibraryClip[]
+    }
   | { type: 'clip-added'; clip: LibraryClip }
   | { type: 'clip-removed'; id: string }
   | { type: 'import-failed'; failure: ImportFailure }
@@ -33,6 +43,8 @@ export function mediaLibraryReducer(
   action: MediaLibraryAction,
 ): MediaLibraryState {
   switch (action.type) {
+    case 'library-replaced':
+      return { clips: action.clips, failures: [] }
     case 'clip-added':
       return { ...state, clips: [...state.clips, action.clip] }
     case 'clip-removed':

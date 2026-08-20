@@ -1,0 +1,46 @@
+.open-project-dialog {
+  max-width: 30rem;
+}
+
+.relink-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.relink-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.relink-item .clip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relink-item .clip-duration {
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.relink-linked {
+  color: #7ee787;
+}
+
+.relink-missing {
+  color: #ffb454;
+}
+
+.relink-problems {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: #ff7b72;
+}

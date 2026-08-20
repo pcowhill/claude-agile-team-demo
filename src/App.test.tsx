@@ -114,3 +114,115 @@ describe('unsaved-changes tracking (#76)', () => {
     if (saved.ok) expect(saved.project.timeline.entries[0].inPoint).toBe(0)
   })
 })
+
+describe('Open and New Project (#77)', () => {
+  function stubPort() {
+    const writes: Uint8Array<ArrayBuffer>[] = []
+    const destination: SaveDestination = {
+      name: 'project.bvep',
+      write: (bytes: Uint8Array<ArrayBuffer>) => {
+        writes.push(bytes)
+        return Promise.resolve()
+      },
+    }
+    const port: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: vi.fn(() => Promise.resolve({ kind: 'picked' as const, destination })),
+    }
+    return { port, writes }
+  }
+
+  const probeVideo = (file: File) =>
+    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}` })
+
+  it('New Project discards the current state after confirmation and starts clean', async () => {
+    const revokeSpy = vi.fn()
+    URL.revokeObjectURL = revokeSpy
+    const { port } = stubPort()
+    const user = userEvent.setup()
+    render(<App probeVideo={probeVideo} savePort={port} />)
+
+    await user.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['x'], 'clip.webm', { type: 'video/webm' }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'Add clip.webm to timeline' }))
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
+
+    // Library and timeline are back to the empty startup state, dirty is
+    // cleared, and the discarded clip's memory was released.
+    expect(screen.getByText(/No clips yet/)).toBeInTheDocument()
+    expect(screen.getByText('Add clips to the timeline to preview your edit.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(revokeSpy).toHaveBeenCalledWith('blob:probe/clip.webm')
+  })
+
+  it('a saved project reopens through re-linking and starts clean', async () => {
+    URL.revokeObjectURL = vi.fn()
+    const { port, writes } = stubPort()
+    const user = userEvent.setup()
+    render(<App probeVideo={probeVideo} savePort={port} />)
+
+    // Build: one clip on the timeline, trimmed to [1, 4].
+    await user.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['x'], 'clip.webm', { type: 'video/webm' }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'Add clip.webm to timeline' }))
+    const inField = screen.getByRole('spinbutton', {
+      name: 'Trim in point of clip.webm at position 1 in seconds',
+    })
+    await user.clear(inField)
+    await user.type(inField, '1')
+    await user.tab()
+    const outField = screen.getByRole('spinbutton', {
+      name: 'Trim out point of clip.webm at position 1 in seconds',
+    })
+    await user.clear(outField)
+    await user.type(outField, '4')
+    await user.tab()
+
+    // Save, then wipe with New Project (clean after saving → no guard).
+    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await waitFor(() => expect(writes).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    expect(screen.getByText(/No clips yet/)).toBeInTheDocument()
+
+    // Open the saved bytes and re-link the media file.
+    await user.upload(
+      screen.getByTestId('project-file-input'),
+      new File([writes[0] as unknown as BlobPart], 'trip.bvep', { type: 'application/gzip' }),
+    )
+    await screen.findByRole('dialog', { name: 'Open trip.bvep' })
+    await user.upload(
+      screen.getByTestId('relink-file-input'),
+      new File(['x'], 'clip.webm', { type: 'video/webm' }),
+    )
+    const open = screen.getByRole('button', { name: 'Open project' })
+    await waitFor(() => expect(open).toBeEnabled())
+    await user.click(open)
+
+    // The editing state is back — library clip, trimmed entry — and clean.
+    expect(
+      screen.getByRole('button', { name: 'Add clip.webm to timeline' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Trim in point of clip.webm at position 1 in seconds',
+      }),
+    ).toHaveValue(1)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Trim out point of clip.webm at position 1 in seconds',
+      }),
+    ).toHaveValue(4)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+
+    // The next edit dirties the reopened project again.
+    await user.click(screen.getByRole('button', { name: 'Add clip.webm to timeline' }))
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+  })
+})
