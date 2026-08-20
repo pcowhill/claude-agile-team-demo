@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AUDIO_DRIFT_EPSILON,
   createAudioCapture,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   fitRect,
   pickExportMimeType,
+  syncTrackReplay,
   zoomRect,
 } from './exportVideo'
+import type { TrackReplayElement } from './exportVideo'
+import type { AudioTrack } from './timeline'
+import { audioTrackGainAt } from './gain'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -92,6 +97,15 @@ describe('createAudioCapture', () => {
     expect(fake.connectedTo).toEqual([fake.streamDestination, fake.streamDestination])
   })
 
+  it('mixes audio track elements alongside the video replays (#105)', async () => {
+    const fake = fakeAudioContext()
+    const elements = [document.createElement('video'), document.createElement('audio')]
+    const capture = await createAudioCapture(elements, () => asAudioContext(fake.context))
+    expect(capture?.track).toBe(fake.track)
+    expect(fake.sourcedElements).toEqual(elements)
+    expect(fake.connectedTo).toEqual([fake.streamDestination, fake.streamDestination])
+  })
+
   it('never connects the graph to the speakers', async () => {
     // Otherwise exporting a 30 s sequence plays all 30 s out loud.
     const fake = fakeAudioContext()
@@ -147,6 +161,105 @@ describe('createAudioCapture', () => {
       createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
     ).resolves.toBeNull()
     expect(fake.context.closed).toBe(true)
+  })
+})
+
+/** A track replay element the sync can drive, recording what happened to it. */
+function fakeTrackElement(overrides: Partial<TrackReplayElement> = {}) {
+  const element = {
+    volume: 1,
+    currentTime: 0,
+    paused: true,
+    playCalls: 0,
+    pauseCalls: 0,
+    play() {
+      element.playCalls++
+      element.paused = false
+      return Promise.resolve()
+    },
+    pause() {
+      element.pauseCalls++
+      element.paused = true
+    },
+    ...overrides,
+  }
+  return element
+}
+
+// Window [5, 17): offset 5, source [10, 22), trimmed length 12.
+const exportTrack = (overrides: Partial<AudioTrack> = {}): AudioTrack => ({
+  id: 't1',
+  clipId: 'music-1',
+  name: 'music.mp3',
+  duration: 30,
+  url: 'blob:music',
+  offset: 5,
+  inPoint: 10,
+  outPoint: 22,
+  ...overrides,
+})
+
+describe('syncTrackReplay (#105)', () => {
+  it('sets the element volume to the shared gain function at the position', () => {
+    // The same numbers gain.test.ts pins for audioTrackGainAt — the export
+    // element must carry exactly what that single source of truth computes.
+    const track = exportTrack({ volume: 0.5, fadeIn: 2 })
+    for (const sequenceTime of [5, 6, 7, 11, 16.5]) {
+      const element = fakeTrackElement({ paused: false, currentTime: sequenceTime + 5 })
+      syncTrackReplay(track, element, sequenceTime)
+      expect(element.volume).toBe(audioTrackGainAt(track, sequenceTime))
+    }
+  })
+
+  it('starts a paused element at the mapped source time when the window opens', () => {
+    const element = fakeTrackElement()
+    syncTrackReplay(exportTrack(), element, 6)
+    expect(element.playCalls).toBe(1)
+    expect(element.paused).toBe(false)
+    // Sequence 6 is 1 s into the window; the source starts at inPoint 10.
+    expect(element.currentTime).toBe(11)
+  })
+
+  it('leaves a playing element on its own clock within the drift tolerance', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 11 + AUDIO_DRIFT_EPSILON / 2 })
+    syncTrackReplay(exportTrack(), element, 6)
+    expect(element.playCalls).toBe(0)
+    expect(element.currentTime).toBe(11 + AUDIO_DRIFT_EPSILON / 2)
+  })
+
+  it('snaps a drifted playing element back to the export clock', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 13 })
+    syncTrackReplay(exportTrack(), element, 6)
+    expect(element.currentTime).toBe(11)
+  })
+
+  it('pauses the element when the clock leaves the window, silenced', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 21.9 })
+    syncTrackReplay(exportTrack(), element, 17)
+    expect(element.pauseCalls).toBe(1)
+    expect(element.paused).toBe(true)
+    expect(element.volume).toBe(0)
+  })
+
+  it('holds a not-yet-started track paused and cued at its in-point', () => {
+    const element = fakeTrackElement({ currentTime: 3 })
+    syncTrackReplay(exportTrack(), element, 1)
+    expect(element.playCalls).toBe(0)
+    expect(element.paused).toBe(true)
+    expect(element.currentTime).toBe(10)
+    expect(element.volume).toBe(0)
+  })
+
+  it('renders a fade as a ramp across successive clock positions', () => {
+    const track = exportTrack({ fadeIn: 2, fadeOut: 2 })
+    const element = fakeTrackElement()
+    const volumes: number[] = []
+    for (const sequenceTime of [5, 6, 7, 15, 16]) {
+      syncTrackReplay(track, element, sequenceTime)
+      volumes.push(element.volume)
+    }
+    expect(volumes).toEqual([0, 0.5, 1, 1, 0.5])
+    expect(element.playCalls).toBe(1)
   })
 })
 

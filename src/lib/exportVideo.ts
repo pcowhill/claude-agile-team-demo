@@ -1,6 +1,7 @@
-import type { TimelineEntry, TimelineState, TransitionType } from './timeline'
-import { boundaryTransitions, totalDuration } from './timeline'
-import { sequenceTimeAt } from './playback'
+import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
+import { audioTracksOf, boundaryTransitions, totalDuration } from './timeline'
+import { audioTrackPlaybackAt, sequenceTimeAt } from './playback'
+import { audioTrackGainAt, videoEntryGain } from './gain'
 import { transitionLayerSpec } from './transitionRender'
 import { zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
@@ -107,6 +108,8 @@ export interface ExportOptions {
   frameRate?: number
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
+  /** Injectable for tests (jsdom never fires media events). */
+  createAudio?: () => HTMLAudioElement
   /** Injectable for tests (jsdom has no Web Audio). */
   createAudioContext?: () => AudioContext | null
 }
@@ -122,12 +125,14 @@ function defaultAudioContext(): AudioContext | null {
 }
 
 /**
- * Routes the replay elements' audio into one MediaStream track that can be
- * recorded alongside the canvas video. All elements feed the same
- * destination, so during a transition overlap — when two replay elements
- * play at once — the recorder hears both, mixed; each element's `volume`
- * attribute still applies on its way into the graph, which is what the
- * export's crossfade rides on.
+ * Routes the replay elements' audio — the video replays and one <audio>
+ * element per timeline audio track (#105) — into one MediaStream track that
+ * can be recorded alongside the canvas video. All elements feed the same
+ * destination, so everything playing at once — two video replays inside a
+ * transition overlap, audio tracks over either — reaches the recorder mixed;
+ * each element's `volume` attribute still applies on its way into the graph,
+ * which is what the export's gain control (crossfades, track fades, mutes)
+ * rides on.
  *
  * The graph is deliberately *not* connected to `context.destination`: taking
  * an element's audio into Web Audio detaches it from the speakers, and
@@ -139,7 +144,7 @@ function defaultAudioContext(): AudioContext | null {
  * the caller treats as "export video only" rather than as a failure.
  */
 export async function createAudioCapture(
-  videos: readonly HTMLVideoElement[],
+  elements: readonly HTMLMediaElement[],
   createContext: () => AudioContext | null = defaultAudioContext,
 ): Promise<AudioCapture | null> {
   let context: AudioContext | null = null
@@ -147,8 +152,8 @@ export async function createAudioCapture(
     context = createContext()
     if (context === null) return null
     const destination = context.createMediaStreamDestination()
-    for (const video of videos) {
-      context.createMediaElementSource(video).connect(destination)
+    for (const element of elements) {
+      context.createMediaElementSource(element).connect(destination)
     }
     // Autoplay policy starts contexts suspended; a suspended context feeds
     // the recorder nothing.
@@ -178,6 +183,59 @@ export async function createAudioCapture(
 }
 
 /**
+ * How far an audio track element's clock may drift from the export clock
+ * before it is snapped back, in seconds — the same tolerance the preview
+ * player uses (#103): element clocks wander a few tens of milliseconds, and
+ * re-seeking every frame would stutter the very audio being recorded.
+ */
+export const AUDIO_DRIFT_EPSILON = 0.25
+
+/** The element surface syncTrackReplay drives (an HTMLAudioElement in production). */
+export interface TrackReplayElement {
+  volume: number
+  currentTime: number
+  readonly paused: boolean
+  play(): Promise<void>
+  pause(): void
+}
+
+/**
+ * Aligns one audio track's replay element with the export clock (#105) —
+ * the export-side counterpart of the preview's per-frame track sync (#103),
+ * driven from the same shared helpers so the two renders cannot drift: the
+ * element's volume is set to `audioTrackGainAt` (volume × fade envelope, 0
+ * outside the window) every call, which is what renders fades as continuous
+ * ramps in the recording, and `audioTrackPlaybackAt` decides playing state
+ * and source position. Elements are cued exactly when their window starts;
+ * while playing they keep their own clock unless it drifts audibly.
+ */
+export function syncTrackReplay(
+  track: AudioTrack,
+  element: TrackReplayElement,
+  sequenceTime: number,
+): void {
+  const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
+  element.volume = audioTrackGainAt(track, sequenceTime)
+  if (shouldPlay) {
+    if (element.paused) {
+      element.currentTime = sourceTime
+      // play() rejects (AbortError) when interrupted by pause — an expected
+      // outcome, matching the video replay elements.
+      element.play().catch(() => {})
+    } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+      element.currentTime = sourceTime
+    }
+  } else {
+    if (!element.paused) element.pause()
+    // Keep the paused element cued to the position (its in-point while the
+    // clock is before the window) so starting is only ever a play().
+    if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+      element.currentTime = sourceTime
+    }
+  }
+}
+
+/**
  * Matches the preview player's boundary tolerance: the video clock advances
  * in discrete steps, so an exact out-point comparison would record frames
  * past the trim.
@@ -202,8 +260,13 @@ const FALLBACK_HEIGHT = 360
  * composited over the outgoing one per the effect, the two audio streams
  * crossfade via the elements' volumes, and at the boundary the elements swap
  * roles so the incoming clip never has to be re-cued (the same handover the
- * preview player performs). This re-encodes in real time (a ~30 s sequence
- * takes ~30 s) but works entirely client-side with broadly supported APIs.
+ * preview player performs). Timeline audio tracks replay through one
+ * off-DOM <audio> element each, mixed into the same capture (#105); every
+ * element volume — entry volume/mute, transition ramps, track volume and
+ * fades — comes from the shared gain functions (#104), so the recording
+ * carries the same mix the preview plays. This re-encodes in real time (a
+ * ~30 s sequence takes ~30 s) but works entirely client-side with broadly
+ * supported APIs.
  */
 export async function exportTimeline(
   timeline: TimelineState,
@@ -230,13 +293,30 @@ export async function exportTimeline(
     replay.preload = 'auto'
   }
 
-  const audioCapture = await createAudioCapture(replays, options.createAudioContext)
+  // One replay element per timeline audio track (#105), mixed into the same
+  // capture as the video replays. Created before the capture because an
+  // element can join the graph only at construction time.
+  const createAudio = options.createAudio ?? (() => document.createElement('audio'))
+  const trackReplays = audioTracksOf(timeline).map((track) => {
+    const element = createAudio()
+    element.preload = 'auto'
+    return { track, element }
+  })
+
+  const audioCapture = await createAudioCapture(
+    [...replays, ...trackReplays.map(({ element }) => element)],
+    options.createAudioContext,
+  )
   for (const replay of replays) {
     // Muting an element silences its Web Audio output too, so the replays can
     // only stay muted when there is no audio to capture. Nothing reaches the
     // speakers either way: createAudioCapture leaves the graph unconnected.
     replay.muted = audioCapture === null
   }
+  // Without Web Audio there is nothing to record the tracks into — and,
+  // unconnected to any graph, playing them would sound from the speakers —
+  // so the video-only fallback leaves them untouched.
+  const recordedTracks = audioCapture === null ? [] : trackReplays
 
   const mimeType = pickExportMimeType(
     (type) => MediaRecorder.isTypeSupported(type),
@@ -253,7 +333,7 @@ export async function exportTimeline(
   }
 
   /** Resolves on `name`; rejects on the element erroring or the signal aborting. */
-  const waitForEvent = (element: HTMLVideoElement, name: string) =>
+  const waitForEvent = (element: HTMLMediaElement, name: string) =>
     new Promise<void>((resolve, reject) => {
       const settle = (result?: Error) => {
         element.removeEventListener(name, onDone)
@@ -270,7 +350,7 @@ export async function exportTimeline(
       signal?.addEventListener('abort', onAbort, { once: true })
     })
 
-  const loadSource = async (element: HTMLVideoElement, url: string) => {
+  const loadSource = async (element: HTMLMediaElement, url: string) => {
     if (element.src !== url) {
       const loaded = waitForEvent(element, 'loadedmetadata')
       element.src = url
@@ -288,7 +368,7 @@ export async function exportTimeline(
   }
 
   const releaseVideos = () => {
-    for (const replay of replays) {
+    for (const replay of [...replays, ...trackReplays.map(({ element }) => element)]) {
       replay.pause()
       replay.removeAttribute('src')
       replay.load()
@@ -313,6 +393,13 @@ export async function exportTimeline(
       await loadSource(replays[0], url)
       width = Math.max(width, replays[0].videoWidth)
       height = Math.max(height, replays[0].videoHeight)
+    }
+    // Load the track sources up front too: it validates each one is
+    // decodable before the recorder starts, and makes starting a track
+    // mid-record a plain play() rather than a load.
+    for (const { track, element } of recordedTracks) {
+      throwIfAborted()
+      await loadSource(element, track.url)
     }
   } catch (error) {
     await releaseAll()
@@ -492,6 +579,9 @@ export async function exportTimeline(
       if (!continuing) {
         await cueTo(primary, entry.url, entry.inPoint)
         throwIfAborted()
+        // The entry's steady gain (#104): volume × mute, no ramp outside a
+        // transition. Before #104 this was implicitly 1.
+        primary.volume = videoEntryGain(entry)
         drawFrame(primary, index)
         await playReplay(primary)
       }
@@ -521,6 +611,9 @@ export async function exportTimeline(
           ) {
             if (!engaged) {
               engaged = true
+              // The incoming entry starts at the foot of its ramp — which is
+              // 0 whatever its volume, and stays 0 throughout if it is muted.
+              secondary.volume = videoEntryGain(next, 0)
               engageIncoming(secondary, primary, next, overlapStart)
             }
             // Until the incoming element has a decodable frame, keep drawing
@@ -528,13 +621,22 @@ export async function exportTimeline(
             // the effect rather than blending against black or dropping audio.
             if (secondary.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
               const progress = Math.min((primary.currentTime - overlapStart) / overlap.duration, 1)
-              primary.volume = 1 - progress
-              secondary.volume = progress
+              // The transition crossfade rides each entry's own gain (#104),
+              // so a muted or half-volume entry stays that way mid-effect.
+              primary.volume = videoEntryGain(entry, 1 - progress)
+              secondary.volume = videoEntryGain(next, progress)
               overlayFrame = { element: secondary, index: index + 1, type: overlap.type, progress }
             }
           }
           drawFrame(primary, index, overlayFrame)
-          reportProgress(sequenceTimeAt(timeline, index, primary.currentTime) / total)
+          const sequenceTime = sequenceTimeAt(timeline, index, primary.currentTime)
+          // Every frame re-syncs the audio tracks against the export clock,
+          // exactly as the preview's rAF loop does (#105): windows open and
+          // close on time and fades record as continuous ramps.
+          for (const recorded of recordedTracks) {
+            syncTrackReplay(recorded.track, recorded.element, sequenceTime)
+          }
+          reportProgress(sequenceTime / total)
           if (primary.currentTime >= entry.outPoint - OUT_POINT_EPSILON || primary.ended) {
             resolve()
             return
@@ -549,8 +651,9 @@ export async function exportTimeline(
         // next boundary. (The clamp in timeline.ts guarantees overlaps never
         // chain, so the freed element is always idle when next needed.)
         primary.pause()
-        primary.volume = 1
-        secondary.volume = 1
+        // The incoming entry leaves its ramp for its steady gain; the paused
+        // outgoing element's volume is set again when it is next cued.
+        secondary.volume = videoEntryGain(next)
         const incoming = secondary
         secondary = primary
         primary = incoming

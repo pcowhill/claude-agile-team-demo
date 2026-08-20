@@ -127,7 +127,7 @@ export function ExportPanel({ timeline, doExport = exportTimeline }: ExportPanel
       <p className="export-note">
         {empty
           ? 'Add clips to the timeline to export your edit.'
-          : 'Exports to WebM in real time — a 30 second sequence takes about 30 seconds. Source audio is included.'}
+          : 'Exports to WebM in real time — a 30 second sequence takes about 30 seconds. Audio exports at the preview’s levels.'}
       </p>
     </section>
   )
