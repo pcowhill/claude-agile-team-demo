@@ -2,7 +2,7 @@
 name: Customer feedback
 about: Tell the team anything — a wish, an annoyance, a bug, a reaction. Plain words are perfect.
 title: ""
-labels: customer-feedback
+labels: customer-feedback, human-generated
 ---
 
 <!--
