@@ -422,6 +422,130 @@ describe('PreviewPlayer', () => {
       expect(audio(1).currentTime).toBe(1)
     })
 
+    // Gain in the preview (#104): element volumes are real in jsdom, so
+    // these pin the composed values syncAudioTracks/syncSecondary/tick
+    // assign. The gain maths itself is covered by lib/gain.test.ts.
+    describe('gain (#104)', () => {
+      it('two overlapping tracks hold independent volumes', () => {
+        const withVolumes: TimelineState = {
+          ...withAudioTracks,
+          audioTracks: [
+            { ...withAudioTracks.audioTracks![0], volume: 0.2 },
+            { ...withAudioTracks.audioTracks![1], offset: 0, volume: 0.9 },
+          ],
+        }
+        render(<PreviewPlayer timeline={withVolumes} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+        expect(audio(0).paused).toBe(false)
+        expect(audio(1).paused).toBe(false)
+        expect(audio(0).volume).toBe(0.2)
+        expect(audio(1).volume).toBe(0.9)
+      })
+
+      it('adjusting a track volume is reflected next time it plays', () => {
+        const { rerender } = render(<PreviewPlayer timeline={withAudioTracks} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        expect(audio(0).volume).toBe(1)
+
+        // The edit replaces the timeline (stopping playback, as any edit
+        // does); resuming applies the new gain.
+        rerender(
+          <PreviewPlayer
+            timeline={{
+              ...withAudioTracks,
+              audioTracks: [
+                { ...withAudioTracks.audioTracks![0], volume: 0.5 },
+                withAudioTracks.audioTracks![1],
+              ],
+            }}
+          />,
+        )
+        expect(audio(0).paused).toBe(true)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        expect(audio(0).paused).toBe(false)
+        expect(audio(0).volume).toBe(0.5)
+      })
+
+      it('renders a fade as a volume ramp across rAF ticks', () => {
+        // One track over the whole 10s video: window [0, 10), fadeIn 2,
+        // fadeOut 4 — so full volume in [2, 6], ramping at both ends.
+        const fading: TimelineState = {
+          entries: withAudioTracks.entries,
+          audioTracks: [
+            {
+              id: 't1',
+              clipId: 'a1',
+              name: 'music.mp3',
+              duration: 30,
+              url: 'blob:music',
+              offset: 0,
+              inPoint: 0,
+              outPoint: 10,
+              fadeIn: 2,
+              fadeOut: 4,
+            },
+          ],
+        }
+        render(<PreviewPlayer timeline={fading} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        expect(audio(0).volume).toBe(0) // fade-in starts from silence
+
+        video().currentTime = 1
+        runTick()
+        expect(audio(0).volume).toBe(0.5)
+
+        video().currentTime = 4
+        runTick()
+        expect(audio(0).volume).toBe(1)
+
+        video().currentTime = 8
+        runTick()
+        expect(audio(0).volume).toBe(0.5) // 2s from the end of a 4s fade-out
+      })
+
+      it('applies a video entry volume when cued and muting silences it through a transition', () => {
+        // Two 4s entries with a 1s crossfade; e1 muted, e2 at volume 0.6.
+        const muted: TimelineState = {
+          entries: [
+            {
+              id: 'e1',
+              clipId: 'c1',
+              name: 'first.webm',
+              duration: 4,
+              url: 'blob:first',
+              inPoint: 0,
+              outPoint: 4,
+              muted: true,
+            },
+            {
+              id: 'e2',
+              clipId: 'c2',
+              name: 'second.webm',
+              duration: 4,
+              url: 'blob:second',
+              inPoint: 0,
+              outPoint: 4,
+              volume: 0.6,
+            },
+          ],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+        }
+        render(<PreviewPlayer timeline={muted} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        expect(video().volume).toBe(0)
+
+        // Halfway through the overlap (source 3.5 of [3, 4)): the muted
+        // outgoing entry stays silent instead of ramping to 0.5; the
+        // incoming one ramps within its own 0.6 volume.
+        video().currentTime = 3.5
+        runTick()
+        expect(video().volume).toBe(0)
+        const incoming = screen.getByTestId('preview-video-incoming') as HTMLVideoElement
+        expect(incoming.volume).toBeCloseTo(0.3, 5)
+      })
+    })
+
     it('the end of the video sequence stops the mix, tails included', () => {
       // t2 retimed to outlast the 10s video: window [9, 11) — a silent tail
       // per #102. The preview's playback range ends with the video sequence.

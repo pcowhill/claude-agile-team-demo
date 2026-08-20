@@ -25,6 +25,10 @@ interface TimelineProps {
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
+  onSetEntryVolume: (id: string, volume: number) => void
+  onSetEntryMuted: (id: string, muted: boolean) => void
+  onSetAudioTrackVolume: (id: string, volume: number) => void
+  onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
 }
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
@@ -112,6 +116,10 @@ export function Timeline({
   onRemoveAudioTrack,
   onRetimeAudioTrack,
   onTrimAudioTrack,
+  onSetEntryVolume,
+  onSetEntryMuted,
+  onSetAudioTrackVolume,
+  onSetAudioTrackFades,
 }: TimelineProps) {
   const { entries } = timeline
   const transitions = boundaryTransitions(timeline)
@@ -195,6 +203,25 @@ export function Timeline({
                     plays {formatSeconds(effectiveDuration(entry))}s of{' '}
                     {formatSeconds(entry.duration)}s
                   </span>
+                </div>
+                <div className="timeline-entry-audio">
+                  <span>Volume</span>
+                  <SecondsField
+                    label={`Volume of ${position} (0 to 1)`}
+                    value={entry.volume ?? 1}
+                    max={1}
+                    step={0.05}
+                    onCommit={(volume) => onSetEntryVolume(entry.id, volume)}
+                  />
+                  <label className="timeline-mute">
+                    <input
+                      type="checkbox"
+                      aria-label={`Mute ${position}`}
+                      checked={entry.muted ?? false}
+                      onChange={(event) => onSetEntryMuted(entry.id, event.target.checked)}
+                    />
+                    Mute
+                  </label>
                 </div>
                 {(() => {
                   const entryZoom = zoomForEntry(timeline, entry.id)
@@ -404,6 +431,34 @@ export function Timeline({
                     <span className="timeline-entry-effective">
                       plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
                     </span>
+                  </div>
+                  <div className="audio-track-gain">
+                    <span>Volume</span>
+                    <SecondsField
+                      label={`Volume of ${position} (0 to 1)`}
+                      value={track.volume ?? 1}
+                      max={1}
+                      step={0.05}
+                      onCommit={(volume) => onSetAudioTrackVolume(track.id, volume)}
+                    />
+                    <span>Fade in</span>
+                    <SecondsField
+                      label={`Fade-in of ${position} in seconds`}
+                      value={track.fadeIn ?? 0}
+                      max={trimmedLength}
+                      onCommit={(fadeIn) =>
+                        onSetAudioTrackFades(track.id, fadeIn, track.fadeOut ?? 0)
+                      }
+                    />
+                    <span>out</span>
+                    <SecondsField
+                      label={`Fade-out of ${position} in seconds`}
+                      value={track.fadeOut ?? 0}
+                      max={trimmedLength}
+                      onCommit={(fadeOut) =>
+                        onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
+                      }
+                    />
                   </div>
                 </li>
               )

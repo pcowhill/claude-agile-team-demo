@@ -786,3 +786,169 @@ describe('audio tracks (#102)', () => {
     })
   })
 })
+
+describe('gain: volume, mute, fades (#104)', () => {
+  const audioClip = (overrides: Partial<LibraryClip> = {}): LibraryClip =>
+    clip({ id: 'music-1', name: 'music.mp3', duration: 30, kind: 'audio', url: 'blob:music', ...overrides })
+
+  const withEntry = () =>
+    timelineReducer(emptyTimeline, { type: 'entry-added', entry: entryFromClip(clip(), 'e1') })
+
+  const withTrack = () =>
+    timelineReducer(emptyTimeline, {
+      type: 'audio-track-added',
+      track: audioTrackFromClip(audioClip(), 't1'),
+    })
+
+  describe('entry-volume-set', () => {
+    it('stores a clamped volume', () => {
+      expect(
+        timelineReducer(withEntry(), { type: 'entry-volume-set', id: 'e1', volume: 0.4 })
+          .entries[0].volume,
+      ).toBe(0.4)
+      expect(
+        timelineReducer(withEntry(), { type: 'entry-volume-set', id: 'e1', volume: -2 })
+          .entries[0].volume,
+      ).toBe(0)
+      // Clamping above lands on full volume — the default — so an untouched
+      // entry no-ops rather than storing a redundant field.
+      const state = withEntry()
+      expect(timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 7 })).toBe(state)
+      const halved = timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 0.5 })
+      expect(
+        timelineReducer(halved, { type: 'entry-volume-set', id: 'e1', volume: 7 }).entries[0].volume,
+      ).toBe(1)
+    })
+
+    it('no-ops with the same reference on unknown id, non-finite, or unchanged value', () => {
+      const state = withEntry()
+      expect(timelineReducer(state, { type: 'entry-volume-set', id: 'nope', volume: 0.5 })).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: Number.NaN }),
+      ).toBe(state)
+      // Full volume is the default: setting it on an untouched entry is a no-op.
+      expect(timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 1 })).toBe(state)
+      const halved = timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 0.5 })
+      expect(timelineReducer(halved, { type: 'entry-volume-set', id: 'e1', volume: 0.5 })).toBe(halved)
+    })
+  })
+
+  describe('entry-mute-set', () => {
+    it('stores the mute flag both ways', () => {
+      const muted = timelineReducer(withEntry(), { type: 'entry-mute-set', id: 'e1', muted: true })
+      expect(muted.entries[0].muted).toBe(true)
+      expect(
+        timelineReducer(muted, { type: 'entry-mute-set', id: 'e1', muted: false }).entries[0].muted,
+      ).toBe(false)
+    })
+
+    it('no-ops with the same reference on unknown id or unchanged value', () => {
+      const state = withEntry()
+      expect(timelineReducer(state, { type: 'entry-mute-set', id: 'nope', muted: true })).toBe(state)
+      // Unmuted is the default.
+      expect(timelineReducer(state, { type: 'entry-mute-set', id: 'e1', muted: false })).toBe(state)
+    })
+  })
+
+  describe('audio-track-volume-set', () => {
+    it('stores a clamped volume and no-ops like the entry action', () => {
+      const state = withTrack()
+      expect(
+        audioTracksOf(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 0.25 }))[0]
+          .volume,
+      ).toBe(0.25)
+      // Clamping above lands on the default, so an untouched track no-ops.
+      expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 9 })).toBe(state)
+      expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 'nope', volume: 0.5 })).toBe(state)
+      expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 1 })).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: Number.POSITIVE_INFINITY }),
+      ).toBe(state)
+    })
+  })
+
+  describe('audio-track-fades-set', () => {
+    it('stores non-negative fades that fit the trimmed length', () => {
+      const state = timelineReducer(withTrack(), {
+        type: 'audio-track-fades-set',
+        id: 't1',
+        fadeIn: 2,
+        fadeOut: 3,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ fadeIn: 2, fadeOut: 3 })
+    })
+
+    it('allows fades meeting exactly in the middle', () => {
+      // Track length 30: fadeIn + fadeOut = 30 is legal, more is clamped.
+      const state = timelineReducer(withTrack(), {
+        type: 'audio-track-fades-set',
+        id: 't1',
+        fadeIn: 15,
+        fadeOut: 15,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ fadeIn: 15, fadeOut: 15 })
+    })
+
+    it('clamps: negatives to 0, fadeIn to the length, fadeOut to what remains', () => {
+      const state = withTrack()
+      // Negatives clamp to 0 — the default — so an untouched track no-ops.
+      expect(
+        timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: -1, fadeOut: -2 }),
+      ).toBe(state)
+      expect(
+        audioTracksOf(
+          timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: 99, fadeOut: 5 }),
+        )[0],
+      ).toMatchObject({ fadeIn: 30, fadeOut: 0 })
+      expect(
+        audioTracksOf(
+          timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: 20, fadeOut: 20 }),
+        )[0],
+      ).toMatchObject({ fadeIn: 20, fadeOut: 10 })
+    })
+
+    it('no-ops with the same reference on unknown id, non-finite, or unchanged values', () => {
+      const state = withTrack()
+      expect(
+        timelineReducer(state, { type: 'audio-track-fades-set', id: 'nope', fadeIn: 1, fadeOut: 1 }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: Number.NaN, fadeOut: 1 }),
+      ).toBe(state)
+      // No fades is the default; a clamp back to the stored values is a no-op too.
+      expect(
+        timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: 0, fadeOut: 0 }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'audio-track-fades-set', id: 't1', fadeIn: -5, fadeOut: 0 }),
+      ).toBe(state)
+    })
+  })
+
+  describe('fades under retrim', () => {
+    it('retrimming a track re-clamps its fades to the new length', () => {
+      let state = timelineReducer(withTrack(), {
+        type: 'audio-track-fades-set',
+        id: 't1',
+        fadeIn: 10,
+        fadeOut: 10,
+      })
+      // Trim 30s down to 12s: fadeIn keeps its 10, fadeOut absorbs the loss.
+      state = timelineReducer(state, {
+        type: 'audio-track-trimmed',
+        id: 't1',
+        inPoint: 10,
+        outPoint: 22,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ fadeIn: 10, fadeOut: 2 })
+    })
+
+    it('normalizedTimelineState clamps overlong fades from a foreign writer', () => {
+      const track = { ...audioTrackFromClip(audioClip(), 't1'), inPoint: 0, outPoint: 10, fadeIn: 8, fadeOut: 8 }
+      expect(audioTracksOf(normalizedTimelineState([], [], [], [track]))[0]).toMatchObject({
+        fadeIn: 8,
+        fadeOut: 2,
+      })
+    })
+  })
+})

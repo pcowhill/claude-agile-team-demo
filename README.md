@@ -16,8 +16,9 @@ filename and duration. Audio files (music, voice-overs, sound effects) can
 be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). The preview plays them mixed with the videos' own audio
-(#103); per-track volume/mute/fades (#104) and hearing them in the export
-(#105) are still to come. It is deployed
+(#103), honoring each track's volume and optional fade-in/fade-out and each
+video entry's volume and mute (#104); hearing the full mix in the export
+(#105) is still to come. It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 
