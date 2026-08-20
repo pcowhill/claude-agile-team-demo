@@ -16,9 +16,56 @@
  * the real pickers cannot be driven by automated tests.
  */
 
+import type { LibraryClip } from './mediaLibrary'
+import type { ClipMedia } from './projectFile'
+
 /** Extension of a saved project (the gzip'd JSON of `projectFile.ts`). */
 export const PROJECT_FILE_EXTENSION = '.bvep'
 export const DEFAULT_PROJECT_FILE_NAME = `project${PROJECT_FILE_EXTENSION}`
+
+/**
+ * What a saved project file carries (#98): 'embed' writes the media bytes
+ * into the file (schema version 2, self-contained, opens with no re-link
+ * step); 'references' writes clip metadata only (version 1, small, opens
+ * through the re-link dialog). Embedding is the customer's default (#92).
+ */
+export type SaveMode = 'embed' | 'references'
+
+/**
+ * Reads one clip's bytes back through its object URL, for embedding (#98).
+ * The URL's blob IS the imported file (or the previously embedded bytes),
+ * so no second copy exists until this reads one out.
+ */
+export async function fetchClipMedia(clip: LibraryClip): Promise<ClipMedia> {
+  const response = await fetch(clip.url)
+  if (!response.ok) throw new Error(`the media could not be read back (HTTP ${response.status})`)
+  const blob = await response.blob()
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  return blob.type === '' ? { bytes } : { bytes, mimeType: blob.type }
+}
+
+/**
+ * Collects every clip's media for an embedded save, in the shape
+ * `serializeProject` expects. A clip whose bytes cannot be read fails the
+ * whole save, by name — an embedded file missing one clip would be refused
+ * by the deserializer anyway. `fetchMedia` is injectable because jsdom
+ * cannot fetch object URLs.
+ */
+export async function collectClipMedia(
+  clips: readonly LibraryClip[],
+  fetchMedia: (clip: LibraryClip) => Promise<ClipMedia> = fetchClipMedia,
+): Promise<Map<string, ClipMedia>> {
+  const media = new Map<string, ClipMedia>()
+  for (const clip of clips) {
+    try {
+      media.set(clip.id, await fetchMedia(clip))
+    } catch (error) {
+      const reason = error instanceof Error && error.message !== '' ? ` (${error.message})` : ''
+      throw new Error(`could not read the media for clip "${clip.name}"${reason}`)
+    }
+  }
+  return media
+}
 
 /** An established place to write project bytes; Save re-uses it silently. */
 export interface SaveDestination {

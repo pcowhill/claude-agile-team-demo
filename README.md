@@ -6,10 +6,13 @@ An experiment in **repository-driven autonomous software development**.
 
 The customer asked for a simple video editor that runs entirely in the
 browser (#3): import clips, arrange and trim them on a timeline, preview the
-result, and export a video file. Projects can be saved to a small `.bvep`
-file and reopened later (#71): the file stores edits and clip metadata, not
-the media itself, so opening asks you to re-select the original video files
-and matches them back up by filename and duration. It is deployed
+result, and export a video file. Projects can be saved to a `.bvep` file and
+reopened later (#71, #92): by default the file embeds your media, so that
+single file moves to another computer and opens ready to edit with no
+re-linking. Choosing "references only" at first save (revisitable via Save
+As…) writes a small file with edits and clip metadata instead; opening one
+asks you to re-select the original video files and matches them back up by
+filename and duration. It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 
