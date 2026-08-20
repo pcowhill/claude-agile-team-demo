@@ -15,8 +15,9 @@ asks you to re-select the original media files and matches them back up by
 filename and duration. Audio files (music, voice-overs, sound effects) can
 be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
-freely (#102); hearing them in the preview and export arrives with #103–#105.
-It is deployed
+freely (#102). The preview plays them mixed with the videos' own audio
+(#103); per-track volume/mute/fades (#104) and hearing them in the export
+(#105) are still to come. It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 
