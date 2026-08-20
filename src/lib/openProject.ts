@@ -104,6 +104,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       project.timeline.entries.map((entry) => ({ ...entry, url: urlOf(entry.clipId) })),
       project.timeline.transitions,
       project.timeline.zooms,
+      project.timeline.audioTracks.map((track) => ({ ...track, url: urlOf(track.clipId) })),
     ),
   }
 }

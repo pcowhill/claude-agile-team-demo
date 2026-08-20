@@ -146,3 +146,85 @@
   font: inherit;
   font-variant-numeric: tabular-nums;
 }
+
+/* The audio lane (#102): tracks placed against the sequence. The strip bar
+   carries position/size at a glance only (aria-hidden); the numeric fields
+   are the precise controls. */
+.audio-lane {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #2c2c2c;
+}
+
+.audio-lane-heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.audio-track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.audio-track {
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.audio-track-strip {
+  position: relative;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+
+.audio-track-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 999px;
+  background: #3a6ea5;
+}
+
+.audio-track-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audio-track-main button {
+  margin-left: auto;
+}
+
+.audio-track-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.audio-track-controls input {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}

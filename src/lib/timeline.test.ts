@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
 import type { TimelineState, TimelineTransition, ZoomSpec } from './timeline'
 import {
+  audioTrackFromClip,
+  audioTracksOf,
   boundaryTransitions,
   effectiveDuration,
   emptyTimeline,
@@ -555,5 +557,232 @@ describe('normalizedTimelineState (#77)', () => {
     expect(state.zooms).toEqual([
       expect.objectContaining({ entryId: 'e1', start: 0, rampIn: 4, hold: 1, rampOut: 0 }),
     ])
+  })
+})
+
+describe('audio tracks (#102)', () => {
+  const audioClip = (overrides: Partial<LibraryClip> = {}): LibraryClip =>
+    clip({ id: 'music-1', name: 'music.mp3', duration: 30, kind: 'audio', url: 'blob:music', ...overrides })
+
+  const trackIds = (state: TimelineState) => audioTracksOf(state).map((track) => track.id)
+
+  describe('audioTrackFromClip', () => {
+    it('copies clip data, starts at the timeline origin, untrimmed', () => {
+      expect(audioTrackFromClip(audioClip(), 't1')).toEqual({
+        id: 't1',
+        clipId: 'music-1',
+        name: 'music.mp3',
+        duration: 30,
+        url: 'blob:music',
+        offset: 0,
+        inPoint: 0,
+        outPoint: 30,
+      })
+    })
+
+    it('refuses a video clip — its audio stays bound to the sequence entry', () => {
+      expect(() => audioTrackFromClip(clip(), 't1')).toThrow(
+        'cannot add "clip.mp4" as an audio track: it is not an audio clip',
+      )
+    })
+  })
+
+  describe('audio-track-added', () => {
+    it('appends tracks in order, allowing overlap between different clips', () => {
+      let state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'a'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip({ id: 'fx-1', name: 'fx.wav', url: 'blob:fx' }), 'b'),
+      })
+      // Both start at 0 for their full length — fully overlapping is legal
+      // (two music tracks at once, #100).
+      expect(trackIds(state)).toEqual(['a', 'b'])
+      expect(audioTracksOf(state).every((track) => track.offset === 0)).toBe(true)
+    })
+
+    it('allows the same audio clip to appear more than once', () => {
+      const source = audioClip()
+      let state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(source, 'first'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(source, 'second'),
+      })
+      expect(trackIds(state)).toEqual(['first', 'second'])
+      expect(audioTracksOf(state).map((track) => track.clipId)).toEqual(['music-1', 'music-1'])
+    })
+
+    it('does not disturb the video sequence or its effects', () => {
+      let state = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(clip(), 'e1'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 't1'),
+      })
+      expect(order(state)).toEqual(['e1'])
+      expect(totalDuration(state)).toBe(10)
+    })
+  })
+
+  describe('audio-track-removed', () => {
+    it('removes exactly the named track', () => {
+      let state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'a'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'b'),
+      })
+      state = timelineReducer(state, { type: 'audio-track-removed', id: 'a' })
+      expect(trackIds(state)).toEqual(['b'])
+    })
+
+    it('is a same-reference no-op for an unknown id', () => {
+      const state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'a'),
+      })
+      expect(timelineReducer(state, { type: 'audio-track-removed', id: 'ghost' })).toBe(state)
+    })
+  })
+
+  describe('audio-track-retimed', () => {
+    const placed = () =>
+      timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 't1'),
+      })
+
+    it('moves the track to the new offset', () => {
+      const state = timelineReducer(placed(), { type: 'audio-track-retimed', id: 't1', offset: 4.5 })
+      expect(audioTracksOf(state)[0].offset).toBe(4.5)
+    })
+
+    it('clamps a negative offset to zero', () => {
+      let state = timelineReducer(placed(), { type: 'audio-track-retimed', id: 't1', offset: 3 })
+      state = timelineReducer(state, { type: 'audio-track-retimed', id: 't1', offset: -2 })
+      expect(audioTracksOf(state)[0].offset).toBe(0)
+    })
+
+    it('allows an offset beyond the video sequence end (silent tail)', () => {
+      // The sequence is empty (0s long); the track still sits at 100s.
+      const state = timelineReducer(placed(), { type: 'audio-track-retimed', id: 't1', offset: 100 })
+      expect(audioTracksOf(state)[0].offset).toBe(100)
+    })
+
+    it('rejects a non-finite offset and no-ops with the same reference', () => {
+      const state = placed()
+      expect(timelineReducer(state, { type: 'audio-track-retimed', id: 't1', offset: Number.NaN })).toBe(state)
+      expect(timelineReducer(state, { type: 'audio-track-retimed', id: 't1', offset: 0 })).toBe(state)
+      expect(timelineReducer(state, { type: 'audio-track-retimed', id: 'ghost', offset: 1 })).toBe(state)
+    })
+  })
+
+  describe('audio-track-trimmed', () => {
+    const placed = () =>
+      timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 't1'),
+      })
+
+    it('stores a valid trim range', () => {
+      const state = timelineReducer(placed(), {
+        type: 'audio-track-trimmed',
+        id: 't1',
+        inPoint: 5,
+        outPoint: 20,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ inPoint: 5, outPoint: 20 })
+      expect(effectiveDuration(audioTracksOf(state)[0])).toBe(15)
+    })
+
+    it('clamps the range to the source duration', () => {
+      const state = timelineReducer(placed(), {
+        type: 'audio-track-trimmed',
+        id: 't1',
+        inPoint: -3,
+        outPoint: 99,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ inPoint: 0, outPoint: 30 })
+    })
+
+    it('rejects empty, inverted, or non-finite ranges with the same reference', () => {
+      const state = placed()
+      expect(
+        timelineReducer(state, { type: 'audio-track-trimmed', id: 't1', inPoint: 8, outPoint: 8 }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'audio-track-trimmed', id: 't1', inPoint: 9, outPoint: 2 }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'audio-track-trimmed',
+          id: 't1',
+          inPoint: Number.NaN,
+          outPoint: 5,
+        }),
+      ).toBe(state)
+    })
+  })
+
+  describe('interaction with the library and video edits', () => {
+    it('entries-removed-for-clip removes the clip audio tracks too', () => {
+      let state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'a'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip({ id: 'fx-1', name: 'fx.wav' }), 'b'),
+      })
+      state = timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'music-1' })
+      expect(trackIds(state)).toEqual(['b'])
+    })
+
+    it('entries-removed-for-clip keeps the same reference when nothing matched', () => {
+      const state = timelineReducer(emptyTimeline, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 'a'),
+      })
+      expect(timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'ghost' })).toBe(state)
+    })
+
+    it('shortening the video sequence never retimes or retrims audio (silent tail)', () => {
+      // A 10s video entry with a 30s music track laid over it, offset 8:
+      // the track already extends past the sequence end.
+      let state = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(clip(), 'e1'),
+      })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(audioClip(), 't1'),
+      })
+      state = timelineReducer(state, { type: 'audio-track-retimed', id: 't1', offset: 8 })
+      const before = audioTracksOf(state)[0]
+      // Trim the video down to 2s — the sequence now ends before the track starts.
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'e1', inPoint: 0, outPoint: 2 })
+      expect(totalDuration(state)).toBe(2)
+      expect(audioTracksOf(state)[0]).toEqual(before)
+      // Removing the video entry entirely leaves the track untouched as well.
+      state = timelineReducer(state, { type: 'entry-removed', id: 'e1' })
+      expect(audioTracksOf(state)[0]).toEqual(before)
+    })
+  })
+
+  describe('normalizedTimelineState with audio tracks', () => {
+    it('carries tracks through and defaults to none', () => {
+      const track = audioTrackFromClip(audioClip(), 't1')
+      expect(audioTracksOf(normalizedTimelineState([], [], [], [track]))).toEqual([track])
+      expect(audioTracksOf(normalizedTimelineState([], [], []))).toEqual([])
+    })
   })
 })

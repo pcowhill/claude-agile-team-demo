@@ -120,6 +120,7 @@ describe('restoreProject', () => {
           centerY: 0.5,
         },
       ],
+      audioTracks: [],
     },
   }
   const urls = new Map([
@@ -177,6 +178,7 @@ describe('restoreEmbeddedProject', () => {
       ],
       transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
       zooms: [],
+      audioTracks: [],
     },
   }
   const media = new Map<string, ClipMedia>([
@@ -229,5 +231,38 @@ describe('restoreEmbeddedProject', () => {
     expect(() => restoreEmbeddedProject(project, partial, createUrl)).toThrow(
       /has no embedded media/,
     )
+  })
+})
+
+describe('restoreProject with audio tracks (#102)', () => {
+  it('rebuilds audio tracks with the re-linked URLs, offsets and trims intact', () => {
+    const project: Project = {
+      clips: [
+        { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video' },
+        { id: 'm', name: 'music.mp3', duration: 185, kind: 'audio' },
+      ],
+      timeline: {
+        entries: [
+          { id: 'e1', clipId: 'v', name: 'holiday.mp4', duration: 10, inPoint: 0, outPoint: 10 },
+        ],
+        transitions: [],
+        zooms: [],
+        audioTracks: [
+          { id: 't1', clipId: 'm', name: 'music.mp3', duration: 185, offset: 2.5, inPoint: 10, outPoint: 40 },
+          { id: 't2', clipId: 'm', name: 'music.mp3', duration: 185, offset: 0, inPoint: 0, outPoint: 185 },
+        ],
+      },
+    }
+    const restored = restoreProject(
+      project,
+      new Map([
+        ['v', 'blob:relinked-v'],
+        ['m', 'blob:relinked-m'],
+      ]),
+    )
+    expect(restored.timeline.audioTracks).toEqual([
+      { id: 't1', clipId: 'm', name: 'music.mp3', duration: 185, url: 'blob:relinked-m', offset: 2.5, inPoint: 10, outPoint: 40 },
+      { id: 't2', clipId: 'm', name: 'music.mp3', duration: 185, url: 'blob:relinked-m', offset: 0, inPoint: 0, outPoint: 185 },
+    ])
   })
 })

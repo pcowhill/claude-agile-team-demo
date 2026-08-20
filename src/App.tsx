@@ -7,7 +7,7 @@ import { ProjectControls } from './components/ProjectControls'
 import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
-import { emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
+import { audioTrackFromClip, emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
 import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
@@ -66,8 +66,14 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
   )
 
   const handleAddToTimeline = useCallback((clip: LibraryClip) => {
-    // The sequence is video-only until audio gets its own placement (#102).
-    if (clip.kind !== 'video') return
+    // Video joins the sequence; audio becomes a track on the audio lane (#102).
+    if (clip.kind === 'audio') {
+      dispatchTimeline({
+        type: 'audio-track-added',
+        track: audioTrackFromClip(clip, crypto.randomUUID()),
+      })
+      return
+    }
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
@@ -93,7 +99,9 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
   }, [])
 
   const timelineUseCount = useCallback(
-    (clipId: string) => timeline.entries.filter((entry) => entry.clipId === clipId).length,
+    (clipId: string) =>
+      timeline.entries.filter((entry) => entry.clipId === clipId).length +
+      (timeline.audioTracks ?? []).filter((track) => track.clipId === clipId).length,
     [timeline],
   )
 
@@ -174,6 +182,13 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
           }
           onSetZoom={(entryId, zoom) => dispatchTimeline({ type: 'zoom-set', entryId, zoom })}
           onRemoveZoom={(entryId) => dispatchTimeline({ type: 'zoom-removed', entryId })}
+          onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
+          onRetimeAudioTrack={(id, offset) =>
+            dispatchTimeline({ type: 'audio-track-retimed', id, offset })
+          }
+          onTrimAudioTrack={(id, inPoint, outPoint) =>
+            dispatchTimeline({ type: 'audio-track-trimmed', id, inPoint, outPoint })
+          }
         />
         <ExportPanel timeline={timeline} />
       </main>

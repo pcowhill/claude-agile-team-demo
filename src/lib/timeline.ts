@@ -17,6 +17,38 @@ export interface TimelineEntry {
 }
 
 /**
+ * An audio track placed against the video sequence (#102). Tracks are
+ * independent of the sequence's ordering and of each other: any number may
+ * overlap in time (two music tracks at once is an explicit customer
+ * requirement, #100).
+ *
+ * `offset` is in **absolute timeline seconds** and is never re-anchored or
+ * clamped by video edits: when transitions or trims shorten the video
+ * sequence, a track keeps its offset even if it now extends past the
+ * sequence's end — the video simply ends while the audio plays on
+ * (allowed-and-silent-tail, decided in #102). Clamping instead would
+ * destructively retrim audio as a side effect of video editing. How
+ * playback and export treat the tail is #103/#105's concern.
+ */
+export interface AudioTrack {
+  /** Unique per track — the same library clip can appear multiple times. */
+  id: string
+  /** The library clip this track was created from. Always an audio clip. */
+  clipId: string
+  name: string
+  /** Duration of the source audio clip in seconds. */
+  duration: number
+  /** Object URL of the source clip, usable as an <audio> src. */
+  url: string
+  /** Seconds into the composed timeline where the track starts. ≥ 0. */
+  offset: number
+  /** Trim start within the source clip, in seconds. 0 ≤ inPoint < outPoint. */
+  inPoint: number
+  /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
+  outPoint: number
+}
+
+/**
  * Every transition the timeline can carry, as a runtime list so other layers
  * (UI selects, serialization validation — #75) derive their set from this
  * single source of truth instead of enumerating privately.
@@ -94,6 +126,12 @@ export interface TimelineState {
    * `transitions` is; a missing or empty list means nothing zooms.
    */
   zooms?: ZoomEffect[]
+  /**
+   * Audio tracks placed against the sequence (#102), in the order they were
+   * added. Optional for the same reason `transitions` is; a missing or empty
+   * list means no audio beyond the video entries' own.
+   */
+  audioTracks?: AudioTrack[]
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
@@ -136,6 +174,10 @@ export type TimelineAction =
   | { type: 'transition-removed'; beforeId: string; afterId: string }
   | { type: 'zoom-set'; entryId: string; zoom: ZoomSpec }
   | { type: 'zoom-removed'; entryId: string }
+  | { type: 'audio-track-added'; track: AudioTrack }
+  | { type: 'audio-track-removed'; id: string }
+  | { type: 'audio-track-retimed'; id: string; offset: number }
+  | { type: 'audio-track-trimmed'; id: string; inPoint: number; outPoint: number }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
   // The sequence carries video only; audio placement is its own model (#102).
@@ -155,11 +197,41 @@ export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
   }
 }
 
+/**
+ * What the media library's "Add" does for an audio clip: a track starting at
+ * the very beginning of the timeline, untrimmed. Placement and trim are then
+ * edited on the audio lane.
+ */
+export function audioTrackFromClip(clip: LibraryClip, id: string, offset = 0): AudioTrack {
+  // Only audio clips become audio tracks; a video clip's own audio stays
+  // bound to its sequence entry (#104 gives each its own volume control).
+  // The UI never offers this path for video — reaching here is programmer
+  // error.
+  if (clip.kind !== 'audio') {
+    throw new Error(`cannot add "${clip.name}" as an audio track: it is not an audio clip`)
+  }
+  return {
+    id,
+    clipId: clip.id,
+    name: clip.name,
+    duration: clip.duration,
+    url: clip.url,
+    offset,
+    inPoint: 0,
+    outPoint: clip.duration,
+  }
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** The state's transitions, tolerating pre-transition states. */
 export function transitionsOf(state: TimelineState): TimelineTransition[] {
   return state.transitions ?? []
+}
+
+/** The state's audio tracks, tolerating pre-audio states. */
+export function audioTracksOf(state: TimelineState): AudioTrack[] {
+  return state.audioTracks ?? []
 }
 
 /** The state's zooms, tolerating pre-zoom states. */
@@ -289,6 +361,7 @@ function withEffects(
   entries: TimelineEntry[],
   transitions: TimelineTransition[],
   zooms: ZoomEffect[],
+  audioTracks: AudioTrack[],
 ): TimelineState {
   return {
     entries,
@@ -296,6 +369,10 @@ function withEffects(
       (transition): transition is TimelineTransition => transition !== undefined,
     ),
     zooms: normalizedZooms(entries, zooms),
+    // Audio tracks are deliberately untouched by video edits: offsets are
+    // absolute and never clamped to the sequence's (possibly new) length —
+    // see the AudioTrack doc comment.
+    audioTracks,
   }
 }
 
@@ -309,31 +386,37 @@ export function normalizedTimelineState(
   entries: TimelineEntry[],
   transitions: TimelineTransition[],
   zooms: ZoomEffect[],
+  audioTracks: AudioTrack[] = [],
 ): TimelineState {
-  return withEffects(entries, transitions, zooms)
+  return withEffects(entries, transitions, zooms, audioTracks)
 }
 
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
   const transitions = transitionsOf(state)
   const zooms = zoomsOf(state)
+  const audioTracks = audioTracksOf(state)
   switch (action.type) {
     case 'timeline-replaced':
       return action.timeline
     case 'entry-added':
-      return withEffects([...state.entries, action.entry], transitions, zooms)
+      return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks)
     case 'entry-removed':
       return withEffects(
         state.entries.filter((entry) => entry.id !== action.id),
         transitions,
         zooms,
+        audioTracks,
       )
     case 'entries-removed-for-clip': {
+      // Removing a library clip removes everything created from it: sequence
+      // entries and audio tracks alike (#102).
       const entries = state.entries.filter((entry) => entry.clipId !== action.clipId)
+      const tracks = audioTracks.filter((track) => track.clipId !== action.clipId)
       // Same reference when nothing matched: a library removal that touches
       // no entries must not read as a timeline edit (which stops playback).
-      return entries.length === state.entries.length
+      return entries.length === state.entries.length && tracks.length === audioTracks.length
         ? state
-        : withEffects(entries, transitions, zooms)
+        : withEffects(entries, transitions, zooms, tracks)
     }
     case 'entry-moved': {
       const from = state.entries.findIndex((entry) => entry.id === action.id)
@@ -342,7 +425,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (to < 0 || to >= state.entries.length) return state
       const entries = [...state.entries]
       ;[entries[from], entries[to]] = [entries[to], entries[from]]
-      return withEffects(entries, transitions, zooms)
+      return withEffects(entries, transitions, zooms, audioTracks)
     }
     case 'entry-trimmed': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -356,7 +439,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === entry.inPoint && outPoint === entry.outPoint) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, inPoint, outPoint }
-      return withEffects(entries, transitions, zooms)
+      return withEffects(entries, transitions, zooms, audioTracks)
     }
     case 'transition-set': {
       const before = state.entries.findIndex((entry) => entry.id === action.beforeId)
@@ -380,6 +463,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
           candidate,
         ],
         zooms,
+        audioTracks,
       )
       const applied = next.transitions?.find((transition) => transition.beforeId === action.beforeId)
       // Normalization can veto the whole transition (no room at this
@@ -398,7 +482,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
           transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
       )
       if (remaining.length === transitions.length) return state
-      return withEffects(state.entries, remaining, zooms)
+      return withEffects(state.entries, remaining, zooms, audioTracks)
     }
     case 'zoom-set': {
       if (!state.entries.some((entry) => entry.id === action.entryId)) return state
@@ -416,10 +500,15 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // A magnification of 1 or less is not a zoom at all — reject rather
       // than clamp, mirroring the zero-duration transition rule above.
       if (zoom.scale <= 1) return state
-      const next = withEffects(state.entries, transitions, [
-        ...zooms.filter((existing) => existing.entryId !== action.entryId),
-        { entryId: action.entryId, ...zoom },
-      ])
+      const next = withEffects(
+        state.entries,
+        transitions,
+        [
+          ...zooms.filter((existing) => existing.entryId !== action.entryId),
+          { entryId: action.entryId, ...zoom },
+        ],
+        audioTracks,
+      )
       const applied = next.zooms?.find((existing) => existing.entryId === action.entryId)
       if (applied === undefined) return state
       const existing = zooms.find((existing) => existing.entryId === action.entryId)
@@ -431,20 +520,55 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     case 'zoom-removed': {
       const remaining = zooms.filter((zoom) => zoom.entryId !== action.entryId)
       if (remaining.length === zooms.length) return state
-      return withEffects(state.entries, transitions, remaining)
+      return withEffects(state.entries, transitions, remaining, audioTracks)
+    }
+    case 'audio-track-added':
+      return withEffects(state.entries, transitions, zooms, [...audioTracks, action.track])
+    case 'audio-track-removed': {
+      const remaining = audioTracks.filter((track) => track.id !== action.id)
+      if (remaining.length === audioTracks.length) return state
+      return withEffects(state.entries, transitions, zooms, remaining)
+    }
+    case 'audio-track-retimed': {
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.offset)) return state
+      // Offsets are clamped at zero but unbounded above: a track may start
+      // beyond the video sequence's current end (silent tail — see AudioTrack).
+      const offset = Math.max(0, action.offset)
+      if (offset === audioTracks[index].offset) return state
+      const tracks = [...audioTracks]
+      tracks[index] = { ...tracks[index], offset }
+      return withEffects(state.entries, transitions, zooms, tracks)
+    }
+    case 'audio-track-trimmed': {
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.inPoint) || !Number.isFinite(action.outPoint)) return state
+      const track = audioTracks[index]
+      const inPoint = clamp(action.inPoint, 0, track.duration)
+      const outPoint = clamp(action.outPoint, 0, track.duration)
+      // An empty or inverted range would make the track unplayable — reject it.
+      if (inPoint >= outPoint) return state
+      if (inPoint === track.inPoint && outPoint === track.outPoint) return state
+      const tracks = [...audioTracks]
+      tracks[index] = { ...track, inPoint, outPoint }
+      return withEffects(state.entries, transitions, zooms, tracks)
     }
   }
 }
 
-/** The trimmed (playable) duration of one entry, in seconds. */
-export function effectiveDuration(entry: TimelineEntry): number {
+/** The trimmed (playable) duration of one entry or audio track, in seconds. */
+export function effectiveDuration(entry: Pick<TimelineEntry, 'inPoint' | 'outPoint'>): number {
   return entry.outPoint - entry.inPoint
 }
 
 /**
- * Total duration of the sequence in seconds, honoring trims. Each transition
- * overlaps its neighbors rather than adding time, so the total shrinks by
- * every transition's duration.
+ * Total duration of the **video sequence** in seconds, honoring trims. Each
+ * transition overlaps its neighbors rather than adding time, so the total
+ * shrinks by every transition's duration. Audio tracks do not extend it —
+ * whether a tail of audio past this point lengthens playback/export is
+ * #103/#105's decision.
  */
 export function totalDuration(state: TimelineState): number {
   const overlap = boundaryTransitions(state).reduce(

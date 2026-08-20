@@ -97,7 +97,7 @@ describe('audio import (#101)', () => {
     expect(items[1]).toHaveTextContent('Audio')
   })
 
-  it('offers no Add-to-timeline for audio clips while video clips keep theirs', async () => {
+  it('Add places an audio clip on the audio lane, never in the video sequence (#102)', async () => {
     probeMock
       .mockResolvedValueOnce({ duration: 5, url: 'blob:v', kind: 'video' })
       .mockResolvedValueOnce({ duration: 6, url: 'blob:a', kind: 'audio' })
@@ -108,15 +108,18 @@ describe('audio import (#101)', () => {
     await userEvent.upload(input, audioFile('music.mp3', 'audio/mpeg'))
     await screen.findByText('music.mp3')
 
-    expect(screen.getByRole('button', { name: 'Add clip.mp4 to timeline' })).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Add music.mp3 to timeline' }),
-    ).not.toBeInTheDocument()
     // Video clips carry no badge — the badge is what marks audio.
     const list = screen.getByRole('list', { name: 'Imported clips' })
     const [videoItem] = within(list).getAllByRole('listitem')
     expect(videoItem).toHaveTextContent('clip.mp4')
     expect(videoItem).not.toHaveTextContent('Audio')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    const lane = screen.getByRole('list', { name: 'Audio tracks' })
+    expect(within(lane).getByRole('listitem')).toHaveTextContent('music.mp3')
+    // The video sequence stays empty — audio never becomes a sequence entry.
+    expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
   })
 
   it('an audio clip can still be removed from the library', async () => {
