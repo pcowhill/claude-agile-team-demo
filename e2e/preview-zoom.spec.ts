@@ -9,6 +9,22 @@ import { expect, test } from '@playwright/test'
  * specs, plus transform assertions in the style of the seek-into-overlap
  * spec.
  */
+/**
+ * Pin the viewport so the geometry below is stable by construction (#116).
+ * The preview stage's height is whatever the app grid leaves after the
+ * content-sized rows below it, so with the default wide-and-short viewport
+ * the stage ends up height-limited: the clip's contain-fit then occupies a
+ * slice of the stage width that shrinks whenever unrelated panel copy wraps
+ * to another line — and the zoom scale derived from that slice blew past the
+ * sanity bound over a wording change (see the issue). A portrait-ish
+ * viewport makes the stage width-limited instead: the fit fills the stage
+ * width, the green band is half the frame whatever the panels below weigh,
+ * and the derived scale sits at its floor of 3. Even the grid's 200px row
+ * floor keeps the fit wide enough that the scale stays well under the bound,
+ * so no amount of panel copy can push the geometry off this cliff.
+ */
+test.use({ viewport: { width: 800, height: 1100 } })
+
 async function recordBandedWebm(page: import('@playwright/test').Page): Promise<Buffer> {
   const webmBase64 = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
