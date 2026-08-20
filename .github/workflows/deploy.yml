@@ -1,7 +1,15 @@
 name: Deploy to GitHub Pages
 
+# Production is gated on CI (#91): instead of deploying every push to main,
+# this workflow triggers when the CI workflow finishes and deploys only a
+# successful CI run of a push to main — "CI protects production"
+# (docs/rules/quality-and-ci.md) as mechanism rather than aspiration.
+# workflow_dispatch remains as a manual escape hatch and is intentionally
+# ungated: dispatching by hand is already a deliberate human decision.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -17,9 +25,24 @@ concurrency:
 
 jobs:
   build:
+    # The branches filter above matches the triggering run's HEAD branch, so
+    # a pull_request CI run from a fork branch named "main" would slip
+    # through it — requiring the push event closes that hole. Cancelled and
+    # failed CI runs arrive here too (types: [completed] means "finished",
+    # not "succeeded"); the conclusion check is what actually gates.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Build the exact commit CI validated. For workflow_run events
+          # github.sha is main's latest commit, which a racing push could
+          # have moved past what this CI run tested; workflow_dispatch has
+          # no workflow_run payload and falls back to it deliberately.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
