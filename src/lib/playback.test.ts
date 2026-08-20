@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { TimelineEntry, TimelineState } from './timeline'
+import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import {
+  audioTrackPlaybackAt,
   entryStartTime,
   isAtSequenceEnd,
   isTransitionOverlayActive,
@@ -184,6 +185,61 @@ describe('overlap-aware sequence math', () => {
         10,
       )
     }
+  })
+})
+
+describe('audioTrackPlaybackAt (#103)', () => {
+  const track = (overrides: Partial<AudioTrack> = {}): AudioTrack => ({
+    id: 't1',
+    clipId: 'music-1',
+    name: 'music.mp3',
+    duration: 30,
+    url: 'blob:music',
+    offset: 5,
+    inPoint: 10,
+    outPoint: 22,
+    ...overrides,
+  })
+
+  it('does not play before the window, cued at the in-point', () => {
+    expect(audioTrackPlaybackAt(track(), 0)).toEqual({ shouldPlay: false, sourceTime: 10 })
+    expect(audioTrackPlaybackAt(track(), 4.99)).toEqual({ shouldPlay: false, sourceTime: 10 })
+    expect(audioTrackPlaybackAt(track(), -1)).toEqual({ shouldPlay: false, sourceTime: 10 })
+  })
+
+  it('plays from exactly the window start', () => {
+    expect(audioTrackPlaybackAt(track(), 5)).toEqual({ shouldPlay: true, sourceTime: 10 })
+  })
+
+  it('maps positions inside the window through the trim', () => {
+    // Trimmed length 12s at offset 5: window [5, 17), source [10, 22).
+    expect(audioTrackPlaybackAt(track(), 8.5)).toEqual({ shouldPlay: true, sourceTime: 13.5 })
+    expect(audioTrackPlaybackAt(track(), 16.99)).toEqual({
+      shouldPlay: true,
+      sourceTime: 21.99,
+    })
+  })
+
+  it('stops at exactly the window end (half-open, like hard-cut boundaries)', () => {
+    expect(audioTrackPlaybackAt(track(), 17)).toEqual({ shouldPlay: false, sourceTime: 22 })
+    expect(audioTrackPlaybackAt(track(), 99)).toEqual({ shouldPlay: false, sourceTime: 22 })
+  })
+
+  it('is independent per track: overlapping tracks each resolve on their own', () => {
+    const first = track()
+    const second = track({ id: 't2', offset: 0, inPoint: 0, outPoint: 30 })
+    // Position 8 is inside both windows — both play, each at its own source time.
+    expect(audioTrackPlaybackAt(first, 8)).toEqual({ shouldPlay: true, sourceTime: 13 })
+    expect(audioTrackPlaybackAt(second, 8)).toEqual({ shouldPlay: true, sourceTime: 8 })
+  })
+
+  it('keeps playing across the video sequence end (the #102 silent tail)', () => {
+    // The mapping is sequence-agnostic: a track whose window extends past the
+    // video sequence still resolves inside its whole window. The preview only
+    // publishes positions up to the sequence total, so the tail is inaudible
+    // there — but that is the caller's clamp, not the mapping's.
+    const tail = track({ offset: 100, inPoint: 0, outPoint: 30 })
+    expect(audioTrackPlaybackAt(tail, 110)).toEqual({ shouldPlay: true, sourceTime: 10 })
   })
 })
 

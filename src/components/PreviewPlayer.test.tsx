@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { PreviewPlayer } from './PreviewPlayer'
 import type { TimelineState } from '../lib/timeline'
 
@@ -254,6 +254,198 @@ describe('PreviewPlayer', () => {
       expect(incoming.style.clipPath).toBe('inset(0% 25% 50% 25%)')
       expect(incoming).toHaveStyle({ backgroundColor: '#000' })
       expect(incoming).toHaveStyle({ opacity: '1' })
+    })
+  })
+
+  // Audio tracks in the preview (#103). jsdom loads no media, so play/pause
+  // and the paused flag are mocked to behave like a browser's, and the rAF
+  // loop is driven by hand — what these tests pin is the component's cueing
+  // logic against the published position. Real playback runs in
+  // e2e/preview-audio.spec.ts; the position → source-time mapping itself is
+  // covered by lib/playback.test.ts.
+  describe('audio tracks (#103)', () => {
+    // A 10s video entry, a track playing source [1, 3) over sequence [0, 2),
+    // and a track playing source [0, 2) over sequence [5, 7).
+    const withAudioTracks: TimelineState = {
+      entries: [
+        {
+          id: 'e1',
+          clipId: 'c1',
+          name: 'first.webm',
+          duration: 10,
+          url: 'blob:first',
+          inPoint: 0,
+          outPoint: 10,
+        },
+      ],
+      audioTracks: [
+        {
+          id: 't1',
+          clipId: 'a1',
+          name: 'music.mp3',
+          duration: 30,
+          url: 'blob:music',
+          offset: 0,
+          inPoint: 1,
+          outPoint: 3,
+        },
+        {
+          id: 't2',
+          clipId: 'a2',
+          name: 'fx.wav',
+          duration: 6,
+          url: 'blob:fx',
+          offset: 5,
+          inPoint: 0,
+          outPoint: 2,
+        },
+      ],
+    }
+
+    const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+    let playSpy: ReturnType<typeof vi.spyOn>
+    let pauseSpy: ReturnType<typeof vi.spyOn>
+    let frames: FrameRequestCallback[]
+
+    beforeEach(() => {
+      playSpy = vi
+        .spyOn(HTMLMediaElement.prototype, 'play')
+        .mockImplementation(function (this: HTMLMediaElement) {
+          pausedState.set(this, false)
+          return Promise.resolve()
+        })
+      pauseSpy = vi
+        .spyOn(HTMLMediaElement.prototype, 'pause')
+        .mockImplementation(function (this: HTMLMediaElement) {
+          pausedState.set(this, true)
+        })
+      vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+        this: HTMLMediaElement,
+      ) {
+        return pausedState.get(this) ?? true
+      })
+      frames = []
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      vi.stubGlobal('cancelAnimationFrame', () => {})
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
+
+    const audio = (index: number) => screen.getByTestId(`preview-audio-${index}`) as HTMLAudioElement
+    const video = () => screen.getByTestId('preview-video') as HTMLVideoElement
+    /** Runs the most recently scheduled rAF tick. */
+    const runTick = () => {
+      const tick = frames[frames.length - 1]
+      act(() => tick(0))
+    }
+    const playedElements = () => playSpy.mock.contexts as unknown as HTMLMediaElement[]
+
+    it('renders one sound-only element per track, each keeping its own source', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      expect(audio(0)).toHaveAttribute('src', 'blob:music')
+      expect(audio(1)).toHaveAttribute('src', 'blob:fx')
+      expect(audio(0)).toHaveAttribute('preload', 'auto')
+      expect(screen.queryByTestId('preview-audio-2')).not.toBeInTheDocument()
+    })
+
+    it('playing starts the covering track at its source time and leaves upcoming ones cued', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+      // t1 covers position 0: cued to its in-point and playing.
+      expect(audio(0).currentTime).toBe(1)
+      expect(playedElements()).toContain(audio(0))
+      // t2 starts at 5: cued at its in-point, not playing.
+      expect(audio(1).paused).toBe(true)
+      expect(playedElements()).not.toContain(audio(1))
+    })
+
+    it('a track starting mid-sequence begins playing when the position reaches it', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+      expect(audio(1).paused).toBe(true)
+
+      // The video's clock advances to sequence 6 — inside t2's [5, 7) window
+      // and past t1's [0, 2) one.
+      video().currentTime = 6
+      runTick()
+
+      expect(audio(1).paused).toBe(false)
+      expect(audio(1).currentTime).toBe(1) // inPoint 0 + (6 − offset 5)
+      expect(audio(0).paused).toBe(true)
+      expect(audio(0).currentTime).toBe(3) // parked at its out-point
+      expect(screen.getByTestId('preview-position')).toHaveTextContent('0:06 / 0:10')
+    })
+
+    it('pausing pauses every playing track and resuming re-aligns it', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+      expect(audio(0).paused).toBe(false)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pause preview' }))
+      expect(audio(0).paused).toBe(true)
+      expect(pauseSpy.mock.contexts as unknown as HTMLMediaElement[]).toContain(audio(0))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+      expect(audio(0).paused).toBe(false)
+      expect(audio(0).currentTime).toBe(1) // position still 0 → in-point 1
+    })
+
+    it('seeking while paused cues covering tracks without playing them', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '6' },
+      })
+
+      expect(audio(1).currentTime).toBe(1)
+      expect(audio(1).paused).toBe(true)
+      expect(audio(0).currentTime).toBe(3)
+      expect(playedElements()).toHaveLength(0)
+    })
+
+    it('seeking while playing switches which tracks play', () => {
+      render(<PreviewPlayer timeline={withAudioTracks} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+      expect(audio(0).paused).toBe(false)
+
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '6' },
+      })
+      expect(audio(0).paused).toBe(true)
+      expect(audio(1).paused).toBe(false)
+      expect(audio(1).currentTime).toBe(1)
+    })
+
+    it('the end of the video sequence stops the mix, tails included', () => {
+      // t2 retimed to outlast the 10s video: window [9, 11) — a silent tail
+      // per #102. The preview's playback range ends with the video sequence.
+      const withTail: TimelineState = {
+        ...withAudioTracks,
+        audioTracks: [
+          withAudioTracks.audioTracks![0],
+          { ...withAudioTracks.audioTracks![1], offset: 9 },
+        ],
+      }
+      render(<PreviewPlayer timeline={withTail} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+      video().currentTime = 9.5
+      runTick()
+      expect(audio(1).paused).toBe(false)
+
+      // The video reaches its out-point: playback finishes and every track
+      // pauses with it, even though t2's window extends to 11.
+      video().currentTime = 10
+      runTick()
+      expect(audio(1).paused).toBe(true)
+      expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+      expect(screen.getByTestId('preview-position')).toHaveTextContent('0:10 / 0:10')
     })
   })
 })

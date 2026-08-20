@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
-import { boundaryTransitions, totalDuration } from '../lib/timeline'
-import { isTransitionOverlayActive, locateInSequence, sequenceTimeAt } from '../lib/playback'
+import { audioTracksOf, boundaryTransitions, totalDuration } from '../lib/timeline'
+import {
+  audioTrackPlaybackAt,
+  isTransitionOverlayActive,
+  locateInSequence,
+  sequenceTimeAt,
+} from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
@@ -20,6 +25,14 @@ interface PreviewPlayerProps {
  * overshoot into the next clip's source material before switching.
  */
 const BOUNDARY_EPSILON = 0.02
+
+/**
+ * Tolerance (seconds) between an audio track element's clock and the
+ * position the sequence publishes (#103). Element clocks drift a few tens of
+ * milliseconds apart; re-seeking on every frame would stutter the audio, so
+ * a track is only snapped back when it strays audibly far.
+ */
+const AUDIO_DRIFT_EPSILON = 0.25
 
 const TRANSITION_LABEL: Record<TransitionType, string> = {
   crossfade: 'crossfade',
@@ -122,9 +135,57 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
 
   const total = totalDuration(timeline)
   const empty = timeline.entries.length === 0
+  const audioTracks = audioTracksOf(timeline)
+  // One <audio> element per track, keyed by track id (#103). A ref map, not
+  // state: the rAF loop reads it every frame.
+  const audioRefs = useRef(new Map<string, HTMLAudioElement | null>())
 
   const primaryVideo = () => (primaryIsARef.current ? videoARef.current : videoBRef.current)
   const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
+
+  /**
+   * Aligns every audio track element with a sequence position (#103): a
+   * track whose window covers the position plays from the matching source
+   * time (at full volume — gain control is #104) while `running`, and is
+   * paused otherwise. Elements are re-cued exactly when they start; while
+   * running they keep their own clock unless it drifts audibly. Each element
+   * keeps a single source for the track's lifetime (src set in the render),
+   * so cueing is only ever a seek — never the video elements' src-switch
+   * dance.
+   */
+  const syncAudioTracks = useCallback(
+    (sequenceTime: number, running: boolean) => {
+      for (const track of audioTracks) {
+        const element = audioRefs.current.get(track.id)
+        if (!element) continue
+        const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
+        if (shouldPlay && running) {
+          if (element.paused) {
+            element.currentTime = sourceTime
+            // play() rejects (AbortError) when interrupted by pause — an
+            // expected outcome, matching the video elements.
+            element.play().catch(() => {})
+          } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+            element.currentTime = sourceTime
+          }
+        } else {
+          if (!element.paused) element.pause()
+          // Keep the paused element cued to the position (its in-point while
+          // the position is before the window) so resuming starts aligned.
+          if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+            element.currentTime = sourceTime
+          }
+        }
+      }
+    },
+    [audioTracks],
+  )
+
+  const pauseAudioTracks = useCallback(() => {
+    for (const element of audioRefs.current.values()) {
+      if (element && !element.paused) element.pause()
+    }
+  }, [])
 
   /** Single writer for the engagement, keeping the ref and its state mirror in step. */
   const setEngaged = useCallback((value: number | null) => {
@@ -229,25 +290,38 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
         primaryIsARef.current = !primaryIsARef.current
         setPrimaryIsA(primaryIsARef.current)
         if (wasEngaged) {
-          setSequenceTime(sequenceTimeAt(timeline, index + 1, incoming.currentTime))
+          const time = sequenceTimeAt(timeline, index + 1, incoming.currentTime)
+          setSequenceTime(time)
+          syncAudioTracks(time, true)
         } else {
           // The overlap was shorter than a frame (or engagement raced the
           // out-point) — cue the incoming element where the handover lands.
-          setSequenceTime(sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration))
+          const time = sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration)
+          setSequenceTime(time)
+          syncAudioTracks(time, true)
           cueElement(incoming, next.url, next.inPoint + overlap.duration, true)
         }
       } else if (next) {
-        setSequenceTime(sequenceTimeAt(timeline, index + 1, next.inPoint))
+        const time = sequenceTimeAt(timeline, index + 1, next.inPoint)
+        setSequenceTime(time)
+        syncAudioTracks(time, true)
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
       } else {
         video.pause()
         secondaryVideo()?.pause()
         setPlaying(false)
         setSequenceTime(totalDuration(timeline))
+        // End of the video sequence ends the mix: any track still inside its
+        // window (a silent tail per #102) pauses with everything else.
+        pauseAudioTracks()
         return
       }
     } else {
-      setSequenceTime(sequenceTimeAt(timeline, index, video.currentTime))
+      const time = sequenceTimeAt(timeline, index, video.currentTime)
+      setSequenceTime(time)
+      // Tracks start and stop mid-play as the position crosses their
+      // windows, and drifting clocks are snapped back (#103).
+      syncAudioTracks(time, true)
       if (next && overlap) {
         const overlapStart = entry.outPoint - overlap.duration
         if (video.currentTime >= overlapStart) {
@@ -270,7 +344,7 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary, setEngaged])
+  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, pauseAudioTracks])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.
@@ -281,16 +355,18 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
     setSequenceTime(from)
     cuePrimary(location, true)
     syncSecondary(location, true)
+    syncAudioTracks(from, true)
     stopLoop()
     frameRef.current = requestAnimationFrame(tick)
-  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, stopLoop, tick])
+  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, syncAudioTracks, stopLoop, tick])
 
   const pause = useCallback(() => {
     stopLoop()
     primaryVideo()?.pause()
     secondaryVideo()?.pause()
+    pauseAudioTracks()
     setPlaying(false)
-  }, [stopLoop])
+  }, [stopLoop, pauseAudioTracks])
 
   const seek = useCallback(
     (time: number) => {
@@ -299,21 +375,26 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
       setSequenceTime(time)
       cuePrimary(location, playing)
       syncSecondary(location, playing)
+      // Scrubbing re-cues every track: active ones re-seek (and keep playing
+      // if we are playing), the rest pause where they would next start.
+      syncAudioTracks(time, playing)
     },
-    [timeline, cuePrimary, syncSecondary, playing],
+    [timeline, cuePrimary, syncSecondary, syncAudioTracks, playing],
   )
 
-  // Edits to the sequence invalidate the playback position (entries may be
-  // gone, reordered, or retrimmed): stop and re-clamp rather than guessing.
+  // Edits to the timeline invalidate the playback position (entries or
+  // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
+  // than guessing.
   useEffect(() => {
     stopLoop()
     for (const video of [videoARef.current, videoBRef.current]) {
       if (video && !video.paused) video.pause()
     }
+    pauseAudioTracks()
     setEngaged(null)
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
-  }, [timeline, stopLoop, setEngaged])
+  }, [timeline, stopLoop, setEngaged, pauseAudioTracks])
 
   useEffect(() => stopLoop, [stopLoop])
 
@@ -368,6 +449,21 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
             <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
             <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
           </div>
+          {/* One element per audio track (#103), driven by syncAudioTracks.
+              Sound only — nothing rendered, nothing announced. Keyed by track
+              id so retiming or trimming a track never re-creates (and never
+              re-loads) another track's element. */}
+          {audioTracks.map((track, index) => (
+            <audio
+              key={track.id}
+              ref={(element) => {
+                audioRefs.current.set(track.id, element)
+              }}
+              src={track.url}
+              preload="auto"
+              data-testid={`preview-audio-${index}`}
+            />
+          ))}
           <div className="preview-controls">
             <button
               type="button"

@@ -1,4 +1,4 @@
-import type { TimelineEntry, TimelineState, TransitionType } from './timeline'
+import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
 import { boundaryTransitions, effectiveDuration, totalDuration } from './timeline'
 
 /**
@@ -128,4 +128,39 @@ export function isTransitionOverlayActive(
 /** True when `sequenceTime` is at (or past) the end of the sequence. */
 export function isAtSequenceEnd(state: TimelineState, sequenceTime: number): boolean {
   return sequenceTime >= totalDuration(state)
+}
+
+/** Where an audio track stands at one timeline position (#103). */
+export interface AudioTrackPlayback {
+  /** Whether the track's audible window covers this position. */
+  shouldPlay: boolean
+  /**
+   * Time within the source clip, in seconds, clamped into
+   * [inPoint, outPoint]: before the window it is the in-point (where playback
+   * would start), past the window the out-point.
+   */
+  sourceTime: number
+}
+
+/**
+ * Maps a timeline position to one audio track's playback state — the audio
+ * counterpart of locateInSequence. The audible window is
+ * [offset, offset + trimmedLength): a position exactly on the window's end
+ * does not play, mirroring how a hard-cut boundary resolves to the *next*
+ * entry rather than replaying the previous one's last instant.
+ *
+ * The mapping is pure and sequence-agnostic: a track outlasting the video
+ * sequence (the silent tail allowed by #102) still maps to shouldPlay inside
+ * its whole window. Preview playback, however, only ever publishes positions
+ * within [0, totalDuration] — it is driven by the video elements' clocks — so
+ * a tail past the video sequence's end is not audible in preview. Whether
+ * export renders the tail is #105's decision.
+ */
+export function audioTrackPlaybackAt(track: AudioTrack, sequenceTime: number): AudioTrackPlayback {
+  const length = effectiveDuration(track)
+  if (sequenceTime < track.offset) return { shouldPlay: false, sourceTime: track.inPoint }
+  if (sequenceTime >= track.offset + length) {
+    return { shouldPlay: false, sourceTime: track.outPoint }
+  }
+  return { shouldPlay: true, sourceTime: track.inPoint + (sequenceTime - track.offset) }
 }
