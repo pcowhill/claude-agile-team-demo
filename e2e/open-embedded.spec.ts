@@ -3,10 +3,12 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 /**
- * Opening a saved project (#77): the full round trip — build a sequence with
- * trims, a transition, and a zoom; save it; wipe the editor with New Project
- * (through the unsaved-changes guard); open the saved file; re-link the same
- * media; and confirm the timeline is back and the sequence plays and exports.
+ * The self-contained round trip (#98) — the embedded twin of open.spec.ts:
+ * build a sequence with trims, a transition, and a zoom; save it with the
+ * default (embed) mode; wipe the editor with New Project; open the saved
+ * file — and confirm NO re-link dialog appears, the timeline is back, and
+ * the sequence plays and exports. This is exactly what the customer asked
+ * for in #92: one file that moves and opens ready to edit.
  */
 
 /** Records a ~1.6s WebM in-browser so the import probe accepts it. */
@@ -45,7 +47,7 @@ async function recordWebm(page: Page): Promise<Buffer> {
   return Buffer.from(webmBase64, 'base64')
 }
 
-test('a saved project reopens with its trims, transition and zoom, then plays and exports', async ({
+test('an embedded save reopens with no re-link step, then plays and exports', async ({
   page,
 }) => {
   // Download-path saving keeps the file capturable by Playwright.
@@ -75,59 +77,31 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
   await page.getByRole('button', { name: 'Add zoom to first.webm at position 1' }).click()
   const totalBefore = await page.getByTestId('timeline-total').textContent()
 
-  // Save references-only (#98) — this spec exercises the re-link open path —
-  // then dirty the project again so New Project must ask.
+  // Save with the DEFAULT mode: the first-save dialog preselects embedding
+  // (#98) and confirming it as-is writes the self-contained file.
   await page.getByRole('button', { name: 'Save As…' }).click()
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
-  await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
+  await expect(
+    modeDialog.getByRole('radio', { name: 'Embed media in the project file' }),
+  ).toBeChecked()
   const downloadPromise = page.waitForEvent('download')
   await modeDialog.getByRole('button', { name: 'Save…' }).click()
   const projectBytes = await readFile((await (await downloadPromise).path())!)
-  const retrim = page.getByRole('spinbutton', {
-    name: 'Trim out point of second.webm at position 2 in seconds',
-  })
-  await retrim.fill('0.9')
-  await retrim.blur()
 
-  // New Project: guard appears (dirty), confirming wipes the editor.
+  // Wipe the editor (clean after saving → no guard).
   await page.getByRole('button', { name: 'New Project' }).click()
-  const guard = page.getByRole('dialog', { name: 'Discard unsaved changes?' })
-  await expect(guard).toBeVisible()
-  await guard.getByRole('button', { name: 'Discard and start new' }).click()
   await expect(page.getByText('No clips yet', { exact: false })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
 
-  // Open the saved file; the re-link dialog lists both clips as missing.
+  // Open the saved file: the project comes back immediately — no re-link
+  // dialog, no file re-selection of any kind.
   await page
     .getByTestId('project-file-input')
     .setInputFiles([{ name: 'trip.bvep', mimeType: 'application/gzip', buffer: projectBytes }])
-  const dialog = page.getByRole('dialog', { name: 'Open trip.bvep' })
-  await expect(dialog).toBeVisible()
-  const media = dialog.getByRole('list', { name: 'Project media' })
-  await expect(media.getByRole('listitem')).toHaveCount(2)
-  await expect(media.getByRole('listitem').filter({ hasText: 'first.webm' })).toContainText(
-    'Missing',
-  )
-
-  // Re-link with the same recordings; the open button unlocks.
-  const openButton = dialog.getByRole('button', { name: 'Open project' })
-  await expect(openButton).toBeDisabled()
-  await page.getByTestId('relink-file-input').setInputFiles([
-    { name: 'first.webm', mimeType: 'video/webm', buffer: webm },
-    { name: 'second.webm', mimeType: 'video/webm', buffer: webm },
-  ])
-  await expect(media.getByRole('listitem').filter({ hasText: 'first.webm' })).toContainText(
-    'Linked',
-  )
-  await expect(media.getByRole('listitem').filter({ hasText: 'second.webm' })).toContainText(
-    'Linked',
-  )
-  await expect(openButton).toBeEnabled()
-  await openButton.click()
-
-  // The sequence is back: same entries, trims, transition, zoom, and total.
   const sequence = page.getByRole('list', { name: 'Sequence' })
   await expect(sequence.getByRole('listitem')).toHaveCount(2)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // The sequence is back: same entries, trims, transition, zoom, and total.
   for (const [clip, position] of [
     ['first', 1],
     ['second', 2],
@@ -188,45 +162,4 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
   // trims or the transition overlap would be ~2 s and fail the upper bound.
   expect(probed).toBeGreaterThan(0.5)
   expect(probed).toBeLessThan(1.8)
-})
-
-test('cancelling the guard and the re-link dialog leaves the project untouched', async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker
-  })
-  await page.goto('./')
-
-  const webm = await recordWebm(page)
-  await page
-    .getByTestId('clip-file-input')
-    .setInputFiles([{ name: 'first.webm', mimeType: 'video/webm', buffer: webm }])
-  await page.getByRole('button', { name: 'Add first.webm to timeline' }).click()
-
-  // Cancel the New Project guard: everything stays, still dirty.
-  await page.getByRole('button', { name: 'New Project' }).click()
-  await page
-    .getByRole('dialog', { name: 'Discard unsaved changes?' })
-    .getByRole('button', { name: 'Cancel' })
-    .click()
-  await expect(page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
-
-  // Save references-only (clears dirty), then open a saved file but cancel
-  // the re-link dialog: the current project stays.
-  await page.getByRole('button', { name: 'Save As…' }).click()
-  const modeDialog = page.getByRole('dialog', { name: 'Save project' })
-  await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
-  const downloadPromise = page.waitForEvent('download')
-  await modeDialog.getByRole('button', { name: 'Save…' }).click()
-  const projectBytes = await readFile((await (await downloadPromise).path())!)
-  await page
-    .getByTestId('project-file-input')
-    .setInputFiles([{ name: 'again.bvep', mimeType: 'application/gzip', buffer: projectBytes }])
-  const dialog = page.getByRole('dialog', { name: 'Open again.bvep' })
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Cancel' }).click()
-  await expect(dialog).not.toBeVisible()
-  await expect(page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')).toHaveCount(1)
 })

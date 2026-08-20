@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 import { deserializeProject } from './lib/projectFile'
 import type { SaveDestination, SavePort } from './lib/saveProject'
+
+/** Confirms the first-save mode dialog (#98), choosing references-only —
+ * these tests exercise dirty tracking and open/re-link, not embedding, and
+ * jsdom cannot fetch the object URLs an embedded save reads. */
+async function saveAsReferences(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await screen.findByRole('dialog', { name: 'Save project' })
+  await user.click(within(dialog).getByRole('radio', { name: 'Store references only' }))
+  await user.click(within(dialog).getByRole('button', { name: 'Save…' }))
+}
 
 describe('App shell', () => {
   it('renders the application title', () => {
@@ -62,7 +71,9 @@ describe('unsaved-changes tracking (#76)', () => {
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
 
     // A successful save clears it, and the saved file carries the state.
+    // The first save asks what the file carries (#98).
     await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    await saveAsReferences(user)
     await screen.findByText('Saved as project.bvep')
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     expect(writes).toHaveLength(1)
@@ -92,6 +103,13 @@ describe('unsaved-changes tracking (#76)', () => {
     )
     await user.click(await screen.findByRole('button', { name: 'Add clip.webm to timeline' }))
 
+    // Establish mode and destination first — a first save would surface the
+    // mode dialog (#98), and clicking it would blur (commit) the mid-edit
+    // field this test needs to stay uncommitted.
+    await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    await saveAsReferences(user)
+    await waitFor(() => expect(writes).toHaveLength(1))
+
     // Start editing a trim field but do not commit (no blur, no Enter).
     const inField = screen.getByRole('spinbutton', {
       name: 'Trim in point of clip.webm at position 1 in seconds',
@@ -106,10 +124,10 @@ describe('unsaved-changes tracking (#76)', () => {
     })
     expect(defaultPrevented).toBe(true)
 
-    await waitFor(() => expect(writes).toHaveLength(1))
+    await waitFor(() => expect(writes).toHaveLength(2))
     // The in-progress edit is untouched, and only committed state was saved.
     expect(inField).toHaveValue(3)
-    const saved = await deserializeProject(writes[0])
+    const saved = await deserializeProject(writes[1])
     expect(saved.ok).toBe(true)
     if (saved.ok) expect(saved.project.timeline.entries[0].inPoint).toBe(0)
   })
@@ -187,6 +205,7 @@ describe('Open and New Project (#77)', () => {
 
     // Save, then wipe with New Project (clean after saving → no guard).
     await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await saveAsReferences(user)
     await waitFor(() => expect(writes).toHaveLength(1))
     await user.click(screen.getByRole('button', { name: 'New Project' }))
     expect(screen.getByText(/No clips yet/)).toBeInTheDocument()

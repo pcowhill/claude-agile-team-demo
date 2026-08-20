@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_PROJECT_FILE_NAME, createSavePort } from './saveProject'
+import type { LibraryClip } from './mediaLibrary'
+import {
+  DEFAULT_PROJECT_FILE_NAME,
+  collectClipMedia,
+  createSavePort,
+  fetchClipMedia,
+} from './saveProject'
 
 const bytes = new TextEncoder().encode('project bytes')
 
@@ -100,5 +106,79 @@ describe('the download port', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
     vi.runAllTimers()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:project-save')
+  })
+})
+
+describe('collecting clip media for an embedded save (#98)', () => {
+  const clips: LibraryClip[] = [
+    { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1' },
+    { id: 'c2', name: 'city.webm', duration: 5, url: 'blob:c2' },
+  ]
+
+  it('collects every clip keyed by id, preserving each blob type', async () => {
+    const fetchMedia = vi.fn((clip: LibraryClip) =>
+      Promise.resolve({
+        bytes: new TextEncoder().encode(clip.id) as Uint8Array<ArrayBuffer>,
+        mimeType: 'video/mp4',
+      }),
+    )
+    const media = await collectClipMedia(clips, fetchMedia)
+    expect([...media.keys()]).toEqual(['c1', 'c2'])
+    expect(media.get('c1')).toEqual({
+      bytes: new TextEncoder().encode('c1'),
+      mimeType: 'video/mp4',
+    })
+    expect(fetchMedia).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails the whole collection by clip name when one clip cannot be read', async () => {
+    const fetchMedia = (clip: LibraryClip) =>
+      clip.id === 'c2'
+        ? Promise.reject(new Error('gone'))
+        : Promise.resolve({ bytes: new Uint8Array([1]) as Uint8Array<ArrayBuffer> })
+    await expect(collectClipMedia(clips, fetchMedia)).rejects.toThrow(
+      'could not read the media for clip "city.webm" (gone)',
+    )
+  })
+
+  describe('the default fetcher', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('reads bytes and type back through the object URL', async () => {
+      const payload = new Uint8Array([9, 8, 7])
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            blob: () =>
+              Promise.resolve(new Blob([payload as unknown as BlobPart], { type: 'video/webm' })),
+          }),
+        ),
+      )
+      const media = await fetchClipMedia(clips[0])
+      expect(fetch).toHaveBeenCalledWith('blob:c1')
+      expect(media.bytes).toEqual(payload)
+      expect(media.mimeType).toBe('video/webm')
+    })
+
+    it('omits mimeType for an untyped blob', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob([new Uint8Array([1]) as unknown as BlobPart])) }),
+        ),
+      )
+      expect((await fetchClipMedia(clips[0])).mimeType).toBeUndefined()
+    })
+
+    it('reports a failed read as an error, not silent absence', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 404 })))
+      await expect(fetchClipMedia(clips[0])).rejects.toThrow(
+        'the media could not be read back (HTTP 404)',
+      )
+    })
   })
 })

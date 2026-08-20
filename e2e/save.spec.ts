@@ -81,9 +81,14 @@ test('saving downloads a project file that round-trips, and the dirty indicator 
   // The edits raised the indicator.
   await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
 
-  // Save As… downloads the project file.
-  const firstDownload = page.waitForEvent('download')
+  // Save As… asks what the file carries (#98) — references-only here keeps
+  // this spec on the small-file path (the embedded twin lives in
+  // open-embedded.spec.ts) — then downloads the project file.
   await page.getByRole('button', { name: 'Save As…' }).click()
+  const modeDialog = page.getByRole('dialog', { name: 'Save project' })
+  await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
+  const firstDownload = page.waitForEvent('download')
+  await modeDialog.getByRole('button', { name: 'Save…' }).click()
   const download = await firstDownload
   expect(download.suggestedFilename()).toBe('project.bvep')
 
@@ -122,10 +127,12 @@ test('saving downloads a project file that round-trips, and the dirty indicator 
   await retrim.blur()
   await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
 
-  // Ctrl+S saves again, re-using the established filename.
+  // Ctrl+S saves again, re-using the established filename and mode — no
+  // dialog re-appears (#98).
   const secondDownload = page.waitForEvent('download')
   await page.keyboard.press('Control+s')
   expect((await secondDownload).suggestedFilename()).toBe('project.bvep')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
 })
 
@@ -169,18 +176,27 @@ test('with the File System Access picker, Save As… asks once and Save rewrites
     .setInputFiles([{ name: 'first.webm', mimeType: 'video/webm', buffer: webm }])
   await page.getByRole('button', { name: 'Add first.webm to timeline' }).click()
 
-  // Save with no destination behaves as Save As…: the picker is consulted.
+  // Save with no destination behaves as Save As…: the first-save mode
+  // dialog appears with embed preselected (#98), then the picker is
+  // consulted. Confirming the default writes an embedded (version 2) file.
   await page.getByRole('button', { name: 'Save (unsaved changes)' }).click()
+  const modeDialog = page.getByRole('dialog', { name: 'Save project' })
+  await expect(
+    modeDialog.getByRole('radio', { name: 'Embed media in the project file' }),
+  ).toBeChecked()
+  await modeDialog.getByRole('button', { name: 'Save…' }).click()
   await expect(page.getByText('Saved as edit.bvep')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
 
-  // A further edit, then Ctrl+S: saved without asking again.
+  // A further edit, then Ctrl+S: saved without asking again — neither the
+  // picker nor the mode dialog.
   const outField = page.getByRole('spinbutton', {
     name: 'Trim out point of first.webm at position 1 in seconds',
   })
   await outField.fill('0.8')
   await outField.blur()
   await page.keyboard.press('Control+s')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.waitForFunction(
     () => (window as unknown as { __saveTest: { saves: string[] } }).__saveTest.saves.length === 2,
   )
@@ -208,9 +224,14 @@ test('with the File System Access picker, Save As… asks once and Save rewrites
     }
     return JSON.parse(json) as {
       format: string
+      schemaVersion: number
+      media?: Record<string, unknown>
       timeline: { entries: { outPoint: number }[] }
     }
   }, state.saves[1])
   expect(document.format).toBe('browser-video-editor-project')
   expect(document.timeline.entries[0].outPoint).toBe(0.8)
+  // The default (embed) mode was remembered: version 2 with the clip's media.
+  expect(document.schemaVersion).toBe(2)
+  expect(Object.keys(document.media ?? {})).toHaveLength(1)
 })
