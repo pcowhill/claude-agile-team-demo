@@ -178,6 +178,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
           onRemoveClip={handleRemoveClip}
+          onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
           timelineUseCount={timelineUseCount}
         />
         <PreviewPlayer
