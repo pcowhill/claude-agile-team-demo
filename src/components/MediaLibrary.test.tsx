@@ -108,11 +108,18 @@ describe('audio import (#101)', () => {
     await userEvent.upload(input, audioFile('music.mp3', 'audio/mpeg'))
     await screen.findByText('music.mp3')
 
-    // Video clips carry no badge — the badge is what marks audio.
+    // Every clip carries its kind badge (#120): Video here, Audio below.
     const list = screen.getByRole('list', { name: 'Imported clips' })
-    const [videoItem] = within(list).getAllByRole('listitem')
+    const [videoItem, audioItem] = within(list).getAllByRole('listitem')
     expect(videoItem).toHaveTextContent('clip.mp4')
+    expect(videoItem).toHaveTextContent('Video')
     expect(videoItem).not.toHaveTextContent('Audio')
+    expect(audioItem).toHaveTextContent('Audio')
+    expect(audioItem).not.toHaveTextContent('Video')
+    // Distinct per-kind classes are what lets the CSS color them apart —
+    // while the kind stays readable as text alone.
+    expect(videoItem.querySelector('.clip-kind')).toHaveClass('clip-kind-video')
+    expect(audioItem.querySelector('.clip-kind')).toHaveClass('clip-kind-audio')
 
     await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
 

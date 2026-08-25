@@ -82,7 +82,9 @@ export function MediaLibrary({
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>
-              {clip.kind === 'audio' && <span className="clip-kind">Audio</span>}
+              <span className={`clip-kind clip-kind-${clip.kind}`}>
+                {clip.kind === 'audio' ? 'Audio' : 'Video'}
+              </span>
               <span className="clip-duration">{formatDuration(clip.duration)}</span>
               {/* Video joins the sequence; audio joins the audio lane (#102). */}
               <button
