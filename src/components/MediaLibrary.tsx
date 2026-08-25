@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import type { LibraryClip, MediaLibraryState } from '../lib/mediaLibrary'
+import type {
+  ClipSortDirection,
+  ClipSortKey,
+  LibraryClip,
+  MediaLibraryState,
+} from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
 import { ConfirmDialog } from './ConfirmDialog'
 import './MediaLibrary.css'
@@ -11,9 +16,19 @@ interface MediaLibraryProps {
   onDismissFailures: () => void
   onAddToTimeline: (clip: LibraryClip) => void
   onRemoveClip: (clip: LibraryClip) => void
+  /** Reorders the stored clip list (#123). */
+  onSortClips: (key: ClipSortKey, direction: ClipSortDirection) => void
   /** How many timeline entries were created from the given library clip. */
   timelineUseCount: (clipId: string) => number
 }
+
+/** Control order and labels, per the customer's wording (#121): Name
+ * (alphabetical), Type (videos together, audios together), Length. */
+const SORT_CONTROLS: readonly { key: ClipSortKey; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'kind', label: 'Type' },
+  { key: 'duration', label: 'Length' },
+]
 
 export function MediaLibrary({
   library,
@@ -21,10 +36,26 @@ export function MediaLibrary({
   onDismissFailures,
   onAddToTimeline,
   onRemoveClip,
+  onSortClips,
   timelineUseCount,
 }: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [pendingRemoval, setPendingRemoval] = useState<LibraryClip | null>(null)
+  // The last sort applied (#123). Sorting is an action on the stored list,
+  // not a persistent view — this only marks which key a repeat click would
+  // reverse, and which direction it ran.
+  const [lastSort, setLastSort] = useState<{
+    key: ClipSortKey
+    direction: ClipSortDirection
+  } | null>(null)
+
+  const handleSort = (key: ClipSortKey) => {
+    // Same key again reverses that sort; a different key starts ascending.
+    const direction: ClipSortDirection =
+      lastSort?.key === key && lastSort.direction === 'asc' ? 'desc' : 'asc'
+    setLastSort({ key, direction })
+    onSortClips(key, direction)
+  }
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
@@ -76,7 +107,30 @@ export function MediaLibrary({
           No clips yet. Import video or audio files, or drag and drop them anywhere in the app.
         </p>
       ) : (
-        <ul className="clip-list" aria-label="Imported clips">
+        <>
+          {library.clips.length > 1 && (
+            <div className="clip-sort" role="group" aria-label="Sort clips">
+              <span className="clip-sort-label">Sort by</span>
+              {SORT_CONTROLS.map(({ key, label }) => {
+                const active = lastSort?.key === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-label={`Sort by ${label.toLowerCase()}`}
+                    aria-pressed={active}
+                    onClick={() => handleSort(key)}
+                  >
+                    {label}
+                    {active && (
+                      <span aria-hidden="true"> {lastSort.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <ul className="clip-list" aria-label="Imported clips">
           {library.clips.map((clip) => (
             <li key={clip.id} className="clip-item">
               <span className="clip-name" title={clip.name}>
@@ -103,7 +157,8 @@ export function MediaLibrary({
               </button>
             </li>
           ))}
-        </ul>
+          </ul>
+        </>
       )}
 
       {pendingRemoval && (

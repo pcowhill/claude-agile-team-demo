@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip, MediaLibraryState } from './mediaLibrary'
-import { emptyLibrary, formatDuration, mediaLibraryReducer } from './mediaLibrary'
+import { emptyLibrary, formatDuration, mediaLibraryReducer, sortClips } from './mediaLibrary'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: crypto.randomUUID(),
@@ -109,5 +109,126 @@ describe('library-replaced (#77)', () => {
     // Reference identity is what the unsaved-changes tracking compares (#76).
     expect(next.clips).toBe(clips)
     expect(next.failures).toEqual([])
+  })
+})
+
+describe('sortClips (#123)', () => {
+  const byNames = (clips: LibraryClip[]) => clips.map((c) => c.name)
+
+  it('sorts by name case-insensitively with numeric collation', () => {
+    const clips = [
+      clip({ name: 'clip10.mp4' }),
+      clip({ name: 'Beta.mp4' }),
+      clip({ name: 'clip2.mp4' }),
+      clip({ name: 'alpha.mp4' }),
+    ]
+    expect(byNames(sortClips(clips, 'name', 'asc'))).toEqual([
+      'alpha.mp4',
+      'Beta.mp4',
+      'clip2.mp4',
+      'clip10.mp4',
+    ])
+    expect(byNames(sortClips(clips, 'name', 'desc'))).toEqual([
+      'clip10.mp4',
+      'clip2.mp4',
+      'Beta.mp4',
+      'alpha.mp4',
+    ])
+  })
+
+  it('sorts by kind with videos first ascending', () => {
+    const clips = [
+      clip({ name: 'a.mp3', kind: 'audio' }),
+      clip({ name: 'v1.mp4', kind: 'video' }),
+      clip({ name: 'b.mp3', kind: 'audio' }),
+      clip({ name: 'v2.mp4', kind: 'video' }),
+    ]
+    expect(byNames(sortClips(clips, 'kind', 'asc'))).toEqual([
+      'v1.mp4',
+      'v2.mp4',
+      'a.mp3',
+      'b.mp3',
+    ])
+    expect(byNames(sortClips(clips, 'kind', 'desc'))).toEqual([
+      'a.mp3',
+      'b.mp3',
+      'v1.mp4',
+      'v2.mp4',
+    ])
+  })
+
+  it('sorts by duration numerically', () => {
+    const clips = [
+      clip({ name: 'long.mp4', duration: 90 }),
+      clip({ name: 'short.mp4', duration: 3 }),
+      clip({ name: 'mid.mp4', duration: 30 }),
+    ]
+    expect(byNames(sortClips(clips, 'duration', 'asc'))).toEqual([
+      'short.mp4',
+      'mid.mp4',
+      'long.mp4',
+    ])
+    expect(byNames(sortClips(clips, 'duration', 'desc'))).toEqual([
+      'long.mp4',
+      'mid.mp4',
+      'short.mp4',
+    ])
+  })
+
+  it('is stable: equal keys keep their existing relative order, both directions', () => {
+    const clips = [
+      clip({ name: 'first.mp4', duration: 5 }),
+      clip({ name: 'second.mp4', duration: 5 }),
+      clip({ name: 'third.mp4', duration: 5 }),
+    ]
+    expect(byNames(sortClips(clips, 'duration', 'asc'))).toEqual([
+      'first.mp4',
+      'second.mp4',
+      'third.mp4',
+    ])
+    // Descending flips the comparator, never the array — ties hold still.
+    expect(byNames(sortClips(clips, 'duration', 'desc'))).toEqual([
+      'first.mp4',
+      'second.mp4',
+      'third.mp4',
+    ])
+  })
+
+  it("carries previous sorts over as tie order (the customer's example)", () => {
+    // Mixed import order; sort by name, then by type: each kind group must
+    // come out internally alphabetical.
+    const clips = [
+      clip({ name: 'zebra.mp4', kind: 'video' }),
+      clip({ name: 'mango.mp3', kind: 'audio' }),
+      clip({ name: 'apple.mp4', kind: 'video' }),
+      clip({ name: 'banana.mp3', kind: 'audio' }),
+    ]
+    const byName = sortClips(clips, 'name', 'asc')
+    expect(byNames(byName)).toEqual(['apple.mp4', 'banana.mp3', 'mango.mp3', 'zebra.mp4'])
+    const thenByKind = sortClips(byName, 'kind', 'asc')
+    expect(byNames(thenByKind)).toEqual(['apple.mp4', 'zebra.mp4', 'banana.mp3', 'mango.mp3'])
+  })
+})
+
+describe('clips-sorted (#123)', () => {
+  it('reorders the stored list and leaves failures alone', () => {
+    const state: MediaLibraryState = {
+      clips: [clip({ name: 'b.mp4' }), clip({ name: 'a.mp4' })],
+      failures: [{ id: 'f1', name: 'broken.mp4', reason: 'nope' }],
+    }
+    const next = mediaLibraryReducer(state, { type: 'clips-sorted', key: 'name', direction: 'asc' })
+    expect(next.clips.map((c) => c.name)).toEqual(['a.mp4', 'b.mp4'])
+    expect(next.failures).toBe(state.failures)
+    expect(state.clips.map((c) => c.name)).toEqual(['b.mp4', 'a.mp4'])
+  })
+
+  it('returns the same state reference when the order is already right (#76 dirty tracking)', () => {
+    const state: MediaLibraryState = {
+      clips: [clip({ name: 'a.mp4' }), clip({ name: 'b.mp4' })],
+      failures: [],
+    }
+    expect(
+      mediaLibraryReducer(state, { type: 'clips-sorted', key: 'name', direction: 'asc' }),
+    ).toBe(state)
   })
 })

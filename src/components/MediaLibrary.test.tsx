@@ -246,3 +246,69 @@ describe('media library clip removal', () => {
     expect(dialog).toHaveTextContent('The clip will be removed from the media library.')
   })
 })
+
+describe('sorting (#123)', () => {
+  /** Imports one clip through the mocked probe with a chosen kind/duration. */
+  async function importAs(name: string, kind: 'video' | 'audio', duration: number) {
+    probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}`, kind })
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile(name))
+    await screen.findByText(name)
+  }
+
+  const listedNames = () =>
+    within(screen.getByRole('list', { name: 'Imported clips' }))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.clip-name')!.textContent)
+
+  it('shows the controls only once there are at least two clips', async () => {
+    render(<App />)
+    expect(screen.queryByRole('group', { name: 'Sort clips' })).not.toBeInTheDocument()
+    await importAs('one.mp4', 'video', 5)
+    expect(screen.queryByRole('group', { name: 'Sort clips' })).not.toBeInTheDocument()
+    await importAs('two.mp4', 'video', 5)
+    expect(screen.getByRole('group', { name: 'Sort clips' })).toBeInTheDocument()
+  })
+
+  it('sorts by each key, marks the active key and direction, and reverses on repeat', async () => {
+    render(<App />)
+    await importAs('zebra.mp4', 'video', 30)
+    await importAs('mango.mp3', 'audio', 90)
+    await importAs('apple.mp4', 'video', 3)
+
+    const nameButton = screen.getByRole('button', { name: 'Sort by name' })
+    await userEvent.click(nameButton)
+    expect(listedNames()).toEqual(['apple.mp4', 'mango.mp3', 'zebra.mp4'])
+    expect(nameButton).toHaveAttribute('aria-pressed', 'true')
+    expect(nameButton).toHaveTextContent('Name ↑')
+
+    // The same key again reverses; the indicator follows.
+    await userEvent.click(nameButton)
+    expect(listedNames()).toEqual(['zebra.mp4', 'mango.mp3', 'apple.mp4'])
+    expect(nameButton).toHaveTextContent('Name ↓')
+
+    // Length sorts numerically and takes the active marker over.
+    const lengthButton = screen.getByRole('button', { name: 'Sort by length' })
+    await userEvent.click(lengthButton)
+    expect(listedNames()).toEqual(['apple.mp4', 'zebra.mp4', 'mango.mp3'])
+    expect(lengthButton).toHaveAttribute('aria-pressed', 'true')
+    expect(lengthButton).toHaveTextContent('Length ↑')
+    expect(nameButton).toHaveAttribute('aria-pressed', 'false')
+    expect(nameButton).toHaveTextContent('Name')
+    expect(nameButton).not.toHaveTextContent('↓')
+  })
+
+  it("carries the previous sort over as tie order (the customer's example)", async () => {
+    render(<App />)
+    await importAs('zebra.mp4', 'video', 10)
+    await importAs('mango.mp3', 'audio', 10)
+    await importAs('apple.mp4', 'video', 10)
+    await importAs('banana.mp3', 'audio', 10)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by name' }))
+    expect(listedNames()).toEqual(['apple.mp4', 'banana.mp3', 'mango.mp3', 'zebra.mp4'])
+
+    // By type: videos grouped first, each group still alphabetical.
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by type' }))
+    expect(listedNames()).toEqual(['apple.mp4', 'zebra.mp4', 'banana.mp3', 'mango.mp3'])
+  })
+})

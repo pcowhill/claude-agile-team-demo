@@ -10,6 +10,30 @@
   margin: 0;
 }
 
+/* Sort controls (#123): compact toggles above the clip list; the active
+   key shows its direction as an arrow (decorative — the accessible state is
+   aria-pressed on the active button). */
+.clip-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.clip-sort-label {
+  color: #999;
+}
+
+.clip-sort button {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+}
+
+.clip-sort button[aria-pressed='true'] {
+  border-color: #7e8cff;
+}
+
 .import-errors {
   border: 1px solid #a33;
   background: rgba(170, 51, 51, 0.15);
