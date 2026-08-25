@@ -70,6 +70,8 @@ test('importing a video via the file picker lists it with name and duration', as
   await expect(item).toContainText('picked.webm')
   // ~1.2s recording; allow rounding either way.
   await expect(item).toContainText(/0:0[12]/)
+  // Video clips carry a kind badge like audio clips do (#120).
+  await expect(item).toContainText('Video')
 })
 
 test('dropping a video file onto the app imports it', async ({ page }) => {

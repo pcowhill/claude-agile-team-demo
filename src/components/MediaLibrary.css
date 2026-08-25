@@ -56,15 +56,26 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The kind badge (#101) carries its meaning as text ("Audio"), never by
-   color alone; the styling only sets it apart from the filename. */
+/* The kind badge (#101, #120) carries its meaning as text ("Audio"/"Video"),
+   never by color alone; the per-kind colors only set the kinds apart at a
+   glance. */
 .clip-kind {
   padding: 0.05rem 0.4rem;
-  border: 1px solid #3a4a5a;
+  border: 1px solid;
   border-radius: 999px;
-  background: #263140;
-  color: #9fc3e8;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.clip-kind-audio {
+  border-color: #3a4a5a;
+  background: #263140;
+  color: #9fc3e8;
+}
+
+.clip-kind-video {
+  border-color: #4a5a3a;
+  background: #2e4026;
+  color: #b8e89f;
 }
