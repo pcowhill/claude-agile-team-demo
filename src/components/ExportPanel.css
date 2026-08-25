@@ -5,6 +5,13 @@
   flex-wrap: wrap;
 }
 
+.export-format {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
 .export-progress {
   flex: 1;
   min-width: 120px;
