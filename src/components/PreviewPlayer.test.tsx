@@ -206,6 +206,7 @@ describe('PreviewPlayer', () => {
       entries: withTransition.entries,
       zooms: [
         {
+          id: 'z1',
           entryId: 'e1',
           start: 1,
           rampIn: 1,
@@ -262,6 +263,7 @@ describe('PreviewPlayer', () => {
         transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'slide-from-left', duration: 1 }],
         zooms: [
           {
+            id: 'z1',
             entryId: 'e1',
             start: 2.5,
             rampIn: 0.5,
@@ -272,6 +274,7 @@ describe('PreviewPlayer', () => {
             centerY: 0.5,
           },
           {
+            id: 'z2',
             entryId: 'e2',
             start: 0,
             rampIn: 0,

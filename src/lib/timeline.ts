@@ -124,8 +124,10 @@ export interface ZoomSpec {
   centerY: number
 }
 
-/** A zoom owned by one timeline entry, like a transition is owned by a pair. */
+/** A zoom owned by one timeline entry. An entry may carry several (#129). */
 export interface ZoomEffect extends ZoomSpec {
+  /** Unique per zoom — the handle add/update/remove act on (#129). */
+  id: string
   entryId: string
 }
 
@@ -138,9 +140,10 @@ export interface TimelineState {
    */
   transitions?: TimelineTransition[]
   /**
-   * Zooms on entries, at most one per entry (#63 — several per clip would be
-   * a follow-up if the customer wants it). Optional for the same reason
-   * `transitions` is; a missing or empty list means nothing zooms.
+   * Zooms on entries (#63). An entry may carry any number whose windows do
+   * not overlap (#129); normalization keeps them sorted and disjoint.
+   * Optional for the same reason `transitions` is; a missing or empty list
+   * means nothing zooms.
    */
   zooms?: ZoomEffect[]
   /**
@@ -189,8 +192,9 @@ export type TimelineAction =
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'transition-set'; beforeId: string; afterId: string; transition: TransitionSpec }
   | { type: 'transition-removed'; beforeId: string; afterId: string }
-  | { type: 'zoom-set'; entryId: string; zoom: ZoomSpec }
-  | { type: 'zoom-removed'; entryId: string }
+  | { type: 'zoom-added'; zoom: ZoomEffect }
+  | { type: 'zoom-updated'; id: string; zoom: ZoomSpec }
+  | { type: 'zoom-removed'; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -260,9 +264,50 @@ export function zoomsOf(state: TimelineState): ZoomEffect[] {
   return state.zooms ?? []
 }
 
-/** The entry's zoom, if it has one. States are normalized to at most one. */
-export function zoomForEntry(state: TimelineState, entryId: string): ZoomEffect | undefined {
-  return zoomsOf(state).find((zoom) => zoom.entryId === entryId)
+/**
+ * The entry's zooms (#129). In a normalized state they are sorted by start
+ * with non-overlapping windows, in the same relative order they hold in
+ * `state.zooms`.
+ */
+export function zoomsForEntry(state: TimelineState, entryId: string): ZoomEffect[] {
+  return zoomsOf(state).filter((zoom) => zoom.entryId === entryId)
+}
+
+/** A zoom window's length: ramp in, hold, and ramp out together, in seconds. */
+export function zoomWindowDuration(zoom: ZoomSpec): number {
+  return zoom.rampIn + zoom.hold + zoom.rampOut
+}
+
+/**
+ * What the "+ Zoom" control should add for an entry that already carries the
+ * given zooms (#129): the default zoom placed into free space. The chosen
+ * gap is the first one that fits the default window whole, otherwise the
+ * widest gap with the window shrunk proportionally to fit it — so adding
+ * never displaces an existing zoom. Returns null when the windows already
+ * cover the whole trimmed duration (nothing sensible to add).
+ */
+export function defaultZoomFor(zooms: ZoomEffect[], entryDuration: number): ZoomSpec | null {
+  const sorted = [...zooms].sort((a, b) => a.start - b.start)
+  const gaps: { start: number; length: number }[] = []
+  let cursor = 0
+  for (const zoom of sorted) {
+    if (zoom.start > cursor) gaps.push({ start: cursor, length: zoom.start - cursor })
+    cursor = Math.max(cursor, zoom.start + zoomWindowDuration(zoom))
+  }
+  if (entryDuration > cursor) gaps.push({ start: cursor, length: entryDuration - cursor })
+  if (gaps.length === 0) return null
+  const preferred = zoomWindowDuration(DEFAULT_ZOOM)
+  const gap =
+    gaps.find((candidate) => candidate.length >= preferred) ??
+    gaps.reduce((widest, candidate) => (candidate.length > widest.length ? candidate : widest))
+  const factor = Math.min(1, gap.length / preferred)
+  return {
+    ...DEFAULT_ZOOM,
+    start: gap.start,
+    rampIn: DEFAULT_ZOOM.rampIn * factor,
+    hold: DEFAULT_ZOOM.hold * factor,
+    rampOut: DEFAULT_ZOOM.rampOut * factor,
+  }
 }
 
 /**
@@ -323,11 +368,14 @@ export function boundaryTransitions(state: TimelineState): (TimelineTransition |
 }
 
 /**
- * Clamps one zoom against its entry's trimmed duration and the frame:
+ * Clamps one zoom against its entry's trimmed duration, the window floor set
+ * by the entry's earlier zooms (#129), and the frame:
  *
- * - the window never exceeds the trimmed duration — `start` first, then
- *   `rampIn`, `hold`, `rampOut` absorb the shortfall in that order, so
- *   retrimming re-clamps a zoom rather than dropping it;
+ * - the window starts no earlier than `floor` (the end of the previous
+ *   zoom's window in the per-entry sweep — 0 for the first) and never
+ *   exceeds the trimmed duration — `start` first, then `rampIn`, `hold`,
+ *   `rampOut` absorb the shortfall in that order, so retrimming or an
+ *   overlapping edit re-clamps a zoom rather than dropping it;
  * - the zoomed region stays inside the frame: at `scale`, the region extends
  *   1 / (2·scale) from its centre on each axis, so the centre is clamped to
  *   [1 / (2·scale), 1 − 1 / (2·scale)].
@@ -335,8 +383,8 @@ export function boundaryTransitions(state: TimelineState): (TimelineTransition |
  * Returns the same object when nothing changes, so no-op edits are cheap to
  * detect.
  */
-function clampZoom(zoom: ZoomEffect, entryDuration: number): ZoomEffect {
-  const start = clamp(zoom.start, 0, entryDuration)
+function clampZoom(zoom: ZoomEffect, entryDuration: number, floor = 0): ZoomEffect {
+  const start = clamp(zoom.start, Math.min(floor, entryDuration), entryDuration)
   const rampIn = clamp(zoom.rampIn, 0, entryDuration - start)
   const hold = clamp(zoom.hold, 0, entryDuration - start - rampIn)
   const rampOut = clamp(zoom.rampOut, 0, entryDuration - start - rampIn - hold)
@@ -347,8 +395,27 @@ function clampZoom(zoom: ZoomEffect, entryDuration: number): ZoomEffect {
   return zoomsEqual(zoom, next) ? zoom : next
 }
 
+/**
+ * Whether a zoom spec is acceptable input at all: every field finite, and a
+ * magnification above 1 — a scale of 1 or less is not a zoom, rejected
+ * rather than clamped, mirroring the zero-duration transition rule.
+ */
+function isValidZoomSpec(zoom: ZoomSpec): boolean {
+  const values = [
+    zoom.start,
+    zoom.rampIn,
+    zoom.hold,
+    zoom.rampOut,
+    zoom.scale,
+    zoom.centerX,
+    zoom.centerY,
+  ]
+  return values.every((value) => Number.isFinite(value)) && zoom.scale > 1
+}
+
 function zoomsEqual(a: ZoomEffect, b: ZoomEffect): boolean {
   return (
+    a.id === b.id &&
     a.entryId === b.entryId &&
     a.start === b.start &&
     a.rampIn === b.rampIn &&
@@ -362,20 +429,38 @@ function zoomsEqual(a: ZoomEffect, b: ZoomEffect): boolean {
 
 /**
  * Restores the zoom invariants against a (possibly just edited) entry list:
- * a zoom survives only while its entry exists, at most one zoom per entry
- * (the latest wins), and each is clamped per `clampZoom`. Results follow
- * entry order so states compare deterministically.
+ * a zoom survives only while its entry exists, and an entry's zooms are
+ * kept sorted by start with non-overlapping windows (#129). The resolution
+ * rule for overlaps introduced by edits or re-trims: sweep the entry's
+ * zooms in start order (ties keep their stored order) and clamp each per
+ * `clampZoom` with the previous window's end as its floor — the earlier
+ * window wins, the later one is pushed after it, and what no longer fits
+ * the trimmed duration collapses phase by phase rather than being dropped,
+ * mirroring how a single zoom absorbs a retrim. Results follow entry order
+ * so states compare deterministically.
  */
 function normalizedZooms(entries: TimelineEntry[], zooms: ZoomEffect[]): ZoomEffect[] {
-  const byEntry = new Map<string, ZoomEffect>()
+  const byEntry = new Map<string, ZoomEffect[]>()
   const durations = new Map(entries.map((entry) => [entry.id, effectiveDuration(entry)]))
   for (const zoom of zooms) {
-    const duration = durations.get(zoom.entryId)
-    if (duration !== undefined) byEntry.set(zoom.entryId, clampZoom(zoom, duration))
+    if (!durations.has(zoom.entryId)) continue
+    const list = byEntry.get(zoom.entryId)
+    if (list === undefined) byEntry.set(zoom.entryId, [zoom])
+    else list.push(zoom)
   }
-  return entries
-    .filter((entry) => byEntry.has(entry.id))
-    .map((entry) => byEntry.get(entry.id) as ZoomEffect)
+  return entries.flatMap((entry) => {
+    const list = byEntry.get(entry.id)
+    if (list === undefined) return []
+    const duration = durations.get(entry.id) as number
+    // Array.prototype.sort is stable: equal starts keep their stored order.
+    list.sort((a, b) => a.start - b.start)
+    let cursor = 0
+    return list.map((zoom) => {
+      const clamped = clampZoom(zoom, duration, cursor)
+      cursor = clamped.start + zoomWindowDuration(clamped)
+      return clamped
+    })
+  })
 }
 
 /**
@@ -523,41 +608,42 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (remaining.length === transitions.length) return state
       return withEffects(state.entries, remaining, zooms, audioTracks)
     }
-    case 'zoom-set': {
-      if (!state.entries.some((entry) => entry.id === action.entryId)) return state
+    case 'zoom-added': {
       const zoom = action.zoom
-      const values = [
-        zoom.start,
-        zoom.rampIn,
-        zoom.hold,
-        zoom.rampOut,
-        zoom.scale,
-        zoom.centerX,
-        zoom.centerY,
-      ]
-      if (values.some((value) => !Number.isFinite(value))) return state
-      // A magnification of 1 or less is not a zoom at all — reject rather
-      // than clamp, mirroring the zero-duration transition rule above.
-      if (zoom.scale <= 1) return state
+      if (!state.entries.some((entry) => entry.id === zoom.entryId)) return state
+      // Ids are the handle updates and removals act on — never two alike.
+      if (zooms.some((existing) => existing.id === zoom.id)) return state
+      if (!isValidZoomSpec(zoom)) return state
+      const next = withEffects(state.entries, transitions, [...zooms, zoom], audioTracks)
+      const applied = next.zooms?.find((existing) => existing.id === zoom.id)
+      // Normalization can leave the new window no room at all (the entry's
+      // existing zooms already reach its end) — veto the add, mirroring the
+      // no-room transition rule above.
+      if (applied === undefined || zoomWindowDuration(applied) <= 0) return state
+      return next
+    }
+    case 'zoom-updated': {
+      const existing = zooms.find((zoom) => zoom.id === action.id)
+      if (existing === undefined) return state
+      if (!isValidZoomSpec(action.zoom)) return state
+      const candidate: ZoomEffect = { id: existing.id, entryId: existing.entryId, ...action.zoom }
       const next = withEffects(
         state.entries,
         transitions,
-        [
-          ...zooms.filter((existing) => existing.entryId !== action.entryId),
-          { entryId: action.entryId, ...zoom },
-        ],
+        zooms.map((zoom) => (zoom.id === action.id ? candidate : zoom)),
         audioTracks,
       )
-      const applied = next.zooms?.find((existing) => existing.entryId === action.entryId)
+      const applied = next.zooms?.find((zoom) => zoom.id === action.id)
       if (applied === undefined) return state
-      const existing = zooms.find((existing) => existing.entryId === action.entryId)
       // Normalization can clamp the edit back to what is already stored — a
       // no-op must keep the state reference (edits stop preview playback).
-      if (existing !== undefined && zoomsEqual(existing, applied)) return state
+      // The edited zoom unchanged means every sweep input is unchanged, so
+      // no sibling moved either.
+      if (zoomsEqual(existing, applied)) return state
       return next
     }
     case 'zoom-removed': {
-      const remaining = zooms.filter((zoom) => zoom.entryId !== action.entryId)
+      const remaining = zooms.filter((zoom) => zoom.id !== action.id)
       if (remaining.length === zooms.length) return state
       return withEffects(state.entries, transitions, remaining, audioTracks)
     }

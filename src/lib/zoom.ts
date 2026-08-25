@@ -1,5 +1,5 @@
-import type { TimelineState } from './timeline'
-import { zoomForEntry } from './timeline'
+import type { TimelineState, ZoomEffect } from './timeline'
+import { zoomsForEntry } from './timeline'
 
 /**
  * The zoom in effect at one moment of one entry (#63). `scale` is the
@@ -45,26 +45,29 @@ export function smoothstep(u: number): number {
 export function zoomAt(state: TimelineState, entryIndex: number, sourceTime: number): ZoomState {
   const entry = state.entries[entryIndex]
   if (!entry) return IDENTITY_ZOOM
-  const zoom = zoomForEntry(state, entry.id)
-  if (!zoom) return IDENTITY_ZOOM
+  // The entry may carry several zooms (#129); normalization keeps their
+  // windows non-overlapping, so at most one is mid-ramp or holding at any
+  // moment. Where two windows touch, the instant belongs to whichever
+  // engages first in list (start) order — a measure-zero boundary.
+  for (const zoom of zoomsForEntry(state, entry.id)) {
+    const g = rampFraction(zoom, sourceTime - entry.inPoint - zoom.start)
+    if (g > 0) {
+      return {
+        scale: 1 + (zoom.scale - 1) * g,
+        centerX: 0.5 + (zoom.centerX - 0.5) * g,
+        centerY: 0.5 + (zoom.centerY - 0.5) * g,
+      }
+    }
+  }
+  return IDENTITY_ZOOM
+}
 
-  const t = sourceTime - entry.inPoint - zoom.start
+/** The eased ramp fraction g of one zoom at `t` seconds into its window. */
+function rampFraction(zoom: ZoomEffect, t: number): number {
   const total = zoom.rampIn + zoom.hold + zoom.rampOut
-  let g: number
-  if (t < 0 || t > total) {
-    g = 0
-  } else if (t < zoom.rampIn) {
-    g = smoothstep(t / zoom.rampIn)
-  } else if (t <= zoom.rampIn + zoom.hold) {
-    // A zero rampIn lands here at t = 0: the zoom starts at full, by request.
-    g = 1
-  } else {
-    g = smoothstep((total - t) / zoom.rampOut)
-  }
-  if (g === 0) return IDENTITY_ZOOM
-  return {
-    scale: 1 + (zoom.scale - 1) * g,
-    centerX: 0.5 + (zoom.centerX - 0.5) * g,
-    centerY: 0.5 + (zoom.centerY - 0.5) * g,
-  }
+  if (t < 0 || t > total) return 0
+  if (t < zoom.rampIn) return smoothstep(t / zoom.rampIn)
+  // A zero rampIn lands here at t = 0: the zoom starts at full, by request.
+  if (t <= zoom.rampIn + zoom.hold) return 1
+  return smoothstep((total - t) / zoom.rampOut)
 }

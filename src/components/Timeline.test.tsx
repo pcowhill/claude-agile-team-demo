@@ -275,7 +275,7 @@ describe('timeline', () => {
     })
   })
 
-  describe('zoom effect (#63)', () => {
+  describe('zoom effects (#63, #129)', () => {
     it('adds the default zoom to an entry and shows its editable parameters', async () => {
       render(<App />)
       await importClip('a.mp4', 10)
@@ -284,27 +284,59 @@ describe('timeline', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
 
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom start of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 start of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom ramp-in of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 ramp-in of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0.5)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom hold of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 hold of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(1)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 ramp-out of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0.5)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' }),
       ).toHaveValue(2)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom centre X of a.mp4 at position 1 (0 to 1)' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 centre X of a.mp4 at position 1 (0 to 1)' }),
       ).toHaveValue(0.5)
-      // The add button is gone: one zoom per entry.
+      // The add button stays: an entry can carry several zooms (#129).
       expect(
-        screen.queryByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
-      ).not.toBeInTheDocument()
+        screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
+      ).toBeEnabled()
+    })
+
+    it('adds a second zoom into the free space after the first (#129)', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
+      await userEvent.click(addButton)
+      await userEvent.click(addButton)
+
+      // The first zoom's default window spans [0, 2]; the second lands at 2.
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom 1 start of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom 2 start of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(2)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom 2 hold of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(1)
+    })
+
+    it('disables the add button when the zoom windows fill the trimmed entry (#129)', async () => {
+      render(<App />)
+      await importClip('a.mp4', 2)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
+      await userEvent.click(addButton)
+      // The default window [0, 2] covers the whole 2s clip.
+      expect(addButton).toBeDisabled()
     })
 
     it('edits a parameter, and shows the clamp when a value cannot fit', async () => {
@@ -314,7 +346,7 @@ describe('timeline', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
 
       const hold = screen.getByRole('spinbutton', {
-        name: 'Zoom hold of a.mp4 at position 1 in seconds',
+        name: 'Zoom 1 hold of a.mp4 at position 1 in seconds',
       })
       await userEvent.clear(hold)
       await userEvent.type(hold, '3')
@@ -329,8 +361,32 @@ describe('timeline', () => {
       await userEvent.tab()
       expect(hold).toHaveValue(9.5)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 ramp-out of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0)
+    })
+
+    it('edits one zoom without touching the other (#129)', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
+      await userEvent.click(addButton)
+      await userEvent.click(addButton)
+
+      const firstScale = screen.getByRole('spinbutton', {
+        name: 'Zoom 1 scale of a.mp4 at position 1',
+      })
+      await userEvent.clear(firstScale)
+      await userEvent.type(firstScale, '4')
+      await userEvent.tab()
+
+      expect(firstScale).toHaveValue(4)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom 2 scale of a.mp4 at position 1' }),
+      ).toHaveValue(2)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Zoom 2 start of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(2)
     })
 
     it('clamps an off-frame centre against the scale, visibly', async () => {
@@ -340,7 +396,7 @@ describe('timeline', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
 
       const centreX = screen.getByRole('spinbutton', {
-        name: 'Zoom centre X of a.mp4 at position 1 (0 to 1)',
+        name: 'Zoom 1 centre X of a.mp4 at position 1 (0 to 1)',
       })
       // At the default scale 2 the centre can reach no further than 0.75.
       await userEvent.clear(centreX)
@@ -355,7 +411,7 @@ describe('timeline', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
       await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
 
-      const scale = screen.getByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' })
+      const scale = screen.getByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' })
       await userEvent.clear(scale)
       await userEvent.type(scale, '1')
       await userEvent.tab()
@@ -378,32 +434,43 @@ describe('timeline', () => {
       // 0.75s playable: ramp-in keeps 0.5, hold clamps from 1 to 0.25,
       // ramp-out clamps to 0 — clamped, not dropped.
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom ramp-in of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 ramp-in of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0.5)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom hold of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 hold of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0.25)
       expect(
-        screen.getByRole('spinbutton', { name: 'Zoom ramp-out of a.mp4 at position 1 in seconds' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 ramp-out of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(0)
     })
 
-    it('removes the zoom, restoring the add button', async () => {
+    it('removes one zoom, keeping the other and renumbering it (#129)', async () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
+      await userEvent.click(addButton)
+      await userEvent.click(addButton)
 
       await userEvent.click(
-        screen.getByRole('button', { name: 'Remove zoom from a.mp4 at position 1' }),
+        screen.getByRole('button', { name: 'Remove zoom 1 from a.mp4 at position 1' }),
       )
 
+      // The surviving zoom (formerly Zoom 2, at start 2) is now Zoom 1.
       expect(
-        screen.queryByRole('spinbutton', { name: 'Zoom scale of a.mp4 at position 1' }),
+        screen.getByRole('spinbutton', { name: 'Zoom 1 start of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(2)
+      expect(
+        screen.queryByRole('spinbutton', { name: 'Zoom 2 scale of a.mp4 at position 1' }),
       ).not.toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Remove zoom 1 from a.mp4 at position 1' }),
+      )
       expect(
-        screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
-      ).toBeInTheDocument()
+        screen.queryByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' }),
+      ).not.toBeInTheDocument()
+      expect(addButton).toBeEnabled()
     })
   })
 

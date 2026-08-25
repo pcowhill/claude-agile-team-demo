@@ -25,7 +25,7 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
  *                     volume?, muted? }],
  *       "transitions": [{ beforeId, afterId, type, duration }],
- *       "zooms": [{ entryId, start, rampIn, hold, rampOut, scale,
+ *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }]
@@ -223,7 +223,8 @@ export async function serializeProject(
         duration,
       })),
       zooms: zoomsOf(timeline).map(
-        ({ entryId, start, rampIn, hold, rampOut, scale, centerX, centerY }) => ({
+        ({ id, entryId, start, rampIn, hold, rampOut, scale, centerX, centerY }) => ({
+          id,
           entryId,
           start,
           rampIn,
@@ -445,11 +446,14 @@ function validateProject(document: Record<string, unknown>): Project {
     },
   )
 
-  const zoomedEntries = new Set<string>()
   const zooms = asArray(timelineRaw.zooms ?? [], 'timeline.zooms').map((value, index) => {
     const path = `timeline.zooms[${index}]`
     const raw = asRecord(value, path)
     const zoom: ZoomEffect = {
+      // Files written before zooms had identity (#129) carry no id: generate
+      // a deterministic one — it only needs to be a unique in-session handle,
+      // and determinism keeps the fixture round-trips exactly assertable.
+      id: raw.id === undefined ? `zoom-${index + 1}` : asString(raw.id, `${path}.id`),
       entryId: asString(raw.entryId, `${path}.entryId`),
       start: asNonNegative(raw.start, `${path}.start`),
       rampIn: asNonNegative(raw.rampIn, `${path}.rampIn`),
@@ -469,12 +473,18 @@ function validateProject(document: Record<string, unknown>): Project {
     ] as const) {
       if (centre < 0 || centre > 1) throw new Error(`${path}.${field} must be between 0 and 1`)
     }
-    if (zoomedEntries.has(zoom.entryId)) {
-      throw new Error(`${path} duplicates the zoom on entry "${zoom.entryId}"`)
-    }
-    zoomedEntries.add(zoom.entryId)
     return zoom
   })
+  // An entry may carry several zooms (#129); ids are what edits act on, so
+  // they must be unique. Overlapping windows are not refused here — open-time
+  // normalization resolves them, exactly as it resolves an overlong fade.
+  const zoomIds = new Set<string>()
+  for (const [index, zoom] of zooms.entries()) {
+    if (zoomIds.has(zoom.id)) {
+      throw new Error(`timeline.zooms[${index}].id "${zoom.id}" is duplicated`)
+    }
+    zoomIds.add(zoom.id)
+  }
 
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
