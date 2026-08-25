@@ -148,13 +148,13 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
     await field.fill(value)
     await field.blur()
   }
-  await fillZoomField('Zoom start of banded.webm at position 1 in seconds', '0.2')
-  await fillZoomField('Zoom ramp-in of banded.webm at position 1 in seconds', '0.2')
-  await fillZoomField('Zoom hold of banded.webm at position 1 in seconds', '0.3')
-  await fillZoomField('Zoom ramp-out of banded.webm at position 1 in seconds', '0.2')
-  await fillZoomField('Zoom scale of banded.webm at position 1', String(scale))
-  await fillZoomField('Zoom centre X of banded.webm at position 1 (0 to 1)', String(centerX))
-  await fillZoomField('Zoom centre Y of banded.webm at position 1 (0 to 1)', String(centerY))
+  await fillZoomField('Zoom 1 start of banded.webm at position 1 in seconds', '0.2')
+  await fillZoomField('Zoom 1 ramp-in of banded.webm at position 1 in seconds', '0.2')
+  await fillZoomField('Zoom 1 hold of banded.webm at position 1 in seconds', '0.3')
+  await fillZoomField('Zoom 1 ramp-out of banded.webm at position 1 in seconds', '0.2')
+  await fillZoomField('Zoom 1 scale of banded.webm at position 1', String(scale))
+  await fillZoomField('Zoom 1 centre X of banded.webm at position 1 (0 to 1)', String(centerX))
+  await fillZoomField('Zoom 1 centre Y of banded.webm at position 1 (0 to 1)', String(centerY))
 
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
   /** Seeks (paused) and waits for a decodable frame. */
@@ -219,4 +219,138 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   const afterRight = await sampleScreenRect(page, rightProbe)
   expect(afterRight.b).toBeGreaterThan(120)
   expect(afterRight.g).toBeLessThan(40)
+})
+
+test('two zooms on one clip each magnify their own window, identity between (#129)', async ({
+  page,
+}) => {
+  await page.goto('./')
+
+  const banded = await recordBandedWebm(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'banded.webm', mimeType: 'video/webm', buffer: banded }])
+  await page.getByRole('button', { name: 'Add banded.webm to timeline' }).click()
+  const outField = page.getByRole('spinbutton', {
+    name: 'Trim out point of banded.webm at position 1 in seconds',
+  })
+  await outField.fill('1.4')
+  await outField.blur()
+
+  // Same geometry derivation as the single-zoom spec: the stage box is the
+  // frame the zoom fractions refer to, the clip letterboxes inside it, and
+  // the scale is the smallest quarter-step whose visible region fits inside
+  // one band with 20% headroom. The blue band's centre mirrors the green's.
+  const video = page.getByTestId('preview-video')
+  const stage = (await video.boundingBox())!
+  const containScale = Math.min(stage.width / 320, stage.height / 180)
+  const fit = {
+    x: stage.x + (stage.width - 320 * containScale) / 2,
+    y: stage.y + (stage.height - 180 * containScale) / 2,
+    width: 320 * containScale,
+    height: 180 * containScale,
+  }
+  const greenBandWidth = fit.width / 2 / stage.width
+  const scale = Math.max(3, Math.ceil(4 / (greenBandWidth * 0.8)) / 4)
+  const centerGreenX = Math.round(((fit.x - stage.x + fit.width / 4) / stage.width) * 100) / 100
+  const centerBlueX =
+    Math.round(((fit.x - stage.x + (fit.width * 3) / 4) / stage.width) * 100) / 100
+  expect(scale).toBeLessThanOrEqual(10)
+  // Both centres must survive the reducer's keep-inside-the-frame clamp.
+  expect(Math.abs(centerGreenX - 0.5)).toBeLessThanOrEqual((1 - 1 / scale) / 2)
+  expect(Math.abs(centerBlueX - 0.5)).toBeLessThanOrEqual((1 - 1 / scale) / 2)
+  // And each visible region must sit inside its own band.
+  const greenLeft = (fit.x - stage.x) / stage.width
+  const bandBoundary = (fit.x - stage.x + fit.width / 2) / stage.width
+  const blueRight = (fit.x - stage.x + fit.width) / stage.width
+  expect(centerGreenX - 1 / (2 * scale)).toBeGreaterThan(greenLeft - 0.001)
+  expect(centerGreenX + 1 / (2 * scale)).toBeLessThan(bandBoundary - 0.005)
+  expect(centerBlueX - 1 / (2 * scale)).toBeGreaterThan(bandBoundary + 0.005)
+  expect(centerBlueX + 1 / (2 * scale)).toBeLessThan(blueRight + 0.001)
+
+  const fillZoomField = async (label: string, value: string) => {
+    const field = page.getByRole('spinbutton', { name: label })
+    await field.fill(value)
+    await field.blur()
+  }
+  const configureZoom = async (
+    ordinal: number,
+    values: { start: string; scale: string; centerX: string },
+  ) => {
+    const name = (field: string) => `Zoom ${ordinal} ${field} of banded.webm at position 1`
+    await fillZoomField(`${name('start')} in seconds`, values.start)
+    await fillZoomField(`${name('ramp-in')} in seconds`, '0.1')
+    await fillZoomField(`${name('hold')} in seconds`, '0.2')
+    await fillZoomField(`${name('ramp-out')} in seconds`, '0.1')
+    await fillZoomField(name('scale'), values.scale)
+    await fillZoomField(`${name('centre X')} (0 to 1)`, values.centerX)
+    await fillZoomField(`${name('centre Y')} (0 to 1)`, '0.5')
+  }
+
+  // Zoom 1 into the green band over window [0.2, 0.6] of the 1.4s entry.
+  const addZoom = page.getByRole('button', { name: 'Add zoom to banded.webm at position 1' })
+  await addZoom.click()
+  await configureZoom(1, { start: '0.2', scale: String(scale), centerX: String(centerGreenX) })
+  // Zoom 2 into the blue band over window [0.9, 1.3]; the gap between the
+  // windows is (0.6, 0.9).
+  await addZoom.click()
+  await configureZoom(2, { start: '0.9', scale: String(scale), centerX: String(centerBlueX) })
+
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  const seekAndSettle = async (time: string) => {
+    await seek.fill(time)
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState))
+      .toBeGreaterThanOrEqual(2)
+  }
+  const probe = (fraction: number) => ({
+    x: fit.x + fit.width * fraction - fit.width * 0.05,
+    y: fit.y + fit.height * 0.4,
+    width: fit.width * 0.1,
+    height: fit.height * 0.2,
+  })
+  const leftProbe = probe(0.25)
+  const rightProbe = probe(0.75)
+
+  // Before the first window: identity, both bands visible.
+  await seekAndSettle('0.1')
+  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+
+  // Mid-hold of zoom 1: the green region fills the frame everywhere.
+  await seekAndSettle('0.4')
+  expect(
+    (await video.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
+  ).toBe(true)
+  const firstLeft = await sampleScreenRect(page, leftProbe)
+  const firstRight = await sampleScreenRect(page, rightProbe)
+  expect(firstLeft.g).toBeGreaterThan(120)
+  expect(firstLeft.b).toBeLessThan(25)
+  expect(firstRight.g).toBeGreaterThan(120)
+  expect(firstRight.b).toBeLessThan(25)
+
+  // In the gap between the windows: identity again — both bands visible.
+  await seekAndSettle('0.75')
+  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  const gapLeft = await sampleScreenRect(page, leftProbe)
+  const gapRight = await sampleScreenRect(page, rightProbe)
+  expect(gapLeft.g).toBeGreaterThan(120)
+  expect(gapLeft.b).toBeLessThan(40)
+  expect(gapRight.b).toBeGreaterThan(120)
+  expect(gapRight.g).toBeLessThan(40)
+
+  // Mid-hold of zoom 2: the blue region fills the frame everywhere.
+  await seekAndSettle('1.1')
+  expect(
+    (await video.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
+  ).toBe(true)
+  const secondLeft = await sampleScreenRect(page, leftProbe)
+  const secondRight = await sampleScreenRect(page, rightProbe)
+  expect(secondLeft.b).toBeGreaterThan(120)
+  expect(secondLeft.g).toBeLessThan(25)
+  expect(secondRight.b).toBeGreaterThan(120)
+  expect(secondRight.g).toBeLessThan(25)
+
+  // After the second window: identity once more.
+  await seekAndSettle('1.35')
+  expect(await video.evaluate((el) => el.style.transform)).toBe('')
 })

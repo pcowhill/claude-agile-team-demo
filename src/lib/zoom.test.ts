@@ -19,6 +19,7 @@ const state: TimelineState = {
   entries: [entry],
   zooms: [
     {
+      id: 'z1',
       entryId: 'e1',
       start: 1,
       rampIn: 1,
@@ -143,7 +144,7 @@ describe('zoomAt', () => {
     const instant: TimelineState = {
       entries: [entry],
       zooms: [
-        { entryId: 'e1', start: 1, rampIn: 0, hold: 2, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 },
+        { id: 'z1', entryId: 'e1', start: 1, rampIn: 0, hold: 2, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 },
       ],
     }
     expect(zoomAt(instant, 0, 3).scale).toBe(2)
@@ -154,10 +155,65 @@ describe('zoomAt', () => {
     const instant: TimelineState = {
       entries: [entry],
       zooms: [
-        { entryId: 'e1', start: 1, rampIn: 1, hold: 1, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 },
+        { id: 'z1', entryId: 'e1', start: 1, rampIn: 1, hold: 1, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 },
       ],
     }
     expect(zoomAt(instant, 0, 5).scale).toBe(2)
     expect(zoomAt(instant, 0, 5.001).scale).toBe(1)
+  })
+})
+
+describe('zoomAt with two zooms on one entry (#129)', () => {
+  // Non-overlapping windows within the 8s trimmed range (inPoint 2):
+  // zA spans trim [1, 4] → source [3, 6]; zB spans trim [5, 7] → source
+  // [7, 9]; the gap between them is source (6, 7).
+  const zoomA = {
+    id: 'zA',
+    entryId: 'e1',
+    start: 1,
+    rampIn: 1,
+    hold: 1,
+    rampOut: 1,
+    scale: 3,
+    centerX: 0.7,
+    centerY: 0.4,
+  }
+  const zoomB = {
+    id: 'zB',
+    entryId: 'e1',
+    start: 5,
+    rampIn: 0.5,
+    hold: 1,
+    rampOut: 0.5,
+    scale: 2,
+    centerX: 0.3,
+    centerY: 0.6,
+  }
+  const both: TimelineState = { entries: [entry], zooms: [zoomA, zoomB] }
+
+  it('is identity before, between, and after the windows', () => {
+    expect(zoomAt(both, 0, 2.5)).toEqual(IDENTITY_ZOOM)
+    expect(zoomAt(both, 0, 6.5)).toEqual(IDENTITY_ZOOM)
+    expect(zoomAt(both, 0, 9.5)).toEqual(IDENTITY_ZOOM)
+  })
+
+  it("holds each zoom's own full state inside its own window", () => {
+    expect(zoomAt(both, 0, 4.5)).toEqual({ scale: 3, centerX: 0.7, centerY: 0.4 })
+    expect(zoomAt(both, 0, 7.75)).toEqual({ scale: 2, centerX: 0.3, centerY: 0.6 })
+  })
+
+  it("ramps at each window's edges exactly like a lone zoom's ramps", () => {
+    // The multi-zoom lookup must be indistinguishable, inside each window
+    // and at its edges, from the same zoom carried alone.
+    const onlyA: TimelineState = { entries: [entry], zooms: [zoomA] }
+    const onlyB: TimelineState = { entries: [entry], zooms: [zoomB] }
+    for (let t = 2.5; t <= 9.5; t += 0.05) {
+      const combined = zoomAt(both, 0, t)
+      const alone = t < 6.5 ? zoomAt(onlyA, 0, t) : zoomAt(onlyB, 0, t)
+      expect(combined).toEqual(alone)
+    }
+    // Spot-check one exact mid-ramp value: zB's ramp-in midpoint (source
+    // 7.25) has g = smoothstep(0.5) = 0.5 → scale 1.5, centre halfway.
+    expect(zoomAt(both, 0, 7.25)).toEqual({ scale: 1.5, centerX: 0.4, centerY: 0.55 })
   })
 })

@@ -8,13 +8,16 @@ import {
   effectiveDuration,
   emptyTimeline,
   entryFromClip,
+  defaultZoomFor,
+  DEFAULT_ZOOM,
   normalizedTimelineState,
   timelineReducer,
   totalDuration,
   transitionsOf,
-  zoomForEntry,
+  zoomsForEntry,
   zoomsOf,
 } from './timeline'
+import type { ZoomEffect } from './timeline'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -401,100 +404,200 @@ const zoom = (overrides: Partial<ZoomSpec> = {}): ZoomSpec => ({
   ...overrides,
 })
 
-const setZoom = (state: TimelineState, entryId: string, spec: Partial<ZoomSpec> = {}) =>
-  timelineReducer(state, { type: 'zoom-set', entryId, zoom: zoom(spec) })
+const addZoom = (state: TimelineState, entryId: string, id: string, spec: Partial<ZoomSpec> = {}) =>
+  timelineReducer(state, { type: 'zoom-added', zoom: { id, entryId, ...zoom(spec) } })
 
-describe('zoom-set', () => {
+const updateZoom = (state: TimelineState, id: string, spec: Partial<ZoomSpec> = {}) =>
+  timelineReducer(state, { type: 'zoom-updated', id, zoom: zoom(spec) })
+
+const zoomById = (state: TimelineState, id: string) =>
+  zoomsOf(state).find((entryZoom) => entryZoom.id === id)
+
+/** Each zoom's window as [start, end], for asserting non-overlap. */
+const windowsOf = (zooms: ZoomEffect[]) =>
+  zooms.map((entryZoom) => [
+    entryZoom.start,
+    entryZoom.start + entryZoom.rampIn + entryZoom.hold + entryZoom.rampOut,
+  ])
+
+describe('zoom-added (#63, #129)', () => {
   it('stores a zoom on an existing entry', () => {
-    const state = setZoom(stateOf(['a']), 'a')
-    expect(zoomsOf(state)).toEqual([{ entryId: 'a', ...zoom() }])
-    expect(zoomForEntry(state, 'a')).toBeDefined()
+    const state = addZoom(stateOf(['a']), 'a', 'z1')
+    expect(zoomsOf(state)).toEqual([{ id: 'z1', entryId: 'a', ...zoom() }])
+    expect(zoomsForEntry(state, 'a')).toHaveLength(1)
   })
 
-  it('keeps at most one zoom per entry: a second set replaces the first', () => {
-    let state = setZoom(stateOf(['a']), 'a', { scale: 2 })
-    state = setZoom(state, 'a', { scale: 3, centerX: 0.6 })
-    expect(zoomsOf(state)).toHaveLength(1)
-    expect(zoomForEntry(state, 'a')?.scale).toBe(3)
+  it('an entry accepts several zooms, kept sorted with disjoint windows', () => {
+    // z1 [1, 4] and z2 [5, 8] on a 10s entry, added out of order.
+    let state = addZoom(stateOf(['a']), 'a', 'z2', { start: 5 })
+    state = addZoom(state, 'a', 'z1', { start: 1 })
+    expect(zoomsForEntry(state, 'a').map((entryZoom) => entryZoom.id)).toEqual(['z1', 'z2'])
+    expect(windowsOf(zoomsForEntry(state, 'a'))).toEqual([
+      [1, 4],
+      [5, 8],
+    ])
+  })
+
+  it('resolves an added overlap by pushing the later window after the earlier one', () => {
+    // z1 [1, 4], z2 [5, 8]; z3 asks for [4, 7], overlapping z2 — the sweep
+    // keeps z3 (earlier start) whole and pushes z2 to start at 7, where its
+    // 3s window still fits the 10s entry exactly.
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 1 })
+    state = addZoom(state, 'a', 'z2', { start: 5 })
+    state = addZoom(state, 'a', 'z3', { start: 4 })
+    expect(zoomsForEntry(state, 'a').map((entryZoom) => entryZoom.id)).toEqual(['z1', 'z3', 'z2'])
+    expect(windowsOf(zoomsForEntry(state, 'a'))).toEqual([
+      [1, 4],
+      [4, 7],
+      [7, 10],
+    ])
   })
 
   it('rejects a zoom for an entry that does not exist', () => {
     const state = stateOf(['a'])
-    expect(setZoom(state, 'ghost')).toBe(state)
+    expect(addZoom(state, 'ghost', 'z1')).toBe(state)
+  })
+
+  it('rejects a duplicate zoom id — ids are the handle edits act on', () => {
+    const state = addZoom(stateOf(['a'], ['b']), 'a', 'z1')
+    expect(addZoom(state, 'b', 'z1')).toBe(state)
   })
 
   it('rejects non-finite values and a scale of 1 or less (not a zoom at all)', () => {
     const state = stateOf(['a'])
-    expect(setZoom(state, 'a', { scale: 1 })).toBe(state)
-    expect(setZoom(state, 'a', { scale: 0.5 })).toBe(state)
-    expect(setZoom(state, 'a', { scale: Number.NaN })).toBe(state)
-    expect(setZoom(state, 'a', { hold: Number.POSITIVE_INFINITY })).toBe(state)
+    expect(addZoom(state, 'a', 'z1', { scale: 1 })).toBe(state)
+    expect(addZoom(state, 'a', 'z1', { scale: 0.5 })).toBe(state)
+    expect(addZoom(state, 'a', 'z1', { scale: Number.NaN })).toBe(state)
+    expect(addZoom(state, 'a', 'z1', { hold: Number.POSITIVE_INFINITY })).toBe(state)
+  })
+
+  it('vetoes an add the entry has no room for, like a no-room transition', () => {
+    // z1's window covers the whole 3s trim; a second zoom could only get a
+    // zero-length window, so the add is refused outright.
+    const full = addZoom(stateOf(['a', 10, 0, 3]), 'a', 'z1', { start: 0 })
+    expect(windowsOf(zoomsForEntry(full, 'a'))).toEqual([[0, 3]])
+    expect(addZoom(full, 'a', 'z2', { start: 1 })).toBe(full)
+    // A start past the trimmed duration leaves no room either.
+    const state = stateOf(['a', 10, 0, 4])
+    expect(addZoom(state, 'a', 'z1', { start: 99 })).toBe(state)
   })
 
   it('clamps an over-long window to the trimmed duration, absorbing in phase order', () => {
     // Entry a plays 4s (trim 2..6). start 1 leaves 3s: rampIn keeps its 1s,
     // hold is cut from 5s to 2s, rampOut is cut to nothing.
-    const state = setZoom(stateOf(['a', 10, 2, 6]), 'a', {
+    const state = addZoom(stateOf(['a', 10, 2, 6]), 'a', 'z1', {
       start: 1,
       rampIn: 1,
       hold: 5,
       rampOut: 2,
     })
-    expect(zoomForEntry(state, 'a')).toMatchObject({ start: 1, rampIn: 1, hold: 2, rampOut: 0 })
-  })
-
-  it('clamps a start beyond the trimmed duration into range', () => {
-    const state = setZoom(stateOf(['a', 10, 0, 4]), 'a', { start: 99 })
-    expect(zoomForEntry(state, 'a')).toMatchObject({ start: 4, rampIn: 0, hold: 0, rampOut: 0 })
+    expect(zoomById(state, 'z1')).toMatchObject({ start: 1, rampIn: 1, hold: 2, rampOut: 0 })
   })
 
   it('clamps an off-frame centre against the scale', () => {
     // At scale 2 the visible region extends 0.25 from its centre, so the
     // centre must stay within [0.25, 0.75] on both axes.
-    const state = setZoom(stateOf(['a']), 'a', { scale: 2, centerX: 0.05, centerY: 0.99 })
-    expect(zoomForEntry(state, 'a')).toMatchObject({ centerX: 0.25, centerY: 0.75 })
+    const state = addZoom(stateOf(['a']), 'a', 'z1', { scale: 2, centerX: 0.05, centerY: 0.99 })
+    expect(zoomById(state, 'z1')).toMatchObject({ centerX: 0.25, centerY: 0.75 })
+  })
+})
+
+describe('zoom-updated (#129)', () => {
+  it('edits one zoom by id, leaving its sibling untouched by reference', () => {
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 1 })
+    state = addZoom(state, 'a', 'z2', { start: 5 })
+    const sibling = zoomById(state, 'z2')
+    const updated = updateZoom(state, 'z1', { start: 1, scale: 4, centerX: 0.6 })
+    expect(zoomById(updated, 'z1')).toMatchObject({ scale: 4, centerX: 0.6 })
+    expect(zoomById(updated, 'z2')).toBe(sibling)
+  })
+
+  it('rejects an unknown id, non-finite values, and a scale of 1 or less', () => {
+    const state = addZoom(stateOf(['a']), 'a', 'z1')
+    expect(updateZoom(state, 'ghost')).toBe(state)
+    expect(updateZoom(state, 'z1', { scale: 1 })).toBe(state)
+    expect(updateZoom(state, 'z1', { start: Number.NaN })).toBe(state)
+  })
+
+  it('clamps a start beyond the trimmed duration into range, keeping the zoom', () => {
+    const state = addZoom(stateOf(['a', 10, 0, 4]), 'a', 'z1', { start: 0 })
+    const updated = updateZoom(state, 'z1', { start: 99 })
+    expect(zoomById(updated, 'z1')).toMatchObject({ start: 4, rampIn: 0, hold: 0, rampOut: 0 })
+  })
+
+  it('resolves an overlap introduced by an edit: the earlier window wins', () => {
+    // z1 [0, 2] (tight phases), z2 [3, 6]; growing z1's hold to reach 4s
+    // pushes z2 to start at z1's new end.
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 0, rampIn: 0.5, hold: 1, rampOut: 0.5 })
+    state = addZoom(state, 'a', 'z2', { start: 3 })
+    const updated = updateZoom(state, 'z1', { start: 0, rampIn: 0.5, hold: 3, rampOut: 0.5 })
+    expect(windowsOf(zoomsForEntry(updated, 'a'))).toEqual([
+      [0, 4],
+      [4, 7],
+    ])
   })
 
   it('is a no-op (same reference) when the clamp lands on what is already stored', () => {
-    const state = setZoom(stateOf(['a']), 'a', { centerX: 0.05 })
+    const state = addZoom(stateOf(['a']), 'a', 'z1', { centerX: 0.05 })
     // 0.01 clamps to the same 0.25 the stored zoom already has.
-    expect(setZoom(state, 'a', { centerX: 0.01 })).toBe(state)
+    expect(updateZoom(state, 'z1', { centerX: 0.01 })).toBe(state)
   })
 })
 
 describe('zoom-removed', () => {
-  it('removes the entry zoom and is a no-op when there is none', () => {
-    const state = setZoom(stateOf(['a']), 'a')
-    const removed = timelineReducer(state, { type: 'zoom-removed', entryId: 'a' })
-    expect(zoomsOf(removed)).toEqual([])
-    expect(timelineReducer(removed, { type: 'zoom-removed', entryId: 'a' })).toBe(removed)
+  it('removes one zoom by id, keeping the entry’s other zoom', () => {
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 1 })
+    state = addZoom(state, 'a', 'z2', { start: 5 })
+    const removed = timelineReducer(state, { type: 'zoom-removed', id: 'z1' })
+    expect(zoomsOf(removed).map((entryZoom) => entryZoom.id)).toEqual(['z2'])
+    // Unknown id: a no-op that keeps the state reference.
+    expect(timelineReducer(removed, { type: 'zoom-removed', id: 'z1' })).toBe(removed)
   })
 })
 
 describe('zooms across entry edits', () => {
   it('drops the zoom when its entry is removed, keeping others', () => {
-    let state = setZoom(stateOf(['a'], ['b']), 'a')
-    state = setZoom(state, 'b', { scale: 3 })
+    let state = addZoom(stateOf(['a'], ['b']), 'a', 'z1')
+    state = addZoom(state, 'b', 'z2', { scale: 3 })
     const removed = timelineReducer(state, { type: 'entry-removed', id: 'a' })
     expect(zoomsOf(removed).map((entryZoom) => entryZoom.entryId)).toEqual(['b'])
   })
 
   it('re-clamps the zoom when a retrim shrinks the window, rather than dropping it', () => {
-    let state = setZoom(stateOf(['a']), 'a', { start: 1, rampIn: 1, hold: 6, rampOut: 1 })
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 1, rampIn: 1, hold: 6, rampOut: 1 })
     state = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 3 })
-    expect(zoomForEntry(state, 'a')).toMatchObject({ start: 1, rampIn: 1, hold: 1, rampOut: 0 })
+    expect(zoomById(state, 'z1')).toMatchObject({ start: 1, rampIn: 1, hold: 1, rampOut: 0 })
+  })
+
+  it('re-clamps both zooms under a retrim: the earlier keeps its window first', () => {
+    // z1 [0, 2], z2 [3, 5] on 10s; trimming to 4s clamps z2's window to
+    // [3, 4], and trimming to 2.5s leaves z2 only a zero-length window at
+    // the end — kept and editable, not dropped.
+    let state = addZoom(stateOf(['a']), 'a', 'z1', { start: 0, rampIn: 0.5, hold: 1, rampOut: 0.5 })
+    state = addZoom(state, 'a', 'z2', { start: 3, rampIn: 0.5, hold: 1, rampOut: 0.5 })
+    const shorter = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 4 })
+    expect(windowsOf(zoomsForEntry(shorter, 'a'))).toEqual([
+      [0, 2],
+      [3, 4],
+    ])
+    const shortest = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 2.5 })
+    expect(windowsOf(zoomsForEntry(shortest, 'a'))).toEqual([
+      [0, 2],
+      [2.5, 2.5],
+    ])
+    expect(zoomsForEntry(shortest, 'a')).toHaveLength(2)
   })
 
   it('keeps the zoom with its entry through a move', () => {
-    let state = setZoom(stateOf(['a'], ['b']), 'a', { scale: 4, centerX: 0.6 })
+    let state = addZoom(stateOf(['a'], ['b']), 'a', 'z1', { scale: 4, centerX: 0.6 })
     state = timelineReducer(state, { type: 'entry-moved', id: 'a', direction: 'down' })
     expect(order(state)).toEqual(['b', 'a'])
-    expect(zoomForEntry(state, 'a')).toMatchObject({ scale: 4, centerX: 0.6 })
+    expect(zoomById(state, 'z1')).toMatchObject({ entryId: 'a', scale: 4, centerX: 0.6 })
   })
 
   it('leaves transitions untouched by zoom edits, and vice versa', () => {
     let state = setTransition(stateOf(['a'], ['b']), 'a', 'b', 2)
-    state = setZoom(state, 'a')
+    state = addZoom(state, 'a', 'z1')
     expect(transitionsOf(state)).toHaveLength(1)
     expect(zoomsOf(state)).toHaveLength(1)
     const noTransition = timelineReducer(state, {
@@ -508,8 +611,47 @@ describe('zooms across entry edits', () => {
   it('accepts states without zooms everywhere (pre-zoom states stay valid)', () => {
     const state = stateOf(['a'])
     expect(zoomsOf(state)).toEqual([])
-    expect(zoomForEntry(state, 'a')).toBeUndefined()
+    expect(zoomsForEntry(state, 'a')).toEqual([])
     expect(totalDuration(state)).toBe(10)
+  })
+})
+
+describe('defaultZoomFor (#129)', () => {
+  const effect = (id: string, spec: Partial<ZoomSpec>): ZoomEffect => ({
+    id,
+    entryId: 'a',
+    ...zoom(spec),
+  })
+
+  it('is the default zoom at the start of an empty entry', () => {
+    expect(defaultZoomFor([], 10)).toEqual(DEFAULT_ZOOM)
+  })
+
+  it('places the default window into the first gap that fits it whole', () => {
+    // Window [0, 2] occupied; the default 2s window fits at 2.
+    const zooms = [effect('z1', { start: 0, rampIn: 0.5, hold: 1, rampOut: 0.5 })]
+    expect(defaultZoomFor(zooms, 10)).toEqual({ ...DEFAULT_ZOOM, start: 2 })
+  })
+
+  it('shrinks the window proportionally into the widest gap when none fits', () => {
+    // Windows [0, 2] and [3, 5] on 5.5s: gaps of 1s and 0.5s. The 1s gap
+    // wins with every phase halved, so adding never displaces a neighbor.
+    const zooms = [
+      effect('z1', { start: 0, rampIn: 0.5, hold: 1, rampOut: 0.5 }),
+      effect('z2', { start: 3, rampIn: 0.5, hold: 1, rampOut: 0.5 }),
+    ]
+    expect(defaultZoomFor(zooms, 5.5)).toEqual({
+      ...DEFAULT_ZOOM,
+      start: 2,
+      rampIn: 0.25,
+      hold: 0.5,
+      rampOut: 0.25,
+    })
+  })
+
+  it('is null when the windows already cover the whole trimmed duration', () => {
+    const zooms = [effect('z1', { start: 0, rampIn: 0.5, hold: 2, rampOut: 0.5 })]
+    expect(defaultZoomFor(zooms, 3)).toBeNull()
   })
 })
 
@@ -546,9 +688,9 @@ describe('normalizedTimelineState (#77)', () => {
       ],
       [
         // Window longer than the entry → clamped to fit.
-        { entryId: 'e1', start: 0, rampIn: 4, hold: 4, rampOut: 4, scale: 2, centerX: 0.5, centerY: 0.5 },
+        { id: 'z1', entryId: 'e1', start: 0, rampIn: 4, hold: 4, rampOut: 4, scale: 2, centerX: 0.5, centerY: 0.5 },
         // Unknown entry → dropped.
-        { entryId: 'gone', start: 0, rampIn: 1, hold: 1, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 },
+        { id: 'z2', entryId: 'gone', start: 0, rampIn: 1, hold: 1, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 },
       ],
     )
     expect(state.transitions).toEqual([

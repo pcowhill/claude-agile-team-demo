@@ -58,7 +58,7 @@ const timeline: TimelineState = {
     { beforeId: 'e2', afterId: 'e3', type: 'slide-from-left', duration: 0.5 },
   ],
   zooms: [
-    { entryId: 'e2', start: 0.5, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.25, centerY: 0.5 },
+    { id: 'z1', entryId: 'e2', start: 0.5, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.25, centerY: 0.5 },
   ],
 }
 
@@ -77,6 +77,19 @@ const expectedProject: Project = {
     transitions: timeline.transitions!,
     zooms: timeline.zooms!,
     audioTracks: [],
+  },
+}
+
+/**
+ * What deserializing the committed fixtures yields: they were written before
+ * zooms had identity (#129), so the validator generates the deterministic
+ * `zoom-1` for their single id-less zoom.
+ */
+const fixtureExpectedProject: Project = {
+  ...expectedProject,
+  timeline: {
+    ...expectedProject.timeline,
+    zooms: [{ ...expectedProject.timeline.zooms[0], id: 'zoom-1' }],
   },
 }
 
@@ -140,6 +153,22 @@ describe('project file round-trip', () => {
     const bytes = await serializeProject(library, timeline)
     const result = await deserializeProject(bytes)
     expect(result).toEqual({ ok: true, project: expectedProject })
+  })
+
+  it('round-trips two zooms on one entry without collapsing them (#129)', async () => {
+    const zoomSpec = { rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 }
+    const twoZooms: TimelineState = {
+      ...timeline,
+      zooms: [
+        { id: 'zA', entryId: 'e1', start: 0, ...zoomSpec },
+        { id: 'zB', entryId: 'e1', start: 3, ...zoomSpec },
+      ],
+    }
+    const result = await deserializeProject(await serializeProject(library, twoZooms))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.zooms).toEqual(twoZooms.zooms)
+    }
   })
 
   it('round-trips a state predating the optional effect lists', async () => {
@@ -698,7 +727,7 @@ describe('project file corruption', () => {
     ['duplicate transitions on one boundary', (d) => d.timeline.transitions.push({ ...d.timeline.transitions[0] }), 'duplicates the transition'],
     ['a zoom that does not magnify', (d) => (d.timeline.zooms[0].scale = 1), 'scale must be greater than 1'],
     ['a zoom centre outside the frame', (d) => (d.timeline.zooms[0].centerX = 1.2), 'between 0 and 1'],
-    ['a second zoom on one entry', (d) => d.timeline.zooms.push({ ...d.timeline.zooms[0] }), 'duplicates the zoom'],
+    ['a duplicated zoom id', (d) => d.timeline.zooms.push({ ...d.timeline.zooms[0] }), 'is duplicated'],
     ['entries that are not an array', (d) => ((d.timeline as { entries: unknown }).entries = 'zero'), 'must be an array'],
   ]
   for (const [label, mutate, mention] of mutations) {
@@ -742,6 +771,7 @@ describe('project file compression', () => {
       zooms: entries
         .filter((_, index) => index % 3 === 0)
         .map((entry) => ({
+          id: `zoom-of-${entry.id}`,
           entryId: entry.id,
           start: 1,
           rampIn: 0.5,
@@ -777,7 +807,7 @@ describe('backwards compatibility', () => {
     // a binary directly).
     const bytes = Uint8Array.from(atob(fixtureV1Base64.trim()), (char) => char.charCodeAt(0))
     const result = await deserializeProject(bytes)
-    expect(result).toEqual({ ok: true, project: expectedProject })
+    expect(result).toEqual({ ok: true, project: fixtureExpectedProject })
   })
 
   it('deserializes the committed v1 audio-tracks fixture (#102)', async () => {
@@ -843,7 +873,7 @@ describe('backwards compatibility', () => {
     const result = await deserializeProject(bytes)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.project).toEqual(expectedProject)
+      expect(result.project).toEqual(fixtureExpectedProject)
       expect(result.media).toEqual(fixtureMedia())
     }
   })

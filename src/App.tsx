@@ -199,8 +199,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onRemoveTransition={(beforeId, afterId) =>
             dispatchTimeline({ type: 'transition-removed', beforeId, afterId })
           }
-          onSetZoom={(entryId, zoom) => dispatchTimeline({ type: 'zoom-set', entryId, zoom })}
-          onRemoveZoom={(entryId) => dispatchTimeline({ type: 'zoom-removed', entryId })}
+          onAddZoom={(entryId, zoom) =>
+            dispatchTimeline({
+              type: 'zoom-added',
+              zoom: { ...zoom, id: crypto.randomUUID(), entryId },
+            })
+          }
+          onUpdateZoom={(id, zoom) => dispatchTimeline({ type: 'zoom-updated', id, zoom })}
+          onRemoveZoom={(id) => dispatchTimeline({ type: 'zoom-removed', id })}
           onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
           onRetimeAudioTrack={(id, offset) =>
             dispatchTimeline({ type: 'audio-track-retimed', id, offset })

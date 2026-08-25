@@ -110,6 +110,7 @@ describe('restoreProject', () => {
       transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
       zooms: [
         {
+          id: 'z1',
           entryId: 'e2',
           start: 0,
           rampIn: 0.5,
@@ -156,6 +157,25 @@ describe('restoreProject', () => {
     }
     const restored = restoreProject(crafted, urls)
     expect(restored.timeline.transitions).toEqual([])
+  })
+
+  it('restores two zooms on one entry without collapsing them (#129)', () => {
+    const zoomSpec = { rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 }
+    const twoZooms: Project = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        zooms: [
+          { id: 'z1', entryId: 'e1', start: 0, ...zoomSpec },
+          { id: 'z2', entryId: 'e1', start: 3, ...zoomSpec },
+        ],
+      },
+    }
+    const restored = restoreProject(twoZooms, urls)
+    expect(restored.timeline.zooms).toEqual([
+      expect.objectContaining({ id: 'z1', entryId: 'e1', start: 0 }),
+      expect.objectContaining({ id: 'z2', entryId: 'e1', start: 3 }),
+    ])
   })
 
   it('throws on a clip without a re-linked URL (callers gate on allLinked)', () => {

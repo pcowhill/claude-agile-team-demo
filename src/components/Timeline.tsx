@@ -3,12 +3,12 @@ import type { KeyboardEvent } from 'react'
 import type { TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '../lib/timeline'
 import {
   DEFAULT_TRANSITION_DURATION,
-  DEFAULT_ZOOM,
   audioTracksOf,
   boundaryTransitions,
+  defaultZoomFor,
   effectiveDuration,
   totalDuration,
-  zoomForEntry,
+  zoomsForEntry,
 } from '../lib/timeline'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
@@ -20,8 +20,10 @@ interface TimelineProps {
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
   onSetTransition: (beforeId: string, afterId: string, transition: TransitionSpec) => void
   onRemoveTransition: (beforeId: string, afterId: string) => void
-  onSetZoom: (entryId: string, zoom: ZoomSpec) => void
-  onRemoveZoom: (entryId: string) => void
+  /** Adds a new zoom to the entry (#129); the id is the caller's to mint. */
+  onAddZoom: (entryId: string, zoom: ZoomSpec) => void
+  onUpdateZoom: (id: string, zoom: ZoomSpec) => void
+  onRemoveZoom: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
@@ -111,7 +113,8 @@ export function Timeline({
   onTrimEntry,
   onSetTransition,
   onRemoveTransition,
-  onSetZoom,
+  onAddZoom,
+  onUpdateZoom,
   onRemoveZoom,
   onRemoveAudioTrack,
   onRetimeAudioTrack,
@@ -224,85 +227,94 @@ export function Timeline({
                   </label>
                 </div>
                 {(() => {
-                  const entryZoom = zoomForEntry(timeline, entry.id)
-                  if (entryZoom === undefined) {
-                    return (
+                  // An entry carries any number of non-overlapping zooms
+                  // (#129), each independently editable; the accessible
+                  // names number them per entry, in window (start) order —
+                  // the order the normalized state stores them in.
+                  const entryZooms = zoomsForEntry(timeline, entry.id)
+                  const addable = defaultZoomFor(entryZooms, effectiveDuration(entry))
+                  return (
+                    <>
+                      {entryZooms.map((entryZoom, zoomIndex) => {
+                        const zoomName = `Zoom ${zoomIndex + 1}`
+                        const set = (change: Partial<ZoomSpec>) =>
+                          onUpdateZoom(entryZoom.id, { ...zoomSpecOf(entryZoom), ...change })
+                        return (
+                          <div key={entryZoom.id} className="timeline-entry-zoom">
+                            <span>{zoomName} at</span>
+                            <SecondsField
+                              label={`${zoomName} start of ${position} in seconds`}
+                              value={entryZoom.start}
+                              max={effectiveDuration(entry)}
+                              onCommit={(start) => set({ start })}
+                            />
+                            <span>in</span>
+                            <SecondsField
+                              label={`${zoomName} ramp-in of ${position} in seconds`}
+                              value={entryZoom.rampIn}
+                              max={effectiveDuration(entry)}
+                              onCommit={(rampIn) => set({ rampIn })}
+                            />
+                            <span>hold</span>
+                            <SecondsField
+                              label={`${zoomName} hold of ${position} in seconds`}
+                              value={entryZoom.hold}
+                              max={effectiveDuration(entry)}
+                              onCommit={(hold) => set({ hold })}
+                            />
+                            <span>out</span>
+                            <SecondsField
+                              label={`${zoomName} ramp-out of ${position} in seconds`}
+                              value={entryZoom.rampOut}
+                              max={effectiveDuration(entry)}
+                              onCommit={(rampOut) => set({ rampOut })}
+                            />
+                            <span>×</span>
+                            <SecondsField
+                              label={`${zoomName} scale of ${position}`}
+                              value={entryZoom.scale}
+                              min={1}
+                              max={10}
+                              step={0.25}
+                              onCommit={(scale) => set({ scale })}
+                            />
+                            <span>centre</span>
+                            <SecondsField
+                              label={`${zoomName} centre X of ${position} (0 to 1)`}
+                              value={entryZoom.centerX}
+                              max={1}
+                              step={0.05}
+                              onCommit={(centerX) => set({ centerX })}
+                            />
+                            <SecondsField
+                              label={`${zoomName} centre Y of ${position} (0 to 1)`}
+                              value={entryZoom.centerY}
+                              max={1}
+                              step={0.05}
+                              onCommit={(centerY) => set({ centerY })}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Remove zoom ${zoomIndex + 1} from ${position}`}
+                              onClick={() => onRemoveZoom(entryZoom.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )
+                      })}
                       <div className="timeline-entry-zoom">
                         <button
                           type="button"
                           className="timeline-zoom-add"
                           aria-label={`Add zoom to ${position}`}
-                          onClick={() => onSetZoom(entry.id, DEFAULT_ZOOM)}
+                          disabled={addable === null}
+                          onClick={() => addable !== null && onAddZoom(entry.id, addable)}
                         >
                           + Zoom
                         </button>
                       </div>
-                    )
-                  }
-                  const set = (change: Partial<ZoomSpec>) =>
-                    onSetZoom(entry.id, { ...zoomSpecOf(entryZoom), ...change })
-                  return (
-                    <div className="timeline-entry-zoom">
-                      <span>Zoom at</span>
-                      <SecondsField
-                        label={`Zoom start of ${position} in seconds`}
-                        value={entryZoom.start}
-                        max={effectiveDuration(entry)}
-                        onCommit={(start) => set({ start })}
-                      />
-                      <span>in</span>
-                      <SecondsField
-                        label={`Zoom ramp-in of ${position} in seconds`}
-                        value={entryZoom.rampIn}
-                        max={effectiveDuration(entry)}
-                        onCommit={(rampIn) => set({ rampIn })}
-                      />
-                      <span>hold</span>
-                      <SecondsField
-                        label={`Zoom hold of ${position} in seconds`}
-                        value={entryZoom.hold}
-                        max={effectiveDuration(entry)}
-                        onCommit={(hold) => set({ hold })}
-                      />
-                      <span>out</span>
-                      <SecondsField
-                        label={`Zoom ramp-out of ${position} in seconds`}
-                        value={entryZoom.rampOut}
-                        max={effectiveDuration(entry)}
-                        onCommit={(rampOut) => set({ rampOut })}
-                      />
-                      <span>×</span>
-                      <SecondsField
-                        label={`Zoom scale of ${position}`}
-                        value={entryZoom.scale}
-                        min={1}
-                        max={10}
-                        step={0.25}
-                        onCommit={(scale) => set({ scale })}
-                      />
-                      <span>centre</span>
-                      <SecondsField
-                        label={`Zoom centre X of ${position} (0 to 1)`}
-                        value={entryZoom.centerX}
-                        max={1}
-                        step={0.05}
-                        onCommit={(centerX) => set({ centerX })}
-                      />
-                      <SecondsField
-                        label={`Zoom centre Y of ${position} (0 to 1)`}
-                        value={entryZoom.centerY}
-                        max={1}
-                        step={0.05}
-                        onCommit={(centerY) => set({ centerY })}
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Remove zoom from ${position}`}
-                        onClick={() => onRemoveZoom(entry.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
+                    </>
                   )
                 })()}
                 {index < entries.length - 1 &&

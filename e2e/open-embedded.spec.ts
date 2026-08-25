@@ -116,7 +116,7 @@ test('an embedded save reopens with no re-link step, then plays and exports', as
     page.getByRole('button', { name: 'Remove transition between position 1 and 2' }),
   ).toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Remove zoom from first.webm at position 1' }),
+    page.getByRole('button', { name: 'Remove zoom 1 from first.webm at position 1' }),
   ).toBeVisible()
   await expect(page.getByTestId('timeline-total')).toHaveText(totalBefore!)
   // The reopened project is clean until the next edit.
