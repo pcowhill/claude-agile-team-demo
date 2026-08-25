@@ -18,6 +18,10 @@ import './PreviewPlayer.css'
 
 interface PreviewPlayerProps {
   timeline: TimelineState
+  /** Whether the panel spans the full content width (#128). Owned by App —
+   * the expansion rearranges the app grid, not just this panel. */
+  expanded?: boolean
+  onToggleExpanded?: () => void
 }
 
 /**
@@ -112,7 +116,11 @@ function withZoom(style: CSSProperties | undefined, zoom: ZoomState): CSSPropert
  * outgoing entry ends the elements swap roles, so the incoming clip never
  * has to be re-cued at the handover.
  */
-export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
+export function PreviewPlayer({
+  timeline,
+  expanded = false,
+  onToggleExpanded,
+}: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
   const frameRef = useRef(0)
@@ -133,6 +141,11 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
   const [engagedFor, setEngagedFor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
+  // The playing video's intrinsic aspect ratio, driving the expanded stage's
+  // height (#128): the customer asked the height to follow along when the
+  // preview goes full width. Null until any metadata loads (CSS falls back
+  // to 16:9).
+  const [videoAspect, setVideoAspect] = useState<number | null>(null)
 
   const total = totalDuration(timeline)
   const empty = timeline.entries.length === 0
@@ -417,6 +430,33 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
 
   const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
 
+  // The fronting entry's intrinsic dimensions, read via an off-DOM
+  // metadata-only element: the stacked elements are cued lazily (on play or
+  // seek), so their own metadata may not exist when the panel is expanded
+  // before anything played. Blob metadata is in memory — this is cheap — and
+  // keying on the URL re-probes exactly when a different clip fronts.
+  const frontingUrl = location?.entry.url ?? null
+  useEffect(() => {
+    if (frontingUrl === null) return undefined
+    let stale = false
+    const probe = document.createElement('video')
+    probe.preload = 'metadata'
+    probe.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (!stale && probe.videoWidth > 0 && probe.videoHeight > 0) {
+          setVideoAspect(probe.videoWidth / probe.videoHeight)
+        }
+      },
+      { once: true },
+    )
+    probe.src = frontingUrl
+    return () => {
+      stale = true
+      probe.removeAttribute('src')
+    }
+  }, [frontingUrl])
+
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
   // while the overlay is active) the transition's incoming entry — so a zoom
@@ -448,13 +488,32 @@ export function PreviewPlayer({ timeline }: PreviewPlayerProps) {
 
   return (
     <section className="panel preview-panel" aria-label="Preview">
-      <h2>Preview</h2>
+      <div className="preview-header">
+        <h2>Preview</h2>
+        {onToggleExpanded && (
+          <button
+            type="button"
+            className="preview-expand"
+            aria-label={expanded ? 'Restore preview size' : 'Expand preview'}
+            onClick={onToggleExpanded}
+          >
+            {expanded ? 'Restore size' : 'Expand'}
+          </button>
+        )}
+      </div>
       {empty ? (
         <p className="placeholder">Add clips to the timeline to preview your edit.</p>
       ) : (
         <div className="preview-player">
           {/* Sized by CSS; sequence audio plays. Controls are the app's own. */}
-          <div className="preview-stage">
+          <div
+            className={expanded ? 'preview-stage preview-stage-expanded' : 'preview-stage'}
+            style={
+              expanded && videoAspect !== null
+                ? ({ '--preview-aspect': String(videoAspect) } as CSSProperties)
+                : undefined
+            }
+          >
             <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
             <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
           </div>

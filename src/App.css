@@ -34,9 +34,31 @@
   flex: 1;
   display: grid;
   grid-template-columns: 1fr 2fr;
-  grid-template-rows: minmax(200px, 1fr) minmax(160px, auto);
+  /* The top row (library + preview) never shrinks below a genuinely usable
+     height (#128, customer-approved in #126): a busy timeline pushes the
+     page into vertical scrolling instead of crushing the preview toward a
+     sliver. 40vh leaves the stage a real picture after panel chrome. */
+  grid-template-rows: minmax(40vh, 1fr) minmax(160px, auto);
   gap: 1rem;
   padding: 1rem 1.5rem;
+}
+
+/* Expanded preview (#128, option B in #126): the preview panel becomes the
+   full-width first row, its height following the video's aspect ratio (the
+   stage rule lives in PreviewPlayer.css); the library, timeline, and export
+   panels flow below into content-sized rows, reached by page scroll. */
+.app-main-preview-expanded {
+  grid-template-rows: none;
+}
+
+/* Every panel goes full width — the library would otherwise sit in a
+   third-width column beside empty space once the preview leaves the row. */
+.app-main-preview-expanded > .panel {
+  grid-column: 1 / -1;
+}
+
+.app-main-preview-expanded .preview-panel {
+  order: -1;
 }
 
 .panel {

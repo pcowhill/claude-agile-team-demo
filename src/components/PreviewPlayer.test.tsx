@@ -49,6 +49,53 @@ describe('PreviewPlayer', () => {
     )
   })
 
+  describe('expand toggle (#128)', () => {
+    const oneEntry: TimelineState = {
+      entries: [
+        {
+          id: 'e1',
+          clipId: 'c1',
+          name: 'first.webm',
+          duration: 4,
+          url: 'blob:first',
+          inPoint: 0,
+          outPoint: 4,
+        },
+      ],
+    }
+
+    it('renders the toggle and reports each click, in the empty panel too', () => {
+      const onToggleExpanded = vi.fn()
+      const { rerender } = render(
+        <PreviewPlayer timeline={{ entries: [] }} onToggleExpanded={onToggleExpanded} />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }))
+      expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+
+      // The label names the action now available, matching the play/pause idiom.
+      rerender(
+        <PreviewPlayer timeline={{ entries: [] }} expanded onToggleExpanded={onToggleExpanded} />,
+      )
+      expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Expand preview' })).not.toBeInTheDocument()
+    })
+
+    it('marks the stage expanded only while expanded', () => {
+      const { container, rerender } = render(
+        <PreviewPlayer timeline={oneEntry} expanded onToggleExpanded={() => {}} />,
+      )
+      expect(container.querySelector('.preview-stage')).toHaveClass('preview-stage-expanded')
+
+      rerender(<PreviewPlayer timeline={oneEntry} onToggleExpanded={() => {}} />)
+      expect(container.querySelector('.preview-stage')).not.toHaveClass('preview-stage-expanded')
+    })
+
+    it('renders no toggle when no handler is wired', () => {
+      render(<PreviewPlayer timeline={oneEntry} />)
+      expect(screen.queryByRole('button', { name: 'Expand preview' })).not.toBeInTheDocument()
+    })
+  })
+
   // Two 4s entries with a 1s crossfade: total 7, overlap at sequence [3, 4).
   const withTransition: TimelineState = {
     entries: [

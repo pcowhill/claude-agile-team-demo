@@ -245,3 +245,41 @@ describe('Open and New Project (#77)', () => {
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
   })
 })
+
+describe('preview expansion (#128)', () => {
+  function fakeStorage(initial: Record<string, string> = {}) {
+    const values = new Map(Object.entries(initial))
+    return {
+      values,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value)
+      },
+    }
+  }
+
+  it('toggling expands the layout and remembers the choice across mounts', async () => {
+    const storage = fakeStorage()
+    const user = userEvent.setup()
+    const { container, unmount } = render(<App layoutStorage={storage} />)
+
+    const main = container.querySelector('main')
+    expect(main).not.toHaveClass('app-main-preview-expanded')
+
+    await user.click(screen.getByRole('button', { name: 'Expand preview' }))
+    expect(main).toHaveClass('app-main-preview-expanded')
+    expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
+
+    // A fresh mount (a page load) restores the remembered choice.
+    unmount()
+    const remounted = render(<App layoutStorage={storage} />)
+    expect(remounted.container.querySelector('main')).toHaveClass('app-main-preview-expanded')
+    expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Restore preview size' }))
+    expect(remounted.container.querySelector('main')).not.toHaveClass('app-main-preview-expanded')
+    remounted.unmount()
+    const third = render(<App layoutStorage={storage} />)
+    expect(third.container.querySelector('main')).not.toHaveClass('app-main-preview-expanded')
+  })
+})

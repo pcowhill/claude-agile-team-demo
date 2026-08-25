@@ -6,6 +6,17 @@
   min-height: 0;
 }
 
+.preview-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.preview-expand {
+  font-size: 0.8rem;
+}
+
 .preview-player {
   display: flex;
   flex-direction: column;
@@ -16,8 +27,8 @@
 
 /* The stage takes exactly the panel height left over after the controls and
    now-playing line. The zero flex basis matters: the stage must never make
-   the panel taller (which would grow the page and bring back scrolling) —
-   it adapts to whatever height the app grid gave the panel. It holds the two
+   the panel taller than the row the app grid gave it — the guaranteed row
+   minimum (App.css, #128) is what keeps that height usable. It holds the two
    stacked video elements and clips the slide transitions' paths. */
 .preview-stage {
   position: relative;
@@ -55,13 +66,22 @@
   visibility: hidden;
 }
 
+/* Expanded (#128, option B in #126): the panel goes full content width and
+   the row is content-sized, so the stage sizes itself from its width by the
+   playing video's own aspect ratio — as wide as it can be, height following
+   along, exactly as the customer sketched. 16:9 until metadata arrives. */
+.preview-stage-expanded {
+  flex: 0 0 auto;
+  aspect-ratio: var(--preview-aspect, 16 / 9);
+}
+
 @media (max-width: 700px) {
   /* Single-column layout (App.css breakpoint): the grid row is
      content-sized, so a zero flex basis would collapse the stage to nothing.
      Size it from its width instead. */
   .preview-stage {
     flex: 0 0 auto;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: var(--preview-aspect, 16 / 9);
   }
 }
 

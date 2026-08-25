@@ -8,6 +8,8 @@ import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import { audioTrackFromClip, emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
+import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
+import type { PreviewLayoutStorage } from './lib/previewLayout'
 import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
@@ -16,12 +18,24 @@ interface AppProps {
   /** Injectable for tests (jsdom can probe no real media and show no picker). */
   probeMedia?: typeof probeMediaFile
   savePort?: SavePort
+  /** Injectable for tests; defaults to localStorage (#128). */
+  layoutStorage?: PreviewLayoutStorage
 }
 
-function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
+function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps) {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, emptyTimeline)
   const [isDragTarget, setIsDragTarget] = useState(false)
+  // Whether the preview spans the full content width (#128). Remembered per
+  // browser across page loads; a missing or blocked store means normal layout.
+  const [previewExpanded, setPreviewExpanded] = useState(() => loadPreviewExpanded(layoutStorage))
+  const togglePreviewExpanded = useCallback(() => {
+    setPreviewExpanded((expanded) => {
+      const next = !expanded
+      savePreviewExpanded(next, layoutStorage)
+      return next
+    })
+  }, [layoutStorage])
   // dragenter/dragleave fire for every child element crossed; only the
   // outermost balance matters.
   const dragDepth = useRef(0)
@@ -157,7 +171,7 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
           probeMedia={probeMedia}
         />
       </header>
-      <main className="app-main">
+      <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
@@ -166,7 +180,11 @@ function App({ probeMedia = probeMediaFile, savePort }: AppProps) {
           onRemoveClip={handleRemoveClip}
           timelineUseCount={timelineUseCount}
         />
-        <PreviewPlayer timeline={timeline} />
+        <PreviewPlayer
+          timeline={timeline}
+          expanded={previewExpanded}
+          onToggleExpanded={togglePreviewExpanded}
+        />
         <Timeline
           timeline={timeline}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
