@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportPanel } from './ExportPanel'
 import { ExportCanceledError, exportTimeline } from '../lib/exportVideo'
@@ -94,6 +94,64 @@ describe('ExportPanel', () => {
     )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByTestId('export-download')).not.toBeInTheDocument()
+  })
+
+  // What the injected detector reports drives the picker (#114); the real
+  // default consults MediaRecorder.isTypeSupported, absent in jsdom.
+  const recordsEverything = () => true
+  const recordsWebmOnly = (type: string) => type.startsWith('video/webm')
+
+  it('offers exactly the formats the browser reports recordable (#114)', () => {
+    render(<ExportPanel timeline={timeline} isTypeSupported={recordsEverything} />)
+    const picker = screen.getByRole('combobox', { name: 'Format' })
+    const options = within(picker).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['WebM', 'MP4'])
+    // No behavior change for existing users: WebM stays the default.
+    expect(picker).toHaveValue('webm')
+  })
+
+  it('hides the picker when only one format is supported (#114)', () => {
+    render(<ExportPanel timeline={timeline} isTypeSupported={recordsWebmOnly} />)
+    expect(screen.queryByRole('combobox', { name: 'Format' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export video' })).toBeEnabled()
+  })
+
+  it('exports the selected format and names the download after it (#114)', async () => {
+    let requestedFormat: string | undefined
+    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+      requestedFormat = options.format
+      return Promise.resolve(new Blob(['x'], { type: 'video/mp4' }))
+    }
+    const user = userEvent.setup()
+    render(
+      <ExportPanel timeline={timeline} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Format' }), 'mp4')
+    await user.click(screen.getByRole('button', { name: 'Export video' }))
+
+    const link = await screen.findByTestId('export-download')
+    expect(requestedFormat).toBe('mp4')
+    expect(link).toHaveAttribute('download', 'sequence-export.mp4')
+    expect(link).toHaveTextContent('sequence-export.mp4')
+  })
+
+  it('defaults the export to WebM with the .webm filename (#114)', async () => {
+    let requestedFormat: string | undefined
+    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+      requestedFormat = options.format
+      return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
+    }
+    const user = userEvent.setup()
+    render(
+      <ExportPanel timeline={timeline} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Export video' }))
+
+    const link = await screen.findByTestId('export-download')
+    expect(requestedFormat).toBe('webm')
+    expect(link).toHaveAttribute('download', 'sequence-export.webm')
   })
 
   it('surfaces failures as a visible error message', async () => {

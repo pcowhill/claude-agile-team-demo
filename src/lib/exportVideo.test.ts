@@ -4,8 +4,12 @@ import {
   createAudioCapture,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
+  EXPORT_MP4_MIME_CANDIDATES,
+  EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
+  exportFileName,
   fitRect,
   pickExportMimeType,
+  supportedExportFormats,
   syncTrackReplay,
   zoomRect,
 } from './exportVideo'
@@ -41,6 +45,62 @@ describe('EXPORT_MIME_CANDIDATES_WITH_AUDIO', () => {
   it('keeps the video-only preference order (vp9 before vp8)', () => {
     const videoCodecs = EXPORT_MIME_CANDIDATES_WITH_AUDIO.join(' ')
     expect(videoCodecs.indexOf('vp9')).toBeLessThan(videoCodecs.indexOf('vp8'))
+  })
+})
+
+describe('MP4 candidates (#114)', () => {
+  it('prefers H.264 and falls back to the bare container type', () => {
+    expect(pickExportMimeType(() => true, EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO)).toBe(
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    )
+    // A Chromium build without proprietary codecs supports only the bare
+    // type — the export must still produce an MP4 there, not fail.
+    expect(
+      pickExportMimeType((type) => type === 'video/mp4', EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO),
+    ).toBe('video/mp4')
+    expect(pickExportMimeType(() => false, EXPORT_MP4_MIME_CANDIDATES)).toBeNull()
+  })
+
+  it('names an audio codec on every with-audio candidate that names a video codec', () => {
+    // Same trap as the WebM list: a codecs= list naming only video makes
+    // browsers drop the audio track.
+    for (const type of EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO) {
+      if (type.includes('codecs=')) expect(type).toMatch(/mp4a|opus/)
+    }
+  })
+
+  it('every candidate stays inside the MP4 container', () => {
+    // The format the user picked is a promise about the file they get.
+    for (const type of [...EXPORT_MP4_MIME_CANDIDATES, ...EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO]) {
+      expect(type.startsWith('video/mp4')).toBe(true)
+    }
+  })
+})
+
+describe('supportedExportFormats (#114)', () => {
+  it('offers both formats when the browser records both', () => {
+    expect(supportedExportFormats(() => true)).toEqual(['webm', 'mp4'])
+  })
+
+  it('is WebM-only where MP4 recording is unsupported (Firefox)', () => {
+    expect(supportedExportFormats((type) => type.startsWith('video/webm'))).toEqual(['webm'])
+  })
+
+  it('offers MP4 when only the bare container type is recordable', () => {
+    expect(
+      supportedExportFormats((type) => type.startsWith('video/webm') || type === 'video/mp4'),
+    ).toEqual(['webm', 'mp4'])
+  })
+
+  it('is empty when the browser cannot record at all', () => {
+    expect(supportedExportFormats(() => false)).toEqual([])
+  })
+})
+
+describe('exportFileName (#114)', () => {
+  it('follows the container with its extension', () => {
+    expect(exportFileName('webm')).toBe('sequence-export.webm')
+    expect(exportFileName('mp4')).toBe('sequence-export.mp4')
   })
 })
 
