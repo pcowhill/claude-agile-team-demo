@@ -6,6 +6,8 @@ import {
   audioTracksOf,
   boundaryTransitions,
   effectiveDuration,
+  entryOutputDuration,
+  remapsOf,
   emptyTimeline,
   entryFromClip,
   defaultZoomFor,
@@ -23,7 +25,7 @@ import {
   zoomsForEntry,
   zoomsOf,
 } from './timeline'
-import type { ZoomEffect } from './timeline'
+import type { RemapEffect, ZoomEffect } from './timeline'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -1288,6 +1290,266 @@ describe('gain: volume, mute, fades (#104)', () => {
         fadeIn: 8,
         fadeOut: 2,
       })
+    })
+  })
+})
+
+describe('time remapping (#138)', () => {
+  const speedEffect = (
+    id: string,
+    entryId: string,
+    start: number,
+    end: number,
+    factor: number,
+  ): RemapEffect => ({ id, entryId, kind: 'speed', start, end, factor })
+  const pauseEffect = (id: string, entryId: string, at: number, hold: number): RemapEffect => ({
+    id,
+    entryId,
+    kind: 'pause',
+    at,
+    hold,
+  })
+  const added = (state: TimelineState, remap: RemapEffect) =>
+    timelineReducer(state, { type: 'remap-added', remap })
+
+  describe('remap-added', () => {
+    it('adds effects and keeps an entry\'s list sorted by window start', () => {
+      const one = added(stateOf(['e1']), pauseEffect('r-late', 'e1', 6, 2))
+      const two = added(one, speedEffect('r-early', 'e1', 1, 3, 0.5))
+      expect(remapsOf(two)).toEqual([
+        speedEffect('r-early', 'e1', 1, 3, 0.5),
+        pauseEffect('r-late', 'e1', 6, 2),
+      ])
+    })
+
+    it('rejects an effect for an entry that does not exist', () => {
+      const state = stateOf(['e1'])
+      expect(added(state, speedEffect('r1', 'ghost', 1, 3, 0.5))).toBe(state)
+    })
+
+    it('rejects a duplicate effect id', () => {
+      const state = added(stateOf(['e1']), pauseEffect('r1', 'e1', 2, 1))
+      expect(added(state, speedEffect('r1', 'e1', 5, 7, 2))).toBe(state)
+    })
+
+    it('rejects invalid specs outright', () => {
+      const state = stateOf(['e1'])
+      expect(added(state, speedEffect('r1', 'e1', 1, 3, 0))).toBe(state)
+      expect(added(state, speedEffect('r1', 'e1', 1, 3, -1))).toBe(state)
+      expect(added(state, speedEffect('r1', 'e1', 1, 3, Number.POSITIVE_INFINITY))).toBe(state)
+      expect(added(state, speedEffect('r1', 'e1', 3, 3, 0.5))).toBe(state)
+      expect(added(state, speedEffect('r1', 'e1', 4, 3, 0.5))).toBe(state)
+      expect(added(state, pauseEffect('r1', 'e1', 2, 0))).toBe(state)
+      expect(added(state, pauseEffect('r1', 'e1', Number.NaN, 1))).toBe(state)
+    })
+
+    it('clamps the window into the trimmed range', () => {
+      const state = added(stateOf(['e1', 10, 2, 8]), speedEffect('r1', 'e1', 4, 9, 0.5))
+      // The trimmed range is 6 s long; positions are relative to it.
+      expect(remapsOf(state)).toEqual([speedEffect('r1', 'e1', 4, 6, 0.5)])
+    })
+
+    it('vetoes a segment that normalization collapses to nothing', () => {
+      const state = added(stateOf(['e1']), speedEffect('r-all', 'e1', 0, 10, 2))
+      expect(added(state, speedEffect('r-late', 'e1', 10, 12, 0.5))).toBe(state)
+    })
+
+    it('a pause squeezed past the end survives, freezing the last instant', () => {
+      const withSegment = added(stateOf(['e1']), speedEffect('r-all', 'e1', 0, 10, 2))
+      const state = added(withSegment, pauseEffect('r-hold', 'e1', 99, 2))
+      expect(remapsOf(state)).toEqual([
+        speedEffect('r-all', 'e1', 0, 10, 2),
+        pauseEffect('r-hold', 'e1', 10, 2),
+      ])
+    })
+
+    it('rejects effects on stills — an image entry and a slate', () => {
+      const image = entryFromClip(clip({ id: 'img', kind: 'image', duration: 0 }), 'e-img')
+      const slate = slateEntry('e-slate')
+      const state = normalizedTimelineState([image, slate], [], [])
+      expect(added(state, speedEffect('r1', 'e-img', 0, 2, 0.5))).toBe(state)
+      expect(added(state, pauseEffect('r2', 'e-slate', 1, 2))).toBe(state)
+    })
+  })
+
+  describe('remap-updated', () => {
+    const base = added(stateOf(['e1']), speedEffect('r1', 'e1', 1, 3, 0.5))
+
+    it('replaces the spec, keeping id and entryId', () => {
+      const state = timelineReducer(base, {
+        type: 'remap-updated',
+        id: 'r1',
+        remap: { kind: 'speed', start: 2, end: 5, factor: 2 },
+      })
+      expect(remapsOf(state)).toEqual([speedEffect('r1', 'e1', 2, 5, 2)])
+    })
+
+    it('can change the effect kind', () => {
+      const state = timelineReducer(base, {
+        type: 'remap-updated',
+        id: 'r1',
+        remap: { kind: 'pause', at: 4, hold: 1.5 },
+      })
+      expect(remapsOf(state)).toEqual([pauseEffect('r1', 'e1', 4, 1.5)])
+    })
+
+    it('clamps the edited window and treats a clamp back to the stored value as a no-op', () => {
+      const clamped = timelineReducer(base, {
+        type: 'remap-updated',
+        id: 'r1',
+        remap: { kind: 'speed', start: 1, end: 30, factor: 0.5 },
+      })
+      expect(remapsOf(clamped)).toEqual([speedEffect('r1', 'e1', 1, 10, 0.5)])
+      const noop = timelineReducer(clamped, {
+        type: 'remap-updated',
+        id: 'r1',
+        remap: { kind: 'speed', start: 1, end: 99, factor: 0.5 },
+      })
+      expect(noop).toBe(clamped)
+    })
+
+    it('ignores unknown ids and invalid specs', () => {
+      expect(
+        timelineReducer(base, {
+          type: 'remap-updated',
+          id: 'ghost',
+          remap: { kind: 'pause', at: 1, hold: 1 },
+        }),
+      ).toBe(base)
+      expect(
+        timelineReducer(base, {
+          type: 'remap-updated',
+          id: 'r1',
+          remap: { kind: 'speed', start: 1, end: 3, factor: 0 },
+        }),
+      ).toBe(base)
+    })
+  })
+
+  describe('remap-removed', () => {
+    it('removes the effect and leaves siblings alone', () => {
+      const both = added(
+        added(stateOf(['e1']), speedEffect('r1', 'e1', 1, 3, 0.5)),
+        pauseEffect('r2', 'e1', 5, 2),
+      )
+      const state = timelineReducer(both, { type: 'remap-removed', id: 'r1' })
+      expect(remapsOf(state)).toEqual([pauseEffect('r2', 'e1', 5, 2)])
+      expect(state.remaps).toBeDefined()
+      // Removing the last effect drops the key, restoring the pre-remap shape.
+      const empty = timelineReducer(state, { type: 'remap-removed', id: 'r2' })
+      expect(empty.remaps).toBeUndefined()
+    })
+
+    it('ignores unknown ids', () => {
+      const state = added(stateOf(['e1']), pauseEffect('r1', 'e1', 2, 1))
+      expect(timelineReducer(state, { type: 'remap-removed', id: 'ghost' })).toBe(state)
+    })
+  })
+
+  describe('normalization across edits', () => {
+    it('overlapping windows sweep like zooms: the earlier wins, the later is pushed', () => {
+      const first = added(stateOf(['e1']), speedEffect('r1', 'e1', 1, 4, 0.5))
+      const second = added(first, speedEffect('r2', 'e1', 2, 6, 2))
+      expect(remapsOf(second)).toEqual([
+        speedEffect('r1', 'e1', 1, 4, 0.5),
+        speedEffect('r2', 'e1', 4, 6, 2),
+      ])
+      const third = added(second, pauseEffect('r3', 'e1', 3, 2))
+      // The pause instant inside r1's window is pushed to its end; the sweep
+      // then re-floors r2 at the same spot, where it already begins.
+      expect(remapsOf(third)).toEqual([
+        speedEffect('r1', 'e1', 1, 4, 0.5),
+        pauseEffect('r3', 'e1', 4, 2),
+        speedEffect('r2', 'e1', 4, 6, 2),
+      ])
+    })
+
+    it('a retrim re-clamps effects into the shrunk range', () => {
+      const state = added(
+        added(stateOf(['e1']), speedEffect('r1', 'e1', 2, 6, 0.5)),
+        pauseEffect('r2', 'e1', 8, 3),
+      )
+      const trimmed = timelineReducer(state, {
+        type: 'entry-trimmed',
+        id: 'e1',
+        inPoint: 0,
+        outPoint: 5,
+      })
+      expect(remapsOf(trimmed)).toEqual([
+        speedEffect('r1', 'e1', 2, 5, 0.5),
+        pauseEffect('r2', 'e1', 5, 3),
+      ])
+    })
+
+    it('removing an entry drops its effects, other entries keep theirs', () => {
+      const state = added(
+        added(stateOf(['e1'], ['e2']), speedEffect('r1', 'e1', 1, 3, 0.5)),
+        pauseEffect('r2', 'e2', 2, 1),
+      )
+      const removed = timelineReducer(state, { type: 'entry-removed', id: 'e1' })
+      expect(remapsOf(removed)).toEqual([pauseEffect('r2', 'e2', 2, 1)])
+    })
+
+    it('normalizedTimelineState drops effects aimed at stills', () => {
+      const slate = slateEntry('e-slate')
+      const state = normalizedTimelineState(
+        [slate],
+        [],
+        [],
+        [],
+        [pauseEffect('r1', 'e-slate', 1, 2)],
+      )
+      expect(state.remaps).toBeUndefined()
+    })
+  })
+
+  describe('sequence math under remaps', () => {
+    it('entryOutputDuration adjusts the trimmed length by every effect', () => {
+      const state = added(
+        added(stateOf(['e1'], ['e2']), speedEffect('r1', 'e1', 0, 4, 0.5)),
+        pauseEffect('r2', 'e1', 6, 3),
+      )
+      // 10 + (8 − 4) + 3 = 17; e2 is untouched.
+      expect(entryOutputDuration(state.entries[0], remapsOf(state))).toBe(17)
+      expect(entryOutputDuration(state.entries[1], remapsOf(state))).toBe(10)
+      expect(totalDuration(state)).toBe(27)
+    })
+
+    it('a transition clamps against the remapped (shortened) output duration', () => {
+      const spedUp = added(stateOf(['e1'], ['e2']), speedEffect('r1', 'e1', 0, 10, 2))
+      expect(entryOutputDuration(spedUp.entries[0], remapsOf(spedUp))).toBe(5)
+      const withTransition = timelineReducer(spedUp, {
+        type: 'transition-set',
+        beforeId: 'e1',
+        afterId: 'e2',
+        transition: { type: 'crossfade', duration: 8 },
+      })
+      expect(transitionsOf(withTransition)[0].duration).toBe(5)
+      expect(totalDuration(withTransition)).toBe(10)
+    })
+
+    it('adding a remap re-clamps an existing transition that no longer fits', () => {
+      const withTransition = timelineReducer(stateOf(['e1'], ['e2']), {
+        type: 'transition-set',
+        beforeId: 'e1',
+        afterId: 'e2',
+        transition: { type: 'crossfade', duration: 6 },
+      })
+      const spedUp = added(withTransition, speedEffect('r1', 'e1', 0, 10, 2))
+      expect(transitionsOf(spedUp)[0].duration).toBe(5)
+    })
+
+    it('slowing an entry re-widens a previously clamped transition edit', () => {
+      const slowed = added(stateOf(['e1', 4], ['e2']), speedEffect('r1', 'e1', 0, 4, 0.5))
+      // e1's 4 trimmed seconds now occupy 8 output seconds, so a 6 s
+      // transition fits where it could not without the remap.
+      const state = timelineReducer(slowed, {
+        type: 'transition-set',
+        beforeId: 'e1',
+        afterId: 'e2',
+        transition: { type: 'crossfade', duration: 6 },
+      })
+      expect(transitionsOf(state)[0].duration).toBe(6)
     })
   })
 })

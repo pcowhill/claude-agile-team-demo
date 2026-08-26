@@ -1,5 +1,13 @@
 import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
-import { boundaryTransitions, effectiveDuration, totalDuration } from './timeline'
+import {
+  boundaryTransitions,
+  effectiveDuration,
+  entryOutputDuration,
+  remapsForEntry,
+  remapsOf,
+  totalDuration,
+} from './timeline'
+import { outputTimeAtSource, sourceTimeAtOutput } from './remap'
 
 /**
  * The second entry playing during a transition overlap: while the outgoing
@@ -46,9 +54,10 @@ export interface PlaybackLocation {
  */
 export function entryStartTime(state: TimelineState, index: number): number {
   const overlaps = boundaryTransitions(state)
+  const remaps = remapsOf(state)
   let start = 0
   for (let i = 0; i < index; i++) {
-    start += effectiveDuration(state.entries[i]) - (overlaps[i]?.duration ?? 0)
+    start += entryOutputDuration(state.entries[i], remaps) - (overlaps[i]?.duration ?? 0)
   }
   return start
 }
@@ -68,11 +77,19 @@ export function locateInSequence(state: TimelineState, sequenceTime: number): Pl
   if (entries.length === 0) return null
 
   const overlaps = boundaryTransitions(state)
+  const remaps = remapsOf(state)
+  // Where inside the entry's *source* clip an output time this far into the
+  // entry falls: 1:1 for an unremapped entry, and through the entry's remap
+  // effects (#138) otherwise — a pause plateaus, a speed segment stretches
+  // or compresses.
+  const sourceAt = (entry: TimelineEntry, intoEntry: number): number =>
+    entry.inPoint +
+    sourceTimeAtOutput(effectiveDuration(entry), remapsForEntry(state, entry.id), intoEntry)
   const time = Math.max(0, sequenceTime)
   let start = 0
   for (let index = 0; index < entries.length - 1; index++) {
     const entry = entries[index]
-    const end = start + effectiveDuration(entry)
+    const end = start + entryOutputDuration(entry, remaps)
     const overlap = overlaps[index]
     const nextStart = end - (overlap?.duration ?? 0)
     // `< end` (not ≤) sends boundary times to the next entry's start.
@@ -80,7 +97,7 @@ export function locateInSequence(state: TimelineState, sequenceTime: number): Pl
       const location: PlaybackLocation = {
         index,
         entry,
-        sourceTime: entry.inPoint + (time - start),
+        sourceTime: sourceAt(entry, time - start),
       }
       if (overlap !== undefined && time >= nextStart) {
         const next = entries[index + 1]
@@ -89,7 +106,7 @@ export function locateInSequence(state: TimelineState, sequenceTime: number): Pl
           progress: (time - nextStart) / overlap.duration,
           index: index + 1,
           entry: next,
-          sourceTime: next.inPoint + (time - nextStart),
+          sourceTime: sourceAt(next, time - nextStart),
         }
       }
       return location
@@ -98,14 +115,25 @@ export function locateInSequence(state: TimelineState, sequenceTime: number): Pl
   }
   const index = entries.length - 1
   const entry = entries[index]
-  return { index, entry, sourceTime: Math.min(entry.inPoint + (time - start), entry.outPoint) }
+  return { index, entry, sourceTime: Math.min(sourceAt(entry, time - start), entry.outPoint) }
 }
 
-/** Inverse of locateInSequence: sequence time of `sourceTime` within entry `index`. */
+/**
+ * Inverse of locateInSequence: sequence time of `sourceTime` within entry
+ * `index`. Under a remap (#138) a paused instant spans a plateau of sequence
+ * times; this returns the earliest — where the frame is first shown.
+ */
 export function sequenceTimeAt(state: TimelineState, index: number, sourceTime: number): number {
   const entry = state.entries[index]
   const clamped = Math.min(Math.max(sourceTime, entry.inPoint), entry.outPoint)
-  return entryStartTime(state, index) + (clamped - entry.inPoint)
+  return (
+    entryStartTime(state, index) +
+    outputTimeAtSource(
+      effectiveDuration(entry),
+      remapsForEntry(state, entry.id),
+      clamped - entry.inPoint,
+    )
+  )
 }
 
 /**
