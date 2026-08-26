@@ -26,7 +26,7 @@ import {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
  *     "schemaVersion": 1 | 2 | 3 | 4 | 5, // integer; bumped on breaking change
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
- *                 mimeType?, byteSize? }],
+ *                 mimeType?, byteSize?, extractedFrom? }],
  *     "media": {                         // version 2 always; version 3 when
  *       [clipId]: { byteLength, crc32, mimeType?, data }   // embedding (#97)
  *     },
@@ -135,6 +135,14 @@ export interface ProjectClip {
   height?: number
   mimeType?: string
   byteSize?: number
+  /**
+   * Filename of the video clip this audio clip was extracted from (#154).
+   * Present only on extracted audio clips; re-linking uses it to let the
+   * original video file satisfy this clip (openProject.ts). Additive within
+   * the schema version: extraction-free files omit the key and stay
+   * byte-identical.
+   */
+  extractedFrom?: string
 }
 
 /**
@@ -267,7 +275,7 @@ export async function serializeProject(
           : media === undefined
             ? REFERENCES_SCHEMA_VERSION
             : EMBEDDED_SCHEMA_VERSION,
-    clips: library.clips.map(({ id, name, duration, kind, width, height }) => ({
+    clips: library.clips.map(({ id, name, duration, kind, width, height, extractedFrom }) => ({
       id,
       name,
       // Images store dimensions instead of a duration (#137); other kinds
@@ -276,6 +284,7 @@ export async function serializeProject(
       kind,
       ...(width === undefined ? {} : { width }),
       ...(height === undefined ? {} : { height }),
+      ...(extractedFrom === undefined ? {} : { extractedFrom }),
     })),
     ...(media === undefined
       ? {}
@@ -508,6 +517,9 @@ function validateProject(document: Record<string, unknown>): Project {
     if (raw.mimeType !== undefined) clip.mimeType = asString(raw.mimeType, `clips[${index}].mimeType`)
     if (raw.byteSize !== undefined) {
       clip.byteSize = asNonNegative(raw.byteSize, `clips[${index}].byteSize`)
+    }
+    if (raw.extractedFrom !== undefined) {
+      clip.extractedFrom = asString(raw.extractedFrom, `clips[${index}].extractedFrom`)
     }
     return clip
   })

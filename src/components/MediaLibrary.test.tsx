@@ -3,12 +3,21 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
+import { extractAudioClip } from '../lib/extractAudio'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
 }))
 
+// The real implementation fetches blob: URLs, which jsdom cannot; the
+// function itself is unit-tested in lib/extractAudio.test.ts.
+vi.mock('../lib/extractAudio', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/extractAudio')>()),
+  extractAudioClip: vi.fn(),
+}))
+
 const probeMock = vi.mocked(probeMediaFile)
+const extractMock = vi.mocked(extractAudioClip)
 
 const videoFile = (name: string) => new File(['content'], name, { type: 'video/mp4' })
 
@@ -161,6 +170,95 @@ describe('audio import (#101)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '"broken.mp3" is not an audio file this browser can decode.',
     )
+  })
+})
+
+describe('audio extraction (#154)', () => {
+  it('offers Extract audio on video clips only', async () => {
+    probeMock
+      .mockResolvedValueOnce({ duration: 5, url: 'blob:v', kind: 'video' })
+      .mockResolvedValueOnce({ duration: 6, url: 'blob:a', kind: 'audio' })
+      .mockResolvedValueOnce({ duration: 0, url: 'blob:i', kind: 'image', width: 8, height: 8 })
+    render(<App />)
+
+    const input = screen.getByTestId('clip-file-input')
+    await userEvent.upload(input, videoFile('clip.mp4'))
+    await userEvent.upload(input, new File(['content'], 'music.mp3', { type: 'audio/mpeg' }))
+    await userEvent.upload(input, new File(['content'], 'logo.png', { type: 'image/png' }))
+    await screen.findByText('logo.png')
+
+    expect(
+      screen.getByRole('button', { name: 'Extract audio from clip.mp4' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Extract audio from music.mp3' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Extract audio from logo.png' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('extracting adds an independent audio clip that survives removing the source', async () => {
+    URL.revokeObjectURL = vi.fn()
+    probeMock.mockResolvedValueOnce({ duration: 6, url: 'blob:v', kind: 'video' })
+    extractMock.mockResolvedValueOnce({
+      id: 'extracted-1',
+      name: 'clip.mp4 (audio)',
+      duration: 6,
+      url: 'blob:extracted',
+      kind: 'audio',
+      extractedFrom: 'clip.mp4',
+    })
+    render(<App />)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('clip.mp4'))
+    await screen.findByText('clip.mp4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from clip.mp4' }))
+
+    // The new clip lists as ordinary audio: badge, duration, source name.
+    const list = screen.getByRole('list', { name: 'Imported clips' })
+    const extracted = (await within(list).findAllByRole('listitem'))[1]
+    expect(extracted).toHaveTextContent('clip.mp4 (audio)')
+    expect(extracted).toHaveTextContent('0:06')
+    expect(extracted.querySelector('.clip-kind')).toHaveClass('clip-kind-audio')
+    // Being audio, it has no extract button of its own.
+    expect(
+      screen.queryByRole('button', { name: 'Extract audio from clip.mp4 (audio)' }),
+    ).not.toBeInTheDocument()
+
+    // Removing the source video leaves the extracted clip playable: it stays
+    // listed and only the video's own URL is revoked.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove clip.mp4 from library' }))
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }),
+    )
+    expect(screen.queryByRole('button', { name: 'Add clip.mp4 to timeline' })).not.toBeInTheDocument()
+    expect(screen.getByText('clip.mp4 (audio)')).toBeInTheDocument()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:v')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:extracted')
+
+    // And its Add button places it on the audio lane, like any audio clip.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add clip.mp4 (audio) to timeline' }),
+    )
+    const lane = screen.getByRole('list', { name: 'Audio tracks' })
+    expect(within(lane).getByRole('listitem')).toHaveTextContent('clip.mp4 (audio)')
+  })
+
+  it('surfaces a failed extraction in the dismissible failure list', async () => {
+    probeMock.mockResolvedValueOnce({ duration: 6, url: 'blob:v', kind: 'video' })
+    extractMock.mockRejectedValueOnce(new Error('unreadable'))
+    render(<App />)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('clip.mp4'))
+    await screen.findByText('clip.mp4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from clip.mp4' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not extract the audio from "clip.mp4".',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 

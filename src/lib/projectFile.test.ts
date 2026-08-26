@@ -270,6 +270,47 @@ describe('clip kinds (#101)', () => {
     }
   })
 
+  it('round-trips an extracted audio clip with its provenance (#154)', async () => {
+    const withExtracted: MediaLibraryState = {
+      clips: [
+        ...mixedLibrary.clips,
+        {
+          id: 'x1',
+          name: 'holiday.mp4 (audio)',
+          duration: 12,
+          url: 'blob:x1',
+          kind: 'audio',
+          extractedFrom: 'holiday.mp4',
+        },
+      ],
+      failures: [],
+    }
+    const result = await deserializeProject(
+      await serializeProject(withExtracted, videoOnlyTimeline),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      // extractedFrom survives — it is what lets a references-only reopen
+      // link this clip from the original video file (openProject.ts) —
+      // and clips without it stay without it.
+      expect(result.project.clips[2]).toMatchObject({
+        id: 'x1',
+        kind: 'audio',
+        extractedFrom: 'holiday.mp4',
+      })
+      expect(result.project.clips[0].extractedFrom).toBeUndefined()
+    }
+  })
+
+  it('refuses a non-string extractedFrom (#154)', async () => {
+    const document = validDocument()
+    ;(document.clips[0] as { extractedFrom?: unknown }).extractedFrom = 7
+    await expectRefusal(
+      await gzipJson(document),
+      'clips[0].extractedFrom must be a non-empty string',
+    )
+  })
+
   it('defaults a clip without a kind key to video (pre-#101 files)', async () => {
     const document = validDocument()
     for (const clip of document.clips as { kind?: unknown }[]) delete clip.kind

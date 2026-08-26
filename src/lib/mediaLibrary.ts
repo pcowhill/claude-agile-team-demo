@@ -24,6 +24,13 @@ export interface LibraryClip {
   width?: number
   /** Intrinsic pixel height, probed at import. Present for images (#137). */
   height?: number
+  /**
+   * The filename of the video clip this audio clip was extracted from
+   * (#154). Present only on extracted audio clips; project re-linking uses
+   * it to let the original video file satisfy this clip (openProject.ts),
+   * since an extracted clip has no file of its own on disk.
+   */
+  extractedFrom?: string
 }
 
 export interface ImportFailure {
