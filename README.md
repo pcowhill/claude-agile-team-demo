@@ -22,7 +22,10 @@ same mix (#105). Still images import into the media library too (#137),
 with their pixel dimensions probed and shown with an Image badge, and can
 be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
-project files like any clip. It is deployed
+project files like any clip. Solid-color slates (#143) can be added to the
+timeline directly — no import, any 24-bit color, same adjustable duration —
+so a video can e.g. open on a red screen that crossfades into a clip. It is
+deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 

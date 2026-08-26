@@ -1,5 +1,5 @@
 import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
-import { audioTracksOf, boundaryTransitions, isStillEntry, totalDuration } from './timeline'
+import { audioTracksOf, boundaryTransitions, isSlateEntry, isStillEntry, totalDuration } from './timeline'
 import { audioTrackPlaybackAt, sequenceTimeAt } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
 import { transitionLayerSpec } from './transitionRender'
@@ -479,8 +479,10 @@ export async function exportTimeline(
   // Output frame size: the largest source dimensions in the sequence, so no
   // clip is downscaled; differently-sized clips are letterboxed into it.
   // Loading every source here also validates that each one is decodable
-  // before the recorder starts. Stills (#140) load through an <img> — a
-  // <video> cannot decode them — and keep it for the draw loop.
+  // before the recorder starts. Image stills (#140) load through an <img> —
+  // a <video> cannot decode them — and keep it for the draw loop. Slates
+  // (#143) have no media at all: nothing to load, no intrinsic size — they
+  // fill whatever frame the real sources (or the fallback) decide.
   let width = 0
   let height = 0
   try {
@@ -493,7 +495,7 @@ export async function exportTimeline(
       height = Math.max(height, replays[0].videoHeight)
     }
     for (const url of new Set(
-      entries.filter((entry) => isStillEntry(entry)).map((entry) => entry.url),
+      entries.filter((entry) => entry.kind === 'image').map((entry) => entry.url),
     )) {
       throwIfAborted()
       const image = await loadStill(url)
@@ -561,7 +563,36 @@ export async function exportTimeline(
     time: element.currentTime,
   })
 
+  /**
+   * A full-frame canvas per slate color (#143), created on first use. Sized
+   * to the output frame so fitRect fills it edge to edge — a slate is the
+   * whole picture, never letterboxed — while flowing through the same
+   * LayerFrame draw path (transitions, slides, zooms) as every other source.
+   */
+  const slateSources = new Map<string, HTMLCanvasElement>()
+  const slateSource = (color: string): HTMLCanvasElement => {
+    const existing = slateSources.get(color)
+    if (existing !== undefined) return existing
+    const slate = document.createElement('canvas')
+    slate.width = width
+    slate.height = height
+    const slateContext = slate.getContext('2d')
+    if (slateContext === null) {
+      // The main canvas's 2d context was already verified above; a browser
+      // that granted one and refuses another is not a real case, but never
+      // draw nothing silently.
+      throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
+    }
+    slateContext.fillStyle = color
+    slateContext.fillRect(0, 0, width, height)
+    slateSources.set(color, slate)
+    return slate
+  }
+
   const stillFrame = (entry: TimelineEntry, time: number): LayerFrame => {
+    if (isSlateEntry(entry)) {
+      return { source: slateSource(entry.color as string), sourceWidth: width, sourceHeight: height, time }
+    }
     const image = stillSources.get(entry.url) as HTMLImageElement
     return {
       source: image,

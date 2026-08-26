@@ -8,7 +8,7 @@ import type {
   TransitionType,
   ZoomEffect,
 } from './timeline'
-import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
+import { audioTracksOf, isSlateEntry, isValidSlateColor, transitionsOf, zoomsOf } from './timeline'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -16,7 +16,7 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4,    // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4 | 5, // integer; bumped on breaking change
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize? }],
  *     "media": {                         // version 2 always; version 3 when
@@ -62,6 +62,14 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  * builds refuse image-carrying files through the version gate instead of
  * choking on the unknown kind value.
  *
+ * Schema version 5 (#143) adds solid-color slate entries to the timeline:
+ * a sequence entry may carry a `color` (lowercase `#rrggbb`) instead of a
+ * `clipId` — it references no clip and no media, and renders as that flat
+ * color for the entry's window. As at version 4, the media section's
+ * presence keeps distinguishing the save modes, and 5 is written exactly
+ * when a slate is on the timeline so older builds route slate-carrying
+ * files to the "saved by a newer version" refusal.
+ *
  * Schema version 4 (#140) marks that the *timeline* places still images:
  * a sequence entry may reference an image clip, showing it for the entry's
  * `duration` (equal to its `outPoint`; a still has no source trim). The
@@ -81,7 +89,7 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 4
+export const PROJECT_SCHEMA_VERSION = 5
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -90,6 +98,8 @@ export const EMBEDDED_SCHEMA_VERSION = 2
 export const IMAGES_SCHEMA_VERSION = 3
 /** The version any image ON the timeline forces, whichever the save mode (#140). */
 export const IMAGE_ENTRIES_SCHEMA_VERSION = 4
+/** The version any color slate forces, whichever the save mode (#143). */
+export const SLATE_ENTRIES_SCHEMA_VERSION = 5
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -186,6 +196,8 @@ export async function serializeProject(
 ): Promise<Uint8Array<ArrayBuffer>> {
   const clipIds = new Set(library.clips.map((clip) => clip.id))
   for (const entry of timeline.entries) {
+    // A slate references no clip (#143) — there is nothing to check.
+    if (isSlateEntry(entry)) continue
     if (!clipIds.has(entry.clipId)) {
       throw new Error(
         `cannot serialize: timeline entry "${entry.id}" references clip "${entry.clipId}" which is not in the library`,
@@ -217,23 +229,27 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // An image on the timeline forces version 4 (#140), an image merely in
-  // the library version 3 (#137), whichever the save mode; otherwise the
-  // mode alone decides, exactly as before images existed.
+  // A color slate forces version 5 (#143), an image on the timeline
+  // version 4 (#140), an image merely in the library version 3 (#137),
+  // whichever the save mode; otherwise the mode alone decides, exactly as
+  // before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasSlateEntries = timeline.entries.some(isSlateEntry)
   const hasImageEntries = timeline.entries.some(
     (entry) => clipKindById.get(entry.clipId) === 'image',
   )
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasImageEntries
-      ? IMAGE_ENTRIES_SCHEMA_VERSION
-      : hasImages
-        ? IMAGES_SCHEMA_VERSION
-        : media === undefined
-          ? REFERENCES_SCHEMA_VERSION
-          : EMBEDDED_SCHEMA_VERSION,
+    schemaVersion: hasSlateEntries
+      ? SLATE_ENTRIES_SCHEMA_VERSION
+      : hasImageEntries
+        ? IMAGE_ENTRIES_SCHEMA_VERSION
+        : hasImages
+          ? IMAGES_SCHEMA_VERSION
+          : media === undefined
+            ? REFERENCES_SCHEMA_VERSION
+            : EMBEDDED_SCHEMA_VERSION,
     clips: library.clips.map(({ id, name, duration, kind, width, height }) => ({
       id,
       name,
@@ -265,14 +281,17 @@ export async function serializeProject(
     timeline: {
       // Gain fields (#104) are written only when present, so files touched
       // by no volume/mute/fade edit stay byte-identical to pre-#104 output.
+      // A slate (#143) writes its color and no clipId — it references
+      // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, volume, muted }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted }) => ({
           id,
-          clipId,
+          ...(kind === 'slate' ? {} : { clipId }),
           name,
           duration,
           inPoint,
           outPoint,
+          ...(kind === 'slate' ? { color } : {}),
           ...(volume === undefined ? {} : { volume }),
           ...(muted === undefined ? {} : { muted }),
         }),
@@ -464,26 +483,43 @@ function validateProject(document: Record<string, unknown>): Project {
     const raw = asRecord(value, path)
     const entry: ProjectEntry = {
       id: asString(raw.id, `${path}.id`),
-      clipId: asString(raw.clipId, `${path}.clipId`),
+      // A slate entry (#143) carries a color instead of a clipId; the empty
+      // string is the model's "references no clip", matching no real id.
+      clipId: raw.color !== undefined && raw.clipId === undefined ? '' : asString(raw.clipId, `${path}.clipId`),
       name: asString(raw.name, `${path}.name`),
       duration: asFinite(raw.duration, `${path}.duration`),
       inPoint: asNonNegative(raw.inPoint, `${path}.inPoint`),
       outPoint: asFinite(raw.outPoint, `${path}.outPoint`),
     }
     if (entry.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
-    if (!clipIds.has(entry.clipId)) {
-      throw new Error(`${path}.clipId "${entry.clipId}" does not match any clip`)
+    if (raw.color !== undefined) {
+      // Exactly one of clipId and color: an entry claiming to be both a
+      // slate and a clip reference could only come from a foreign writer,
+      // and either reading would silently drop half its meaning.
+      if (raw.clipId !== undefined) {
+        throw new Error(`${path} carries both a clipId and a color — an entry is a clip reference or a slate, never both`)
+      }
+      const color = asString(raw.color, `${path}.color`)
+      if (!isValidSlateColor(color)) {
+        throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)
+      }
+      entry.kind = 'slate'
+      entry.color = color
+    } else {
+      if (!clipIds.has(entry.clipId)) {
+        throw new Error(`${path}.clipId "${entry.clipId}" does not match any clip`)
+      }
+      const entryClipKind = clipKinds.get(entry.clipId) as MediaKind
+      if (entryClipKind === 'audio') {
+        // The sequence carries video and stills (#101/#140): an audio entry
+        // here could only come from a foreign writer, and would break preview
+        // and export — audio placement is the audio lane's model (#102).
+        throw new Error(`${path}.clipId "${entry.clipId}" references an audio clip, but the sequence carries video and stills only`)
+      }
+      // Stillness is derived, never stored (#140): the file's entry shape is
+      // unchanged, and any entry referencing an image clip is a still.
+      if (entryClipKind === 'image') entry.kind = 'image'
     }
-    const entryClipKind = clipKinds.get(entry.clipId) as MediaKind
-    if (entryClipKind === 'audio') {
-      // The sequence carries video and stills (#101/#140): an audio entry
-      // here could only come from a foreign writer, and would break preview
-      // and export — audio placement is the audio lane's model (#102).
-      throw new Error(`${path}.clipId "${entry.clipId}" references an audio clip, but the sequence carries video and stills only`)
-    }
-    // Stillness is derived, never stored (#140): the file's entry shape is
-    // unchanged, and any entry referencing an image clip is a still.
-    if (entryClipKind === 'image') entry.kind = 'image'
     if (entry.inPoint >= entry.outPoint) {
       throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
     }
