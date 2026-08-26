@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import type { RemapSpec, TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '../lib/timeline'
+import type {
+  RemapSpec,
+  TextOverlaySpec,
+  TimelineState,
+  TransitionSpec,
+  TransitionType,
+  ZoomSpec,
+} from '../lib/timeline'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -12,10 +19,13 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  textsOf,
   totalDuration,
   zoomsForEntry,
 } from '../lib/timeline'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
+import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
+import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
 
@@ -40,6 +50,10 @@ interface TimelineProps {
   onAddRemap: (entryId: string, remap: RemapSpec) => void
   onUpdateRemap: (id: string, remap: RemapSpec) => void
   onRemoveRemap: (id: string) => void
+  /** Adds a text overlay with the default spec (#139); the id is the caller's to mint. */
+  onAddText: () => void
+  onUpdateText: (id: string, text: TextOverlaySpec) => void
+  onRemoveText: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
@@ -47,6 +61,68 @@ interface TimelineProps {
   onSetEntryMuted: (id: string, muted: boolean) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
+}
+
+/** A stored overlay re-expressed as the spec `onUpdateText` takes (no id). */
+const textSpecOf = ({
+  content,
+  offset,
+  duration,
+  x,
+  y,
+  font,
+  size,
+  color,
+  bold,
+  italic,
+}: TextOverlaySpec): TextOverlaySpec => ({
+  content,
+  offset,
+  duration,
+  x,
+  y,
+  font,
+  size,
+  color,
+  bold,
+  italic,
+})
+
+interface TextContentFieldProps {
+  label: string
+  value: string
+  onCommit: (value: string) => void
+}
+
+/**
+ * Multi-line content editor for a text overlay (#139), committing on blur
+ * like SecondsField: the draft is local so typing is free (Enter inserts a
+ * newline rather than committing), and an empty commit is rejected by the
+ * reducer, snapping the field back to the stored content.
+ */
+function TextContentField({ label, value, onCommit }: TextContentFieldProps) {
+  const [draft, setDraft] = useState(value)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const commit = () => {
+    if (draft !== value && draft !== '') onCommit(draft)
+    // If the reducer rejected the commit, no prop change arrives — reset the
+    // draft to the stored state explicitly.
+    setDraft(value)
+  }
+
+  return (
+    <textarea
+      aria-label={label}
+      rows={2}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+    />
+  )
 }
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
@@ -138,6 +214,9 @@ export function Timeline({
   onAddRemap,
   onUpdateRemap,
   onRemoveRemap,
+  onAddText,
+  onUpdateText,
+  onRemoveText,
   onRemoveAudioTrack,
   onRetimeAudioTrack,
   onTrimAudioTrack,
@@ -149,6 +228,7 @@ export function Timeline({
   const { entries } = timeline
   const transitions = boundaryTransitions(timeline)
   const audioTracks = audioTracksOf(timeline)
+  const texts = textsOf(timeline)
   // The lane's visual scale: long enough for the video sequence and for
   // every track's end — a track past the sequence end (silent tail) still
   // renders fully instead of overflowing.
@@ -167,6 +247,11 @@ export function Timeline({
             here rather than from the library. */}
         <button type="button" aria-label="Add color slate to timeline" onClick={onAddSlate}>
           + Color slate
+        </button>
+        {/* A text overlay is anchored to sequence time, not to any clip
+            (#139), so it too is added here rather than per entry. */}
+        <button type="button" aria-label="Add text overlay to timeline" onClick={onAddText}>
+          + Text
         </button>
         <span className="timeline-total">
           Total: <span data-testid="timeline-total">{formatDuration(totalDuration(timeline))}</span>
@@ -658,6 +743,115 @@ export function Timeline({
                         onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
                       }
                     />
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+
+      {texts.length > 0 && (
+        <div className="text-lane">
+          <h3 className="text-lane-heading">Text</h3>
+          <ol className="text-overlay-list" aria-label="Text overlays">
+            {texts.map((text, index) => {
+              const position = `text overlay at position ${index + 1}`
+              const set = (change: Partial<TextOverlaySpec>) =>
+                onUpdateText(text.id, { ...textSpecOf(text), ...change })
+              return (
+                <li key={text.id} className="text-overlay">
+                  <div className="text-overlay-main">
+                    <TextContentField
+                      label={`Content of ${position}`}
+                      value={text.content}
+                      onCommit={(content) => set({ content })}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${position} from timeline`}
+                      onClick={() => onRemoveText(text.id)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="text-overlay-controls">
+                    <span>Shows at</span>
+                    <SecondsField
+                      label={`Start time of ${position} in seconds`}
+                      value={text.offset}
+                      max={86400}
+                      onCommit={(offset) => set({ offset })}
+                    />
+                    <span>for</span>
+                    <SecondsField
+                      label={`Duration of ${position} in seconds`}
+                      value={text.duration}
+                      min={0.1}
+                      max={86400}
+                      onCommit={(duration) => set({ duration })}
+                    />
+                    <span>s, centre</span>
+                    <SecondsField
+                      label={`Centre X of ${position} (0 to 1)`}
+                      value={text.x}
+                      max={1}
+                      step={0.05}
+                      onCommit={(x) => set({ x })}
+                    />
+                    <SecondsField
+                      label={`Centre Y of ${position} (0 to 1)`}
+                      value={text.y}
+                      max={1}
+                      step={0.05}
+                      onCommit={(y) => set({ y })}
+                    />
+                  </div>
+                  <div className="text-overlay-controls">
+                    <select
+                      aria-label={`Font of ${position}`}
+                      value={text.font}
+                      onChange={(event) => set({ font: event.target.value as TextFontId })}
+                    >
+                      {TEXT_FONTS.map((font) => (
+                        <option key={font.id} value={font.id}>
+                          {font.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span>Size</span>
+                    <SecondsField
+                      label={`Size of ${position} (fraction of frame height)`}
+                      value={text.size}
+                      min={MIN_TEXT_SIZE}
+                      max={MAX_TEXT_SIZE}
+                      step={0.01}
+                      onCommit={(size) => set({ size })}
+                    />
+                    <input
+                      type="color"
+                      aria-label={`Color of ${position}`}
+                      value={text.color}
+                      onChange={(event) => set({ color: event.target.value })}
+                    />
+                    <label className="timeline-mute">
+                      <input
+                        type="checkbox"
+                        aria-label={`Bold ${position}`}
+                        checked={text.bold}
+                        onChange={(event) => set({ bold: event.target.checked })}
+                      />
+                      Bold
+                    </label>
+                    <label className="timeline-mute">
+                      <input
+                        type="checkbox"
+                        aria-label={`Italic ${position}`}
+                        checked={text.italic}
+                        onChange={(event) => set({ italic: event.target.checked })}
+                      />
+                      Italic
+                    </label>
                   </div>
                 </li>
               )

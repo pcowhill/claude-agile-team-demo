@@ -9,6 +9,7 @@ import { extractAudioClip } from './lib/extractAudio'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import { audioTrackFromClip, emptyTimeline, entryFromClip, slateEntry, timelineReducer } from './lib/timeline'
+import { DEFAULT_TEXT } from './lib/textOverlay'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
 import { probeMediaFile } from './lib/probeMedia'
@@ -255,6 +256,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onUpdateRemap={(id, remap) => dispatchTimeline({ type: 'remap-updated', id, remap })}
           onRemoveRemap={(id) => dispatchTimeline({ type: 'remap-removed', id })}
+          onAddText={() =>
+            dispatchTimeline({
+              type: 'text-added',
+              text: { ...DEFAULT_TEXT, id: crypto.randomUUID() },
+            })
+          }
+          onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
+          onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
           onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
           onRetimeAudioTrack={(id, offset) =>
             dispatchTimeline({ type: 'audio-track-retimed', id, offset })

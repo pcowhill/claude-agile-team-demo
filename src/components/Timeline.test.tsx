@@ -1046,3 +1046,117 @@ describe('gain controls (#104)', () => {
     expect(fadeOut).toHaveValue(18)
   })
 })
+
+describe('text overlays (#139)', () => {
+  it('adds a default overlay, lists it in the text lane, and shows its controls', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    const lane = screen.getByRole('list', { name: 'Text overlays' })
+    expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
+    const content = screen.getByRole('textbox', { name: 'Content of text overlay at position 1' })
+    expect(content).toHaveValue('Title')
+    expect(
+      screen.getByRole('spinbutton', { name: 'Start time of text overlay at position 1 in seconds' }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', { name: 'Duration of text overlay at position 1 in seconds' }),
+    ).toHaveValue(3)
+    expect(
+      screen.getByRole('combobox', { name: 'Font of text overlay at position 1' }),
+    ).toHaveValue('sans')
+    expect(
+      screen.getByRole('checkbox', { name: 'Bold text overlay at position 1' }),
+    ).not.toBeChecked()
+  })
+
+  it('edits content on blur, rejecting an empty commit visibly', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    const content = screen.getByRole('textbox', { name: 'Content of text overlay at position 1' })
+
+    await userEvent.clear(content)
+    await userEvent.type(content, 'Chapter one{enter}subtitle')
+    await userEvent.tab()
+    // Enter inserts a newline (multi-line content), never commits.
+    expect(content).toHaveValue('Chapter one\nsubtitle')
+
+    // An empty draft is rejected by the reducer; the field snaps back.
+    await userEvent.clear(content)
+    await userEvent.tab()
+    expect(content).toHaveValue('Chapter one\nsubtitle')
+  })
+
+  it('edits timing, position, styling — and clamps visibly like other fields', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    const offset = screen.getByRole('spinbutton', {
+      name: 'Start time of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(offset)
+    await userEvent.type(offset, '2.5')
+    await userEvent.tab()
+    expect(offset).toHaveValue(2.5)
+
+    const x = screen.getByRole('spinbutton', { name: 'Centre X of text overlay at position 1 (0 to 1)' })
+    await userEvent.clear(x)
+    await userEvent.type(x, '7')
+    await userEvent.tab()
+    // Clamped into the frame, visibly.
+    expect(x).toHaveValue(1)
+
+    const font = screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })
+    await userEvent.selectOptions(font, 'serif')
+    expect(font).toHaveValue('serif')
+
+    const bold = screen.getByRole('checkbox', { name: 'Bold text overlay at position 1' })
+    await userEvent.click(bold)
+    expect(bold).toBeChecked()
+
+    const color = screen.getByLabelText('Color of text overlay at position 1')
+    fireEvent.change(color, { target: { value: '#00ff00' } })
+    expect(color).toHaveValue('#00ff00')
+  })
+
+  it('removes an overlay; the lane disappears with the last one', async () => {
+    render(<App />)
+    const add = screen.getByRole('button', { name: 'Add text overlay to timeline' })
+    await userEvent.click(add)
+    await userEvent.click(add)
+    expect(within(screen.getByRole('list', { name: 'Text overlays' })).getAllByRole('listitem')).toHaveLength(2)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove text overlay at position 1 from timeline' }),
+    )
+    expect(within(screen.getByRole('list', { name: 'Text overlays' })).getAllByRole('listitem')).toHaveLength(1)
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove text overlay at position 1 from timeline' }),
+    )
+    expect(screen.queryByRole('list', { name: 'Text overlays' })).not.toBeInTheDocument()
+  })
+
+  it('overlays are independent of the sequence: video edits never retime them', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    const offset = screen.getByRole('spinbutton', {
+      name: 'Start time of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(offset)
+    await userEvent.type(offset, '8')
+    await userEvent.tab()
+
+    // Trim the sequence to 2s — shorter than the overlay's start. The
+    // overlay keeps its absolute timing (#102's anchoring decision).
+    const out = screen.getByRole('spinbutton', {
+      name: 'Trim out point of a.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(out)
+    await userEvent.type(out, '2')
+    await userEvent.tab()
+    expect(offset).toHaveValue(8)
+  })
+})

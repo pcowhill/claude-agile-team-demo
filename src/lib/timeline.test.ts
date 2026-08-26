@@ -20,12 +20,14 @@ import {
   slateEntry,
   normalizedTimelineState,
   timelineReducer,
+  textsOf,
   totalDuration,
   transitionsOf,
   zoomsForEntry,
   zoomsOf,
 } from './timeline'
-import type { RemapEffect, ZoomEffect } from './timeline'
+import type { RemapEffect, TextOverlay, ZoomEffect } from './timeline'
+import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -1550,6 +1552,143 @@ describe('time remapping (#138)', () => {
         transition: { type: 'crossfade', duration: 6 },
       })
       expect(transitionsOf(state)[0].duration).toBe(6)
+    })
+  })
+})
+
+describe('text overlays (#139)', () => {
+  const overlay = (id: string, overrides: Partial<TextOverlay> = {}): TextOverlay => ({
+    ...DEFAULT_TEXT,
+    id,
+    ...overrides,
+  })
+  const textIds = (state: TimelineState) => textsOf(state).map((text) => text.id)
+
+  describe('text-added', () => {
+    it('appends overlays in order — the stacking order', () => {
+      let state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      state = timelineReducer(state, {
+        type: 'text-added',
+        text: overlay('t2', { content: 'Subtitle', offset: 2 }),
+      })
+      expect(textIds(state)).toEqual(['t1', 't2'])
+      expect(textsOf(state)[1]).toMatchObject({ content: 'Subtitle', offset: 2 })
+    })
+
+    it('rejects a duplicate id and an invalid spec, keeping the state reference', () => {
+      const state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      expect(timelineReducer(state, { type: 'text-added', text: overlay('t1') })).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'text-added', text: overlay('t2', { content: '' }) }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'text-added', text: overlay('t2', { duration: 0 }) }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'text-added', text: overlay('t2', { color: 'red' }) }),
+      ).toBe(state)
+    })
+
+    it('clamps out-of-range position and size on add', () => {
+      const state = timelineReducer(emptyTimeline, {
+        type: 'text-added',
+        text: overlay('t1', { x: 1.5, y: -0.5, size: 2, offset: -3 }),
+      })
+      expect(textsOf(state)[0]).toMatchObject({ x: 1, y: 0, size: MAX_TEXT_SIZE, offset: 0 })
+    })
+  })
+
+  describe('text-updated', () => {
+    const base = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+    const spec = (overrides: Partial<TextOverlay>): TextOverlay => overlay('ignored', overrides)
+
+    it('replaces the editable fields, keeping the id', () => {
+      const state = timelineReducer(base, {
+        type: 'text-updated',
+        id: 't1',
+        text: spec({ content: 'New\nlines', font: 'serif', bold: true, color: '#00ff00' }),
+      })
+      expect(textsOf(state)[0]).toMatchObject({
+        id: 't1',
+        content: 'New\nlines',
+        font: 'serif',
+        bold: true,
+        color: '#00ff00',
+      })
+    })
+
+    it('rejects invalid specs and unknown ids, keeping the state reference', () => {
+      expect(
+        timelineReducer(base, { type: 'text-updated', id: 't1', text: spec({ content: '' }) }),
+      ).toBe(base)
+      expect(
+        timelineReducer(base, { type: 'text-updated', id: 'gone', text: spec({ offset: 1 }) }),
+      ).toBe(base)
+    })
+
+    it('an edit that clamps back to the stored state is a no-op', () => {
+      // x clamps to 1; if the stored overlay already sits at 1, nothing moved.
+      const atEdge = timelineReducer(emptyTimeline, {
+        type: 'text-added',
+        text: overlay('t1', { x: 1 }),
+      })
+      expect(
+        timelineReducer(atEdge, { type: 'text-updated', id: 't1', text: spec({ x: 7 }) }),
+      ).toBe(atEdge)
+    })
+  })
+
+  describe('text-removed', () => {
+    it('removes by id; removing nothing keeps the reference', () => {
+      let state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      state = timelineReducer(state, { type: 'text-added', text: overlay('t2') })
+      const removed = timelineReducer(state, { type: 'text-removed', id: 't1' })
+      expect(textIds(removed)).toEqual(['t2'])
+      expect(timelineReducer(removed, { type: 'text-removed', id: 'gone' })).toBe(removed)
+      // Removing the last overlay drops the key entirely, restoring the
+      // pre-text state shape.
+      const empty = timelineReducer(removed, { type: 'text-removed', id: 't2' })
+      expect(empty).not.toHaveProperty('texts')
+    })
+  })
+
+  describe('independence from video edits (the #102 anchoring decision)', () => {
+    it('overlays survive entry edits and removals unchanged', () => {
+      let state = stateOf(['a'], ['b'])
+      state = timelineReducer(state, {
+        type: 'text-added',
+        text: overlay('t1', { offset: 15, duration: 4 }),
+      })
+      // Shorten the sequence below the overlay's window, then drop an entry:
+      // the overlay keeps its absolute offset (its window may now lie past
+      // the sequence end and simply never show).
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 1 })
+      state = timelineReducer(state, { type: 'entry-removed', id: 'b' })
+      expect(textsOf(state)).toEqual([expect.objectContaining({ id: 't1', offset: 15, duration: 4 })])
+    })
+
+    it('the texts key never appears on text-free states', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'entry-trimmed',
+        id: 'a',
+        inPoint: 0,
+        outPoint: 5,
+      })
+      expect(state).not.toHaveProperty('texts')
+    })
+  })
+
+  describe('normalizedTimelineState with text overlays', () => {
+    it('clamps a foreign writer-shaped overlay on open', () => {
+      const state = normalizedTimelineState(
+        [],
+        [],
+        [],
+        [],
+        [],
+        [overlay('t1', { x: 2, size: 0.001, offset: -1 })],
+      )
+      expect(textsOf(state)[0]).toMatchObject({ x: 1, size: MIN_TEXT_SIZE, offset: 0 })
     })
   })
 })

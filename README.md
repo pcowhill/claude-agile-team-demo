@@ -31,7 +31,11 @@ entries can be time-remapped (#138, #141, #144): any number of speed segments
 (e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
 (freeze one frame for a chosen time), edited on the timeline and honored by
 the preview's playback, scrubbing, and sequence timing — and by the exported
-file, which plays the same remapped timing. It is
+file, which plays the same remapped timing. Text overlays (#139) — titles,
+subtitles, labels — can be added to the timeline with editable content
+(multi-line), timing, position, font (curated system stacks), size relative
+to the frame, any color, and bold/italic, rendering in the preview above the
+composed frame for their window (export rendering is #142). It is
 deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**

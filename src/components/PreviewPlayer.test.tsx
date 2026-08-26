@@ -943,3 +943,118 @@ describe('PreviewPlayer', () => {
     })
   })
 })
+
+describe('text overlays (#139)', () => {
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c1',
+    name: 'first.webm',
+    duration: 10,
+    url: 'blob:first',
+    inPoint: 0,
+    outPoint: 10,
+  }
+  const overlay = {
+    id: 't1',
+    content: 'Hello\nworld',
+    offset: 2,
+    duration: 3,
+    x: 0.25,
+    y: 0.75,
+    font: 'serif',
+    size: 0.1,
+    color: '#00ff88',
+    bold: true,
+    italic: true,
+  } as const
+
+  const seekTo = (value: string) =>
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value },
+    })
+
+  it('shows an overlay only during its window, styled and positioned as configured', () => {
+    render(<PreviewPlayer timeline={{ entries: [baseEntry], texts: [overlay] }} />)
+
+    // Before the window: nothing.
+    expect(screen.queryByTestId('preview-text-0')).not.toBeInTheDocument()
+
+    seekTo('2')
+    const text = screen.getByTestId('preview-text-0')
+    expect(text).toHaveTextContent('Hello world')
+    expect(text.style.left).toBe('25%')
+    expect(text.style.top).toBe('75%')
+    expect(text.style.color).toBe('rgb(0, 255, 136)')
+    expect(text.style.fontFamily).toContain('Georgia')
+    expect(text.style.fontWeight).toBe('700')
+    expect(text.style.fontStyle).toBe('italic')
+    // Sized as a fraction of the frame height, via container-query units
+    // against the stage.
+    expect(text.style.fontSize).toBe('10cqh')
+
+    // Half-open window end: at offset + duration the overlay is gone.
+    seekTo('4.99')
+    expect(screen.getByTestId('preview-text-0')).toBeInTheDocument()
+    seekTo('5')
+    expect(screen.queryByTestId('preview-text-0')).not.toBeInTheDocument()
+  })
+
+  it('stacks overlapping overlays in add order and shows each for its own window', () => {
+    const second = {
+      ...overlay,
+      id: 't2',
+      content: 'On top',
+      offset: 3,
+      duration: 10,
+      bold: false,
+      italic: false,
+    }
+    render(<PreviewPlayer timeline={{ entries: [baseEntry], texts: [overlay, second] }} />)
+
+    seekTo('3.5')
+    const stage = screen.getByTestId('preview-text-0').parentElement as HTMLElement
+    const rendered = Array.from(stage.querySelectorAll('.preview-text')).map(
+      (element) => element.textContent,
+    )
+    // Both active; document order is add order — the later-added renders on
+    // top (same z-index, later in the paint order).
+    expect(rendered).toEqual(['Hello\nworld', 'On top'])
+
+    seekTo('9')
+    expect(screen.queryByTestId('preview-text-0')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-text-1')).toHaveTextContent('On top')
+  })
+
+  it('renders an overlay above a transition overlap, inside the same stage', () => {
+    const withTransition = {
+      entries: [
+        { ...baseEntry, duration: 4, outPoint: 4 },
+        { ...baseEntry, id: 'e2', clipId: 'c2', name: 'second.webm', url: 'blob:second', duration: 4, outPoint: 4 },
+      ],
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade' as const, duration: 1 }],
+      texts: [{ ...overlay, offset: 0, duration: 99 }],
+    }
+    render(<PreviewPlayer timeline={withTransition} />)
+
+    // Mid-overlap (sequence time 3.5 of 7): the incoming element is live and
+    // the overlay still renders, after it in the stage's paint order.
+    seekTo('3.5')
+    const incoming = screen.getByTestId('preview-video-incoming')
+    const text = screen.getByTestId('preview-text-0')
+    expect(text).toBeInTheDocument()
+    expect(incoming.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('an overlay whose window lies past the sequence end never shows', () => {
+    render(
+      <PreviewPlayer
+        timeline={{
+          entries: [{ ...baseEntry, duration: 4, outPoint: 4 }],
+          texts: [{ ...overlay, offset: 10 }],
+        }}
+      />,
+    )
+    seekTo('4')
+    expect(screen.queryByTestId('preview-text-0')).not.toBeInTheDocument()
+  })
+})
