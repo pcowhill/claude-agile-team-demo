@@ -333,4 +333,28 @@ describe('default effect placement (#141)', () => {
     })
     expect(defaultPauseFor([], 0)).toBeNull()
   })
+
+  it('defaultPauseFor skips instants an existing pause already occupies (#153)', () => {
+    // A pause is a zero-width window: instant 0 still bounds the gap, but a
+    // second "+ Pause" there would stack two pauses on one instant — place
+    // into the gap's interior instead.
+    expect(defaultPauseFor([effect(pause(0, 1), 'p1')], 10)).toEqual({
+      kind: 'pause',
+      at: 5,
+      hold: 1,
+    })
+    // The gap behind a segment starts on the pause bounding it: same skip.
+    expect(
+      defaultPauseFor([effect(speed(0, 3, 2), 'r1'), effect(pause(3, 1), 'p1')], 10),
+    ).toEqual({ kind: 'pause', at: 6.5, hold: 1 })
+    // A free earlier gap still wins over a later occupied one.
+    expect(
+      defaultPauseFor([effect(speed(2, 4, 2), 'r1'), effect(pause(0, 1), 'p1')], 10),
+    ).toEqual({ kind: 'pause', at: 1, hold: 1 })
+    // Fully covered by segments with the end instant already paused:
+    // nowhere left — the affordance disables.
+    expect(
+      defaultPauseFor([effect(speed(0, 10, 2), 'r1'), effect(pause(10, 1), 'p1')], 10),
+    ).toBeNull()
+  })
 })

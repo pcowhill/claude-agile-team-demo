@@ -721,7 +721,7 @@ describe('timeline', () => {
       expect(factor).toHaveValue(0.5)
     })
 
-    it('disables the speed add when segments cover the trimmed range, never the pause add', async () => {
+    it('disables the speed add when segments cover the range; the pause add once the end is held', async () => {
       await addEntry(2)
 
       const addSpeed = screen.getByRole('button', {
@@ -737,6 +737,27 @@ describe('timeline', () => {
       expect(
         screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(2)
+      // Segments cover every instant and the end already holds a pause:
+      // there is nowhere left to place another (#153).
+      expect(addPause).toBeDisabled()
+    })
+
+    it('places a second default pause on a distinct instant (#153)', async () => {
+      await addEntry()
+      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
+      await userEvent.click(addPause)
+      await userEvent.click(addPause)
+      // The first pause holds instant 0; a second "+ Pause" must not stack
+      // onto the same instant — it lands mid-gap instead.
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 2 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(5)
+      // Both holds count in the remapped total.
+      expect(screen.getByText(/12s remapped/)).toBeInTheDocument()
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:12')
     })
 
     it('removes an effect, renumbering the rest of its kind', async () => {

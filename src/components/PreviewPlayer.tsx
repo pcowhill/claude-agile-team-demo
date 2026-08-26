@@ -442,17 +442,34 @@ export function PreviewPlayer({
       if (hold.outputNow < hold.outputEnd) {
         outputInto = hold.outputNow
       } else {
-        // Plateau over: resume the element from the frozen instant — unless
-        // the entry's source is already consumed (an end-of-entry pause), in
-        // which case the next branch below hands over. play() on an ended
-        // element would restart it from the beginning.
         outputInto = hold.outputEnd
-        holdRef.current = null
-        lastRelSourceRef.current = hold.at
-        if (hold.at < trimmed - BOUNDARY_EPSILON && !video.ended) {
+        // Plateau over: re-resolve the position rather than assume playback
+        // resumes — a second pause at the same instant plateaus again right
+        // where this one ends (#153), so back-to-back holds chain into
+        // their combined duration instead of the sequence clock jumping
+        // over the later one. Chained plateaus share the frozen instant, so
+        // the element simply stays paused where it is.
+        const chained = remapPlaybackAt(trimmed, effects, hold.outputEnd)
+        if (chained.hold !== null && chained.hold.outputEnd > hold.outputEnd) {
+          holdRef.current = {
+            at: chained.sourceTime,
+            outputEnd: chained.hold.outputEnd,
+            outputNow: hold.outputEnd,
+            lastNow: now,
+          }
+          lastRelSourceRef.current = chained.sourceTime
+        } else if (hold.at < trimmed - BOUNDARY_EPSILON && !video.ended) {
+          // Resume the element from the frozen instant — unless the entry's
+          // source is already consumed (an end-of-entry pause), in which
+          // case the branch below hands over. play() on an ended element
+          // would restart it from the beginning.
+          holdRef.current = null
+          lastRelSourceRef.current = hold.at
           video.playbackRate = rateAtSourceTime(effects, hold.at)
           video.play().catch(() => {})
         } else {
+          holdRef.current = null
+          lastRelSourceRef.current = hold.at
           reachedOut = true
         }
       }
