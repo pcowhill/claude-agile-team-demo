@@ -1,6 +1,17 @@
-import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
-import { audioTracksOf, boundaryTransitions, isSlateEntry, isStillEntry, totalDuration } from './timeline'
-import { audioTrackPlaybackAt, sequenceTimeAt } from './playback'
+import type { AudioTrack, RemapEffect, TimelineEntry, TimelineState, TransitionType } from './timeline'
+import {
+  audioTracksOf,
+  boundaryTransitions,
+  effectiveDuration,
+  entryOutputDuration,
+  isSlateEntry,
+  isStillEntry,
+  remapsForEntry,
+  remapsOf,
+  totalDuration,
+} from './timeline'
+import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
+import { audioTrackPlaybackAt, entryStartTime } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
 import { transitionLayerSpec } from './transitionRender'
 import { zoomAt } from './zoom'
@@ -313,7 +324,181 @@ export function syncTrackReplay(
  * in discrete steps, so an exact out-point comparison would record frames
  * past the trim.
  */
-const OUT_POINT_EPSILON = 0.02
+export const OUT_POINT_EPSILON = 0.02
+
+/**
+ * Tolerance (seconds) between the incoming replay element's clock and the
+ * source position the remapped mapping expects during a transition overlap
+ * (#144) — the export-side twin of the preview's constant (#141): with the
+ * playback rate driven every frame the drift stays tiny, so only visible
+ * strays re-seek.
+ */
+export const VIDEO_DRIFT_EPSILON = 0.25
+
+/**
+ * A pause plateau in progress on the replaying entry (#144): the element is
+ * frozen on `at` while the export's wall clock advances the entry's output
+ * position from `outputNow` to `outputEnd` — the same still-clock pattern the
+ * preview uses for holds (#141). All fields are seconds; `at` is relative to
+ * the entry's in-point, the output fields are into the entry.
+ */
+export interface RemapHoldState {
+  at: number
+  outputEnd: number
+  outputNow: number
+}
+
+/** Per-entry replay state the remap driver advances frame by frame (#144). */
+export interface RemapReplayState {
+  hold: RemapHoldState | null
+  /**
+   * The last observed source position relative to the in-point, for
+   * detecting that the element's clock crossed a pause instant between
+   * frames — the preview's detection (#141), shared semantics.
+   */
+  lastRelSource: number
+}
+
+/** What the replay element should do this frame (#144). */
+export type RemapReplayAction =
+  /** Keep playing; carry this playback rate (1 outside every segment). */
+  | { kind: 'play'; rate: number }
+  /** Stay paused, frozen on `relSource` (relative to the in-point). */
+  | { kind: 'freeze'; relSource: number }
+  /** A hold just ended mid-entry: resume playing from the frozen instant. */
+  | { kind: 'resume'; rate: number }
+  /** The entry has fully played out — source consumed, no hold pending. */
+  | { kind: 'finished' }
+
+export interface RemapReplayFrame {
+  state: RemapReplayState
+  /** Output seconds into the entry this frame represents. */
+  outputInto: number
+  action: RemapReplayAction
+}
+
+/**
+ * The replay state an entry starts from `outputInto` output seconds in
+ * (#144): entry start (0) or however far a transition overlap already
+ * carried it. Inside a pause plateau the element belongs frozen on the
+ * returned `relSource` with a hold pending; otherwise it belongs playing
+ * from there at `rate`.
+ */
+export function initialRemapReplay(
+  trimmed: number,
+  effects: readonly RemapEffect[],
+  outputInto: number,
+): { state: RemapReplayState; relSource: number; rate: number } {
+  const at = remapPlaybackAt(trimmed, effects, outputInto)
+  return {
+    state: {
+      hold: at.hold
+        ? {
+            at: at.sourceTime,
+            outputEnd: at.hold.outputEnd,
+            outputNow: Math.min(Math.max(outputInto, at.hold.outputStart), at.hold.outputEnd),
+          }
+        : null,
+      lastRelSource: at.sourceTime,
+    },
+    relSource: at.sourceTime,
+    rate: at.rate,
+  }
+}
+
+/**
+ * Advances one entry's remapped replay by one frame (#144) — the pure
+ * schedule the export loop drives its element with, mirroring the preview's
+ * tick (#141): outside a pause the element clock is authoritative and maps
+ * to output through the entry's effects (the active segment's factor as its
+ * playback rate); crossing a pause instant between frames freezes the
+ * element on that exact instant while wall time (`dt` per frame) advances
+ * the output position through the hold; when a plateau ends the position is
+ * re-resolved, so back-to-back plateaus (two pauses at one instant) chain
+ * into their combined hold rather than being skipped. An entry with no
+ * effects reduces exactly to the pre-remap math: rate 1, output = source,
+ * finished at the trimmed length.
+ *
+ * `elementRelSource` is the element clock relative to the entry's in-point
+ * (ignored while a hold freezes the element); `dt` is wall seconds since the
+ * previous frame (only consumed by holds). Effects must be normalized, as
+ * everywhere else.
+ */
+export function advanceRemapReplay(
+  trimmed: number,
+  effects: readonly RemapEffect[],
+  state: RemapReplayState,
+  elementRelSource: number,
+  elementEnded: boolean,
+  dt: number,
+): RemapReplayFrame {
+  if (state.hold !== null) {
+    const outputNow = state.hold.outputNow + Math.max(0, dt)
+    if (outputNow < state.hold.outputEnd) {
+      return {
+        state: { hold: { ...state.hold, outputNow }, lastRelSource: state.lastRelSource },
+        outputInto: outputNow,
+        action: { kind: 'freeze', relSource: state.hold.at },
+      }
+    }
+    // Plateau over. Re-resolve rather than assume playback: a second pause
+    // at the same instant plateaus again immediately (#153 documents the
+    // preview skipping this; the export renders the model's combined hold).
+    const done = state.hold.outputEnd
+    const resolved = remapPlaybackAt(trimmed, effects, done)
+    if (resolved.hold !== null && resolved.hold.outputEnd > done) {
+      return {
+        state: {
+          hold: { at: resolved.sourceTime, outputEnd: resolved.hold.outputEnd, outputNow: done },
+          lastRelSource: resolved.sourceTime,
+        },
+        outputInto: done,
+        action: { kind: 'freeze', relSource: resolved.sourceTime },
+      }
+    }
+    const ended = { hold: null, lastRelSource: state.hold.at }
+    if (state.hold.at >= trimmed - OUT_POINT_EPSILON || elementEnded) {
+      // An end-of-entry pause: the source is consumed, nothing to resume.
+      return { state: ended, outputInto: done, action: { kind: 'finished' } }
+    }
+    return {
+      state: ended,
+      outputInto: done,
+      action: { kind: 'resume', rate: rateAtSourceTime(effects, state.hold.at) },
+    }
+  }
+  const relSource = elementRelSource
+  const sourceDone = relSource >= trimmed - OUT_POINT_EPSILON || elementEnded
+  // Crossing a pause instant between frames starts its hold. An
+  // end-of-entry pause is reached through `sourceDone` — element clocks
+  // stop just short of the exact out-point.
+  const crossed = effects.find(
+    (effect) =>
+      effect.kind === 'pause' &&
+      effect.at > state.lastRelSource &&
+      (effect.at <= relSource || sourceDone),
+  )
+  if (crossed !== undefined && crossed.kind === 'pause') {
+    const outputStart = outputTimeAtSource(trimmed, effects, crossed.at)
+    return {
+      state: {
+        hold: { at: crossed.at, outputEnd: outputStart + crossed.hold, outputNow: outputStart },
+        lastRelSource: crossed.at,
+      },
+      outputInto: outputStart,
+      action: { kind: 'freeze', relSource: crossed.at },
+    }
+  }
+  const outputInto = outputTimeAtSource(trimmed, effects, relSource)
+  if (sourceDone) {
+    return { state: { hold: null, lastRelSource: relSource }, outputInto, action: { kind: 'finished' } }
+  }
+  return {
+    state: { hold: null, lastRelSource: relSource },
+    outputInto,
+    action: { kind: 'play', rate: rateAtSourceTime(effects, relSource) },
+  }
+}
 
 /** Fallback canvas size when no source reports its dimensions. */
 const FALLBACK_WIDTH = 640
@@ -680,11 +865,15 @@ export async function exportTimeline(
 
   /**
    * Starts the incoming clip mid-overlap without blocking the draw loop. The
-   * target source time is computed at the moment playback can actually start
+   * target position is computed at the moment playback can actually start
    * (metadata permitting), compensating for however far the outgoing entry
    * has advanced past the overlap's start by then (`elapsedInOverlap` reads
-   * the outgoing clock — element or wall, #140) — so a slow metadata load
-   * degrades sync gracefully instead of drifting the whole overlap.
+   * the outgoing clock — element or wall, #140, in *output* seconds, #144) —
+   * so a slow metadata load degrades sync gracefully instead of drifting the
+   * whole overlap. The incoming entry's remap effects resolve that elapsed
+   * output to a source instant and rate; inside a pause plateau the element
+   * is cued to the frozen frame and left paused — the per-frame overlap sync
+   * plays it when the plateau ends.
    */
   const engageIncoming = (
     element: HTMLVideoElement,
@@ -692,8 +881,16 @@ export async function exportTimeline(
     next: TimelineEntry,
   ) => {
     const start = () => {
-      element.currentTime = next.inPoint + Math.max(0, elapsedInOverlap())
-      playReplay(element).catch(() => {})
+      const into = remapPlaybackAt(
+        effectiveDuration(next),
+        remapsForEntry(timeline, next.id),
+        Math.max(0, elapsedInOverlap()),
+      )
+      element.currentTime = next.inPoint + into.sourceTime
+      if (into.hold === null) {
+        element.playbackRate = into.rate
+        playReplay(element).catch(() => {})
+      }
     }
     if (element.src === next.url && element.readyState > 0) {
       start()
@@ -743,11 +940,23 @@ export async function exportTimeline(
     // Seconds of the upcoming still already shown inside the previous
     // boundary's overlap (#140) — its wall clock starts that far in.
     let stillCarryover = 0
+    // Replay state carried across a transition handover into a remapped
+    // entry (#144): where the incoming element landed in the mapping, and
+    // any pause plateau it landed inside of.
+    let carriedState: RemapReplayState = { hold: null, lastRelSource: 0 }
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index]
       const still = isStillEntry(entry)
       const overlap = boundaries[index]
       const next = overlap !== undefined ? entries[index + 1] : undefined
+      // The entry's remap effects (#144). Stills carry none by the model's
+      // invariant (#138), so their pre-remap wall-clock path is untouched.
+      const effects = still ? [] : remapsForEntry(timeline, entry.id)
+      const trimmed = effectiveDuration(entry)
+      // Where entry `index` begins in the sequence, and how much output the
+      // entry occupies — both remap-aware since #150.
+      const startTime = entryStartTime(timeline, index)
+      const outDuration = entryOutputDuration(entry, remapsOf(timeline))
       // A still has no element clock (#140): the export's own wall clock
       // stands in for it, starting where the entry starts (or however far
       // into it the previous overlap already showed it). The recording is
@@ -757,14 +966,26 @@ export async function exportTimeline(
       const stillBase = entry.inPoint + (continuing ? stillCarryover : 0)
       const sourceTimeNow = () =>
         still ? stillBase + (performance.now() - stillStartedAt) / 1000 : primary.currentTime
+      let replayState: RemapReplayState = continuing ? carriedState : { hold: null, lastRelSource: 0 }
       if (!continuing && !still) {
-        await cueTo(primary, entry.url, entry.inPoint)
+        const initial = initialRemapReplay(trimmed, effects, 0)
+        replayState = initial.state
+        await cueTo(primary, entry.url, entry.inPoint + initial.relSource)
         throwIfAborted()
         // The entry's steady gain (#104): volume × mute, no ramp outside a
         // transition. Before #104 this was implicitly 1.
         primary.volume = videoEntryGain(entry)
         drawFrame(videoFrame(primary), index)
-        await playReplay(primary)
+        if (replayState.hold === null) {
+          // The rate at the cue point (#144): 1 for an unremapped entry,
+          // the segment's factor when the entry starts inside one.
+          primary.playbackRate = initial.rate
+          await playReplay(primary)
+        } else if (!primary.paused) {
+          // The entry opens on a pause plateau: hold the frozen first frame;
+          // the draw loop advances the hold and resumes playback after it.
+          primary.pause()
+        }
       }
       // Preload the incoming clip's metadata while the outgoing entry plays,
       // so engaging the overlap is a quick seek rather than a full load.
@@ -778,28 +999,84 @@ export async function exportTimeline(
       ) {
         secondary.src = next.url
       }
-      const overlapStart = overlap !== undefined ? entry.outPoint - overlap.duration : Infinity
+      // The overlap opens where the entry's remaining *output* equals the
+      // transition's duration (#144) — for an entry without effects, exactly
+      // the old source-time math.
+      const overlapStartOut = overlap !== undefined ? outDuration - overlap.duration : Infinity
       let engaged = false
-      // Draw every frame until the entry's out-point (or the source's actual
-      // end, whichever comes first), compositing the incoming clip once the
+      // The frame loop's latest output position into the entry, read by the
+      // engage closure below (it fires on a later metadata load).
+      let lastOutputInto = 0
+      // Draw every frame until the entry has played out its remapped output
+      // (or the source's actual end), compositing the incoming clip once the
       // overlap window opens.
       await new Promise<void>((resolve, reject) => {
+        let lastNow = performance.now()
         const tick = () => {
           if (signal?.aborted) {
             reject(canceled())
             return
           }
-          const sourceTime = sourceTimeNow()
+          const now = performance.now()
+          const dt = (now - lastNow) / 1000
+          lastNow = now
+          // The entry's position this frame, in output seconds into it —
+          // what the sequence position and transition progress are measured
+          // in (#144). For an effect-free entry it equals the source elapsed.
+          let outputInto: number
+          let finished: boolean
+          if (still) {
+            const sourceTime = sourceTimeNow()
+            outputInto = sourceTime - entry.inPoint
+            finished = sourceTime >= entry.outPoint - OUT_POINT_EPSILON
+          } else {
+            const frame = advanceRemapReplay(
+              trimmed,
+              effects,
+              replayState,
+              primary.currentTime - entry.inPoint,
+              primary.ended,
+              dt,
+            )
+            replayState = frame.state
+            outputInto = frame.outputInto
+            finished = frame.action.kind === 'finished'
+            switch (frame.action.kind) {
+              case 'play':
+                if (primary.playbackRate !== frame.action.rate) {
+                  primary.playbackRate = frame.action.rate
+                }
+                // A handover can land exactly on a plateau's end, leaving the
+                // element frozen there — playing is always right outside a hold.
+                if (primary.paused) playReplay(primary).catch(() => {})
+                break
+              case 'freeze': {
+                // Entering (or holding) a pause plateau: freeze the element on
+                // the exact configured instant. Setting currentTime reflects
+                // synchronously, so this seeks once, not every frame.
+                if (!primary.paused) primary.pause()
+                const at = entry.inPoint + frame.action.relSource
+                if (Math.abs(primary.currentTime - at) > 0.001) primary.currentTime = at
+                break
+              }
+              case 'resume':
+                primary.playbackRate = frame.action.rate
+                playReplay(primary).catch(() => {})
+                break
+            }
+          }
+          lastOutputInto = outputInto
           let overlayFrame: OverlayFrame | null = null
-          if (overlap !== undefined && next !== undefined && sourceTime >= overlapStart) {
-            const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
+          if (overlap !== undefined && next !== undefined && outputInto >= overlapStartOut) {
+            const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
             if (isStillEntry(next)) {
               // An incoming still is always ready (#140): compose its <img>
               // per the effect. It has no audio, so only the outgoing
-              // entry's gain ramps.
+              // entry's gain ramps. (A still carries no remaps, so output
+              // elapsed is exactly its source elapsed.)
               if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
               overlayFrame = {
-                layer: stillFrame(next, next.inPoint + (sourceTime - overlapStart)),
+                layer: stillFrame(next, next.inPoint + (outputInto - overlapStartOut)),
                 index: index + 1,
                 type: overlap.type,
                 progress,
@@ -810,12 +1087,40 @@ export async function exportTimeline(
                 // The incoming entry starts at the foot of its ramp — which is
                 // 0 whatever its volume, and stays 0 throughout if it is muted.
                 secondary.volume = videoEntryGain(next, 0)
-                engageIncoming(secondary, () => sourceTimeNow() - overlapStart, next)
+                engageIncoming(secondary, () => lastOutputInto - overlapStartOut, next)
               }
               // Until the incoming element has a decodable frame, keep drawing
               // (and sounding) the outgoing clip alone — a late engage shortens
               // the effect rather than blending against black or dropping audio.
               if (secondary.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                // The incoming entry's remap state this far into the overlap
+                // (#144): where its source should stand, at what rate — or
+                // frozen inside a pause plateau. Its element free-runs between
+                // frames; the mapping is authoritative, so a clock that strays
+                // visibly is snapped back — the preview's drift correction
+                // (#141), against the remapped mapping.
+                const inState = remapPlaybackAt(
+                  effectiveDuration(next),
+                  remapsForEntry(timeline, next.id),
+                  outputInto - overlapStartOut,
+                )
+                const expected = next.inPoint + inState.sourceTime
+                if (inState.hold !== null) {
+                  if (!secondary.paused) secondary.pause()
+                  if (Math.abs(secondary.currentTime - expected) > VIDEO_DRIFT_EPSILON) {
+                    secondary.currentTime = expected
+                  }
+                } else {
+                  if (secondary.playbackRate !== inState.rate) {
+                    secondary.playbackRate = inState.rate
+                  }
+                  if (secondary.paused) {
+                    secondary.currentTime = expected
+                    playReplay(secondary).catch(() => {})
+                  } else if (Math.abs(secondary.currentTime - expected) > VIDEO_DRIFT_EPSILON) {
+                    secondary.currentTime = expected
+                  }
+                }
                 // The transition crossfade rides each entry's own gain (#104),
                 // so a muted or half-volume entry stays that way mid-effect.
                 if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
@@ -829,16 +1134,24 @@ export async function exportTimeline(
               }
             }
           }
-          drawFrame(still ? stillFrame(entry, sourceTime) : videoFrame(primary), index, overlayFrame)
-          const sequenceTime = sequenceTimeAt(timeline, index, sourceTime)
+          // A still's layer time is its clock read above (inPoint + output
+          // elapsed — stills carry no remaps); a video draws its element.
+          drawFrame(
+            still ? stillFrame(entry, entry.inPoint + outputInto) : videoFrame(primary),
+            index,
+            overlayFrame,
+          )
+          const sequenceTime = startTime + outputInto
           // Every frame re-syncs the audio tracks against the export clock,
           // exactly as the preview's rAF loop does (#105): windows open and
-          // close on time and fades record as continuous ramps.
+          // close on time and fades record as continuous ramps — the clock
+          // keeps advancing through pause holds (#144), so sequence-anchored
+          // tracks are unaffected by remaps, matching the #141 decision.
           for (const recorded of recordedTracks) {
             syncTrackReplay(recorded.track, recorded.element, sequenceTime)
           }
           reportProgress(sequenceTime / total)
-          if (sourceTime >= entry.outPoint - OUT_POINT_EPSILON || (!still && primary.ended)) {
+          if (finished) {
             resolve()
             return
           }
@@ -864,12 +1177,28 @@ export async function exportTimeline(
         const incoming = secondary
         secondary = primary
         primary = incoming
+        // Where the handover lands in the incoming entry's mapping (#144):
+        // `overlap.duration` output seconds in. For an unremapped entry this
+        // is the identity — source elapsed equals output elapsed, no hold.
+        const landing = initialRemapReplay(
+          effectiveDuration(next),
+          remapsForEntry(timeline, next.id),
+          overlap.duration,
+        )
         if (!engaged) {
           // The overlap was shorter than a frame: cue the incoming clip
           // directly to where the handover lands.
-          await cueTo(primary, next.url, next.inPoint + overlap.duration)
-          await playReplay(primary)
+          await cueTo(primary, next.url, next.inPoint + landing.relSource)
+          if (landing.state.hold === null) {
+            primary.playbackRate = landing.rate
+            await playReplay(primary)
+          } else if (!primary.paused) {
+            // The handover lands inside a pause plateau: stay frozen; the
+            // next entry's draw loop advances the hold and resumes after it.
+            primary.pause()
+          }
         }
+        carriedState = landing.state
         stillCarryover = 0
         continuing = true
       } else {
