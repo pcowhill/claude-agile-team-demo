@@ -343,18 +343,34 @@ export function defaultSpeedFor(
 }
 
 /**
- * Where a UI-added pause should land (#141): the first free gap's start, or
- * — with every instant covered by segments — the very end of the trimmed
- * range, freezing the final frame. A pause occupies no source time, so only
- * an empty entry (trimmed length 0) has nowhere to put one.
+ * Where a UI-added pause should land (#141): the first genuinely free
+ * instant — a gap's start when no pause already sits there, otherwise the
+ * gap's midpoint (a gap's interior never holds a window, so it is always
+ * free) — or, with every instant covered by segments, the very end of the
+ * trimmed range, freezing the final frame. A pause occupies no source
+ * width, so a gap's *start* can coincide with an existing pause's instant
+ * (a zero-width window bounds a gap without filling any of it); placing a
+ * second pause onto an occupied instant is legal model state but never what
+ * clicking "+ Pause" again means (#153), so occupied instants are skipped.
+ * Null — the affordance disables — for an empty entry (trimmed length 0),
+ * or when segments cover the whole range and a pause already holds its end.
  */
 export function defaultPauseFor(
   effects: readonly RemapEffect[],
   trimmedLength: number,
 ): PauseRemapSpec | null {
   if (trimmedLength <= 0) return null
-  const gap = freeGaps(effects, trimmedLength)[0]
-  return { kind: 'pause', at: gap?.start ?? trimmedLength, hold: DEFAULT_PAUSE_HOLD }
+  const occupied = new Set(
+    effects.filter((effect) => effect.kind === 'pause').map((effect) => effect.at),
+  )
+  for (const gap of freeGaps(effects, trimmedLength)) {
+    if (!occupied.has(gap.start)) return { kind: 'pause', at: gap.start, hold: DEFAULT_PAUSE_HOLD }
+    const midpoint = gap.start + gap.length / 2
+    if (!occupied.has(midpoint)) return { kind: 'pause', at: midpoint, hold: DEFAULT_PAUSE_HOLD }
+  }
+  return occupied.has(trimmedLength)
+    ? null
+    : { kind: 'pause', at: trimmedLength, hold: DEFAULT_PAUSE_HOLD }
 }
 
 /**

@@ -156,3 +156,47 @@ test('seeking lands inside remapped regions on the right frame', async ({ page }
     .poll(async () => video.evaluate((el: HTMLVideoElement) => el.currentTime))
     .toBeCloseTo(0.8, 1)
 })
+
+test('two pauses on one instant hold for their combined duration (#153)', async ({ page }) => {
+  await page.goto('./')
+  await addTrimmedEntry(page)
+
+  // Author coincident pauses deliberately (placement no longer creates them
+  // by default): add a pause and move it to 0.5, add a second (it lands on a
+  // free instant), then move it to 0.5 as well. The model counts both holds
+  // — output [0.5, 2.5] is one combined 2s plateau on a 3s total.
+  const addPause = page.getByRole('button', { name: 'Add pause to clip.webm at position 1' })
+  await addPause.click()
+  const first = page.getByRole('spinbutton', {
+    name: 'Pause 1 position of clip.webm at position 1 in seconds',
+  })
+  await first.fill('0.5')
+  await first.blur()
+  await addPause.click()
+  // The new pause lands at a free instant before 0.5, becoming Pause 1.
+  const added = page.getByRole('spinbutton', {
+    name: 'Pause 1 position of clip.webm at position 1 in seconds',
+  })
+  await expect(added).not.toHaveValue('0.5')
+  await added.fill('0.5')
+  await added.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:03')
+
+  // Play the sequence out. The wall time it takes is the discriminator: with
+  // both holds honored playback lasts ~3s; a preview that skips the second
+  // plateau (the bug) finishes in ~2s and fails the lower bound.
+  const video = page.getByTestId('preview-video')
+  const started = Date.now()
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  // The element freezes on the shared instant during the combined hold.
+  await expect
+    .poll(async () => video.evaluate((el: HTMLVideoElement) => el.paused), { timeout: 10_000 })
+    .toBe(true)
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible({
+    timeout: 15_000,
+  })
+  const elapsed = Date.now() - started
+  expect(elapsed).toBeGreaterThan(2600)
+  expect(elapsed).toBeLessThan(6000)
+  await expect(page.getByTestId('preview-position')).toHaveText('0:03 / 0:03')
+})
