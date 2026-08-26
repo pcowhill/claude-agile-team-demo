@@ -15,6 +15,8 @@ interface MediaLibraryProps {
   onImportFiles: (files: File[]) => void
   onDismissFailures: () => void
   onAddToTimeline: (clip: LibraryClip) => void
+  /** Extracts a video clip's audio into a new library clip (#154). */
+  onExtractAudio: (clip: LibraryClip) => void
   onRemoveClip: (clip: LibraryClip) => void
   /** Reorders the stored clip list (#123). */
   onSortClips: (key: ClipSortKey, direction: ClipSortDirection) => void
@@ -42,6 +44,7 @@ export function MediaLibrary({
   onImportFiles,
   onDismissFailures,
   onAddToTimeline,
+  onExtractAudio,
   onRemoveClip,
   onSortClips,
   timelineUseCount,
@@ -161,6 +164,17 @@ export function MediaLibrary({
               >
                 Add
               </button>
+              {/* Only a video has audio to pull out (#154): the extracted
+                  clip appears in this list as ordinary audio. */}
+              {clip.kind === 'video' && (
+                <button
+                  type="button"
+                  aria-label={`Extract audio from ${clip.name}`}
+                  onClick={() => onExtractAudio(clip)}
+                >
+                  Extract audio
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={`Remove ${clip.name} from library`}

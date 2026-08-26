@@ -15,7 +15,9 @@ asks you to re-select the original media files and matches them back up by
 filename and duration. Audio files (music, voice-overs, sound effects) can
 be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
-freely (#102). The preview plays them mixed with the videos' own audio
+freely (#102). A video clip's audio can also be extracted into a standalone
+audio clip in the library (#154), which keeps working even after the video
+itself is removed. The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
 video entry's volume and mute (#104), and the exported file carries that
 same mix (#105). Still images import into the media library too (#137),

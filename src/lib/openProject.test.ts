@@ -96,6 +96,52 @@ describe('matchFileToClip', () => {
   })
 })
 
+describe('matchFileToClip for extracted audio clips (#154)', () => {
+  // An extracted clip has no file of its own on disk: its media is the
+  // source video file, recorded by filename in extractedFrom.
+  const clips = [
+    { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video' },
+    { id: 'x', name: 'holiday.mp4 (audio)', duration: 10, kind: 'audio', extractedFrom: 'holiday.mp4' },
+  ] as const
+
+  it('the source video file satisfies the extracted clip once the video is linked', () => {
+    // First pick of holiday.mp4 links the video clip (its own name matches)…
+    expect(matchFileToClip(clips, new Set(), 'holiday.mp4', 10, 'video')).toEqual({
+      kind: 'matched',
+      clipId: 'v',
+    })
+    // …and picking the same file again links the extracted audio clip, even
+    // though the file probes as video.
+    expect(matchFileToClip(clips, new Set(['v']), 'holiday.mp4', 10, 'video')).toEqual({
+      kind: 'matched',
+      clipId: 'x',
+    })
+  })
+
+  it('still checks the duration — a different video of the same name is refused', () => {
+    const result = matchFileToClip(clips, new Set(['v']), 'holiday.mp4', 25, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') {
+      // A duration mismatch, not a kind clash: the video file is the right
+      // sort of file for an extracted audio clip.
+      expect(result.reason).toContain('expected a duration of 10s')
+    }
+  })
+
+  it('does not let an unrelated audio clip claim a video file', () => {
+    const plain = [{ id: 'd', name: 'holiday.mp4', duration: 10, kind: 'audio' }] as const
+    const result = matchFileToClip(plain, new Set(), 'holiday.mp4', 10, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') expect(result.reason).toContain('is a video file')
+  })
+
+  it('reports both clips linked when the file is picked a third time', () => {
+    const result = matchFileToClip(clips, new Set(['v', 'x']), 'holiday.mp4', 10, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') expect(result.reason).toContain('already linked')
+  })
+})
+
 describe('matchFileToClip for still images (#137)', () => {
   const clips = [
     { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video' },

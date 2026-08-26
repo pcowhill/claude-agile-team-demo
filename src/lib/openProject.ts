@@ -66,7 +66,13 @@ export function matchFileToClip(
   probedKind: MediaKind,
   probedDimensions?: ProbedDimensions,
 ): MatchResult {
-  const sameName = clips.filter((clip) => clip.name === fileName)
+  // An audio clip extracted from a video (#154) has no file of its own on
+  // disk: its media *is* the source video file, recorded by filename in
+  // `extractedFrom`. The video file re-links it — same reason extraction
+  // needs no transcoding: a media element plays a video container's audio.
+  const claimsFile = (clip: ProjectClip): boolean =>
+    clip.name === fileName || (clip.kind === 'audio' && clip.extractedFrom === fileName)
+  const sameName = clips.filter(claimsFile)
   if (sameName.length === 0) {
     return { kind: 'no-match', reason: `"${fileName}" is not one of this project's media files.` }
   }
@@ -74,17 +80,22 @@ export function matchFileToClip(
   if (candidates.length === 0) {
     return { kind: 'no-match', reason: `"${fileName}" is already linked.` }
   }
+  const kindSatisfied = (clip: ProjectClip): boolean =>
+    clip.kind === probedKind ||
+    (clip.kind === 'audio' && clip.extractedFrom === fileName && probedKind === 'video')
   const match = candidates.find(
     (clip) =>
-      clip.kind === probedKind &&
+      kindSatisfied(clip) &&
       durationsMatch(clip.duration, probedDuration) &&
       (clip.kind !== 'image' || imageContentMatches(clip, probedDimensions)),
   )
   if (match === undefined) {
     // Name the more surprising mismatch first: a kind clash means the wrong
     // sort of file altogether; duration/dimensions mean likely different
-    // content under the same name.
-    const kindClash = candidates.every((clip) => clip.kind !== probedKind)
+    // content under the same name. (An extracted audio clip accepts its
+    // source video file, so that pairing is not a clash — its duration
+    // mismatch reports below like any other.)
+    const kindClash = candidates.every((clip) => !kindSatisfied(clip))
     if (kindClash) {
       const kindArticle =
         probedKind === 'video' ? 'a video' : probedKind === 'audio' ? 'an audio' : 'an image'
@@ -138,7 +149,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
     return url
   }
   return {
-    clips: project.clips.map(({ id, name, duration, kind, width, height }) => ({
+    clips: project.clips.map(({ id, name, duration, kind, width, height, extractedFrom }) => ({
       id,
       name,
       duration,
@@ -146,6 +157,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       url: urlOf(id),
       ...(width === undefined ? {} : { width }),
       ...(height === undefined ? {} : { height }),
+      ...(extractedFrom === undefined ? {} : { extractedFrom }),
     })),
     timeline: normalizedTimelineState(
       // A slate (#143) references no clip and has no media URL — the empty

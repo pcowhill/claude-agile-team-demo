@@ -5,6 +5,7 @@ import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { ProjectControls } from './components/ProjectControls'
 import { Timeline } from './components/Timeline'
+import { extractAudioClip } from './lib/extractAudio'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import { audioTrackFromClip, emptyTimeline, entryFromClip, slateEntry, timelineReducer } from './lib/timeline'
@@ -115,6 +116,26 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     [library.clips],
   )
 
+  // Extract a video clip's audio into a new library clip (#154). Async (it
+  // re-blobs the clip's bytes under a fresh URL); a failure lands in the
+  // library's dismissible failure list, exactly like a failed import.
+  const handleExtractAudio = useCallback((clip: LibraryClip) => {
+    void (async () => {
+      try {
+        dispatch({ type: 'clip-added', clip: await extractAudioClip(clip, crypto.randomUUID()) })
+      } catch {
+        dispatch({
+          type: 'import-failed',
+          failure: {
+            id: crypto.randomUUID(),
+            name: clip.name,
+            reason: `Could not extract the audio from "${clip.name}".`,
+          },
+        })
+      }
+    })()
+  }, [])
+
   const handleRemoveClip = useCallback((clip: LibraryClip) => {
     dispatch({ type: 'clip-removed', id: clip.id })
     dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
@@ -188,6 +209,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onImportFiles={handleImportFiles}
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
+          onExtractAudio={handleExtractAudio}
           onRemoveClip={handleRemoveClip}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
           timelineUseCount={timelineUseCount}
