@@ -7,7 +7,7 @@ import { ProjectControls } from './components/ProjectControls'
 import { Timeline } from './components/Timeline'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
-import { audioTrackFromClip, emptyTimeline, entryFromClip, timelineReducer } from './lib/timeline'
+import { audioTrackFromClip, emptyTimeline, entryFromClip, slateEntry, timelineReducer } from './lib/timeline'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
 import { probeMediaFile } from './lib/probeMedia'
@@ -207,6 +207,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetStillDuration={(id, duration) =>
             dispatchTimeline({ type: 'still-duration-set', id, duration })
           }
+          onAddSlate={() =>
+            dispatchTimeline({ type: 'entry-added', entry: slateEntry(crypto.randomUUID()) })
+          }
+          onSetSlateColor={(id, color) => dispatchTimeline({ type: 'slate-color-set', id, color })}
           onSetTransition={(beforeId, afterId, transition) =>
             dispatchTimeline({ type: 'transition-set', beforeId, afterId, transition })
           }

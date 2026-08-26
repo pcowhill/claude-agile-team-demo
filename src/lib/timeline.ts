@@ -19,12 +19,19 @@ export interface TimelineEntry {
   /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
   outPoint: number
   /**
-   * Present exactly when the entry is a still image (#140); absent means a
-   * video entry, so every pre-image state (and saved file) stays valid. A
-   * still has no source trim: its window is always [0, duration], and its
-   * duration is edited via `still-duration-set` rather than a trim.
+   * Present exactly when the entry is a still image (#140) or a solid-color
+   * slate (#143); absent means a video entry, so every pre-image state (and
+   * saved file) stays valid. Neither kind has a source trim: the window is
+   * always [0, duration], and the duration is edited via
+   * `still-duration-set` rather than a trim.
    */
-  kind?: 'image'
+  kind?: 'image' | 'slate'
+  /**
+   * The slate's fill color as lowercase `#rrggbb` (#143) — any 24-bit sRGB
+   * value, per the customer's "any displayable color". Present exactly when
+   * `kind` is 'slate'; edited via `slate-color-set`.
+   */
+  color?: string
   /**
    * Volume of the entry's own audio, 0..1 (#104). Absent means full volume —
    * the fields are additive so pre-#104 states (and saved files) stay valid.
@@ -176,9 +183,65 @@ export const DEFAULT_TRANSITION_DURATION = 1
  */
 export const DEFAULT_STILL_DURATION = 5
 
-/** Whether a timeline entry is a still image (#140) rather than a video. */
+/**
+ * Whether a timeline entry is a still — an image (#140) or a color slate
+ * (#143) — rather than a video. Stills share all window behavior: no source
+ * trim, a settable duration, and wall-clock timing in preview and export.
+ */
 export function isStillEntry(entry: Pick<TimelineEntry, 'kind'>): boolean {
-  return entry.kind === 'image'
+  return entry.kind === 'image' || entry.kind === 'slate'
+}
+
+/** Whether a timeline entry is a solid-color slate (#143). */
+export function isSlateEntry(entry: Pick<TimelineEntry, 'kind'>): boolean {
+  return entry.kind === 'slate'
+}
+
+/**
+ * The color a newly added slate starts with (#143) — the customer's own
+ * example ("a red screen before fading into my clip"). Any 24-bit color is
+ * settable afterwards via `slate-color-set`.
+ */
+export const DEFAULT_SLATE_COLOR = '#ff0000'
+
+/** Lowercase #rrggbb — the one shape `<input type="color">` reads and writes. */
+const SLATE_COLOR_PATTERN = /^#[0-9a-f]{6}$/
+
+/**
+ * Whether a string is a storable slate color: lowercase `#rrggbb` exactly,
+ * so state comparisons and saved files never carry the same color in two
+ * spellings. Shared with project-file validation (#143).
+ */
+export function isValidSlateColor(color: string): boolean {
+  return SLATE_COLOR_PATTERN.test(color)
+}
+
+/**
+ * What the "+ Color slate" control adds (#143): a solid-color entry with no
+ * backing media — nothing is imported, nothing lives in the library. It is a
+ * still (#140) in every window-related way; only its rendering differs.
+ */
+export function slateEntry(id: string, color: string = DEFAULT_SLATE_COLOR): TimelineEntry {
+  if (!isValidSlateColor(color)) {
+    // Callers pass picker output or the default; anything else is programmer
+    // error, and a malformed color would poison saved files.
+    throw new Error(`cannot create a slate with color "${color}": expected lowercase #rrggbb`)
+  }
+  return {
+    id,
+    // A slate references no library clip and has no media URL. Empty strings
+    // (not absent fields) keep every video path's types unchanged; nothing
+    // matches them — clip ids are UUIDs and clip-scoped actions compare
+    // against real ids only.
+    clipId: '',
+    name: 'Color slate',
+    duration: DEFAULT_STILL_DURATION,
+    url: '',
+    inPoint: 0,
+    outPoint: DEFAULT_STILL_DURATION,
+    kind: 'slate',
+    color,
+  }
 }
 
 /**
@@ -214,6 +277,7 @@ export type TimelineAction =
   | { type: 'entry-moved'; id: string; direction: 'up' | 'down' }
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'still-duration-set'; id: string; duration: number }
+  | { type: 'slate-color-set'; id: string; color: string }
   | { type: 'transition-set'; beforeId: string; afterId: string; transition: TransitionSpec }
   | { type: 'transition-removed'; beforeId: string; afterId: string }
   | { type: 'zoom-added'; zoom: ZoomEffect }
@@ -621,6 +685,20 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // The window is always the whole still: duration and outPoint move
       // together, and transitions/zooms re-clamp exactly as after a retrim.
       entries[index] = { ...entry, duration: action.duration, inPoint: 0, outPoint: action.duration }
+      return withEffects(entries, transitions, zooms, audioTracks)
+    }
+    case 'slate-color-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Only slates carry a color (#143). Anything but lowercase #rrggbb is
+      // rejected rather than normalized — the color picker only emits that
+      // shape, so anything else is a programmatic caller's mistake.
+      if (!isSlateEntry(entry)) return state
+      if (!isValidSlateColor(action.color)) return state
+      if (action.color === entry.color) return state
+      const entries = [...state.entries]
+      entries[index] = { ...entry, color: action.color }
       return withEffects(entries, transitions, zooms, audioTracks)
     }
     case 'transition-set': {

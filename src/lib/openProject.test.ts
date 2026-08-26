@@ -377,6 +377,35 @@ describe('restoreProject with images (#137)', () => {
       },
     ])
   })
+
+  it('carries a color slate (#143) into the restored timeline — nothing to re-link', () => {
+    const project: Project = {
+      clips: [],
+      timeline: {
+        entries: [
+          { id: 's1', clipId: '', name: 'Color slate', duration: 5, inPoint: 0, outPoint: 5, kind: 'slate', color: '#00cc66' },
+        ],
+        transitions: [],
+        zooms: [],
+        audioTracks: [],
+      },
+    }
+    // An empty URL map: a slate must never ask for re-linked media.
+    const restored = restoreProject(project, new Map())
+    expect(restored.timeline.entries).toEqual([
+      {
+        id: 's1',
+        clipId: '',
+        name: 'Color slate',
+        duration: 5,
+        inPoint: 0,
+        outPoint: 5,
+        kind: 'slate',
+        color: '#00cc66',
+        url: '',
+      },
+    ])
+  })
 })
 
 describe('restoreProject with audio tracks (#102)', () => {

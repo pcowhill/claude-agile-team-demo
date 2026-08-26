@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
@@ -213,6 +213,69 @@ describe('timeline', () => {
       expect(
         screen.getByRole('button', { name: 'Add zoom to logo.png at position 2' }),
       ).toBeEnabled()
+    })
+  })
+
+  describe('color slates (#143)', () => {
+    it('adds a red 5-second slate from the timeline itself — no import involved', async () => {
+      render(<App />)
+      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+
+      expect(sequenceNames()).toEqual(['Color slate'])
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:05')
+      const color = screen.getByLabelText('Color of Color slate at position 1')
+      expect(color).toHaveValue('#ff0000')
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Duration of Color slate at position 1 in seconds',
+        }),
+      ).toHaveValue(5)
+      // A slate is a still: no trim, no volume, no mute.
+      expect(
+        screen.queryByRole('spinbutton', {
+          name: 'Trim in point of Color slate at position 1 in seconds',
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('spinbutton', {
+          name: 'Volume of Color slate at position 1 (0 to 1)',
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('checkbox', { name: 'Mute Color slate at position 1' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('edits the color through the picker', async () => {
+      render(<App />)
+      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+
+      const color = screen.getByLabelText('Color of Color slate at position 1')
+      // userEvent has no color-picker interaction; fireEvent's change is what
+      // the input emits after a pick.
+      fireEvent.change(color, { target: { value: '#00cc66' } })
+      expect(color).toHaveValue('#00cc66')
+    })
+
+    it('edits the duration and carries transitions like any still', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+      const duration = screen.getByRole('spinbutton', {
+        name: 'Duration of Color slate at position 1 in seconds',
+      })
+      await userEvent.clear(duration)
+      await userEvent.type(duration, '2')
+      await userEvent.tab()
+      expect(duration).toHaveValue(2)
+      // 2s slate + 10s video, then a 1s crossfade between them.
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:12')
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:11')
     })
   })
 

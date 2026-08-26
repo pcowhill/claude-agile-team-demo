@@ -9,9 +9,13 @@ import {
   emptyTimeline,
   entryFromClip,
   defaultZoomFor,
+  DEFAULT_SLATE_COLOR,
   DEFAULT_STILL_DURATION,
   DEFAULT_ZOOM,
+  isSlateEntry,
   isStillEntry,
+  isValidSlateColor,
+  slateEntry,
   normalizedTimelineState,
   timelineReducer,
   totalDuration,
@@ -329,6 +333,85 @@ describe('timelineReducer', () => {
       expect(transitionsOf(state)[0]).toMatchObject({ duration: 2 })
       const zoom = zoomsForEntry(state, 'still')[0]
       expect(zoom.start + zoom.rampIn + zoom.hold + zoom.rampOut).toBeLessThanOrEqual(2)
+    })
+  })
+
+  describe('color slates (#143)', () => {
+    const slateState = () =>
+      timelineReducer(emptyTimeline, { type: 'entry-added', entry: slateEntry('s1') })
+
+    it('slateEntry: a 5-second red still with no clip and no media URL', () => {
+      expect(slateEntry('s1')).toEqual({
+        id: 's1',
+        clipId: '',
+        name: 'Color slate',
+        duration: DEFAULT_STILL_DURATION,
+        url: '',
+        inPoint: 0,
+        outPoint: DEFAULT_STILL_DURATION,
+        kind: 'slate',
+        color: DEFAULT_SLATE_COLOR,
+      })
+      expect(DEFAULT_SLATE_COLOR).toBe('#ff0000')
+      expect(isStillEntry(slateEntry('s1'))).toBe(true)
+      expect(isSlateEntry(slateEntry('s1'))).toBe(true)
+      expect(isSlateEntry(entryFromClip(clip(), 'v'))).toBe(false)
+    })
+
+    it('slateEntry accepts any lowercase #rrggbb color and rejects other shapes', () => {
+      expect(slateEntry('s1', '#0a1b2c').color).toBe('#0a1b2c')
+      for (const bad of ['#FF0000', 'red', '#f00', '#ff00001', 'ff0000', '#ff000g']) {
+        expect(() => slateEntry('s1', bad)).toThrow('expected lowercase #rrggbb')
+        expect(isValidSlateColor(bad)).toBe(false)
+      }
+    })
+
+    it('slate-color-set changes the color; invalid input, other kinds, and no-ops leave the state', () => {
+      const start = slateState()
+      const recolored = timelineReducer(start, { type: 'slate-color-set', id: 's1', color: '#00cc66' })
+      expect(recolored.entries[0]).toMatchObject({ kind: 'slate', color: '#00cc66' })
+      expect(timelineReducer(start, { type: 'slate-color-set', id: 's1', color: '#FF0000' })).toBe(start)
+      expect(timelineReducer(start, { type: 'slate-color-set', id: 's1', color: DEFAULT_SLATE_COLOR })).toBe(start)
+      expect(timelineReducer(start, { type: 'slate-color-set', id: 'zz', color: '#00cc66' })).toBe(start)
+      const withVideo = timelineReducer(start, {
+        type: 'entry-added',
+        entry: entryFromClip(clip(), 'v'),
+      })
+      expect(timelineReducer(withVideo, { type: 'slate-color-set', id: 'v', color: '#00cc66' })).toBe(withVideo)
+    })
+
+    it('shares the still rules: settable duration, no trim', () => {
+      const start = slateState()
+      const resized = timelineReducer(start, { type: 'still-duration-set', id: 's1', duration: 2 })
+      expect(resized.entries[0]).toMatchObject({ duration: 2, inPoint: 0, outPoint: 2 })
+      expect(
+        timelineReducer(start, { type: 'entry-trimmed', id: 's1', inPoint: 1, outPoint: 3 }),
+      ).toBe(start)
+    })
+
+    it('a library clip removal never touches slates (their clipId matches no clip)', () => {
+      const start = timelineReducer(slateState(), {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ id: 'lib-1' }), 'v'),
+      })
+      const state = timelineReducer(start, { type: 'entries-removed-for-clip', clipId: 'lib-1' })
+      expect(order(state)).toEqual(['s1'])
+    })
+
+    it('carries transitions on both boundaries like any entry', () => {
+      let state = timelineReducer(slateState(), {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ duration: 10 }), 'v'),
+      })
+      state = timelineReducer(state, {
+        type: 'transition-set',
+        beforeId: 's1',
+        afterId: 'v',
+        transition: { type: 'crossfade', duration: 1 },
+      })
+      expect(transitionsOf(state)[0]).toMatchObject({ beforeId: 's1', afterId: 'v', duration: 1 })
+      // 5s slate + 10s video − 1s overlap.
+      expect(totalDuration(state)).toBe(14)
     })
   })
 })

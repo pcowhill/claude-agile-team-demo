@@ -725,6 +725,69 @@ describe('PreviewPlayer', () => {
       expect(image.style.clipPath).toBe('inset(25% 50% 25% 0%)')
     })
 
+    describe('color slates (#143)', () => {
+      const slate = {
+        id: 'sl1',
+        clipId: '',
+        name: 'Color slate',
+        duration: 5,
+        url: '',
+        inPoint: 0,
+        outPoint: 5,
+        kind: 'slate' as const,
+        color: '#ff0000',
+      }
+
+      it('renders a fronting slate as its flat color, in place of the video element', () => {
+        render(<PreviewPlayer timeline={{ entries: [slate] }} />)
+        const layer = screen.getByTestId('preview-slate')
+        expect(layer).toHaveClass('preview-video')
+        expect(layer).toHaveStyle({ backgroundColor: '#ff0000' })
+        // Neither a video element nor an image fronts — the slate owns the slot.
+        expect(screen.queryByTestId('preview-video')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('preview-image')).not.toBeInTheDocument()
+        expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+          'Clip 1 of 1: Color slate',
+        )
+      })
+
+      it('a crossfade from a slate into a video ramps both layers (the customer example)', () => {
+        const timeline: TimelineState = {
+          entries: [slate, videoEntry],
+          transitions: [{ beforeId: 'sl1', afterId: 'v1', type: 'crossfade', duration: 1 }],
+        }
+        render(<PreviewPlayer timeline={timeline} />)
+        // Sequence 4.5 is halfway through the overlap [4, 5).
+        fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+          target: { value: '4.5' },
+        })
+        expect(screen.getByTestId('preview-slate')).toHaveStyle({ backgroundColor: '#ff0000' })
+        const incoming = screen.getByTestId('preview-video-incoming')
+        expect(incoming).toHaveStyle({ opacity: '0.5' })
+        expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+          'Clip 1 of 2: Color slate → first.webm (crossfade)',
+        )
+      })
+
+      it('a transition into a slate renders the incoming color layer mid-effect', () => {
+        const timeline: TimelineState = {
+          entries: [videoEntry, { ...slate, color: '#00cc66' }],
+          transitions: [{ beforeId: 'v1', afterId: 'sl1', type: 'slide-from-above', duration: 1 }],
+        }
+        render(<PreviewPlayer timeline={timeline} />)
+        // Sequence 3.25 is a quarter into the overlap [3, 4).
+        fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+          target: { value: '3.25' },
+        })
+        const incoming = screen.getByTestId('preview-slate-incoming')
+        expect(incoming).toHaveStyle({ backgroundColor: '#00cc66' })
+        expect(incoming).toHaveStyle({ transform: 'translate(0%, -75%)' })
+        expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+          'Clip 1 of 2: first.webm → Color slate (slide from above)',
+        )
+      })
+    })
+
     describe('playback clock', () => {
       const pausedState = new WeakMap<HTMLMediaElement, boolean>()
       let frames: FrameRequestCallback[]

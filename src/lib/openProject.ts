@@ -148,7 +148,12 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       ...(height === undefined ? {} : { height }),
     })),
     timeline: normalizedTimelineState(
-      project.timeline.entries.map((entry) => ({ ...entry, url: urlOf(entry.clipId) })),
+      // A slate (#143) references no clip and has no media URL — the empty
+      // string is its steady-state url, exactly as slateEntry creates it.
+      project.timeline.entries.map((entry) => ({
+        ...entry,
+        url: entry.kind === 'slate' ? '' : urlOf(entry.clipId),
+      })),
       project.timeline.transitions,
       project.timeline.zooms,
       project.timeline.audioTracks.map((track) => ({ ...track, url: urlOf(track.clipId) })),

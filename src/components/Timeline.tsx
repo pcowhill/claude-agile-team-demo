@@ -7,6 +7,7 @@ import {
   boundaryTransitions,
   defaultZoomFor,
   effectiveDuration,
+  isSlateEntry,
   isStillEntry,
   totalDuration,
   zoomsForEntry,
@@ -21,6 +22,10 @@ interface TimelineProps {
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
   /** Sets a still entry's on-screen duration (#140); stills have no trim. */
   onSetStillDuration: (id: string, duration: number) => void
+  /** Appends a solid-color slate to the sequence (#143) — no import involved. */
+  onAddSlate: () => void
+  /** Sets a slate's fill color (#143), as lowercase #rrggbb from the picker. */
+  onSetSlateColor: (id: string, color: string) => void
   onSetTransition: (beforeId: string, afterId: string, transition: TransitionSpec) => void
   onRemoveTransition: (beforeId: string, afterId: string) => void
   /** Adds a new zoom to the entry (#129); the id is the caller's to mint. */
@@ -115,6 +120,8 @@ export function Timeline({
   onRemoveEntry,
   onTrimEntry,
   onSetStillDuration,
+  onAddSlate,
+  onSetSlateColor,
   onSetTransition,
   onRemoveTransition,
   onAddZoom,
@@ -145,6 +152,11 @@ export function Timeline({
     <section className="panel panel-wide" aria-label="Timeline">
       <div className="timeline-header">
         <h2>Timeline</h2>
+        {/* A slate needs no imported media (#143), so it is added right
+            here rather than from the library. */}
+        <button type="button" aria-label="Add color slate to timeline" onClick={onAddSlate}>
+          + Color slate
+        </button>
         <span className="timeline-total">
           Total: <span data-testid="timeline-total">{formatDuration(totalDuration(timeline))}</span>
         </span>
@@ -193,8 +205,20 @@ export function Timeline({
                 </div>
                 {isStillEntry(entry) ? (
                   /* A still has no source material (#140): no trim window to
-                     edit, just the one duration, and no audio to control. */
+                     edit, just the one duration, and no audio to control. A
+                     slate (#143) adds its color, pickable in full 24-bit. */
                   <div className="timeline-entry-trim">
+                    {isSlateEntry(entry) && (
+                      <>
+                        <span>Color</span>
+                        <input
+                          type="color"
+                          aria-label={`Color of ${position}`}
+                          value={entry.color}
+                          onChange={(event) => onSetSlateColor(entry.id, event.target.value)}
+                        />
+                      </>
+                    )}
                     <span>Shows for</span>
                     <SecondsField
                       label={`Duration of ${position} in seconds`}

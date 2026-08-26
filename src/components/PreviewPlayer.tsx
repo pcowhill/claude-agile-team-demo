@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
-import { audioTracksOf, boundaryTransitions, isStillEntry, totalDuration } from '../lib/timeline'
+import { audioTracksOf, boundaryTransitions, isSlateEntry, isStillEntry, totalDuration } from '../lib/timeline'
 import {
   audioTrackPlaybackAt,
   isTransitionOverlayActive,
@@ -499,20 +499,25 @@ export function PreviewPlayer({
     : undefined
 
   const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
-  // Which layers are stills (#140): a still renders as an <img> in the same
-  // stacked slot a video element would occupy, styled identically.
+  // Which layers are stills (#140): a still renders in the same stacked slot
+  // a video element would occupy, styled identically — an <img> for an image
+  // still, a solid-color div for a slate (#143).
   const stillPrimary = location !== null && isStillEntry(location.entry)
   const stillIncoming = overlap !== undefined && isStillEntry(overlap.entry)
+  const slatePrimary = location !== null && isSlateEntry(location.entry)
+  const slateIncoming = overlap !== undefined && isSlateEntry(overlap.entry)
 
   // The fronting entry's intrinsic dimensions, read via an off-DOM
   // metadata-only element: the stacked elements are cued lazily (on play or
   // seek), so their own metadata may not exist when the panel is expanded
   // before anything played. Blob metadata is in memory — this is cheap — and
-  // keying on the URL re-probes exactly when a different clip fronts. A
-  // still probes through an <img> (#140), a video cannot decode it.
+  // keying on the URL re-probes exactly when a different clip fronts. An
+  // image still probes through an <img> (#140), a video cannot decode it. A
+  // slate (#143) has no dimensions of its own: it fills whatever stage the
+  // last real source (or the 16:9 default) shaped, so nothing is probed.
   const frontingUrl = location?.entry.url ?? null
   useEffect(() => {
-    if (frontingUrl === null) return undefined
+    if (frontingUrl === null || slatePrimary) return undefined
     let stale = false
     if (stillPrimary) {
       const probe = new Image()
@@ -544,7 +549,7 @@ export function PreviewPlayer({
       stale = true
       probe.removeAttribute('src')
     }
-  }, [frontingUrl, stillPrimary])
+  }, [frontingUrl, stillPrimary, slatePrimary])
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
@@ -614,24 +619,50 @@ export function PreviewPlayer({
             {/* Still layers (#140): an <img> in the same stacked slot,
                 sharing the video layers' classes so transitions and zooms
                 style it identically. Decorative — the still's name is
-                announced by the now-playing line below. */}
-            {stillPrimary && location && (
-              <img
+                announced by the now-playing line below. A slate (#143)
+                renders as its flat color instead: same slot, same styles,
+                no media behind it. */}
+            {slatePrimary && location ? (
+              <div
                 className="preview-video"
-                data-testid="preview-image"
-                alt=""
-                src={location.entry.url}
-                style={withZoom(layerStyles?.outgoing, primaryZoom)}
+                data-testid="preview-slate"
+                style={{
+                  ...withZoom(layerStyles?.outgoing, primaryZoom),
+                  backgroundColor: location.entry.color,
+                }}
               />
+            ) : (
+              stillPrimary &&
+              location && (
+                <img
+                  className="preview-video"
+                  data-testid="preview-image"
+                  alt=""
+                  src={location.entry.url}
+                  style={withZoom(layerStyles?.outgoing, primaryZoom)}
+                />
+              )
             )}
-            {stillIncoming && overlap && (
-              <img
+            {slateIncoming && overlap ? (
+              <div
                 className="preview-video preview-video-incoming"
-                data-testid="preview-image-incoming"
-                alt=""
-                src={overlap.entry.url}
-                style={withZoom(layerStyles?.incoming, incomingZoom)}
+                data-testid="preview-slate-incoming"
+                style={{
+                  ...withZoom(layerStyles?.incoming, incomingZoom),
+                  backgroundColor: overlap.entry.color,
+                }}
               />
+            ) : (
+              stillIncoming &&
+              overlap && (
+                <img
+                  className="preview-video preview-video-incoming"
+                  data-testid="preview-image-incoming"
+                  alt=""
+                  src={overlap.entry.url}
+                  style={withZoom(layerStyles?.incoming, incomingZoom)}
+                />
+              )
             )}
           </div>
           {/* One element per audio track (#103), driven by syncAudioTracks.

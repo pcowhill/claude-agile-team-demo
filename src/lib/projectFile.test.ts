@@ -7,12 +7,15 @@ import fixtureV3ImageReferencesBase64 from './fixtures/project-v3-image-referenc
 import fixtureV3ImageEmbeddedBase64 from './fixtures/project-v3-image-embedded.bvep.base64?raw'
 import fixtureV4ImageEntryReferencesBase64 from './fixtures/project-v4-image-entry-references.bvep.base64?raw'
 import fixtureV4ImageEntryEmbeddedBase64 from './fixtures/project-v4-image-entry-embedded.bvep.base64?raw'
+import fixtureV5SlateReferencesBase64 from './fixtures/project-v5-slate-references.bvep.base64?raw'
+import fixtureV5SlateEmbeddedBase64 from './fixtures/project-v5-slate-embedded.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   EMBEDDED_SCHEMA_VERSION,
   IMAGE_ENTRIES_SCHEMA_VERSION,
   IMAGES_SCHEMA_VERSION,
+  SLATE_ENTRIES_SCHEMA_VERSION,
   PROJECT_FORMAT,
   PROJECT_SCHEMA_VERSION,
   REFERENCES_SCHEMA_VERSION,
@@ -554,6 +557,127 @@ describe('images on the timeline (#140)', () => {
   })
 })
 
+describe('color slates (#143)', () => {
+  const slateLibrary: MediaLibraryState = {
+    clips: [{ id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' }],
+    failures: [],
+  }
+  // The customer's own example: a red slate crossfading into a clip.
+  const slateTimeline: TimelineState = {
+    entries: [
+      { id: 's1', clipId: '', name: 'Color slate', duration: 5, url: '', inPoint: 0, outPoint: 5, kind: 'slate', color: '#ff0000' },
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 4 },
+    ],
+    transitions: [{ beforeId: 's1', afterId: 'e1', type: 'crossfade', duration: 1 }],
+    zooms: [],
+  }
+  const expectedSlateProject: Project = {
+    clips: [{ id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' }],
+    timeline: {
+      entries: [
+        // Slateness is derived from the stored color on open, never stored
+        // as a kind; the model's empty clipId is reconstructed.
+        { id: 's1', clipId: '', name: 'Color slate', duration: 5, inPoint: 0, outPoint: 5, kind: 'slate', color: '#ff0000' },
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 4 },
+      ],
+      transitions: slateTimeline.transitions!,
+      zooms: [],
+      audioTracks: [],
+    },
+  }
+
+  it('writes version 5 exactly when a slate is on the timeline, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(slateLibrary, slateTimeline))
+    expect(references.schemaVersion).toBe(SLATE_ENTRIES_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 9), mimeType: 'video/mp4' }],
+    ])
+    const embedded = await gunzipJson(await serializeProject(slateLibrary, slateTimeline, media))
+    expect(embedded.schemaVersion).toBe(SLATE_ENTRIES_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+  })
+
+  it('stores a slate as color without clipId, and no kind key', async () => {
+    const document = await gunzipJson(await serializeProject(slateLibrary, slateTimeline))
+    const entries = (document.timeline as { entries: Record<string, unknown>[] }).entries
+    expect(entries[0]).toEqual({
+      id: 's1',
+      name: 'Color slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      color: '#ff0000',
+    })
+  })
+
+  it('a slate-free timeline keeps writing the version its content forces', async () => {
+    const videoOnly: TimelineState = { entries: [slateTimeline.entries[1]] }
+    const document = await gunzipJson(await serializeProject(slateLibrary, videoOnly))
+    expect(document.schemaVersion).toBe(1)
+  })
+
+  it('round-trips a references-only project with a slate and its transition', async () => {
+    const result = await deserializeProject(await serializeProject(slateLibrary, slateTimeline))
+    expect(result).toEqual({ ok: true, project: expectedSlateProject })
+  })
+
+  it('round-trips an embedded project with a slate — no media entry for the slate', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 9), mimeType: 'video/mp4' }],
+    ])
+    const result = await deserializeProject(
+      await serializeProject(slateLibrary, slateTimeline, media),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedSlateProject)
+      expect(result.media).toEqual(media)
+    }
+  })
+
+  it('a slate-only project (no clips at all) serializes and round-trips', async () => {
+    const slateOnly: TimelineState = { entries: [slateTimeline.entries[0]] }
+    const empty: MediaLibraryState = { clips: [], failures: [] }
+    const result = await deserializeProject(await serializeProject(empty, slateOnly))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips).toEqual([])
+      expect(result.project.timeline.entries).toEqual([expectedSlateProject.timeline.entries[0]])
+    }
+  })
+
+  it('refuses an entry carrying both a clipId and a color', async () => {
+    const document = validDocument()
+    ;(document.timeline as { entries: Record<string, unknown>[] }).entries[0].color = '#ff0000'
+    await expectRefusal(
+      await gzipJson(document),
+      'carries both a clipId and a color',
+    )
+  })
+
+  it('refuses a slate whose color is not lowercase #rrggbb', async () => {
+    for (const bad of ['#FF0000', 'red', '#f00', 'ff0000']) {
+      const document = validDocument()
+      ;(document.timeline as { entries: Record<string, unknown>[] }).entries.push({
+        id: 's1',
+        name: 'Color slate',
+        duration: 5,
+        inPoint: 0,
+        outPoint: 5,
+        color: bad,
+      })
+      await expectRefusal(await gzipJson(document), 'is not a lowercase #rrggbb color')
+    }
+  })
+
+  it('still refuses an entry with neither clipId nor color', async () => {
+    const document = validDocument()
+    delete (document.timeline as { entries: Record<string, unknown>[] }).entries[0].clipId
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].clipId')
+  })
+})
+
 describe('audio tracks (#102)', () => {
   const audioLibrary: MediaLibraryState = {
     clips: [
@@ -767,12 +891,14 @@ describe('project file versioning', () => {
     // Deserializing proves the marker + version were present and accepted;
     // this pins the constants so a bump is a conscious, reviewed change.
     // Version 2 added embedded media (#97); version 3 added images (#137);
-    // version 4 added images on the timeline (#140).
-    expect(PROJECT_SCHEMA_VERSION).toBe(4)
+    // version 4 added images on the timeline (#140); version 5 added color
+    // slates (#143).
+    expect(PROJECT_SCHEMA_VERSION).toBe(5)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
     expect(IMAGE_ENTRIES_SCHEMA_VERSION).toBe(4)
+    expect(SLATE_ENTRIES_SCHEMA_VERSION).toBe(5)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -1239,6 +1365,49 @@ describe('backwards compatibility', () => {
         new Map<string, ClipMedia>([
           ['v1', { bytes: pseudoRandomBytes(64, 7), mimeType: 'video/mp4' }],
           ['i1', { bytes: pseudoRandomBytes(48, 8), mimeType: 'image/png' }],
+        ]),
+      )
+    }
+  })
+
+  /** What both committed v5 slate fixtures (#143) deserialize to. */
+  const fixtureV5ExpectedProject: Project = {
+    clips: [{ id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' }],
+    timeline: {
+      entries: [
+        { id: 's1', clipId: '', name: 'Color slate', duration: 5, inPoint: 0, outPoint: 5, kind: 'slate', color: '#ff0000' },
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 4 },
+      ],
+      transitions: [{ beforeId: 's1', afterId: 'e1', type: 'crossfade', duration: 1 }],
+      zooms: [],
+      audioTracks: [],
+    },
+  }
+
+  it('deserializes the committed v5 slate references-only fixture (#143)', async () => {
+    // Pins that files carrying a color slate — the customer's red-opener
+    // example, crossfading into a clip — keep opening forever, and that
+    // version 5 with no media section means references-only.
+    const bytes = Uint8Array.from(atob(fixtureV5SlateReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({ ok: true, project: fixtureV5ExpectedProject })
+  })
+
+  it('deserializes the committed v5 slate embedded fixture, media byte-for-byte (#143)', async () => {
+    // Its media bytes are pseudoRandomBytes(64, 9), re-derived here so
+    // byte-identity stays checkable forever; the slate itself embeds nothing.
+    const bytes = Uint8Array.from(atob(fixtureV5SlateEmbeddedBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(fixtureV5ExpectedProject)
+      expect(result.media).toEqual(
+        new Map<string, ClipMedia>([
+          ['v1', { bytes: pseudoRandomBytes(64, 9), mimeType: 'video/mp4' }],
         ]),
       )
     }
