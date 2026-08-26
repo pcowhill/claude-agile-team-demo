@@ -2,13 +2,21 @@ import type { MediaKind, MediaLibraryState } from './mediaLibrary'
 import { TRANSITION_TYPES } from './timeline'
 import type {
   AudioTrack,
+  RemapEffect,
   TimelineEntry,
   TimelineState,
   TimelineTransition,
   TransitionType,
   ZoomEffect,
 } from './timeline'
-import { audioTracksOf, isSlateEntry, isValidSlateColor, transitionsOf, zoomsOf } from './timeline'
+import {
+  audioTracksOf,
+  isSlateEntry,
+  isValidSlateColor,
+  remapsOf,
+  transitionsOf,
+  zoomsOf,
+} from './timeline'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -28,6 +36,8 @@ import { audioTracksOf, isSlateEntry, isValidSlateColor, transitionsOf, zoomsOf 
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
+ *       "remaps": [{ id, entryId, kind: "speed", start, end, factor } |
+ *                  { id, entryId, kind: "pause", at, hold }],   // (#138)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }]
  *     }
@@ -152,6 +162,13 @@ export interface ProjectTimeline {
   entries: ProjectEntry[]
   transitions: TimelineTransition[]
   zooms: ZoomEffect[]
+  /**
+   * Time-remap effects (#138). Present exactly when the file carries any,
+   * mirroring `TimelineState` where a missing list means none — files
+   * written before remaps (and remap-free files since) simply omit the key,
+   * additive within a schema version per the contract above.
+   */
+  remaps?: RemapEffect[]
   /**
    * Always present after parsing: files written before audio tracks (#102)
    * omit the key and parse as an empty list — additive within a schema
@@ -315,6 +332,31 @@ export async function serializeProject(
           centerY,
         }),
       ),
+      // Time-remap effects (#138) are written only while any exist, so
+      // remap-free projects stay byte-identical to pre-#138 output —
+      // additive within the schema version, like the gain fields (#104).
+      ...(remapsOf(timeline).length === 0
+        ? {}
+        : {
+            remaps: remapsOf(timeline).map((remap) =>
+              remap.kind === 'pause'
+                ? {
+                    id: remap.id,
+                    entryId: remap.entryId,
+                    kind: remap.kind,
+                    at: remap.at,
+                    hold: remap.hold,
+                  }
+                : {
+                    id: remap.id,
+                    entryId: remap.entryId,
+                    kind: remap.kind,
+                    start: remap.start,
+                    end: remap.end,
+                    factor: remap.factor,
+                  },
+            ),
+          }),
       audioTracks: audioTracksOf(timeline).map(
         ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut }) => ({
           id,
@@ -612,6 +654,55 @@ function validateProject(document: Record<string, unknown>): Project {
     zoomIds.add(zoom.id)
   }
 
+  // Time-remap effects (#138): absent in files saved before them, and in
+  // remap-free files since. Window positions are range-checked here (finite,
+  // non-negative, non-empty); fitting within the trimmed range is the
+  // reducer's clamp, re-applied when the opened timeline is normalized —
+  // exactly how zoom windows and audio fades are treated.
+  const stillEntryIds = new Set(
+    entries.filter((entry) => entry.kind !== undefined).map((entry) => entry.id),
+  )
+  const remaps = asArray(timelineRaw.remaps ?? [], 'timeline.remaps').map((value, index) => {
+    const path = `timeline.remaps[${index}]`
+    const raw = asRecord(value, path)
+    const id = asString(raw.id, `${path}.id`)
+    const entryId = asString(raw.entryId, `${path}.entryId`)
+    if (!entryIds.has(entryId)) {
+      throw new Error(`${path}.entryId "${entryId}" does not match any timeline entry`)
+    }
+    if (stillEntryIds.has(entryId)) {
+      // A still's timing is its one settable duration (#140/#143): a remap
+      // on one could only come from a foreign writer, and would store the
+      // same on-screen length two competing ways.
+      throw new Error(`${path}.entryId "${entryId}" references a still entry, but time remapping applies to video entries only`)
+    }
+    const kind = asString(raw.kind, `${path}.kind`)
+    if (kind === 'pause') {
+      const at = asNonNegative(raw.at, `${path}.at`)
+      const hold = asFinite(raw.hold, `${path}.hold`)
+      if (hold <= 0) throw new Error(`${path}.hold must be greater than 0`)
+      return { id, entryId, kind: 'pause', at, hold } satisfies RemapEffect
+    }
+    if (kind === 'speed') {
+      const start = asNonNegative(raw.start, `${path}.start`)
+      const end = asFinite(raw.end, `${path}.end`)
+      const factor = asFinite(raw.factor, `${path}.factor`)
+      if (factor <= 0) throw new Error(`${path}.factor must be greater than 0`)
+      if (start >= end) {
+        throw new Error(`${path} source range is empty (start must be less than end)`)
+      }
+      return { id, entryId, kind: 'speed', start, end, factor } satisfies RemapEffect
+    }
+    throw new Error(`${path}.kind "${kind}" is unknown`)
+  })
+  const remapIds = new Set<string>()
+  for (const [index, remap] of remaps.entries()) {
+    if (remapIds.has(remap.id)) {
+      throw new Error(`timeline.remaps[${index}].id "${remap.id}" is duplicated`)
+    }
+    remapIds.add(remap.id)
+  }
+
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
   const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
@@ -659,7 +750,18 @@ function validateProject(document: Record<string, unknown>): Project {
     },
   )
 
-  return { clips, timeline: { entries, transitions, zooms, audioTracks } }
+  return {
+    clips,
+    timeline: {
+      entries,
+      transitions,
+      zooms,
+      // Present exactly when the file carried effects, mirroring the
+      // serializer and TimelineState (see the ProjectTimeline field).
+      ...(remaps.length === 0 ? {} : { remaps }),
+      audioTracks,
+    },
+  }
 }
 
 /**

@@ -440,3 +440,41 @@ describe('restoreProject with audio tracks (#102)', () => {
     ])
   })
 })
+
+describe('restoreProject with time-remap effects (#138)', () => {
+  const project: Project = {
+    clips: [{ id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' }],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'a', name: 'holiday.mp4', duration: 10, inPoint: 1, outPoint: 8 },
+      ],
+      transitions: [],
+      zooms: [],
+      remaps: [
+        { id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: 0.5 },
+        { id: 'r2', entryId: 'e1', kind: 'pause', at: 12, hold: 2 },
+      ],
+      audioTracks: [],
+    },
+  }
+
+  it('carries the effects into the normalized timeline, clamping foreign overreach', () => {
+    const restored = restoreProject(project, new Map([['a', 'blob:relinked-a']]))
+    // The trimmed range is 7 s: the segment survives as written, and the
+    // foreign writer's out-of-range pause instant clamps to the range's end,
+    // exactly as an in-app retrim would clamp it.
+    expect(restored.timeline.remaps).toEqual([
+      { id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: 0.5 },
+      { id: 'r2', entryId: 'e1', kind: 'pause', at: 7, hold: 2 },
+    ])
+  })
+
+  it('a project without remaps restores to a state without the key', () => {
+    const bare: Project = {
+      ...project,
+      timeline: { ...project.timeline, remaps: undefined },
+    }
+    const restored = restoreProject(bare, new Map([['a', 'blob:relinked-a']]))
+    expect(restored.timeline.remaps).toBeUndefined()
+  })
+})

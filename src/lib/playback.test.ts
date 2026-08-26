@@ -8,6 +8,7 @@ import {
   locateInSequence,
   sequenceTimeAt,
 } from './playback'
+import { zoomAt } from './zoom'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
   clipId: 'clip-a',
@@ -271,5 +272,103 @@ describe('isTransitionOverlayActive', () => {
     expect(location.transition).toBeUndefined()
     expect(isTransitionOverlayActive(location, location.index)).toBe(false)
     expect(isTransitionOverlayActive(null, 0)).toBe(false)
+  })
+})
+
+describe('time remapping in sequence math (#138)', () => {
+  // e1: 10 s untrimmed, half speed over source [2, 4] (that span plays for
+  // 4 s) and a 3 s pause at source 6 — output duration 15.
+  // e2: 10 s untrimmed, no remap — starts at sequence 15.
+  const remapped: TimelineState = {
+    entries: [
+      entry({ id: 'e1', clipId: 'clip-a' }),
+      entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b' }),
+    ],
+    remaps: [
+      { id: 'r1', entryId: 'e1', kind: 'speed', start: 2, end: 4, factor: 0.5 },
+      { id: 'r2', entryId: 'e1', kind: 'pause', at: 6, hold: 3 },
+    ],
+  }
+
+  it('entryStartTime accumulates remapped output durations', () => {
+    expect(entryStartTime(remapped, 0)).toBe(0)
+    expect(entryStartTime(remapped, 1)).toBe(15)
+  })
+
+  it('locateInSequence maps output time through the effects', () => {
+    // 1:1 before the slow segment.
+    expect(locateInSequence(remapped, 1)).toEqual({
+      index: 0,
+      entry: remapped.entries[0],
+      sourceTime: 1,
+    })
+    // Inside the slow segment: output 4 is 2 s into a half-speed span that
+    // began at source 2, so the source has advanced 1 s.
+    expect(locateInSequence(remapped, 4)?.sourceTime).toBe(3)
+    // The pause plateau: output [8, 11] all shows source 6.
+    expect(locateInSequence(remapped, 8)?.sourceTime).toBe(6)
+    expect(locateInSequence(remapped, 10)?.sourceTime).toBe(6)
+    // After the pause, 1:1 again.
+    expect(locateInSequence(remapped, 13)?.sourceTime).toBe(8)
+    // The boundary lands on e2's start; e2 itself is unremapped.
+    expect(locateInSequence(remapped, 15)).toEqual({
+      index: 1,
+      entry: remapped.entries[1],
+      sourceTime: 0,
+    })
+    expect(locateInSequence(remapped, 18)?.sourceTime).toBe(3)
+    // The sequence end clamps to the last entry's out-point.
+    expect(locateInSequence(remapped, 99)?.sourceTime).toBe(10)
+  })
+
+  it('sequenceTimeAt is the inverse, returning where a frame is first shown', () => {
+    expect(sequenceTimeAt(remapped, 0, 1)).toBe(1)
+    expect(sequenceTimeAt(remapped, 0, 3)).toBe(4)
+    // The paused instant spans output [8, 11]; the frame is first shown at 8.
+    expect(sequenceTimeAt(remapped, 0, 6)).toBe(8)
+    expect(sequenceTimeAt(remapped, 0, 8)).toBe(13)
+    expect(sequenceTimeAt(remapped, 1, 3)).toBe(18)
+  })
+
+  it('a transition overlap maps the incoming remapped entry through its effects', () => {
+    // e2 opens with a 1 s pause on its first frame; a 2 s crossfade overlaps
+    // the boundary, so during the whole overlap the incoming entry still
+    // shows source 0 (its held first frame), then advances only after its
+    // pause ends.
+    const state: TimelineState = {
+      entries: [
+        entry({ id: 'e1', clipId: 'clip-a' }),
+        entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b' }),
+      ],
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 2 }],
+      remaps: [{ id: 'r1', entryId: 'e2', kind: 'pause', at: 0, hold: 1 }],
+    }
+    const midOverlap = locateInSequence(state, 8.5)
+    expect(midOverlap?.index).toBe(0)
+    expect(midOverlap?.transition?.index).toBe(1)
+    expect(midOverlap?.transition?.progress).toBe(0.25)
+    expect(midOverlap?.transition?.sourceTime).toBe(0)
+    const lateOverlap = locateInSequence(state, 9.5)
+    expect(lateOverlap?.transition?.sourceTime).toBe(0.5)
+  })
+
+  it('a remap shifts when a zoom appears in the output, not what it zooms on', () => {
+    const zoomed: TimelineState = {
+      entries: [entry({ id: 'e1', clipId: 'clip-a' })],
+      zooms: [
+        { id: 'z1', entryId: 'e1', start: 4, rampIn: 0, hold: 1, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 },
+      ],
+    }
+    const slowed: TimelineState = {
+      ...zoomed,
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 2, factor: 0.5 }],
+    }
+    // Zooms key off source time (#63): the same source instant zooms
+    // identically with and without the remap...
+    expect(zoomAt(slowed, 0, 4.5)).toEqual(zoomAt(zoomed, 0, 4.5))
+    expect(zoomAt(slowed, 0, 4.5).scale).toBe(2)
+    // ...but the slowed opening delays the *sequence* moment it appears.
+    expect(sequenceTimeAt(zoomed, 0, 4)).toBe(4)
+    expect(sequenceTimeAt(slowed, 0, 4)).toBe(6)
   })
 })

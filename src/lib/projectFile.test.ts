@@ -1413,3 +1413,131 @@ describe('backwards compatibility', () => {
     }
   })
 })
+
+describe('time-remap effects in project files (#138)', () => {
+  const remappedTimeline: TimelineState = {
+    ...timeline,
+    remaps: [
+      { id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: 0.5 },
+      { id: 'r2', entryId: 'e2', kind: 'pause', at: 2, hold: 1.5 },
+    ],
+  }
+  const expectedRemappedProject: Project = {
+    ...expectedProject,
+    timeline: { ...expectedProject.timeline, remaps: remappedTimeline.remaps! },
+  }
+
+  it('round-trips remap effects in a references-only file without a version bump', async () => {
+    const bytes = await serializeProject(library, remappedTimeline)
+    const document = await gunzipJson(bytes)
+    // Additive within the version, exactly like transitions and zooms: an
+    // older build ignores the unknown key rather than refusing the file.
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(await deserializeProject(bytes)).toEqual({ ok: true, project: expectedRemappedProject })
+  })
+
+  it('round-trips remap effects in an embedded file', async () => {
+    const media = fixtureMedia()
+    const bytes = await serializeProject(library, remappedTimeline, media)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(EMBEDDED_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedRemappedProject)
+      expect(result.media).toBeDefined()
+    }
+  })
+
+  it('writes the remaps key only while effects exist, keeping remap-free files unchanged', async () => {
+    const withRemaps = await gunzipJson(await serializeProject(library, remappedTimeline))
+    expect((withRemaps.timeline as Record<string, unknown>).remaps).toEqual([
+      { id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: 0.5 },
+      { id: 'r2', entryId: 'e2', kind: 'pause', at: 2, hold: 1.5 },
+    ])
+    const without = await gunzipJson(await serializeProject(library, timeline))
+    expect(without.timeline as Record<string, unknown>).not.toHaveProperty('remaps')
+  })
+
+  it('a file without the remaps key parses without one, like every pre-#138 file', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result).toEqual({ ok: true, project: expectedProject })
+    if (result.ok) expect(result.project.timeline).not.toHaveProperty('remaps')
+  })
+
+  it('refuses an effect for an unknown timeline entry', async () => {
+    const document = validDocument()
+    ;(document.timeline as { remaps?: unknown }).remaps = [
+      { id: 'r1', entryId: 'ghost', kind: 'pause', at: 0, hold: 1 },
+    ]
+    await expectRefusal(await gzipJson(document), 'does not match any timeline entry')
+  })
+
+  it('refuses an effect on a still entry', async () => {
+    const document = validDocument()
+    ;(document.timeline as { entries: Record<string, unknown>[] }).entries.push({
+      id: 's1',
+      name: 'Color slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      color: '#ff0000',
+    })
+    ;(document.timeline as { remaps?: unknown }).remaps = [
+      { id: 'r1', entryId: 's1', kind: 'pause', at: 0, hold: 1 },
+    ]
+    await expectRefusal(
+      await gzipJson(document),
+      'references a still entry, but time remapping applies to video entries only',
+    )
+  })
+
+  it('refuses an unknown effect kind', async () => {
+    const document = validDocument()
+    ;(document.timeline as { remaps?: unknown }).remaps = [
+      { id: 'r1', entryId: 'e1', kind: 'reverse', at: 0, hold: 1 },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.remaps[0].kind "reverse" is unknown')
+  })
+
+  it('refuses malformed effects field by field', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: 0 }, 'factor must be greater than 0'],
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 3, factor: -2 }, 'factor must be greater than 0'],
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 3, end: 3, factor: 1 }, 'source range is empty'],
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 4, end: 3, factor: 1 }, 'source range is empty'],
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: -1, end: 3, factor: 1 }, 'must not be negative'],
+      [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 1, end: 'x', factor: 1 }, 'must be a finite number'],
+      [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 0, hold: 0 }, 'hold must be greater than 0'],
+      [{ id: 'r1', entryId: 'e1', kind: 'pause', at: -1, hold: 1 }, 'must not be negative'],
+      [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 0 }, 'must be a finite number'],
+      [{ id: 'r1', entryId: 'e1', kind: 'pause', hold: 1 }, 'at must be a finite number'],
+      [{ entryId: 'e1', kind: 'pause', at: 0, hold: 1 }, 'timeline.remaps[0].id'],
+      [{ id: 'r1', kind: 'pause', at: 0, hold: 1 }, 'timeline.remaps[0].entryId'],
+    ]
+    for (const [remap, mention] of cases) {
+      const document = validDocument()
+      ;(document.timeline as { remaps?: unknown }).remaps = [remap]
+      await expectRefusal(await gzipJson(document), mention)
+    }
+  })
+
+  it('refuses duplicated effect ids', async () => {
+    const document = validDocument()
+    ;(document.timeline as { remaps?: unknown }).remaps = [
+      { id: 'r1', entryId: 'e1', kind: 'pause', at: 0, hold: 1 },
+      { id: 'r1', entryId: 'e2', kind: 'speed', start: 0, end: 1, factor: 2 },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.remaps[1].id "r1" is duplicated')
+  })
+
+  it('does not refuse overlapping windows — open-time normalization resolves them', async () => {
+    const document = validDocument()
+    ;(document.timeline as { remaps?: unknown }).remaps = [
+      { id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 5, factor: 0.5 },
+      { id: 'r2', entryId: 'e1', kind: 'speed', start: 3, end: 7, factor: 2 },
+    ]
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+  })
+})
