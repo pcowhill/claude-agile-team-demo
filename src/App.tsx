@@ -8,7 +8,14 @@ import { Timeline } from './components/Timeline'
 import { extractAudioClip } from './lib/extractAudio'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
-import { audioTrackFromClip, emptyTimeline, entryFromClip, slateEntry, timelineReducer } from './lib/timeline'
+import {
+  audioTrackFromClip,
+  emptyTimeline,
+  entryFromClip,
+  slateEntry,
+  timelineReducer,
+  videoOverlayFromClip,
+} from './lib/timeline'
 import { DEFAULT_TEXT } from './lib/textOverlay'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
@@ -104,6 +111,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
+  // A video clip composited above the sequence (#145) — picture-in-picture.
+  const handleAddOverlay = useCallback((clip: LibraryClip) => {
+    dispatchTimeline({
+      type: 'video-overlay-added',
+      overlay: videoOverlayFromClip(clip, crypto.randomUUID()),
+    })
+  }, [])
+
   // Open Project / New Project (#77): the whole editing state is replaced.
   // The outgoing clips' object URLs can never be cued again, so their memory
   // is released here; the incoming state becomes the new clean baseline.
@@ -148,7 +163,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   const timelineUseCount = useCallback(
     (clipId: string) =>
       timeline.entries.filter((entry) => entry.clipId === clipId).length +
-      (timeline.audioTracks ?? []).filter((track) => track.clipId === clipId).length,
+      (timeline.audioTracks ?? []).filter((track) => track.clipId === clipId).length +
+      (timeline.videoOverlays ?? []).filter((overlay) => overlay.clipId === clipId).length,
     [timeline],
   )
 
@@ -210,6 +226,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onImportFiles={handleImportFiles}
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
+          onAddOverlay={handleAddOverlay}
           onExtractAudio={handleExtractAudio}
           onRemoveClip={handleRemoveClip}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
@@ -264,6 +281,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
           onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
+          onUpdateVideoOverlay={(id, placement) =>
+            dispatchTimeline({ type: 'video-overlay-updated', id, placement })
+          }
+          onRemoveVideoOverlay={(id) => dispatchTimeline({ type: 'video-overlay-removed', id })}
           onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
           onRetimeAudioTrack={(id, offset) =>
             dispatchTimeline({ type: 'audio-track-retimed', id, offset })

@@ -12,6 +12,7 @@ import {
   remapsOf,
   textsOf,
   totalDuration,
+  videoOverlaysOf,
 } from '../lib/timeline'
 import { textActiveAt, textFontStack } from '../lib/textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
@@ -197,6 +198,10 @@ export function PreviewPlayer({
   // One <audio> element per track, keyed by track id (#103). A ref map, not
   // state: the rAF loop reads it every frame.
   const audioRefs = useRef(new Map<string, HTMLAudioElement | null>())
+  const videoOverlays = videoOverlaysOf(timeline)
+  // One <video> element per overlay layer (#145), keyed by overlay id —
+  // rendered inside the stage at its rectangle, synced like an audio track.
+  const overlayRefs = useRef(new Map<string, HTMLVideoElement | null>())
 
   const primaryVideo = () => (primaryIsARef.current ? videoARef.current : videoBRef.current)
   const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
@@ -243,6 +248,52 @@ export function PreviewPlayer({
 
   const pauseAudioTracks = useCallback(() => {
     for (const element of audioRefs.current.values()) {
+      if (element && !element.paused) element.pause()
+    }
+  }, [])
+
+  /**
+   * Aligns every overlay video layer's element with a sequence position
+   * (#145), exactly as syncAudioTracks aligns the audio tracks — the same
+   * window math (`audioTrackPlaybackAt` applies structurally: offset +
+   * trim, half-open) and the same drift tolerance. Volume is the overlay's
+   * own volume × mute (`videoEntryGain`), set every call so edits apply
+   * mid-play; overlays have no fades. Each element keeps a single source
+   * for the overlay's lifetime (src set in the render), so cueing is only
+   * ever a seek.
+   */
+  const syncVideoOverlays = useCallback(
+    (sequenceTime: number, running: boolean) => {
+      for (const overlay of videoOverlays) {
+        const element = overlayRefs.current.get(overlay.id)
+        if (!element) continue
+        const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
+        element.volume = videoEntryGain(overlay)
+        if (shouldPlay && running) {
+          if (element.paused) {
+            element.currentTime = sourceTime
+            // play() rejects (AbortError) when interrupted by pause — an
+            // expected outcome, matching the other media elements.
+            element.play().catch(() => {})
+          } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+            element.currentTime = sourceTime
+          }
+        } else {
+          if (!element.paused) element.pause()
+          // Keep the paused element cued to the position (its in-point while
+          // the position is before the window) so resuming starts aligned —
+          // and so a paused scrub through the window shows the right frame.
+          if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+            element.currentTime = sourceTime
+          }
+        }
+      }
+    },
+    [videoOverlays],
+  )
+
+  const pauseVideoOverlays = useCallback(() => {
+    for (const element of overlayRefs.current.values()) {
       if (element && !element.paused) element.pause()
     }
   }, [])
@@ -526,6 +577,7 @@ export function PreviewPlayer({
         const time = sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration)
         setSequenceTime(time)
         syncAudioTracks(time, true)
+        syncVideoOverlays(time, true)
       } else if (next && overlap) {
         // Handover mid-transition: the incoming entry is already playing in
         // the secondary element — promote it to primary instead of re-cueing.
@@ -546,6 +598,7 @@ export function PreviewPlayer({
           const time = sequenceTimeAt(timeline, index + 1, incoming.currentTime)
           setSequenceTime(time)
           syncAudioTracks(time, true)
+          syncVideoOverlays(time, true)
           holdRef.current = null
           lastRelSourceRef.current = incoming.currentTime - next.inPoint
           if (incoming.playbackRate !== 1) incoming.playbackRate = 1
@@ -559,12 +612,14 @@ export function PreviewPlayer({
           const time = entryStartTime(timeline, index + 1) + overlap.duration
           setSequenceTime(time)
           syncAudioTracks(time, true)
+          syncVideoOverlays(time, true)
           cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, overlap.duration, true)
         }
       } else if (next) {
         const time = entryStartTime(timeline, index + 1)
         setSequenceTime(time)
         syncAudioTracks(time, true)
+        syncVideoOverlays(time, true)
         // A hard cut continues in the same element — apply the next entry's
         // gain (#104) where the transition path would have swapped roles.
         // (A still has no element or gain; cuePrimary starts its clock.)
@@ -578,6 +633,7 @@ export function PreviewPlayer({
         // End of the video sequence ends the mix: any track still inside its
         // window (a silent tail per #102) pauses with everything else.
         pauseAudioTracks()
+        pauseVideoOverlays()
         return
       }
     } else {
@@ -586,6 +642,7 @@ export function PreviewPlayer({
       // Tracks start and stop mid-play as the position crosses their
       // windows, and drifting clocks are snapped back (#103).
       syncAudioTracks(time, true)
+      syncVideoOverlays(time, true)
       if (next && overlap) {
         // The overlap plays out in output seconds (#141): it starts where
         // the entry's remaining *output* equals the transition's duration —
@@ -645,7 +702,7 @@ export function PreviewPlayer({
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, pauseAudioTracks])
+  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.
@@ -657,17 +714,19 @@ export function PreviewPlayer({
     cuePrimary(location, from - entryStartTime(timeline, location.index), true)
     syncSecondary(location, true)
     syncAudioTracks(from, true)
+    syncVideoOverlays(from, true)
     stopLoop()
     frameRef.current = requestAnimationFrame(tick)
-  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, syncAudioTracks, stopLoop, tick])
+  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, stopLoop, tick])
 
   const pause = useCallback(() => {
     stopLoop()
     primaryVideo()?.pause()
     secondaryVideo()?.pause()
     pauseAudioTracks()
+    pauseVideoOverlays()
     setPlaying(false)
-  }, [stopLoop, pauseAudioTracks])
+  }, [stopLoop, pauseAudioTracks, pauseVideoOverlays])
 
   const seek = useCallback(
     (time: number) => {
@@ -679,8 +738,9 @@ export function PreviewPlayer({
       // Scrubbing re-cues every track: active ones re-seek (and keep playing
       // if we are playing), the rest pause where they would next start.
       syncAudioTracks(time, playing)
+      syncVideoOverlays(time, playing)
     },
-    [timeline, cuePrimary, syncSecondary, syncAudioTracks, playing],
+    [timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, playing],
   )
 
   // Edits to the timeline invalidate the playback position (entries or
@@ -692,11 +752,12 @@ export function PreviewPlayer({
       if (video && !video.paused) video.pause()
     }
     pauseAudioTracks()
+    pauseVideoOverlays()
     setEngaged(null)
     holdRef.current = null
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
-  }, [timeline, stopLoop, setEngaged, pauseAudioTracks])
+  }, [timeline, stopLoop, setEngaged, pauseAudioTracks, pauseVideoOverlays])
 
   useEffect(() => stopLoop, [stopLoop])
 
@@ -874,6 +935,41 @@ export function PreviewPlayer({
                 />
               )
             )}
+            {/* Overlay video layers (#145): one <video> per layer, kept
+                mounted for the overlay's lifetime (so scrubbing never
+                re-loads a source) and positioned at its fractional rectangle
+                within the stage — the same frame proxy text overlays and
+                zoom fractions address. The clip letterboxes inside the
+                rectangle (object-fit: contain) with transparent gutters, so
+                the base video shows through rather than black bars.
+                Stacking, bottom to top: base video/still layers (transitions
+                and zooms apply to those), then overlay layers in add order,
+                then text overlays — a title is never hidden by a
+                picture-in-picture. Visibility is declarative from the
+                published time (hidden outside the window); playback and
+                audio follow via syncVideoOverlays each frame. */}
+            {videoOverlays.map((overlay, index) => {
+              const active = audioTrackPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
+              return (
+                <video
+                  key={overlay.id}
+                  ref={(element) => {
+                    overlayRefs.current.set(overlay.id, element)
+                  }}
+                  src={overlay.url}
+                  preload="auto"
+                  playsInline
+                  className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
+                  data-testid={`preview-overlay-${index}`}
+                  style={{
+                    left: `${overlay.x * 100}%`,
+                    top: `${overlay.y * 100}%`,
+                    width: `${overlay.width * 100}%`,
+                    height: `${overlay.height * 100}%`,
+                  }}
+                />
+              )
+            })}
             {/* Text overlays (#139): items whose window covers the published
                 sequence time, drawn above the composed frame. Stacking order,
                 bottom to top: video/still layers (transitions and zooms apply

@@ -15,6 +15,8 @@ interface MediaLibraryProps {
   onImportFiles: (files: File[]) => void
   onDismissFailures: () => void
   onAddToTimeline: (clip: LibraryClip) => void
+  /** Adds a video clip as an overlay layer above the sequence (#145). */
+  onAddOverlay: (clip: LibraryClip) => void
   /** Extracts a video clip's audio into a new library clip (#154). */
   onExtractAudio: (clip: LibraryClip) => void
   onRemoveClip: (clip: LibraryClip) => void
@@ -44,6 +46,7 @@ export function MediaLibrary({
   onImportFiles,
   onDismissFailures,
   onAddToTimeline,
+  onAddOverlay,
   onExtractAudio,
   onRemoveClip,
   onSortClips,
@@ -164,6 +167,17 @@ export function MediaLibrary({
               >
                 Add
               </button>
+              {/* Only a video can layer above the sequence (#145): audio has
+                  no picture, and a still overlay would be its own feature. */}
+              {clip.kind === 'video' && (
+                <button
+                  type="button"
+                  aria-label={`Add ${clip.name} as overlay`}
+                  onClick={() => onAddOverlay(clip)}
+                >
+                  Overlay
+                </button>
+              )}
               {/* Only a video has audio to pull out (#154): the extracted
                   clip appears in this list as ordinary audio. */}
               {clip.kind === 'video' && (

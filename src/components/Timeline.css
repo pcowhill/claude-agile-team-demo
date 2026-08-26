@@ -379,3 +379,70 @@
   color: inherit;
   font: inherit;
 }
+
+/* The Overlays lane (#145): video layers composited above the sequence.
+   Mirrors the audio lane's structure; the strip reuses its classes, with
+   the bar tinted so the two lanes read apart at a glance. */
+.overlay-lane {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #2c2c2c;
+}
+
+.overlay-lane-heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.video-overlay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.video-overlay {
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.video-overlay-bar {
+  background: #7a5ea5;
+}
+
+.video-overlay-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.video-overlay-main button {
+  margin-left: auto;
+}
+
+.video-overlay-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.video-overlay-controls input[type='number'] {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: #eee;
+}

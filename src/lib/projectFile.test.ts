@@ -1676,3 +1676,118 @@ describe('text overlays in project files (#139)', () => {
     await expectRefusal(await gzipJson(document), 'timeline.texts[1].id "t1" is duplicated')
   })
 })
+
+describe('overlay video layers in project files (#145)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+    volume: 0.5,
+    muted: true,
+  } as const
+  const overlayTimeline: TimelineState = {
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2' }],
+  }
+  const expectedOverlayProject: Project = {
+    ...expectedProject,
+    timeline: { ...expectedProject.timeline, videoOverlays: [stored] },
+  }
+
+  it('round-trips overlays in a references-only file without a version bump or url', async () => {
+    const bytes = await serializeProject(library, overlayTimeline)
+    const document = await gunzipJson(bytes)
+    // Additive within the version, like remaps (#138) and texts (#139).
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(await deserializeProject(bytes)).toEqual({ ok: true, project: expectedOverlayProject })
+    // The session-bound object URL never reaches the file.
+    const written = (document.timeline as { videoOverlays: unknown[] }).videoOverlays[0]
+    expect(written).not.toHaveProperty('url')
+  })
+
+  it('round-trips overlays in an embedded file', async () => {
+    const bytes = await serializeProject(library, overlayTimeline, fixtureMedia())
+    expect((await gunzipJson(bytes)).schemaVersion).toBe(EMBEDDED_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project).toEqual(expectedOverlayProject)
+  })
+
+  it('omits absent gain fields, and the key itself while no overlays exist', async () => {
+    const bare = { ...stored, url: 'blob:session/c2' } as Record<string, unknown>
+    delete bare.volume
+    delete bare.muted
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, videoOverlays: [bare as never] }),
+    )
+    const written = (document.timeline as { videoOverlays: Record<string, unknown>[] })
+      .videoOverlays[0]
+    expect(written).not.toHaveProperty('volume')
+    expect(written).not.toHaveProperty('muted')
+    const without = await gunzipJson(await serializeProject(library, timeline))
+    expect(without.timeline as Record<string, unknown>).not.toHaveProperty('videoOverlays')
+  })
+
+  it('a file without the key parses without one, like every pre-#145 file', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result).toEqual({ ok: true, project: expectedProject })
+    if (result.ok) expect(result.project.timeline).not.toHaveProperty('videoOverlays')
+  })
+
+  it('refuses malformed overlays field by field', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ ...stored, clipId: 'missing' }, 'does not match any clip'],
+      [{ ...stored, clipId: 'c9' }, 'does not match any clip'],
+      [{ ...stored, duration: 0 }, 'duration must be greater than 0'],
+      [{ ...stored, offset: -1 }, 'must not be negative'],
+      [{ ...stored, inPoint: 3, outPoint: 3 }, 'trim range is empty'],
+      [{ ...stored, outPoint: 99 }, 'outPoint must not exceed the clip duration'],
+      [{ ...stored, width: 0 }, 'width must be within (0, 1]'],
+      [{ ...stored, height: 1.5 }, 'height must be within (0, 1]'],
+      [{ ...stored, x: 0.8 }, 'places the rectangle beyond the frame edge'],
+      [{ ...stored, y: 0.9 }, 'places the rectangle beyond the frame edge'],
+      [{ ...stored, volume: 2 }, 'volume'],
+      [{ ...stored, muted: 'yes' }, 'muted must be a boolean'],
+      [{ ...stored, id: undefined }, 'timeline.videoOverlays[0].id'],
+    ]
+    for (const [overlay, mention] of cases) {
+      const document = validDocument()
+      ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [overlay]
+      await expectRefusal(await gzipJson(document), mention)
+    }
+  })
+
+  it('refuses an overlay referencing a non-video clip', async () => {
+    const document = validDocument()
+    ;(document.clips as unknown as Record<string, unknown>[]).push({
+      id: 'a1',
+      name: 'song.mp3',
+      duration: 30,
+      kind: 'audio',
+    })
+    ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [
+      { ...stored, clipId: 'a1', duration: 30, outPoint: 3 },
+    ]
+    await expectRefusal(
+      await gzipJson(document),
+      'references an audio clip, but overlay layers carry video only',
+    )
+  })
+
+  it('refuses duplicated overlay ids', async () => {
+    const document = validDocument()
+    ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [
+      stored,
+      { ...stored, x: 0.1 },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.videoOverlays[1].id "v1" is duplicated')
+  })
+})

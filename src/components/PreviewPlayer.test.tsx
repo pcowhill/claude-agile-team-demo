@@ -1058,3 +1058,170 @@ describe('text overlays (#139)', () => {
     expect(screen.queryByTestId('preview-text-0')).not.toBeInTheDocument()
   })
 })
+
+describe('overlay video layers (#145)', () => {
+  // A 10s base entry; one overlay playing source [1, 3) over sequence
+  // [2, 4), placed in the bottom-right quadrant; a second overlay from 8.
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c1',
+    name: 'first.webm',
+    duration: 10,
+    url: 'blob:first',
+    inPoint: 0,
+    outPoint: 10,
+  }
+  const pip = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'cam.webm',
+    duration: 8,
+    url: 'blob:cam',
+    offset: 2,
+    inPoint: 1,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.55,
+    width: 0.35,
+    height: 0.4,
+  }
+  const withOverlays: TimelineState = {
+    entries: [baseEntry],
+    videoOverlays: [pip, { ...pip, id: 'v2', clipId: 'c3', url: 'blob:cam2', offset: 8, x: 0.05 }],
+  }
+
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  let playSpy: ReturnType<typeof vi.spyOn>
+  let frames: FrameRequestCallback[]
+
+  beforeEach(() => {
+    playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockImplementation(function (this: HTMLMediaElement) {
+        pausedState.set(this, false)
+        return Promise.resolve()
+      })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const overlayElement = (index: number) =>
+    screen.getByTestId(`preview-overlay-${index}`) as HTMLVideoElement
+  const seekTo = (value: string) =>
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value },
+    })
+  const playedElements = () => playSpy.mock.contexts as unknown as HTMLMediaElement[]
+
+  it('renders one element per overlay at its rectangle, hidden outside its window', () => {
+    render(<PreviewPlayer timeline={withOverlays} />)
+    const element = overlayElement(0)
+    expect(element).toHaveAttribute('src', 'blob:cam')
+    expect(parseFloat(element.style.left)).toBeCloseTo(60, 10)
+    expect(parseFloat(element.style.top)).toBeCloseTo(55, 10)
+    expect(parseFloat(element.style.width)).toBeCloseTo(35, 10)
+    expect(parseFloat(element.style.height)).toBeCloseTo(40, 10)
+    // Before its window: mounted (source stays loaded) but hidden.
+    expect(element.className).toContain('preview-overlay-hidden')
+
+    seekTo('3')
+    expect(overlayElement(0).className).not.toContain('preview-overlay-hidden')
+    // Half-open window end, like an audio track's.
+    seekTo('4')
+    expect(overlayElement(0).className).toContain('preview-overlay-hidden')
+  })
+
+  it('renders overlays below text overlays in the stage paint order', () => {
+    render(
+      <PreviewPlayer
+        timeline={{
+          ...withOverlays,
+          texts: [
+            {
+              id: 't1',
+              content: 'Title',
+              offset: 0,
+              duration: 99,
+              x: 0.5,
+              y: 0.5,
+              font: 'sans',
+              size: 0.1,
+              color: '#ffffff',
+              bold: false,
+              italic: false,
+            },
+          ],
+        }}
+      />,
+    )
+    seekTo('3')
+    const overlay = overlayElement(0)
+    const text = screen.getByTestId('preview-text-0')
+    // Same stage; the text follows the overlay in document order and carries
+    // the higher z-index, so it paints on top.
+    expect(overlay.parentElement).toBe(text.parentElement)
+    expect(overlay.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('playing starts a covering overlay at its mapped source time; an upcoming one stays cued', () => {
+    render(<PreviewPlayer timeline={withOverlays} />)
+    seekTo('3')
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+    // Sequence 3 is 1s into the window: source = inPoint 1 + 1.
+    expect(overlayElement(0).currentTime).toBe(2)
+    expect(playedElements()).toContain(overlayElement(0))
+    // The second overlay's window starts at 8 — past the base sequence end
+    // is allowed; here it is simply not covering yet: cued, not playing.
+    expect(overlayElement(1).paused).toBe(true)
+    expect(playedElements()).not.toContain(overlayElement(1))
+  })
+
+  it('seeking while paused cues the overlay frame without playing it', () => {
+    render(<PreviewPlayer timeline={withOverlays} />)
+    seekTo('2.5')
+    expect(overlayElement(0).currentTime).toBe(1.5)
+    expect(overlayElement(0).paused).toBe(true)
+    expect(playedElements()).toHaveLength(0)
+  })
+
+  it('honors the overlay volume and mute in the mixed audio', () => {
+    const withGain: TimelineState = {
+      entries: [baseEntry],
+      videoOverlays: [
+        { ...pip, volume: 0.4 },
+        { ...pip, id: 'v2', url: 'blob:cam2', muted: true },
+      ],
+    }
+    render(<PreviewPlayer timeline={withGain} />)
+    seekTo('3')
+    expect(overlayElement(0).volume).toBe(0.4)
+    // Mute wins over everything (#104).
+    expect(overlayElement(1).volume).toBe(0)
+  })
+
+  it('an overlay whose window lies past the sequence end never shows', () => {
+    render(<PreviewPlayer timeline={withOverlays} />)
+    seekTo('10')
+    expect(overlayElement(1).className).toContain('preview-overlay-hidden')
+  })
+})

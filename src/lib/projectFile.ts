@@ -16,9 +16,11 @@ import {
   remapsOf,
   textsOf,
   transitionsOf,
+  videoOverlaysOf,
   zoomsOf,
 } from './timeline'
 import type { TextOverlay } from './textOverlay'
+import type { VideoOverlay } from './videoOverlay'
 import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 
 /**
@@ -44,7 +46,10 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *       "texts": [{ id, content, offset, duration, x, y, font, size,
  *                   color, bold, italic }],                     // (#139)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
- *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }]
+ *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }],
+ *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
+ *                           outPoint, x, y, width, height,
+ *                           volume?, muted? }]                  // (#145)
  *     }
  *   }
  *
@@ -160,6 +165,9 @@ export type ProjectEntry = Omit<TimelineEntry, 'url'>
 /** An audio track as stored (#102): everything but `url`, like an entry. */
 export type ProjectAudioTrack = Omit<AudioTrack, 'url'>
 
+/** An overlay video layer as stored (#145): everything but `url`. */
+export type ProjectVideoOverlay = Omit<VideoOverlay, 'url'>
+
 /**
  * One clip's media, as passed to serialization and returned from
  * deserializing an embedded file. `mimeType` is preserved so the restored
@@ -187,6 +195,11 @@ export interface ProjectTimeline {
    * additive within a schema version exactly like `remaps`.
    */
   texts?: TextOverlay[]
+  /**
+   * Overlay video layers (#145). Present exactly when the file carries any,
+   * additive within a schema version exactly like `remaps`.
+   */
+  videoOverlays?: ProjectVideoOverlay[]
   /**
    * Always present after parsing: files written before audio tracks (#102)
    * omit the key and parse as an empty list — additive within a schema
@@ -412,6 +425,30 @@ export async function serializeProject(
           ...(fadeOut === undefined ? {} : { fadeOut }),
         }),
       ),
+      // Overlay video layers (#145) are written only while any exist, so
+      // overlay-free projects stay byte-identical to earlier output —
+      // additive within the schema version, like remaps and texts.
+      ...(videoOverlaysOf(timeline).length === 0
+        ? {}
+        : {
+            videoOverlays: videoOverlaysOf(timeline).map(
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted }) => ({
+                id,
+                clipId,
+                name,
+                duration,
+                offset,
+                inPoint,
+                outPoint,
+                x,
+                y,
+                width,
+                height,
+                ...(volume === undefined ? {} : { volume }),
+                ...(muted === undefined ? {} : { muted }),
+              }),
+            ),
+          }),
     },
   }
   return gzip(new TextEncoder().encode(JSON.stringify(document)))
@@ -840,6 +877,69 @@ function validateProject(document: Record<string, unknown>): Project {
     },
   )
 
+  // Overlay video layers (#145): absent in files saved before them, and in
+  // overlay-free files since. Trim and rectangle are range-checked here so a
+  // foreign file cannot smuggle in an unplayable or off-frame overlay;
+  // the reducer's clamp is re-applied when the opened timeline is
+  // normalized, as for every other effect.
+  const overlayIds = new Set<string>()
+  const videoOverlays = asArray(timelineRaw.videoOverlays ?? [], 'timeline.videoOverlays').map(
+    (value, index) => {
+      const path = `timeline.videoOverlays[${index}]`
+      const raw = asRecord(value, path)
+      const overlay: ProjectVideoOverlay = {
+        id: asString(raw.id, `${path}.id`),
+        clipId: asString(raw.clipId, `${path}.clipId`),
+        name: asString(raw.name, `${path}.name`),
+        duration: asFinite(raw.duration, `${path}.duration`),
+        offset: asNonNegative(raw.offset, `${path}.offset`),
+        inPoint: asNonNegative(raw.inPoint, `${path}.inPoint`),
+        outPoint: asFinite(raw.outPoint, `${path}.outPoint`),
+        x: asNonNegative(raw.x, `${path}.x`),
+        y: asNonNegative(raw.y, `${path}.y`),
+        width: asFinite(raw.width, `${path}.width`),
+        height: asFinite(raw.height, `${path}.height`),
+      }
+      if (overlay.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
+      if (!clipIds.has(overlay.clipId)) {
+        throw new Error(`${path}.clipId "${overlay.clipId}" does not match any clip`)
+      }
+      const overlayClipKind = clipKinds.get(overlay.clipId) as MediaKind
+      if (overlayClipKind !== 'video') {
+        // Overlay layers carry video clips only (#145): audio has no
+        // picture, and a still overlay would be a different feature.
+        throw new Error(`${path}.clipId "${overlay.clipId}" references ${describeKind(overlayClipKind)} clip, but overlay layers carry video only`)
+      }
+      if (overlay.inPoint >= overlay.outPoint) {
+        throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
+      }
+      if (overlay.outPoint > overlay.duration) {
+        throw new Error(`${path}.outPoint must not exceed the clip duration`)
+      }
+      for (const [field, size] of [
+        ['width', overlay.width],
+        ['height', overlay.height],
+      ] as const) {
+        if (size <= 0 || size > 1) throw new Error(`${path}.${field} must be within (0, 1]`)
+      }
+      for (const [field, edge] of [
+        ['x', overlay.x + overlay.width],
+        ['y', overlay.y + overlay.height],
+      ] as const) {
+        if (edge > 1) {
+          throw new Error(`${path}.${field} places the rectangle beyond the frame edge`)
+        }
+      }
+      if (raw.volume !== undefined) overlay.volume = asVolume(raw.volume, `${path}.volume`)
+      if (raw.muted !== undefined) overlay.muted = asBoolean(raw.muted, `${path}.muted`)
+      if (overlayIds.has(overlay.id)) {
+        throw new Error(`${path}.id "${overlay.id}" is duplicated`)
+      }
+      overlayIds.add(overlay.id)
+      return overlay
+    },
+  )
+
   return {
     clips,
     timeline: {
@@ -851,6 +951,7 @@ function validateProject(document: Record<string, unknown>): Project {
       ...(remaps.length === 0 ? {} : { remaps }),
       ...(texts.length === 0 ? {} : { texts }),
       audioTracks,
+      ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },
   }
 }

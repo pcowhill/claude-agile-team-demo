@@ -6,6 +6,8 @@ import type {
   TimelineState,
   TransitionSpec,
   TransitionType,
+  VideoOverlay,
+  VideoOverlayPlacement,
   ZoomSpec,
 } from '../lib/timeline'
 import {
@@ -21,10 +23,12 @@ import {
   remapsOf,
   textsOf,
   totalDuration,
+  videoOverlaysOf,
   zoomsForEntry,
 } from '../lib/timeline'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
+import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
@@ -54,6 +58,8 @@ interface TimelineProps {
   onAddText: () => void
   onUpdateText: (id: string, text: TextOverlaySpec) => void
   onRemoveText: (id: string) => void
+  onUpdateVideoOverlay: (id: string, placement: VideoOverlayPlacement) => void
+  onRemoveVideoOverlay: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
@@ -124,6 +130,29 @@ function TextContentField({ label, value, onCommit }: TextContentFieldProps) {
     />
   )
 }
+
+/** A stored overlay re-expressed as the placement `onUpdateVideoOverlay` takes. */
+const overlayPlacementOf = ({
+  offset,
+  inPoint,
+  outPoint,
+  x,
+  y,
+  width,
+  height,
+  volume,
+  muted,
+}: VideoOverlay): VideoOverlayPlacement => ({
+  offset,
+  inPoint,
+  outPoint,
+  x,
+  y,
+  width,
+  height,
+  volume,
+  muted,
+})
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
 const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: ZoomSpec): ZoomSpec => ({
@@ -217,6 +246,8 @@ export function Timeline({
   onAddText,
   onUpdateText,
   onRemoveText,
+  onUpdateVideoOverlay,
+  onRemoveVideoOverlay,
   onRemoveAudioTrack,
   onRetimeAudioTrack,
   onTrimAudioTrack,
@@ -229,12 +260,14 @@ export function Timeline({
   const transitions = boundaryTransitions(timeline)
   const audioTracks = audioTracksOf(timeline)
   const texts = textsOf(timeline)
+  const videoOverlays = videoOverlaysOf(timeline)
   // The lane's visual scale: long enough for the video sequence and for
   // every track's end — a track past the sequence end (silent tail) still
   // renders fully instead of overflowing.
   const laneSpan = Math.max(
     totalDuration(timeline),
     ...audioTracks.map((track) => track.offset + effectiveDuration(track)),
+    ...videoOverlays.map((overlay) => overlay.offset + effectiveDuration(overlay)),
   )
   const lanePercent = (seconds: number) =>
     laneSpan > 0 ? `${(seconds / laneSpan) * 100}%` : '0%'
@@ -743,6 +776,126 @@ export function Timeline({
                         onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
                       }
                     />
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+
+      {videoOverlays.length > 0 && (
+        <div className="overlay-lane">
+          <h3 className="overlay-lane-heading">Overlays</h3>
+          <ol className="video-overlay-list" aria-label="Overlay video layers">
+            {videoOverlays.map((overlay, index) => {
+              const position = `overlay ${overlay.name} at position ${index + 1}`
+              const trimmedLength = effectiveDuration(overlay)
+              const set = (change: Partial<VideoOverlayPlacement>) =>
+                onUpdateVideoOverlay(overlay.id, { ...overlayPlacementOf(overlay), ...change })
+              return (
+                <li key={overlay.id} className="video-overlay">
+                  {/* Position/size at a glance, like the audio lane's strip;
+                      the numeric fields below are the precise controls. */}
+                  <div className="audio-track-strip" aria-hidden="true">
+                    <div
+                      className="audio-track-bar video-overlay-bar"
+                      data-testid={`video-overlay-bar-${index}`}
+                      style={{
+                        left: lanePercent(overlay.offset),
+                        width: lanePercent(trimmedLength),
+                      }}
+                    />
+                  </div>
+                  <div className="video-overlay-main">
+                    <span className="clip-name" title={overlay.name}>
+                      {overlay.name}
+                    </span>
+                    <span className="clip-duration">{formatDuration(trimmedLength)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${position} from timeline`}
+                      onClick={() => onRemoveVideoOverlay(overlay.id)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="video-overlay-controls">
+                    <span>Starts at</span>
+                    <SecondsField
+                      label={`Start time of ${position} in seconds`}
+                      value={overlay.offset}
+                      max={86400}
+                      onCommit={(offset) => set({ offset })}
+                    />
+                    <span>In</span>
+                    <SecondsField
+                      label={`Trim in point of ${position} in seconds`}
+                      value={overlay.inPoint}
+                      max={overlay.duration}
+                      onCommit={(inPoint) => set({ inPoint })}
+                    />
+                    <span>Out</span>
+                    <SecondsField
+                      label={`Trim out point of ${position} in seconds`}
+                      value={overlay.outPoint}
+                      max={overlay.duration}
+                      onCommit={(outPoint) => set({ outPoint })}
+                    />
+                    <span className="timeline-entry-effective">
+                      plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
+                    </span>
+                  </div>
+                  <div className="video-overlay-controls">
+                    <span>Rect</span>
+                    <SecondsField
+                      label={`Left edge of ${position} (fraction of frame width)`}
+                      value={overlay.x}
+                      max={1}
+                      step={0.05}
+                      onCommit={(x) => set({ x })}
+                    />
+                    <SecondsField
+                      label={`Top edge of ${position} (fraction of frame height)`}
+                      value={overlay.y}
+                      max={1}
+                      step={0.05}
+                      onCommit={(y) => set({ y })}
+                    />
+                    <span>size</span>
+                    <SecondsField
+                      label={`Width of ${position} (fraction of frame width)`}
+                      value={overlay.width}
+                      min={MIN_OVERLAY_SIZE}
+                      max={1}
+                      step={0.05}
+                      onCommit={(width) => set({ width })}
+                    />
+                    <SecondsField
+                      label={`Height of ${position} (fraction of frame height)`}
+                      value={overlay.height}
+                      min={MIN_OVERLAY_SIZE}
+                      max={1}
+                      step={0.05}
+                      onCommit={(height) => set({ height })}
+                    />
+                    <span>Volume</span>
+                    <SecondsField
+                      label={`Volume of ${position} (0 to 1)`}
+                      value={overlay.volume ?? 1}
+                      max={1}
+                      step={0.05}
+                      onCommit={(volume) => set({ volume })}
+                    />
+                    <label className="timeline-mute">
+                      <input
+                        type="checkbox"
+                        aria-label={`Mute ${position}`}
+                        checked={overlay.muted ?? false}
+                        onChange={(event) => set({ muted: event.target.checked })}
+                      />
+                      Mute
+                    </label>
                   </div>
                 </li>
               )

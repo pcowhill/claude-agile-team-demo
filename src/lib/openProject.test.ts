@@ -302,6 +302,28 @@ describe('restoreProject', () => {
       url: 'blob:relinked-m',
     })
   })
+
+  it('rebuilds overlay video layers with re-linked URLs, clamped like every effect (#145)', () => {
+    const withOverlays: Project = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        // A foreign writer's rectangle nudged past the frame edge clamps on
+        // open exactly as an in-app edit would.
+        videoOverlays: [
+          { id: 'v1', clipId: 'b', name: 'city.webm', duration: 5, offset: 2, inPoint: 0, outPoint: 5, x: 0.75, y: 0.6, width: 0.3, height: 0.3, volume: 0.5, muted: true },
+        ],
+      },
+    }
+    const restored = restoreProject(withOverlays, urls)
+    expect(restored.timeline.videoOverlays?.[0]).toMatchObject({
+      id: 'v1',
+      url: 'blob:relinked-b',
+      x: 0.7,
+      volume: 0.5,
+      muted: true,
+    })
+  })
 })
 
 describe('restoreEmbeddedProject', () => {
