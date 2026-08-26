@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeTextDraws,
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
   createAudioCapture,
@@ -14,12 +15,14 @@ import {
   pickExportMimeType,
   supportedExportFormats,
   syncTrackReplay,
+  textDraw,
   zoomRect,
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
-import type { AudioTrack, RemapEffect } from './timeline'
+import type { AudioTrack, RemapEffect, TextOverlay } from './timeline'
 import { audioTrackGainAt } from './gain'
 import { sourceTimeAtOutput } from './remap'
+import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -611,5 +614,124 @@ describe('zoomRect', () => {
         }
       }
     }
+  })
+})
+
+// The export-side rendering of text overlays (#142). The canvas draw itself
+// runs only in a real browser (e2e/export-text.spec.ts); these tests pin the
+// per-frame draw decisions — which overlays are active at a sequence time,
+// and the position, font string, and size each resolves to for a given
+// canvas resolution.
+describe('textDraw (#142)', () => {
+  const overlay: TextOverlay = {
+    id: 't1',
+    content: 'Title',
+    offset: 2,
+    duration: 3,
+    x: 0.25,
+    y: 0.75,
+    font: 'sans',
+    size: 0.1,
+    color: '#00ff88',
+    bold: false,
+    italic: false,
+  }
+
+  it('resolves size against the frame height only, matching the preview', () => {
+    // 0.1 of a 360-high frame is 36px — the width must play no part, exactly
+    // as the preview's cqh sizing ignores the stage width.
+    expect(textDraw(overlay, 640, 360).font).toBe('400 36px Arial, Helvetica, sans-serif')
+    expect(textDraw(overlay, 9999, 360).font).toBe('400 36px Arial, Helvetica, sans-serif')
+  })
+
+  it('spells style and weight into the font string', () => {
+    const stack = textFontStack('sans')
+    expect(textDraw({ ...overlay, bold: true }, 640, 360).font).toBe(`700 36px ${stack}`)
+    expect(textDraw({ ...overlay, italic: true }, 640, 360).font).toBe(`italic 400 36px ${stack}`)
+    expect(textDraw({ ...overlay, bold: true, italic: true }, 640, 360).font).toBe(
+      `italic 700 36px ${stack}`,
+    )
+  })
+
+  it('uses the curated stack for every font id — the same stacks the preview uses', () => {
+    for (const font of ['sans', 'serif', 'mono', 'display'] as const) {
+      expect(textDraw({ ...overlay, font }, 640, 360).font).toContain(textFontStack(font))
+    }
+  })
+
+  it('centres a single line on the fractional position in pixels', () => {
+    const draw = textDraw(overlay, 640, 360)
+    expect(draw.x).toBe(0.25 * 640)
+    expect(draw.firstLineY).toBe(0.75 * 360)
+    expect(draw.lines).toEqual(['Title'])
+    expect(draw.color).toBe('#00ff88')
+  })
+
+  it('splits multi-line content on newlines and centres the block vertically', () => {
+    const draw = textDraw({ ...overlay, content: 'a\nb\nc', y: 0.5 }, 640, 360)
+    expect(draw.lines).toEqual(['a', 'b', 'c'])
+    // 36px type, line step 1.2 × 36 = 43.2px; three lines centre the middle
+    // line on y, so the first line sits one full step above it.
+    expect(draw.lineHeight).toBeCloseTo(36 * TEXT_LINE_HEIGHT, 10)
+    expect(draw.firstLineY).toBeCloseTo(180 - 43.2, 10)
+    // The last line's centre mirrors the first about the block centre.
+    expect(draw.firstLineY + 2 * draw.lineHeight).toBeCloseTo(180 + 43.2, 10)
+  })
+
+  it('is resolution-independent: doubling the frame doubles every pixel value', () => {
+    const base = textDraw({ ...overlay, content: 'a\nb' }, 640, 360)
+    const doubled = textDraw({ ...overlay, content: 'a\nb' }, 1280, 720)
+    expect(doubled.x).toBeCloseTo(base.x * 2, 10)
+    expect(doubled.firstLineY).toBeCloseTo(base.firstLineY * 2, 10)
+    expect(doubled.lineHeight).toBeCloseTo(base.lineHeight * 2, 10)
+    expect(doubled.font).toBe(base.font.replace('36px', '72px'))
+  })
+})
+
+describe('activeTextDraws (#142)', () => {
+  const overlay = (id: string, offset: number, duration: number): TextOverlay => ({
+    id,
+    content: id,
+    offset,
+    duration,
+    x: 0.5,
+    y: 0.5,
+    font: 'sans',
+    size: 0.1,
+    color: '#ffffff',
+    bold: false,
+    italic: false,
+  })
+  const entries = [
+    {
+      id: 'e1',
+      clipId: 'c1',
+      name: 'clip.webm',
+      duration: 10,
+      url: 'blob:clip',
+      inPoint: 0,
+      outPoint: 10,
+    },
+  ]
+
+  it('selects exactly the overlays whose half-open window covers the time', () => {
+    const timeline = { entries, texts: [overlay('early', 0, 2), overlay('late', 5, 3)] }
+    expect(activeTextDraws(timeline, 1, 640, 360).map((draw) => draw.lines)).toEqual([['early']])
+    // At an overlay's end instant it has just disappeared (half-open, #139).
+    expect(activeTextDraws(timeline, 2, 640, 360)).toEqual([])
+    expect(activeTextDraws(timeline, 5, 640, 360).map((draw) => draw.lines)).toEqual([['late']])
+    expect(activeTextDraws(timeline, 9, 640, 360)).toEqual([])
+  })
+
+  it('keeps add order for simultaneous overlays — the stacking order', () => {
+    const timeline = { entries, texts: [overlay('under', 0, 10), overlay('over', 0, 10)] }
+    expect(activeTextDraws(timeline, 5, 640, 360).map((draw) => draw.lines)).toEqual([
+      ['under'],
+      ['over'],
+    ])
+  })
+
+  it('is empty for a text-free timeline, pre-#139 states included', () => {
+    expect(activeTextDraws({ entries }, 1, 640, 360)).toEqual([])
   })
 })

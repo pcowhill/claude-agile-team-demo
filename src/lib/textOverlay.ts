@@ -106,6 +106,15 @@ export const DEFAULT_TEXT: TextOverlaySpec = {
   italic: false,
 }
 
+/**
+ * Line height, as a multiple of the type size, shared by every renderer of
+ * an overlay: `.preview-text` in PreviewPlayer.css mirrors this value (CSS
+ * cannot import it), and the export's canvas draw (#142) consumes it
+ * directly. The two must agree, or a multi-line block would occupy a
+ * different height in the exported file than in the preview.
+ */
+export const TEXT_LINE_HEIGHT = 1.2
+
 /** Lowercase #rrggbb — the one shape `<input type="color">` reads and
  * writes, matching the slate color rule (#143) so saved files never carry
  * the same color in two spellings. */
