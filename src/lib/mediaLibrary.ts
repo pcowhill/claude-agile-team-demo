@@ -1,20 +1,29 @@
 /**
  * What a library clip's media fundamentally is (#101). Deliberately generic
  * "audio", not "music": the same import path serves music, voice-overs and
- * sound effects (#100).
+ * sound effects (#100). Still images (#137) are the third kind — they carry
+ * pixel dimensions instead of a duration.
  */
-export type MediaKind = 'video' | 'audio'
+export type MediaKind = 'video' | 'audio' | 'image'
 
 export interface LibraryClip {
   id: string
   /** Original filename, e.g. "holiday.mp4". */
   name: string
-  /** Duration in seconds. Always finite and > 0. */
+  /**
+   * Duration in seconds. Finite and > 0 for video and audio; exactly 0 for
+   * still images (#137), which have no intrinsic duration — how long an
+   * image shows is decided when it is placed on the timeline, not here.
+   */
   duration: number
   /** Object URL pointing at the imported file, usable as a media src. */
   url: string
-  /** Whether this is a video or an audio clip (#101). */
+  /** Whether this is a video, audio, or still-image clip (#101, #137). */
   kind: MediaKind
+  /** Intrinsic pixel width, probed at import. Present for images (#137). */
+  width?: number
+  /** Intrinsic pixel height, probed at import. Present for images (#137). */
+  height?: number
 }
 
 export interface ImportFailure {
@@ -39,12 +48,17 @@ export type ClipSortDirection = 'asc' | 'desc'
  * Per-key ascending comparators (#123). Name comparison is case-insensitive
  * and locale-aware with numeric collation ("clip2" before "clip10"). Kind
  * ascending puts videos first — the primary medium here; the sequence is
- * built from them — with audio following. Every comparator returns 0 for
- * ties so the stable sort below preserves their existing relative order.
+ * built from them — with audio following and images (#137) last. Duration
+ * ascending puts images first: their stored duration is 0, so "shortest
+ * first" deterministically groups the media that has no length at all ahead
+ * of everything that does. Every comparator returns 0 for ties so the
+ * stable sort below preserves their existing relative order.
  */
+const KIND_SORT_RANK: Record<MediaKind, number> = { video: 0, audio: 1, image: 2 }
+
 const CLIP_COMPARATORS: Record<ClipSortKey, (a: LibraryClip, b: LibraryClip) => number> = {
   name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
-  kind: (a, b) => Number(a.kind === 'audio') - Number(b.kind === 'audio'),
+  kind: (a, b) => KIND_SORT_RANK[a.kind] - KIND_SORT_RANK[b.kind],
   duration: (a, b) => a.duration - b.duration,
 }
 

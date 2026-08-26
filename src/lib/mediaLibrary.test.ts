@@ -157,6 +157,40 @@ describe('sortClips (#123)', () => {
     ])
   })
 
+  it('sorts by kind with images grouped after audio (#137)', () => {
+    const clips = [
+      clip({ name: 'logo.png', kind: 'image', duration: 0 }),
+      clip({ name: 'a.mp3', kind: 'audio' }),
+      clip({ name: 'v1.mp4', kind: 'video' }),
+      clip({ name: 'photo.jpg', kind: 'image', duration: 0 }),
+    ]
+    expect(byNames(sortClips(clips, 'kind', 'asc'))).toEqual([
+      'v1.mp4',
+      'a.mp3',
+      'logo.png',
+      'photo.jpg',
+    ])
+    expect(byNames(sortClips(clips, 'kind', 'desc'))).toEqual([
+      'logo.png',
+      'photo.jpg',
+      'a.mp3',
+      'v1.mp4',
+    ])
+  })
+
+  it('sorts images (duration 0) before everything with a length, ascending (#137)', () => {
+    const clips = [
+      clip({ name: 'long.mp4', duration: 90 }),
+      clip({ name: 'logo.png', kind: 'image', duration: 0 }),
+      clip({ name: 'short.mp4', duration: 3 }),
+    ]
+    expect(byNames(sortClips(clips, 'duration', 'asc'))).toEqual([
+      'logo.png',
+      'short.mp4',
+      'long.mp4',
+    ])
+  })
+
   it('sorts by duration numerically', () => {
     const clips = [
       clip({ name: 'long.mp4', duration: 90 }),

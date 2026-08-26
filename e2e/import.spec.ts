@@ -110,6 +110,40 @@ test('importing an audio file lists it with duration, marked audio', async ({ pa
   ).toBeVisible()
 })
 
+test('importing an image lists it with an Image badge and no duration (#137)', async ({
+  page,
+}) => {
+  // A real PNG generated in the browser, so the <img> probe decodes it for
+  // real — same no-committed-binary-fixture approach as the WebM above.
+  const pngBase64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 48
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#c00'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+
+  await page.getByTestId('clip-file-input').setInputFiles({
+    name: 'logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngBase64, 'base64'),
+  })
+
+  const list = page.getByRole('list', { name: 'Imported clips' })
+  const item = list.getByRole('listitem')
+  await expect(item).toContainText('logo.png')
+  await expect(item).toContainText('Image')
+  // A still has no duration: the length column shows a dash.
+  await expect(item).toContainText('—')
+  // No Add button until images can join the timeline (#140); Remove works.
+  await expect(page.getByRole('button', { name: 'Add logo.png to timeline' })).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Remove logo.png from library' }),
+  ).toBeVisible()
+})
+
 test('a file the browser cannot decode produces a visible error and no clip', async ({
   page,
 }) => {

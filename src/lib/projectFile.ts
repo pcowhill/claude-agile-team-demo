@@ -16,10 +16,11 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2,            // integer; bumped on breaking change
- *     "clips": [{ id, name, duration, kind?, mimeType?, byteSize? }],
- *     "media": {                         // schema version 2 only (#97)
- *       [clipId]: { byteLength, crc32, mimeType?, data }
+ *     "schemaVersion": 1 | 2 | 3,        // integer; bumped on breaking change
+ *     "clips": [{ id, name, duration?, kind?, width?, height?,
+ *                 mimeType?, byteSize? }],
+ *     "media": {                         // version 2 always; version 3 when
+ *       [clipId]: { byteLength, crc32, mimeType?, data }   // embedding (#97)
  *     },
  *     "timeline": {
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
@@ -51,6 +52,16 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *   be refused by name; a version-2 file whose `media` does not cover every
  *   clip is refused rather than half-opened.
  *
+ * Schema version 3 (#137) marks that the library holds still images —
+ * `kind: "image"` clips, which carry `width`/`height` and no `duration`
+ * (a still has none). It is written exactly when images are present, in
+ * BOTH save modes: a references-only file with images is version 3 with no
+ * `media` section, an embedded one is version 3 with it — so at version 3
+ * the `media` section's presence is what distinguishes the two kinds of
+ * file, where versions 1/2 encoded that in the version itself. Older
+ * builds refuse image-carrying files through the version gate instead of
+ * choking on the unknown kind value.
+ *
  * Compatibility contract: a file with `schemaVersion` GREATER than this
  * build understands is refused with a clear error (it may mean something
  * this code would mis-load). Within a known version, unknown extra keys are
@@ -60,10 +71,14 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  * still open" (#71) checkable forever.
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
-/** The newest schema version this build understands (and writes when embedding). */
-export const PROJECT_SCHEMA_VERSION = 2
+/** The newest schema version this build understands. */
+export const PROJECT_SCHEMA_VERSION = 3
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
+/** The version written when embedding media and the library has no images. */
+export const EMBEDDED_SCHEMA_VERSION = 2
+/** The version any image in the library forces, whichever the save mode (#137). */
+export const IMAGES_SCHEMA_VERSION = 3
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -77,8 +92,16 @@ export const REFERENCES_SCHEMA_VERSION = 1
 export interface ProjectClip {
   id: string
   name: string
+  /**
+   * Duration in seconds. Always 0 for images (#137) — the file omits their
+   * `duration` key entirely, because a still has no duration to store — and
+   * finite, > 0 for video and audio.
+   */
   duration: number
   kind: MediaKind
+  /** Intrinsic pixel dimensions (#137). Written for images, for re-linking. */
+  width?: number
+  height?: number
   mimeType?: string
   byteSize?: number
 }
@@ -136,8 +159,10 @@ export type DeserializeResult =
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
- * the media at schema version 2; without it, a references-only version 1
- * file is written, byte-compatible with what this function always produced.
+ * the media; without it, a references-only file is written. The schema
+ * version is the lowest that can represent the content (see the format
+ * notes above): 1 or 2 by save mode, byte-compatible with what this
+ * function always produced, or 3 as soon as the library has images (#137).
  * Throws only on programmer error: a timeline entry referencing a clip that
  * is not in the library — or a media map that does not match the library
  * exactly — would produce a file our own deserializer refuses, so it is
@@ -179,10 +204,28 @@ export async function serializeProject(
       }
     }
   }
+  // The lowest version that can represent the content is the one written,
+  // so older builds keep opening every file that has nothing newer in it.
+  // Any image forces version 3 (#137) whichever the save mode; otherwise the
+  // mode alone decides, exactly as before images existed.
+  const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: media === undefined ? REFERENCES_SCHEMA_VERSION : PROJECT_SCHEMA_VERSION,
-    clips: library.clips.map(({ id, name, duration, kind }) => ({ id, name, duration, kind })),
+    schemaVersion: hasImages
+      ? IMAGES_SCHEMA_VERSION
+      : media === undefined
+        ? REFERENCES_SCHEMA_VERSION
+        : EMBEDDED_SCHEMA_VERSION,
+    clips: library.clips.map(({ id, name, duration, kind, width, height }) => ({
+      id,
+      name,
+      // Images store dimensions instead of a duration (#137); other kinds
+      // keep the exact key order files always had, staying byte-identical.
+      ...(kind === 'image' ? {} : { duration }),
+      kind,
+      ...(width === undefined ? {} : { width }),
+      ...(height === undefined ? {} : { height }),
+    })),
     ...(media === undefined
       ? {}
       : {
@@ -295,6 +338,12 @@ export async function deserializeProject(
       // extra key from some foreign writer and is ignored per the contract.
       return { ok: true, project }
     }
+    if (version >= 3 && parsed.media === undefined) {
+      // At version 3 both save modes exist (#137): the media section's
+      // presence — not the version — says whether the file embedded its
+      // media. Version 2 is embedded by definition, so only 3+ may lack it.
+      return { ok: true, project }
+    }
     return { ok: true, project, media: validateMedia(parsed, project.clips) }
   } catch (error) {
     return refusal(`corrupt project file (${error instanceof Error ? error.message : error})`)
@@ -333,10 +382,19 @@ const asRecord = (value: unknown, path: string): Record<string, unknown> => {
   return value
 }
 const asMediaKind = (value: unknown, path: string): MediaKind => {
-  if (value !== 'video' && value !== 'audio') {
-    throw new Error(`${path} must be "video" or "audio"`)
+  if (value !== 'video' && value !== 'audio' && value !== 'image') {
+    throw new Error(`${path} must be "video", "audio", or "image"`)
   }
   return value
+}
+/** "a video" / "an audio" / "an image", for kind-mismatch messages. */
+const describeKind = (kind: MediaKind): string => (kind === 'video' ? 'a video' : `an ${kind}`)
+const asPositiveInteger = (value: unknown, path: string): number => {
+  const numeric = asFinite(value, path)
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    throw new Error(`${path} must be a positive integer`)
+  }
+  return numeric
 }
 const asVolume = (value: unknown, path: string): number => {
   const numeric = asFinite(value, path)
@@ -351,14 +409,23 @@ const asBoolean = (value: unknown, path: string): boolean => {
 function validateProject(document: Record<string, unknown>): Project {
   const clips = asArray(document.clips, 'clips').map((value, index) => {
     const raw = asRecord(value, `clips[${index}]`)
+    // Absent in files saved before #101, whose clips are all videos.
+    const kind = raw.kind === undefined ? 'video' : asMediaKind(raw.kind, `clips[${index}].kind`)
     const clip: ProjectClip = {
       id: asString(raw.id, `clips[${index}].id`),
       name: asString(raw.name, `clips[${index}].name`),
-      duration: asFinite(raw.duration, `clips[${index}].duration`),
-      // Absent in files saved before #101, whose clips are all videos.
-      kind: raw.kind === undefined ? 'video' : asMediaKind(raw.kind, `clips[${index}].kind`),
+      // Images have no duration to store (#137): the key is absent in the
+      // file and 0 in the model, matching what import probes for them.
+      duration: kind === 'image' ? 0 : asFinite(raw.duration, `clips[${index}].duration`),
+      kind,
     }
-    if (clip.duration <= 0) throw new Error(`clips[${index}].duration must be greater than 0`)
+    if (kind !== 'image' && clip.duration <= 0) {
+      throw new Error(`clips[${index}].duration must be greater than 0`)
+    }
+    if (raw.width !== undefined) clip.width = asPositiveInteger(raw.width, `clips[${index}].width`)
+    if (raw.height !== undefined) {
+      clip.height = asPositiveInteger(raw.height, `clips[${index}].height`)
+    }
     if (raw.mimeType !== undefined) clip.mimeType = asString(raw.mimeType, `clips[${index}].mimeType`)
     if (raw.byteSize !== undefined) {
       clip.byteSize = asNonNegative(raw.byteSize, `clips[${index}].byteSize`)
@@ -389,10 +456,12 @@ function validateProject(document: Record<string, unknown>): Project {
     if (!clipIds.has(entry.clipId)) {
       throw new Error(`${path}.clipId "${entry.clipId}" does not match any clip`)
     }
-    if (clipKinds.get(entry.clipId) !== 'video') {
-      // The sequence is video-only (#101/#102): an audio entry here could
-      // only come from a foreign writer, and would break preview and export.
-      throw new Error(`${path}.clipId "${entry.clipId}" references an audio clip, but the sequence carries video only`)
+    const entryClipKind = clipKinds.get(entry.clipId) as MediaKind
+    if (entryClipKind !== 'video') {
+      // The sequence is video-only (#101/#102; image entries arrive with
+      // #140): a non-video entry here could only come from a foreign
+      // writer, and would break preview and export.
+      throw new Error(`${path}.clipId "${entry.clipId}" references ${describeKind(entryClipKind)} clip, but the sequence carries video only`)
     }
     if (entry.inPoint >= entry.outPoint) {
       throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
@@ -505,10 +574,11 @@ function validateProject(document: Record<string, unknown>): Project {
       if (!clipIds.has(track.clipId)) {
         throw new Error(`${path}.clipId "${track.clipId}" does not match any clip`)
       }
-      if (clipKinds.get(track.clipId) !== 'audio') {
+      const trackClipKind = clipKinds.get(track.clipId) as MediaKind
+      if (trackClipKind !== 'audio') {
         // Audio tracks carry audio clips only (#102): a video clip's audio
-        // stays bound to its sequence entry.
-        throw new Error(`${path}.clipId "${track.clipId}" references a video clip, but audio tracks carry audio only`)
+        // stays bound to its sequence entry, and an image has none.
+        throw new Error(`${path}.clipId "${track.clipId}" references ${describeKind(trackClipKind)} clip, but audio tracks carry audio only`)
       }
       if (track.inPoint >= track.outPoint) {
         throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)

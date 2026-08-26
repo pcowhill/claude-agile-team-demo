@@ -18,7 +18,9 @@ timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
 video entry's volume and mute (#104), and the exported file carries that
-same mix (#105). It is deployed
+same mix (#105). Still images import into the media library too (#137),
+with their pixel dimensions probed and shown with an Image badge; placing
+them on the timeline arrives with #140. It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 

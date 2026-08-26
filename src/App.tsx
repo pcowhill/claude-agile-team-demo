@@ -54,10 +54,20 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     // Sequential so clips appear in the order the user picked them.
     for (const file of files) {
       try {
-        const { duration, url, kind } = await probeMedia(file)
+        const { duration, url, kind, width, height } = await probeMedia(file)
         dispatch({
           type: 'clip-added',
-          clip: { id: crypto.randomUUID(), name: file.name, duration, url, kind },
+          // Dimensions are probed for images (#137); the spreads keep other
+          // kinds' clip objects shaped exactly as they always were.
+          clip: {
+            id: crypto.randomUUID(),
+            name: file.name,
+            duration,
+            url,
+            kind,
+            ...(width === undefined ? {} : { width }),
+            ...(height === undefined ? {} : { height }),
+          },
         })
       } catch (error) {
         dispatch({
@@ -88,6 +98,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       })
       return
     }
+    // Images cannot join the timeline yet (#140) — the library renders no
+    // Add button for them, so this only guards against future callers.
+    if (clip.kind !== 'video') return
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
