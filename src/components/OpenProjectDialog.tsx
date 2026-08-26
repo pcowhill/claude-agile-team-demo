@@ -81,7 +81,17 @@ export function OpenProjectDialog({
         )
         continue
       }
-      const match = matchFileToClip(project.clips, new Set(nextLinks.keys()), file.name, probed.duration, probed.kind)
+      const match = matchFileToClip(
+        project.clips,
+        new Set(nextLinks.keys()),
+        file.name,
+        probed.duration,
+        probed.kind,
+        // Images match on pixel dimensions instead of duration (#137).
+        probed.width !== undefined && probed.height !== undefined
+          ? { width: probed.width, height: probed.height }
+          : undefined,
+      )
       if (match.kind === 'matched') {
         nextLinks.set(match.clipId, probed.url)
       } else {
@@ -120,7 +130,8 @@ export function OpenProjectDialog({
         <h3 id={headingId}>Open {fileName}</h3>
         <p>
           Project files store references to your media, not the media itself. Re-select the
-          original files to link them back up; each is matched by filename and duration.
+          original files to link them back up; each is matched by filename and duration (images
+          by filename and dimensions).
         </p>
         <ul className="relink-list" aria-label="Project media">
           {project.clips.map((clip) => (
@@ -128,8 +139,13 @@ export function OpenProjectDialog({
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>
-              {clip.kind === 'audio' && <span className="clip-kind">Audio</span>}
-              <span className="clip-duration">{formatDuration(clip.duration)}</span>
+              {clip.kind !== 'video' && (
+                <span className="clip-kind">{clip.kind === 'audio' ? 'Audio' : 'Image'}</span>
+              )}
+              {/* An image has no duration to show (#137). */}
+              <span className="clip-duration">
+                {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
+              </span>
               <span className={links.has(clip.id) ? 'relink-linked' : 'relink-missing'}>
                 {links.has(clip.id) ? 'Linked ✓' : 'Missing'}
               </span>
@@ -150,7 +166,7 @@ export function OpenProjectDialog({
           <input
             ref={inputRef}
             type="file"
-            accept="video/*,audio/*"
+            accept="video/*,audio/*,image/*"
             multiple
             hidden
             data-testid="relink-file-input"

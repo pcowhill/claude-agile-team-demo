@@ -10,7 +10,8 @@ import type { TimelineState } from './timeline'
  * before the project can be edited. Matching is by filename AND duration —
  * a file that merely shares the name of a project clip but carries different
  * content would silently break every trim and effect referencing it, so a
- * metadata mismatch is reported instead of accepted.
+ * metadata mismatch is reported instead of accepted. Still images (#137)
+ * have no duration, so their content check is pixel dimensions instead.
  */
 
 /**
@@ -29,11 +30,33 @@ export type MatchResult =
 
 const seconds = (value: number): string => `${Number(value.toFixed(2))}s`
 
+/** Intrinsic pixel dimensions, as probed from a picked image file (#137). */
+export interface ProbedDimensions {
+  width: number
+  height: number
+}
+
+/**
+ * Whether a picked image's content plausibly matches a stored image clip
+ * (#137): the same file decodes to the same pixel dimensions in every
+ * browser, so equality is required — but only when both sides know them
+ * (a foreign writer may have omitted the stored ones; then filename and
+ * kind are all there is to check).
+ */
+function imageContentMatches(clip: ProjectClip, probed: ProbedDimensions | undefined): boolean {
+  if (clip.width === undefined || clip.height === undefined || probed === undefined) return true
+  return clip.width === probed.width && clip.height === probed.height
+}
+
+const pixels = (width: number, height: number): string => `${width}×${height} pixels`
+
 /**
  * Matches one picked file against the project's still-unlinked clips.
  * Filename first (several project clips may share a name — the first
- * unlinked one whose duration and media kind also match wins), then
- * duration and kind; each failure mode gets its own human-readable reason.
+ * unlinked one whose content metadata also matches wins), then media kind
+ * and the content check — duration for video/audio, pixel dimensions for
+ * images (#137, both probe as duration 0 so the duration check is inert
+ * for them); each failure mode gets its own human-readable reason.
  */
 export function matchFileToClip(
   clips: readonly ProjectClip[],
@@ -41,6 +64,7 @@ export function matchFileToClip(
   fileName: string,
   probedDuration: number,
   probedKind: MediaKind,
+  probedDimensions?: ProbedDimensions,
 ): MatchResult {
   const sameName = clips.filter((clip) => clip.name === fileName)
   if (sameName.length === 0) {
@@ -51,16 +75,37 @@ export function matchFileToClip(
     return { kind: 'no-match', reason: `"${fileName}" is already linked.` }
   }
   const match = candidates.find(
-    (clip) => clip.kind === probedKind && durationsMatch(clip.duration, probedDuration),
+    (clip) =>
+      clip.kind === probedKind &&
+      durationsMatch(clip.duration, probedDuration) &&
+      (clip.kind !== 'image' || imageContentMatches(clip, probedDimensions)),
   )
   if (match === undefined) {
     // Name the more surprising mismatch first: a kind clash means the wrong
-    // sort of file altogether, duration means likely a different cut.
+    // sort of file altogether; duration/dimensions mean likely different
+    // content under the same name.
     const kindClash = candidates.every((clip) => clip.kind !== probedKind)
     if (kindClash) {
+      const kindArticle =
+        probedKind === 'video' ? 'a video' : probedKind === 'audio' ? 'an audio' : 'an image'
       return {
         kind: 'no-match',
-        reason: `"${fileName}" is ${probedKind === 'audio' ? 'an audio' : 'a video'} file, but this project's clip of that name is ${candidates[0].kind}. It may be a different file.`,
+        reason: `"${fileName}" is ${kindArticle} file, but this project's clip of that name is ${candidates[0].kind}. It may be a different file.`,
+      }
+    }
+    if (probedKind === 'image') {
+      const stored = candidates.find((clip) => clip.kind === 'image') ?? candidates[0]
+      const expected =
+        stored.width !== undefined && stored.height !== undefined
+          ? pixels(stored.width, stored.height)
+          : 'different dimensions'
+      const actual =
+        probedDimensions === undefined
+          ? 'unknown dimensions'
+          : pixels(probedDimensions.width, probedDimensions.height)
+      return {
+        kind: 'no-match',
+        reason: `"${fileName}" does not match this project's image of the same name: expected ${expected}, but the picked file is ${actual}. It may be a different file.`,
       }
     }
     return {
@@ -93,12 +138,14 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
     return url
   }
   return {
-    clips: project.clips.map(({ id, name, duration, kind }) => ({
+    clips: project.clips.map(({ id, name, duration, kind, width, height }) => ({
       id,
       name,
       duration,
       kind,
       url: urlOf(id),
+      ...(width === undefined ? {} : { width }),
+      ...(height === undefined ? {} : { height }),
     })),
     timeline: normalizedTimelineState(
       project.timeline.entries.map((entry) => ({ ...entry, url: urlOf(entry.clipId) })),

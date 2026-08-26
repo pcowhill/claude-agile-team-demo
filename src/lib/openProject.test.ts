@@ -96,6 +96,50 @@ describe('matchFileToClip', () => {
   })
 })
 
+describe('matchFileToClip for still images (#137)', () => {
+  const clips = [
+    { id: 'v', name: 'holiday.mp4', duration: 10, kind: 'video' },
+    { id: 'i', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+    { id: 'bare', name: 'old.png', duration: 0, kind: 'image' },
+  ] as const
+
+  it('matches an image by filename, kind, and pixel dimensions', () => {
+    expect(
+      matchFileToClip(clips, new Set(), 'logo.png', 0, 'image', { width: 640, height: 480 }),
+    ).toEqual({ kind: 'matched', clipId: 'i' })
+  })
+
+  it('reports a dimension mismatch instead of silently accepting the file', () => {
+    const result = matchFileToClip(clips, new Set(), 'logo.png', 0, 'image', {
+      width: 320,
+      height: 240,
+    })
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') {
+      expect(result.reason).toContain('expected 640×480 pixels')
+      expect(result.reason).toContain('the picked file is 320×240 pixels')
+    }
+  })
+
+  it('matches an image whose stored clip has no dimensions (foreign writer)', () => {
+    expect(
+      matchFileToClip(clips, new Set(), 'old.png', 0, 'image', { width: 99, height: 7 }),
+    ).toEqual({ kind: 'matched', clipId: 'bare' })
+  })
+
+  it('reports a kind clash between an image file and a same-named video clip', () => {
+    const result = matchFileToClip(clips, new Set(), 'holiday.mp4', 0, 'image', {
+      width: 640,
+      height: 480,
+    })
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') {
+      expect(result.reason).toContain('"holiday.mp4" is an image file')
+      expect(result.reason).toContain('is video')
+    }
+  })
+})
+
 describe('restoreProject', () => {
   const project: Project = {
     clips: [
@@ -280,6 +324,29 @@ describe('restoreEmbeddedProject', () => {
     expect(() => restoreEmbeddedProject(project, partial, createUrl)).toThrow(
       /has no embedded media/,
     )
+  })
+})
+
+describe('restoreProject with images (#137)', () => {
+  it('carries image dimensions through to the restored library clip', () => {
+    const project: Project = {
+      clips: [
+        { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+      ],
+      timeline: { entries: [], transitions: [], zooms: [], audioTracks: [] },
+    }
+    const restored = restoreProject(project, new Map([['i1', 'blob:relinked/i1']]))
+    expect(restored.clips).toEqual([
+      {
+        id: 'i1',
+        name: 'logo.png',
+        duration: 0,
+        kind: 'image',
+        url: 'blob:relinked/i1',
+        width: 640,
+        height: 480,
+      },
+    ])
   })
 })
 

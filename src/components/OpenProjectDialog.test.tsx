@@ -216,6 +216,105 @@ describe('OpenProjectDialog', () => {
     ])
   })
 
+  it('re-links an image clip by dimensions, marking it and showing no duration (#137)', async () => {
+    const imageProject: Project = {
+      clips: [
+        { id: 'i', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+      ],
+      timeline: { entries: [], transitions: [], zooms: [], audioTracks: [] },
+    }
+    const probe = vi.fn((file: File) =>
+      Promise.resolve({
+        duration: 0,
+        url: `blob:probe/${file.name}`,
+        kind: 'image' as const,
+        width: file.name === 'logo.png' ? 640 : 320,
+        height: file.name === 'logo.png' ? 480 : 240,
+      }),
+    )
+    const onOpen = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <OpenProjectDialog
+        fileName="images.bvep"
+        project={imageProject}
+        onCancel={() => {}}
+        onOpen={onOpen}
+        probeMedia={probe}
+      />,
+    )
+
+    const item = mediaList().getByRole('listitem')
+    expect(item).toHaveTextContent('Image')
+    // No duration to show for a still — the dash stands in for the time.
+    expect(item).toHaveTextContent('—')
+    expect(item).toHaveTextContent('Missing')
+
+    // A same-named image with different pixel dimensions must be refused…
+    await user.upload(
+      screen.getByTestId('relink-file-input'),
+      new File(['x'], 'other.png', { type: 'image/png' }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('is not one of this project')
+
+    // …and the right file links up and opens.
+    await user.upload(
+      screen.getByTestId('relink-file-input'),
+      new File(['x'], 'logo.png', { type: 'image/png' }),
+    )
+    await waitFor(() => expect(item).toHaveTextContent('Linked ✓'))
+    await user.click(screen.getByRole('button', { name: 'Open project' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen.mock.calls[0][0].clips).toEqual([
+      {
+        id: 'i',
+        name: 'logo.png',
+        duration: 0,
+        kind: 'image',
+        url: 'blob:probe/logo.png',
+        width: 640,
+        height: 480,
+      },
+    ])
+  })
+
+  it('reports an image whose dimensions do not match the stored clip (#137)', async () => {
+    const imageProject: Project = {
+      clips: [
+        { id: 'i', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+      ],
+      timeline: { entries: [], transitions: [], zooms: [], audioTracks: [] },
+    }
+    const probe = vi.fn((file: File) =>
+      Promise.resolve({
+        duration: 0,
+        url: `blob:probe/${file.name}`,
+        kind: 'image' as const,
+        width: 320,
+        height: 240,
+      }),
+    )
+    const user = userEvent.setup()
+    render(
+      <OpenProjectDialog
+        fileName="images.bvep"
+        project={imageProject}
+        onCancel={() => {}}
+        onOpen={() => {}}
+        probeMedia={probe}
+      />,
+    )
+
+    await user.upload(
+      screen.getByTestId('relink-file-input'),
+      new File(['x'], 'logo.png', { type: 'image/png' }),
+    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('expected 640×480 pixels')
+    expect(alert).toHaveTextContent('the picked file is 320×240 pixels')
+    expect(mediaList().getByRole('listitem')).toHaveTextContent('Missing')
+  })
+
   it('cancelling releases every probed URL and opens nothing', async () => {
     const onCancel = vi.fn()
     const onOpen = vi.fn()

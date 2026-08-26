@@ -164,6 +164,67 @@ describe('audio import (#101)', () => {
   })
 })
 
+describe('image import (#137)', () => {
+  const imageFile = (name: string) => new File(['content'], name, { type: 'image/png' })
+
+  it('adds an image with an Image badge and no duration, and the picker accepts images', async () => {
+    probeMock.mockResolvedValueOnce({
+      duration: 0,
+      url: 'blob:logo',
+      kind: 'image',
+      width: 640,
+      height: 480,
+    })
+    render(<App />)
+
+    const input = screen.getByTestId('clip-file-input')
+    expect(input).toHaveAttribute('accept', 'video/*,audio/*,image/*')
+    await userEvent.upload(input, imageFile('logo.png'))
+
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    const item = within(list).getByRole('listitem')
+    expect(item).toHaveTextContent('logo.png')
+    expect(item).toHaveTextContent('Image')
+    expect(item.querySelector('.clip-kind')).toHaveClass('clip-kind-image')
+    // A still has no duration: the column shows a dash, not "0:00".
+    expect(item.querySelector('.clip-duration')).toHaveTextContent('—')
+    expect(item).not.toHaveTextContent('0:00')
+  })
+
+  it('renders no Add button for an image — timeline placement arrives with #140', async () => {
+    probeMock
+      .mockResolvedValueOnce({ duration: 0, url: 'blob:logo', kind: 'image', width: 8, height: 8 })
+      .mockResolvedValueOnce({ duration: 5, url: 'blob:v', kind: 'video' })
+    render(<App />)
+
+    const input = screen.getByTestId('clip-file-input')
+    await userEvent.upload(input, imageFile('logo.png'))
+    await userEvent.upload(input, videoFile('clip.mp4'))
+    await screen.findByText('clip.mp4')
+
+    expect(
+      screen.queryByRole('button', { name: 'Add logo.png to timeline' }),
+    ).not.toBeInTheDocument()
+    // The video next to it keeps its Add button — the omission is per-kind.
+    expect(screen.getByRole('button', { name: 'Add clip.mp4 to timeline' })).toBeInTheDocument()
+    // Images can still be removed like any clip.
+    expect(
+      screen.getByRole('button', { name: 'Remove logo.png from library' }),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces an undecodable image as an import failure, not a crash', async () => {
+    probeMock.mockRejectedValueOnce(
+      new Error('"broken.png" is not an image this browser can display.'),
+    )
+    render(<App />)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), imageFile('broken.png'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '"broken.png" is not an image this browser can display.',
+    )
+  })
+})
+
 describe('media library clip removal', () => {
   // jsdom does not implement object URLs — provide a spyable stand-in.
   const revokeSpy = vi.fn()

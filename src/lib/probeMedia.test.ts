@@ -19,6 +19,18 @@ class FakeMedia {
 
 const asMedia = (fake: FakeMedia) => () => fake as unknown as HTMLMediaElement
 
+// jsdom never decodes images either, so image probes (#137) inject a fake.
+class FakeImage {
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  naturalWidth = 0
+  naturalHeight = 0
+  src = ''
+  removeAttribute() {}
+}
+
+const asImage = (fake: FakeImage) => () => fake as unknown as HTMLImageElement
+
 const createObjectURL = vi.fn(() => 'blob:probe-test')
 const revokeObjectURL = vi.fn()
 
@@ -46,6 +58,14 @@ describe('detectMediaKind', () => {
   })
 
   it.each([
+    ['photo.png', 'image/png', 'image'],
+    ['photo.jpg', 'image/jpeg', 'image'],
+    ['sticker.webp', 'image/webp', 'image'],
+  ] as const)('classifies %s (%s) by MIME type as %s (#137)', (name, type, expected) => {
+    expect(detectMediaKind(new File(['x'], name, { type }))).toBe(expected)
+  })
+
+  it.each([
     ['song.mp3', 'audio'],
     ['take.WAV', 'audio'],
     ['voice.m4a', 'audio'],
@@ -53,6 +73,9 @@ describe('detectMediaKind', () => {
     ['note.opus', 'audio'],
     ['clip.webm', 'video'],
     ['unknown.bin', 'video'],
+    ['photo.png', 'image'],
+    ['photo.JPEG', 'image'],
+    ['frame.gif', 'image'],
   ] as const)('falls back to the extension for un-typed %s → %s', (name, expected) => {
     expect(detectMediaKind(new File(['x'], name, { type: '' }))).toBe(expected)
   })
@@ -131,6 +154,61 @@ describe('probeMediaFile', () => {
     vi.useFakeTimers()
     const fake = new FakeMedia()
     const promise = probeMediaFile(file, asMedia(fake))
+    const assertion = expect(promise).rejects.toThrow('Timed out')
+    vi.advanceTimersByTime(15_000)
+    await assertion
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
+  })
+})
+
+describe('probeMediaFile for still images (#137)', () => {
+  const imageFile = new File(['x'], 'logo.png', { type: 'image/png' })
+  const failingMedia = () => {
+    // An image probe must never construct a media element; blowing up here
+    // proves the image path took over before the default factory ran.
+    throw new Error('an image probe must not create a media element')
+  }
+
+  it('resolves with kind image, duration 0, and the pixel dimensions', async () => {
+    const fake = new FakeImage()
+    const promise = probeMediaFile(imageFile, failingMedia, asImage(fake))
+    fake.naturalWidth = 640
+    fake.naturalHeight = 480
+    fake.onload?.()
+    await expect(promise).resolves.toEqual({
+      duration: 0,
+      url: 'blob:probe-test',
+      kind: 'image',
+      width: 640,
+      height: 480,
+    })
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('rejects and revokes the object URL when the image cannot be displayed', async () => {
+    const fake = new FakeImage()
+    const promise = probeMediaFile(imageFile, failingMedia, asImage(fake))
+    fake.onerror?.()
+    await expect(promise).rejects.toThrow(
+      '"logo.png" is not an image this browser can display.',
+    )
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
+  })
+
+  it('rejects an image that decodes with no usable pixel dimensions', async () => {
+    const fake = new FakeImage()
+    const promise = probeMediaFile(imageFile, failingMedia, asImage(fake))
+    fake.onload?.()
+    await expect(promise).rejects.toThrow(
+      '"logo.png" is an image with no usable pixel dimensions.',
+    )
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
+  })
+
+  it('rejects and revokes the object URL when the image never loads', async () => {
+    vi.useFakeTimers()
+    const fake = new FakeImage()
+    const promise = probeMediaFile(imageFile, failingMedia, asImage(fake))
     const assertion = expect(promise).rejects.toThrow('Timed out')
     vi.advanceTimersByTime(15_000)
     await assertion

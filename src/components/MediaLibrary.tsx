@@ -30,6 +30,13 @@ const SORT_CONTROLS: readonly { key: ClipSortKey; label: string }[] = [
   { key: 'duration', label: 'Length' },
 ]
 
+/** Badge text per kind (#101, #120, #137) — meaning as text, never color alone. */
+const KIND_LABELS: Record<LibraryClip['kind'], string> = {
+  video: 'Video',
+  audio: 'Audio',
+  image: 'Image',
+}
+
 export function MediaLibrary({
   library,
   onImportFiles,
@@ -81,7 +88,7 @@ export function MediaLibrary({
         <input
           ref={inputRef}
           type="file"
-          accept="video/*,audio/*"
+          accept="video/*,audio/*,image/*"
           multiple
           hidden
           data-testid="clip-file-input"
@@ -104,7 +111,8 @@ export function MediaLibrary({
 
       {library.clips.length === 0 ? (
         <p className="placeholder">
-          No clips yet. Import video or audio files, or drag and drop them anywhere in the app.
+          No clips yet. Import video, audio, or image files, or drag and drop them anywhere in the
+          app.
         </p>
       ) : (
         <>
@@ -137,17 +145,25 @@ export function MediaLibrary({
                 {clip.name}
               </span>
               <span className={`clip-kind clip-kind-${clip.kind}`}>
-                {clip.kind === 'audio' ? 'Audio' : 'Video'}
+                {KIND_LABELS[clip.kind]}
               </span>
-              <span className="clip-duration">{formatDuration(clip.duration)}</span>
-              {/* Video joins the sequence; audio joins the audio lane (#102). */}
-              <button
-                type="button"
-                aria-label={`Add ${clip.name} to timeline`}
-                onClick={() => onAddToTimeline(clip)}
-              >
-                Add
-              </button>
+              {/* An image has no duration (#137); an em dash keeps the column
+                  aligned without pretending stills are zero seconds long. */}
+              <span className="clip-duration">
+                {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
+              </span>
+              {/* Video joins the sequence; audio joins the audio lane (#102).
+                  Images cannot be placed on the timeline yet — #140 adds
+                  that — so they get no Add button rather than a dead one. */}
+              {clip.kind !== 'image' && (
+                <button
+                  type="button"
+                  aria-label={`Add ${clip.name} to timeline`}
+                  onClick={() => onAddToTimeline(clip)}
+                >
+                  Add
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={`Remove ${clip.name} from library`}

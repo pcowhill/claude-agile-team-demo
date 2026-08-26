@@ -3,9 +3,13 @@ import fixtureV1Base64 from './fixtures/project-v1.bvep.base64?raw'
 import fixtureV2Base64 from './fixtures/project-v2-embedded.bvep.base64?raw'
 import fixtureV1AudioBase64 from './fixtures/project-v1-audio-tracks.bvep.base64?raw'
 import fixtureV1GainBase64 from './fixtures/project-v1-gain.bvep.base64?raw'
+import fixtureV3ImageReferencesBase64 from './fixtures/project-v3-image-references.bvep.base64?raw'
+import fixtureV3ImageEmbeddedBase64 from './fixtures/project-v3-image-embedded.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
+  EMBEDDED_SCHEMA_VERSION,
+  IMAGES_SCHEMA_VERSION,
   PROJECT_FORMAT,
   PROJECT_SCHEMA_VERSION,
   REFERENCES_SCHEMA_VERSION,
@@ -273,7 +277,10 @@ describe('clip kinds (#101)', () => {
   it('refuses an unknown kind value', async () => {
     const document = validDocument()
     ;(document.clips[0] as { kind?: unknown }).kind = 'hologram'
-    await expectRefusal(await gzipJson(document), 'clips[0].kind must be "video" or "audio"')
+    await expectRefusal(
+      await gzipJson(document),
+      'clips[0].kind must be "video", "audio", or "image"',
+    )
   })
 
   it('refuses a sequence entry that references an audio clip', async () => {
@@ -283,6 +290,159 @@ describe('clip kinds (#101)', () => {
       await gzipJson(document),
       'references an audio clip',
       'the sequence carries video only',
+    )
+  })
+})
+
+describe('still images (#137)', () => {
+  const imageLibrary: MediaLibraryState = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' },
+      { id: 'i1', name: 'logo.png', duration: 0, url: 'blob:i1', kind: 'image', width: 640, height: 480 },
+    ],
+    failures: [],
+  }
+  const videoOnlyTimeline: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 12 },
+    ],
+  }
+  const expectedImageClips = [
+    { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+    { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+  ]
+
+  it('writes a references-only file with images at version 3, with no media section', async () => {
+    const document = await gunzipJson(await serializeProject(imageLibrary, videoOnlyTimeline))
+    expect(document.schemaVersion).toBe(IMAGES_SCHEMA_VERSION)
+    expect(document).not.toHaveProperty('media')
+  })
+
+  it('stores images without a duration key — dimensions are their metadata', async () => {
+    const document = await gunzipJson(await serializeProject(imageLibrary, videoOnlyTimeline))
+    const clips = document.clips as Record<string, unknown>[]
+    expect(clips[1]).toEqual({ id: 'i1', name: 'logo.png', kind: 'image', width: 640, height: 480 })
+    expect(clips[1]).not.toHaveProperty('duration')
+    // The video clip next to it keeps the exact shape files always had.
+    expect(clips[0]).toEqual({ id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' })
+  })
+
+  it('round-trips a references-only project holding an image', async () => {
+    const result = await deserializeProject(await serializeProject(imageLibrary, videoOnlyTimeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips).toEqual(expectedImageClips)
+      expect(result.media).toBeUndefined()
+    }
+  })
+
+  it('round-trips an embedded project holding an image, at version 3 with media', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 5), mimeType: 'video/mp4' }],
+      ['i1', { bytes: pseudoRandomBytes(48, 6), mimeType: 'image/png' }],
+    ])
+    const bytes = await serializeProject(imageLibrary, videoOnlyTimeline, media)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(IMAGES_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips).toEqual(expectedImageClips)
+      expect(result.media).toEqual(media)
+    }
+  })
+
+  it('still refuses a version-2 file without a media section', async () => {
+    // Media-optional is a version-3 rule: at version 2 the version itself
+    // declares embedding, so a missing section stays a refusal.
+    const document = {
+      ...validDocument(),
+      schemaVersion: EMBEDDED_SCHEMA_VERSION,
+    }
+    await expectRefusal(await gzipJson(document), 'the "media" section is missing')
+  })
+
+  it('validates an embedded media section on a version-3 file', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 5) }],
+      ['i1', { bytes: pseudoRandomBytes(48, 6) }],
+    ])
+    const bytes = await serializeProject(imageLibrary, videoOnlyTimeline, media)
+    // Corrupt one media entry: version 3 with media present must still be
+    // integrity-checked exactly like version 2.
+    const document = await gunzipJson(bytes)
+    ;((document.media as Record<string, Record<string, unknown>>).i1).crc32 = '00000000'
+    await expectRefusal(await gzipJson(document), 'failed its integrity check', 'logo.png')
+  })
+
+  it('refuses non-integer or non-positive image dimensions', async () => {
+    const withImage = () => ({
+      ...validDocument(),
+      schemaVersion: IMAGES_SCHEMA_VERSION,
+      clips: [
+        ...structuredClone(expectedProject.clips),
+        { id: 'i1', name: 'logo.png', kind: 'image', width: 640, height: 480 },
+      ],
+    })
+    const zeroWidth = withImage()
+    ;(zeroWidth.clips[2] as { width: unknown }).width = 0
+    await expectRefusal(await gzipJson(zeroWidth), 'clips[2].width must be a positive integer')
+    const fractionalHeight = withImage()
+    ;(fractionalHeight.clips[2] as { height: unknown }).height = 1.5
+    await expectRefusal(
+      await gzipJson(fractionalHeight),
+      'clips[2].height must be a positive integer',
+    )
+  })
+
+  it('accepts an image clip with no dimensions (a foreign writer may omit them)', async () => {
+    const document = {
+      ...validDocument(),
+      schemaVersion: IMAGES_SCHEMA_VERSION,
+      clips: [
+        ...structuredClone(expectedProject.clips),
+        { id: 'i1', name: 'logo.png', kind: 'image' },
+      ],
+    }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips[2]).toEqual({ id: 'i1', name: 'logo.png', duration: 0, kind: 'image' })
+    }
+  })
+
+  it('refuses a sequence entry that references an image clip', async () => {
+    const document = {
+      ...validDocument(),
+      schemaVersion: IMAGES_SCHEMA_VERSION,
+      clips: structuredClone(expectedProject.clips),
+    }
+    ;(document.clips[0] as { kind?: unknown; duration?: unknown }).kind = 'image'
+    await expectRefusal(
+      await gzipJson(document),
+      'references an image clip',
+      'the sequence carries video only',
+    )
+  })
+
+  it('refuses an audio track that references an image clip', async () => {
+    const document = {
+      format: PROJECT_FORMAT,
+      schemaVersion: IMAGES_SCHEMA_VERSION,
+      clips: [{ id: 'i1', name: 'logo.png', kind: 'image', width: 8, height: 8 }],
+      timeline: {
+        entries: [],
+        transitions: [],
+        zooms: [],
+        audioTracks: [
+          { id: 't1', clipId: 'i1', name: 'logo.png', duration: 5, offset: 0, inPoint: 0, outPoint: 5 },
+        ],
+      },
+    }
+    await expectRefusal(
+      await gzipJson(document),
+      'references an image clip',
+      'audio tracks carry audio only',
     )
   })
 })
@@ -499,9 +659,11 @@ describe('project file versioning', () => {
   it('carries the schema version', async () => {
     // Deserializing proves the marker + version were present and accepted;
     // this pins the constants so a bump is a conscious, reviewed change.
-    // Version 2 added embedded media (#97).
-    expect(PROJECT_SCHEMA_VERSION).toBe(2)
+    // Version 2 added embedded media (#97); version 3 added images (#137).
+    expect(PROJECT_SCHEMA_VERSION).toBe(3)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
+    expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
+    expect(IMAGES_SCHEMA_VERSION).toBe(3)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -564,7 +726,7 @@ describe('embedded media (schema version 2)', () => {
 
   it('writes schema version 2 with a media entry per clip', async () => {
     const document = await embeddedDocument()
-    expect(document.schemaVersion).toBe(PROJECT_SCHEMA_VERSION)
+    expect(document.schemaVersion).toBe(EMBEDDED_SCHEMA_VERSION)
     expect(Object.keys(document.media).sort()).toEqual(['c1', 'c2'])
     expect(document.media.c1.byteLength).toBe(2048)
     expect(document.media.c1.mimeType).toBe('video/mp4')
@@ -875,6 +1037,52 @@ describe('backwards compatibility', () => {
     if (result.ok) {
       expect(result.project).toEqual(fixtureExpectedProject)
       expect(result.media).toEqual(fixtureMedia())
+    }
+  })
+
+  /** What both committed v3 image fixtures (#137) deserialize to. */
+  const fixtureV3ExpectedProject: Project = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+      { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+    ],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 12 },
+      ],
+      transitions: [],
+      zooms: [],
+      audioTracks: [],
+    },
+  }
+
+  it('deserializes the committed v3 image references-only fixture (#137)', async () => {
+    // Same never-rewrite contract as the other fixtures: this pins that
+    // references-only files saved when images landed keep opening forever —
+    // including that version 3 with no media section means references-only.
+    const bytes = Uint8Array.from(atob(fixtureV3ImageReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({ ok: true, project: fixtureV3ExpectedProject })
+  })
+
+  it('deserializes the committed v3 image embedded fixture, media byte-for-byte (#137)', async () => {
+    // Its media bytes are pseudoRandomBytes(64, 5) / (48, 6), re-derived
+    // here so byte-identity stays checkable forever.
+    const bytes = Uint8Array.from(atob(fixtureV3ImageEmbeddedBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(fixtureV3ExpectedProject)
+      expect(result.media).toEqual(
+        new Map<string, ClipMedia>([
+          ['v1', { bytes: pseudoRandomBytes(64, 5), mimeType: 'video/mp4' }],
+          ['i1', { bytes: pseudoRandomBytes(48, 6), mimeType: 'image/png' }],
+        ]),
+      )
     }
   })
 })
