@@ -225,6 +225,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onUpdateZoom={(id, zoom) => dispatchTimeline({ type: 'zoom-updated', id, zoom })}
           onRemoveZoom={(id) => dispatchTimeline({ type: 'zoom-removed', id })}
+          onAddRemap={(entryId, remap) =>
+            dispatchTimeline({
+              type: 'remap-added',
+              remap: { ...remap, id: crypto.randomUUID(), entryId },
+            })
+          }
+          onUpdateRemap={(id, remap) => dispatchTimeline({ type: 'remap-updated', id, remap })}
+          onRemoveRemap={(id) => dispatchTimeline({ type: 'remap-removed', id })}
           onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
           onRetimeAudioTrack={(id, offset) =>
             dispatchTimeline({ type: 'audio-track-retimed', id, offset })

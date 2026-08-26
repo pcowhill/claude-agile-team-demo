@@ -24,7 +24,11 @@ be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
 project files like any clip. Solid-color slates (#143) can be added to the
 timeline directly — no import, any 24-bit color, same adjustable duration —
-so a video can e.g. open on a red screen that crossfades into a clip. It is
+so a video can e.g. open on a red screen that crossfades into a clip. Video
+entries can be time-remapped (#138, #141): any number of speed segments
+(e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
+(freeze one frame for a chosen time), edited on the timeline and honored by
+the preview's playback, scrubbing, and sequence timing. It is
 deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**

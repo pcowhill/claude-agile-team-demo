@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
-import { audioTracksOf, boundaryTransitions, isSlateEntry, isStillEntry, totalDuration } from '../lib/timeline'
+import {
+  audioTracksOf,
+  boundaryTransitions,
+  effectiveDuration,
+  entryOutputDuration,
+  isSlateEntry,
+  isStillEntry,
+  remapsForEntry,
+  remapsOf,
+  totalDuration,
+} from '../lib/timeline'
+import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
 import {
   audioTrackPlaybackAt,
+  entryStartTime,
   isTransitionOverlayActive,
   locateInSequence,
   sequenceTimeAt,
@@ -38,6 +50,15 @@ const BOUNDARY_EPSILON = 0.02
  * a track is only snapped back when it strays audibly far.
  */
 const AUDIO_DRIFT_EPSILON = 0.25
+
+/**
+ * Tolerance (seconds) between the incoming (secondary) element's clock and
+ * the source position the remapped mapping expects for the published
+ * sequence time (#141). Same reasoning as AUDIO_DRIFT_EPSILON: with the
+ * playback rate driven every frame the drift stays tiny, so only visible
+ * strays re-seek.
+ */
+const VIDEO_DRIFT_EPSILON = 0.25
 
 const TRANSITION_LABEL: Record<TransitionType, string> = {
   crossfade: 'crossfade',
@@ -135,6 +156,19 @@ export function PreviewPlayer({
   // sequence, this wall clock stands in for `video.currentTime`, advanced
   // by the rAF loop only while playing (so pausing freezes it for free).
   const stillClockRef = useRef<{ sourceTime: number; lastNow: number } | null>(null)
+  // An active pause plateau on the fronting entry (#141): the element is
+  // paused on the frozen instant (`at`, relative to the entry's in-point)
+  // while this wall clock — the still clock's pattern — advances the
+  // sequence's output position from `outputNow` to `outputEnd` (output
+  // seconds into the entry). Advanced only while playing, so pausing the
+  // preview freezes the hold too.
+  const holdRef = useRef<{ at: number; outputEnd: number; outputNow: number; lastNow: number } | null>(
+    null,
+  )
+  // The fronting video entry's last observed source position relative to its
+  // in-point, for detecting that the element's clock crossed a pause instant
+  // between frames (#141). Reset on every cue.
+  const lastRelSourceRef = useRef(0)
   // Which element is primary: a ref for the rAF loop, mirrored into state so
   // the render can assign roles (testids, stacking, transition styles).
   const primaryIsARef = useRef(true)
@@ -221,11 +255,14 @@ export function PreviewPlayer({
    * Cues one element to a source time, switching src when it plays a
    * different source clip. currentTime is only settable once metadata is
    * loaded, so after a src switch the seek (and optional play) waits for
-   * loadedmetadata.
+   * loadedmetadata. `rate` is the remapped playback rate at the cue point
+   * (#141) — set with the seek so a cue into a speed segment starts at the
+   * segment's speed rather than at whatever the element last played.
    */
   const cueElement = useCallback(
-    (video: HTMLVideoElement, url: string, sourceTime: number, thenPlay: boolean) => {
+    (video: HTMLVideoElement, url: string, sourceTime: number, thenPlay: boolean, rate = 1) => {
       const start = () => {
+        video.playbackRate = rate
         video.currentTime = sourceTime
         // play() rejects (AbortError) when interrupted by pause or a src
         // switch — an expected outcome here, not an error to surface.
@@ -241,11 +278,20 @@ export function PreviewPlayer({
     [],
   )
 
+  /**
+   * Cues the primary element to a position given as *output* seconds into
+   * the entry (#141) — the remapped currency locateInSequence's results are
+   * found at — resolving the source instant, playback rate, and (inside a
+   * pause plateau) the hold to freeze through via remapPlaybackAt. For an
+   * entry without effects this is the identity: source = output, rate 1,
+   * never a hold.
+   */
   const cuePrimary = useCallback(
-    (location: PlaybackLocation, thenPlay: boolean) => {
+    (location: PlaybackLocation, outputInto: number, thenPlay: boolean) => {
       const video = primaryVideo()
       if (!video) return
       indexRef.current = location.index
+      holdRef.current = null
       if (isStillEntry(location.entry)) {
         // A still fronts declaratively (#140): its <img> renders from the
         // published location, so cueing is just starting its wall clock;
@@ -255,9 +301,31 @@ export function PreviewPlayer({
         return
       }
       stillClockRef.current = null
-      cueElement(video, location.entry.url, location.sourceTime, thenPlay)
+      const trimmed = effectiveDuration(location.entry)
+      const state = remapPlaybackAt(trimmed, remapsForEntry(timeline, location.entry.id), outputInto)
+      lastRelSourceRef.current = state.sourceTime
+      if (state.hold) {
+        // Inside a pause plateau: freeze the element on the instant's frame;
+        // the rAF loop advances the hold while playing.
+        holdRef.current = {
+          at: state.sourceTime,
+          outputEnd: state.hold.outputEnd,
+          outputNow: Math.min(Math.max(outputInto, state.hold.outputStart), state.hold.outputEnd),
+          lastNow: performance.now(),
+        }
+        if (!video.paused) video.pause()
+        cueElement(video, location.entry.url, location.entry.inPoint + state.sourceTime, false)
+      } else {
+        cueElement(
+          video,
+          location.entry.url,
+          location.entry.inPoint + state.sourceTime,
+          thenPlay,
+          state.rate,
+        )
+      }
     },
-    [cueElement],
+    [cueElement, timeline],
   )
 
   /**
@@ -287,7 +355,21 @@ export function PreviewPlayer({
           if (!secondary.paused) secondary.pause()
         } else {
           secondary.volume = videoEntryGain(overlap.entry, overlap.progress)
-          cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
+          // The incoming entry's remap state at this point of the overlap
+          // (#141): output seconds into it are the overlap's elapsed output.
+          const duration = boundaryTransitions(timeline)[location.index]?.duration ?? 0
+          const inState = remapPlaybackAt(
+            effectiveDuration(overlap.entry),
+            remapsForEntry(timeline, overlap.entry.id),
+            overlap.progress * duration,
+          )
+          cueElement(
+            secondary,
+            overlap.entry.url,
+            overlap.sourceTime,
+            thenPlay && inState.hold === null,
+            inState.hold === null ? inState.rate : 1,
+          )
         }
       } else {
         if (!isStillEntry(location.entry)) primary.volume = videoEntryGain(location.entry)
@@ -297,7 +379,7 @@ export function PreviewPlayer({
         }
       }
     },
-    [cueElement, setEngaged],
+    [cueElement, setEngaged, timeline],
   )
 
   const stopLoop = useCallback(() => {
@@ -309,6 +391,13 @@ export function PreviewPlayer({
    * transition overlap (engage the secondary element, split the audio), and
    * when the outgoing clip reaches its out-point (or actually ends) either
    * hand over to the next entry or finish the sequence.
+   *
+   * Under time remapping (#141) the entry's position is tracked in *output*
+   * seconds into it: outside a pause the element clock is authoritative and
+   * maps to output through the entry's effects (its rate driven to the
+   * active segment's factor); inside a pause the element freezes on the
+   * instant's frame and the hold's wall clock is authoritative. An entry
+   * without effects reduces exactly to the pre-remap math.
    */
   const tick = useCallback(() => {
     const video = primaryVideo()
@@ -319,11 +408,20 @@ export function PreviewPlayer({
     const next = timeline.entries[index + 1]
     const overlap = boundaryTransitions(timeline)[index]
     const still = isStillEntry(entry)
+    const effects = still ? [] : remapsForEntry(timeline, entry.id)
+    const trimmed = effectiveDuration(entry)
 
     // The fronting entry's source-clip clock: the element's for a video, the
     // wall clock for a still (#140), advanced here — only while playing —
     // so pausing freezes it and edits/seeks reset it via cuePrimary.
     let sourceTime: number
+    // Output seconds into the entry at this frame — what the sequence
+    // position and transition progress are measured in (#141). For an entry
+    // with no effects it equals sourceTime − inPoint.
+    let outputInto: number
+    // Whether the entry has played out: its source consumed *and* no pause
+    // still holding or left to hold.
+    let reachedOut = false
     if (still) {
       const clock = stillClockRef.current
       if (!clock) return
@@ -331,11 +429,69 @@ export function PreviewPlayer({
       clock.sourceTime += (now - clock.lastNow) / 1000
       clock.lastNow = now
       sourceTime = clock.sourceTime
+      outputInto = sourceTime - entry.inPoint
+      reachedOut = sourceTime >= entry.outPoint - BOUNDARY_EPSILON
+    } else if (holdRef.current) {
+      // A pause plateau in progress: the element stays frozen while the wall
+      // clock advances the output position through the hold.
+      const hold = holdRef.current
+      const now = performance.now()
+      hold.outputNow += (now - hold.lastNow) / 1000
+      hold.lastNow = now
+      sourceTime = entry.inPoint + hold.at
+      if (hold.outputNow < hold.outputEnd) {
+        outputInto = hold.outputNow
+      } else {
+        // Plateau over: resume the element from the frozen instant — unless
+        // the entry's source is already consumed (an end-of-entry pause), in
+        // which case the next branch below hands over. play() on an ended
+        // element would restart it from the beginning.
+        outputInto = hold.outputEnd
+        holdRef.current = null
+        lastRelSourceRef.current = hold.at
+        if (hold.at < trimmed - BOUNDARY_EPSILON && !video.ended) {
+          video.playbackRate = rateAtSourceTime(effects, hold.at)
+          video.play().catch(() => {})
+        } else {
+          reachedOut = true
+        }
+      }
     } else {
       sourceTime = video.currentTime
+      const relSource = sourceTime - entry.inPoint
+      const sourceDone = relSource >= trimmed - BOUNDARY_EPSILON || video.ended
+      // Crossing a pause instant between frames starts its hold (#141):
+      // freeze the element on the instant's frame. An end-of-entry pause is
+      // reached through `sourceDone` — the element clock stops just short of
+      // the exact out-point.
+      const crossed = effects.find(
+        (effect) =>
+          effect.kind === 'pause' &&
+          effect.at > lastRelSourceRef.current &&
+          (effect.at <= relSource || sourceDone),
+      )
+      if (crossed !== undefined && crossed.kind === 'pause') {
+        video.pause()
+        video.currentTime = entry.inPoint + crossed.at
+        const outputStart = outputTimeAtSource(trimmed, effects, crossed.at)
+        holdRef.current = {
+          at: crossed.at,
+          outputEnd: outputStart + crossed.hold,
+          outputNow: outputStart,
+          lastNow: performance.now(),
+        }
+        lastRelSourceRef.current = crossed.at
+        sourceTime = entry.inPoint + crossed.at
+        outputInto = outputStart
+      } else {
+        lastRelSourceRef.current = relSource
+        const rate = rateAtSourceTime(effects, relSource)
+        if (video.playbackRate !== rate) video.playbackRate = rate
+        outputInto = outputTimeAtSource(trimmed, effects, relSource)
+        reachedOut = sourceDone
+      }
     }
 
-    const reachedOut = sourceTime >= entry.outPoint - BOUNDARY_EPSILON || (!still && video.ended)
     if (reachedOut) {
       if (next && overlap && isStillEntry(next)) {
         // Handover into a still (#140): nothing was cued — the incoming
@@ -366,27 +522,35 @@ export function PreviewPlayer({
         stillClockRef.current = null
         primaryIsARef.current = !primaryIsARef.current
         setPrimaryIsA(primaryIsARef.current)
-        if (wasEngaged) {
+        const nextEffects = remapsForEntry(timeline, next.id)
+        if (wasEngaged && nextEffects.length === 0) {
           const time = sequenceTimeAt(timeline, index + 1, incoming.currentTime)
           setSequenceTime(time)
           syncAudioTracks(time, true)
+          holdRef.current = null
+          lastRelSourceRef.current = incoming.currentTime - next.inPoint
+          if (incoming.playbackRate !== 1) incoming.playbackRate = 1
         } else {
-          // The overlap was shorter than a frame (or engagement raced the
-          // out-point) — cue the incoming element where the handover lands.
-          const time = sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration)
+          // A remapped incoming entry (or an overlap shorter than a frame,
+          // where engagement raced the out-point): land on the geometric
+          // handover point — overlap.duration output seconds into the
+          // incoming entry — and let cuePrimary resolve its rate or hold.
+          // For an already-engaged element this is at most a drift-sized
+          // snap.
+          const time = entryStartTime(timeline, index + 1) + overlap.duration
           setSequenceTime(time)
           syncAudioTracks(time, true)
-          cueElement(incoming, next.url, next.inPoint + overlap.duration, true)
+          cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, overlap.duration, true)
         }
       } else if (next) {
-        const time = sequenceTimeAt(timeline, index + 1, next.inPoint)
+        const time = entryStartTime(timeline, index + 1)
         setSequenceTime(time)
         syncAudioTracks(time, true)
         // A hard cut continues in the same element — apply the next entry's
         // gain (#104) where the transition path would have swapped roles.
         // (A still has no element or gain; cuePrimary starts its clock.)
         if (!isStillEntry(next)) video.volume = videoEntryGain(next)
-        cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
+        cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, 0, true)
       } else {
         video.pause()
         secondaryVideo()?.pause()
@@ -398,36 +562,62 @@ export function PreviewPlayer({
         return
       }
     } else {
-      const time = sequenceTimeAt(timeline, index, sourceTime)
+      const time = entryStartTime(timeline, index) + outputInto
       setSequenceTime(time)
       // Tracks start and stop mid-play as the position crosses their
       // windows, and drifting clocks are snapped back (#103).
       syncAudioTracks(time, true)
       if (next && overlap) {
-        const overlapStart = entry.outPoint - overlap.duration
-        if (sourceTime >= overlapStart) {
+        // The overlap plays out in output seconds (#141): it starts where
+        // the entry's remaining *output* equals the transition's duration —
+        // for an entry without effects, exactly the old source-time math.
+        const overlapStartOut = entryOutputDuration(entry, remapsOf(timeline)) - overlap.duration
+        if (outputInto >= overlapStartOut) {
+          const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
           if (isStillEntry(next)) {
             // The incoming still renders declaratively from the published
             // time (#140) — engagement just marks the overlay active. Only
             // the outgoing side has audio to ramp.
             if (engagedForRef.current !== index) setEngaged(index)
-            if (!still) {
-              const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
-              video.volume = videoEntryGain(entry, 1 - progress)
-            }
+            if (!still) video.volume = videoEntryGain(entry, 1 - progress)
           } else {
             const secondary = secondaryVideo()
             if (secondary) {
+              // The incoming entry's remap state this far into the overlap
+              // (#141): where its source should stand, at what rate — or
+              // frozen inside a pause plateau. Its element free-runs between
+              // frames; the published mapping is authoritative, so a clock
+              // that strays visibly is snapped back (the drift correction,
+              // now against the remapped mapping).
+              const inState = remapPlaybackAt(
+                effectiveDuration(next),
+                remapsForEntry(timeline, next.id),
+                outputInto - overlapStartOut,
+              )
+              const expected = next.inPoint + inState.sourceTime
               if (engagedForRef.current !== index) {
                 setEngaged(index)
                 cueElement(
                   secondary,
                   next.url,
-                  next.inPoint + (sourceTime - overlapStart),
-                  true,
+                  expected,
+                  inState.hold === null,
+                  inState.hold === null ? inState.rate : 1,
                 )
+              } else if (inState.hold !== null) {
+                if (!secondary.paused) secondary.pause()
+                if (Math.abs(secondary.currentTime - expected) > VIDEO_DRIFT_EPSILON) {
+                  secondary.currentTime = expected
+                }
+              } else {
+                if (secondary.playbackRate !== inState.rate) secondary.playbackRate = inState.rate
+                if (secondary.paused) {
+                  secondary.currentTime = expected
+                  secondary.play().catch(() => {})
+                } else if (Math.abs(secondary.currentTime - expected) > VIDEO_DRIFT_EPSILON) {
+                  secondary.currentTime = expected
+                }
               }
-              const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
               if (!still) video.volume = videoEntryGain(entry, 1 - progress)
               secondary.volume = videoEntryGain(next, progress)
             }
@@ -445,7 +635,7 @@ export function PreviewPlayer({
     if (!location) return
     setPlaying(true)
     setSequenceTime(from)
-    cuePrimary(location, true)
+    cuePrimary(location, from - entryStartTime(timeline, location.index), true)
     syncSecondary(location, true)
     syncAudioTracks(from, true)
     stopLoop()
@@ -465,7 +655,7 @@ export function PreviewPlayer({
       const location = locateInSequence(timeline, time)
       if (!location) return
       setSequenceTime(time)
-      cuePrimary(location, playing)
+      cuePrimary(location, time - entryStartTime(timeline, location.index), playing)
       syncSecondary(location, playing)
       // Scrubbing re-cues every track: active ones re-seek (and keep playing
       // if we are playing), the rest pause where they would next start.
@@ -484,6 +674,7 @@ export function PreviewPlayer({
     }
     pauseAudioTracks()
     setEngaged(null)
+    holdRef.current = null
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
   }, [timeline, stopLoop, setEngaged, pauseAudioTracks])

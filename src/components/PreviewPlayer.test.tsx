@@ -196,6 +196,70 @@ describe('PreviewPlayer', () => {
     })
   }
 
+  // Time remapping (#141). Real rate/pause playback is covered by
+  // e2e/preview-remap.spec.ts; the mapping maths by lib/remap.test.ts and
+  // lib/playback.test.ts. These pin what jsdom can see: the remapped totals
+  // and how seeks resolve through the remapped mapping.
+  describe('time remapping (#141)', () => {
+    it('sizes the scrubber and totals by the remapped duration', () => {
+      const remapped: TimelineState = {
+        entries: withTransition.entries,
+        // e1: 4s source, [0,4]@0.5 plays for 8s, plus a 2s hold on e2.
+        remaps: [
+          { id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 4, factor: 0.5 },
+          { id: 'r2', entryId: 'e2', kind: 'pause', at: 1, hold: 2 },
+        ],
+      }
+      render(<PreviewPlayer timeline={remapped} />)
+      expect(screen.getByRole('slider', { name: 'Seek within sequence' })).toHaveAttribute(
+        'max',
+        '14',
+      )
+      expect(screen.getByTestId('preview-position')).toHaveTextContent('0:00 / 0:14')
+    })
+
+    it('resolves seeks into remapped regions to the right entry', () => {
+      const remapped: TimelineState = {
+        entries: withTransition.entries,
+        remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 4, factor: 0.5 }],
+      }
+      render(<PreviewPlayer timeline={remapped} />)
+      const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
+
+      // Sequence 6 is still inside e1's slowed 8s of output.
+      fireEvent.change(slider, { target: { value: '6' } })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 1 of 2: first.webm',
+      )
+
+      // Past e1's remapped end the second entry fronts.
+      fireEvent.change(slider, { target: { value: '9' } })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 2 of 2: second.webm',
+      )
+    })
+
+    it('places a transition overlap by output time on a remapped entry', () => {
+      const remapped: TimelineState = {
+        ...withTransition,
+        remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 4, factor: 0.5 }],
+      }
+      render(<PreviewPlayer timeline={remapped} />)
+      const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
+
+      // e1 now plays for 8s, so the 1s crossfade covers sequence [7, 8) —
+      // where the *unremapped* timeline had it at [3, 4).
+      fireEvent.change(slider, { target: { value: '3.5' } })
+      expect(screen.queryByTestId('preview-video-incoming')).not.toBeInTheDocument()
+
+      fireEvent.change(slider, { target: { value: '7.5' } })
+      expect(screen.getByTestId('preview-video-incoming')).toHaveStyle({ opacity: '0.5' })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 1 of 2: first.webm → second.webm (crossfade)',
+      )
+    })
+  })
+
   // Zoom rendering (#64). All magnification numbers come from zoomAt (#63):
   // the component maps { scale, centerX, centerY } to CSS and adds no easing
   // of its own, so these pin the mapping, not the maths.

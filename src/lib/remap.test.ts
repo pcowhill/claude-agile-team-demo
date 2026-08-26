@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { RemapEffect, RemapSpec } from './remap'
 import {
   clampRemap,
+  defaultPauseFor,
+  defaultSpeedFor,
   isValidRemapSpec,
   outputTimeAtSource,
+  rateAtSourceTime,
   remapEnd,
   remappedDuration,
+  remapPlaybackAt,
   remapsEqual,
   remapStart,
   sourceTimeAtOutput,
@@ -218,5 +222,115 @@ describe('sourceTimeAtOutput / outputTimeAtSource', () => {
     expect(sourceTimeAtOutput(10, adjacent, 7)).toBe(4)
     // Source 2 is first shown when the pause begins.
     expect(outputTimeAtSource(10, adjacent, 2)).toBe(2)
+  })
+})
+
+describe('remapPlaybackAt (#141)', () => {
+  // Trimmed 10: slow [2,4]@0.5 → output [2,6]; 1:1 [4,6] → [6,8];
+  // pause at 6 for 3 → plateau [8,11]; 1:1 [6,10] → [11,15].
+  const effects = [speed(2, 4, 0.5), pause(6, 3)]
+
+  it('reports rate 1 and no hold outside every effect', () => {
+    expect(remapPlaybackAt(10, effects, 1)).toEqual({ sourceTime: 1, rate: 1, hold: null })
+    expect(remapPlaybackAt(10, effects, 7)).toEqual({ sourceTime: 5, rate: 1, hold: null })
+    expect(remapPlaybackAt(10, effects, 13)).toEqual({ sourceTime: 8, rate: 1, hold: null })
+  })
+
+  it('reports the segment factor as the rate inside a speed segment', () => {
+    const state = remapPlaybackAt(10, effects, 4)
+    expect(state.sourceTime).toBeCloseTo(3, 10)
+    expect(state.rate).toBeCloseTo(0.5, 10)
+    expect(state.hold).toBeNull()
+  })
+
+  it('reports the plateau, rate 0, and the frozen instant inside a pause', () => {
+    expect(remapPlaybackAt(10, effects, 9.5)).toEqual({
+      sourceTime: 6,
+      rate: 0,
+      hold: { outputStart: 8, outputEnd: 11 },
+    })
+  })
+
+  it('enters the hold exactly at the plateau start and leaves it at the end', () => {
+    expect(remapPlaybackAt(10, effects, 8).hold).toEqual({ outputStart: 8, outputEnd: 11 })
+    expect(remapPlaybackAt(10, effects, 11)).toEqual({ sourceTime: 6, rate: 1, hold: null })
+  })
+
+  it('clamps outside inputs and resolves the exact end to the last instant', () => {
+    expect(remapPlaybackAt(10, effects, -5)).toEqual({ sourceTime: 0, rate: 1, hold: null })
+    expect(remapPlaybackAt(10, effects, 15)).toEqual({ sourceTime: 10, rate: 1, hold: null })
+    expect(remapPlaybackAt(10, effects, 99)).toEqual({ sourceTime: 10, rate: 1, hold: null })
+  })
+
+  it('skips collapsed segments and matches the mapping functions elsewhere', () => {
+    const withCollapsed = [speed(5, 5, 0.5) as RemapSpec]
+    expect(remapPlaybackAt(10, withCollapsed, 5)).toEqual({ sourceTime: 5, rate: 1, hold: null })
+    for (const output of [0, 3, 4.5, 7.9, 12, 14]) {
+      expect(remapPlaybackAt(10, effects, output).sourceTime).toBeCloseTo(
+        sourceTimeAtOutput(10, effects, output),
+        10,
+      )
+    }
+  })
+
+  it('a pause at output 0 holds immediately', () => {
+    expect(remapPlaybackAt(10, [pause(0, 2)], 0)).toEqual({
+      sourceTime: 0,
+      rate: 0,
+      hold: { outputStart: 0, outputEnd: 2 },
+    })
+  })
+})
+
+describe('rateAtSourceTime (#141)', () => {
+  const effects = [speed(2, 4, 0.5), pause(6, 3)]
+
+  it('is the containing segment factor, half-open at the segment end', () => {
+    expect(rateAtSourceTime(effects, 1)).toBe(1)
+    expect(rateAtSourceTime(effects, 2)).toBe(0.5)
+    expect(rateAtSourceTime(effects, 3.9)).toBe(0.5)
+    expect(rateAtSourceTime(effects, 4)).toBe(1)
+  })
+
+  it('ignores pauses — they are plateaus, not rates', () => {
+    expect(rateAtSourceTime(effects, 6)).toBe(1)
+  })
+})
+
+describe('default effect placement (#141)', () => {
+  const effect = (spec: RemapSpec, id: string): RemapEffect => ({ ...spec, id, entryId: 'e1' })
+
+  it('defaultSpeedFor places the preferred length in the first free gap', () => {
+    expect(defaultSpeedFor([], 10)).toEqual({ kind: 'speed', start: 0, end: 2, factor: 0.5 })
+    expect(defaultSpeedFor([effect(speed(0, 3, 2), 'r1')], 10)).toEqual({
+      kind: 'speed',
+      start: 3,
+      end: 5,
+      factor: 0.5,
+    })
+  })
+
+  it('defaultSpeedFor shortens into the widest gap when nothing fits', () => {
+    const crowded = [effect(speed(1, 6, 2), 'r1'), effect(speed(6.5, 10, 2), 'r2')]
+    expect(defaultSpeedFor(crowded, 10)).toEqual({ kind: 'speed', start: 0, end: 1, factor: 0.5 })
+  })
+
+  it('defaultSpeedFor returns null when the effects cover the whole range', () => {
+    expect(defaultSpeedFor([effect(speed(0, 10, 2), 'r1')], 10)).toBeNull()
+  })
+
+  it('defaultPauseFor lands on the first free gap, the end when covered, null when empty', () => {
+    expect(defaultPauseFor([], 10)).toEqual({ kind: 'pause', at: 0, hold: 1 })
+    expect(defaultPauseFor([effect(speed(0, 3, 2), 'r1')], 10)).toEqual({
+      kind: 'pause',
+      at: 3,
+      hold: 1,
+    })
+    expect(defaultPauseFor([effect(speed(0, 10, 2), 'r1')], 10)).toEqual({
+      kind: 'pause',
+      at: 10,
+      hold: 1,
+    })
+    expect(defaultPauseFor([], 0)).toBeNull()
   })
 })
