@@ -9,7 +9,9 @@ import {
   emptyTimeline,
   entryFromClip,
   defaultZoomFor,
+  DEFAULT_STILL_DURATION,
   DEFAULT_ZOOM,
+  isStillEntry,
   normalizedTimelineState,
   timelineReducer,
   totalDuration,
@@ -58,11 +60,32 @@ describe('entryFromClip', () => {
     })
   })
 
-  it('refuses an audio clip — the sequence carries video only (#101)', () => {
+  it('refuses an audio clip — the sequence carries video and stills only (#101)', () => {
     const audio = clip({ name: 'music.mp3', kind: 'audio' })
     expect(() => entryFromClip(audio, 'e1')).toThrow(
-      'cannot add "music.mp3" to the sequence: it is not a video clip',
+      'cannot add "music.mp3" to the sequence: it is an audio clip',
     )
+  })
+
+  it('creates a 5-second still entry from an image clip (#140)', () => {
+    const image = clip({
+      id: 'lib-7',
+      name: 'logo.png',
+      duration: 0,
+      url: 'blob:logo',
+      kind: 'image',
+    })
+    expect(entryFromClip(image, 'e1')).toEqual({
+      id: 'e1',
+      clipId: 'lib-7',
+      name: 'logo.png',
+      duration: DEFAULT_STILL_DURATION,
+      url: 'blob:logo',
+      inPoint: 0,
+      outPoint: DEFAULT_STILL_DURATION,
+      kind: 'image',
+    })
+    expect(DEFAULT_STILL_DURATION).toBe(5)
   })
 })
 
@@ -215,6 +238,97 @@ describe('timelineReducer', () => {
       })
       expect(state.entries[0]).toMatchObject({ inPoint: 5, outPoint: 10 })
       expect(state.entries[1]).toMatchObject({ inPoint: 0, outPoint: 20 })
+    })
+  })
+
+  describe('still entries (#140)', () => {
+    const imageClip = clip({ id: 'img-1', name: 'logo.png', duration: 0, kind: 'image' })
+    const stillState = () =>
+      timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(imageClip, 'still'),
+      })
+
+    it('sets a still duration: duration and outPoint move together, inPoint stays 0', () => {
+      const state = timelineReducer(stillState(), {
+        type: 'still-duration-set',
+        id: 'still',
+        duration: 2.5,
+      })
+      expect(state.entries[0]).toMatchObject({
+        duration: 2.5,
+        inPoint: 0,
+        outPoint: 2.5,
+        kind: 'image',
+      })
+      expect(effectiveDuration(state.entries[0])).toBe(2.5)
+      expect(isStillEntry(state.entries[0])).toBe(true)
+    })
+
+    it('accepts any positive duration, however long', () => {
+      const state = timelineReducer(stillState(), {
+        type: 'still-duration-set',
+        id: 'still',
+        duration: 600,
+      })
+      expect(effectiveDuration(state.entries[0])).toBe(600)
+    })
+
+    it('rejects a non-positive or non-finite duration, and unknown ids', () => {
+      const start = stillState()
+      expect(timelineReducer(start, { type: 'still-duration-set', id: 'still', duration: 0 })).toBe(start)
+      expect(timelineReducer(start, { type: 'still-duration-set', id: 'still', duration: -1 })).toBe(start)
+      expect(timelineReducer(start, { type: 'still-duration-set', id: 'still', duration: NaN })).toBe(start)
+      expect(
+        timelineReducer(start, { type: 'still-duration-set', id: 'still', duration: Infinity }),
+      ).toBe(start)
+      expect(timelineReducer(start, { type: 'still-duration-set', id: 'zz', duration: 3 })).toBe(start)
+    })
+
+    it('is a no-op at the current duration (reference-equal, so not an edit)', () => {
+      const start = stillState()
+      expect(
+        timelineReducer(start, { type: 'still-duration-set', id: 'still', duration: 5 }),
+      ).toBe(start)
+    })
+
+    it('does not apply to video entries — their length is their trim', () => {
+      const start = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ duration: 10 }), 'v'),
+      })
+      expect(timelineReducer(start, { type: 'still-duration-set', id: 'v', duration: 3 })).toBe(start)
+    })
+
+    it('rejects trims on a still — its one dimension is the duration', () => {
+      const start = stillState()
+      expect(
+        timelineReducer(start, { type: 'entry-trimmed', id: 'still', inPoint: 1, outPoint: 3 }),
+      ).toBe(start)
+    })
+
+    it('shortening a still re-clamps its transitions and zooms like a retrim', () => {
+      let state = stillState()
+      state = timelineReducer(state, {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ duration: 10 }), 'v'),
+      })
+      state = timelineReducer(state, {
+        type: 'transition-set',
+        beforeId: 'still',
+        afterId: 'v',
+        transition: { type: 'crossfade', duration: 4 },
+      })
+      state = timelineReducer(state, {
+        type: 'zoom-added',
+        zoom: { id: 'z1', entryId: 'still', ...DEFAULT_ZOOM, start: 2 },
+      })
+      state = timelineReducer(state, { type: 'still-duration-set', id: 'still', duration: 2 })
+      // The 4s transition no longer fits the 2s still; the zoom window
+      // (previously starting at 2) is clamped back inside [0, 2].
+      expect(transitionsOf(state)[0]).toMatchObject({ duration: 2 })
+      const zoom = zoomsForEntry(state, 'still')[0]
+      expect(zoom.start + zoom.rampIn + zoom.hold + zoom.rampOut).toBeLessThanOrEqual(2)
     })
   })
 })

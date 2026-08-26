@@ -98,9 +98,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       })
       return
     }
-    // Images cannot join the timeline yet (#140) — the library renders no
-    // Add button for them, so this only guards against future callers.
-    if (clip.kind !== 'video') return
+    // Video and stills (#140) join the sequence alike.
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
@@ -205,6 +203,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
+          }
+          onSetStillDuration={(id, duration) =>
+            dispatchTimeline({ type: 'still-duration-set', id, duration })
           }
           onSetTransition={(beforeId, afterId, transition) =>
             dispatchTimeline({ type: 'transition-set', beforeId, afterId, transition })

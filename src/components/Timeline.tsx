@@ -7,6 +7,7 @@ import {
   boundaryTransitions,
   defaultZoomFor,
   effectiveDuration,
+  isStillEntry,
   totalDuration,
   zoomsForEntry,
 } from '../lib/timeline'
@@ -18,6 +19,8 @@ interface TimelineProps {
   onMoveEntry: (id: string, direction: 'up' | 'down') => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
+  /** Sets a still entry's on-screen duration (#140); stills have no trim. */
+  onSetStillDuration: (id: string, duration: number) => void
   onSetTransition: (beforeId: string, afterId: string, transition: TransitionSpec) => void
   onRemoveTransition: (beforeId: string, afterId: string) => void
   /** Adds a new zoom to the entry (#129); the id is the caller's to mint. */
@@ -111,6 +114,7 @@ export function Timeline({
   onMoveEntry,
   onRemoveEntry,
   onTrimEntry,
+  onSetStillDuration,
   onSetTransition,
   onRemoveTransition,
   onAddZoom,
@@ -187,45 +191,63 @@ export function Timeline({
                     </button>
                   </span>
                 </div>
-                <div className="timeline-entry-trim">
-                  <span>In</span>
-                  <SecondsField
-                    label={`Trim in point of ${position} in seconds`}
-                    value={entry.inPoint}
-                    max={entry.duration}
-                    onCommit={(inPoint) => onTrimEntry(entry.id, inPoint, entry.outPoint)}
-                  />
-                  <span>Out</span>
-                  <SecondsField
-                    label={`Trim out point of ${position} in seconds`}
-                    value={entry.outPoint}
-                    max={entry.duration}
-                    onCommit={(outPoint) => onTrimEntry(entry.id, entry.inPoint, outPoint)}
-                  />
-                  <span className="timeline-entry-effective">
-                    plays {formatSeconds(effectiveDuration(entry))}s of{' '}
-                    {formatSeconds(entry.duration)}s
-                  </span>
-                </div>
-                <div className="timeline-entry-audio">
-                  <span>Volume</span>
-                  <SecondsField
-                    label={`Volume of ${position} (0 to 1)`}
-                    value={entry.volume ?? 1}
-                    max={1}
-                    step={0.05}
-                    onCommit={(volume) => onSetEntryVolume(entry.id, volume)}
-                  />
-                  <label className="timeline-mute">
-                    <input
-                      type="checkbox"
-                      aria-label={`Mute ${position}`}
-                      checked={entry.muted ?? false}
-                      onChange={(event) => onSetEntryMuted(entry.id, event.target.checked)}
+                {isStillEntry(entry) ? (
+                  /* A still has no source material (#140): no trim window to
+                     edit, just the one duration, and no audio to control. */
+                  <div className="timeline-entry-trim">
+                    <span>Shows for</span>
+                    <SecondsField
+                      label={`Duration of ${position} in seconds`}
+                      value={effectiveDuration(entry)}
+                      min={0.1}
+                      max={86400}
+                      onCommit={(duration) => onSetStillDuration(entry.id, duration)}
                     />
-                    Mute
-                  </label>
-                </div>
+                    <span>s</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="timeline-entry-trim">
+                      <span>In</span>
+                      <SecondsField
+                        label={`Trim in point of ${position} in seconds`}
+                        value={entry.inPoint}
+                        max={entry.duration}
+                        onCommit={(inPoint) => onTrimEntry(entry.id, inPoint, entry.outPoint)}
+                      />
+                      <span>Out</span>
+                      <SecondsField
+                        label={`Trim out point of ${position} in seconds`}
+                        value={entry.outPoint}
+                        max={entry.duration}
+                        onCommit={(outPoint) => onTrimEntry(entry.id, entry.inPoint, outPoint)}
+                      />
+                      <span className="timeline-entry-effective">
+                        plays {formatSeconds(effectiveDuration(entry))}s of{' '}
+                        {formatSeconds(entry.duration)}s
+                      </span>
+                    </div>
+                    <div className="timeline-entry-audio">
+                      <span>Volume</span>
+                      <SecondsField
+                        label={`Volume of ${position} (0 to 1)`}
+                        value={entry.volume ?? 1}
+                        max={1}
+                        step={0.05}
+                        onCommit={(volume) => onSetEntryVolume(entry.id, volume)}
+                      />
+                      <label className="timeline-mute">
+                        <input
+                          type="checkbox"
+                          aria-label={`Mute ${position}`}
+                          checked={entry.muted ?? false}
+                          onChange={(event) => onSetEntryMuted(entry.id, event.target.checked)}
+                        />
+                        Mute
+                      </label>
+                    </div>
+                  </>
+                )}
                 {(() => {
                   // An entry carries any number of non-overlapping zooms
                   // (#129), each independently editable; the accessible

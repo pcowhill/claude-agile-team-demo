@@ -348,6 +348,35 @@ describe('restoreProject with images (#137)', () => {
       },
     ])
   })
+
+  it('carries a still entry (#140) into the restored timeline, kind intact', () => {
+    const project: Project = {
+      clips: [
+        { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+      ],
+      timeline: {
+        entries: [
+          { id: 'e1', clipId: 'i1', name: 'logo.png', duration: 5, inPoint: 0, outPoint: 5, kind: 'image' },
+        ],
+        transitions: [],
+        zooms: [],
+        audioTracks: [],
+      },
+    }
+    const restored = restoreProject(project, new Map([['i1', 'blob:relinked/i1']]))
+    expect(restored.timeline.entries).toEqual([
+      {
+        id: 'e1',
+        clipId: 'i1',
+        name: 'logo.png',
+        duration: 5,
+        inPoint: 0,
+        outPoint: 5,
+        kind: 'image',
+        url: 'blob:relinked/i1',
+      },
+    ])
+  })
 })
 
 describe('restoreProject with audio tracks (#102)', () => {

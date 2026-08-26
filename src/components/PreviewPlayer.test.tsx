@@ -622,4 +622,197 @@ describe('PreviewPlayer', () => {
       expect(screen.getByTestId('preview-position')).toHaveTextContent('0:10 / 0:10')
     })
   })
+
+  describe('still entries (#140)', () => {
+    const stillEntry = {
+      id: 's1',
+      clipId: 'i1',
+      name: 'logo.png',
+      duration: 5,
+      url: 'blob:logo',
+      inPoint: 0,
+      outPoint: 5,
+      kind: 'image' as const,
+    }
+    const videoEntry = {
+      id: 'v1',
+      clipId: 'c1',
+      name: 'first.webm',
+      duration: 4,
+      url: 'blob:first',
+      inPoint: 0,
+      outPoint: 4,
+    }
+
+    it('renders a fronting still as an image, in place of the video element', () => {
+      render(<PreviewPlayer timeline={{ entries: [stillEntry] }} />)
+      const image = screen.getByTestId('preview-image')
+      expect(image).toHaveAttribute('src', 'blob:logo')
+      expect(image).toHaveClass('preview-video')
+      // The primary video element stands idle — the still owns the slot.
+      expect(screen.queryByTestId('preview-video')).not.toBeInTheDocument()
+      expect(screen.getByRole('slider', { name: 'Seek within sequence' })).toHaveAttribute(
+        'max',
+        '5',
+      )
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 1 of 1: logo.png',
+      )
+    })
+
+    it('a transition into a still renders the incoming image mid-effect', () => {
+      const timeline: TimelineState = {
+        entries: [videoEntry, stillEntry],
+        transitions: [{ beforeId: 'v1', afterId: 's1', type: 'crossfade', duration: 1 }],
+      }
+      render(<PreviewPlayer timeline={timeline} />)
+      // Sequence 3.5 is halfway through the 1s crossfade out of the video.
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '3.5' },
+      })
+      const incoming = screen.getByTestId('preview-image-incoming')
+      expect(incoming).toHaveAttribute('src', 'blob:logo')
+      expect(incoming).toHaveStyle({ opacity: '0.5' })
+      expect(incoming).toHaveStyle({ mixBlendMode: 'plus-lighter' })
+      expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '0.5' })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 1 of 2: first.webm → logo.png (crossfade)',
+      )
+    })
+
+    it('a transition out of a still renders the incoming video over the image', () => {
+      const timeline: TimelineState = {
+        entries: [stillEntry, videoEntry],
+        transitions: [{ beforeId: 's1', afterId: 'v1', type: 'slide-from-left', duration: 1 }],
+      }
+      render(<PreviewPlayer timeline={timeline} />)
+      // Sequence 4.25 is a quarter into the overlap [4, 5).
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '4.25' },
+      })
+      expect(screen.getByTestId('preview-image')).toBeInTheDocument()
+      const incoming = screen.getByTestId('preview-video-incoming')
+      expect(incoming).toHaveStyle({ transform: 'translate(-75%, 0%)' })
+      expect(incoming).toHaveStyle({ backgroundColor: '#000' })
+      expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+        'Clip 1 of 2: logo.png → first.webm (slide from left)',
+      )
+    })
+
+    it('renders a zoom on a still exactly as on a video (#140)', () => {
+      const timeline: TimelineState = {
+        entries: [stillEntry],
+        zooms: [
+          {
+            id: 'z1',
+            entryId: 's1',
+            start: 1,
+            rampIn: 1,
+            hold: 1,
+            rampOut: 1,
+            scale: 2,
+            centerX: 0.25,
+            centerY: 0.5,
+          },
+        ],
+      }
+      render(<PreviewPlayer timeline={timeline} />)
+      fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+        target: { value: '2.5' },
+      })
+      const image = screen.getByTestId('preview-image')
+      expect(image.style.transform).toBe('scale(2) translate(25%, 0%)')
+      expect(image.style.clipPath).toBe('inset(25% 50% 25% 0%)')
+    })
+
+    describe('playback clock', () => {
+      const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+      let frames: FrameRequestCallback[]
+      let now: number
+
+      beforeEach(() => {
+        vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+          this: HTMLMediaElement,
+        ) {
+          pausedState.set(this, false)
+          return Promise.resolve()
+        })
+        vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+          this: HTMLMediaElement,
+        ) {
+          pausedState.set(this, true)
+        })
+        vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+          this: HTMLMediaElement,
+        ) {
+          return pausedState.get(this) ?? true
+        })
+        now = 0
+        vi.spyOn(performance, 'now').mockImplementation(() => now)
+        frames = []
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+          frames.push(callback)
+          return frames.length
+        })
+        vi.stubGlobal('cancelAnimationFrame', () => {})
+      })
+
+      afterEach(() => {
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+      })
+
+      const runTick = () => {
+        const tick = frames[frames.length - 1]
+        act(() => tick(0))
+      }
+
+      it('a fronting still advances on the wall clock and ends the sequence on time', () => {
+        render(<PreviewPlayer timeline={{ entries: [stillEntry] }} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+        now = 1000
+        runTick()
+        expect(screen.getByTestId('preview-position')).toHaveTextContent('0:01 / 0:05')
+
+        now = 5100
+        runTick()
+        expect(screen.getByTestId('preview-position')).toHaveTextContent('0:05 / 0:05')
+        expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+      })
+
+      it('a hard cut hands the clock from the video element to the still', () => {
+        render(<PreviewPlayer timeline={{ entries: [videoEntry, stillEntry] }} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        const video = screen.getByTestId('preview-video') as HTMLVideoElement
+
+        // The video reaches its out-point: the still takes over, rendered as
+        // an image and timed by the wall clock from here on.
+        video.currentTime = 4
+        runTick()
+        expect(screen.getByTestId('preview-image')).toBeInTheDocument()
+        expect(screen.queryByTestId('preview-video')).not.toBeInTheDocument()
+
+        now = 2000
+        runTick()
+        expect(screen.getByTestId('preview-position')).toHaveTextContent('0:06 / 0:09')
+      })
+
+      it('pausing freezes the still clock; resuming continues from the same spot', () => {
+        render(<PreviewPlayer timeline={{ entries: [stillEntry] }} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        now = 2000
+        runTick()
+        expect(screen.getByTestId('preview-position')).toHaveTextContent('0:02 / 0:05')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Pause preview' }))
+        // Wall time passes while paused; the position must not.
+        now = 4000
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+        now = 5000
+        runTick()
+        expect(screen.getByTestId('preview-position')).toHaveTextContent('0:03 / 0:05')
+      })
+    })
+  })
 })
