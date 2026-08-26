@@ -627,6 +627,192 @@ describe('timeline', () => {
     })
   })
 
+  describe('time-remap effects (#141)', () => {
+    const addEntry = async (duration = 10) => {
+      render(<App />)
+      await importClip('a.mp4', duration)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    }
+
+    it('adds the default speed segment and shows its editable parameters', async () => {
+      await addEntry()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
+      )
+
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Speed segment 1 start of a.mp4 at position 1 in seconds',
+        }),
+      ).toHaveValue(0)
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Speed segment 1 end of a.mp4 at position 1 in seconds',
+        }),
+      ).toHaveValue(2)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Speed segment 1 factor of a.mp4 at position 1' }),
+      ).toHaveValue(0.5)
+      // A 2s span at 0.5× plays for 4s: 10 − 2 + 4 = 12s remapped, and the
+      // sequence total follows.
+      expect(screen.getByText(/12s remapped/)).toBeInTheDocument()
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:12')
+    })
+
+    it('adds the default pause into free space and totals its hold', async () => {
+      await addEntry()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' }))
+
+      // The segment occupies [0, 2]; the pause lands where the free space starts.
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(2)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 hold of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(1)
+      // 12s from the slowed segment plus the 1s hold.
+      expect(screen.getByText(/13s remapped/)).toBeInTheDocument()
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:13')
+    })
+
+    it('edits a parameter, and shows the clamp when a value cannot fit', async () => {
+      await addEntry()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
+      )
+
+      const factor = screen.getByRole('spinbutton', {
+        name: 'Speed segment 1 factor of a.mp4 at position 1',
+      })
+      await userEvent.clear(factor)
+      await userEvent.type(factor, '2')
+      await userEvent.tab()
+      expect(factor).toHaveValue(2)
+      // A 2s span at 2× plays for 1s: 10 − 2 + 1 = 9s remapped.
+      expect(screen.getByText(/9s remapped/)).toBeInTheDocument()
+
+      // An end past the trimmed range clamps back to it, visibly.
+      const end = screen.getByRole('spinbutton', {
+        name: 'Speed segment 1 end of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(end)
+      await userEvent.type(end, '99')
+      await userEvent.tab()
+      expect(end).toHaveValue(10)
+    })
+
+    it('rejects an invalid factor, snapping the field back', async () => {
+      await addEntry()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
+      )
+
+      const factor = screen.getByRole('spinbutton', {
+        name: 'Speed segment 1 factor of a.mp4 at position 1',
+      })
+      await userEvent.clear(factor)
+      await userEvent.type(factor, '0')
+      await userEvent.tab()
+      expect(factor).toHaveValue(0.5)
+    })
+
+    it('disables the speed add when segments cover the trimmed range, never the pause add', async () => {
+      await addEntry(2)
+
+      const addSpeed = screen.getByRole('button', {
+        name: 'Add speed segment to a.mp4 at position 1',
+      })
+      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
+      await userEvent.click(addSpeed)
+      // The default segment [0, 2] covers the whole 2s clip.
+      expect(addSpeed).toBeDisabled()
+      expect(addPause).toBeEnabled()
+      // With every instant covered, the pause lands at the very end.
+      await userEvent.click(addPause)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(2)
+    })
+
+    it('removes an effect, renumbering the rest of its kind', async () => {
+      await addEntry()
+      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
+      await userEvent.click(addPause)
+      const at = screen.getByRole('spinbutton', {
+        name: 'Pause 1 position of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(at)
+      await userEvent.type(at, '4')
+      await userEvent.tab()
+      await userEvent.click(addPause)
+      // The new pause lands in the free gap before the first (window order).
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(0)
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 2 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(4)
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Remove pause 1 from a.mp4 at position 1' }),
+      )
+      expect(
+        screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
+      ).toHaveValue(4)
+      expect(
+        screen.queryByRole('spinbutton', {
+          name: 'Pause 2 position of a.mp4 at position 1 in seconds',
+        }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('offers no remap controls on stills', async () => {
+      render(<App />)
+      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      expect(
+        screen.queryByRole('button', { name: /Add speed segment to/ }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Add pause to/ })).not.toBeInTheDocument()
+    })
+
+    it('re-clamps effects when a trim shrinks the entry under them', async () => {
+      await addEntry()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
+      )
+      // Widen the end first: a start edit past the current end would make an
+      // invalid (empty) intermediate range and be rejected.
+      const end = screen.getByRole('spinbutton', {
+        name: 'Speed segment 1 end of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(end)
+      await userEvent.type(end, '9')
+      await userEvent.tab()
+      const start = screen.getByRole('spinbutton', {
+        name: 'Speed segment 1 start of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(start)
+      await userEvent.type(start, '6')
+      await userEvent.tab()
+
+      const out = screen.getByRole('spinbutton', {
+        name: 'Trim out point of a.mp4 at position 1 in seconds',
+      })
+      await userEvent.clear(out)
+      await userEvent.type(out, '8')
+      await userEvent.tab()
+
+      // The segment re-clamps into the shrunk 8s range: [6, 8].
+      expect(start).toHaveValue(6)
+      expect(end).toHaveValue(8)
+    })
+  })
+
   it('removes an entry without touching the media library, updating the total', async () => {
     render(<App />)
     await importClip('a.mp4', 30)

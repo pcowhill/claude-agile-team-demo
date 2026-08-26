@@ -218,6 +218,146 @@ export function sourceTimeAtOutput(
 }
 
 /**
+ * The instantaneous playback state a player needs at one output time into a
+ * remapped entry (#141): the source instant showing, the rate the source is
+ * advancing at, and — inside a pause — the plateau being held.
+ */
+export interface RemapPlayback {
+  /** Source seconds (into the trimmed range) showing at this output time. */
+  sourceTime: number
+  /**
+   * How fast the source advances here, as a media-element playback rate: the
+   * active speed segment's factor, 1 outside every segment, 0 on a pause
+   * plateau (`hold` describes it — an element freezes rather than plays
+   * at 0).
+   */
+  rate: number
+  /**
+   * The pause plateau containing this output time, or null outside one. The
+   * bounds are output seconds into the entry, so `outputEnd − outputTime` is
+   * the hold remaining.
+   */
+  hold: { outputStart: number; outputEnd: number } | null
+}
+
+/**
+ * Resolves the playback state at an output time into the entry. Pieces are
+ * half-open on their output span, so a time exactly at a plateau's start is
+ * *inside* the hold (the frame freezes the moment the plateau begins) and a
+ * time exactly at its end has moved on. Input is clamped into
+ * [0, remappedDuration]. Effects must be normalized, as for
+ * `remappedDuration`.
+ */
+export function remapPlaybackAt(
+  trimmedLength: number,
+  effects: readonly RemapSpec[],
+  outputTime: number,
+): RemapPlayback {
+  const time = clamp(outputTime, 0, remappedDuration(trimmedLength, effects))
+  for (const piece of remapPieces(trimmedLength, effects)) {
+    // A collapsed segment has no output span to be inside of.
+    if (piece.outputEnd === piece.outputStart) continue
+    if (time >= piece.outputEnd) continue
+    if (piece.sourceEnd === piece.sourceStart) {
+      return {
+        sourceTime: piece.sourceStart,
+        rate: 0,
+        hold: { outputStart: piece.outputStart, outputEnd: piece.outputEnd },
+      }
+    }
+    const progress = (time - piece.outputStart) / (piece.outputEnd - piece.outputStart)
+    return {
+      sourceTime: piece.sourceStart + progress * (piece.sourceEnd - piece.sourceStart),
+      rate: (piece.sourceEnd - piece.sourceStart) / (piece.outputEnd - piece.outputStart),
+      hold: null,
+    }
+  }
+  // At (or clamped to) the very end of the mapping: the last source instant.
+  return { sourceTime: trimmedLength, rate: 1, hold: null }
+}
+
+/**
+ * The playback rate in force at a source instant: the factor of the speed
+ * segment containing it (half-open — a time exactly at a segment's end has
+ * left it), 1 outside every segment. Pauses do not appear here: a pause is
+ * an output-time plateau, not a source-time rate (#141 freezes the element
+ * through `remapPlaybackAt`'s hold instead).
+ */
+export function rateAtSourceTime(effects: readonly RemapSpec[], sourceTime: number): number {
+  for (const effect of effects) {
+    if (effect.kind === 'speed' && sourceTime >= effect.start && sourceTime < effect.end) {
+      return effect.factor
+    }
+  }
+  return 1
+}
+
+/** Default factor for a speed segment added from the UI (#141): half speed. */
+export const DEFAULT_SPEED_FACTOR = 0.5
+
+/** Preferred source length (seconds) of a speed segment added from the UI. */
+export const DEFAULT_SPEED_LENGTH = 2
+
+/** Default hold (output seconds) of a pause added from the UI (#141). */
+export const DEFAULT_PAUSE_HOLD = 1
+
+/** The unoccupied source ranges between effect windows, in window order. */
+function freeGaps(
+  effects: readonly RemapEffect[],
+  trimmedLength: number,
+): { start: number; length: number }[] {
+  const sorted = [...effects].sort((a, b) => remapStart(a) - remapStart(b))
+  const gaps: { start: number; length: number }[] = []
+  let cursor = 0
+  for (const effect of sorted) {
+    if (remapStart(effect) > cursor) {
+      gaps.push({ start: cursor, length: remapStart(effect) - cursor })
+    }
+    cursor = Math.max(cursor, remapEnd(effect))
+  }
+  if (trimmedLength > cursor) gaps.push({ start: cursor, length: trimmedLength - cursor })
+  return gaps
+}
+
+/**
+ * Where a UI-added speed segment should land (#141), mirroring
+ * `defaultZoomFor`: the first free gap that fits the preferred length, else
+ * the widest gap (shortened to fit), else null — the entry's effects already
+ * cover its whole trimmed range and the add affordance disables.
+ */
+export function defaultSpeedFor(
+  effects: readonly RemapEffect[],
+  trimmedLength: number,
+): SpeedRemapSpec | null {
+  const gaps = freeGaps(effects, trimmedLength)
+  if (gaps.length === 0) return null
+  const gap =
+    gaps.find((candidate) => candidate.length >= DEFAULT_SPEED_LENGTH) ??
+    gaps.reduce((widest, candidate) => (candidate.length > widest.length ? candidate : widest))
+  return {
+    kind: 'speed',
+    start: gap.start,
+    end: gap.start + Math.min(gap.length, DEFAULT_SPEED_LENGTH),
+    factor: DEFAULT_SPEED_FACTOR,
+  }
+}
+
+/**
+ * Where a UI-added pause should land (#141): the first free gap's start, or
+ * — with every instant covered by segments — the very end of the trimmed
+ * range, freezing the final frame. A pause occupies no source time, so only
+ * an empty entry (trimmed length 0) has nowhere to put one.
+ */
+export function defaultPauseFor(
+  effects: readonly RemapEffect[],
+  trimmedLength: number,
+): PauseRemapSpec | null {
+  if (trimmedLength <= 0) return null
+  const gap = freeGaps(effects, trimmedLength)[0]
+  return { kind: 'pause', at: gap?.start ?? trimmedLength, hold: DEFAULT_PAUSE_HOLD }
+}
+
+/**
  * Maps a source time to the output (playback) time at which it is **first
  * shown** — the inverse of `sourceTimeAtOutput` everywhere the mapping is
  * strictly increasing. At a paused instant the whole plateau shows one

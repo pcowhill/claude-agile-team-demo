@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import type { TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '../lib/timeline'
+import type { RemapSpec, TimelineState, TransitionSpec, TransitionType, ZoomSpec } from '../lib/timeline'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
   boundaryTransitions,
   defaultZoomFor,
   effectiveDuration,
+  entryOutputDuration,
   isSlateEntry,
   isStillEntry,
+  remapsForEntry,
+  remapsOf,
   totalDuration,
   zoomsForEntry,
 } from '../lib/timeline'
+import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import { formatDuration } from '../lib/mediaLibrary'
 import './Timeline.css'
 
@@ -32,6 +36,10 @@ interface TimelineProps {
   onAddZoom: (entryId: string, zoom: ZoomSpec) => void
   onUpdateZoom: (id: string, zoom: ZoomSpec) => void
   onRemoveZoom: (id: string) => void
+  /** Adds a time-remap effect to the entry (#141); the id is the caller's to mint. */
+  onAddRemap: (entryId: string, remap: RemapSpec) => void
+  onUpdateRemap: (id: string, remap: RemapSpec) => void
+  onRemoveRemap: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
@@ -127,6 +135,9 @@ export function Timeline({
   onAddZoom,
   onUpdateZoom,
   onRemoveZoom,
+  onAddRemap,
+  onUpdateRemap,
+  onRemoveRemap,
   onRemoveAudioTrack,
   onRetimeAudioTrack,
   onTrimAudioTrack,
@@ -249,6 +260,12 @@ export function Timeline({
                       <span className="timeline-entry-effective">
                         plays {formatSeconds(effectiveDuration(entry))}s of{' '}
                         {formatSeconds(entry.duration)}s
+                        {/* Time-remap effects (#141) change what the entry
+                            occupies in the sequence — say so where the trim
+                            math is shown. */}
+                        {entryOutputDuration(entry, remapsOf(timeline)) !==
+                          effectiveDuration(entry) &&
+                          ` — ${formatSeconds(entryOutputDuration(entry, remapsOf(timeline)))}s remapped`}
                       </span>
                     </div>
                     <div className="timeline-entry-audio">
@@ -363,6 +380,130 @@ export function Timeline({
                     </>
                   )
                 })()}
+                {!isStillEntry(entry) &&
+                  (() => {
+                    // Time-remap effects (#141): speed segments and pauses,
+                    // each independently editable like a zoom. Stills carry
+                    // none — their one duration already sets their timing
+                    // (#138). Accessible names number each kind separately,
+                    // in window order — the order the normalized state
+                    // stores them in.
+                    const entryRemaps = remapsForEntry(timeline, entry.id)
+                    const trimmed = effectiveDuration(entry)
+                    const addableSpeed = defaultSpeedFor(entryRemaps, trimmed)
+                    const addablePause = defaultPauseFor(entryRemaps, trimmed)
+                    const kindIndex = (id: string, kind: RemapSpec['kind']) =>
+                      entryRemaps.filter((effect) => effect.kind === kind).findIndex((effect) => effect.id === id) + 1
+                    return (
+                      <>
+                        {entryRemaps.map((effect) =>
+                          effect.kind === 'speed' ? (
+                            (() => {
+                              const name = `Speed segment ${kindIndex(effect.id, 'speed')}`
+                              const set = (change: Partial<Omit<typeof effect, 'kind'>>) =>
+                                onUpdateRemap(effect.id, {
+                                  kind: 'speed',
+                                  start: effect.start,
+                                  end: effect.end,
+                                  factor: effect.factor,
+                                  ...change,
+                                })
+                              return (
+                                <div key={effect.id} className="timeline-entry-remap">
+                                  <span>{name} from</span>
+                                  <SecondsField
+                                    label={`${name} start of ${position} in seconds`}
+                                    value={effect.start}
+                                    max={trimmed}
+                                    onCommit={(start) => set({ start })}
+                                  />
+                                  <span>to</span>
+                                  <SecondsField
+                                    label={`${name} end of ${position} in seconds`}
+                                    value={effect.end}
+                                    max={trimmed}
+                                    onCommit={(end) => set({ end })}
+                                  />
+                                  <span>at</span>
+                                  <SecondsField
+                                    label={`${name} factor of ${position}`}
+                                    value={effect.factor}
+                                    min={0.05}
+                                    max={10}
+                                    step={0.25}
+                                    onCommit={(factor) => set({ factor })}
+                                  />
+                                  <span>×</span>
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove speed segment ${kindIndex(effect.id, 'speed')} from ${position}`}
+                                    onClick={() => onRemoveRemap(effect.id)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )
+                            })()
+                          ) : (
+                            (() => {
+                              const name = `Pause ${kindIndex(effect.id, 'pause')}`
+                              return (
+                                <div key={effect.id} className="timeline-entry-remap">
+                                  <span>{name} at</span>
+                                  <SecondsField
+                                    label={`${name} position of ${position} in seconds`}
+                                    value={effect.at}
+                                    max={trimmed}
+                                    onCommit={(at) =>
+                                      onUpdateRemap(effect.id, { kind: 'pause', at, hold: effect.hold })
+                                    }
+                                  />
+                                  <span>hold</span>
+                                  <SecondsField
+                                    label={`${name} hold of ${position} in seconds`}
+                                    value={effect.hold}
+                                    min={0.1}
+                                    max={86400}
+                                    onCommit={(hold) =>
+                                      onUpdateRemap(effect.id, { kind: 'pause', at: effect.at, hold })
+                                    }
+                                  />
+                                  <span>s</span>
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove pause ${kindIndex(effect.id, 'pause')} from ${position}`}
+                                    onClick={() => onRemoveRemap(effect.id)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )
+                            })()
+                          ),
+                        )}
+                        <div className="timeline-entry-remap">
+                          <button
+                            type="button"
+                            className="timeline-remap-add"
+                            aria-label={`Add speed segment to ${position}`}
+                            disabled={addableSpeed === null}
+                            onClick={() => addableSpeed !== null && onAddRemap(entry.id, addableSpeed)}
+                          >
+                            + Speed
+                          </button>
+                          <button
+                            type="button"
+                            className="timeline-remap-add"
+                            aria-label={`Add pause to ${position}`}
+                            disabled={addablePause === null}
+                            onClick={() => addablePause !== null && onAddRemap(entry.id, addablePause)}
+                          >
+                            + Pause
+                          </button>
+                        </div>
+                      </>
+                    )
+                  })()}
                 {index < entries.length - 1 &&
                   (() => {
                     const next = entries[index + 1]
