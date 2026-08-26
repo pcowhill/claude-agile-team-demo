@@ -42,6 +42,11 @@
      stage's own black and the outgoing element, never anything behind the
      stage. */
   isolation: isolate;
+  /* Text overlays (#139) size their type as a fraction of the frame height
+     via cqh units, so the stage is their size container. The stage's own
+     size is already extrinsic (flex basis / aspect-ratio), so the size
+     containment this creates changes nothing else. */
+  container-type: size;
 }
 
 /* Both elements fill the stage; object-fit letterboxes/pillarboxes inside
@@ -64,6 +69,22 @@
    transition may reuse it) but shows nothing. */
 .preview-video-idle {
   visibility: hidden;
+}
+
+/* A text overlay (#139): centred on its fractional position, above every
+   video/still layer (transitions and zooms style those beneath it — an
+   overlay annotates the output frame, it is not part of any clip). Only
+   embedded newlines break lines (white-space: pre), so rendering stays
+   deterministic for the canvas-based export to reproduce (#142). */
+.preview-text {
+  position: absolute;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  white-space: pre;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
 }
 
 /* Expanded (#128, option B in #126): the panel goes full content width and

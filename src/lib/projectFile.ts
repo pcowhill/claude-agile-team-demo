@@ -14,9 +14,12 @@ import {
   isSlateEntry,
   isValidSlateColor,
   remapsOf,
+  textsOf,
   transitionsOf,
   zoomsOf,
 } from './timeline'
+import type { TextOverlay } from './textOverlay'
+import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -38,6 +41,8 @@ import {
  *                   centerX, centerY }],
  *       "remaps": [{ id, entryId, kind: "speed", start, end, factor } |
  *                  { id, entryId, kind: "pause", at, hold }],   // (#138)
+ *       "texts": [{ id, content, offset, duration, x, y, font, size,
+ *                   color, bold, italic }],                     // (#139)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }]
  *     }
@@ -177,6 +182,11 @@ export interface ProjectTimeline {
    * additive within a schema version per the contract above.
    */
   remaps?: RemapEffect[]
+  /**
+   * Text overlays (#139). Present exactly when the file carries any,
+   * additive within a schema version exactly like `remaps`.
+   */
+  texts?: TextOverlay[]
   /**
    * Always present after parsing: files written before audio tracks (#102)
    * omit the key and parse as an empty list — additive within a schema
@@ -364,6 +374,28 @@ export async function serializeProject(
                     end: remap.end,
                     factor: remap.factor,
                   },
+            ),
+          }),
+      // Text overlays (#139) are written only while any exist, so text-free
+      // projects stay byte-identical to earlier output — additive within the
+      // schema version, like remaps.
+      ...(textsOf(timeline).length === 0
+        ? {}
+        : {
+            texts: textsOf(timeline).map(
+              ({ id, content, offset, duration, x, y, font, size, color, bold, italic }) => ({
+                id,
+                content,
+                offset,
+                duration,
+                x,
+                y,
+                font,
+                size,
+                color,
+                bold,
+                italic,
+              }),
             ),
           }),
       audioTracks: audioTracksOf(timeline).map(
@@ -715,6 +747,52 @@ function validateProject(document: Record<string, unknown>): Project {
     remapIds.add(remap.id)
   }
 
+  // Text overlays (#139): absent in files saved before them, and in
+  // text-free files since. Continuous fields are range-checked here; an
+  // unknown font or a malformed color is refused by name — silently
+  // substituting either would change how the customer's title renders.
+  const texts = asArray(timelineRaw.texts ?? [], 'timeline.texts').map((value, index) => {
+    const path = `timeline.texts[${index}]`
+    const raw = asRecord(value, path)
+    const font = asString(raw.font, `${path}.font`)
+    if (!isTextFontId(font)) throw new Error(`${path}.font "${font}" is unknown`)
+    const color = asString(raw.color, `${path}.color`)
+    if (!isValidTextColor(color)) {
+      throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)
+    }
+    const text: TextOverlay = {
+      id: asString(raw.id, `${path}.id`),
+      content: asString(raw.content, `${path}.content`),
+      offset: asNonNegative(raw.offset, `${path}.offset`),
+      duration: asFinite(raw.duration, `${path}.duration`),
+      x: asFinite(raw.x, `${path}.x`),
+      y: asFinite(raw.y, `${path}.y`),
+      font,
+      size: asFinite(raw.size, `${path}.size`),
+      color,
+      bold: asBoolean(raw.bold, `${path}.bold`),
+      italic: asBoolean(raw.italic, `${path}.italic`),
+    }
+    if (text.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
+    for (const [field, fraction] of [
+      ['x', text.x],
+      ['y', text.y],
+    ] as const) {
+      if (fraction < 0 || fraction > 1) throw new Error(`${path}.${field} must be between 0 and 1`)
+    }
+    if (text.size < MIN_TEXT_SIZE || text.size > MAX_TEXT_SIZE) {
+      throw new Error(`${path}.size must be between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`)
+    }
+    return text
+  })
+  const textIds = new Set<string>()
+  for (const [index, text] of texts.entries()) {
+    if (textIds.has(text.id)) {
+      throw new Error(`timeline.texts[${index}].id "${text.id}" is duplicated`)
+    }
+    textIds.add(text.id)
+  }
+
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
   const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
@@ -771,6 +849,7 @@ function validateProject(document: Record<string, unknown>): Project {
       // Present exactly when the file carried effects, mirroring the
       // serializer and TimelineState (see the ProjectTimeline field).
       ...(remaps.length === 0 ? {} : { remaps }),
+      ...(texts.length === 0 ? {} : { texts }),
       audioTracks,
     },
   }

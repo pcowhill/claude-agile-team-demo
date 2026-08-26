@@ -1582,3 +1582,97 @@ describe('time-remap effects in project files (#138)', () => {
     expect(result.ok).toBe(true)
   })
 })
+
+describe('text overlays in project files (#139)', () => {
+  const overlay = {
+    id: 't1',
+    content: 'Hello\nworld',
+    offset: 1,
+    duration: 3,
+    x: 0.5,
+    y: 0.25,
+    font: 'serif',
+    size: 0.1,
+    color: '#00ff88',
+    bold: true,
+    italic: false,
+  } as const
+  const textTimeline: TimelineState = { ...timeline, texts: [overlay] }
+  const expectedTextProject: Project = {
+    ...expectedProject,
+    timeline: { ...expectedProject.timeline, texts: [overlay] },
+  }
+
+  it('round-trips overlays in a references-only file without a version bump', async () => {
+    const bytes = await serializeProject(library, textTimeline)
+    const document = await gunzipJson(bytes)
+    // Additive within the version, exactly like remaps (#138): an older
+    // build ignores the unknown key rather than refusing the file.
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(await deserializeProject(bytes)).toEqual({ ok: true, project: expectedTextProject })
+  })
+
+  it('round-trips overlays in an embedded file', async () => {
+    const media = fixtureMedia()
+    const bytes = await serializeProject(library, textTimeline, media)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(EMBEDDED_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedTextProject)
+      expect(result.media).toBeDefined()
+    }
+  })
+
+  it('writes the texts key only while overlays exist, keeping text-free files unchanged', async () => {
+    const withTexts = await gunzipJson(await serializeProject(library, textTimeline))
+    expect((withTexts.timeline as Record<string, unknown>).texts).toEqual([overlay])
+    const without = await gunzipJson(await serializeProject(library, timeline))
+    expect(without.timeline as Record<string, unknown>).not.toHaveProperty('texts')
+  })
+
+  it('a file without the texts key parses without one, like every pre-#139 file', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result).toEqual({ ok: true, project: expectedProject })
+    if (result.ok) expect(result.project.timeline).not.toHaveProperty('texts')
+  })
+
+  it('refuses an unknown font and a malformed color by name', async () => {
+    for (const [patch, mention] of [
+      [{ font: 'papyrus' }, 'timeline.texts[0].font "papyrus" is unknown'],
+      [{ color: '#FFFFFF' }, 'is not a lowercase #rrggbb color'],
+      [{ color: 'white' }, 'is not a lowercase #rrggbb color'],
+    ] as const) {
+      const document = validDocument()
+      ;(document.timeline as { texts?: unknown }).texts = [{ ...overlay, ...patch }]
+      await expectRefusal(await gzipJson(document), mention)
+    }
+  })
+
+  it('refuses malformed overlays field by field', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ ...overlay, content: '' }, 'content must be a non-empty string'],
+      [{ ...overlay, duration: 0 }, 'duration must be greater than 0'],
+      [{ ...overlay, offset: -1 }, 'must not be negative'],
+      [{ ...overlay, x: 1.5 }, 'x must be between 0 and 1'],
+      [{ ...overlay, y: -0.5 }, 'y must be between 0 and 1'],
+      [{ ...overlay, size: 0 }, 'size must be between'],
+      [{ ...overlay, size: 2 }, 'size must be between'],
+      [{ ...overlay, bold: 'yes' }, 'bold must be a boolean'],
+      [{ ...overlay, italic: 1 }, 'italic must be a boolean'],
+      [{ ...overlay, id: undefined }, 'timeline.texts[0].id'],
+    ]
+    for (const [text, mention] of cases) {
+      const document = validDocument()
+      ;(document.timeline as { texts?: unknown }).texts = [text]
+      await expectRefusal(await gzipJson(document), mention)
+    }
+  })
+
+  it('refuses duplicated overlay ids', async () => {
+    const document = validDocument()
+    ;(document.timeline as { texts?: unknown }).texts = [overlay, { ...overlay, content: 'Again' }]
+    await expectRefusal(await gzipJson(document), 'timeline.texts[1].id "t1" is duplicated')
+  })
+})

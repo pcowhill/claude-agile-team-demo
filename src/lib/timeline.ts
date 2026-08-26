@@ -8,8 +8,11 @@ import {
   remapsEqual,
   remapStart,
 } from './remap'
+import type { TextOverlay, TextOverlaySpec } from './textOverlay'
+import { clampTextOverlay, isValidTextOverlaySpec, textOverlaysEqual } from './textOverlay'
 
 export type { PauseRemapSpec, RemapEffect, RemapSpec, SpeedRemapSpec } from './remap'
+export type { TextOverlay, TextOverlaySpec } from './textOverlay'
 
 export interface TimelineEntry {
   /** Unique per entry — the same library clip can appear multiple times. */
@@ -190,6 +193,15 @@ export interface TimelineState {
    * stays shaped exactly as before.
    */
   remaps?: RemapEffect[]
+  /**
+   * Text overlays (#139), in the order they were added — which is also
+   * their stacking order: where two overlap on screen, the later-added one
+   * renders on top. Anchored to sequence time and independent of the
+   * entries, like audio tracks (#102) — video edits never retime or drop
+   * one. Optional like `remaps`, and the key is written only while overlays
+   * exist, so every pre-text state stays shaped exactly as before.
+   */
+  texts?: TextOverlay[]
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
@@ -306,6 +318,9 @@ export type TimelineAction =
   | { type: 'remap-added'; remap: RemapEffect }
   | { type: 'remap-updated'; id: string; remap: RemapSpec }
   | { type: 'remap-removed'; id: string }
+  | { type: 'text-added'; text: TextOverlay }
+  | { type: 'text-updated'; id: string; text: TextOverlaySpec }
+  | { type: 'text-removed'; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -392,6 +407,11 @@ export function zoomsOf(state: TimelineState): ZoomEffect[] {
 /** The state's time-remap effects (#138), tolerating pre-remap states. */
 export function remapsOf(state: TimelineState): RemapEffect[] {
   return state.remaps ?? []
+}
+
+/** The state's text overlays (#139), tolerating pre-text states. */
+export function textsOf(state: TimelineState): TextOverlay[] {
+  return state.texts ?? []
 }
 
 /**
@@ -689,6 +709,7 @@ function withEffects(
   zooms: ZoomEffect[],
   audioTracks: AudioTrack[],
   remaps: RemapEffect[],
+  texts: TextOverlay[],
 ): TimelineState {
   // Remaps normalize first: transition clamping reads output durations, and
   // an unclamped effect window would count source time the entry no longer
@@ -707,6 +728,11 @@ function withEffects(
     // The remaps key exists only while effects do, so every pre-remap state
     // keeps its exact shape (see the TimelineState field comment).
     ...(normalizedRemapList.length === 0 ? {} : { remaps: normalizedRemapList }),
+    // Text overlays (#139) are, like audio tracks, deliberately untouched by
+    // video edits — sequence-anchored windows are never re-anchored (see the
+    // TimelineState field comment). Only their own ranges clamp. The key
+    // exists only while overlays do, like remaps.
+    ...(texts.length === 0 ? {} : { texts: texts.map(clampTextOverlay) }),
     // Audio tracks are deliberately untouched by video edits: offsets are
     // absolute and never clamped to the sequence's (possibly new) length —
     // see the AudioTrack doc comment. Fades, though, depend only on the
@@ -728,8 +754,9 @@ export function normalizedTimelineState(
   zooms: ZoomEffect[],
   audioTracks: AudioTrack[] = [],
   remaps: RemapEffect[] = [],
+  texts: TextOverlay[] = [],
 ): TimelineState {
-  return withEffects(entries, transitions, zooms, audioTracks, remaps)
+  return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
 }
 
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
@@ -737,11 +764,12 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
   const zooms = zoomsOf(state)
   const audioTracks = audioTracksOf(state)
   const remaps = remapsOf(state)
+  const texts = textsOf(state)
   switch (action.type) {
     case 'timeline-replaced':
       return action.timeline
     case 'entry-added':
-      return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks, remaps)
+      return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks, remaps, texts)
     case 'entry-removed':
       return withEffects(
         state.entries.filter((entry) => entry.id !== action.id),
@@ -749,6 +777,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         zooms,
         audioTracks,
         remaps,
+        texts,
       )
     case 'entries-removed-for-clip': {
       // Removing a library clip removes everything created from it: sequence
@@ -759,7 +788,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // no entries must not read as a timeline edit (which stops playback).
       return entries.length === state.entries.length && tracks.length === audioTracks.length
         ? state
-        : withEffects(entries, transitions, zooms, tracks, remaps)
+        : withEffects(entries, transitions, zooms, tracks, remaps, texts)
     }
     case 'entry-moved': {
       const from = state.entries.findIndex((entry) => entry.id === action.id)
@@ -768,7 +797,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (to < 0 || to >= state.entries.length) return state
       const entries = [...state.entries]
       ;[entries[from], entries[to]] = [entries[to], entries[from]]
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'entry-trimmed': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -785,7 +814,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === entry.inPoint && outPoint === entry.outPoint) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, inPoint, outPoint }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'still-duration-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -802,7 +831,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // The window is always the whole still: duration and outPoint move
       // together, and transitions/zooms re-clamp exactly as after a retrim.
       entries[index] = { ...entry, duration: action.duration, inPoint: 0, outPoint: action.duration }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'slate-color-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -816,7 +845,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (action.color === entry.color) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, color: action.color }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'transition-set': {
       const before = state.entries.findIndex((entry) => entry.id === action.beforeId)
@@ -842,6 +871,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         zooms,
         audioTracks,
         remaps,
+        texts,
       )
       const applied = next.transitions?.find((transition) => transition.beforeId === action.beforeId)
       // Normalization can veto the whole transition (no room at this
@@ -860,7 +890,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
           transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
       )
       if (remaining.length === transitions.length) return state
-      return withEffects(state.entries, remaining, zooms, audioTracks, remaps)
+      return withEffects(state.entries, remaining, zooms, audioTracks, remaps, texts)
     }
     case 'zoom-added': {
       const zoom = action.zoom
@@ -868,7 +898,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // Ids are the handle updates and removals act on — never two alike.
       if (zooms.some((existing) => existing.id === zoom.id)) return state
       if (!isValidZoomSpec(zoom)) return state
-      const next = withEffects(state.entries, transitions, [...zooms, zoom], audioTracks, remaps)
+      const next = withEffects(state.entries, transitions, [...zooms, zoom], audioTracks, remaps, texts)
       const applied = next.zooms?.find((existing) => existing.id === zoom.id)
       // Normalization can leave the new window no room at all (the entry's
       // existing zooms already reach its end) — veto the add, mirroring the
@@ -887,6 +917,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         zooms.map((zoom) => (zoom.id === action.id ? candidate : zoom)),
         audioTracks,
         remaps,
+        texts,
       )
       const applied = next.zooms?.find((zoom) => zoom.id === action.id)
       if (applied === undefined) return state
@@ -900,7 +931,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     case 'zoom-removed': {
       const remaining = zooms.filter((zoom) => zoom.id !== action.id)
       if (remaining.length === zooms.length) return state
-      return withEffects(state.entries, transitions, remaining, audioTracks, remaps)
+      return withEffects(state.entries, transitions, remaining, audioTracks, remaps, texts)
     }
     case 'remap-added': {
       const remap = action.remap
@@ -908,7 +939,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       // Ids are the handle updates and removals act on — never two alike.
       if (remaps.some((existing) => existing.id === remap.id)) return state
       if (!isValidRemapSpec(remap)) return state
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, [...remaps, remap])
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, [...remaps, remap], texts)
       const applied = next.remaps?.find((existing) => existing.id === remap.id)
       // Normalization can drop the effect (its entry is a still — see
       // normalizedRemaps) or collapse a speed segment to nothing (the
@@ -934,6 +965,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         zooms,
         audioTracks,
         remaps.map((remap) => (remap.id === action.id ? candidate : remap)),
+        texts,
       )
       const applied = next.remaps?.find((remap) => remap.id === action.id)
       if (applied === undefined) return state
@@ -947,14 +979,43 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     case 'remap-removed': {
       const remaining = remaps.filter((remap) => remap.id !== action.id)
       if (remaining.length === remaps.length) return state
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaining)
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaining, texts)
+    }
+    case 'text-added': {
+      const text = action.text
+      // Ids are the handle updates and removals act on — never two alike.
+      if (texts.some((existing) => existing.id === text.id)) return state
+      if (!isValidTextOverlaySpec(text)) return state
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, text])
+    }
+    case 'text-updated': {
+      const existing = texts.find((text) => text.id === action.id)
+      if (existing === undefined) return state
+      if (!isValidTextOverlaySpec(action.text)) return state
+      const candidate: TextOverlay = { ...action.text, id: existing.id }
+      // Normalization can clamp the edit back to what is already stored — a
+      // no-op must keep the state reference (edits stop preview playback).
+      if (textOverlaysEqual(existing, clampTextOverlay(candidate))) return state
+      return withEffects(
+        state.entries,
+        transitions,
+        zooms,
+        audioTracks,
+        remaps,
+        texts.map((text) => (text.id === action.id ? candidate : text)),
+      )
+    }
+    case 'text-removed': {
+      const remaining = texts.filter((text) => text.id !== action.id)
+      if (remaining.length === texts.length) return state
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, remaining)
     }
     case 'audio-track-added':
-      return withEffects(state.entries, transitions, zooms, [...audioTracks, action.track], remaps)
+      return withEffects(state.entries, transitions, zooms, [...audioTracks, action.track], remaps, texts)
     case 'audio-track-removed': {
       const remaining = audioTracks.filter((track) => track.id !== action.id)
       if (remaining.length === audioTracks.length) return state
-      return withEffects(state.entries, transitions, zooms, remaining, remaps)
+      return withEffects(state.entries, transitions, zooms, remaining, remaps, texts)
     }
     case 'audio-track-retimed': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -966,7 +1027,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (offset === audioTracks[index].offset) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], offset }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps)
+      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts)
     }
     case 'audio-track-trimmed': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -980,7 +1041,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === track.inPoint && outPoint === track.outPoint) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...track, inPoint, outPoint }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps)
+      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts)
     }
     case 'entry-volume-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -992,7 +1053,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (volume === (state.entries[index].volume ?? 1)) return state
       const entries = [...state.entries]
       entries[index] = { ...entries[index], volume }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'entry-mute-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -1000,7 +1061,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (action.muted === (state.entries[index].muted ?? false)) return state
       const entries = [...state.entries]
       entries[index] = { ...entries[index], muted: action.muted }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps)
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts)
     }
     case 'audio-track-volume-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -1010,7 +1071,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (volume === (audioTracks[index].volume ?? 1)) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], volume }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps)
+      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts)
     }
     case 'audio-track-fades-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -1032,7 +1093,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       }
       const tracks = [...audioTracks]
       tracks[index] = candidate
-      return withEffects(state.entries, transitions, zooms, tracks, remaps)
+      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts)
     }
   }
 }

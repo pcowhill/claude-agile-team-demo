@@ -10,8 +10,10 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  textsOf,
   totalDuration,
 } from '../lib/timeline'
+import { textActiveAt, textFontStack } from '../lib/textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
 import {
   audioTrackPlaybackAt,
@@ -871,6 +873,38 @@ export function PreviewPlayer({
                   style={withZoom(layerStyles?.incoming, incomingZoom)}
                 />
               )
+            )}
+            {/* Text overlays (#139): items whose window covers the published
+                sequence time, drawn above the composed frame. Stacking order,
+                bottom to top: video/still layers (transitions and zooms apply
+                to them below), then overlays in add order — an overlay never
+                zooms or slides with a clip; it annotates the output frame.
+                Position is the block's centre in frame fractions; size is a
+                fraction of the frame height, realized via container-query
+                height units against the stage (the frame proxy the preview
+                already letterboxes real sources into). Declarative from the
+                published time, so playing, pausing, and scrubbing all show
+                exactly the overlays for the current instant. */}
+            {textsOf(timeline).map(
+              (text, index) =>
+                textActiveAt(text, Math.min(sequenceTime, total)) && (
+                  <p
+                    key={text.id}
+                    className="preview-text"
+                    data-testid={`preview-text-${index}`}
+                    style={{
+                      left: `${text.x * 100}%`,
+                      top: `${text.y * 100}%`,
+                      fontSize: `${text.size * 100}cqh`,
+                      fontFamily: textFontStack(text.font),
+                      fontWeight: text.bold ? 700 : 400,
+                      fontStyle: text.italic ? 'italic' : 'normal',
+                      color: text.color,
+                    }}
+                  >
+                    {text.content}
+                  </p>
+                ),
             )}
           </div>
           {/* One element per audio track (#103), driven by syncAudioTracks.
