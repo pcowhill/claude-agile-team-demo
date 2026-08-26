@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
   createAudioCapture,
   EXPORT_MIME_CANDIDATES,
@@ -8,14 +9,17 @@ import {
   EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
   exportFileName,
   fitRect,
+  initialRemapReplay,
+  OUT_POINT_EPSILON,
   pickExportMimeType,
   supportedExportFormats,
   syncTrackReplay,
   zoomRect,
 } from './exportVideo'
-import type { TrackReplayElement } from './exportVideo'
-import type { AudioTrack } from './timeline'
+import type { RemapReplayState, TrackReplayElement } from './exportVideo'
+import type { AudioTrack, RemapEffect } from './timeline'
 import { audioTrackGainAt } from './gain'
+import { sourceTimeAtOutput } from './remap'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -320,6 +324,208 @@ describe('syncTrackReplay (#105)', () => {
     }
     expect(volumes).toEqual([0, 0.5, 1, 1, 0.5])
     expect(element.playCalls).toBe(1)
+  })
+})
+
+// Time-remap replay schedule (#144): the pure driver the export loop feeds
+// its element clock into every frame. The mapping maths itself is pinned in
+// remap.test.ts; these pin the schedule — what the element is told to do,
+// and which output time each frame represents, across segment boundaries
+// and pause plateaus.
+const speedEffect = (start: number, end: number, factor: number): RemapEffect => ({
+  id: `s${start}`,
+  entryId: 'e1',
+  kind: 'speed',
+  start,
+  end,
+  factor,
+})
+const pauseEffect = (at: number, hold: number, id = `p${at}`): RemapEffect => ({
+  id,
+  entryId: 'e1',
+  kind: 'pause',
+  at,
+  hold,
+})
+const DT = 1 / 30
+
+describe('initialRemapReplay (#144)', () => {
+  it('starts an effect-free entry playing from the top at rate 1', () => {
+    expect(initialRemapReplay(10, [], 0)).toEqual({
+      state: { hold: null, lastRelSource: 0 },
+      relSource: 0,
+      rate: 1,
+    })
+  })
+
+  it('starts inside a segment at its factor (a transition handover landing)', () => {
+    const start = initialRemapReplay(10, [speedEffect(0, 4, 0.5)], 3)
+    expect(start.relSource).toBeCloseTo(1.5, 10)
+    expect(start.rate).toBe(0.5)
+    expect(start.state.hold).toBeNull()
+  })
+
+  it('starts inside a pause plateau frozen, with the remaining hold pending', () => {
+    // Plateau [1, 3] (pause at source 1 holding 2): landing 1.5 output
+    // seconds in leaves 1.5 s of hold.
+    const start = initialRemapReplay(10, [pauseEffect(1, 2)], 1.5)
+    expect(start.relSource).toBe(1)
+    expect(start.rate).toBe(0)
+    expect(start.state).toEqual({
+      hold: { at: 1, outputEnd: 3, outputNow: 1.5 },
+      lastRelSource: 1,
+    })
+  })
+
+  it('starts an entry that opens on a pause frozen on its first frame', () => {
+    const start = initialRemapReplay(10, [pauseEffect(0, 2)], 0)
+    expect(start.state.hold).toEqual({ at: 0, outputEnd: 2, outputNow: 0 })
+    expect(start.relSource).toBe(0)
+  })
+})
+
+describe('advanceRemapReplay (#144)', () => {
+  it('is the identity for an entry without effects', () => {
+    const frame = advanceRemapReplay(10, [], { hold: null, lastRelSource: 0 }, 3.2, false, DT)
+    expect(frame.outputInto).toBe(3.2)
+    expect(frame.action).toEqual({ kind: 'play', rate: 1 })
+    const done = advanceRemapReplay(10, [], frame.state, 10 - OUT_POINT_EPSILON / 2, false, DT)
+    expect(done.action).toEqual({ kind: 'finished' })
+  })
+
+  it('drives the segment factor as the rate and stretches the output', () => {
+    const effects = [speedEffect(2, 4, 0.5)]
+    // Source 3 is mid-segment: output 2 + (3−2)/0.5 = 4, at half speed.
+    let frame = advanceRemapReplay(10, effects, { hold: null, lastRelSource: 0 }, 3, false, DT)
+    expect(frame.action).toEqual({ kind: 'play', rate: 0.5 })
+    expect(frame.outputInto).toBeCloseTo(4, 10)
+    // Source 5 has left the segment: back to rate 1, output 6 + 1 = 7.
+    frame = advanceRemapReplay(10, effects, frame.state, 5, false, DT)
+    expect(frame.action).toEqual({ kind: 'play', rate: 1 })
+    expect(frame.outputInto).toBeCloseTo(7, 10)
+  })
+
+  it('freezes on a crossed pause instant and advances the hold on wall time', () => {
+    const effects = [pauseEffect(6, 3)]
+    // The element clock crossed source 6 between frames: freeze on 6 exactly,
+    // snapping the output position to the plateau's start.
+    let frame = advanceRemapReplay(10, effects, { hold: null, lastRelSource: 5.9 }, 6.01, false, DT)
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 6 })
+    expect(frame.outputInto).toBe(6)
+    // Wall time advances the output position while the element stays frozen.
+    frame = advanceRemapReplay(10, effects, frame.state, 6, false, 1)
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 6 })
+    expect(frame.outputInto).toBe(7)
+    frame = advanceRemapReplay(10, effects, frame.state, 6, false, 1)
+    expect(frame.outputInto).toBe(8)
+    // The plateau ends: resume playing from the instant at the ambient rate,
+    // with the output position landing exactly on the plateau's end.
+    frame = advanceRemapReplay(10, effects, frame.state, 6, false, 1.5)
+    expect(frame.action).toEqual({ kind: 'resume', rate: 1 })
+    expect(frame.outputInto).toBe(9)
+    // Play continues, mapped past the plateau; the pause does not re-trigger.
+    frame = advanceRemapReplay(10, effects, frame.state, 6.2, false, DT)
+    expect(frame.action).toEqual({ kind: 'play', rate: 1 })
+    expect(frame.outputInto).toBeCloseTo(9.2, 10)
+  })
+
+  it('resumes at the factor in force at the frozen instant', () => {
+    // A pause at the start of a 2× segment: the hold ends into the segment.
+    const effects = [pauseEffect(2, 1), speedEffect(2, 4, 2)]
+    let frame = advanceRemapReplay(10, effects, { hold: null, lastRelSource: 1.9 }, 2.01, false, DT)
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 2 })
+    frame = advanceRemapReplay(10, effects, frame.state, 2, false, 1.2)
+    expect(frame.action).toEqual({ kind: 'resume', rate: 2 })
+  })
+
+  it('holds an end-of-entry pause after the source is consumed, then finishes', () => {
+    const effects = [pauseEffect(10, 2)]
+    // The element clock stops just short of the out-point: the pause is
+    // reached through the source being consumed.
+    let frame = advanceRemapReplay(
+      10,
+      effects,
+      { hold: null, lastRelSource: 9.9 },
+      10 - OUT_POINT_EPSILON / 2,
+      false,
+      DT,
+    )
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 10 })
+    expect(frame.outputInto).toBe(10)
+    frame = advanceRemapReplay(10, effects, frame.state, 10, false, 1)
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 10 })
+    // The hold ends with nothing left to play: the entry is finished.
+    frame = advanceRemapReplay(10, effects, frame.state, 10, false, 1.2)
+    expect(frame.action).toEqual({ kind: 'finished' })
+    expect(frame.outputInto).toBe(12)
+  })
+
+  it('chains two pauses at one instant into their combined hold', () => {
+    // The model counts both holds (#153); the export must render them
+    // back-to-back rather than skipping the second.
+    const effects = [pauseEffect(0, 1, 'p1'), pauseEffect(0, 1, 'p2')]
+    let state: RemapReplayState = initialRemapReplay(4, effects, 0).state
+    expect(state.hold).toEqual({ at: 0, outputEnd: 1, outputNow: 0 })
+    // The first plateau ends — and the second begins immediately, still
+    // frozen on the same instant, output continuing without a jump.
+    let frame = advanceRemapReplay(4, effects, state, 0, false, 1.2)
+    expect(frame.action).toEqual({ kind: 'freeze', relSource: 0 })
+    expect(frame.outputInto).toBe(1)
+    expect(frame.state.hold).toEqual({ at: 0, outputEnd: 2, outputNow: 1 })
+    // The second plateau ends into normal playback.
+    frame = advanceRemapReplay(4, effects, frame.state, 0, false, 1.1)
+    expect(frame.action).toEqual({ kind: 'resume', rate: 1 })
+    expect(frame.outputInto).toBe(2)
+  })
+
+  it('finishes without resuming when the element has ended', () => {
+    const frame = advanceRemapReplay(10, [], { hold: null, lastRelSource: 7 }, 7.5, true, DT)
+    expect(frame.action).toEqual({ kind: 'finished' })
+  })
+
+  it('replays a whole schedule with every frame on the mapped source time', () => {
+    // Trimmed 4 s: [0,2]@0.5 → output [0,4]; 1:1 [2,3] → [4,5]; pause at 3
+    // for 1 → plateau [5,6]; 1:1 [3,4] → [6,7]. Simulate a perfect element
+    // (clock advances at exactly the driven rate) and check every frame's
+    // (output, source) pair against the mapping — the output-frame →
+    // source-time schedule across segment boundaries and plateaus.
+    const effects = [speedEffect(0, 2, 0.5), pauseEffect(3, 1)]
+    const trimmed = 4
+    const start = initialRemapReplay(trimmed, effects, 0)
+    let state = start.state
+    let rel = start.relSource
+    let rate = start.rate
+    let playing = state.hold === null
+    let finished = false
+    const samples: { output: number; source: number }[] = []
+    for (let i = 0; i < 1000 && !finished; i++) {
+      if (playing) rel += rate * DT
+      const frame = advanceRemapReplay(trimmed, effects, state, rel, false, DT)
+      state = frame.state
+      if (frame.action.kind === 'finished') {
+        finished = true
+        break
+      }
+      if (frame.action.kind === 'freeze') {
+        playing = false
+        rel = frame.action.relSource
+      } else {
+        playing = true
+        rate = frame.action.rate
+      }
+      samples.push({ output: frame.outputInto, source: rel })
+    }
+    expect(finished).toBe(true)
+    // ~7 s of remapped output at 30 fps.
+    expect(samples.length).toBeGreaterThan(6.5 * 30)
+    for (const sample of samples) {
+      expect(sample.source).toBeCloseTo(sourceTimeAtOutput(trimmed, effects, sample.output), 8)
+    }
+    // The published output advances monotonically — the sequence clock (and
+    // with it the audio-track sync) never jumps backwards.
+    for (let i = 1; i < samples.length; i++) {
+      expect(samples[i].output).toBeGreaterThanOrEqual(samples[i - 1].output)
+    }
   })
 })
 
