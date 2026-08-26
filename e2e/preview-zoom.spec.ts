@@ -127,7 +127,14 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   // fits inside the band with 20% headroom, then sanity-check the geometry
   // rather than assuming a viewport.
   const greenBandWidth = fit.width / 2 / stage.width
-  const scale = Math.max(3, Math.ceil(4 / (greenBandWidth * 0.8)) / 4)
+  // The visible region must also fit inside the letterboxed clip
+  // *vertically* (1/scale of the frame's height within the clip's fitted
+  // height), or the zoomed view would show letterbox black instead of band
+  // pixels. Derive that minimum from the real boxes too: panel content
+  // changes (#154's extract-audio button, copy edits per #116) shift the
+  // stage's proportions, and a hardcoded floor goes stale.
+  const heightScale = Math.floor((4 * stage.height) / fit.height) / 4 + 0.25
+  const scale = Math.max(3, heightScale, Math.ceil(4 / (greenBandWidth * 0.8)) / 4)
   const midRampScale = 1 + (scale - 1) * 0.5
   const centerX = Math.round(((fit.x - stage.x + fit.width / 4) / stage.width) * 100) / 100
   const centerY = 0.5
@@ -251,7 +258,14 @@ test('two zooms on one clip each magnify their own window, identity between (#12
     height: 180 * containScale,
   }
   const greenBandWidth = fit.width / 2 / stage.width
-  const scale = Math.max(3, Math.ceil(4 / (greenBandWidth * 0.8)) / 4)
+  // The visible region must also fit inside the letterboxed clip
+  // *vertically* (1/scale of the frame's height within the clip's fitted
+  // height), or the zoomed view would show letterbox black instead of band
+  // pixels. Derive that minimum from the real boxes too: panel content
+  // changes (#154's extract-audio button, copy edits per #116) shift the
+  // stage's proportions, and a hardcoded floor goes stale.
+  const heightScale = Math.floor((4 * stage.height) / fit.height) / 4 + 0.25
+  const scale = Math.max(3, heightScale, Math.ceil(4 / (greenBandWidth * 0.8)) / 4)
   const centerGreenX = Math.round(((fit.x - stage.x + fit.width / 4) / stage.width) * 100) / 100
   const centerBlueX =
     Math.round(((fit.x - stage.x + (fit.width * 3) / 4) / stage.width) * 100) / 100
