@@ -126,6 +126,96 @@ describe('timeline', () => {
     expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:30')
   })
 
+  describe('still entries (#140)', () => {
+    const importImage = async (name: string) => {
+      probeMock.mockResolvedValueOnce({
+        duration: 0,
+        url: `blob:${name}`,
+        kind: 'image',
+        width: 640,
+        height: 480,
+      })
+      await userEvent.upload(
+        screen.getByTestId('clip-file-input'),
+        new File(['content'], name, { type: 'image/png' }),
+      )
+      await screen.findByText(name)
+    }
+
+    it('shows a still as one duration field — no trim, no volume, no mute', async () => {
+      render(<App />)
+      await importImage('logo.png')
+      await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+
+      expect(
+        screen.getByRole('spinbutton', { name: 'Duration of logo.png at position 1 in seconds' }),
+      ).toHaveValue(5)
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:05')
+      expect(
+        screen.queryByRole('spinbutton', {
+          name: 'Trim in point of logo.png at position 1 in seconds',
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('spinbutton', { name: 'Volume of logo.png at position 1 (0 to 1)' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('checkbox', { name: 'Mute logo.png at position 1' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('edits the duration; the entry length and the total follow', async () => {
+      render(<App />)
+      await importImage('logo.png')
+      await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+
+      const duration = screen.getByRole('spinbutton', {
+        name: 'Duration of logo.png at position 1 in seconds',
+      })
+      await userEvent.clear(duration)
+      await userEvent.type(duration, '2.5')
+      await userEvent.tab()
+
+      expect(duration).toHaveValue(2.5)
+      // formatDuration rounds to whole seconds: 2.5 displays as 0:03.
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:03')
+    })
+
+    it('rejects a non-positive duration and snaps the field back', async () => {
+      render(<App />)
+      await importImage('logo.png')
+      await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+
+      const duration = screen.getByRole('spinbutton', {
+        name: 'Duration of logo.png at position 1 in seconds',
+      })
+      await userEvent.clear(duration)
+      await userEvent.type(duration, '0')
+      await userEvent.tab()
+
+      expect(duration).toHaveValue(5)
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:05')
+    })
+
+    it('offers transitions and zooms on a still like any entry', async () => {
+      render(<App />)
+      await importClip('a.mp4', 10)
+      await importImage('logo.png')
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+
+      // A crossfade into the still: the total shrinks by the 1s overlap.
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+      )
+      expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:14')
+      // Zooming into a still is supported (#140) — the same control as video.
+      expect(
+        screen.getByRole('button', { name: 'Add zoom to logo.png at position 2' }),
+      ).toBeEnabled()
+    })
+  })
+
   it('trims one duplicate entry without affecting the other', async () => {
     render(<App />)
     await importClip('a.mp4', 20)

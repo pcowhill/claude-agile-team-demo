@@ -191,7 +191,7 @@ describe('image import (#137)', () => {
     expect(item).not.toHaveTextContent('0:00')
   })
 
-  it('renders no Add button for an image — timeline placement arrives with #140', async () => {
+  it('adding an image places a 5-second still entry on the timeline (#140)', async () => {
     probeMock
       .mockResolvedValueOnce({ duration: 0, url: 'blob:logo', kind: 'image', width: 8, height: 8 })
       .mockResolvedValueOnce({ duration: 5, url: 'blob:v', kind: 'video' })
@@ -202,11 +202,17 @@ describe('image import (#137)', () => {
     await userEvent.upload(input, videoFile('clip.mp4'))
     await screen.findByText('clip.mp4')
 
+    // Images join the sequence like videos do (#140)...
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+    const sequence = screen.getByRole('list', { name: 'Sequence' })
+    const entry = within(sequence).getByRole('listitem')
+    expect(entry).toHaveTextContent('logo.png')
+    // ...showing for the default 5 seconds, editable as a duration (no trim).
     expect(
-      screen.queryByRole('button', { name: 'Add logo.png to timeline' }),
-    ).not.toBeInTheDocument()
-    // The video next to it keeps its Add button — the omission is per-kind.
-    expect(screen.getByRole('button', { name: 'Add clip.mp4 to timeline' })).toBeInTheDocument()
+      within(entry).getByRole('spinbutton', {
+        name: 'Duration of logo.png at position 1 in seconds',
+      }),
+    ).toHaveValue(5)
     // Images can still be removed like any clip.
     expect(
       screen.getByRole('button', { name: 'Remove logo.png from library' }),

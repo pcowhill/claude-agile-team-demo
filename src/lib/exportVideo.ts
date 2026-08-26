@@ -1,5 +1,5 @@
 import type { AudioTrack, TimelineEntry, TimelineState, TransitionType } from './timeline'
-import { audioTracksOf, boundaryTransitions, totalDuration } from './timeline'
+import { audioTracksOf, boundaryTransitions, isStillEntry, totalDuration } from './timeline'
 import { audioTrackPlaybackAt, sequenceTimeAt } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
 import { transitionLayerSpec } from './transitionRender'
@@ -181,6 +181,8 @@ export interface ExportOptions {
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
   createAudio?: () => HTMLAudioElement
+  /** Injectable for tests (jsdom never fires image load events). */
+  createImage?: () => HTMLImageElement
   /** Injectable for tests (jsdom has no Web Audio). */
   createAudioContext?: () => AudioContext | null
 }
@@ -356,6 +358,7 @@ export async function exportTimeline(
   const formatSpec = EXPORT_FORMAT_SPECS[format]
   const boundaries = boundaryTransitions(timeline)
   const createVideo = options.createVideo ?? (() => document.createElement('video'))
+  const createImage = options.createImage ?? (() => new Image())
   // The second replay element exists only when a transition will need it; a
   // transition-free timeline keeps the single-element pipeline unchanged.
   const replays = boundaries.some((transition) => transition !== undefined)
@@ -454,18 +457,49 @@ export async function exportTimeline(
     await audioCapture?.dispose()
   }
 
+  /** Decoded <img> per still entry's URL (#140), loaded before recording. */
+  const stillSources = new Map<string, HTMLImageElement>()
+  const loadStill = (url: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = createImage()
+      const settle = (error?: Error) => {
+        image.onload = null
+        image.onerror = null
+        signal?.removeEventListener('abort', onAbort)
+        if (error) reject(error)
+        else resolve(image)
+      }
+      const onAbort = () => settle(canceled())
+      image.onload = () => settle()
+      image.onerror = () => settle(new Error('A source clip failed to load during export.'))
+      signal?.addEventListener('abort', onAbort, { once: true })
+      image.src = url
+    })
+
   // Output frame size: the largest source dimensions in the sequence, so no
   // clip is downscaled; differently-sized clips are letterboxed into it.
   // Loading every source here also validates that each one is decodable
-  // before the recorder starts.
+  // before the recorder starts. Stills (#140) load through an <img> — a
+  // <video> cannot decode them — and keep it for the draw loop.
   let width = 0
   let height = 0
   try {
-    for (const url of new Set(entries.map((entry) => entry.url))) {
+    for (const url of new Set(
+      entries.filter((entry) => !isStillEntry(entry)).map((entry) => entry.url),
+    )) {
       throwIfAborted()
       await loadSource(replays[0], url)
       width = Math.max(width, replays[0].videoWidth)
       height = Math.max(height, replays[0].videoHeight)
+    }
+    for (const url of new Set(
+      entries.filter((entry) => isStillEntry(entry)).map((entry) => entry.url),
+    )) {
+      throwIfAborted()
+      const image = await loadStill(url)
+      stillSources.set(url, image)
+      width = Math.max(width, image.naturalWidth)
+      height = Math.max(height, image.naturalHeight)
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track
@@ -507,9 +541,39 @@ export async function exportTimeline(
     }
   }
 
+  /**
+   * One layer of a composited frame: what to draw (a playing <video> replay
+   * or a still's <img>, #140), its intrinsic size, and the layer's current
+   * source-clip time (the element clock for video, the export's wall clock
+   * for a still) — which is what its zoom is evaluated at.
+   */
+  interface LayerFrame {
+    source: CanvasImageSource
+    sourceWidth: number
+    sourceHeight: number
+    time: number
+  }
+
+  const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
+    source: element,
+    sourceWidth: element.videoWidth,
+    sourceHeight: element.videoHeight,
+    time: element.currentTime,
+  })
+
+  const stillFrame = (entry: TimelineEntry, time: number): LayerFrame => {
+    const image = stillSources.get(entry.url) as HTMLImageElement
+    return {
+      source: image,
+      sourceWidth: image.naturalWidth,
+      sourceHeight: image.naturalHeight,
+      time,
+    }
+  }
+
   /** The incoming clip's frame to composite over the outgoing one, if any. */
   interface OverlayFrame {
-    element: HTMLVideoElement
+    layer: LayerFrame
     /** Timeline index of the incoming entry (owns any zoom on this layer). */
     index: number
     type: TransitionType
@@ -517,25 +581,25 @@ export async function exportTimeline(
   }
 
   const drawFrame = (
-    source: HTMLVideoElement,
+    layer: LayerFrame,
     entryIndex: number,
     overlay: OverlayFrame | null = null,
   ) => {
     context.fillStyle = '#000'
     context.fillRect(0, 0, width, height)
     const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
-    const rect = fitRect(source.videoWidth, source.videoHeight, width, height)
-    // Each layer's zoom (#65) at its own source time: applied per element,
+    const rect = fitRect(layer.sourceWidth, layer.sourceHeight, width, height)
+    // Each layer's zoom (#65) at its own source time: applied per layer,
     // before the transition compositing, so a zoomed clip can be either side
     // of a transition. The identity zoom leaves the fitted rect untouched —
     // a zoomless timeline draws exactly as before.
-    const zoom = zoomAt(timeline, entryIndex, source.currentTime)
+    const zoom = zoomAt(timeline, entryIndex, layer.time)
     const dest = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
     context.globalAlpha = spec?.outgoingAlpha ?? 1
-    context.drawImage(source, dest.x, dest.y, dest.width, dest.height)
+    context.drawImage(layer.source, dest.x, dest.y, dest.width, dest.height)
     if (overlay !== null && spec !== null) {
-      const incoming = fitRect(overlay.element.videoWidth, overlay.element.videoHeight, width, height)
-      const incomingZoom = zoomAt(timeline, overlay.index, overlay.element.currentTime)
+      const incoming = fitRect(overlay.layer.sourceWidth, overlay.layer.sourceHeight, width, height)
+      const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
       const incomingDest =
         incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
       context.globalAlpha = spec.incomingAlpha
@@ -571,7 +635,7 @@ export async function exportTimeline(
         )
       }
       context.drawImage(
-        overlay.element,
+        overlay.layer.source,
         incomingDest.x + spec.incomingOffsetXFraction * width,
         incomingDest.y + spec.incomingOffsetYFraction * height,
         incomingDest.width,
@@ -586,18 +650,18 @@ export async function exportTimeline(
   /**
    * Starts the incoming clip mid-overlap without blocking the draw loop. The
    * target source time is computed at the moment playback can actually start
-   * (metadata permitting), compensating for however far the outgoing clip
-   * has advanced past the overlap's start by then — so a slow metadata load
+   * (metadata permitting), compensating for however far the outgoing entry
+   * has advanced past the overlap's start by then (`elapsedInOverlap` reads
+   * the outgoing clock — element or wall, #140) — so a slow metadata load
    * degrades sync gracefully instead of drifting the whole overlap.
    */
   const engageIncoming = (
     element: HTMLVideoElement,
-    outgoing: HTMLVideoElement,
+    elapsedInOverlap: () => number,
     next: TimelineEntry,
-    overlapStart: number,
   ) => {
     const start = () => {
-      element.currentTime = next.inPoint + Math.max(0, outgoing.currentTime - overlapStart)
+      element.currentTime = next.inPoint + Math.max(0, elapsedInOverlap())
       playReplay(element).catch(() => {})
     }
     if (element.src === next.url && element.readyState > 0) {
@@ -645,23 +709,42 @@ export async function exportTimeline(
     // True while `primary` is already playing the entry, carried over from
     // the previous boundary's transition handover.
     let continuing = false
+    // Seconds of the upcoming still already shown inside the previous
+    // boundary's overlap (#140) — its wall clock starts that far in.
+    let stillCarryover = 0
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index]
+      const still = isStillEntry(entry)
       const overlap = boundaries[index]
       const next = overlap !== undefined ? entries[index + 1] : undefined
-      if (!continuing) {
+      // A still has no element clock (#140): the export's own wall clock
+      // stands in for it, starting where the entry starts (or however far
+      // into it the previous overlap already showed it). The recording is
+      // real-time either way — the canvas stream captures as time passes —
+      // so wall time is exactly the rate the still must advance at.
+      const stillStartedAt = performance.now()
+      const stillBase = entry.inPoint + (continuing ? stillCarryover : 0)
+      const sourceTimeNow = () =>
+        still ? stillBase + (performance.now() - stillStartedAt) / 1000 : primary.currentTime
+      if (!continuing && !still) {
         await cueTo(primary, entry.url, entry.inPoint)
         throwIfAborted()
         // The entry's steady gain (#104): volume × mute, no ramp outside a
         // transition. Before #104 this was implicitly 1.
         primary.volume = videoEntryGain(entry)
-        drawFrame(primary, index)
+        drawFrame(videoFrame(primary), index)
         await playReplay(primary)
       }
       // Preload the incoming clip's metadata while the outgoing entry plays,
       // so engaging the overlap is a quick seek rather than a full load.
       // Assigning src is non-blocking — the frames keep drawing below.
-      if (next !== undefined && secondary !== null && secondary.src !== next.url) {
+      // (An incoming still needs no element: its <img> is already decoded.)
+      if (
+        next !== undefined &&
+        !isStillEntry(next) &&
+        secondary !== null &&
+        secondary.src !== next.url
+      ) {
         secondary.src = next.url
       }
       const overlapStart = overlap !== undefined ? entry.outPoint - overlap.duration : Infinity
@@ -675,34 +758,48 @@ export async function exportTimeline(
             reject(canceled())
             return
           }
+          const sourceTime = sourceTimeNow()
           let overlayFrame: OverlayFrame | null = null
-          if (
-            overlap !== undefined &&
-            next !== undefined &&
-            secondary !== null &&
-            primary.currentTime >= overlapStart
-          ) {
-            if (!engaged) {
-              engaged = true
-              // The incoming entry starts at the foot of its ramp — which is
-              // 0 whatever its volume, and stays 0 throughout if it is muted.
-              secondary.volume = videoEntryGain(next, 0)
-              engageIncoming(secondary, primary, next, overlapStart)
-            }
-            // Until the incoming element has a decodable frame, keep drawing
-            // (and sounding) the outgoing clip alone — a late engage shortens
-            // the effect rather than blending against black or dropping audio.
-            if (secondary.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-              const progress = Math.min((primary.currentTime - overlapStart) / overlap.duration, 1)
-              // The transition crossfade rides each entry's own gain (#104),
-              // so a muted or half-volume entry stays that way mid-effect.
-              primary.volume = videoEntryGain(entry, 1 - progress)
-              secondary.volume = videoEntryGain(next, progress)
-              overlayFrame = { element: secondary, index: index + 1, type: overlap.type, progress }
+          if (overlap !== undefined && next !== undefined && sourceTime >= overlapStart) {
+            const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
+            if (isStillEntry(next)) {
+              // An incoming still is always ready (#140): compose its <img>
+              // per the effect. It has no audio, so only the outgoing
+              // entry's gain ramps.
+              if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
+              overlayFrame = {
+                layer: stillFrame(next, next.inPoint + (sourceTime - overlapStart)),
+                index: index + 1,
+                type: overlap.type,
+                progress,
+              }
+            } else if (secondary !== null) {
+              if (!engaged) {
+                engaged = true
+                // The incoming entry starts at the foot of its ramp — which is
+                // 0 whatever its volume, and stays 0 throughout if it is muted.
+                secondary.volume = videoEntryGain(next, 0)
+                engageIncoming(secondary, () => sourceTimeNow() - overlapStart, next)
+              }
+              // Until the incoming element has a decodable frame, keep drawing
+              // (and sounding) the outgoing clip alone — a late engage shortens
+              // the effect rather than blending against black or dropping audio.
+              if (secondary.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                // The transition crossfade rides each entry's own gain (#104),
+                // so a muted or half-volume entry stays that way mid-effect.
+                if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
+                secondary.volume = videoEntryGain(next, progress)
+                overlayFrame = {
+                  layer: videoFrame(secondary),
+                  index: index + 1,
+                  type: overlap.type,
+                  progress,
+                }
+              }
             }
           }
-          drawFrame(primary, index, overlayFrame)
-          const sequenceTime = sequenceTimeAt(timeline, index, primary.currentTime)
+          drawFrame(still ? stillFrame(entry, sourceTime) : videoFrame(primary), index, overlayFrame)
+          const sequenceTime = sequenceTimeAt(timeline, index, sourceTime)
           // Every frame re-syncs the audio tracks against the export clock,
           // exactly as the preview's rAF loop does (#105): windows open and
           // close on time and fades record as continuous ramps.
@@ -710,7 +807,7 @@ export async function exportTimeline(
             syncTrackReplay(recorded.track, recorded.element, sequenceTime)
           }
           reportProgress(sequenceTime / total)
-          if (primary.currentTime >= entry.outPoint - OUT_POINT_EPSILON || primary.ended) {
+          if (sourceTime >= entry.outPoint - OUT_POINT_EPSILON || (!still && primary.ended)) {
             resolve()
             return
           }
@@ -718,12 +815,18 @@ export async function exportTimeline(
         }
         requestAnimationFrame(tick)
       })
-      if (overlap !== undefined && next !== undefined && secondary !== null) {
+      if (overlap !== undefined && next !== undefined && isStillEntry(next)) {
+        // Handover into a still (#140): nothing plays the incoming entry —
+        // its wall clock simply starts however far the overlap carried it.
+        if (!still) primary.pause()
+        stillCarryover = overlap.duration
+        continuing = true
+      } else if (overlap !== undefined && next !== undefined && secondary !== null) {
         // Transition handover: the incoming entry keeps playing in what
         // becomes the primary element; the outgoing element is freed for the
         // next boundary. (The clamp in timeline.ts guarantees overlaps never
         // chain, so the freed element is always idle when next needed.)
-        primary.pause()
+        if (!still) primary.pause()
         // The incoming entry leaves its ramp for its steady gain; the paused
         // outgoing element's volume is set again when it is next cued.
         secondary.volume = videoEntryGain(next)
@@ -736,9 +839,11 @@ export async function exportTimeline(
           await cueTo(primary, next.url, next.inPoint + overlap.duration)
           await playReplay(primary)
         }
+        stillCarryover = 0
         continuing = true
       } else {
-        primary.pause()
+        if (!still) primary.pause()
+        stillCarryover = 0
         continuing = false
       }
     }

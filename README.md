@@ -19,8 +19,10 @@ freely (#102). The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
 video entry's volume and mute (#104), and the exported file carries that
 same mix (#105). Still images import into the media library too (#137),
-with their pixel dimensions probed and shown with an Image badge; placing
-them on the timeline arrives with #140. It is deployed
+with their pixel dimensions probed and shown with an Image badge, and can
+be placed on the timeline as stills with an adjustable duration (5 s by
+default, #140) — participating in transitions, zooms, preview, export, and
+project files like any clip. It is deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**
 

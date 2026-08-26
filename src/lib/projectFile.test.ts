@@ -5,10 +5,13 @@ import fixtureV1AudioBase64 from './fixtures/project-v1-audio-tracks.bvep.base64
 import fixtureV1GainBase64 from './fixtures/project-v1-gain.bvep.base64?raw'
 import fixtureV3ImageReferencesBase64 from './fixtures/project-v3-image-references.bvep.base64?raw'
 import fixtureV3ImageEmbeddedBase64 from './fixtures/project-v3-image-embedded.bvep.base64?raw'
+import fixtureV4ImageEntryReferencesBase64 from './fixtures/project-v4-image-entry-references.bvep.base64?raw'
+import fixtureV4ImageEntryEmbeddedBase64 from './fixtures/project-v4-image-entry-embedded.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   EMBEDDED_SCHEMA_VERSION,
+  IMAGE_ENTRIES_SCHEMA_VERSION,
   IMAGES_SCHEMA_VERSION,
   PROJECT_FORMAT,
   PROJECT_SCHEMA_VERSION,
@@ -289,7 +292,7 @@ describe('clip kinds (#101)', () => {
     await expectRefusal(
       await gzipJson(document),
       'references an audio clip',
-      'the sequence carries video only',
+      'the sequence carries video and stills only',
     )
   })
 })
@@ -411,18 +414,24 @@ describe('still images (#137)', () => {
     }
   })
 
-  it('refuses a sequence entry that references an image clip', async () => {
+  it('accepts a sequence entry that references an image clip, marking it a still (#140)', async () => {
     const document = {
       ...validDocument(),
-      schemaVersion: IMAGES_SCHEMA_VERSION,
+      schemaVersion: IMAGE_ENTRIES_SCHEMA_VERSION,
       clips: structuredClone(expectedProject.clips),
     }
-    ;(document.clips[0] as { kind?: unknown; duration?: unknown }).kind = 'image'
-    await expectRefusal(
-      await gzipJson(document),
-      'references an image clip',
-      'the sequence carries video only',
-    )
+    ;(document.clips[0] as { kind?: unknown }).kind = 'image'
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      // e1 and e3 reference c1 (now an image): stillness is derived from the
+      // clip's kind, never stored in the entry itself.
+      expect(result.project.timeline.entries.map((entry) => entry.kind)).toEqual([
+        'image',
+        undefined,
+        'image',
+      ])
+    }
   })
 
   it('refuses an audio track that references an image clip', async () => {
@@ -444,6 +453,104 @@ describe('still images (#137)', () => {
       'references an image clip',
       'audio tracks carry audio only',
     )
+  })
+})
+
+describe('images on the timeline (#140)', () => {
+  const imageEntryLibrary: MediaLibraryState = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', kind: 'video' },
+      { id: 'i1', name: 'logo.png', duration: 0, url: 'blob:i1', kind: 'image', width: 640, height: 480 },
+    ],
+    failures: [],
+  }
+  // A trimmed video, a 5s still, a crossfade between them, and a zoom on the
+  // still — the still-specific surface the format must carry.
+  const imageEntryTimeline: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, url: 'blob:v1', inPoint: 0, outPoint: 4 },
+      { id: 'e2', clipId: 'i1', name: 'logo.png', duration: 5, url: 'blob:i1', inPoint: 0, outPoint: 5, kind: 'image' },
+    ],
+    transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+    zooms: [
+      { id: 'z1', entryId: 'e2', start: 1, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 },
+    ],
+  }
+  const expectedImageEntryProject: Project = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+      { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+    ],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 4 },
+        // Stillness is derived from the clip's kind on open, never stored.
+        { id: 'e2', clipId: 'i1', name: 'logo.png', duration: 5, inPoint: 0, outPoint: 5, kind: 'image' },
+      ],
+      transitions: imageEntryTimeline.transitions!,
+      zooms: imageEntryTimeline.zooms!,
+      audioTracks: [],
+    },
+  }
+
+  it('writes version 4 exactly when an image is on the timeline, in both save modes', async () => {
+    const references = await gunzipJson(
+      await serializeProject(imageEntryLibrary, imageEntryTimeline),
+    )
+    expect(references.schemaVersion).toBe(IMAGE_ENTRIES_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 7), mimeType: 'video/mp4' }],
+      ['i1', { bytes: pseudoRandomBytes(48, 8), mimeType: 'image/png' }],
+    ])
+    const embedded = await gunzipJson(
+      await serializeProject(imageEntryLibrary, imageEntryTimeline, media),
+    )
+    expect(embedded.schemaVersion).toBe(IMAGE_ENTRIES_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+  })
+
+  it('stores a still entry in the shape entries always had — no extra keys', async () => {
+    const document = await gunzipJson(await serializeProject(imageEntryLibrary, imageEntryTimeline))
+    const entries = (document.timeline as { entries: Record<string, unknown>[] }).entries
+    expect(entries[1]).toEqual({
+      id: 'e2',
+      clipId: 'i1',
+      name: 'logo.png',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+    })
+  })
+
+  it('an image merely in the library (not on the timeline) still writes version 3', async () => {
+    const videoOnlyTimeline: TimelineState = {
+      entries: [imageEntryTimeline.entries[0]],
+    }
+    const document = await gunzipJson(await serializeProject(imageEntryLibrary, videoOnlyTimeline))
+    expect(document.schemaVersion).toBe(IMAGES_SCHEMA_VERSION)
+  })
+
+  it('round-trips a references-only project with a still entry, transition, and zoom', async () => {
+    const result = await deserializeProject(
+      await serializeProject(imageEntryLibrary, imageEntryTimeline),
+    )
+    expect(result).toEqual({ ok: true, project: expectedImageEntryProject })
+  })
+
+  it('round-trips an embedded project with a still entry', async () => {
+    const media = new Map<string, ClipMedia>([
+      ['v1', { bytes: pseudoRandomBytes(64, 7), mimeType: 'video/mp4' }],
+      ['i1', { bytes: pseudoRandomBytes(48, 8), mimeType: 'image/png' }],
+    ])
+    const result = await deserializeProject(
+      await serializeProject(imageEntryLibrary, imageEntryTimeline, media),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(expectedImageEntryProject)
+      expect(result.media).toEqual(media)
+    }
   })
 })
 
@@ -659,11 +766,13 @@ describe('project file versioning', () => {
   it('carries the schema version', async () => {
     // Deserializing proves the marker + version were present and accepted;
     // this pins the constants so a bump is a conscious, reviewed change.
-    // Version 2 added embedded media (#97); version 3 added images (#137).
-    expect(PROJECT_SCHEMA_VERSION).toBe(3)
+    // Version 2 added embedded media (#97); version 3 added images (#137);
+    // version 4 added images on the timeline (#140).
+    expect(PROJECT_SCHEMA_VERSION).toBe(4)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
+    expect(IMAGE_ENTRIES_SCHEMA_VERSION).toBe(4)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -1081,6 +1190,55 @@ describe('backwards compatibility', () => {
         new Map<string, ClipMedia>([
           ['v1', { bytes: pseudoRandomBytes(64, 5), mimeType: 'video/mp4' }],
           ['i1', { bytes: pseudoRandomBytes(48, 6), mimeType: 'image/png' }],
+        ]),
+      )
+    }
+  })
+
+  /** What both committed v4 image-entry fixtures (#140) deserialize to. */
+  const fixtureV4ExpectedProject: Project = {
+    clips: [
+      { id: 'v1', name: 'holiday.mp4', duration: 12, kind: 'video' },
+      { id: 'i1', name: 'logo.png', duration: 0, kind: 'image', width: 640, height: 480 },
+    ],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'v1', name: 'holiday.mp4', duration: 12, inPoint: 0, outPoint: 4 },
+        { id: 'e2', clipId: 'i1', name: 'logo.png', duration: 5, inPoint: 0, outPoint: 5, kind: 'image' },
+      ],
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+      zooms: [
+        { id: 'z1', entryId: 'e2', start: 1, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 },
+      ],
+      audioTracks: [],
+    },
+  }
+
+  it('deserializes the committed v4 image-entry references-only fixture (#140)', async () => {
+    // Pins that files placing stills on the timeline — with a transition
+    // into the still and a zoom on it — keep opening forever, and that
+    // version 4 with no media section means references-only.
+    const bytes = Uint8Array.from(atob(fixtureV4ImageEntryReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({ ok: true, project: fixtureV4ExpectedProject })
+  })
+
+  it('deserializes the committed v4 image-entry embedded fixture, media byte-for-byte (#140)', async () => {
+    // Its media bytes are pseudoRandomBytes(64, 7) / (48, 8), re-derived
+    // here so byte-identity stays checkable forever.
+    const bytes = Uint8Array.from(atob(fixtureV4ImageEntryEmbeddedBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project).toEqual(fixtureV4ExpectedProject)
+      expect(result.media).toEqual(
+        new Map<string, ClipMedia>([
+          ['v1', { bytes: pseudoRandomBytes(64, 7), mimeType: 'video/mp4' }],
+          ['i1', { bytes: pseudoRandomBytes(48, 8), mimeType: 'image/png' }],
         ]),
       )
     }

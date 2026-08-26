@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
-import { audioTracksOf, boundaryTransitions, totalDuration } from '../lib/timeline'
+import { audioTracksOf, boundaryTransitions, isStillEntry, totalDuration } from '../lib/timeline'
 import {
   audioTrackPlaybackAt,
   isTransitionOverlayActive,
@@ -115,6 +115,10 @@ function withZoom(style: CSSProperties | undefined, zoom: ZoomState): CSSPropert
  * still-playing outgoing one, styled by the transition's progress; when the
  * outgoing entry ends the elements swap roles, so the incoming clip never
  * has to be re-cued at the handover.
+ *
+ * Still entries (#140) render as an <img> in the same stacked slots, styled
+ * by the same transition/zoom mapping; having no element clock, a fronting
+ * still is timed by a wall clock the rAF loop advances while playing.
  */
 export function PreviewPlayer({
   timeline,
@@ -127,6 +131,10 @@ export function PreviewPlayer({
   // The entry index the primary element is currently cued to. Kept in a ref
   // (not state) because the rAF loop reads and writes it between renders.
   const indexRef = useRef(0)
+  // A still entry has no element clock (#140): while one fronts the
+  // sequence, this wall clock stands in for `video.currentTime`, advanced
+  // by the rAF loop only while playing (so pausing freezes it for free).
+  const stillClockRef = useRef<{ sourceTime: number; lastNow: number } | null>(null)
   // Which element is primary: a ref for the rAF loop, mirrored into state so
   // the render can assign roles (testids, stacking, transition styles).
   const primaryIsARef = useRef(true)
@@ -238,6 +246,15 @@ export function PreviewPlayer({
       const video = primaryVideo()
       if (!video) return
       indexRef.current = location.index
+      if (isStillEntry(location.entry)) {
+        // A still fronts declaratively (#140): its <img> renders from the
+        // published location, so cueing is just starting its wall clock;
+        // the idle primary video element must not keep sounding underneath.
+        stillClockRef.current = { sourceTime: location.sourceTime, lastNow: performance.now() }
+        if (!video.paused) video.pause()
+        return
+      }
+      stillClockRef.current = null
       cueElement(video, location.entry.url, location.sourceTime, thenPlay)
     },
     [cueElement],
@@ -258,12 +275,22 @@ export function PreviewPlayer({
       if (!primary || !secondary) return
       const overlap = location.transition
       if (overlap) {
-        primary.volume = videoEntryGain(location.entry, 1 - overlap.progress)
-        secondary.volume = videoEntryGain(overlap.entry, overlap.progress)
+        // A still layer has no audio to ramp (#140); only video elements
+        // carry gain through the crossfade.
+        if (!isStillEntry(location.entry)) {
+          primary.volume = videoEntryGain(location.entry, 1 - overlap.progress)
+        }
         setEngaged(location.index)
-        cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
+        if (isStillEntry(overlap.entry)) {
+          // The incoming still renders declaratively — nothing to cue, and
+          // whatever clip the secondary element held must not keep playing.
+          if (!secondary.paused) secondary.pause()
+        } else {
+          secondary.volume = videoEntryGain(overlap.entry, overlap.progress)
+          cueElement(secondary, overlap.entry.url, overlap.sourceTime, thenPlay)
+        }
       } else {
-        primary.volume = videoEntryGain(location.entry)
+        if (!isStillEntry(location.entry)) primary.volume = videoEntryGain(location.entry)
         if (engagedForRef.current !== null) {
           setEngaged(null)
           secondary.pause()
@@ -291,21 +318,52 @@ export function PreviewPlayer({
     if (!entry) return
     const next = timeline.entries[index + 1]
     const overlap = boundaryTransitions(timeline)[index]
+    const still = isStillEntry(entry)
 
-    const reachedOut = video.currentTime >= entry.outPoint - BOUNDARY_EPSILON || video.ended
+    // The fronting entry's source-clip clock: the element's for a video, the
+    // wall clock for a still (#140), advanced here — only while playing —
+    // so pausing freezes it and edits/seeks reset it via cuePrimary.
+    let sourceTime: number
+    if (still) {
+      const clock = stillClockRef.current
+      if (!clock) return
+      const now = performance.now()
+      clock.sourceTime += (now - clock.lastNow) / 1000
+      clock.lastNow = now
+      sourceTime = clock.sourceTime
+    } else {
+      sourceTime = video.currentTime
+    }
+
+    const reachedOut = sourceTime >= entry.outPoint - BOUNDARY_EPSILON || (!still && video.ended)
     if (reachedOut) {
-      if (next && overlap) {
+      if (next && overlap && isStillEntry(next)) {
+        // Handover into a still (#140): nothing was cued — the incoming
+        // still has been rendering declaratively through the overlap — so
+        // just start its wall clock where the overlap ends.
+        if (!still) video.pause()
+        setEngaged(null)
+        indexRef.current = index + 1
+        stillClockRef.current = {
+          sourceTime: next.inPoint + overlap.duration,
+          lastNow: performance.now(),
+        }
+        const time = sequenceTimeAt(timeline, index + 1, next.inPoint + overlap.duration)
+        setSequenceTime(time)
+        syncAudioTracks(time, true)
+      } else if (next && overlap) {
         // Handover mid-transition: the incoming entry is already playing in
         // the secondary element — promote it to primary instead of re-cueing.
         const incoming = secondaryVideo()
         if (!incoming) return
         const wasEngaged = engagedForRef.current === index
-        video.pause()
+        if (!still) video.pause()
         // The incoming entry leaves its transition ramp for its own steady
         // gain; the outgoing element is paused, its volume set when next cued.
         incoming.volume = videoEntryGain(next)
         setEngaged(null)
         indexRef.current = index + 1
+        stillClockRef.current = null
         primaryIsARef.current = !primaryIsARef.current
         setPrimaryIsA(primaryIsARef.current)
         if (wasEngaged) {
@@ -326,7 +384,8 @@ export function PreviewPlayer({
         syncAudioTracks(time, true)
         // A hard cut continues in the same element — apply the next entry's
         // gain (#104) where the transition path would have swapped roles.
-        video.volume = videoEntryGain(next)
+        // (A still has no element or gain; cuePrimary starts its clock.)
+        if (!isStillEntry(next)) video.volume = videoEntryGain(next)
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, true)
       } else {
         video.pause()
@@ -339,28 +398,39 @@ export function PreviewPlayer({
         return
       }
     } else {
-      const time = sequenceTimeAt(timeline, index, video.currentTime)
+      const time = sequenceTimeAt(timeline, index, sourceTime)
       setSequenceTime(time)
       // Tracks start and stop mid-play as the position crosses their
       // windows, and drifting clocks are snapped back (#103).
       syncAudioTracks(time, true)
       if (next && overlap) {
         const overlapStart = entry.outPoint - overlap.duration
-        if (video.currentTime >= overlapStart) {
-          const secondary = secondaryVideo()
-          if (secondary) {
-            if (engagedForRef.current !== index) {
-              setEngaged(index)
-              cueElement(
-                secondary,
-                next.url,
-                next.inPoint + (video.currentTime - overlapStart),
-                true,
-              )
+        if (sourceTime >= overlapStart) {
+          if (isStillEntry(next)) {
+            // The incoming still renders declaratively from the published
+            // time (#140) — engagement just marks the overlay active. Only
+            // the outgoing side has audio to ramp.
+            if (engagedForRef.current !== index) setEngaged(index)
+            if (!still) {
+              const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
+              video.volume = videoEntryGain(entry, 1 - progress)
             }
-            const progress = Math.min((video.currentTime - overlapStart) / overlap.duration, 1)
-            video.volume = videoEntryGain(entry, 1 - progress)
-            secondary.volume = videoEntryGain(next, progress)
+          } else {
+            const secondary = secondaryVideo()
+            if (secondary) {
+              if (engagedForRef.current !== index) {
+                setEngaged(index)
+                cueElement(
+                  secondary,
+                  next.url,
+                  next.inPoint + (sourceTime - overlapStart),
+                  true,
+                )
+              }
+              const progress = Math.min((sourceTime - overlapStart) / overlap.duration, 1)
+              if (!still) video.volume = videoEntryGain(entry, 1 - progress)
+              secondary.volume = videoEntryGain(next, progress)
+            }
           }
         }
       }
@@ -429,16 +499,35 @@ export function PreviewPlayer({
     : undefined
 
   const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
+  // Which layers are stills (#140): a still renders as an <img> in the same
+  // stacked slot a video element would occupy, styled identically.
+  const stillPrimary = location !== null && isStillEntry(location.entry)
+  const stillIncoming = overlap !== undefined && isStillEntry(overlap.entry)
 
   // The fronting entry's intrinsic dimensions, read via an off-DOM
   // metadata-only element: the stacked elements are cued lazily (on play or
   // seek), so their own metadata may not exist when the panel is expanded
   // before anything played. Blob metadata is in memory — this is cheap — and
-  // keying on the URL re-probes exactly when a different clip fronts.
+  // keying on the URL re-probes exactly when a different clip fronts. A
+  // still probes through an <img> (#140), a video cannot decode it.
   const frontingUrl = location?.entry.url ?? null
   useEffect(() => {
     if (frontingUrl === null) return undefined
     let stale = false
+    if (stillPrimary) {
+      const probe = new Image()
+      probe.onload = () => {
+        if (!stale && probe.naturalWidth > 0 && probe.naturalHeight > 0) {
+          setVideoAspect(probe.naturalWidth / probe.naturalHeight)
+        }
+      }
+      probe.src = frontingUrl
+      return () => {
+        stale = true
+        probe.onload = null
+        probe.removeAttribute('src')
+      }
+    }
     const probe = document.createElement('video')
     probe.preload = 'metadata'
     probe.addEventListener(
@@ -455,7 +544,7 @@ export function PreviewPlayer({
       stale = true
       probe.removeAttribute('src')
     }
-  }, [frontingUrl])
+  }, [frontingUrl, stillPrimary])
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
@@ -469,20 +558,26 @@ export function PreviewPlayer({
     : IDENTITY_ZOOM
   const incomingZoom = overlap ? zoomAt(timeline, overlap.index, overlap.sourceTime) : IDENTITY_ZOOM
 
-  /** Role-dependent props for one of the two stacked elements. */
+  /**
+   * Role-dependent props for one of the two stacked video elements. A still
+   * layer (#140) takes over its slot with an <img> instead, so the video
+   * element standing in that role hides as idle.
+   */
   const videoProps = (isA: boolean) => {
     const isPrimary = isA === primaryIsA
     if (isPrimary) {
+      if (stillPrimary) return { className: 'preview-video preview-video-idle' }
       return {
         className: 'preview-video',
         'data-testid': 'preview-video',
         style: withZoom(layerStyles?.outgoing, primaryZoom),
       }
     }
+    const videoOverlap = overlap !== undefined && !stillIncoming
     return {
-      className: `preview-video preview-video-incoming${overlap ? '' : ' preview-video-idle'}`,
-      style: overlap ? withZoom(layerStyles?.incoming, incomingZoom) : undefined,
-      'data-testid': overlap ? 'preview-video-incoming' : undefined,
+      className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
+      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom) : undefined,
+      'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
     }
   }
 
@@ -516,6 +611,28 @@ export function PreviewPlayer({
           >
             <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
             <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
+            {/* Still layers (#140): an <img> in the same stacked slot,
+                sharing the video layers' classes so transitions and zooms
+                style it identically. Decorative — the still's name is
+                announced by the now-playing line below. */}
+            {stillPrimary && location && (
+              <img
+                className="preview-video"
+                data-testid="preview-image"
+                alt=""
+                src={location.entry.url}
+                style={withZoom(layerStyles?.outgoing, primaryZoom)}
+              />
+            )}
+            {stillIncoming && overlap && (
+              <img
+                className="preview-video preview-video-incoming"
+                data-testid="preview-image-incoming"
+                alt=""
+                src={overlap.entry.url}
+                style={withZoom(layerStyles?.incoming, incomingZoom)}
+              />
+            )}
           </div>
           {/* One element per audio track (#103), driven by syncAudioTracks.
               Sound only — nothing rendered, nothing announced. Keyed by track

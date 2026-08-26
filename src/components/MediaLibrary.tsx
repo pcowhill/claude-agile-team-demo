@@ -152,18 +152,15 @@ export function MediaLibrary({
               <span className="clip-duration">
                 {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
               </span>
-              {/* Video joins the sequence; audio joins the audio lane (#102).
-                  Images cannot be placed on the timeline yet — #140 adds
-                  that — so they get no Add button rather than a dead one. */}
-              {clip.kind !== 'image' && (
-                <button
-                  type="button"
-                  aria-label={`Add ${clip.name} to timeline`}
-                  onClick={() => onAddToTimeline(clip)}
-                >
-                  Add
-                </button>
-              )}
+              {/* Video and images join the sequence (#102, #140); audio
+                  joins the audio lane. */}
+              <button
+                type="button"
+                aria-label={`Add ${clip.name} to timeline`}
+                onClick={() => onAddToTimeline(clip)}
+              >
+                Add
+              </button>
               <button
                 type="button"
                 aria-label={`Remove ${clip.name} from library`}

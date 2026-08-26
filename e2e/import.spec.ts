@@ -137,8 +137,8 @@ test('importing an image lists it with an Image badge and no duration (#137)', a
   await expect(item).toContainText('Image')
   // A still has no duration: the length column shows a dash.
   await expect(item).toContainText('—')
-  // No Add button until images can join the timeline (#140); Remove works.
-  await expect(page.getByRole('button', { name: 'Add logo.png to timeline' })).toHaveCount(0)
+  // Images join the timeline like any clip (#140); Remove works too.
+  await expect(page.getByRole('button', { name: 'Add logo.png to timeline' })).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Remove logo.png from library' }),
   ).toBeVisible()

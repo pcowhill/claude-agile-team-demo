@@ -16,7 +16,7 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3,        // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4,    // integer; bumped on breaking change
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize? }],
  *     "media": {                         // version 2 always; version 3 when
@@ -62,6 +62,15 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  * builds refuse image-carrying files through the version gate instead of
  * choking on the unknown kind value.
  *
+ * Schema version 4 (#140) marks that the *timeline* places still images:
+ * a sequence entry may reference an image clip, showing it for the entry's
+ * `duration` (equal to its `outPoint`; a still has no source trim). The
+ * entry's stored shape is unchanged — stillness is derived from the
+ * referenced clip's kind on open, never stored — so 4 exists purely to
+ * route older builds (which refuse image entries as invalid) to the
+ * accurate "saved by a newer version" refusal instead. The media section's
+ * presence keeps distinguishing the save modes, exactly as at version 3.
+ *
  * Compatibility contract: a file with `schemaVersion` GREATER than this
  * build understands is refused with a clear error (it may mean something
  * this code would mis-load). Within a known version, unknown extra keys are
@@ -72,13 +81,15 @@ import { audioTracksOf, transitionsOf, zoomsOf } from './timeline'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 3
+export const PROJECT_SCHEMA_VERSION = 4
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
 export const EMBEDDED_SCHEMA_VERSION = 2
 /** The version any image in the library forces, whichever the save mode (#137). */
 export const IMAGES_SCHEMA_VERSION = 3
+/** The version any image ON the timeline forces, whichever the save mode (#140). */
+export const IMAGE_ENTRIES_SCHEMA_VERSION = 4
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -206,16 +217,23 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // Any image forces version 3 (#137) whichever the save mode; otherwise the
+  // An image on the timeline forces version 4 (#140), an image merely in
+  // the library version 3 (#137), whichever the save mode; otherwise the
   // mode alone decides, exactly as before images existed.
+  const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasImageEntries = timeline.entries.some(
+    (entry) => clipKindById.get(entry.clipId) === 'image',
+  )
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasImages
-      ? IMAGES_SCHEMA_VERSION
-      : media === undefined
-        ? REFERENCES_SCHEMA_VERSION
-        : EMBEDDED_SCHEMA_VERSION,
+    schemaVersion: hasImageEntries
+      ? IMAGE_ENTRIES_SCHEMA_VERSION
+      : hasImages
+        ? IMAGES_SCHEMA_VERSION
+        : media === undefined
+          ? REFERENCES_SCHEMA_VERSION
+          : EMBEDDED_SCHEMA_VERSION,
     clips: library.clips.map(({ id, name, duration, kind, width, height }) => ({
       id,
       name,
@@ -457,12 +475,15 @@ function validateProject(document: Record<string, unknown>): Project {
       throw new Error(`${path}.clipId "${entry.clipId}" does not match any clip`)
     }
     const entryClipKind = clipKinds.get(entry.clipId) as MediaKind
-    if (entryClipKind !== 'video') {
-      // The sequence is video-only (#101/#102; image entries arrive with
-      // #140): a non-video entry here could only come from a foreign
-      // writer, and would break preview and export.
-      throw new Error(`${path}.clipId "${entry.clipId}" references ${describeKind(entryClipKind)} clip, but the sequence carries video only`)
+    if (entryClipKind === 'audio') {
+      // The sequence carries video and stills (#101/#140): an audio entry
+      // here could only come from a foreign writer, and would break preview
+      // and export — audio placement is the audio lane's model (#102).
+      throw new Error(`${path}.clipId "${entry.clipId}" references an audio clip, but the sequence carries video and stills only`)
     }
+    // Stillness is derived, never stored (#140): the file's entry shape is
+    // unchanged, and any entry referencing an image clip is a still.
+    if (entryClipKind === 'image') entry.kind = 'image'
     if (entry.inPoint >= entry.outPoint) {
       throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
     }

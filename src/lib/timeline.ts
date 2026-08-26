@@ -6,14 +6,25 @@ export interface TimelineEntry {
   /** The library clip this entry was created from. */
   clipId: string
   name: string
-  /** Duration of the source clip in seconds. */
+  /**
+   * Duration of the source clip in seconds. For a still entry (#140) the
+   * source has no duration, so this is the still's on-screen duration —
+   * the one settable value a still has, always equal to its outPoint.
+   */
   duration: number
-  /** Object URL of the source clip, usable as a <video> src. */
+  /** Object URL of the source clip, usable as a <video> or <img> src. */
   url: string
   /** Trim start within the source clip, in seconds. 0 ≤ inPoint < outPoint. */
   inPoint: number
   /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
   outPoint: number
+  /**
+   * Present exactly when the entry is a still image (#140); absent means a
+   * video entry, so every pre-image state (and saved file) stays valid. A
+   * still has no source trim: its window is always [0, duration], and its
+   * duration is edited via `still-duration-set` rather than a trim.
+   */
+  kind?: 'image'
   /**
    * Volume of the entry's own audio, 0..1 (#104). Absent means full volume —
    * the fields are additive so pre-#104 states (and saved files) stay valid.
@@ -159,6 +170,18 @@ export const emptyTimeline: TimelineState = { entries: [] }
 export const DEFAULT_TRANSITION_DURATION = 1
 
 /**
+ * How long a newly placed still shows by default, in seconds — the
+ * customer's own example figure (#136/#140). Adjustable afterwards to any
+ * positive duration via `still-duration-set`.
+ */
+export const DEFAULT_STILL_DURATION = 5
+
+/** Whether a timeline entry is a still image (#140) rather than a video. */
+export function isStillEntry(entry: Pick<TimelineEntry, 'kind'>): boolean {
+  return entry.kind === 'image'
+}
+
+/**
  * What the "+ Zoom" control adds: a 2× zoom into the frame centre at the
  * start of the entry, with gentle ramps. The reducer clamps the window to
  * the entry's trimmed duration, so this is safe on any entry.
@@ -190,6 +213,7 @@ export type TimelineAction =
   | { type: 'entries-removed-for-clip'; clipId: string }
   | { type: 'entry-moved'; id: string; direction: 'up' | 'down' }
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
+  | { type: 'still-duration-set'; id: string; duration: number }
   | { type: 'transition-set'; beforeId: string; afterId: string; transition: TransitionSpec }
   | { type: 'transition-removed'; beforeId: string; afterId: string }
   | { type: 'zoom-added'; zoom: ZoomEffect }
@@ -205,11 +229,25 @@ export type TimelineAction =
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
-  // The sequence carries video only; audio placement is its own model (#102).
-  // The UI never offers this path for audio — reaching here is programmer
-  // error, and a silent audio entry would break preview and export.
-  if (clip.kind !== 'video') {
-    throw new Error(`cannot add "${clip.name}" to the sequence: it is not a video clip`)
+  // The sequence carries video and stills (#140); audio placement is its own
+  // model (#102). The UI never offers this path for audio — reaching here is
+  // programmer error, and a silent audio entry would break preview and export.
+  if (clip.kind === 'audio') {
+    throw new Error(`cannot add "${clip.name}" to the sequence: it is an audio clip`)
+  }
+  if (clip.kind === 'image') {
+    // A still has no source duration: it shows for the default (#140),
+    // adjustable afterwards; the window [0, duration] is its whole life.
+    return {
+      id,
+      clipId: clip.id,
+      name: clip.name,
+      duration: DEFAULT_STILL_DURATION,
+      url: clip.url,
+      inPoint: 0,
+      outPoint: DEFAULT_STILL_DURATION,
+      kind: 'image',
+    }
   }
   return {
     id,
@@ -556,6 +594,9 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (index === -1) return state
       if (!Number.isFinite(action.inPoint) || !Number.isFinite(action.outPoint)) return state
       const entry = state.entries[index]
+      // A still has no source material to trim (#140): its one adjustable
+      // dimension is its duration, edited via still-duration-set.
+      if (isStillEntry(entry)) return state
       const inPoint = clamp(action.inPoint, 0, entry.duration)
       const outPoint = clamp(action.outPoint, 0, entry.duration)
       // An empty or inverted range would make the entry unplayable — reject it.
@@ -563,6 +604,23 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (inPoint === entry.inPoint && outPoint === entry.outPoint) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, inPoint, outPoint }
+      return withEffects(entries, transitions, zooms, audioTracks)
+    }
+    case 'still-duration-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Only stills have a settable duration (#140); a video entry's length
+      // is its trim. Any positive duration is accepted (the customer asked
+      // for full control, e.g. 5 seconds) — zero or less would make the
+      // entry unplayable, mirroring the empty-trim rejection above.
+      if (!isStillEntry(entry)) return state
+      if (!Number.isFinite(action.duration) || action.duration <= 0) return state
+      if (action.duration === entry.duration) return state
+      const entries = [...state.entries]
+      // The window is always the whole still: duration and outPoint move
+      // together, and transitions/zooms re-clamp exactly as after a retrim.
+      entries[index] = { ...entry, duration: action.duration, inPoint: 0, outPoint: action.duration }
       return withEffects(entries, transitions, zooms, audioTracks)
     }
     case 'transition-set': {
