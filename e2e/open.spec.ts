@@ -157,7 +157,8 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
   // And it exports: a real, decodable WebM of roughly the sequence length
   // (two 1 s entries overlapped by a 1 s crossfade → ~1 s).
   const exportPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const exported = await readFile((await (await exportPromise).path())!)
   expect(exported.byteLength).toBeGreaterThan(1000)
   const probed = await page.evaluate(async (base64) => {

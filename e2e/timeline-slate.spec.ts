@@ -227,7 +227,8 @@ test('export renders the red slate, crossfading into the clip (#143)', async ({ 
   expect(expectedTotal).toBeCloseTo(2, 1)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   const exported = await readFile((await download.path())!)
   expect(exported.byteLength).toBeGreaterThan(1000)
@@ -254,7 +255,8 @@ test('a slate-only timeline exports at the fallback frame size', async ({ page }
   await duration.blur()
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   const exported = await readFile((await download.path())!)
   expect(exported.byteLength).toBeGreaterThan(500)
