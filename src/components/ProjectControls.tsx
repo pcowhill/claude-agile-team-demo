@@ -19,6 +19,7 @@ import {
 import type { SaveDestination, SaveMode, SavePort } from '../lib/saveProject'
 import type { LibraryClip } from '../lib/mediaLibrary'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ExportControl } from './ExportControl'
 import { OpenProjectDialog } from './OpenProjectDialog'
 import { SaveModeDialog } from './SaveModeDialog'
 import './ProjectControls.css'
@@ -68,6 +69,9 @@ type SaveStatus =
  * when it is not known: the first save of a project surfaces the choice
  * (defaulting to embed), Save As… re-surfaces it, and plain Save reuses the
  * remembered mode silently. Opening a file remembers that file's own mode.
+ *
+ * Export Project… (#164) lives here too, so exporting sits beside the other
+ * project-level actions; the flow itself is `ExportControl`'s.
  */
 export function ProjectControls({
   library,
@@ -266,6 +270,7 @@ export function ProjectControls({
       <button type="button" disabled={saving} onClick={() => void save(true)}>
         Save As…
       </button>
+      <ExportControl timeline={timeline} />
       <span className="project-save-status" role="status">
         {status.kind === 'saved' && `Saved as ${status.name}`}
         {saving && 'Saving…'}

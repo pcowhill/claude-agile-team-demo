@@ -135,7 +135,8 @@ test('extracted audio lists as audio, survives removing the video, and exports a
   // whose video was already removed. An audible tone in the file proves the
   // extraction produced genuinely independent, playable audio.
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   const exported = await readFile(await download.path())
   expect(exported.byteLength).toBeGreaterThan(1000)

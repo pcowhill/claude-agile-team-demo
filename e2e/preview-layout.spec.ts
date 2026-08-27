@@ -99,9 +99,9 @@ test('a busy timeline scrolls the page instead of crushing the preview (#128 A)'
     () => document.documentElement.scrollHeight > window.innerHeight,
   )
   expect(scrolls).toBe(true)
-  const exportButton = page.getByRole('button', { name: 'Export video' })
-  await exportButton.scrollIntoViewIfNeeded()
-  await expect(exportButton).toBeInViewport()
+  const lastEntry = page.getByRole('list', { name: 'Sequence' }).getByRole('listitem').last()
+  await lastEntry.scrollIntoViewIfNeeded()
+  await expect(lastEntry).toBeInViewport()
 })
 
 test('expand spans the full width at the video aspect, restores, and is remembered (#128 B)', async ({

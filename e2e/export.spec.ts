@@ -134,7 +134,7 @@ test('exporting a trimmed 2-entry sequence downloads a playable WebM of the righ
   await page.goto('./')
 
   // No export before any timeline entries exist.
-  await expect(page.getByRole('button', { name: 'Export video' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Export Project…' })).toBeDisabled()
 
   const webm = await recordWebm(page)
   await page.getByTestId('clip-file-input').setInputFiles([
@@ -174,7 +174,8 @@ test('exporting a trimmed 2-entry sequence downloads a playable WebM of the righ
 
   // Export: progress appears, and the download lands without another click.
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByRole('progressbar', { name: 'Export progress' })).toBeVisible()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('sequence-export.webm')
@@ -222,8 +223,8 @@ test('exporting a trimmed 2-entry sequence downloads a playable WebM of the righ
   expect(probed.duration).toBeGreaterThan(expectedTotal * 0.6)
   expect(probed.duration).toBeLessThan(expectedTotal + 1)
 
-  // The finished export offers a re-download link with the file size.
-  await expect(page.getByTestId('export-download')).toContainText('sequence-export.webm')
+  // The finished export closed the dialog — back to the main view (#164).
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 /** Clicking first gives the page the user activation an AudioContext needs. */
@@ -255,7 +256,8 @@ test("the exported file carries the source clip's audio", async ({ page }) => {
   await expect(page.getByText(/audio is not included/i)).toHaveCount(0)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   const exported = await readFile(await download.path())
 
@@ -295,7 +297,8 @@ test('trims apply to audio, not just to video', async ({ page }) => {
 
   const exportOnce = async () => {
     const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Export video' }).click()
+    await page.getByRole('button', { name: 'Export Project…' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
     const download = await downloadPromise
     return await readFile(await download.path())
   }
@@ -325,10 +328,13 @@ test('canceling an export returns to idle without an error or download', async (
   ).toHaveCount(1)
   await page.getByRole('button', { name: 'Add first.webm to timeline' }).click()
 
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   await page.getByRole('button', { name: 'Cancel' }).click()
 
-  await expect(page.getByRole('button', { name: 'Export video' })).toBeEnabled()
+  // Canceling closed the dialog without an error or a download.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Export Project…' })).toBeEnabled()
   await expect(page.getByRole('alert')).not.toBeVisible()
-  await expect(page.getByTestId('export-download')).not.toBeVisible()
+  await expect(page.getByTestId('export-download')).toHaveCount(0)
 })

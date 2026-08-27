@@ -1,0 +1,45 @@
+.export-format-options {
+  border: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.export-format-options legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.export-format-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.export-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.export-progress {
+  flex: 1;
+}
+
+.export-error {
+  margin: 0 0 1rem;
+  color: #ff7a7a;
+  font-size: 0.9rem;
+}
+
+/* The dialog's shared p margin applies to .export-note already. */
+.export-note {
+  color: #888;
+  font-size: 0.85rem;
+}

@@ -192,7 +192,8 @@ test('export renders the still into the file (video + still, with a transition)'
   expect(expectedTotal).toBeCloseTo(2, 1)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   const exported = await readFile((await download.path())!)
   expect(exported.byteLength).toBeGreaterThan(1000)

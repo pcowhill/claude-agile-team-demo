@@ -1,6 +1,5 @@
 import { useCallback, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import { ExportPanel } from './components/ExportPanel'
 import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { ProjectControls } from './components/ProjectControls'
@@ -303,7 +302,6 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'audio-track-fades-set', id, fadeIn, fadeOut })
           }
         />
-        <ExportPanel timeline={timeline} />
       </main>
     </div>
   )

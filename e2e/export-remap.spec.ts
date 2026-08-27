@@ -94,7 +94,8 @@ async function probeDuration(
 
 async function exportSequence(page: import('@playwright/test').Page): Promise<Buffer> {
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   return await readFile(await download.path())
 }

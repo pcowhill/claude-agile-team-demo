@@ -65,14 +65,15 @@ test('selecting MP4 exports a file that demuxes as MP4 (#114)', async ({ page })
   await page.goto('./')
   await importOneClip(page)
 
-  // Chromium records MP4, so the picker must be offered — a missing picker
-  // here means the feature detection or the candidate lists regressed.
-  const picker = page.getByRole('combobox', { name: 'Format' })
-  await expect(picker).toBeVisible()
-  await picker.selectOption('mp4')
+  // Chromium records MP4, so the modal must offer the choice — a missing
+  // option here means the feature detection or the candidate lists regressed.
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const mp4 = page.getByRole('radio', { name: 'MP4' })
+  await expect(mp4).toBeVisible()
+  await mp4.check()
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('sequence-export.mp4')
   const exported = await readFile(await download.path())
@@ -120,10 +121,12 @@ test('with a single supported format there is no picker and WebM exports as toda
   await page.goto('./')
   await importOneClip(page)
 
-  await expect(page.getByRole('combobox', { name: 'Format' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await expect(page.getByRole('radio', { name: 'WebM' })).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'MP4' })).toHaveCount(0)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export video' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('sequence-export.webm')
   const exported = await readFile(await download.path())
