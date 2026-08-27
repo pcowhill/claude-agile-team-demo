@@ -1,4 +1,11 @@
-import type { AudioTrack, RemapEffect, TimelineEntry, TimelineState, TransitionType } from './timeline'
+import type {
+  AudioTrack,
+  RemapEffect,
+  TextOverlay,
+  TimelineEntry,
+  TimelineState,
+  TransitionType,
+} from './timeline'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -8,8 +15,10 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  textsOf,
   totalDuration,
 } from './timeline'
+import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
@@ -178,6 +187,66 @@ export function zoomRect(
     width: rect.width * scale,
     height: rect.height * scale,
   }
+}
+
+/**
+ * One text overlay resolved against a concrete canvas resolution (#142) —
+ * everything `fillText` needs, in pixels. The resolution rules are the
+ * preview's exactly (#139): the type size is the overlay's `size` fraction of
+ * the frame **height** (width plays no part), the block's centre sits on
+ * (`x`·width, `y`·height), only explicit newlines break lines, each line is
+ * centred horizontally, and lines are TEXT_LINE_HEIGHT type-sizes apart —
+ * so the same overlay occupies the same frame fractions over the preview
+ * stage and the export canvas, whatever their pixel sizes.
+ */
+export interface TextDraw {
+  /** The content, split on its explicit newlines — one fillText call each. */
+  lines: readonly string[]
+  /** Canvas font shorthand: style, weight, px size, the curated stack. */
+  font: string
+  color: string
+  /** Canvas x of every line's centre, px (lines centre horizontally). */
+  x: number
+  /** Canvas y of the first line's centre, px (textBaseline 'middle'). */
+  firstLineY: number
+  /** Distance between adjacent line centres, px. */
+  lineHeight: number
+}
+
+/** Resolves one overlay's draw parameters against a frame size (#142). */
+export function textDraw(text: TextOverlay, frameWidth: number, frameHeight: number): TextDraw {
+  const size = text.size * frameHeight
+  const lineHeight = size * TEXT_LINE_HEIGHT
+  const lines = text.content.split('\n')
+  return {
+    lines,
+    // The weight is always spelled out: canvas font parsing rejects partial
+    // shorthands in some engines, and an explicit string is deterministic.
+    font: `${text.italic ? 'italic ' : ''}${text.bold ? 700 : 400} ${size}px ${textFontStack(text.font)}`,
+    color: text.color,
+    x: text.x * frameWidth,
+    // The block of n lines is centred on y: its height is n·lineHeight, and
+    // the first line's centre sits half of (n−1) line steps above the middle.
+    firstLineY: text.y * frameHeight - ((lines.length - 1) * lineHeight) / 2,
+    lineHeight,
+  }
+}
+
+/**
+ * The overlays to draw on the frame at `sequenceTime`, resolved to draw
+ * parameters, in add order — the stacking order (#139): a later overlay's
+ * fillText lands on top of an earlier one's, exactly as the preview's later
+ * DOM sibling paints on top.
+ */
+export function activeTextDraws(
+  timeline: TimelineState,
+  sequenceTime: number,
+  frameWidth: number,
+  frameHeight: number,
+): TextDraw[] {
+  return textsOf(timeline)
+    .filter((text) => textActiveAt(text, sequenceTime))
+    .map((text) => textDraw(text, frameWidth, frameHeight))
 }
 
 export interface ExportOptions {
@@ -799,6 +868,7 @@ export async function exportTimeline(
   const drawFrame = (
     layer: LayerFrame,
     entryIndex: number,
+    sequenceTime: number,
     overlay: OverlayFrame | null = null,
   ) => {
     context.fillStyle = '#000'
@@ -861,6 +931,23 @@ export async function exportTimeline(
       context.globalCompositeOperation = 'source-over'
     }
     context.globalAlpha = 1
+    // Text overlays (#142) draw last, above the composed frame — the
+    // preview's documented stacking order (#139): video/still layers first
+    // (transitions and zooms apply to those), then overlays in add order.
+    // An overlay annotates the output frame; it never zooms or slides with a
+    // clip, so it is deliberately outside every transform above.
+    const texts = activeTextDraws(timeline, sequenceTime, width, height)
+    if (texts.length > 0) {
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      for (const text of texts) {
+        context.font = text.font
+        context.fillStyle = text.color
+        text.lines.forEach((line, lineIndex) => {
+          context.fillText(line, text.x, text.firstLineY + lineIndex * text.lineHeight)
+        })
+      }
+    }
   }
 
   /**
@@ -975,7 +1062,8 @@ export async function exportTimeline(
         // The entry's steady gain (#104): volume × mute, no ramp outside a
         // transition. Before #104 this was implicitly 1.
         primary.volume = videoEntryGain(entry)
-        drawFrame(videoFrame(primary), index)
+        // The cue point is output 0 into the entry: sequence time startTime.
+        drawFrame(videoFrame(primary), index, startTime)
         if (replayState.hold === null) {
           // The rate at the cue point (#144): 1 for an unremapped entry,
           // the segment's factor when the entry starts inside one.
@@ -1134,14 +1222,15 @@ export async function exportTimeline(
               }
             }
           }
+          const sequenceTime = startTime + outputInto
           // A still's layer time is its clock read above (inPoint + output
           // elapsed — stills carry no remaps); a video draws its element.
           drawFrame(
             still ? stillFrame(entry, entry.inPoint + outputInto) : videoFrame(primary),
             index,
+            sequenceTime,
             overlayFrame,
           )
-          const sequenceTime = startTime + outputInto
           // Every frame re-syncs the audio tracks against the export clock,
           // exactly as the preview's rAF loop does (#105): windows open and
           // close on time and fades record as continuous ramps — the clock

@@ -75,7 +75,9 @@
    video/still layer (transitions and zooms style those beneath it — an
    overlay annotates the output frame, it is not part of any clip). Only
    embedded newlines break lines (white-space: pre), so rendering stays
-   deterministic for the canvas-based export to reproduce (#142). */
+   deterministic for the canvas-based export to reproduce (#142). The
+   line-height mirrors TEXT_LINE_HEIGHT in textOverlay.ts, which the export's
+   canvas draw consumes — keep the two in step. */
 .preview-text {
   position: absolute;
   margin: 0;
