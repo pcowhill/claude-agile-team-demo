@@ -36,7 +36,13 @@ subtitles, labels — can be added to the timeline with editable content
 (multi-line), timing, position, font (curated system stacks), size relative
 to the frame, any color, and bold/italic, rendering in the preview above the
 composed frame for their window — and in the exported file, which draws the
-same overlays with the same relative size and position (#142). It is
+same overlays with the same relative size and position (#142). Video clips can
+also be layered above the sequence as overlays (#145) — picture-in-picture —
+each with its own start time, trim, fractional placement rectangle, and
+volume/mute, shown in the preview above the base video (export compositing
+is #146). Side-by-side layouts compose from the same pieces: use a color
+slate as the base entry and place two or more overlays in halves or
+quadrants. It is
 deployed
 automatically from `main` to GitHub Pages:
 **https://pcowhill.github.io/claude-agile-team-demo/**

@@ -82,7 +82,9 @@
   position: absolute;
   margin: 0;
   transform: translate(-50%, -50%);
-  z-index: 2;
+  /* Above the overlay video layers (#145) as well as the base layers: a
+     title annotates the whole output frame, picture-in-picture included. */
+  z-index: 3;
   white-space: pre;
   text-align: center;
   line-height: 1.2;
@@ -133,4 +135,22 @@
   margin: 0;
   color: #888;
   font-size: 0.85rem;
+}
+
+/* An overlay video layer (#145): positioned at its fractional rectangle
+   within the stage, above the base video/still layers and below the text
+   overlays (a title is never hidden by a picture-in-picture — see the
+   stacking comment in PreviewPlayer.tsx). The clip letterboxes inside its
+   rectangle with transparent gutters, so the base composition shows through
+   rather than black bars. */
+.preview-overlay-video {
+  position: absolute;
+  object-fit: contain;
+  z-index: 2;
+}
+
+/* Outside its window the element stays mounted (its source stays loaded for
+   an instant re-entry) but shows nothing. */
+.preview-overlay-hidden {
+  visibility: hidden;
 }

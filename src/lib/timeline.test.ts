@@ -21,12 +21,13 @@ import {
   normalizedTimelineState,
   timelineReducer,
   textsOf,
+  videoOverlaysOf,
   totalDuration,
   transitionsOf,
   zoomsForEntry,
   zoomsOf,
 } from './timeline'
-import type { RemapEffect, TextOverlay, ZoomEffect } from './timeline'
+import type { RemapEffect, TextOverlay, VideoOverlay, ZoomEffect } from './timeline'
 import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
@@ -1689,6 +1690,222 @@ describe('text overlays (#139)', () => {
         [overlay('t1', { x: 2, size: 0.001, offset: -1 })],
       )
       expect(textsOf(state)[0]).toMatchObject({ x: 1, size: MIN_TEXT_SIZE, offset: 0 })
+    })
+  })
+})
+
+describe('overlay video layers (#145)', () => {
+  const layer = (id: string, overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id,
+    clipId: 'clip-cam',
+    name: 'cam.webm',
+    duration: 8,
+    url: 'blob:cam',
+    offset: 1,
+    inPoint: 0,
+    outPoint: 8,
+    x: 0.6,
+    y: 0.6,
+    width: 0.3,
+    height: 0.3,
+    ...overrides,
+  })
+
+  describe('video-overlay-added', () => {
+    it('appends overlays in order — the stacking order', () => {
+      let state = timelineReducer(stateOf(['a']), { type: 'video-overlay-added', overlay: layer('v1') })
+      state = timelineReducer(state, { type: 'video-overlay-added', overlay: layer('v2') })
+      expect(videoOverlaysOf(state).map((overlay) => overlay.id)).toEqual(['v1', 'v2'])
+    })
+
+    it('rejects a duplicate id, an invalid placement, and an empty trim, keeping the state reference', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1'),
+      })
+      expect(timelineReducer(state, { type: 'video-overlay-added', overlay: layer('v1') })).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-added',
+          overlay: layer('v2', { x: Number.NaN }),
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-added',
+          overlay: layer('v2', { inPoint: 5, outPoint: 5 }),
+        }),
+      ).toBe(state)
+    })
+
+    it('clamps an out-of-range rectangle and offset on add', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1', { offset: -2, x: 0.9, width: 0.4, height: 3 }),
+      })
+      expect(videoOverlaysOf(state)[0]).toMatchObject({ offset: 0, width: 0.4, height: 1, y: 0 })
+      expect(videoOverlaysOf(state)[0].x).toBeCloseTo(0.6, 10)
+    })
+  })
+
+  describe('video-overlay-updated', () => {
+    it('replaces the placement fields, keeping the identity and source binding', () => {
+      let state = timelineReducer(stateOf(['a']), { type: 'video-overlay-added', overlay: layer('v1') })
+      state = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: {
+          offset: 3,
+          inPoint: 1,
+          outPoint: 6,
+          x: 0.05,
+          y: 0.05,
+          width: 0.5,
+          height: 0.5,
+          volume: 0.4,
+          muted: true,
+        },
+      })
+      expect(videoOverlaysOf(state)[0]).toEqual({
+        id: 'v1',
+        clipId: 'clip-cam',
+        name: 'cam.webm',
+        duration: 8,
+        url: 'blob:cam',
+        offset: 3,
+        inPoint: 1,
+        outPoint: 6,
+        x: 0.05,
+        y: 0.05,
+        width: 0.5,
+        height: 0.5,
+        volume: 0.4,
+        muted: true,
+      })
+    })
+
+    it('rejects invalid placements, unknown ids, and empty trims, keeping the state reference', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1'),
+      })
+      const placement = (overrides: Partial<VideoOverlay>) => {
+        const { offset, inPoint, outPoint, x, y, width, height } = { ...layer('v1'), ...overrides }
+        return { offset, inPoint, outPoint, x, y, width, height }
+      }
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'v1',
+          placement: placement({ width: Number.NaN }),
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'missing',
+          placement: placement({}),
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'v1',
+          placement: placement({ inPoint: 8, outPoint: 9 }),
+        }),
+      ).toBe(state)
+    })
+
+    it('an edit that clamps back to the stored state is a no-op', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1', { x: 0.7, width: 0.3 }),
+      })
+      // x clamps to 1 − width = 0.7 — exactly what is stored already.
+      const next = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 1, inPoint: 0, outPoint: 8, x: 0.95, y: 0.6, width: 0.3, height: 0.3 },
+      })
+      expect(next).toBe(state)
+    })
+
+    it('a real edit is clamped by normalization on the way in', () => {
+      const state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1'),
+      })
+      const next = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: -5, inPoint: 0, outPoint: 8, x: 2, y: 0.6, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(next)[0]).toMatchObject({ offset: 0, x: 0.7 })
+    })
+  })
+
+  describe('video-overlay-removed', () => {
+    it('removes by id; removing nothing keeps the reference', () => {
+      let state = timelineReducer(stateOf(['a']), { type: 'video-overlay-added', overlay: layer('v1') })
+      state = timelineReducer(state, { type: 'video-overlay-added', overlay: layer('v2') })
+      const next = timelineReducer(state, { type: 'video-overlay-removed', id: 'v1' })
+      expect(videoOverlaysOf(next).map((overlay) => overlay.id)).toEqual(['v2'])
+      expect(timelineReducer(next, { type: 'video-overlay-removed', id: 'missing' })).toBe(next)
+    })
+  })
+
+  describe('independence from video edits (the #102 anchoring decision)', () => {
+    it('overlays survive entry trims, moves, and removals unchanged', () => {
+      let state = timelineReducer(stateOf(['a'], ['b']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1', { offset: 15 }),
+      })
+      const stored = videoOverlaysOf(state)
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 2 })
+      state = timelineReducer(state, { type: 'entry-moved', id: 'a', direction: 'down' })
+      state = timelineReducer(state, { type: 'entry-removed', id: 'b' })
+      // The window now lies past the sequence's end — kept verbatim, the
+      // allowed-tail decision: it simply never shows.
+      expect(videoOverlaysOf(state)).toEqual(stored)
+    })
+
+    it('removing a library clip removes the overlays created from it', () => {
+      let state = timelineReducer(stateOf(['a']), {
+        type: 'video-overlay-added',
+        overlay: layer('v1', { clipId: 'clip-a' }),
+      })
+      state = timelineReducer(state, { type: 'video-overlay-added', overlay: layer('v2') })
+      const next = timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'clip-a' })
+      expect(next.entries).toEqual([])
+      expect(videoOverlaysOf(next).map((overlay) => overlay.id)).toEqual(['v2'])
+    })
+  })
+
+  it('the videoOverlays key never appears on overlay-free states', () => {
+    const state = timelineReducer(stateOf(['a']), {
+      type: 'entry-trimmed',
+      id: 'a',
+      inPoint: 1,
+      outPoint: 9,
+    })
+    expect(state).not.toHaveProperty('videoOverlays')
+    let withOverlay = timelineReducer(state, { type: 'video-overlay-added', overlay: layer('v1') })
+    withOverlay = timelineReducer(withOverlay, { type: 'video-overlay-removed', id: 'v1' })
+    expect(withOverlay).not.toHaveProperty('videoOverlays')
+  })
+
+  describe('normalizedTimelineState with overlay layers', () => {
+    it('clamps a foreign writer-shaped overlay on open', () => {
+      const state = normalizedTimelineState(
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [layer('v1', { offset: -1, x: 0.9, width: 0.5 })],
+      )
+      expect(videoOverlaysOf(state)[0]).toMatchObject({ offset: 0, x: 0.5, width: 0.5 })
     })
   })
 })

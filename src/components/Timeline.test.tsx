@@ -1160,3 +1160,149 @@ describe('text overlays (#139)', () => {
     expect(offset).toHaveValue(8)
   })
 })
+
+describe('overlay video layers (#145)', () => {
+  it('adds a video clip as an overlay via the library, listing it in the Overlays lane', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const lane = screen.getByRole('list', { name: 'Overlay video layers' })
+    expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
+    // The default: whole clip from sequence start, in the bottom-right corner.
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of overlay cam.mp4 at position 1 in seconds',
+      }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Trim out point of overlay cam.mp4 at position 1 in seconds',
+      }),
+    ).toHaveValue(8)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Left edge of overlay cam.mp4 at position 1 (fraction of frame width)',
+      }),
+    ).toHaveValue(0.62)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Width of overlay cam.mp4 at position 1 (fraction of frame width)',
+      }),
+    ).toHaveValue(0.35)
+    expect(
+      screen.getByRole('checkbox', { name: 'Mute overlay cam.mp4 at position 1' }),
+    ).not.toBeChecked()
+  })
+
+  it('offers the overlay button for video clips only', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    await importAudioClip('song.mp3', 20)
+    expect(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add song.mp3 as overlay' })).not.toBeInTheDocument()
+  })
+
+  it('edits window, trim, rectangle, and gain — clamping visibly like other fields', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const offset = screen.getByRole('spinbutton', {
+      name: 'Start time of overlay cam.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(offset)
+    await userEvent.type(offset, '2.5')
+    await userEvent.tab()
+    expect(offset).toHaveValue(2.5)
+
+    const inPoint = screen.getByRole('spinbutton', {
+      name: 'Trim in point of overlay cam.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(inPoint)
+    await userEvent.type(inPoint, '1')
+    await userEvent.tab()
+    expect(inPoint).toHaveValue(1)
+
+    // The rectangle never leaves the frame: x clamps to 1 − width, visibly.
+    const x = screen.getByRole('spinbutton', {
+      name: 'Left edge of overlay cam.mp4 at position 1 (fraction of frame width)',
+    })
+    await userEvent.clear(x)
+    await userEvent.type(x, '0.9')
+    await userEvent.tab()
+    expect(x).toHaveValue(0.65)
+
+    const volume = screen.getByRole('spinbutton', {
+      name: 'Volume of overlay cam.mp4 at position 1 (0 to 1)',
+    })
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '0.4')
+    await userEvent.tab()
+    expect(volume).toHaveValue(0.4)
+
+    const mute = screen.getByRole('checkbox', { name: 'Mute overlay cam.mp4 at position 1' })
+    await userEvent.click(mute)
+    expect(mute).toBeChecked()
+  })
+
+  it('removes an overlay; the lane disappears with the last one', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    const add = screen.getByRole('button', { name: 'Add cam.mp4 as overlay' })
+    await userEvent.click(add)
+    await userEvent.click(add)
+    expect(
+      within(screen.getByRole('list', { name: 'Overlay video layers' })).getAllByRole('listitem'),
+    ).toHaveLength(2)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove overlay cam.mp4 at position 1 from timeline' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove overlay cam.mp4 at position 1 from timeline' }),
+    )
+    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).not.toBeInTheDocument()
+  })
+
+  it('overlays are independent of the sequence: video edits never retime them', async () => {
+    render(<App />)
+    await importClip('base.mp4', 10)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const offset = screen.getByRole('spinbutton', {
+      name: 'Start time of overlay cam.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(offset)
+    await userEvent.type(offset, '6')
+    await userEvent.tab()
+
+    // Shortening the sequence beneath the overlay's window leaves it be —
+    // the allowed-tail decision (#102): it simply never shows.
+    const out = screen.getByRole('spinbutton', {
+      name: 'Trim out point of base.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(out)
+    await userEvent.type(out, '2')
+    await userEvent.tab()
+    expect(offset).toHaveValue(6)
+  })
+
+  it('removing the source clip from the library removes its overlays', async () => {
+    render(<App />)
+    await importClip('base.mp4', 10)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove cam.mp4 from library' }))
+    // The confirm dialog counts the overlay as timeline use of the clip.
+    expect(screen.getByText(/removes the 1 timeline entry/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).not.toBeInTheDocument()
+    expect(sequenceNames()).toEqual(['base.mp4'])
+  })
+})
