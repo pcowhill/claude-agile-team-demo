@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   activeTextDraws,
+  activeVideoOverlays,
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
   createAudioCapture,
@@ -12,14 +13,16 @@ import {
   fitRect,
   initialRemapReplay,
   OUT_POINT_EPSILON,
+  overlayDestRect,
   pickExportMimeType,
   supportedExportFormats,
+  syncOverlayReplay,
   syncTrackReplay,
   textDraw,
   zoomRect,
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
-import type { AudioTrack, RemapEffect, TextOverlay } from './timeline'
+import type { AudioTrack, RemapEffect, TextOverlay, VideoOverlay } from './timeline'
 import { audioTrackGainAt } from './gain'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
@@ -733,5 +736,157 @@ describe('activeTextDraws (#142)', () => {
 
   it('is empty for a text-free timeline, pre-#139 states included', () => {
     expect(activeTextDraws({ entries }, 1, 640, 360)).toEqual([])
+  })
+})
+
+// The export-side compositing of overlay video layers (#146). The canvas
+// drawImage itself runs only in a real browser (e2e/export-overlay.spec.ts);
+// these tests pin the per-frame decisions — which overlays cover a sequence
+// time, the destination rectangle each resolves to for a given canvas size,
+// and how each replay element is driven along the export clock.
+
+// Window [2, 8): offset 2, trim [1, 7) of a 10 s clip.
+const exportOverlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+  id: 'v1',
+  clipId: 'cam-1',
+  name: 'cam.webm',
+  duration: 10,
+  url: 'blob:cam',
+  offset: 2,
+  inPoint: 1,
+  outPoint: 7,
+  x: 0.62,
+  y: 0.62,
+  width: 0.35,
+  height: 0.35,
+  ...overrides,
+})
+
+describe('overlayDestRect (#146)', () => {
+  it('fills the placement rectangle when the clip aspect matches it', () => {
+    // A 0.35 × 0.35 rect of a 16:9 frame is itself 16:9, so a 16:9 clip
+    // fills it exactly — the same fractions the preview's stage resolves.
+    const dest = overlayDestRect(exportOverlay(), 320, 180, 640, 360)
+    expect(dest).toEqual({ x: 0.62 * 640, y: 0.62 * 360, width: 0.35 * 640, height: 0.35 * 360 })
+  })
+
+  it('letterboxes a wider clip within the rectangle, gutters split evenly', () => {
+    const overlay = exportOverlay({ x: 0, y: 0, width: 0.5, height: 0.5 })
+    // Rect 320×180; a 32:9 source scales to 320×90, centred vertically.
+    const dest = overlayDestRect(overlay, 320, 90, 640, 360)
+    expect(dest).toEqual({ x: 0, y: 45, width: 320, height: 90 })
+  })
+
+  it('pillarboxes a taller clip within the rectangle', () => {
+    const overlay = exportOverlay({ x: 0.5, y: 0, width: 0.5, height: 0.5 })
+    // Rect 320×180 at left edge 320; a 9:16 source scales to 101.25×180.
+    const dest = overlayDestRect(overlay, 90, 160, 640, 360)
+    expect(dest.height).toBe(180)
+    expect(dest.width).toBeCloseTo(101.25, 10)
+    expect(dest.x).toBeCloseTo(320 + (320 - 101.25) / 2, 10)
+    expect(dest.y).toBe(0)
+  })
+
+  it('is resolution-independent: doubling the frame doubles every pixel value', () => {
+    const base = overlayDestRect(exportOverlay(), 320, 90, 640, 360)
+    const doubled = overlayDestRect(exportOverlay(), 320, 90, 1280, 720)
+    expect(doubled.x).toBeCloseTo(base.x * 2, 10)
+    expect(doubled.y).toBeCloseTo(base.y * 2, 10)
+    expect(doubled.width).toBeCloseTo(base.width * 2, 10)
+    expect(doubled.height).toBeCloseTo(base.height * 2, 10)
+  })
+
+  it('fills the whole rectangle for a source with no dimensions yet', () => {
+    // fitRect's degenerate rule: no intrinsic size, no letterboxing to do.
+    const overlay = exportOverlay({ x: 0.1, y: 0.2, width: 0.5, height: 0.25 })
+    const dest = overlayDestRect(overlay, 0, 0, 640, 360)
+    expect(dest).toEqual({ x: 64, y: 72, width: 320, height: 90 })
+  })
+})
+
+describe('activeVideoOverlays (#146)', () => {
+  const entries = [
+    {
+      id: 'e1',
+      clipId: 'c1',
+      name: 'clip.webm',
+      duration: 10,
+      url: 'blob:clip',
+      inPoint: 0,
+      outPoint: 10,
+    },
+  ]
+
+  it('selects exactly the overlays whose half-open window covers the time', () => {
+    const timeline = { entries, videoOverlays: [exportOverlay()] }
+    expect(activeVideoOverlays(timeline, 1.9)).toEqual([])
+    expect(activeVideoOverlays(timeline, 2).map((overlay) => overlay.id)).toEqual(['v1'])
+    expect(activeVideoOverlays(timeline, 7.9).map((overlay) => overlay.id)).toEqual(['v1'])
+    // At the window's end instant the overlay has just disappeared —
+    // half-open, the audio-track rule (#102) applied structurally.
+    expect(activeVideoOverlays(timeline, 8)).toEqual([])
+  })
+
+  it('keeps add order for simultaneous overlays — the stacking order', () => {
+    const under = exportOverlay({ id: 'under' })
+    const over = exportOverlay({ id: 'over' })
+    const timeline = { entries, videoOverlays: [under, over] }
+    expect(activeVideoOverlays(timeline, 4)).toEqual([under, over])
+  })
+
+  it('is empty for an overlay-free timeline, pre-#145 states included', () => {
+    expect(activeVideoOverlays({ entries }, 4)).toEqual([])
+  })
+})
+
+describe('syncOverlayReplay (#146)', () => {
+  it('sets the element volume to the overlay gain — volume × mute, no fades', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 3 })
+    syncOverlayReplay(exportOverlay({ volume: 0.4 }), element, 4)
+    expect(element.volume).toBe(0.4)
+    // Mute wins over everything (#104), exactly as the preview mixes it.
+    syncOverlayReplay(exportOverlay({ volume: 0.4, muted: true }), element, 4)
+    expect(element.volume).toBe(0)
+  })
+
+  it('starts a paused element at the mapped source time when the window opens', () => {
+    const element = fakeTrackElement()
+    syncOverlayReplay(exportOverlay(), element, 3)
+    expect(element.playCalls).toBe(1)
+    expect(element.paused).toBe(false)
+    // Sequence 3 is 1 s into the window; the source starts at inPoint 1.
+    expect(element.currentTime).toBe(2)
+  })
+
+  it('leaves a playing element on its own clock within the drift tolerance', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 2 + AUDIO_DRIFT_EPSILON / 2 })
+    syncOverlayReplay(exportOverlay(), element, 3)
+    expect(element.playCalls).toBe(0)
+    expect(element.currentTime).toBe(2 + AUDIO_DRIFT_EPSILON / 2)
+  })
+
+  it('snaps a drifted playing element back to the export clock', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 4 })
+    syncOverlayReplay(exportOverlay(), element, 3)
+    expect(element.currentTime).toBe(2)
+  })
+
+  it('holds a not-yet-started overlay paused and cued at its in-point', () => {
+    const element = fakeTrackElement({ currentTime: 5 })
+    syncOverlayReplay(exportOverlay(), element, 1)
+    expect(element.playCalls).toBe(0)
+    expect(element.paused).toBe(true)
+    expect(element.currentTime).toBe(1)
+  })
+
+  it('pauses the element at its out-point when the clock leaves the window', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 5 })
+    syncOverlayReplay(exportOverlay(), element, 9)
+    expect(element.pauseCalls).toBe(1)
+    expect(element.paused).toBe(true)
+    // Re-cued to the out-point: 5 is beyond the drift tolerance of 7. (An
+    // element that stopped within the tolerance keeps its own clock, as a
+    // playing one does.)
+    expect(element.currentTime).toBe(7)
   })
 })

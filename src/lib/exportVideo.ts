@@ -5,6 +5,7 @@ import type {
   TimelineEntry,
   TimelineState,
   TransitionType,
+  VideoOverlay,
 } from './timeline'
 import {
   audioTracksOf,
@@ -17,6 +18,7 @@ import {
   remapsOf,
   textsOf,
   totalDuration,
+  videoOverlaysOf,
 } from './timeline'
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
@@ -187,6 +189,49 @@ export function zoomRect(
     width: rect.width * scale,
     height: rect.height * scale,
   }
+}
+
+/**
+ * Where an overlay video layer's frame lands on the export canvas (#146),
+ * in pixels. The placement rectangle resolves exactly as the preview's
+ * stage positioning (#145): `x`/`y`/`width`/`height` are fractions of the
+ * whole output frame. The clip then letterboxes *within* that rectangle
+ * (aspect preserved — the preview's `object-fit: contain`), so the returned
+ * rect is the drawn picture itself; the gutters are simply not drawn,
+ * leaving the base composition visible — the transparent-gutter rule.
+ */
+export function overlayDestRect(
+  overlay: VideoOverlay,
+  sourceWidth: number,
+  sourceHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+): FitRect {
+  const left = overlay.x * frameWidth
+  const top = overlay.y * frameHeight
+  const fitted = fitRect(
+    sourceWidth,
+    sourceHeight,
+    overlay.width * frameWidth,
+    overlay.height * frameHeight,
+  )
+  return { x: left + fitted.x, y: top + fitted.y, width: fitted.width, height: fitted.height }
+}
+
+/**
+ * The overlay video layers covering `sequenceTime`, in add order — the
+ * stacking order (#145): a later overlay draws on top of an earlier one,
+ * exactly as the preview's later DOM sibling paints on top. The window
+ * math is the audio-track helper the preview uses (offset + trim,
+ * half-open), applied structurally.
+ */
+export function activeVideoOverlays(
+  timeline: TimelineState,
+  sequenceTime: number,
+): VideoOverlay[] {
+  return videoOverlaysOf(timeline).filter(
+    (overlay) => audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
+  )
 }
 
 /**
@@ -369,6 +414,34 @@ export function syncTrackReplay(
 ): void {
   const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
   element.volume = audioTrackGainAt(track, sequenceTime)
+  alignReplayClock(element, shouldPlay, sourceTime)
+}
+
+/**
+ * Aligns an overlay video layer's replay element with the export clock
+ * (#146) — the export-side counterpart of the preview's `syncVideoOverlays`
+ * (#145), and the same clock discipline as the audio tracks above: the
+ * shared window helper decides playing state and source position, and the
+ * element free-runs within the drift tolerance. Gain is the overlay's own
+ * volume × mute (`videoEntryGain`, applied structurally as the preview
+ * does); overlays have no fades.
+ */
+export function syncOverlayReplay(
+  overlay: VideoOverlay,
+  element: TrackReplayElement,
+  sequenceTime: number,
+): void {
+  const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
+  element.volume = videoEntryGain(overlay)
+  alignReplayClock(element, shouldPlay, sourceTime)
+}
+
+/** The shared clock discipline of syncTrackReplay and syncOverlayReplay. */
+function alignReplayClock(
+  element: TrackReplayElement,
+  shouldPlay: boolean,
+  sourceTime: number,
+): void {
   if (shouldPlay) {
     if (element.paused) {
       element.currentTime = sourceTime
@@ -633,11 +706,28 @@ export async function exportTimeline(
     return { track, element }
   })
 
+  // One replay element per overlay video layer (#146): its picture is drawn
+  // onto the canvas each frame and its audio joins the same capture as
+  // everything else, honoring the overlay's volume/mute via the per-frame
+  // sync below. Unlike the audio tracks, overlays must play even without
+  // Web Audio — the picture is the point — so they follow the base replays'
+  // mute rule rather than the tracks' skip rule.
+  const overlayReplays = videoOverlaysOf(timeline).map((overlay) => {
+    const element = createVideo()
+    element.playsInline = true
+    element.preload = 'auto'
+    return { overlay, element }
+  })
+
   const audioCapture = await createAudioCapture(
-    [...replays, ...trackReplays.map(({ element }) => element)],
+    [
+      ...replays,
+      ...overlayReplays.map(({ element }) => element),
+      ...trackReplays.map(({ element }) => element),
+    ],
     options.createAudioContext,
   )
-  for (const replay of replays) {
+  for (const replay of [...replays, ...overlayReplays.map(({ element }) => element)]) {
     // Muting an element silences its Web Audio output too, so the replays can
     // only stay muted when there is no audio to capture. Nothing reaches the
     // speakers either way: createAudioCapture leaves the graph unconnected.
@@ -698,7 +788,11 @@ export async function exportTimeline(
   }
 
   const releaseVideos = () => {
-    for (const replay of [...replays, ...trackReplays.map(({ element }) => element)]) {
+    for (const replay of [
+      ...replays,
+      ...overlayReplays.map(({ element }) => element),
+      ...trackReplays.map(({ element }) => element),
+    ]) {
       replay.pause()
       replay.removeAttribute('src')
       replay.load()
@@ -763,6 +857,14 @@ export async function exportTimeline(
     for (const { track, element } of recordedTracks) {
       throwIfAborted()
       await loadSource(element, track.url)
+    }
+    // Overlay layers (#146) load and cue to their in-point up front: it
+    // validates each source decodes, and the element holds the right first
+    // frame from the very first draw. Overlay dimensions deliberately play
+    // no part in the output frame size — placement is fractional (#145).
+    for (const { overlay, element } of overlayReplays) {
+      throwIfAborted()
+      await cueTo(element, overlay.url, overlay.inPoint)
     }
   } catch (error) {
     await releaseAll()
@@ -931,6 +1033,22 @@ export async function exportTimeline(
       context.globalCompositeOperation = 'source-over'
     }
     context.globalAlpha = 1
+    // Overlay video layers (#146) composite above the fully composed base
+    // frame — the preview's stacking order (#145): base video/still layers
+    // (transitions and zooms apply to those), then overlay layers in add
+    // order, then text. Each clip letterboxes within its placement rectangle
+    // and the gutters are simply not drawn (the base stays visible — the
+    // transparent-gutter rule). An element that cannot yet supply a frame is
+    // skipped rather than drawn black, matching the late-engage rule above.
+    const activeOverlays = activeVideoOverlays(timeline, sequenceTime)
+    if (activeOverlays.length > 0) {
+      for (const { overlay: layer, element } of overlayReplays) {
+        if (!activeOverlays.includes(layer)) continue
+        if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
+        const dest = overlayDestRect(layer, element.videoWidth, element.videoHeight, width, height)
+        context.drawImage(element, dest.x, dest.y, dest.width, dest.height)
+      }
+    }
     // Text overlays (#142) draw last, above the composed frame — the
     // preview's documented stacking order (#139): video/still layers first
     // (transitions and zooms apply to those), then overlays in add order.
@@ -1223,6 +1341,14 @@ export async function exportTimeline(
             }
           }
           const sequenceTime = startTime + outputInto
+          // Overlay layers align with the export clock before the frame is
+          // drawn (#146), the way the preview syncs them before painting
+          // (#145): windows open and close on time, drifted clocks snap
+          // back, and gain applies every frame. Sequence-anchored like the
+          // audio tracks below, so pause holds and remaps never move them.
+          for (const replay of overlayReplays) {
+            syncOverlayReplay(replay.overlay, replay.element, sequenceTime)
+          }
           // A still's layer time is its clock read above (inPoint + output
           // elapsed — stills carry no remaps); a video draws its element.
           drawFrame(

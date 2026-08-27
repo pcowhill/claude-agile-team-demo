@@ -39,8 +39,9 @@ composed frame for their window — and in the exported file, which draws the
 same overlays with the same relative size and position (#142). Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
-volume/mute, shown in the preview above the base video (export compositing
-is #146). Side-by-side layouts compose from the same pieces: use a color
+volume/mute, shown in the preview above the base video — and composited the
+same way into the exported file, overlay audio in the mix (#146).
+Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is
 deployed
