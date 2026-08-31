@@ -28,7 +28,11 @@ highest-priority applicable action. Approximate order:
    below permits.
 7. **Backlog hygiene**: refine vague issues, close duplicates, update stale
    issues, record overdue ADRs or retrospectives when genuinely warranted.
-8. **Stop.** If none of the above is actionable, end the session and say so.
+8. **Suggestion upkeep** (customer-directed, #173): if no open unapproved AI
+   suggestion (`idea` + `ai-generated`) exists, create one — never exceeding
+   three open suggestions. See "AI product suggestions" in
+   `product-management.md`.
+9. **Stop.** If none of the above is actionable, end the session and say so.
 
 Priority signals, in order of authority: the customer's explicit statements >
 GitHub Project `Priority` field (P0 critical → P3 nice-to-have) > labels

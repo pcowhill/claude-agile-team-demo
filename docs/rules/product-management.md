@@ -86,24 +86,60 @@ the affected work, link the decision where it is applied (issue, PR, or ADR),
 and close the question. If a question blocks only one piece of work, label
 that work `blocked` and continue other useful work.
 
-## AI-generated product ideas (`idea` + `ai-generated`)
+## AI product suggestions (`idea` + `ai-generated`)
 
-The team may notice opportunities for new functionality or UX improvements.
-Ideas are welcome but **must not silently become approved scope**.
+The team is expected to notice opportunities for new functionality or UX
+improvements — the customer asked for these proactively and recurringly
+(#166, #173). Features established in existing video editing tools are a
+good source of inspiration when they fit this product's scope. Suggestions
+are welcome but **must not silently become approved scope**.
 
-For an AI-originated product idea:
+A suggestion is an ordinary issue labeled `idea` + `ai-generated` — this
+existing pairing *is* the "AI suggestion" of #173; no separate label. Each
+suggestion issue explains the idea, why it may benefit the customer/product,
+major tradeoffs, and a recommendation, plus a **scope estimate**: rough size
+(how many issues/PRs), key risks and their mitigations, any new
+dependencies, and any new UI surface (#173).
 
-1. Create an issue; apply `idea` and `ai-generated`.
-2. Explain the idea, why it may benefit the customer/product, major
-   tradeoffs or rough scope, and a recommendation.
-3. Do **not** implement it, refine it into Ready work, or treat it as scope.
+Standing mechanics, customer-directed in #173:
 
-Approval is exactly one thing: the customer applies `customer-approved`.
-Customer comments on an idea are discussion, not approval. Once approved, a
-product-management pass may refine, prioritize, and derive actionable issues
-from it. Keep `idea` and `ai-generated` in place after approval so provenance
-stays visible. If the customer closes an unapproved idea, that is rejection —
-do not revive it unless later customer feedback explicitly does.
+- **Keep at least one alive.** A session that orients and finds no open
+  unapproved suggestion creates one before ending. This is a standing
+  customer instruction and a deliberate exception to "no artificial
+  activity" (`operating-model.md`): the suggestion itself is a deliverable
+  the customer asked for.
+- **At most three open suggestions at a time**, so the customer can always
+  review the whole set quickly. While three are open, create none.
+- **Uniqueness check.** Before writing one, review existing suggestions —
+  open and closed — and the customer's feedback on them. Never re-suggest a
+  rejected feature as-is. If a new suggestion resembles an earlier one, the
+  issue must say what is similar and which difference makes it worth
+  considering anyway.
+- **OBE closure.** Any session may close an open suggestion that has been
+  overtaken by events — the customer asked for something equivalent
+  themselves, or another change makes it obsolete or out of scope — with a
+  comment saying why, even if the customer never reviewed it.
+
+The customer responds to a suggestion by commenting on it (#173). Handle
+responses as customer input:
+
+- **Approval** is either the `customer-approved` label or an explicit
+  go-ahead comment from the customer on the suggestion issue ("implement
+  this", "yes, I want this") — the customer's stated workflow is comments
+  (#173), and an explicit request in their own words is customer-initiated
+  scope. When approval arrives by comment, a product-management pass derives
+  scoped issues from the suggestion exactly as for `customer-feedback`,
+  linking the approving comment, and closes the suggestion once captured.
+- **Ambiguous positivity** ("interesting", "cool idea") is discussion, not
+  approval — refine or wait; never implement from it.
+- **Rejection** — an explicit "no", or the customer closing an unapproved
+  suggestion — is final; do not revive it unless later customer input
+  explicitly does. Closed suggestions remain part of the uniqueness-check
+  record.
+
+Do **not** implement a suggestion, refine it into Ready work, or treat it as
+scope before approval. Keep `idea` and `ai-generated` in place after
+approval so provenance stays visible.
 
 ## AI-discovered engineering work
 

@@ -9,7 +9,7 @@
 | `customer-approved` | Applied **only by the customer**, to an `idea` issue, to approve it as product scope. |
 | `ai-generated` | The issue was created by the AI team rather than the customer. See "Origin labels". |
 | `human-generated` | The issue was created by the customer. See "Origin labels". |
-| `idea` | A product idea. With `ai-generated` and without `customer-approved`, it is not implementable scope. |
+| `idea` | A product idea / AI suggestion (#173). With `ai-generated` and without customer approval (label or explicit go-ahead comment), it is not implementable scope. |
 | `feature` | New or changed product functionality. |
 | `bug` | Something is wrong in the product, tests, or tooling. |
 | `tech-debt` | Necessary engineering improvement without direct feature value. |

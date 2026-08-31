@@ -55,7 +55,10 @@ itself and acts:
   several in parallel when the issues are genuinely independent of one another
   (see `docs/rules/operating-model.md`); dependent work is serialized.
 - **AI product ideas are not scope.** An idea labeled `ai-generated` may only
-  become implementable work after the customer applies `customer-approved`.
+  become implementable work after the customer approves it — the
+  `customer-approved` label, or an explicit go-ahead comment from the
+  customer on the issue (the customer's chosen workflow, #173). Ambiguous
+  enthusiasm is not approval.
 - **Customer speaks informally.** Product management translates
   `customer-feedback` issues into properly scoped issues with acceptance
   criteria; the raw feedback issue is preserved.
