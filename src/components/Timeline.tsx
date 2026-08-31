@@ -31,6 +31,7 @@ import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
+import { ConfirmDialog } from './ConfirmDialog'
 import './Timeline.css'
 
 interface TimelineProps {
@@ -272,6 +273,18 @@ export function Timeline({
   const lanePercent = (seconds: number) =>
     laneSpan > 0 ? `${(seconds / laneSpan) * 100}%` : '0%'
 
+  // Removing an item asks first (#178): a mis-click must not silently cost
+  // an edit. Only item removals confirm — sequence entries, audio tracks,
+  // text overlays, overlay video layers; removing an *effect* (a zoom, a
+  // remap, a transition) stays immediate, since re-adding one is cheap.
+  // `name` heads the dialog; `consequence` says what goes with the item;
+  // `action` fires the removal callback on confirm.
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    name: string
+    consequence: string
+    action: () => void
+  } | null>(null)
+
   return (
     <section className="panel panel-wide" aria-label="Timeline">
       <div className="timeline-header">
@@ -326,7 +339,14 @@ export function Timeline({
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
-                      onClick={() => onRemoveEntry(entry.id)}
+                      onClick={() =>
+                        setPendingRemoval({
+                          name: position,
+                          consequence:
+                            'Transitions at its boundaries and any zooms or time remapping on it are removed with it.',
+                          action: () => onRemoveEntry(entry.id),
+                        })
+                      }
                     >
                       ✕
                     </button>
@@ -718,7 +738,13 @@ export function Timeline({
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
-                      onClick={() => onRemoveAudioTrack(track.id)}
+                      onClick={() =>
+                        setPendingRemoval({
+                          name: position,
+                          consequence: 'The clip itself stays in the media library.',
+                          action: () => onRemoveAudioTrack(track.id),
+                        })
+                      }
                     >
                       ✕
                     </button>
@@ -815,7 +841,13 @@ export function Timeline({
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
-                      onClick={() => onRemoveVideoOverlay(overlay.id)}
+                      onClick={() =>
+                        setPendingRemoval({
+                          name: position,
+                          consequence: 'The clip itself stays in the media library.',
+                          action: () => onRemoveVideoOverlay(overlay.id),
+                        })
+                      }
                     >
                       ✕
                     </button>
@@ -923,7 +955,13 @@ export function Timeline({
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
-                      onClick={() => onRemoveText(text.id)}
+                      onClick={() =>
+                        setPendingRemoval({
+                          name: position,
+                          consequence: 'Its text content is discarded.',
+                          action: () => onRemoveText(text.id),
+                        })
+                      }
                     >
                       ✕
                     </button>
@@ -1011,6 +1049,19 @@ export function Timeline({
             })}
           </ol>
         </div>
+      )}
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${pendingRemoval.name}?`}
+          body={pendingRemoval.consequence}
+          confirmLabel="Remove"
+          onCancel={() => setPendingRemoval(null)}
+          onConfirm={() => {
+            pendingRemoval.action()
+            setPendingRemoval(null)
+          }}
+        />
       )}
     </section>
   )
