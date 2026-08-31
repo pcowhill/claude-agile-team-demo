@@ -26,6 +26,7 @@ import {
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
 import { transitionLayerSpec } from '../lib/transitionRender'
+import type { TransitionClipRect } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
@@ -71,6 +72,14 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
   'slide-from-below': 'slide from below',
   'slide-from-left': 'slide from left',
   'slide-from-right': 'slide from right',
+  'wipe-from-left': 'wipe from left',
+  'wipe-from-right': 'wipe from right',
+  'wipe-from-above': 'wipe from above',
+  'wipe-from-below': 'wipe from below',
+  'push-from-left': 'push from left',
+  'push-from-right': 'push from right',
+  'push-from-above': 'push from above',
+  'push-from-below': 'push from below',
 }
 
 /**
@@ -84,21 +93,34 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
  * the incoming element as a full-frame card — the element's own opaque black
  * background fills whatever its fitted clip does not (#74) — over an
  * undimmed outgoing clip, so margins are covered by sliding black instead of
- * popping at the handover.
+ * popping at the handover. Pushes (#181) add the same translate to the
+ * outgoing element; wipes (#181) pass the spec's clip rectangle through to
+ * `withZoom`, which cuts the incoming card to it.
  */
 function transitionLayerStyles(overlap: TransitionOverlap): {
   outgoing: CSSProperties
   incoming: CSSProperties
+  incomingClip: TransitionClipRect | null
 } {
   const spec = transitionLayerSpec(overlap.type, overlap.progress)
   return {
-    outgoing: { opacity: spec.outgoingAlpha },
+    outgoing: {
+      opacity: spec.outgoingAlpha,
+      // Only pushes move the outgoing layer; every other type keeps the
+      // exact pre-#181 style object (no identity transform inserted).
+      ...(spec.outgoingOffsetXFraction !== 0 || spec.outgoingOffsetYFraction !== 0
+        ? {
+            transform: `translate(${spec.outgoingOffsetXFraction * 100}%, ${spec.outgoingOffsetYFraction * 100}%)`,
+          }
+        : {}),
+    },
     incoming: {
       opacity: spec.incomingAlpha,
       transform: `translate(${spec.incomingOffsetXFraction * 100}%, ${spec.incomingOffsetYFraction * 100}%)`,
       mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
       backgroundColor: spec.incomingBacking ? '#000' : undefined,
     },
+    incomingClip: spec.incomingClip,
   }
 }
 
@@ -115,12 +137,44 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
  * (#74), never paints outside where its unzoomed card would be, and a
  * zoomed slide still covers exactly its slice of the stage. The identity
  * zoom returns the transition styles untouched, transform format included.
+ *
+ * `frameClip` is a wipe's reveal rectangle (#181), in the card's own
+ * space. Unzoomed it becomes the element's clip-path directly; zoomed it is
+ * mapped through the inverse zoom into the element's pre-transform space
+ * and intersected with the zoom's own visible region, so one inset carries
+ * both cuts — the canvas export nests its two clips the same way.
  */
-function withZoom(style: CSSProperties | undefined, zoom: ZoomState): CSSProperties | undefined {
-  if (zoom.scale === 1) return style
+function withZoom(
+  style: CSSProperties | undefined,
+  zoom: ZoomState,
+  frameClip: TransitionClipRect | null = null,
+): CSSProperties | undefined {
+  if (zoom.scale === 1 && frameClip === null) return style
   const { scale, centerX, centerY } = zoom
   const half = 1 / (2 * scale)
   const pct = (value: number) => `${value * 100}%`
+  // The zoom's visible region in the element's pre-transform space; the
+  // identity zoom sees the whole element.
+  let x0 = centerX - half
+  let x1 = centerX + half
+  let y0 = centerY - half
+  let y1 = centerY + half
+  if (frameClip !== null) {
+    // Map the card-space rectangle through the inverse zoom (frame fraction
+    // q lands at centre + (q − 0.5) / scale) and intersect. A degenerate
+    // (zero-area) result clips the element away entirely — progress 0 of a
+    // wipe shows nothing of the incoming card.
+    const inverseX = (q: number) => centerX + (q - 0.5) / scale
+    const inverseY = (q: number) => centerY + (q - 0.5) / scale
+    x0 = Math.max(x0, inverseX(frameClip.x))
+    x1 = Math.min(x1, inverseX(frameClip.x + frameClip.width))
+    y0 = Math.max(y0, inverseY(frameClip.y))
+    y1 = Math.min(y1, inverseY(frameClip.y + frameClip.height))
+    x1 = Math.max(x0, x1)
+    y1 = Math.max(y0, y1)
+  }
+  const clipPath = `inset(${pct(y0)} ${pct(1 - x1)} ${pct(1 - y1)} ${pct(x0)})`
+  if (zoom.scale === 1) return { ...style, clipPath }
   return {
     ...style,
     transform: [
@@ -128,7 +182,7 @@ function withZoom(style: CSSProperties | undefined, zoom: ZoomState): CSSPropert
       `scale(${scale})`,
       `translate(${pct(0.5 - centerX)}, ${pct(0.5 - centerY)})`,
     ].join(' '),
-    clipPath: `inset(${pct(centerY - half)} ${pct(1 - centerX - half)} ${pct(1 - centerY - half)} ${pct(centerX - half)})`,
+    clipPath,
   }
 }
 
@@ -888,7 +942,7 @@ export function PreviewPlayer({
     const videoOverlap = overlap !== undefined && !stillIncoming
     return {
       className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
-      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom) : undefined,
+      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null) : undefined,
       'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
     }
   }
@@ -956,7 +1010,7 @@ export function PreviewPlayer({
                   className="preview-video preview-video-incoming"
                   data-testid="preview-slate-incoming"
                   style={{
-                    ...withZoom(layerStyles?.incoming, incomingZoom),
+                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null),
                     backgroundColor: overlap.entry.color,
                   }}
                 />
@@ -968,7 +1022,7 @@ export function PreviewPlayer({
                     data-testid="preview-image-incoming"
                     alt=""
                     src={overlap.entry.url}
-                    style={withZoom(layerStyles?.incoming, incomingZoom)}
+                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null)}
                   />
                 )
               )}

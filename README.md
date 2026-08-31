@@ -26,7 +26,10 @@ be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
 project files like any clip. Solid-color slates (#143) can be added to the
 timeline directly — no import, any 24-bit color, same adjustable duration —
-so a video can e.g. open on a red screen that crossfades into a clip. Video
+so a video can e.g. open on a red screen that crossfades into a clip.
+Transitions between adjacent entries offer a crossfade, four slide
+directions, four wipes, and four pushes (#181), rendered identically by the
+preview and the exported file from one shared rule. Video
 entries can be time-remapped (#138, #141, #144): any number of speed segments
 (e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
 (freeze one frame for a chosen time), edited on the timeline and honored by

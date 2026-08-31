@@ -116,6 +116,14 @@ export const TRANSITION_TYPES = [
   'slide-from-below',
   'slide-from-left',
   'slide-from-right',
+  'wipe-from-left',
+  'wipe-from-right',
+  'wipe-from-above',
+  'wipe-from-below',
+  'push-from-left',
+  'push-from-right',
+  'push-from-above',
+  'push-from-below',
 ] as const
 
 export type TransitionType = (typeof TRANSITION_TYPES)[number]
