@@ -45,6 +45,10 @@ also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
 same way into the exported file, overlay audio in the mix (#146).
+Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
+and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
+edits back and forward — except while typing in a text field, where the
+shortcut stays the browser's own text undo.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or

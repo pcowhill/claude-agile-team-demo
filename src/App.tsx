@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
@@ -12,9 +12,9 @@ import {
   emptyTimeline,
   entryFromClip,
   slateEntry,
-  timelineReducer,
   videoOverlayFromClip,
 } from './lib/timeline'
+import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
 import { DEFAULT_TEXT } from './lib/textOverlay'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
@@ -32,7 +32,11 @@ interface AppProps {
 
 function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps) {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
-  const [timeline, dispatchTimeline] = useReducer(timelineReducer, emptyTimeline)
+  // Timeline edits run through the undo/redo history (#189); the rendered
+  // timeline is the history's present, and existing dispatch call sites are
+  // unchanged because timeline actions pass straight through the wrapper.
+  const [history, dispatchTimeline] = useReducer(timelineHistoryReducer, emptyTimelineHistory)
+  const timeline = history.present
   const [isDragTarget, setIsDragTarget] = useState(false)
   // Whether the preview spans the full content width (#128). Remembered per
   // browser across page loads; a missing or blocked store means normal layout.
@@ -167,6 +171,24 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     [timeline],
   )
 
+  // Ctrl/Cmd+Z undoes and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes (#189) —
+  // except inside text-editing fields, where the browser's own text undo
+  // must keep working (see targetEditsText).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      const key = event.key.toLowerCase()
+      const undo = key === 'z' && !event.shiftKey
+      const redo = (key === 'z' && event.shiftKey) || key === 'y'
+      if (!undo && !redo) return
+      if (targetEditsText(event.target)) return
+      event.preventDefault()
+      dispatchTimeline({ type: undo ? 'edit-undone' : 'edit-redone' })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
   const handleDragEnter = (event: DragEvent) => {
@@ -238,6 +260,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         />
         <Timeline
           timeline={timeline}
+          canUndo={history.past.length > 0}
+          canRedo={history.future.length > 0}
+          onUndo={() => dispatchTimeline({ type: 'edit-undone' })}
+          onRedo={() => dispatchTimeline({ type: 'edit-redone' })}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
           onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
           onTrimEntry={(id, inPoint, outPoint) =>
