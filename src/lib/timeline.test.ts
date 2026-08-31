@@ -29,6 +29,7 @@ import {
 } from './timeline'
 import type { RemapEffect, TextOverlay, VideoOverlay, ZoomEffect } from './timeline'
 import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
+import { zoomAt } from './zoom'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -1927,6 +1928,218 @@ describe('overlay video layers (#145)', () => {
         [layer('v1', { offset: -1, x: 0.9, width: 0.5 })],
       )
       expect(videoOverlaysOf(state)[0]).toMatchObject({ offset: 0, x: 0.5, width: 0.5 })
+    })
+  })
+})
+
+describe('entry-split (#190)', () => {
+  const split = (
+    state: TimelineState,
+    id: string,
+    atSourceTime: number,
+    newEntryId = 'e-new',
+  ): TimelineState => timelineReducer(state, { type: 'entry-split', id, atSourceTime, newEntryId })
+
+  it('splits a trimmed video entry into two halves covering the exact source range', () => {
+    const state = stateOf(['e1', 10, 2, 8])
+    const next = split(state, 'e1', 5)
+    expect(next.entries).toHaveLength(2)
+    const [first, second] = next.entries
+    expect(first).toMatchObject({ id: 'e1', inPoint: 2, outPoint: 5, duration: 10 })
+    expect(second).toMatchObject({ id: 'e-new', inPoint: 5, outPoint: 8, duration: 10 })
+    // Identity fields carry to both halves — same source clip, same media.
+    expect(second.clipId).toBe(first.clipId)
+    expect(second.url).toBe(first.url)
+    expect(second.name).toBe(first.name)
+    expect(totalDuration(next)).toBe(totalDuration(state))
+  })
+
+  it('keeps entry order: the halves replace the original in place', () => {
+    const state = stateOf(['e1'], ['e2'], ['e3'])
+    expect(order(split(state, 'e2', 4))).toEqual(['e1', 'e2', 'e-new', 'e3'])
+  })
+
+  it('splits a still by duration, keeping the [0, duration] window invariant', () => {
+    const state = timelineReducer(emptyTimeline, { type: 'entry-added', entry: slateEntry('s1') })
+    const next = split(state, 's1', 2)
+    const [first, second] = next.entries
+    expect(first).toMatchObject({ id: 's1', kind: 'slate', duration: 2, inPoint: 0, outPoint: 2 })
+    expect(second).toMatchObject({ id: 'e-new', kind: 'slate', duration: 3, inPoint: 0, outPoint: 3 })
+    expect(second.color).toBe(first.color)
+    expect(totalDuration(next)).toBe(DEFAULT_STILL_DURATION)
+  })
+
+  it('copies per-entry gain to both halves (the gain rule: carries)', () => {
+    let state = stateOf(['e1'])
+    state = timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 0.4 })
+    state = timelineReducer(state, { type: 'entry-mute-set', id: 'e1', muted: true })
+    const next = split(state, 'e1', 5)
+    expect(next.entries[0]).toMatchObject({ volume: 0.4, muted: true })
+    expect(next.entries[1]).toMatchObject({ volume: 0.4, muted: true })
+  })
+
+  it('vetoes a split at or outside the trim edges — nothing to split there', () => {
+    const state = stateOf(['e1', 10, 2, 8])
+    expect(split(state, 'e1', 2)).toBe(state)
+    expect(split(state, 'e1', 8)).toBe(state)
+    expect(split(state, 'e1', 1)).toBe(state)
+    expect(split(state, 'e1', 9)).toBe(state)
+    expect(split(state, 'e1', Number.NaN)).toBe(state)
+  })
+
+  it('vetoes an unknown entry and a duplicate new id', () => {
+    const state = stateOf(['e1'], ['e2'])
+    expect(split(state, 'ghost', 5)).toBe(state)
+    expect(split(state, 'e1', 5, 'e2')).toBe(state)
+  })
+
+  describe('transitions', () => {
+    const withTransitions = (): TimelineState => {
+      let state = stateOf(['e1'], ['e2'], ['e3'])
+      state = timelineReducer(state, {
+        type: 'transition-set',
+        beforeId: 'e1',
+        afterId: 'e2',
+        transition: { type: 'crossfade', duration: 1 },
+      })
+      return timelineReducer(state, {
+        type: 'transition-set',
+        beforeId: 'e2',
+        afterId: 'e3',
+        transition: { type: 'wipe-from-left', duration: 2 },
+      })
+    }
+
+    it('keeps the incoming transition on the first half and moves the outgoing one to the second', () => {
+      const next = split(withTransitions(), 'e2', 5)
+      expect(transitionsOf(next)).toEqual([
+        { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
+        { beforeId: 'e-new', afterId: 'e3', type: 'wipe-from-left', duration: 2 },
+      ])
+      expect(totalDuration(next)).toBe(totalDuration(withTransitions()))
+    })
+
+    it('a split outside both overlaps leaves every transition duration unchanged', () => {
+      // e2 occupies source [0, 10]; the crossfade overlaps its first 1s of
+      // output and the wipe its last 2s. Splitting at 5 leaves halves of 5s
+      // each — room for both transitions, so nothing re-clamps.
+      const before = withTransitions()
+      const next = split(before, 'e2', 5)
+      expect(boundaryTransitions(next).map((t) => t?.duration)).toEqual([1, undefined, 2])
+    })
+  })
+
+  describe('zooms', () => {
+    const zoom = (id: string, entryId: string, spec: Partial<ZoomSpec> = {}): ZoomEffect => ({
+      id,
+      entryId,
+      start: 1,
+      rampIn: 0.5,
+      hold: 1,
+      rampOut: 0.5,
+      scale: 2,
+      centerX: 0.5,
+      centerY: 0.5,
+      ...spec,
+    })
+    const withZoom = (state: TimelineState, effect: ZoomEffect): TimelineState =>
+      timelineReducer(state, { type: 'zoom-added', zoom: effect })
+
+    it('keeps a zoom wholly before the cut with the first half', () => {
+      const state = withZoom(stateOf(['e1', 10, 2, 8]), zoom('z1', 'e1'))
+      const next = split(state, 'e1', 7) // splitRel 5; window [1, 3]
+      expect(zoomsForEntry(next, 'e1')).toEqual([zoom('z1', 'e1')])
+      expect(zoomsForEntry(next, 'e-new')).toEqual([])
+    })
+
+    it('moves a zoom wholly after the cut to the second half, re-anchored', () => {
+      const state = withZoom(stateOf(['e1', 10, 2, 8]), zoom('z1', 'e1', { start: 3 }))
+      const next = split(state, 'e1', 4) // splitRel 2; window [3, 5]
+      expect(zoomsForEntry(next, 'e1')).toEqual([])
+      expect(zoomsForEntry(next, 'e-new')).toEqual([zoom('z1', 'e-new', { start: 1 })])
+      // The moved zoom renders at the same absolute source times: probe the
+      // ramp middle and the hold.
+      for (const sourceTime of [5.25, 5.5, 6, 6.5, 6.9]) {
+        expect(zoomAt(next, 1, sourceTime)).toEqual(zoomAt(state, 0, sourceTime))
+      }
+    })
+
+    it('cuts a zoom whose hold contains the split into two exactly rendering zooms', () => {
+      const state = withZoom(stateOf(['e1', 10, 0, 10]), zoom('z1', 'e1', { start: 2, rampIn: 1, hold: 2, rampOut: 1 }))
+      const next = split(state, 'e1', 4) // window [2, 6], hold [3, 5], cut at 4
+      expect(zoomsForEntry(next, 'e1')).toEqual([
+        zoom('z1', 'e1', { start: 2, rampIn: 1, hold: 1, rampOut: 0 }),
+      ])
+      expect(zoomsForEntry(next, 'e-new')).toEqual([
+        zoom('e-new:z1', 'e-new', { start: 0, rampIn: 0, hold: 1, rampOut: 1 }),
+      ])
+      // Identical rendering across the whole window: first half up to the
+      // cut, second half beyond it (probing through each half's own entry).
+      for (const sourceTime of [2, 2.5, 3, 3.5, 3.99]) {
+        expect(zoomAt(next, 0, sourceTime)).toEqual(zoomAt(state, 0, sourceTime))
+      }
+      for (const sourceTime of [4, 4.5, 5, 5.5, 5.99, 6.5]) {
+        expect(zoomAt(next, 1, sourceTime)).toEqual(zoomAt(state, 0, sourceTime))
+      }
+    })
+
+    it('a zoom whose ramp contains the cut stays whole with the first half and clamps (the documented fallback)', () => {
+      const state = withZoom(stateOf(['e1', 10, 0, 10]), zoom('z1', 'e1', { start: 2, rampIn: 1, hold: 2, rampOut: 1 }))
+      const next = split(state, 'e1', 2.5) // cut mid-rampIn
+      expect(zoomsForEntry(next, 'e-new')).toEqual([])
+      // Clamped into the 2.5s first half: phases collapse from the end.
+      expect(zoomsForEntry(next, 'e1')).toEqual([
+        zoom('z1', 'e1', { start: 2, rampIn: 0.5, hold: 0, rampOut: 0 }),
+      ])
+    })
+  })
+
+  describe('time remaps', () => {
+    const speed = (id: string, entryId: string, start: number, end: number, factor: number): RemapEffect =>
+      ({ id, entryId, kind: 'speed', start, end, factor })
+    const pause = (id: string, entryId: string, at: number, hold: number): RemapEffect =>
+      ({ id, entryId, kind: 'pause', at, hold })
+    const withRemap = (state: TimelineState, remap: RemapEffect): TimelineState =>
+      timelineReducer(state, { type: 'remap-added', remap })
+
+    it('cuts a speed segment containing the split into two segments with the same factor', () => {
+      const state = withRemap(stateOf(['e1', 10, 0, 10]), speed('r1', 'e1', 2, 6, 0.5))
+      const next = split(state, 'e1', 4)
+      expect(remapsOf(next)).toEqual([
+        speed('r1', 'e1', 2, 4, 0.5),
+        speed('e-new:r1', 'e-new', 0, 2, 0.5),
+      ])
+      // Output time is exactly preserved: 10 + 4 (the segment doubles) both
+      // before and after, split additively across the halves.
+      const remaps = remapsOf(next)
+      expect(
+        entryOutputDuration(next.entries[0], remaps) + entryOutputDuration(next.entries[1], remaps),
+      ).toBe(entryOutputDuration(state.entries[0], remapsOf(state)))
+      expect(totalDuration(next)).toBe(totalDuration(state))
+    })
+
+    it('keeps a pause at or before the cut with the first half, re-anchoring later ones', () => {
+      let state = withRemap(stateOf(['e1', 10, 0, 10]), pause('r1', 'e1', 4, 2))
+      state = withRemap(state, pause('r2', 'e1', 7, 1))
+      const next = split(state, 'e1', 4) // the cut lands exactly on r1's instant
+      expect(remapsOf(next)).toEqual([
+        pause('r1', 'e1', 4, 2),
+        pause('r2', 'e-new', 3, 1),
+      ])
+      expect(totalDuration(next)).toBe(totalDuration(state))
+    })
+
+    it('respects the trim offset: windows are relative to the in-point', () => {
+      // Entry trimmed to [2, 8]; segment over source [4, 6] is window [2, 4].
+      const state = withRemap(stateOf(['e1', 10, 2, 8]), speed('r1', 'e1', 2, 4, 2))
+      const next = split(state, 'e1', 7) // splitRel 5: the segment is wholly before
+      expect(remapsOf(next)).toEqual([speed('r1', 'e1', 2, 4, 2)])
+      const nextAtFive = split(state, 'e1', 5) // splitRel 3: cuts the segment
+      expect(remapsOf(nextAtFive)).toEqual([
+        speed('r1', 'e1', 2, 3, 2),
+        speed('e-new:r1', 'e-new', 0, 1, 2),
+      ])
+      expect(totalDuration(nextAtFive)).toBe(totalDuration(state))
     })
   })
 })

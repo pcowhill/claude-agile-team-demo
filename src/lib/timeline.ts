@@ -334,6 +334,21 @@ export type TimelineAction =
       timeline: TimelineState
     }
   | { type: 'entry-added'; entry: TimelineEntry }
+  | {
+      /**
+       * The razor (#190): split one entry into two at a source instant,
+       * playing back exactly as before until either half is edited. The
+       * caller resolves the playhead's *output* time to `atSourceTime` (see
+       * `splitTargetAt` in playback.ts — locateInSequence already maps
+       * output through the entry's remap effects); `newEntryId` names the
+       * second half, supplied by the caller like every entry id.
+       */
+      type: 'entry-split'
+      id: string
+      /** Absolute source-clip seconds; must be strictly inside (inPoint, outPoint). */
+      atSourceTime: number
+      newEntryId: string
+    }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
   | { type: 'entry-moved'; id: string; direction: 'up' | 'down' }
@@ -421,6 +436,22 @@ export function audioTrackFromClip(clip: LibraryClip, id: string, offset = 0): A
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+/**
+ * Whether `atSourceTime` is a point an entry can split at (#190): strictly
+ * inside the trimmed window. At either edge one half would be empty — there
+ * is nothing to split — so edges are rejected, mirroring the empty-trim rule.
+ * Shared by the reducer's veto and the UI's enablement (via `splitTargetAt`
+ * in playback.ts).
+ */
+export function isSplittablePoint(
+  entry: Pick<TimelineEntry, 'inPoint' | 'outPoint'>,
+  atSourceTime: number,
+): boolean {
+  return (
+    Number.isFinite(atSourceTime) && atSourceTime > entry.inPoint && atSourceTime < entry.outPoint
+  )
+}
 
 /** The state's transitions, tolerating pre-transition states. */
 export function transitionsOf(state: TimelineState): TimelineTransition[] {
@@ -816,6 +847,117 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       return action.timeline
     case 'entry-added':
       return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    case 'entry-split': {
+      // The razor (#190). The halves cover exactly the original's trimmed
+      // range, so an untouched split plays back indistinguishably; per-entry
+      // effects follow the rules below (each exact except a zoom whose ramp
+      // contains the cut — see the zoom case).
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      if (!isSplittablePoint(entry, action.atSourceTime)) return state
+      // Ids are the handles every entry-scoped action acts on — never two
+      // alike, mirroring the zoom-added and remap-added guards.
+      if (state.entries.some((existing) => existing.id === action.newEntryId)) return state
+      // Effect windows are relative to the trimmed range (seconds past the
+      // in-point) — the cut in that coordinate space.
+      const splitRel = action.atSourceTime - entry.inPoint
+      // A still's window is always [0, duration] (see TimelineEntry), so its
+      // halves get split *durations*; a video's halves split the source trim.
+      const halves: TimelineEntry[] = isStillEntry(entry)
+        ? [
+            { ...entry, duration: splitRel, outPoint: splitRel },
+            {
+              ...entry,
+              id: action.newEntryId,
+              duration: entry.duration - splitRel,
+              outPoint: entry.duration - splitRel,
+            },
+          ]
+        : [
+            { ...entry, outPoint: action.atSourceTime },
+            { ...entry, id: action.newEntryId, inPoint: action.atSourceTime },
+          ]
+      const entries = [...state.entries.slice(0, index), ...halves, ...state.entries.slice(index + 1)]
+      // The first half keeps the entry's id, so a transition *into* the entry
+      // stays put; the boundary *out of* the entry now follows the second
+      // half. The new halves' own boundary is a hard cut on continuous
+      // content — invisible until either half is edited.
+      const splitTransitions = transitions.map((transition) =>
+        transition.beforeId === action.id
+          ? { ...transition, beforeId: action.newEntryId }
+          : transition,
+      )
+      // Zooms cut at the same instant where that is exactly representable:
+      // a window wholly before the cut stays, one wholly after moves (its
+      // start re-anchored to the second half), and one whose *hold* contains
+      // the cut splits into two zooms that render identically (the first
+      // keeps the ramp-in and the hold up to the cut, the second holds from
+      // its first instant and keeps the ramp-out). A cut inside a ramp has
+      // no exact ZoomSpec form (a ramp always runs 1 → scale over its own
+      // length), so that zoom stays whole with the first half and
+      // normalization clamps it — the issue's sanctioned fallback (#190),
+      // asserted by its test.
+      const splitZooms = zooms.flatMap((zoom): ZoomEffect[] => {
+        if (zoom.entryId !== action.id) return [zoom]
+        if (zoom.start + zoomWindowDuration(zoom) <= splitRel) return [zoom]
+        if (zoom.start >= splitRel) {
+          return [{ ...zoom, entryId: action.newEntryId, start: zoom.start - splitRel }]
+        }
+        const holdStart = zoom.start + zoom.rampIn
+        if (splitRel >= holdStart && splitRel <= holdStart + zoom.hold) {
+          return [
+            { ...zoom, hold: splitRel - holdStart, rampOut: 0 },
+            {
+              ...zoom,
+              // Fresh ids derive from the (fresh) second-half entry id, so a
+              // cut piece can never collide with any existing effect id.
+              id: `${action.newEntryId}:${zoom.id}`,
+              entryId: action.newEntryId,
+              start: 0,
+              rampIn: 0,
+              hold: holdStart + zoom.hold - splitRel,
+            },
+          ]
+        }
+        return [zoom]
+      })
+      // Remap effects cut exactly in every case: a speed segment containing
+      // the cut becomes two segments with the same factor (the piecewise
+      // output↔source mapping is identical), and a pause sits at a single
+      // instant — at the cut itself it stays with the first half, freezing
+      // that half's final frame, which plays out identically.
+      const splitRemaps = remaps.flatMap((remap): RemapEffect[] => {
+        if (remap.entryId !== action.id) return [remap]
+        if (remap.kind === 'pause') {
+          return remap.at <= splitRel
+            ? [remap]
+            : [{ ...remap, entryId: action.newEntryId, at: remap.at - splitRel }]
+        }
+        if (remap.end <= splitRel) return [remap]
+        if (remap.start >= splitRel) {
+          return [
+            {
+              ...remap,
+              entryId: action.newEntryId,
+              start: remap.start - splitRel,
+              end: remap.end - splitRel,
+            },
+          ]
+        }
+        return [
+          { ...remap, end: splitRel },
+          {
+            ...remap,
+            id: `${action.newEntryId}:${remap.id}`,
+            entryId: action.newEntryId,
+            start: 0,
+            end: remap.end - splitRel,
+          },
+        ]
+      })
+      return withEffects(entries, splitTransitions, splitZooms, audioTracks, splitRemaps, texts, videoOverlays)
+    }
     case 'entry-removed':
       return withEffects(
         state.entries.filter((entry) => entry.id !== action.id),

@@ -1294,3 +1294,74 @@ describe('overlay video layers (#145)', () => {
     expect(overlayElement(1).className).toContain('preview-overlay-hidden')
   })
 })
+
+describe('Split at playhead (#190)', () => {
+  const twoClips: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 4,
+        url: 'blob:first',
+        inPoint: 1,
+        outPoint: 4,
+      },
+      {
+        id: 'e2',
+        clipId: 'c2',
+        name: 'second.webm',
+        duration: 4,
+        url: 'blob:second',
+        inPoint: 0,
+        outPoint: 4,
+      },
+    ],
+  }
+
+  it('enables exactly where a split is possible and reports the source instant', () => {
+    const onSplit = vi.fn()
+    render(<PreviewPlayer timeline={twoClips} onSplit={onSplit} />)
+    const button = screen.getByTestId('preview-split')
+    const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
+
+    // At the sequence start there is nothing before the playhead to split.
+    expect(button).toBeDisabled()
+
+    // Mid-first-entry: 1.5s into e1's trimmed range → source 1 + 1.5.
+    fireEvent.change(slider, { target: { value: '1.5' } })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    expect(onSplit).toHaveBeenCalledWith('e1', 2.5)
+
+    // The e1→e2 hard-cut boundary resolves to e2's very start: disabled.
+    fireEvent.change(slider, { target: { value: '3' } })
+    expect(button).toBeDisabled()
+
+    // The sequence end: disabled.
+    fireEvent.change(slider, { target: { value: '7' } })
+    expect(button).toBeDisabled()
+  })
+
+  it('disables inside a transition overlap', () => {
+    const withTransition: TimelineState = {
+      ...twoClips,
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+    }
+    render(<PreviewPlayer timeline={withTransition} onSplit={vi.fn()} />)
+    const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
+    // The overlap covers sequence [2, 3): both clips are playing.
+    fireEvent.change(slider, { target: { value: '2.5' } })
+    expect(screen.getByTestId('preview-split')).toBeDisabled()
+    fireEvent.change(slider, { target: { value: '1.5' } })
+    expect(screen.getByTestId('preview-split')).toBeEnabled()
+  })
+
+  it('stays disabled without an onSplit wiring', () => {
+    render(<PreviewPlayer timeline={twoClips} />)
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '1.5' },
+    })
+    expect(screen.getByTestId('preview-split')).toBeDisabled()
+  })
+})
