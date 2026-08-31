@@ -1675,6 +1675,25 @@ describe('text overlays in project files (#139)', () => {
     ;(document.timeline as { texts?: unknown }).texts = [overlay, { ...overlay, content: 'Again' }]
     await expectRefusal(await gzipJson(document), 'timeline.texts[1].id "t1" is duplicated')
   })
+
+  it('round-trips fades, writes them only when set, and refuses negatives (#177)', async () => {
+    const fading = { ...overlay, fadeIn: 0.5, fadeOut: 1 }
+    const bytes = await serializeProject(library, { ...timeline, texts: [fading] })
+    expect((await gunzipJson(bytes)).timeline).toMatchObject({ texts: [fading] })
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.texts).toEqual([fading])
+
+    // Fade-free overlays keep the file's shape from before #177 — the keys
+    // are simply absent, and parse as absent (meaning 0).
+    const withoutFades = await gunzipJson(await serializeProject(library, textTimeline))
+    expect((withoutFades.timeline as { texts: object[] }).texts[0]).not.toHaveProperty('fadeIn')
+    expect((withoutFades.timeline as { texts: object[] }).texts[0]).not.toHaveProperty('fadeOut')
+
+    const document = validDocument()
+    ;(document.timeline as { texts?: unknown }).texts = [{ ...overlay, fadeIn: -1 }]
+    await expectRefusal(await gzipJson(document), 'timeline.texts[0].fadeIn must not be negative')
+  })
 })
 
 describe('overlay video layers in project files (#145)', () => {

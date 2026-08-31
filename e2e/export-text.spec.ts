@@ -126,3 +126,51 @@ test('an exported file shows the text overlay during its window only', async ({ 
   const beforeWindow = await countWhitishPixels(page, exported, inWindow.duration - 0.5)
   expect(beforeWindow.whitish).toBe(0)
 })
+
+test('an exported fade renders: bright text early in the window, dimmed past the ramp (#177)', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await page.goto('./')
+
+  // The same red-slate fixture; the overlay covers the whole 3 s sequence
+  // and fades out across all of it, so brightness falls monotonically: near
+  // the start the white text is (almost) full-strength; near the end its
+  // alpha is a small fraction and no pixel clears the whitish threshold.
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  const slateDuration = page.getByRole('spinbutton', {
+    name: 'Duration of Color slate at position 1 in seconds',
+  })
+  await slateDuration.fill('3')
+  await slateDuration.blur()
+
+  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  const size = page.getByRole('spinbutton', {
+    name: 'Size of text overlay at position 1 (fraction of frame height)',
+  })
+  await size.fill('0.25')
+  await size.blur()
+  const fadeOut = page.getByRole('spinbutton', {
+    name: 'Fade-out of text overlay at position 1 in seconds',
+  })
+  await fadeOut.fill('3')
+  await fadeOut.blur()
+
+  const exported = await exportOnce(page)
+  expect(exported.byteLength).toBeGreaterThan(1000)
+
+  // Early in the window (~2.5 s from the end of a ~3 s file — export
+  // overhead only ever pads the front, so this instant maps to a sequence
+  // time no later than 0.5 s, envelope ≥ 0.8): white text over red brightens
+  // green and blue well past the threshold.
+  const early = await countWhitishPixels(page, exported, 2.5)
+  expect(early.duration).toBeGreaterThan(3 * 0.6)
+  expect(early.duration).toBeLessThan(3 + 2)
+  expect(early.whitish).toBeGreaterThan(early.total * 0.005)
+
+  // Deep into the fade (0.3 s from the end, envelope ≤ 0.1): the text's
+  // contribution to green/blue is a few tens of levels at most — nothing
+  // clears the whitish threshold, though the overlay is still active.
+  const late = await countWhitishPixels(page, exported, 0.3)
+  expect(late.whitish).toBe(0)
+})

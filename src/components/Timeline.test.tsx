@@ -1153,6 +1153,30 @@ describe('text overlays (#139)', () => {
     expect(color).toHaveValue('#00ff00')
   })
 
+  it('edits fades, clamping the pair into the duration visibly (#177)', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    // Default duration 3s: a 1s fade-in commits as typed.
+    const fadeIn = screen.getByRole('spinbutton', {
+      name: 'Fade-in of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(fadeIn)
+    await userEvent.type(fadeIn, '1')
+    await userEvent.tab()
+    expect(fadeIn).toHaveValue(1)
+
+    // A 5s fade-out exceeds what the 3s window leaves after the fade-in;
+    // the reducer's clamp (fadeOut absorbs the shortfall) shows visibly.
+    const fadeOut = screen.getByRole('spinbutton', {
+      name: 'Fade-out of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(fadeOut)
+    await userEvent.type(fadeOut, '5')
+    await userEvent.tab()
+    expect(fadeOut).toHaveValue(2)
+  })
+
   it('removes an overlay; the lane disappears with the last one', async () => {
     render(<App />)
     const add = screen.getByRole('button', { name: 'Add text overlay to timeline' })

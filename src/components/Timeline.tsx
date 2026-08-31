@@ -82,6 +82,8 @@ const textSpecOf = ({
   color,
   bold,
   italic,
+  fadeIn,
+  fadeOut,
 }: TextOverlaySpec): TextOverlaySpec => ({
   content,
   offset,
@@ -93,6 +95,8 @@ const textSpecOf = ({
   color,
   bold,
   italic,
+  ...(fadeIn === undefined ? {} : { fadeIn }),
+  ...(fadeOut === undefined ? {} : { fadeOut }),
 })
 
 interface TextContentFieldProps {
@@ -996,6 +1000,20 @@ export function Timeline({
                       max={1}
                       step={0.05}
                       onCommit={(y) => set({ y })}
+                    />
+                    <span>Fade in</span>
+                    <SecondsField
+                      label={`Fade-in of ${position} in seconds`}
+                      value={text.fadeIn ?? 0}
+                      max={text.duration}
+                      onCommit={(fadeIn) => set({ fadeIn })}
+                    />
+                    <span>out</span>
+                    <SecondsField
+                      label={`Fade-out of ${position} in seconds`}
+                      value={text.fadeOut ?? 0}
+                      max={text.duration}
+                      onCommit={(fadeOut) => set({ fadeOut })}
                     />
                   </div>
                   <div className="text-overlay-controls">

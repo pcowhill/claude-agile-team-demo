@@ -87,6 +87,15 @@ export interface TextOverlaySpec {
   color: string
   bold: boolean
   italic: boolean
+  /**
+   * Fade durations in seconds (#177): opacity ramps 0→1 over the first
+   * `fadeIn` seconds of the window and 1→0 over the last `fadeOut` seconds.
+   * Absent means no fade — today's instant appearance. Clamping keeps the
+   * pair within the overlay's duration (see `clampTextOverlay`), the same
+   * rule audio-track fades follow (#104).
+   */
+  fadeIn?: number
+  fadeOut?: number
 }
 
 /** A text overlay in the timeline state. The id is the edit handle. */
@@ -144,7 +153,9 @@ export function isValidTextOverlaySpec(spec: TextOverlaySpec): boolean {
     isTextFontId(spec.font) &&
     isValidTextColor(spec.color) &&
     typeof spec.bold === 'boolean' &&
-    typeof spec.italic === 'boolean'
+    typeof spec.italic === 'boolean' &&
+    (spec.fadeIn === undefined || Number.isFinite(spec.fadeIn)) &&
+    (spec.fadeOut === undefined || Number.isFinite(spec.fadeOut))
   )
 }
 
@@ -153,16 +164,30 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 /**
  * Clamps one overlay's continuous fields into their ranges: offset at 0 but
  * unbounded above (the allowed-tail decision — see the module comment),
- * centre within the frame, size within its bounds. Returns the same object
- * when nothing changes, so no-op edits are cheap to detect.
+ * centre within the frame, size within its bounds, and fades (#177)
+ * non-negative with the pair never exceeding the duration — `fadeIn` keeps
+ * its value first and `fadeOut` absorbs the shortfall, the audio-track fade
+ * rule (#104). Returns the same object when nothing changes, so no-op edits
+ * are cheap to detect.
  */
 export function clampTextOverlay(text: TextOverlay): TextOverlay {
   const offset = Math.max(0, text.offset)
   const x = clamp(text.x, 0, 1)
   const y = clamp(text.y, 0, 1)
   const size = clamp(text.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)
-  if (offset === text.offset && x === text.x && y === text.y && size === text.size) return text
-  return { ...text, offset, x, y, size }
+  const fadeIn = clamp(text.fadeIn ?? 0, 0, text.duration)
+  const fadeOut = clamp(text.fadeOut ?? 0, 0, text.duration - fadeIn)
+  if (
+    offset === text.offset &&
+    x === text.x &&
+    y === text.y &&
+    size === text.size &&
+    fadeIn === (text.fadeIn ?? 0) &&
+    fadeOut === (text.fadeOut ?? 0)
+  ) {
+    return text
+  }
+  return { ...text, offset, x, y, size, fadeIn, fadeOut }
 }
 
 export function textOverlaysEqual(a: TextOverlay, b: TextOverlay): boolean {
@@ -177,7 +202,9 @@ export function textOverlaysEqual(a: TextOverlay, b: TextOverlay): boolean {
     a.size === b.size &&
     a.color === b.color &&
     a.bold === b.bold &&
-    a.italic === b.italic
+    a.italic === b.italic &&
+    (a.fadeIn ?? 0) === (b.fadeIn ?? 0) &&
+    (a.fadeOut ?? 0) === (b.fadeOut ?? 0)
   )
 }
 
@@ -188,4 +215,23 @@ export function textOverlaysEqual(a: TextOverlay, b: TextOverlay): boolean {
  */
 export function textActiveAt(text: TextOverlay, sequenceTime: number): boolean {
   return sequenceTime >= text.offset && sequenceTime < text.offset + text.duration
+}
+
+/**
+ * The overlay's opacity at a sequence time (#177): 0 outside the window,
+ * otherwise the fade envelope — linear 0→1 over the first `fadeIn` seconds
+ * and 1→0 over the last `fadeOut` seconds, taking the minimum where ramps
+ * meet, exactly the audio-track envelope shape (`audioTrackGainAt`, #104).
+ * The single source of truth for both renderers: the preview sets it as the
+ * element's CSS opacity and the export as the canvas globalAlpha (#66
+ * pattern), so a fade cannot render differently in the two.
+ */
+export function textOpacityAt(text: TextOverlay, sequenceTime: number): number {
+  if (!textActiveAt(text, sequenceTime)) return 0
+  const into = sequenceTime - text.offset
+  const fadeIn = text.fadeIn ?? 0
+  const fadeOut = text.fadeOut ?? 0
+  const inRamp = fadeIn > 0 ? Math.min(into / fadeIn, 1) : 1
+  const outRamp = fadeOut > 0 ? Math.min((text.duration - into) / fadeOut, 1) : 1
+  return Math.min(inRamp, outRamp)
 }
