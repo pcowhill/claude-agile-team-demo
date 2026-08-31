@@ -1368,3 +1368,93 @@ describe('overlay video layers (#145)', () => {
     expect(sequenceNames()).toEqual(['base.mp4'])
   })
 })
+
+describe('undo/redo (#189)', () => {
+  const undoButton = () => screen.getByRole('button', { name: 'Undo last timeline edit' })
+  const redoButton = () => screen.getByRole('button', { name: 'Redo timeline edit' })
+
+  it('undoes and redoes an edit via the toolbar buttons, enabling them only when usable', async () => {
+    render(<App />)
+    expect(undoButton()).toBeDisabled()
+    expect(redoButton()).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    expect(sequenceNames()).toEqual(['Color slate'])
+    expect(undoButton()).toBeEnabled()
+    expect(redoButton()).toBeDisabled()
+
+    await userEvent.click(undoButton())
+    expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
+    expect(undoButton()).toBeDisabled()
+    expect(redoButton()).toBeEnabled()
+
+    await userEvent.click(redoButton())
+    expect(sequenceNames()).toEqual(['Color slate'])
+    expect(redoButton()).toBeDisabled()
+  })
+
+  it('treats one committed field edit as one undo step, and a new edit clears redo', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    const duration = screen.getByRole('spinbutton', {
+      name: 'Duration of Color slate at position 1 in seconds',
+    })
+    // Typing "12" is two keystrokes but commits on blur as a single action —
+    // one undo returns straight to the pre-edit value.
+    await userEvent.clear(duration)
+    await userEvent.type(duration, '12')
+    await userEvent.tab()
+    expect(duration).toHaveValue(12)
+
+    await userEvent.click(undoButton())
+    expect(
+      screen.getByRole('spinbutton', { name: 'Duration of Color slate at position 1 in seconds' }),
+    ).toHaveValue(5)
+    expect(redoButton()).toBeEnabled()
+
+    // Diverging after the undo abandons the redo line.
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    expect(redoButton()).toBeDisabled()
+  })
+
+  it('undoes with Ctrl+Z and redoes with Ctrl+Shift+Z and Ctrl+Y', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+
+    await userEvent.keyboard('{Control>}z{/Control}')
+    expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
+
+    await userEvent.keyboard('{Control>}{Shift>}z{/Shift}{/Control}')
+    expect(sequenceNames()).toEqual(['Color slate'])
+
+    await userEvent.keyboard('{Control>}z{/Control}')
+    await userEvent.keyboard('{Control>}y{/Control}')
+    expect(sequenceNames()).toEqual(['Color slate'])
+  })
+
+  it('leaves Ctrl+Z to the browser while a text-editing field has focus', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    const duration = screen.getByRole('spinbutton', {
+      name: 'Duration of Color slate at position 1 in seconds',
+    })
+    await userEvent.click(duration)
+    await userEvent.keyboard('{Control>}z{/Control}')
+    // The shortcut stayed native text undo: the timeline edit survives.
+    expect(sequenceNames()).toEqual(['Color slate'])
+  })
+
+  it('clears the history when a used library clip is removed, so undo cannot resurrect it', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(undoButton()).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await confirmRemoval()
+    expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
+    // The removed clip's states are unreachable — its object URL is revoked.
+    expect(undoButton()).toBeDisabled()
+    expect(redoButton()).toBeDisabled()
+  })
+})

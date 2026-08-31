@@ -36,6 +36,12 @@ import './Timeline.css'
 
 interface TimelineProps {
   timeline: TimelineState
+  /** Whether an earlier state exists to undo to (#189). */
+  canUndo: boolean
+  /** Whether an undone state exists to redo to (#189). */
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
   onMoveEntry: (id: string, direction: 'up' | 'down') => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
@@ -234,6 +240,10 @@ function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: Seco
 
 export function Timeline({
   timeline,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   onMoveEntry,
   onRemoveEntry,
   onTrimEntry,
@@ -293,6 +303,28 @@ export function Timeline({
     <section className="panel panel-wide" aria-label="Timeline">
       <div className="timeline-header">
         <h2>Timeline</h2>
+        {/* Undo/redo (#189) act on the whole edit history, so they live on
+            the timeline itself rather than any one item. The keyboard
+            shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y) are wired
+            app-wide; the title advertises them. */}
+        <button
+          type="button"
+          aria-label="Undo last timeline edit"
+          title="Undo (Ctrl+Z)"
+          disabled={!canUndo}
+          onClick={onUndo}
+        >
+          ↺ Undo
+        </button>
+        <button
+          type="button"
+          aria-label="Redo timeline edit"
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={!canRedo}
+          onClick={onRedo}
+        >
+          ↻ Redo
+        </button>
         {/* A slate needs no imported media (#143), so it is added right
             here rather than from the library. */}
         <button type="button" aria-label="Add color slate to timeline" onClick={onAddSlate}>
