@@ -40,3 +40,35 @@ test('a text overlay renders over the frame, sized by the frame height', async (
   await page.getByRole('slider', { name: 'Seek within sequence' }).fill('4')
   await expect(text).not.toBeAttached()
 })
+
+test('a text overlay fades: opacity follows the shared envelope while scrubbing (#177)', async ({
+  page,
+}) => {
+  await page.goto('./')
+
+  // Same media-free fixture: a 5s slate, the default 3s overlay from 0.
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+
+  // A 2s fade-in: one second in, the envelope sits at exactly 0.5.
+  const fadeIn = page.getByRole('spinbutton', {
+    name: 'Fade-in of text overlay at position 1 in seconds',
+  })
+  await fadeIn.fill('2')
+  await fadeIn.blur()
+
+  const text = page.getByTestId('preview-text-0')
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+
+  await seek.fill('1')
+  await expect(text).toBeVisible()
+  expect(await text.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5')
+
+  // Past the ramp the overlay is fully opaque…
+  await seek.fill('2.5')
+  expect(await text.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+
+  // …and at the window's start it has not yet appeared (opacity 0).
+  await seek.fill('0')
+  expect(await text.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
+})

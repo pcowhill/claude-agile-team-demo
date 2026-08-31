@@ -14,7 +14,7 @@ import {
   totalDuration,
   videoOverlaysOf,
 } from '../lib/timeline'
-import { textActiveAt, textFontStack } from '../lib/textOverlay'
+import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
 import {
   audioTrackPlaybackAt,
@@ -1033,6 +1033,9 @@ export function PreviewPlayer({
                         fontWeight: text.bold ? 700 : 400,
                         fontStyle: text.italic ? 'italic' : 'normal',
                         color: text.color,
+                        // The fade envelope (#177): the same textOpacityAt
+                        // value the export applies as globalAlpha.
+                        opacity: textOpacityAt(text, Math.min(sequenceTime, total)),
                       }}
                     >
                       {text.content}

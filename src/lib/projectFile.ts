@@ -44,7 +44,8 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *       "remaps": [{ id, entryId, kind: "speed", start, end, factor } |
  *                  { id, entryId, kind: "pause", at, hold }],   // (#138)
  *       "texts": [{ id, content, offset, duration, x, y, font, size,
- *                   color, bold, italic }],                     // (#139)
+ *                   color, bold, italic,
+ *                   fadeIn?, fadeOut? }],                       // (#139, #177)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }],
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
@@ -396,7 +397,7 @@ export async function serializeProject(
         ? {}
         : {
             texts: textsOf(timeline).map(
-              ({ id, content, offset, duration, x, y, font, size, color, bold, italic }) => ({
+              ({ id, content, offset, duration, x, y, font, size, color, bold, italic, fadeIn, fadeOut }) => ({
                 id,
                 content,
                 offset,
@@ -408,6 +409,10 @@ export async function serializeProject(
                 color,
                 bold,
                 italic,
+                // Fades (#177) are written only when set, like audio-track
+                // fades, so fade-free projects stay byte-identical.
+                ...(fadeIn === undefined || fadeIn === 0 ? {} : { fadeIn }),
+                ...(fadeOut === undefined || fadeOut === 0 ? {} : { fadeOut }),
               }),
             ),
           }),
@@ -820,6 +825,12 @@ function validateProject(document: Record<string, unknown>): Project {
     if (text.size < MIN_TEXT_SIZE || text.size > MAX_TEXT_SIZE) {
       throw new Error(`${path}.size must be between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`)
     }
+    // Fades (#177): absent in files saved before them, meaning 0 (instant).
+    // Range-checked here (finite, non-negative); fitting within the
+    // overlay's duration is the reducer's clamp, re-applied when the opened
+    // timeline is normalized — exactly the audio-track fade rule.
+    if (raw.fadeIn !== undefined) text.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
+    if (raw.fadeOut !== undefined) text.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
     return text
   })
   const textIds = new Set<string>()

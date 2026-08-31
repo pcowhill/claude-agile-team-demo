@@ -34,9 +34,10 @@ the preview's playback, scrubbing, and sequence timing — and by the exported
 file, which plays the same remapped timing. Text overlays (#139) — titles,
 subtitles, labels — can be added to the timeline with editable content
 (multi-line), timing, position, font (curated system stacks), size relative
-to the frame, any color, and bold/italic, rendering in the preview above the
-composed frame for their window — and in the exported file, which draws the
-same overlays with the same relative size and position (#142). Video clips can
+to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
+durations (#177), rendering in the preview above the composed frame for
+their window — and in the exported file, which draws the same overlays with
+the same relative size, position, and fade envelope (#142). Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the

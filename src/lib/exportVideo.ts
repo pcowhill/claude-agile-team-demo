@@ -20,7 +20,7 @@ import {
   totalDuration,
   videoOverlaysOf,
 } from './timeline'
-import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack } from './textOverlay'
+import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
@@ -258,10 +258,21 @@ export interface TextDraw {
   firstLineY: number
   /** Distance between adjacent line centres, px. */
   lineHeight: number
+  /** Fade envelope value at the draw's instant (#177) — the globalAlpha. */
+  opacity: number
 }
 
-/** Resolves one overlay's draw parameters against a frame size (#142). */
-export function textDraw(text: TextOverlay, frameWidth: number, frameHeight: number): TextDraw {
+/**
+ * Resolves one overlay's draw parameters against a frame size (#142) at a
+ * sequence instant — the instant feeds the fade envelope (#177), computed by
+ * the same `textOpacityAt` the preview sets as CSS opacity.
+ */
+export function textDraw(
+  text: TextOverlay,
+  frameWidth: number,
+  frameHeight: number,
+  sequenceTime: number,
+): TextDraw {
   const size = text.size * frameHeight
   const lineHeight = size * TEXT_LINE_HEIGHT
   const lines = text.content.split('\n')
@@ -276,6 +287,7 @@ export function textDraw(text: TextOverlay, frameWidth: number, frameHeight: num
     // the first line's centre sits half of (n−1) line steps above the middle.
     firstLineY: text.y * frameHeight - ((lines.length - 1) * lineHeight) / 2,
     lineHeight,
+    opacity: textOpacityAt(text, sequenceTime),
   }
 }
 
@@ -293,7 +305,7 @@ export function activeTextDraws(
 ): TextDraw[] {
   return textsOf(timeline)
     .filter((text) => textActiveAt(text, sequenceTime))
-    .map((text) => textDraw(text, frameWidth, frameHeight))
+    .map((text) => textDraw(text, frameWidth, frameHeight, sequenceTime))
 }
 
 export interface ExportOptions {
@@ -1055,10 +1067,14 @@ export async function exportTimeline(
       for (const text of texts) {
         context.font = text.font
         context.fillStyle = text.color
+        // The fade envelope (#177): the same textOpacityAt value the preview
+        // sets as CSS opacity, applied as the draw's alpha.
+        context.globalAlpha = text.opacity
         text.lines.forEach((line, lineIndex) => {
           context.fillText(line, text.x, text.firstLineY + lineIndex * text.lineHeight)
         })
       }
+      context.globalAlpha = 1
     }
   }
 

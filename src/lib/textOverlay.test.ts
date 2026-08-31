@@ -9,6 +9,7 @@ import {
   TEXT_FONTS,
   textActiveAt,
   textFontStack,
+  textOpacityAt,
   textOverlaysEqual,
 } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
@@ -115,5 +116,78 @@ describe('textActiveAt (#139)', () => {
     expect(textActiveAt(overlay, 2)).toBe(true)
     expect(textActiveAt(overlay, 4.99)).toBe(true)
     expect(textActiveAt(overlay, 5)).toBe(false)
+  })
+})
+
+describe('fade clamping (#177)', () => {
+  it('clamps negative fades to zero', () => {
+    const clamped = clampTextOverlay(text({ fadeIn: -1, fadeOut: -2 }))
+    expect(clamped.fadeIn).toBe(0)
+    expect(clamped.fadeOut).toBe(0)
+  })
+
+  it('keeps fadeIn first and lets fadeOut absorb the shortfall, like audio fades', () => {
+    // Duration 3: a 2s fade-in leaves only 1s for the fade-out.
+    const clamped = clampTextOverlay(text({ duration: 3, fadeIn: 2, fadeOut: 2 }))
+    expect(clamped.fadeIn).toBe(2)
+    expect(clamped.fadeOut).toBe(1)
+    // A fade-in longer than the whole window consumes it entirely.
+    const consumed = clampTextOverlay(text({ duration: 3, fadeIn: 5, fadeOut: 1 }))
+    expect(consumed.fadeIn).toBe(3)
+    expect(consumed.fadeOut).toBe(0)
+  })
+
+  it('returns the same object when fades are absent or already in range', () => {
+    const absent = text()
+    expect(clampTextOverlay(absent)).toBe(absent)
+    const inRange = text({ duration: 3, fadeIn: 1, fadeOut: 1 })
+    expect(clampTextOverlay(inRange)).toBe(inRange)
+  })
+
+  it('treats absent and zero fades as equal, and differing fades as unequal', () => {
+    expect(textOverlaysEqual(text(), text({ fadeIn: 0, fadeOut: 0 }))).toBe(true)
+    expect(textOverlaysEqual(text(), text({ fadeIn: 1 }))).toBe(false)
+    expect(textOverlaysEqual(text(), text({ fadeOut: 1 }))).toBe(false)
+  })
+
+  it('rejects non-finite fades but accepts absent ones', () => {
+    expect(isValidTextOverlaySpec(text({ fadeIn: Number.NaN }))).toBe(false)
+    expect(isValidTextOverlaySpec(text({ fadeOut: Infinity }))).toBe(false)
+    expect(isValidTextOverlaySpec(text({ fadeIn: 1, fadeOut: 0.5 }))).toBe(true)
+  })
+})
+
+describe('textOpacityAt (#177)', () => {
+  it('is 0 outside the window and 1 inside it when no fades are set', () => {
+    const overlay = text({ offset: 2, duration: 3 })
+    expect(textOpacityAt(overlay, 1.99)).toBe(0)
+    expect(textOpacityAt(overlay, 2)).toBe(1)
+    expect(textOpacityAt(overlay, 4.99)).toBe(1)
+    expect(textOpacityAt(overlay, 5)).toBe(0)
+  })
+
+  it('ramps linearly 0→1 over the fade-in window', () => {
+    const overlay = text({ offset: 2, duration: 4, fadeIn: 2 })
+    expect(textOpacityAt(overlay, 2)).toBe(0)
+    expect(textOpacityAt(overlay, 3)).toBeCloseTo(0.5, 10)
+    expect(textOpacityAt(overlay, 4)).toBe(1)
+    expect(textOpacityAt(overlay, 5.99)).toBe(1)
+  })
+
+  it('ramps linearly 1→0 over the fade-out window, reaching 0 at the end', () => {
+    const overlay = text({ offset: 2, duration: 4, fadeOut: 2 })
+    expect(textOpacityAt(overlay, 2)).toBe(1)
+    expect(textOpacityAt(overlay, 4)).toBe(1)
+    expect(textOpacityAt(overlay, 5)).toBeCloseTo(0.5, 10)
+    expect(textOpacityAt(overlay, 5.999)).toBeLessThan(0.001)
+  })
+
+  it('takes the minimum of the two ramps where they would overlap', () => {
+    // Both fades span the whole 4s window; the envelope peaks at 0.5 in the
+    // middle — the same graceful degradation audioTrackGainAt applies.
+    const overlay = text({ offset: 0, duration: 4, fadeIn: 4, fadeOut: 4 })
+    expect(textOpacityAt(overlay, 1)).toBeCloseTo(0.25, 10)
+    expect(textOpacityAt(overlay, 2)).toBeCloseTo(0.5, 10)
+    expect(textOpacityAt(overlay, 3)).toBeCloseTo(0.25, 10)
   })
 })

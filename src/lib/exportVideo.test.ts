@@ -643,27 +643,27 @@ describe('textDraw (#142)', () => {
   it('resolves size against the frame height only, matching the preview', () => {
     // 0.1 of a 360-high frame is 36px — the width must play no part, exactly
     // as the preview's cqh sizing ignores the stage width.
-    expect(textDraw(overlay, 640, 360).font).toBe('400 36px Arial, Helvetica, sans-serif')
-    expect(textDraw(overlay, 9999, 360).font).toBe('400 36px Arial, Helvetica, sans-serif')
+    expect(textDraw(overlay, 640, 360, 3).font).toBe('400 36px Arial, Helvetica, sans-serif')
+    expect(textDraw(overlay, 9999, 360, 3).font).toBe('400 36px Arial, Helvetica, sans-serif')
   })
 
   it('spells style and weight into the font string', () => {
     const stack = textFontStack('sans')
-    expect(textDraw({ ...overlay, bold: true }, 640, 360).font).toBe(`700 36px ${stack}`)
-    expect(textDraw({ ...overlay, italic: true }, 640, 360).font).toBe(`italic 400 36px ${stack}`)
-    expect(textDraw({ ...overlay, bold: true, italic: true }, 640, 360).font).toBe(
+    expect(textDraw({ ...overlay, bold: true }, 640, 360, 3).font).toBe(`700 36px ${stack}`)
+    expect(textDraw({ ...overlay, italic: true }, 640, 360, 3).font).toBe(`italic 400 36px ${stack}`)
+    expect(textDraw({ ...overlay, bold: true, italic: true }, 640, 360, 3).font).toBe(
       `italic 700 36px ${stack}`,
     )
   })
 
   it('uses the curated stack for every font id — the same stacks the preview uses', () => {
     for (const font of ['sans', 'serif', 'mono', 'display'] as const) {
-      expect(textDraw({ ...overlay, font }, 640, 360).font).toContain(textFontStack(font))
+      expect(textDraw({ ...overlay, font }, 640, 360, 3).font).toContain(textFontStack(font))
     }
   })
 
   it('centres a single line on the fractional position in pixels', () => {
-    const draw = textDraw(overlay, 640, 360)
+    const draw = textDraw(overlay, 640, 360, 3)
     expect(draw.x).toBe(0.25 * 640)
     expect(draw.firstLineY).toBe(0.75 * 360)
     expect(draw.lines).toEqual(['Title'])
@@ -671,7 +671,7 @@ describe('textDraw (#142)', () => {
   })
 
   it('splits multi-line content on newlines and centres the block vertically', () => {
-    const draw = textDraw({ ...overlay, content: 'a\nb\nc', y: 0.5 }, 640, 360)
+    const draw = textDraw({ ...overlay, content: 'a\nb\nc', y: 0.5 }, 640, 360, 3)
     expect(draw.lines).toEqual(['a', 'b', 'c'])
     // 36px type, line step 1.2 × 36 = 43.2px; three lines centre the middle
     // line on y, so the first line sits one full step above it.
@@ -682,12 +682,21 @@ describe('textDraw (#142)', () => {
   })
 
   it('is resolution-independent: doubling the frame doubles every pixel value', () => {
-    const base = textDraw({ ...overlay, content: 'a\nb' }, 640, 360)
-    const doubled = textDraw({ ...overlay, content: 'a\nb' }, 1280, 720)
+    const base = textDraw({ ...overlay, content: 'a\nb' }, 640, 360, 3)
+    const doubled = textDraw({ ...overlay, content: 'a\nb' }, 1280, 720, 3)
     expect(doubled.x).toBeCloseTo(base.x * 2, 10)
     expect(doubled.firstLineY).toBeCloseTo(base.firstLineY * 2, 10)
     expect(doubled.lineHeight).toBeCloseTo(base.lineHeight * 2, 10)
     expect(doubled.font).toBe(base.font.replace('36px', '72px'))
+  })
+
+  it('carries the fade envelope at the instant as the draw opacity (#177)', () => {
+    // The overlay covers [2, 5); a 2s fade-in puts opacity at 0.5 one second
+    // in — the very value the preview would set as CSS opacity there.
+    const fading = { ...overlay, fadeIn: 2 }
+    expect(textDraw(fading, 640, 360, 3).opacity).toBeCloseTo(0.5, 10)
+    expect(textDraw(fading, 640, 360, 4.5).opacity).toBe(1)
+    expect(textDraw(overlay, 640, 360, 3).opacity).toBe(1)
   })
 })
 

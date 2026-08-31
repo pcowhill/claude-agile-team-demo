@@ -1637,6 +1637,27 @@ describe('text overlays (#139)', () => {
         timelineReducer(atEdge, { type: 'text-updated', id: 't1', text: spec({ x: 7 }) }),
       ).toBe(atEdge)
     })
+
+    it('clamps fades into the duration, fadeOut absorbing the shortfall (#177)', () => {
+      // Default duration 3: a 2+2 pair leaves only 1s for the fade-out.
+      const state = timelineReducer(base, {
+        type: 'text-updated',
+        id: 't1',
+        text: spec({ fadeIn: 2, fadeOut: 2 }),
+      })
+      expect(textsOf(state)[0]).toMatchObject({ fadeIn: 2, fadeOut: 1 })
+      // Shortening the duration re-clamps the stored fades.
+      const shortened = timelineReducer(state, {
+        type: 'text-updated',
+        id: 't1',
+        text: spec({ duration: 1, fadeIn: 2, fadeOut: 1 }),
+      })
+      expect(textsOf(shortened)[0]).toMatchObject({ duration: 1, fadeIn: 1, fadeOut: 0 })
+      // A non-finite fade is an invalid spec, not a silent 0.
+      expect(
+        timelineReducer(base, { type: 'text-updated', id: 't1', text: spec({ fadeIn: NaN }) }),
+      ).toBe(base)
+    })
   })
 
   describe('text-removed', () => {
