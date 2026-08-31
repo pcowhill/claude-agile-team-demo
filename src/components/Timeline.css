@@ -223,6 +223,28 @@
   background: #3a6ea5;
 }
 
+/* Sequence-entry coverage bars (#180): per-kind colors following the media
+   library's badge scheme — green video, amber image — with audio's blue and
+   the overlay lane's purple already established above/below. A slate's bar
+   is overridden inline with the slate's own color (the bar is its swatch). */
+.timeline-entry-bar-video {
+  background: #4e8a3a;
+}
+
+.timeline-entry-bar-image {
+  background: #a5823a;
+}
+
+.timeline-entry-bar-slate {
+  background: #888;
+}
+
+/* Text overlays' coverage bars (#180): no library badge to match (text is
+   not a clip), so a color of its own, distinct from every other lane. */
+.text-overlay-bar {
+  background: #a53a7a;
+}
+
 .audio-track-main {
   display: flex;
   align-items: center;
