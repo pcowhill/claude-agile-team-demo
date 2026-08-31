@@ -57,10 +57,22 @@ export type TimelineHistoryAction =
  * - `entries-removed-for-clip` (a clip removed from the media library):
  *   the clip's object URL is revoked by the same handler, so any held state
  *   still referencing it could never play again — clearing is the rule that
- *   makes "undo never resurrects references to removed media" hold. When
- *   the removal touches no timeline items the reducer returns the same
- *   reference and the history survives untouched.
+ *   makes "undo never resurrects references to removed media" hold. The
+ *   present state is not enough to decide: an entry edited off the timeline
+ *   (and so absent from the present) still lives in `past`/`future` states,
+ *   which undo/redo would resurrect. The history is therefore cleared when
+ *   the removal touches the present **or** any held state references the
+ *   clip; only a removal no held state references keeps the history.
  */
+
+/** Whether any item of this timeline state was created from the clip. */
+function referencesClip(state: TimelineState, clipId: string): boolean {
+  return (
+    state.entries.some((entry) => entry.clipId === clipId) ||
+    (state.audioTracks ?? []).some((track) => track.clipId === clipId) ||
+    (state.videoOverlays ?? []).some((overlay) => overlay.clipId === clipId)
+  )
+}
 export function timelineHistoryReducer(
   history: TimelineHistory,
   action: TimelineHistoryAction,
@@ -86,8 +98,15 @@ export function timelineHistoryReducer(
     }
     default: {
       const present = timelineReducer(history.present, action)
+      if (action.type === 'entries-removed-for-clip') {
+        const holdsClip =
+          present !== history.present ||
+          history.past.some((state) => referencesClip(state, action.clipId)) ||
+          history.future.some((state) => referencesClip(state, action.clipId))
+        return holdsClip ? { past: [], present, future: [] } : history
+      }
       if (present === history.present) return history
-      if (action.type === 'timeline-replaced' || action.type === 'entries-removed-for-clip') {
+      if (action.type === 'timeline-replaced') {
         return { past: [], present, future: [] }
       }
       return {

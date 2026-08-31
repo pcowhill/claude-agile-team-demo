@@ -116,10 +116,42 @@ describe('timelineHistoryReducer (#189)', () => {
 
   it('keeps the history when a library clip removal touches nothing on the timeline', () => {
     const one = addEntry(emptyTimelineHistory, 'a')
-    // No timeline state, past or present, references this clip.
+    // No timeline state — past, present, or future — references this clip.
     expect(
       timelineHistoryReducer(one, { type: 'entries-removed-for-clip', clipId: 'unused-clip' }),
     ).toBe(one)
+  })
+
+  it('clears the history when only a past state references the removed clip', () => {
+    // The entry was edited off the timeline before its clip was removed, so
+    // the present is untouched by the removal — but the pre-removal state in
+    // `past` still holds the entry, and its object URL is revoked. Undo must
+    // not resurrect it.
+    let history = addEntry(emptyTimelineHistory, 'a', 'clip-x')
+    history = timelineHistoryReducer(history, { type: 'entry-removed', id: 'a' })
+    const cleared = timelineHistoryReducer(history, {
+      type: 'entries-removed-for-clip',
+      clipId: 'clip-x',
+    })
+    expect(cleared.present).toBe(history.present)
+    expect(cleared.past).toEqual([])
+    expect(cleared.future).toEqual([])
+    expect(timelineHistoryReducer(cleared, { type: 'edit-undone' })).toBe(cleared)
+  })
+
+  it('clears the history when only a future state references the removed clip', () => {
+    // Add, undo (the state holding the entry moves to `future`), then remove
+    // the clip: redo must not resurrect the entry.
+    const added = addEntry(emptyTimelineHistory, 'a', 'clip-x')
+    const undone = timelineHistoryReducer(added, { type: 'edit-undone' })
+    const cleared = timelineHistoryReducer(undone, {
+      type: 'entries-removed-for-clip',
+      clipId: 'clip-x',
+    })
+    expect(cleared.present).toBe(undone.present)
+    expect(cleared.past).toEqual([])
+    expect(cleared.future).toEqual([])
+    expect(timelineHistoryReducer(cleared, { type: 'edit-redone' })).toBe(cleared)
   })
 })
 
