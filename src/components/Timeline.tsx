@@ -31,6 +31,7 @@ import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
+import { AudioWaveform } from './AudioWaveform'
 import { ConfirmDialog } from './ConfirmDialog'
 import './Timeline.css'
 
@@ -818,7 +819,15 @@ export function Timeline({
                       className="audio-track-bar"
                       data-testid={`audio-track-bar-${index}`}
                       style={laneBar(track.offset, trimmedLength)}
-                    />
+                    >
+                      <AudioWaveform
+                        url={track.url}
+                        duration={track.duration}
+                        inPoint={track.inPoint}
+                        outPoint={track.outPoint}
+                        data-testid={`audio-track-waveform-${index}`}
+                      />
+                    </div>
                   </div>
                   <div className="audio-track-main">
                     <span className="clip-name" title={track.name}>

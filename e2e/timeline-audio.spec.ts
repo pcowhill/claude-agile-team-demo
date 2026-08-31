@@ -86,3 +86,24 @@ test('a track can be removed; removing the library clip removes its tracks', asy
   await expect(page.getByRole('list', { name: 'Audio tracks' })).toHaveCount(0)
   await expect(page.getByRole('list', { name: 'Imported clips' })).toHaveCount(0)
 })
+
+test("an added track draws its clip's waveform inside the coverage bar (#191)", async ({
+  page,
+}) => {
+  // The slate gives the lane a sequence span, so the bar has real width.
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
+
+  // The real chain: blob fetch → Web Audio decode of the WAV → peaks → SVG.
+  const waveform = page.getByTestId('audio-track-waveform-0')
+  await expect(waveform).toBeVisible()
+  const path = await waveform.locator('path').getAttribute('d')
+  // A 440Hz sine has real amplitude everywhere: the band must be a long
+  // mirrored outline, not the empty midline of a silent or failed decode.
+  expect(path).toBeTruthy()
+  expect(path!.length).toBeGreaterThan(500)
+
+  // A second track of the same clip shows a waveform too (shared peaks).
+  await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
+  await expect(page.getByTestId('audio-track-waveform-1')).toBeVisible()
+})

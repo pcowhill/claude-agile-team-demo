@@ -221,6 +221,21 @@
   min-width: 2px;
   border-radius: 999px;
   background: #3a6ea5;
+  overflow: hidden;
+}
+
+/* The waveform inside an audio bar (#191): stretched to the bar, drawn in a
+   translucent light over the bar's blue so coverage stays readable. */
+.audio-waveform {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.audio-waveform path {
+  fill: rgba(255, 255, 255, 0.55);
 }
 
 /* Sequence-entry coverage bars (#180): per-kind colors following the media
