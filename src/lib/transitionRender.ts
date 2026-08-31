@@ -21,6 +21,46 @@ export interface TransitionClipRect {
   height: number
 }
 
+/**
+ * A full-frame colored layer above both clips (#181): the dip of a fade
+ * through black/white. Alpha 0 and 1 are meaningful ends of the ramp, so
+ * the veil's presence (non-null) rather than its alpha marks a dipping type.
+ */
+export interface TransitionVeil {
+  /** CSS color of the veil — '#000000' or '#ffffff' today. */
+  color: string
+  /** Opacity of the veil over everything beneath it. */
+  alpha: number
+}
+
+/**
+ * An ellipse in the incoming card's own space (#181): the iris. Centred on
+ * the card's centre with radii `radiusFraction` of the frame width and of
+ * the frame height respectively — at `IRIS_COVER_RADIUS` the ellipse passes
+ * exactly through the frame corners, covering everything. `invert: false`
+ * paints the card only inside the ellipse (iris open); `invert: true` only
+ * outside it (iris close).
+ */
+export interface TransitionEllipse {
+  radiusFraction: number
+  invert: boolean
+}
+
+/**
+ * The radius fraction at which the iris ellipse covers the whole frame: an
+ * ellipse with radii `r·width` and `r·height` contains the corner
+ * (width/2, height/2) exactly when (1/2r)² + (1/2r)² = 1, i.e. r = √½.
+ */
+export const IRIS_COVER_RADIUS = Math.SQRT1_2
+
+/**
+ * How far a cross-zoom magnifies at its midpoint (#181): each clip zooms
+ * from (or back to) normal by this factor about the frame centre. 2.5 is a
+ * typical editor default — strong enough to read as a zoom, small enough
+ * that ordinary footage still shows recognizable detail at the peak.
+ */
+export const CROSS_ZOOM_PEAK = 2.5
+
 export interface TransitionLayerSpec {
   /** Alpha of the outgoing clip's layer, drawn first over the black stage. */
   outgoingAlpha: number
@@ -55,6 +95,21 @@ export interface TransitionLayerSpec {
    * Null means the whole card paints, as every pre-wipe type always did.
    */
   incomingClip: TransitionClipRect | null
+  /**
+   * Scale of the outgoing layer about the frame centre (#181): cross-zoom
+   * magnifies the outgoing clip toward its midpoint. 1 for every other
+   * type, so pre-cross-zoom renders are untouched.
+   */
+  outgoingScale: number
+  /** Scale of the incoming card about the frame centre (#181); 1 = none. */
+  incomingScale: number
+  /** Full-frame color layer above both clips (#181); null = none. */
+  veil: TransitionVeil | null
+  /**
+   * Elliptical region of the incoming card that paints (#181) — the iris.
+   * Null means no elliptical cut, as every pre-iris type always had.
+   */
+  incomingEllipse: TransitionEllipse | null
 }
 
 /**
@@ -89,6 +144,15 @@ export interface TransitionLayerSpec {
  * The card backing keeps revealed letterbox margins black (#74's rule); the
  * outgoing clip stays at full brightness until the edge passes it.
  *
+ * Fades through black/white (#181) put a full-frame color veil above both
+ * layers: it ramps to opaque over the first half (hiding the swap beneath
+ * it at the midpoint) and back out over the second, so the cut itself is
+ * never visible. Irises (#181) are wipes with an elliptical edge: open
+ * reveals the incoming card inside a growing centre ellipse, close shows it
+ * outside a shrinking one. Cross-zoom (#181) scales the outgoing clip into
+ * a magnification and the incoming clip back out of one, blending the two
+ * around the midpoint.
+ *
  * Every direction is the same unit vector: where the moving card (slides,
  * pushes) sits at progress 0 — one full frame beyond that edge — travelling
  * to (0, 0), exact cover, at progress 1; or which edge the wipe's reveal
@@ -114,7 +178,13 @@ const BASE_SPEC: TransitionLayerSpec = {
   outgoingOffsetYFraction: 0,
   incomingBacking: true,
   incomingClip: null,
+  outgoingScale: 1,
+  incomingScale: 1,
+  veil: null,
+  incomingEllipse: null,
 }
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
 const edgeOf = (type: string): Edge => type.slice(type.lastIndexOf('-') + 1) as Edge
 
@@ -126,6 +196,45 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
       incomingAlpha: progress,
       additive: true,
       incomingBacking: false,
+    }
+  }
+  if (type === 'fade-through-black' || type === 'fade-through-white') {
+    // Dip to color (#181): the veil ramps to opaque over the first half —
+    // the incoming card stays invisible beneath it — then, with the frame
+    // fully the veil's color at the midpoint, the layers swap and the veil
+    // ramps back out over the fully-covering incoming card. Nothing pops:
+    // at progress 0 and 1 the veil's alpha is exactly 0.
+    const color = type === 'fade-through-black' ? '#000000' : '#ffffff'
+    if (progress <= 0.5) {
+      return { ...BASE_SPEC, incomingAlpha: 0, veil: { color, alpha: progress * 2 } }
+    }
+    return { ...BASE_SPEC, veil: { color, alpha: (1 - progress) * 2 } }
+  }
+  if (type === 'iris-open' || type === 'iris-close') {
+    // Iris (#181): open reveals the incoming card inside a growing ellipse
+    // (zero radius at progress 0, corner-touching cover at 1); close shows
+    // it outside a shrinking one — the outgoing clip's final moments live
+    // in the contracting hole. Both hit exact cover/reveal at the ends.
+    return type === 'iris-open'
+      ? { ...BASE_SPEC, incomingEllipse: { radiusFraction: progress * IRIS_COVER_RADIUS, invert: false } }
+      : {
+          ...BASE_SPEC,
+          incomingEllipse: { radiusFraction: (1 - progress) * IRIS_COVER_RADIUS, invert: true },
+        }
+  }
+  if (type === 'cross-zoom') {
+    // Cross-zoom (#181): the outgoing clip accelerates into a zoom over the
+    // first half and the incoming clip decelerates out of one over the
+    // second, both peaking at CROSS_ZOOM_PEAK; the incoming card blends in
+    // around the midpoint (progress 0.4 → 0.6). Both ends are scale 1 with
+    // the handover clip fully shown, so nothing pops.
+    const outgoingTravel = Math.min(2 * progress, 1)
+    const incomingTravel = Math.min(2 * (1 - progress), 1)
+    return {
+      ...BASE_SPEC,
+      incomingAlpha: clamp01((progress - 0.4) / 0.2),
+      outgoingScale: 1 + (CROSS_ZOOM_PEAK - 1) * outgoingTravel * outgoingTravel,
+      incomingScale: 1 + (CROSS_ZOOM_PEAK - 1) * incomingTravel * incomingTravel,
     }
   }
   const entry = ENTRY_VECTOR[edgeOf(type)]

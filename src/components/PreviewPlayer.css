@@ -92,6 +92,17 @@
   visibility: hidden;
 }
 
+/* A fade-through-color's veil (#181): covers the base and incoming layers
+   (same z-index as the incoming layer, later in the DOM), stays beneath
+   overlay videos (z-index 2) and text (z-index 3) — the export's paint
+   order. Its color and opacity come from the shared transition spec. */
+.preview-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* A text overlay (#139): centred on its fractional position, above every
    video/still layer (transitions and zooms style those beneath it — an
    overlay annotates the output frame, it is not part of any clip). Only

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { transitionLayerSpec } from './transitionRender'
+import { CROSS_ZOOM_PEAK, IRIS_COVER_RADIUS, transitionLayerSpec } from './transitionRender'
 import type { TransitionLayerSpec } from './transitionRender'
 
 /** The fields every type shares unless it says otherwise (see BASE_SPEC). */
@@ -13,6 +13,10 @@ const base: TransitionLayerSpec = {
   outgoingOffsetYFraction: 0,
   incomingBacking: true,
   incomingClip: null,
+  outgoingScale: 1,
+  incomingScale: 1,
+  veil: null,
+  incomingEllipse: null,
 }
 
 describe('transitionLayerSpec', () => {
@@ -198,5 +202,133 @@ describe('transitionLayerSpec', () => {
         previousArea = area
       }
     }
+  })
+
+  // Fades through a color (#181): the veil ramps to opaque at the midpoint,
+  // hiding the layer swap beneath it, and back to clear by the end.
+  for (const [type, color] of [
+    ['fade-through-black', '#000000'],
+    ['fade-through-white', '#ffffff'],
+  ] as const) {
+    it(`${type} dips behind a ${color} veil, opaque exactly at the midpoint (#181)`, () => {
+      // Progress 0: no veil coverage, incoming hidden — the outgoing clip
+      // alone, exactly as the instant before the transition. No pop.
+      expect(transitionLayerSpec(type, 0)).toEqual({
+        ...base,
+        incomingAlpha: 0,
+        veil: { color, alpha: 0 },
+      })
+      // First half: the veil ramps up over the outgoing clip.
+      expect(transitionLayerSpec(type, 0.25)).toEqual({
+        ...base,
+        incomingAlpha: 0,
+        veil: { color, alpha: 0.5 },
+      })
+      // Midpoint: fully the veil's color — the swap beneath is invisible.
+      expect(transitionLayerSpec(type, 0.5).veil).toEqual({ color, alpha: 1 })
+      // Second half: the incoming card is fully there, the veil ramps out.
+      expect(transitionLayerSpec(type, 0.75)).toEqual({
+        ...base,
+        veil: { color, alpha: 0.5 },
+      })
+      // Progress 1: veil clear over the full incoming card. No pop.
+      expect(transitionLayerSpec(type, 1)).toEqual({ ...base, veil: { color, alpha: 0 } })
+    })
+  }
+
+  it('iris-open grows a centred ellipse from nothing to corner-touching cover (#181)', () => {
+    expect(transitionLayerSpec('iris-open', 0)).toEqual({
+      ...base,
+      incomingEllipse: { radiusFraction: 0, invert: false },
+    })
+    expect(transitionLayerSpec('iris-open', 0.5).incomingEllipse).toEqual({
+      radiusFraction: IRIS_COVER_RADIUS / 2,
+      invert: false,
+    })
+    // Progress 1: radii √½ of each frame dimension — the ellipse
+    // (x/(r·w))² + (y/(r·h))² = 1 passes exactly through the frame corners,
+    // so the reveal is the whole frame. No pop at the handover.
+    expect(transitionLayerSpec('iris-open', 1).incomingEllipse).toEqual({
+      radiusFraction: IRIS_COVER_RADIUS,
+      invert: false,
+    })
+    expect(IRIS_COVER_RADIUS).toBeCloseTo(Math.sqrt(0.5), 12)
+  })
+
+  it('iris-close shrinks an inverted ellipse: the outgoing clip lives in the closing hole (#181)', () => {
+    // Progress 0: the hole is corner-touching cover — the incoming card
+    // shows nowhere.
+    expect(transitionLayerSpec('iris-close', 0)).toEqual({
+      ...base,
+      incomingEllipse: { radiusFraction: IRIS_COVER_RADIUS, invert: true },
+    })
+    expect(transitionLayerSpec('iris-close', 0.5).incomingEllipse).toEqual({
+      radiusFraction: IRIS_COVER_RADIUS / 2,
+      invert: true,
+    })
+    // Progress 1: a zero hole — the incoming card is the whole frame.
+    expect(transitionLayerSpec('iris-close', 1)).toEqual({
+      ...base,
+      incomingEllipse: { radiusFraction: 0, invert: true },
+    })
+  })
+
+  it('iris radii shrink or grow monotonically, so the edge never reverses', () => {
+    for (const [type, sign] of [
+      ['iris-open', 1],
+      ['iris-close', -1],
+    ] as const) {
+      let previous = sign === 1 ? -1 : Infinity
+      for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const radius = transitionLayerSpec(type, progress).incomingEllipse!.radiusFraction
+        if (sign === 1) expect(radius).toBeGreaterThan(previous)
+        else expect(radius).toBeLessThan(previous)
+        previous = radius
+      }
+    }
+  })
+
+  it('cross-zoom scales out of one clip into the other, blending around the midpoint (#181)', () => {
+    // Progress 0: both scales at rest, incoming invisible — exactly the
+    // outgoing clip as the instant before. No pop.
+    expect(transitionLayerSpec('cross-zoom', 0)).toEqual({
+      ...base,
+      incomingAlpha: 0,
+      incomingScale: CROSS_ZOOM_PEAK,
+    })
+    // Midpoint: both layers at peak magnification, half blended (the alpha
+    // ramp (progress − 0.4) / 0.2 carries float noise, hence closeTo).
+    const mid = transitionLayerSpec('cross-zoom', 0.5)
+    expect(mid.incomingAlpha).toBeCloseTo(0.5, 10)
+    expect({ ...mid, incomingAlpha: 0.5 }).toEqual({
+      ...base,
+      incomingAlpha: 0.5,
+      outgoingScale: CROSS_ZOOM_PEAK,
+      incomingScale: CROSS_ZOOM_PEAK,
+    })
+    // Progress 1: the incoming clip fully shown at rest. No pop.
+    expect(transitionLayerSpec('cross-zoom', 1)).toEqual({
+      ...base,
+      outgoingScale: CROSS_ZOOM_PEAK,
+    })
+  })
+
+  it('cross-zoom never de-magnifies and fully blends in before the handover', () => {
+    let previousOut = 0
+    for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+      const spec = transitionLayerSpec('cross-zoom', progress)
+      // Scales stay ≥ 1: a layer is only ever magnified, so the export's
+      // unclipped outgoing draw can never reveal content beyond the frame.
+      expect(spec.outgoingScale).toBeGreaterThanOrEqual(1)
+      expect(spec.incomingScale).toBeGreaterThanOrEqual(1)
+      // The outgoing zoom accelerates monotonically until it saturates.
+      expect(spec.outgoingScale).toBeGreaterThanOrEqual(previousOut)
+      previousOut = spec.outgoingScale
+    }
+    expect(transitionLayerSpec('cross-zoom', 0.39).incomingAlpha).toBe(0)
+    expect(transitionLayerSpec('cross-zoom', 0.61).incomingAlpha).toBe(1)
+    // The backed incoming card is opaque from 0.6 on, so the scaled outgoing
+    // layer beneath is fully covered well before the handover.
+    expect(transitionLayerSpec('cross-zoom', 0.6).incomingAlpha).toBeCloseTo(1, 10)
   })
 })

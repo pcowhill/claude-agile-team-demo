@@ -190,6 +190,11 @@ const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
   'push-from-right': 'Push from right',
   'push-from-above': 'Push from above',
   'push-from-below': 'Push from below',
+  'fade-through-black': 'Fade through black',
+  'fade-through-white': 'Fade through white',
+  'iris-open': 'Iris open',
+  'iris-close': 'Iris close',
+  'cross-zoom': 'Cross-zoom',
 }
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */
