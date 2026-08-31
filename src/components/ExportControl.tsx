@@ -1,14 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { TimelineState } from '../lib/timeline'
-import {
-  EXPORT_FORMAT_SPECS,
-  EXPORT_FRAME_RATE,
-  ExportCanceledError,
-  exportFileName,
-  exportTimeline,
-  supportedExportFormats,
-} from '../lib/exportVideo'
-import type { ExportFormat } from '../lib/exportVideo'
+import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
+import { exportFileName, exportFormats, supportedExportFormats } from '../lib/exportFormats'
+import type { ExportEncodeOptions } from '../lib/exportFormats'
 import {
   EXPORT_SIZE_PRESETS,
   MAX_EXPORT_DIMENSION,
@@ -21,10 +15,23 @@ import { FALLBACK_FRAME } from '../lib/frameSize'
 import './dialog.css'
 import './ExportControl.css'
 
+/**
+ * How the modal runs an export: the picked format's id plus everything the
+ * format's encode entry point takes. The default routes through the
+ * export-format registry (#196).
+ */
+export type DoExport = (
+  timeline: TimelineState,
+  options: ExportEncodeOptions & { format: string },
+) => Promise<Blob>
+
+const defaultDoExport: DoExport = (timeline, { format, ...options }) =>
+  exportFormats.get(format).encode(timeline, options)
+
 interface ExportControlProps {
   timeline: TimelineState
   /** Injectable for tests (jsdom cannot run the real media pipeline). */
-  doExport?: typeof exportTimeline
+  doExport?: DoExport
   /** Injectable for tests (jsdom has no MediaRecorder). */
   isTypeSupported?: (type: string) => boolean
   /** Injectable for tests (jsdom never fires media metadata events). */
@@ -57,7 +64,7 @@ const defaultIsTypeSupported = (type: string) =>
  */
 export function ExportControl({
   timeline,
-  doExport = exportTimeline,
+  doExport = defaultDoExport,
   isTypeSupported = defaultIsTypeSupported,
   probeFrame = automaticExportFrame,
 }: ExportControlProps) {
@@ -75,11 +82,12 @@ export function ExportControl({
   const sizeModeRef = useRef<SizeMode>('auto')
   sizeModeRef.current = sizeMode
   // Feature-detected once per mount: what MediaRecorder encodes is a fixed
-  // property of the running browser (#114).
+  // property of the running browser (#114). The registry (#196) is what the
+  // picker offers — core formats plus whatever plugins have registered.
   const formats = useMemo(() => supportedExportFormats(isTypeSupported), [isTypeSupported])
   // WebM stays the default wherever it is recordable (#114).
-  const [format, setFormat] = useState<ExportFormat>(() =>
-    formats.includes('webm') ? 'webm' : (formats[0] ?? 'webm'),
+  const [format, setFormat] = useState<string>(() =>
+    formats.some((spec) => spec.id === 'webm') ? 'webm' : (formats[0]?.id ?? 'webm'),
   )
   // The finished export: a hidden anchor auto-clicks it into a download. It
   // outlives the (closed) dialog so the object URL stays alive until the
@@ -273,16 +281,16 @@ export function ExportControl({
             <h3 id={headingId}>Export project</h3>
             <fieldset className="export-format-options">
               <legend>Format</legend>
-              {formats.map((supported) => (
-                <label key={supported} className="export-format-option">
+              {formats.map((spec) => (
+                <label key={spec.id} className="export-format-option">
                   <input
                     type="radio"
                     name="export-format"
                     disabled={exporting}
-                    checked={format === supported}
-                    onChange={() => setFormat(supported)}
+                    checked={format === spec.id}
+                    onChange={() => setFormat(spec.id)}
                   />
-                  {EXPORT_FORMAT_SPECS[supported].label}
+                  {spec.label}
                 </label>
               ))}
             </fieldset>
