@@ -148,10 +148,19 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Wrapping caps the row's min-content at its widest single item instead
+     of the sum of all of them — and the app grid's fr tracks floor at
+     min-content, so a non-wrapping row (once the Split button joined it,
+     #190) would widen the whole page at narrow viewports instead of
+     wrapping the slider onto its own line. At ordinary widths everything
+     stays on one line exactly as before. */
+  flex-wrap: wrap;
 }
 
 .preview-controls input[type='range'] {
   flex: 1;
+  /* Let the slider shrink below its intrinsic width before wrapping. */
+  min-width: 0;
 }
 
 .preview-controls button {

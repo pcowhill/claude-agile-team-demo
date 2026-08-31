@@ -7,7 +7,9 @@ import {
   isTransitionOverlayActive,
   locateInSequence,
   sequenceTimeAt,
+  splitTargetAt,
 } from './playback'
+import { timelineReducer, totalDuration } from './timeline'
 import { zoomAt } from './zoom'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
@@ -370,5 +372,101 @@ describe('time remapping in sequence math (#138)', () => {
     // ...but the slowed opening delays the *sequence* moment it appears.
     expect(sequenceTimeAt(zoomed, 0, 4)).toBe(4)
     expect(sequenceTimeAt(slowed, 0, 4)).toBe(6)
+  })
+})
+
+describe('splitTargetAt and split playback equivalence (#190)', () => {
+  it('resolves a mid-entry playhead to the entry and the absolute source instant', () => {
+    // 1.5s into e2 (sequence 4.5): source 0 + 1.5.
+    expect(splitTargetAt(timeline, 4.5)).toEqual({ entryId: 'e2', atSourceTime: 1.5 })
+    // 1s into e1 (trimmed [2, 5]): source 3.
+    expect(splitTargetAt(timeline, 1)).toEqual({ entryId: 'e1', atSourceTime: 3 })
+  })
+
+  it('is null on an empty timeline, at boundaries, and at the sequence end', () => {
+    expect(splitTargetAt({ entries: [] }, 0)).toBeNull()
+    // Sequence start and the e1→e2 hard cut resolve to an entry's in-point.
+    expect(splitTargetAt(timeline, 0)).toBeNull()
+    expect(splitTargetAt(timeline, 3)).toBeNull()
+    // The sequence end resolves to the last entry's out-point.
+    expect(splitTargetAt(timeline, 15)).toBeNull()
+    expect(splitTargetAt(timeline, 99)).toBeNull()
+  })
+
+  it('is null inside a transition overlap', () => {
+    const withTransition: TimelineState = {
+      ...timeline,
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+    }
+    // The overlap covers sequence [2, 3): e1's tail and e2's head both play.
+    expect(splitTargetAt(withTransition, 2.5)).toBeNull()
+    // Just before the overlap, e1 splits normally.
+    expect(splitTargetAt(withTransition, 1.9)).toEqual({ entryId: 'e1', atSourceTime: 3.9 })
+  })
+
+  it('maps a playhead inside a pause plateau to the frozen instant — and is null when that instant is the in-point', () => {
+    const paused: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 4, hold: 2 }],
+    }
+    // Sequence 5 is inside the plateau (output [4, 6]) — the frozen source
+    // instant, strictly inside the trim, is the cut.
+    expect(splitTargetAt(paused, 5)).toEqual({ entryId: 'e1', atSourceTime: 4 })
+    const pausedAtStart: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 0, hold: 2 }],
+    }
+    // The plateau holds the very first frame: no strictly-inside instant.
+    expect(splitTargetAt(pausedAtStart, 1)).toBeNull()
+  })
+
+  it('an untouched split plays back indistinguishably from the original (the #190 core criterion)', () => {
+    // A remapped, zoomed, transitioned timeline: e2 carries a half-speed
+    // segment and a zoom; crossfades sit on both of e2's boundaries.
+    const before: TimelineState = {
+      entries: [
+        entry({ id: 'e1', clipId: 'clip-a', inPoint: 2, outPoint: 5 }),
+        entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b' }),
+        entry({ id: 'e3', clipId: 'clip-a', inPoint: 4, outPoint: 6 }),
+      ],
+      transitions: [
+        { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
+        { beforeId: 'e2', afterId: 'e3', type: 'slide-from-left', duration: 1 },
+      ],
+      zooms: [
+        { id: 'z1', entryId: 'e2', start: 1, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 },
+      ],
+      remaps: [{ id: 'r1', entryId: 'e2', kind: 'speed', start: 4, end: 6, factor: 0.5 }],
+    }
+    // Split e2 at source 5 — inside the speed segment, away from both
+    // overlaps (e2 occupies sequence [2, 13] before its output lengthens).
+    const after = timelineReducer(before, {
+      type: 'entry-split',
+      id: 'e2',
+      atSourceTime: 5,
+      newEntryId: 'e2b',
+    })
+    expect(after.entries).toHaveLength(4)
+    expect(totalDuration(after)).toBeCloseTo(totalDuration(before), 10)
+    // Probe the whole sequence densely: the same media must show the same
+    // source instant, under the same zoom, with a transition overlap at the
+    // same progress, at every moment.
+    const total = totalDuration(before)
+    for (let time = 0; time < total; time += 0.05) {
+      const original = locateInSequence(before, time)
+      const split = locateInSequence(after, time)
+      expect(split, `at ${time}`).not.toBeNull()
+      expect(split?.entry.url, `url at ${time}`).toBe(original?.entry.url)
+      expect(split?.sourceTime, `source at ${time}`).toBeCloseTo(original?.sourceTime ?? -1, 10)
+      expect(split?.transition?.type, `transition at ${time}`).toBe(original?.transition?.type)
+      expect(split?.transition?.progress ?? -1, `progress at ${time}`).toBeCloseTo(
+        original?.transition?.progress ?? -1,
+        10,
+      )
+      expect(
+        zoomAt(after, split?.index ?? 0, split?.sourceTime ?? 0),
+        `zoom at ${time}`,
+      ).toEqual(zoomAt(before, original?.index ?? 0, original?.sourceTime ?? 0))
+    }
   })
 })

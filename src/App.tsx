@@ -257,6 +257,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           timeline={timeline}
           expanded={previewExpanded}
           onToggleExpanded={togglePreviewExpanded}
+          onSplit={(id, atSourceTime) =>
+            dispatchTimeline({
+              type: 'entry-split',
+              id,
+              atSourceTime,
+              newEntryId: crypto.randomUUID(),
+            })
+          }
         />
         <Timeline
           timeline={timeline}

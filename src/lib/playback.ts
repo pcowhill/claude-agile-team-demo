@@ -3,6 +3,7 @@ import {
   boundaryTransitions,
   effectiveDuration,
   entryOutputDuration,
+  isSplittablePoint,
   remapsForEntry,
   remapsOf,
   totalDuration,
@@ -156,6 +157,39 @@ export function isTransitionOverlayActive(
 /** True when `sequenceTime` is at (or past) the end of the sequence. */
 export function isAtSequenceEnd(state: TimelineState, sequenceTime: number): boolean {
   return sequenceTime >= totalDuration(state)
+}
+
+/** What the Split control (#190) would cut, resolved from the playhead. */
+export interface SplitTarget {
+  entryId: string
+  /** Absolute source-clip seconds, strictly inside the entry's trim window. */
+  atSourceTime: number
+}
+
+/**
+ * Resolves a playhead position to the entry-split it would perform (#190),
+ * or null where splitting is disabled:
+ *
+ * - an empty timeline, or a playhead at an entry boundary (the location's
+ *   source time sits on the trim window's edge — there is nothing to split);
+ * - inside a transition overlap: two clips are playing, and cutting the
+ *   outgoing entry there would shorten a half below the transition's
+ *   duration, re-clamping it — the split would no longer play back
+ *   identically, so the control disables instead;
+ * - inside a pause plateau holding the entry's first frame: the frozen
+ *   instant *is* the in-point, so no strictly-inside source point exists.
+ *
+ * The mapping from the playhead's *output* time to the source instant is
+ * `locateInSequence`'s — remap effects (#138) are already accounted for.
+ * Splitting at the returned point keeps every boundary outside a transition
+ * overlap, so no transition re-clamps and playback is unchanged (#190).
+ */
+export function splitTargetAt(state: TimelineState, sequenceTime: number): SplitTarget | null {
+  const location = locateInSequence(state, sequenceTime)
+  if (location === null || location.transition !== undefined) return null
+  const { entry, sourceTime } = location
+  if (!isSplittablePoint(entry, sourceTime)) return null
+  return { entryId: entry.id, atSourceTime: sourceTime }
 }
 
 /** Where an audio track stands at one timeline position (#103). */

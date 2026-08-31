@@ -22,6 +22,7 @@ import {
   isTransitionOverlayActive,
   locateInSequence,
   sequenceTimeAt,
+  splitTargetAt,
 } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
@@ -40,6 +41,12 @@ interface PreviewPlayerProps {
    * the expansion rearranges the app grid, not just this panel. */
   expanded?: boolean
   onToggleExpanded?: () => void
+  /**
+   * Split the entry at the playhead (#190). The preview owns the playhead,
+   * so the razor lives here; the split itself is App's dispatch. Optional so
+   * the player renders without editing wiring (tests, read-only embeds).
+   */
+  onSplit?: (entryId: string, atSourceTime: number) => void
 }
 
 /**
@@ -255,6 +262,7 @@ export function PreviewPlayer({
   timeline,
   expanded = false,
   onToggleExpanded,
+  onSplit,
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
@@ -872,6 +880,10 @@ export function PreviewPlayer({
   useEffect(() => stopLoop, [stopLoop])
 
   const location = locateInSequence(timeline, sequenceTime)
+  // What the Split control would cut at the playhead (#190), or null where
+  // splitting is disabled. Clamped like the seek slider's value, so a
+  // published time past the end reads as the end (not splittable).
+  const splitTarget = splitTargetAt(timeline, Math.min(sequenceTime, total))
   // Gate the overlay on the actual engagement, not the recomputed location
   // alone: right after a handover the published time can still trail inside
   // the overlap, and then the top-layer element holds the outgoing clip (#61).
@@ -1178,6 +1190,21 @@ export function PreviewPlayer({
               onClick={playing ? pause : play}
             >
               {playing ? '⏸' : '▶'}
+            </button>
+            {/* The razor (#190): split the entry under the playhead. Disabled
+                where there is nothing to split — a boundary, a transition
+                overlap, or an empty timeline (see splitTargetAt). Undoable
+                like any timeline edit (#189). */}
+            <button
+              type="button"
+              data-testid="preview-split"
+              title="Split the clip at the playhead (disabled at boundaries and inside transitions)"
+              disabled={splitTarget === null || onSplit === undefined}
+              onClick={() => {
+                if (splitTarget !== null) onSplit?.(splitTarget.entryId, splitTarget.atSourceTime)
+              }}
+            >
+              ✂ Split
             </button>
             <input
               type="range"

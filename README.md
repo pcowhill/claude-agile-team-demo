@@ -50,6 +50,13 @@ Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
 shortcut stays the browser's own text undo.
+A ✂ Split button beside the preview's transport cuts the entry under the
+playhead into two independently trimmable, removable halves (#190) — the
+razor. An untouched split plays back and exports exactly like the original;
+per-entry effects follow the cut (speed segments and pauses split exactly,
+zooms move to or split with the half that shows them), and the button
+disables where there is nothing to split — entry boundaries and transition
+overlaps.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
