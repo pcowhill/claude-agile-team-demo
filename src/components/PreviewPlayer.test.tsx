@@ -1365,3 +1365,132 @@ describe('Split at playhead (#190)', () => {
     expect(screen.getByTestId('preview-split')).toBeDisabled()
   })
 })
+
+describe('transport keyboard shortcuts (#203)', () => {
+  const oneClip: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 4,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 4,
+      },
+    ],
+  }
+
+  // Same media stubs as the audio-track block: jsdom implements no playback,
+  // so play/pause/paused are faked and rAF captured — enough to observe the
+  // component's play state and published position.
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const pressOnWindow = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const slider = () => screen.getByRole('slider', { name: 'Seek within sequence' })
+
+  it('Space toggles play and pause when nothing claims the key', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+    pressOnWindow(' ')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    pressOnWindow(' ')
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+  })
+
+  it('Space typed into a text-editing field never toggles playback', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    const input = document.createElement('input')
+    input.type = 'number'
+    document.body.appendChild(input)
+    try {
+      input.focus()
+      fireEvent.keyDown(input, { key: ' ' })
+      expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+    } finally {
+      input.remove()
+    }
+  })
+
+  it('arrows step the playhead by 0.1s, Shift+arrows by 1s, clamped to the sequence', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    expect(slider()).toHaveValue('0')
+    pressOnWindow('ArrowRight')
+    expect(slider()).toHaveValue('0.1')
+    pressOnWindow('ArrowRight', { shiftKey: true })
+    expect(slider()).toHaveValue('1.1')
+    pressOnWindow('ArrowLeft')
+    expect(slider()).toHaveValue('1')
+    // Clamped at the start…
+    pressOnWindow('ArrowLeft', { shiftKey: true })
+    pressOnWindow('ArrowLeft')
+    expect(slider()).toHaveValue('0')
+    // …and at the end (4s total).
+    for (let i = 0; i < 5; i++) pressOnWindow('ArrowRight', { shiftKey: true })
+    expect(slider()).toHaveValue('4')
+  })
+
+  it('Home and End jump to the sequence bounds', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    pressOnWindow('End')
+    expect(slider()).toHaveValue('4')
+    pressOnWindow('Home')
+    expect(slider()).toHaveValue('0')
+  })
+
+  it('? opens the cheat sheet listing the #189 undo keys too; Escape and Close dismiss it', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    pressOnWindow('?', { shiftKey: true })
+    const dialog = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    expect(dialog).toHaveTextContent('Play / pause the preview')
+    expect(dialog).toHaveTextContent('Undo the last timeline edit')
+
+    // While the dialog is open the transport is inert, like under any modal.
+    pressOnWindow(' ')
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    pressOnWindow('?', { shiftKey: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('? answers on an empty timeline, where there is no transport to drive', () => {
+    render(<PreviewPlayer timeline={{ entries: [] }} />)
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
+    // The transport keys stay harmless no-ops.
+    pressOnWindow(' ')
+    pressOnWindow('ArrowRight')
+  })
+})

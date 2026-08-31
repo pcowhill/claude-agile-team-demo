@@ -33,6 +33,13 @@ import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
+import {
+  modalDialogOpen,
+  stepTarget,
+  targetClaimsKeys,
+  transportActionForKey,
+} from '../lib/transport'
+import { ShortcutHelpDialog } from './ShortcutHelpDialog'
 import './PreviewPlayer.css'
 
 interface PreviewPlayerProps {
@@ -301,6 +308,8 @@ export function PreviewPlayer({
   const [engagedFor, setEngagedFor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
+  // The keyboard-shortcut cheat sheet (#203), opened with `?`.
+  const [helpOpen, setHelpOpen] = useState(false)
   // Intrinsic dimensions per source URL, probed off-DOM as sources join the
   // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
   // shapes the preview frame. Sources still probing simply don't contribute
@@ -861,6 +870,44 @@ export function PreviewPlayer({
     [timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, playing],
   )
 
+  // Transport keyboard shortcuts (#203): Space play/pause, arrow stepping,
+  // Home/End jumps, and ? for the cheat sheet. Window-level like the #189
+  // undo/redo handler in App (which requires Ctrl/Cmd, so the two never
+  // claim the same event); inert while focus sits on a control with its own
+  // keyboard behavior (a text field keeps its typing, a button keeps
+  // Space-to-activate, the seek slider keeps its arrows) or while any modal
+  // dialog is open — the export modal, a removal confirmation, or the cheat
+  // sheet itself.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = transportActionForKey(event)
+      if (action === null) return
+      if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
+      event.preventDefault()
+      switch (action.kind) {
+        case 'toggle-play':
+          if (playing) pause()
+          else play()
+          break
+        case 'step':
+          // Stepping routes through seek(), so the stepped frame renders
+          // exactly as an equivalent slider seek would — text overlays,
+          // transitions, and remaps all reflect the new time. From a
+          // position past the end (stale after an edit) a step re-clamps.
+          seek(stepTarget(Math.min(sequenceTime, total), action.delta, total))
+          break
+        case 'jump':
+          seek(action.to === 'start' ? 0 : total)
+          break
+        case 'shortcut-help':
+          setHelpOpen(true)
+          break
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [playing, play, pause, seek, sequenceTime, total])
+
   // Edits to the timeline invalidate the playback position (entries or
   // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
   // than guessing.
@@ -1227,6 +1274,9 @@ export function PreviewPlayer({
           )}
         </div>
       )}
+      {/* Rendered at the panel level, not inside the player block: `?`
+          answers even while the timeline is empty (#203). */}
+      {helpOpen && <ShortcutHelpDialog onClose={() => setHelpOpen(false)} />}
     </section>
   )
 }

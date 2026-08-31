@@ -55,6 +55,10 @@ Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
 shortcut stays the browser's own text undo.
+The preview answers transport keys (#203): Space plays/pauses, ← / → step
+the playhead 0.1 s (1 s with Shift), Home/End jump to the sequence bounds,
+and ? opens a cheat sheet of every shortcut — all inert while typing in a
+field or while a dialog is open, so no control loses its own keys.
 A ✂ Split button beside the preview's transport cuts the entry under the
 playhead into two independently trimmable, removable halves (#190) — the
 razor. An untouched split plays back and exports exactly like the original;
