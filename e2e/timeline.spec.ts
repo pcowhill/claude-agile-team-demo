@@ -63,8 +63,18 @@ test('clips can be added to the timeline, reordered, and removed', async ({ page
   await page.getByRole('button', { name: 'Move second.webm at position 2 up' }).click()
   await expect(sequence.getByRole('listitem').first()).toContainText('second.webm')
 
-  // Remove one entry; the library is unaffected.
-  await page.getByRole('button', { name: 'Remove second.webm at position 1 from timeline' }).click()
+  // Remove one entry, via its confirmation dialog (#178); the library is
+  // unaffected. Cancelling first proves a mis-click costs nothing.
+  const removeSecond = page.getByRole('button', {
+    name: 'Remove second.webm at position 1 from timeline',
+  })
+  await removeSecond.click()
+  const removalDialog = page.getByRole('dialog')
+  await expect(removalDialog).toContainText('Remove second.webm at position 1?')
+  await removalDialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(sequence.getByRole('listitem')).toHaveCount(2)
+  await removeSecond.click()
+  await removalDialog.getByRole('button', { name: 'Remove' }).click()
   await expect(sequence.getByRole('listitem')).toHaveCount(1)
   await expect(sequence.getByRole('listitem')).toContainText('first.webm')
   await expect(library.getByRole('listitem')).toHaveCount(2)

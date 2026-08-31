@@ -70,6 +70,8 @@ test('a track can be removed; removing the library clip removes its tracks', asy
   await page
     .getByRole('button', { name: 'Remove audio track tone.wav at position 1 from timeline' })
     .click()
+  // Track removal confirms first (#178).
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
   const lane = page.getByRole('list', { name: 'Audio tracks' })
   await expect(lane.getByRole('listitem')).toHaveCount(1)
 

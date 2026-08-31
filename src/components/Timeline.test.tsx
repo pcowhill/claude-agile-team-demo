@@ -34,6 +34,13 @@ const sequenceNames = () =>
     .getAllByRole('listitem')
     .map((item) => item.querySelector('.clip-name')?.textContent)
 
+/** Confirms the removal dialog that timeline item removals open (#178). */
+const confirmRemoval = async () => {
+  await userEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }),
+  )
+}
+
 describe('timeline', () => {
   it('adds a library clip to the timeline, more than once, and totals the duration', async () => {
     render(<App />)
@@ -845,12 +852,38 @@ describe('timeline', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove a.mp4 at position 1 from timeline' }),
     )
+    // Removal confirms first (#178); the dialog names the item.
+    expect(screen.getByRole('dialog')).toHaveTextContent('Remove a.mp4 at position 1?')
+    await confirmRemoval()
 
     expect(sequenceNames()).toEqual(['b.mp4'])
     expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:15')
     // Still in the library, so it can be re-added.
     const library = screen.getByRole('list', { name: 'Imported clips' })
     expect(library).toHaveTextContent('a.mp4')
+  })
+
+  it('cancelling or escaping the removal dialog keeps the item (#178)', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    const removeButton = screen.getByRole('button', {
+      name: 'Remove a.mp4 at position 1 from timeline',
+    })
+
+    // Cancel keeps the entry and closes the dialog.
+    await userEvent.click(removeButton)
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(sequenceNames()).toEqual(['a.mp4'])
+
+    // Escape cancels from anywhere, same result.
+    await userEvent.click(removeButton)
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(sequenceNames()).toEqual(['a.mp4'])
   })
 })
 
@@ -953,6 +986,7 @@ describe('audio lane (#102)', () => {
         name: 'Remove audio track music.mp3 at position 1 from timeline',
       }),
     )
+    await confirmRemoval()
     expect(within(lane()).getAllByRole('listitem')).toHaveLength(1)
   })
 
@@ -1129,10 +1163,12 @@ describe('text overlays (#139)', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove text overlay at position 1 from timeline' }),
     )
+    await confirmRemoval()
     expect(within(screen.getByRole('list', { name: 'Text overlays' })).getAllByRole('listitem')).toHaveLength(1)
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove text overlay at position 1 from timeline' }),
     )
+    await confirmRemoval()
     expect(screen.queryByRole('list', { name: 'Text overlays' })).not.toBeInTheDocument()
   })
 
@@ -1259,9 +1295,11 @@ describe('overlay video layers (#145)', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove overlay cam.mp4 at position 1 from timeline' }),
     )
+    await confirmRemoval()
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove overlay cam.mp4 at position 1 from timeline' }),
     )
+    await confirmRemoval()
     expect(screen.queryByRole('list', { name: 'Overlay video layers' })).not.toBeInTheDocument()
   })
 
