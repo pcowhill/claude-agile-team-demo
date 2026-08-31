@@ -28,29 +28,50 @@
 /* The stage takes exactly the panel height left over after the controls and
    now-playing line. The zero flex basis matters: the stage must never make
    the panel taller than the row the app grid gave it — the guaranteed row
-   minimum (App.css, #128) is what keeps that height usable. It holds the two
-   stacked video elements and clips the slide transitions' paths. */
+   minimum (App.css, #128) is what keeps that height usable. The stage is
+   purely a layout box: the picture itself lives in the frame below (#176),
+   centred inside whatever shape the layout hands the stage. The size
+   containment is what lets the frame's cq units measure the stage; the
+   stage's own size is extrinsic (flex basis / aspect-ratio), so it changes
+   nothing else. */
 .preview-stage {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+}
+
+/* The output frame (#176): the largest rectangle of the export frame's
+   aspect ratio (--preview-aspect, from the shared rule in frameSize.ts)
+   that fits inside the stage — width-bound or height-bound, whichever the
+   stage's shape dictates. Every layer lives inside it, so the fractional
+   coordinates that overlay rectangles (#145), text overlays (#139), and
+   zoom centres (#64) are stored in resolve against the very frame the
+   export canvas resolves them against: what you see is what exports. It
+   holds the two stacked video elements and clips the slide transitions'
+   paths. */
+.preview-frame {
+  position: relative;
+  width: min(100cqw, calc(100cqh * var(--preview-aspect, 1.7777778)));
+  height: min(100cqh, calc(100cqw / var(--preview-aspect, 1.7777778)));
   background: #000;
   border-radius: 6px;
   overflow: hidden;
   /* The crossfade blends the incoming element additively (plus-lighter,
-     #66); isolating the stage guarantees the blend composites against the
-     stage's own black and the outgoing element, never anything behind the
-     stage. */
+     #66); isolating the frame guarantees the blend composites against the
+     frame's own black and the outgoing element, never anything behind it. */
   isolation: isolate;
   /* Text overlays (#139) size their type as a fraction of the frame height
-     via cqh units, so the stage is their size container. The stage's own
-     size is already extrinsic (flex basis / aspect-ratio), so the size
-     containment this creates changes nothing else. */
+     via cqh units, so the frame is their size container — matching the
+     export, which sizes text from the canvas height. */
   container-type: size;
 }
 
-/* Both elements fill the stage; object-fit letterboxes/pillarboxes inside
-   the box, so the frame is never cropped or distorted. */
+/* Both elements fill the frame; object-fit letterboxes/pillarboxes inside
+   the box, so the picture is never cropped or distorted. */
 .preview-video {
   position: absolute;
   inset: 0;
@@ -93,8 +114,10 @@
 
 /* Expanded (#128, option B in #126): the panel goes full content width and
    the row is content-sized, so the stage sizes itself from its width by the
-   playing video's own aspect ratio — as wide as it can be, height following
-   along, exactly as the customer sketched. 16:9 until metadata arrives. */
+   output frame's aspect ratio (#176) — as wide as it can be, height
+   following along, exactly as the customer sketched. 16:9 until metadata
+   arrives. The frame then fills the stage exactly, since they share the
+   ratio. */
 .preview-stage-expanded {
   flex: 0 0 auto;
   aspect-ratio: var(--preview-aspect, 16 / 9);

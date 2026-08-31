@@ -25,6 +25,8 @@ import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
 import { audioTrackGainAt, videoEntryGain } from './gain'
 import { transitionLayerSpec } from './transitionRender'
+import { outputFrameSize } from './frameSize'
+import type { SourceDimensions } from './frameSize'
 import { zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
 
@@ -642,9 +644,6 @@ export function advanceRemapReplay(
   }
 }
 
-/** Fallback canvas size when no source reports its dimensions. */
-const FALLBACK_WIDTH = 640
-const FALLBACK_HEIGHT = 360
 
 /**
  * Exports the timeline — each entry from its in-point to its out-point, in
@@ -824,23 +823,22 @@ export async function exportTimeline(
       image.src = url
     })
 
-  // Output frame size: the largest source dimensions in the sequence, so no
-  // clip is downscaled; differently-sized clips are letterboxed into it.
-  // Loading every source here also validates that each one is decodable
-  // before the recorder starts. Image stills (#140) load through an <img> —
-  // a <video> cannot decode them — and keep it for the draw loop. Slates
-  // (#143) have no media at all: nothing to load, no intrinsic size — they
-  // fill whatever frame the real sources (or the fallback) decide.
-  let width = 0
-  let height = 0
+  // Output frame size: the shared rule (frameSize.ts, #176) over every real
+  // source in the sequence — the same rule the preview sizes its stage by,
+  // so fractional overlay/text/zoom coordinates resolve identically in both
+  // renderers. Loading every source here also validates that each one is
+  // decodable before the recorder starts. Image stills (#140) load through
+  // an <img> — a <video> cannot decode them — and keep it for the draw loop.
+  // Slates (#143) have no media at all: nothing to load, no intrinsic size —
+  // they fill whatever frame the real sources (or the fallback) decide.
+  const sourceDims: SourceDimensions[] = []
   try {
     for (const url of new Set(
       entries.filter((entry) => !isStillEntry(entry)).map((entry) => entry.url),
     )) {
       throwIfAborted()
       await loadSource(replays[0], url)
-      width = Math.max(width, replays[0].videoWidth)
-      height = Math.max(height, replays[0].videoHeight)
+      sourceDims.push({ width: replays[0].videoWidth, height: replays[0].videoHeight })
     }
     for (const url of new Set(
       entries.filter((entry) => entry.kind === 'image').map((entry) => entry.url),
@@ -848,8 +846,7 @@ export async function exportTimeline(
       throwIfAborted()
       const image = await loadStill(url)
       stillSources.set(url, image)
-      width = Math.max(width, image.naturalWidth)
-      height = Math.max(height, image.naturalHeight)
+      sourceDims.push({ width: image.naturalWidth, height: image.naturalHeight })
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track
@@ -870,10 +867,7 @@ export async function exportTimeline(
     await releaseAll()
     throw error
   }
-  if (width === 0 || height === 0) {
-    width = FALLBACK_WIDTH
-    height = FALLBACK_HEIGHT
-  }
+  const { width, height } = outputFrameSize(sourceDims)
 
   const canvas = document.createElement('canvas')
   canvas.width = width
