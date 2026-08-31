@@ -33,6 +33,9 @@ test('placing an audio clip creates a track on the audio lane', async ({ page })
 })
 
 test('start time and trim are edited from the lane', async ({ page }) => {
+  // A 5s slate gives the video sequence a duration: the lane scale is the
+  // sequence span (#180), and with no entries every bar renders empty.
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
 
   const startField = page.getByRole('spinbutton', {
@@ -56,10 +59,10 @@ test('start time and trim are edited from the lane', async ({ page }) => {
   await expect(inField).toHaveValue('1')
   await expect(outField).toHaveValue('3')
   await expect(page.getByText('plays 2s of 4s')).toBeVisible()
-  // The bar reflects offset 2s + length 2s on a lane spanning 4s.
+  // The bar reflects offset 2s + length 2s on the 5s sequence span (#180).
   const bar = page.getByTestId('audio-track-bar-0')
   await expect(bar).toHaveCSS('left', /.+/)
-  await expect(bar).toHaveAttribute('style', /left: 50%; width: 50%/)
+  await expect(bar).toHaveAttribute('style', /left: 40%; width: 40%/)
 })
 
 test('a track can be removed; removing the library clip removes its tracks', async ({ page }) => {

@@ -46,6 +46,11 @@ also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
 same way into the exported file, overlay audio in the mix (#146).
+Every timeline row shows a coverage bar for where the item plays in the
+composed timeline (#180) — per-section colors (green video, amber image,
+the slate's own color, blue audio, purple overlays, magenta text), all
+scaled to the video sequence's duration, with anything past the video's
+end clamped (it never plays).
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

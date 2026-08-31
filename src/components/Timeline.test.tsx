@@ -962,11 +962,12 @@ describe('audio lane (#102)', () => {
     expect(inField).toHaveValue(10)
     expect(outField).toHaveValue(25)
     expect(screen.getByText('plays 15s of 30s')).toBeInTheDocument()
-    // Track runs 5..20 on a lane spanning to 20 (past the 10s video — the
-    // silent tail renders instead of clipping): left 25%, width 75%.
+    // Track runs 5..20 against the 10s video sequence — the lane scale is
+    // the sequence duration (#180), so the silent tail past 10s is clamped:
+    // left 50%, width 50% (was: lane stretched to the track's end).
     const bar = screen.getByTestId('audio-track-bar-0')
-    expect(bar.style.left).toBe('25%')
-    expect(bar.style.width).toBe('75%')
+    expect(bar.style.left).toBe('50%')
+    expect(bar.style.width).toBe('50%')
     // The video total is unchanged by audio (silent tail is #103's concern).
     expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:10')
   })
@@ -1469,5 +1470,148 @@ describe('undo/redo (#189)', () => {
     // The removed clip's states are unreachable — its object URL is revoked.
     expect(undoButton()).toBeDisabled()
     expect(redoButton()).toBeDisabled()
+  })
+})
+
+describe('coverage bars and the sequence-scaled lane (#180)', () => {
+  it('sequence entries render bars over their output intervals, per-kind colored', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    probeMock.mockResolvedValueOnce({
+      duration: 0,
+      url: 'blob:logo.png',
+      kind: 'image',
+      width: 64,
+      height: 64,
+    })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], 'logo.png', { type: 'image/png' }),
+    )
+    await screen.findByText('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+
+    // 10s video then the 5s image still: span 15.
+    const videoBar = screen.getByTestId('timeline-entry-bar-0')
+    expect(videoBar.style.left).toBe('0%')
+    expect(videoBar.style.width).toBe(`${(10 / 15) * 100}%`)
+    expect(videoBar.className).toContain('timeline-entry-bar-video')
+    const imageBar = screen.getByTestId('timeline-entry-bar-1')
+    expect(imageBar.style.left).toBe(`${(10 / 15) * 100}%`)
+    expect(imageBar.style.width).toBe(`${(5 / 15) * 100}%`)
+    expect(imageBar.className).toContain('timeline-entry-bar-image')
+  })
+
+  it("a slate's bar uses the slate's own color as its swatch", async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    const bar = screen.getByTestId('timeline-entry-bar-0')
+    expect(bar.className).toContain('timeline-entry-bar-slate')
+    // The default slate color (#143).
+    expect(bar.style.background).toBe('rgb(255, 0, 0)')
+    expect(bar.style.left).toBe('0%')
+    expect(bar.style.width).toBe('100%')
+  })
+
+  it('a transition overlaps the neighbors: the later bar starts earlier by its duration', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add transition between position 1 and 2' }),
+    )
+    // 10 + 10 − 1 = 19s span; the second entry starts at 9.
+    const second = screen.getByTestId('timeline-entry-bar-1')
+    expect(second.style.left).toBe(`${(9 / 19) * 100}%`)
+    expect(second.style.width).toBe(`${(10 / 19) * 100}%`)
+  })
+
+  it('text overlays render bars in their own color, clamped to the sequence end', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    const start = screen.getByRole('spinbutton', {
+      name: 'Start time of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(start)
+    await userEvent.type(start, '8')
+    await userEvent.tab()
+    const duration = screen.getByRole('spinbutton', {
+      name: 'Duration of text overlay at position 1 in seconds',
+    })
+    await userEvent.clear(duration)
+    await userEvent.type(duration, '6')
+    await userEvent.tab()
+
+    // Window 8..14 against the 10s sequence: clamped to 8..10.
+    const bar = screen.getByTestId('text-overlay-bar-0')
+    expect(bar.className).toContain('text-overlay-bar')
+    expect(bar.style.left).toBe('80%')
+    expect(bar.style.width).toBe(`${(2 / 10) * 100}%`)
+  })
+
+  it("the customer's example: two 3-minute songs over a 4-minute video (#170)", async () => {
+    render(<App />)
+    await importClip('video.mp4', 240)
+    await importAudioClip('song.mp3', 180)
+    await userEvent.click(screen.getByRole('button', { name: 'Add video.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add song.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add song.mp3 to timeline' }))
+
+    const secondStart = screen.getByRole('spinbutton', {
+      name: 'Start time of audio track song.mp3 at position 2 in seconds',
+    })
+    await userEvent.clear(secondStart)
+    await userEvent.type(secondStart, '180')
+    await userEvent.tab()
+
+    // First song covers the first 3/4; the second, starting at 3:00, is
+    // clamped to the final 1/4 of the 4-minute video.
+    const first = screen.getByTestId('audio-track-bar-0')
+    expect(first.style.left).toBe('0%')
+    expect(first.style.width).toBe('75%')
+    const second = screen.getByTestId('audio-track-bar-1')
+    expect(second.style.left).toBe('75%')
+    expect(second.style.width).toBe('25%')
+  })
+
+  it('an item entirely past the sequence end renders a zero-width bar', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('music.mp3', 5)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    const start = screen.getByRole('spinbutton', {
+      name: 'Start time of audio track music.mp3 at position 1 in seconds',
+    })
+    await userEvent.clear(start)
+    await userEvent.type(start, '12')
+    await userEvent.tab()
+    expect(start).toHaveValue(12)
+
+    const bar = screen.getByTestId('audio-track-bar-0')
+    expect(bar.style.width).toBe('0%')
+    // The 2px visibility minimum must not resurrect an item that never plays.
+    expect(bar.style.minWidth).toBe('0px')
+  })
+
+  it('with no sequence entries nothing plays: every bar is empty, rows stay intact', async () => {
+    render(<App />)
+    await importAudioClip('music.mp3', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    const bar = screen.getByTestId('audio-track-bar-0')
+    expect(bar.style.width).toBe('0%')
+    // The track's row and controls are unaffected.
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Trim out point of audio track music.mp3 at position 1 in seconds',
+      }),
+    ).toHaveValue(30)
   })
 })

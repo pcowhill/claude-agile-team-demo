@@ -289,16 +289,39 @@ export function Timeline({
   const audioTracks = audioTracksOf(timeline)
   const texts = textsOf(timeline)
   const videoOverlays = videoOverlaysOf(timeline)
-  // The lane's visual scale: long enough for the video sequence and for
-  // every track's end — a track past the sequence end (silent tail) still
-  // renders fully instead of overflowing.
-  const laneSpan = Math.max(
-    totalDuration(timeline),
-    ...audioTracks.map((track) => track.offset + effectiveDuration(track)),
-    ...videoOverlays.map((overlay) => overlay.offset + effectiveDuration(overlay)),
-  )
-  const lanePercent = (seconds: number) =>
-    laneSpan > 0 ? `${(seconds / laneSpan) * 100}%` : '0%'
+  // The lane's visual scale is the video sequence duration — what preview
+  // and export actually cover (#180, the customer's ask in #170). An item
+  // running past the sequence end (an audio track's silent tail, a late
+  // overlay or text) renders clamped to the end; one entirely past it (it
+  // never plays) renders as a zero-width bar. With no sequence entries
+  // nothing plays at all, so every bar is empty — the rows themselves stay.
+  const laneSpan = totalDuration(timeline)
+  const laneBar = (offset: number, length: number) => {
+    const start = Math.min(Math.max(offset, 0), laneSpan)
+    const end = Math.min(Math.max(offset + length, start), laneSpan)
+    if (laneSpan <= 0 || end <= start) {
+      // Zero-width means invisible: the bar's 2px minimum exists to keep
+      // tiny playing items visible, and must not resurrect items that
+      // never play.
+      return { left: '0%', width: '0%', minWidth: 0 }
+    }
+    return {
+      left: `${(start / laneSpan) * 100}%`,
+      width: `${((end - start) / laneSpan) * 100}%`,
+    }
+  }
+  // Where each entry's output interval begins (#180): the bar counterpart
+  // of playback.ts's entryStartTime, off the already-normalized boundary
+  // transitions — each overlap pulls the next entry's start earlier.
+  const remaps = remapsOf(timeline)
+  const entryStarts: number[] = []
+  {
+    let start = 0
+    for (let index = 0; index < entries.length; index++) {
+      entryStarts.push(start)
+      start += entryOutputDuration(entries[index], remaps) - (transitions[index]?.duration ?? 0)
+    }
+  }
 
   // Removing an item asks first (#178): a mis-click must not silently cost
   // an edit. Only item removals confirm — sequence entries, audio tracks,
@@ -363,6 +386,27 @@ export function Timeline({
             const position = `${entry.name} at position ${index + 1}`
             return (
               <li key={entry.id} className="timeline-entry">
+                {/* Coverage at a glance (#180), like the audio lane's strip:
+                    the entry's output interval against the sequence span.
+                    Adjacent bars overlap exactly where transitions do. Kind
+                    colors follow the media library's badges; a slate's bar
+                    is its own color — the strip doubles as a swatch. */}
+                <div className="audio-track-strip" aria-hidden="true">
+                  <div
+                    className={`audio-track-bar ${
+                      isSlateEntry(entry)
+                        ? 'timeline-entry-bar-slate'
+                        : isStillEntry(entry)
+                          ? 'timeline-entry-bar-image'
+                          : 'timeline-entry-bar-video'
+                    }`}
+                    data-testid={`timeline-entry-bar-${index}`}
+                    style={{
+                      ...laneBar(entryStarts[index], entryOutputDuration(entry, remaps)),
+                      ...(isSlateEntry(entry) ? { background: entry.color } : {}),
+                    }}
+                  />
+                </div>
                 <div className="timeline-entry-main">
                   <span className="clip-name" title={entry.name}>
                     {entry.name}
@@ -773,10 +817,7 @@ export function Timeline({
                     <div
                       className="audio-track-bar"
                       data-testid={`audio-track-bar-${index}`}
-                      style={{
-                        left: lanePercent(track.offset),
-                        width: lanePercent(trimmedLength),
-                      }}
+                      style={laneBar(track.offset, trimmedLength)}
                     />
                   </div>
                   <div className="audio-track-main">
@@ -803,7 +844,11 @@ export function Timeline({
                     <SecondsField
                       label={`Start time of ${position} in seconds`}
                       value={track.offset}
-                      max={laneSpan}
+                      // Not laneSpan: a track may start past the video
+                      // sequence's end (silent tail, #102) even though its
+                      // bar renders empty there (#180). Same free bound as
+                      // overlay and text start times.
+                      max={86400}
                       onCommit={(offset) => onRetimeAudioTrack(track.id, offset)}
                     />
                     <span>In</span>
@@ -876,10 +921,7 @@ export function Timeline({
                     <div
                       className="audio-track-bar video-overlay-bar"
                       data-testid={`video-overlay-bar-${index}`}
-                      style={{
-                        left: lanePercent(overlay.offset),
-                        width: lanePercent(trimmedLength),
-                      }}
+                      style={laneBar(overlay.offset, trimmedLength)}
                     />
                   </div>
                   <div className="video-overlay-main">
@@ -995,6 +1037,15 @@ export function Timeline({
                 onUpdateText(text.id, { ...textSpecOf(text), ...change })
               return (
                 <li key={text.id} className="text-overlay">
+                  {/* Coverage at a glance (#180): the overlay's window
+                      against the sequence span, like every other lane. */}
+                  <div className="audio-track-strip" aria-hidden="true">
+                    <div
+                      className="audio-track-bar text-overlay-bar"
+                      data-testid={`text-overlay-bar-${index}`}
+                      style={laneBar(text.offset, text.duration)}
+                    />
+                  </div>
                   <div className="text-overlay-main">
                     <TextContentField
                       label={`Content of ${position}`}
