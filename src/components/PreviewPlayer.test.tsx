@@ -96,6 +96,75 @@ describe('PreviewPlayer', () => {
     })
   })
 
+  describe('output frame (#176)', () => {
+    const oneVideoEntry: TimelineState = {
+      entries: [
+        {
+          id: 'e1',
+          clipId: 'c1',
+          name: 'first.webm',
+          duration: 4,
+          url: 'blob:first',
+          inPoint: 0,
+          outPoint: 4,
+        },
+      ],
+    }
+
+    it('renders every layer inside the frame element, with the fallback aspect', () => {
+      const { container } = render(<PreviewPlayer timeline={oneVideoEntry} />)
+      // No probe has resolved in jsdom, so the shared rule's fallback frame
+      // (640×360) applies — the CSS variable the stage carries says 16:9.
+      const stage = container.querySelector('.preview-stage') as HTMLElement
+      expect(stage.style.getPropertyValue('--preview-aspect')).toBe(String(640 / 360))
+      // The stacked video elements live inside the frame, not loose in the
+      // stage: their fractional geometry must resolve against the frame.
+      const frame = screen.getByTestId('preview-frame')
+      expect(frame.parentElement).toBe(stage)
+      expect(frame.querySelectorAll('.preview-video')).toHaveLength(2)
+    })
+
+    it('sizes the frame from every source via the shared rule once probes report', async () => {
+      // jsdom fires no media events, but Image probes are stubbable: an
+      // 800×800 still must reshape the frame to a square — proving the
+      // probe wiring feeds outputFrameSize, not just the fallback.
+      class InstantSquareImage {
+        onload: (() => void) | null = null
+        naturalWidth = 0
+        naturalHeight = 0
+        set src(_value: string) {
+          this.naturalWidth = 800
+          this.naturalHeight = 800
+          queueMicrotask(() => this.onload?.())
+        }
+        removeAttribute() {}
+      }
+      vi.stubGlobal('Image', InstantSquareImage)
+      try {
+        const still: TimelineState = {
+          entries: [
+            {
+              id: 'i1',
+              clipId: 'c1',
+              name: 'photo.png',
+              duration: 4,
+              url: 'blob:photo',
+              inPoint: 0,
+              outPoint: 4,
+              kind: 'image',
+            },
+          ],
+        }
+        const { container } = render(<PreviewPlayer timeline={still} />)
+        await act(async () => {})
+        const stage = container.querySelector('.preview-stage') as HTMLElement
+        expect(stage.style.getPropertyValue('--preview-aspect')).toBe('1')
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+  })
+
   // Two 4s entries with a 1s crossfade: total 7, overlap at sequence [3, 4).
   const withTransition: TimelineState = {
     entries: [

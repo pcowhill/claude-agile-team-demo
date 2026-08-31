@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { TimelineState, TransitionType } from '../lib/timeline'
 import {
@@ -26,6 +26,8 @@ import {
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
 import { transitionLayerSpec } from '../lib/transitionRender'
+import { frameAspect, outputFrameSize } from '../lib/frameSize'
+import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
@@ -186,11 +188,14 @@ export function PreviewPlayer({
   const [engagedFor, setEngagedFor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
-  // The playing video's intrinsic aspect ratio, driving the expanded stage's
-  // height (#128): the customer asked the height to follow along when the
-  // preview goes full width. Null until any metadata loads (CSS falls back
-  // to 16:9).
-  const [videoAspect, setVideoAspect] = useState<number | null>(null)
+  // Intrinsic dimensions per source URL, probed off-DOM as sources join the
+  // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
+  // shapes the preview frame. Sources still probing simply don't contribute
+  // yet (the frame settles as metadata arrives — in-memory blob metadata, so
+  // effectively immediately).
+  const [sourceDims, setSourceDims] = useState<ReadonlyMap<string, SourceDimensions>>(
+    () => new Map(),
+  )
 
   const total = totalDuration(timeline)
   const empty = timeline.entries.length === 0
@@ -778,49 +783,80 @@ export function PreviewPlayer({
   const slatePrimary = location !== null && isSlateEntry(location.entry)
   const slateIncoming = overlap !== undefined && isSlateEntry(overlap.entry)
 
-  // The fronting entry's intrinsic dimensions, read via an off-DOM
-  // metadata-only element: the stacked elements are cued lazily (on play or
-  // seek), so their own metadata may not exist when the panel is expanded
-  // before anything played. Blob metadata is in memory — this is cheap — and
-  // keying on the URL re-probes exactly when a different clip fronts. An
-  // image still probes through an <img> (#140), a video cannot decode it. A
-  // slate (#143) has no dimensions of its own: it fills whatever stage the
-  // last real source (or the 16:9 default) shaped, so nothing is probed.
-  const frontingUrl = location?.entry.url ?? null
+  // Every real source's intrinsic dimensions, read via off-DOM metadata-only
+  // elements: the stacked elements are cued lazily (on play or seek), so
+  // their own metadata may not exist before anything played — and the frame
+  // rule (#176) needs *all* sources, fronting or not, exactly like the
+  // export's sizing pass. Blob metadata is in memory — this is cheap. An
+  // image still probes through an <img> (#140), a video cannot decode it.
+  // Slates (#143) have no dimensions of their own and overlay layers
+  // deliberately never shape the frame (#145), so neither is probed. The
+  // signature string keys the effect on the distinct source set, not on the
+  // entries array's identity, so ordinary edits don't re-probe anything.
+  const probeSignature = useMemo(() => {
+    const targets: string[] = []
+    const seen = new Set<string>()
+    for (const entry of timeline.entries) {
+      if (isSlateEntry(entry) || seen.has(entry.url)) continue
+      seen.add(entry.url)
+      targets.push(`${isStillEntry(entry) ? 'image' : 'video'} ${entry.url}`)
+    }
+    return targets.join('\n')
+  }, [timeline.entries])
   useEffect(() => {
-    if (frontingUrl === null || slatePrimary) return undefined
+    if (probeSignature === '') {
+      setSourceDims(new Map())
+      return undefined
+    }
     let stale = false
-    if (stillPrimary) {
-      const probe = new Image()
-      probe.onload = () => {
-        if (!stale && probe.naturalWidth > 0 && probe.naturalHeight > 0) {
-          setVideoAspect(probe.naturalWidth / probe.naturalHeight)
-        }
+    const found = new Map<string, SourceDimensions>()
+    const cleanups: Array<() => void> = []
+    for (const target of probeSignature.split('\n')) {
+      const separator = target.indexOf(' ')
+      const kind = target.slice(0, separator)
+      const url = target.slice(separator + 1)
+      const record = (width: number, height: number) => {
+        if (stale || width <= 0 || height <= 0) return
+        found.set(url, { width, height })
+        setSourceDims(new Map(found))
       }
-      probe.src = frontingUrl
-      return () => {
-        stale = true
-        probe.onload = null
-        probe.removeAttribute('src')
+      if (kind === 'image') {
+        const probe = new Image()
+        probe.onload = () => record(probe.naturalWidth, probe.naturalHeight)
+        probe.src = url
+        cleanups.push(() => {
+          probe.onload = null
+          probe.removeAttribute('src')
+        })
+      } else {
+        const probe = document.createElement('video')
+        probe.preload = 'metadata'
+        probe.addEventListener(
+          'loadedmetadata',
+          () => record(probe.videoWidth, probe.videoHeight),
+          { once: true },
+        )
+        probe.src = url
+        cleanups.push(() => probe.removeAttribute('src'))
       }
     }
-    const probe = document.createElement('video')
-    probe.preload = 'metadata'
-    probe.addEventListener(
-      'loadedmetadata',
-      () => {
-        if (!stale && probe.videoWidth > 0 && probe.videoHeight > 0) {
-          setVideoAspect(probe.videoWidth / probe.videoHeight)
-        }
-      },
-      { once: true },
-    )
-    probe.src = frontingUrl
     return () => {
       stale = true
-      probe.removeAttribute('src')
+      for (const cleanup of cleanups) cleanup()
     }
-  }, [frontingUrl, stillPrimary, slatePrimary])
+  }, [probeSignature])
+
+  // The output frame the preview letterboxes into (#176): the shared rule
+  // over the current entries' known dimensions. Until anything is known the
+  // fallback frame (16:9) applies — the historical default.
+  const frame = outputFrameSize(
+    timeline.entries.flatMap((entry) => {
+      if (isSlateEntry(entry)) return []
+      const dims = sourceDims.get(entry.url)
+      return dims === undefined ? [] : [dims]
+    }),
+  )
+  const previewAspect = frameAspect(frame)
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
@@ -876,132 +912,134 @@ export function PreviewPlayer({
         <p className="placeholder">Add clips to the timeline to preview your edit.</p>
       ) : (
         <div className="preview-player">
-          {/* Sized by CSS; sequence audio plays. Controls are the app's own. */}
+          {/* Sized by CSS; sequence audio plays. Controls are the app's own.
+              The stage is the layout box; the frame inside it (#176) renders
+              at exactly the export frame's aspect ratio — the CSS variable
+              drives both the frame's fit-inside math and the expanded/narrow
+              stage's own aspect-ratio. */}
           <div
             className={expanded ? 'preview-stage preview-stage-expanded' : 'preview-stage'}
-            style={
-              expanded && videoAspect !== null
-                ? ({ '--preview-aspect': String(videoAspect) } as CSSProperties)
-                : undefined
-            }
+            style={{ '--preview-aspect': String(previewAspect) } as CSSProperties}
           >
-            <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
-            <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
-            {/* Still layers (#140): an <img> in the same stacked slot,
-                sharing the video layers' classes so transitions and zooms
-                style it identically. Decorative — the still's name is
-                announced by the now-playing line below. A slate (#143)
-                renders as its flat color instead: same slot, same styles,
-                no media behind it. */}
-            {slatePrimary && location ? (
-              <div
-                className="preview-video"
-                data-testid="preview-slate"
-                style={{
-                  ...withZoom(layerStyles?.outgoing, primaryZoom),
-                  backgroundColor: location.entry.color,
-                }}
-              />
-            ) : (
-              stillPrimary &&
-              location && (
-                <img
+            <div className="preview-frame" data-testid="preview-frame">
+              <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
+              <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
+              {/* Still layers (#140): an <img> in the same stacked slot,
+                  sharing the video layers' classes so transitions and zooms
+                  style it identically. Decorative — the still's name is
+                  announced by the now-playing line below. A slate (#143)
+                  renders as its flat color instead: same slot, same styles,
+                  no media behind it. */}
+              {slatePrimary && location ? (
+                <div
                   className="preview-video"
-                  data-testid="preview-image"
-                  alt=""
-                  src={location.entry.url}
-                  style={withZoom(layerStyles?.outgoing, primaryZoom)}
-                />
-              )
-            )}
-            {slateIncoming && overlap ? (
-              <div
-                className="preview-video preview-video-incoming"
-                data-testid="preview-slate-incoming"
-                style={{
-                  ...withZoom(layerStyles?.incoming, incomingZoom),
-                  backgroundColor: overlap.entry.color,
-                }}
-              />
-            ) : (
-              stillIncoming &&
-              overlap && (
-                <img
-                  className="preview-video preview-video-incoming"
-                  data-testid="preview-image-incoming"
-                  alt=""
-                  src={overlap.entry.url}
-                  style={withZoom(layerStyles?.incoming, incomingZoom)}
-                />
-              )
-            )}
-            {/* Overlay video layers (#145): one <video> per layer, kept
-                mounted for the overlay's lifetime (so scrubbing never
-                re-loads a source) and positioned at its fractional rectangle
-                within the stage — the same frame proxy text overlays and
-                zoom fractions address. The clip letterboxes inside the
-                rectangle (object-fit: contain) with transparent gutters, so
-                the base video shows through rather than black bars.
-                Stacking, bottom to top: base video/still layers (transitions
-                and zooms apply to those), then overlay layers in add order,
-                then text overlays — a title is never hidden by a
-                picture-in-picture. Visibility is declarative from the
-                published time (hidden outside the window); playback and
-                audio follow via syncVideoOverlays each frame. */}
-            {videoOverlays.map((overlay, index) => {
-              const active = audioTrackPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
-              return (
-                <video
-                  key={overlay.id}
-                  ref={(element) => {
-                    overlayRefs.current.set(overlay.id, element)
-                  }}
-                  src={overlay.url}
-                  preload="auto"
-                  playsInline
-                  className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
-                  data-testid={`preview-overlay-${index}`}
+                  data-testid="preview-slate"
                   style={{
-                    left: `${overlay.x * 100}%`,
-                    top: `${overlay.y * 100}%`,
-                    width: `${overlay.width * 100}%`,
-                    height: `${overlay.height * 100}%`,
+                    ...withZoom(layerStyles?.outgoing, primaryZoom),
+                    backgroundColor: location.entry.color,
                   }}
                 />
-              )
-            })}
-            {/* Text overlays (#139): items whose window covers the published
-                sequence time, drawn above the composed frame. Stacking order,
-                bottom to top: video/still layers (transitions and zooms apply
-                to them below), then overlays in add order — an overlay never
-                zooms or slides with a clip; it annotates the output frame.
-                Position is the block's centre in frame fractions; size is a
-                fraction of the frame height, realized via container-query
-                height units against the stage (the frame proxy the preview
-                already letterboxes real sources into). Declarative from the
-                published time, so playing, pausing, and scrubbing all show
-                exactly the overlays for the current instant. */}
-            {textsOf(timeline).map(
-              (text, index) =>
-                textActiveAt(text, Math.min(sequenceTime, total)) && (
-                  <p
-                    key={text.id}
-                    className="preview-text"
-                    data-testid={`preview-text-${index}`}
-                    style={{
-                      left: `${text.x * 100}%`,
-                      top: `${text.y * 100}%`,
-                      fontSize: `${text.size * 100}cqh`,
-                      fontFamily: textFontStack(text.font),
-                      fontWeight: text.bold ? 700 : 400,
-                      fontStyle: text.italic ? 'italic' : 'normal',
-                      color: text.color,
+              ) : (
+                stillPrimary &&
+                location && (
+                  <img
+                    className="preview-video"
+                    data-testid="preview-image"
+                    alt=""
+                    src={location.entry.url}
+                    style={withZoom(layerStyles?.outgoing, primaryZoom)}
+                  />
+                )
+              )}
+              {slateIncoming && overlap ? (
+                <div
+                  className="preview-video preview-video-incoming"
+                  data-testid="preview-slate-incoming"
+                  style={{
+                    ...withZoom(layerStyles?.incoming, incomingZoom),
+                    backgroundColor: overlap.entry.color,
+                  }}
+                />
+              ) : (
+                stillIncoming &&
+                overlap && (
+                  <img
+                    className="preview-video preview-video-incoming"
+                    data-testid="preview-image-incoming"
+                    alt=""
+                    src={overlap.entry.url}
+                    style={withZoom(layerStyles?.incoming, incomingZoom)}
+                  />
+                )
+              )}
+              {/* Overlay video layers (#145): one <video> per layer, kept
+                  mounted for the overlay's lifetime (so scrubbing never
+                  re-loads a source) and positioned at its fractional rectangle
+                  within the stage — the same frame proxy text overlays and
+                  zoom fractions address. The clip letterboxes inside the
+                  rectangle (object-fit: contain) with transparent gutters, so
+                  the base video shows through rather than black bars.
+                  Stacking, bottom to top: base video/still layers (transitions
+                  and zooms apply to those), then overlay layers in add order,
+                  then text overlays — a title is never hidden by a
+                  picture-in-picture. Visibility is declarative from the
+                  published time (hidden outside the window); playback and
+                  audio follow via syncVideoOverlays each frame. */}
+              {videoOverlays.map((overlay, index) => {
+                const active = audioTrackPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
+                return (
+                  <video
+                    key={overlay.id}
+                    ref={(element) => {
+                      overlayRefs.current.set(overlay.id, element)
                     }}
-                  >
-                    {text.content}
-                  </p>
-                ),
-            )}
+                    src={overlay.url}
+                    preload="auto"
+                    playsInline
+                    className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
+                    data-testid={`preview-overlay-${index}`}
+                    style={{
+                      left: `${overlay.x * 100}%`,
+                      top: `${overlay.y * 100}%`,
+                      width: `${overlay.width * 100}%`,
+                      height: `${overlay.height * 100}%`,
+                    }}
+                  />
+                )
+              })}
+              {/* Text overlays (#139): items whose window covers the published
+                  sequence time, drawn above the composed frame. Stacking order,
+                  bottom to top: video/still layers (transitions and zooms apply
+                  to them below), then overlays in add order — an overlay never
+                  zooms or slides with a clip; it annotates the output frame.
+                  Position is the block's centre in frame fractions; size is a
+                  fraction of the frame height, realized via container-query
+                  height units against the stage (the frame proxy the preview
+                  already letterboxes real sources into). Declarative from the
+                  published time, so playing, pausing, and scrubbing all show
+                  exactly the overlays for the current instant. */}
+              {textsOf(timeline).map(
+                (text, index) =>
+                  textActiveAt(text, Math.min(sequenceTime, total)) && (
+                    <p
+                      key={text.id}
+                      className="preview-text"
+                      data-testid={`preview-text-${index}`}
+                      style={{
+                        left: `${text.x * 100}%`,
+                        top: `${text.y * 100}%`,
+                        fontSize: `${text.size * 100}cqh`,
+                        fontFamily: textFontStack(text.font),
+                        fontWeight: text.bold ? 700 : 400,
+                        fontStyle: text.italic ? 'italic' : 'normal',
+                        color: text.color,
+                      }}
+                    >
+                      {text.content}
+                    </p>
+                  ),
+              )}
+            </div>
           </div>
           {/* One element per audio track (#103), driven by syncAudioTracks.
               Sound only — nothing rendered, nothing announced. Keyed by track
