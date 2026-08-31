@@ -5,7 +5,7 @@ visibly, never silently.
 
 ## When to hold a retrospective
 
-Consider a lightweight retrospective after roughly every five merged
+Consider a lightweight retrospective after roughly every ten merged
 implementation PRs, or sooner when a recurring failure pattern is evident:
 repeated CI failures, poor issue decomposition, oversized PRs, repeated
 regressions, ineffective tests, customer questions that should have been
