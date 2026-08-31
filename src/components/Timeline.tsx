@@ -176,6 +176,14 @@ const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
   'slide-from-below': 'Slide from below',
   'slide-from-left': 'Slide from left',
   'slide-from-right': 'Slide from right',
+  'wipe-from-left': 'Wipe from left',
+  'wipe-from-right': 'Wipe from right',
+  'wipe-from-above': 'Wipe from above',
+  'wipe-from-below': 'Wipe from below',
+  'push-from-left': 'Push from left',
+  'push-from-right': 'Push from right',
+  'push-from-above': 'Push from above',
+  'push-from-below': 'Push from below',
 }
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */

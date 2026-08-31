@@ -333,7 +333,7 @@ describe('timeline', () => {
         name: 'Transition type between position 1 and 2',
       })
       expect(typeSelect).toHaveValue('crossfade')
-      // All five effects are offered, each with a plain-language label (#62).
+      // Every effect is offered, each with a plain-language label (#62, #181).
       expect(
         Array.from(typeSelect.querySelectorAll('option'), (option) => option.textContent),
       ).toEqual([
@@ -342,6 +342,14 @@ describe('timeline', () => {
         'Slide from below',
         'Slide from left',
         'Slide from right',
+        'Wipe from left',
+        'Wipe from right',
+        'Wipe from above',
+        'Wipe from below',
+        'Push from left',
+        'Push from right',
+        'Push from above',
+        'Push from below',
       ])
       expect(
         screen.getByRole('spinbutton', {
