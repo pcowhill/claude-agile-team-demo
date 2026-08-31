@@ -315,7 +315,16 @@ export interface ExportOptions {
   onProgress?: (fraction: number) => void
   /** Aborting rejects the export with ExportCanceledError. */
   signal?: AbortSignal
+  /** Frames per second for the recording; EXPORT_FRAME_RATE when absent. */
   frameRate?: number
+  /**
+   * Output frame override (#179). Absent means the automatic rule — the
+   * sources' largest dimensions via `outputFrameSize`. When present, sources
+   * letterbox/pillarbox into this frame through the same `fitRect` path, and
+   * everything fractional (overlay rectangles, text positions and sizes,
+   * zoom centres) resolves against it unchanged.
+   */
+  frame?: SourceDimensions
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
@@ -879,7 +888,7 @@ export async function exportTimeline(
     await releaseAll()
     throw error
   }
-  const { width, height } = outputFrameSize(sourceDims)
+  const { width, height } = options.frame ?? outputFrameSize(sourceDims)
 
   const canvas = document.createElement('canvas')
   canvas.width = width

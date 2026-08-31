@@ -42,6 +42,10 @@ also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
 same way into the exported file, overlay audio in the mix (#146).
+The export modal shows the output settings it will use — width, height, and
+frame rate, pre-filled with the automatic source-derived values — and lets
+them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
+edited freely for that one export (#179).
 Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is
