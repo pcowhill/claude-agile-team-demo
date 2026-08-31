@@ -183,3 +183,117 @@ describe('ExportControl', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
+
+describe('output settings (#179)', () => {
+  const probeHD = () => Promise.resolve({ width: 1280, height: 720 })
+  const widthField = () => screen.getByRole('spinbutton', { name: 'Export width in pixels' })
+  const heightField = () => screen.getByRole('spinbutton', { name: 'Export height in pixels' })
+  const frameRateField = () =>
+    screen.getByRole('spinbutton', { name: 'Export frame rate in frames per second' })
+  const sizeSelect = () => screen.getByRole('combobox', { name: 'Export size preset' })
+
+  it('pre-fills the fields with the automatic frame and default frame rate', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} probeFrame={probeHD} />)
+    await user.click(openButton())
+
+    expect(sizeSelect()).toHaveValue('auto')
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+    expect(heightField()).toHaveValue(720)
+    expect(frameRateField()).toHaveValue(30)
+  })
+
+  it('presets populate the fields; Auto restores the automatic values', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} probeFrame={probeHD} />)
+    await user.click(openButton())
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+
+    await user.selectOptions(sizeSelect(), 'uhd')
+    expect(widthField()).toHaveValue(3840)
+    expect(heightField()).toHaveValue(2160)
+
+    await user.selectOptions(sizeSelect(), 'auto')
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+    expect(heightField()).toHaveValue(720)
+  })
+
+  it('editing a field switches the selector to Custom and the export honors the values', async () => {
+    let requested: { frame?: { width: number; height: number }; frameRate?: number } = {}
+    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+      requested = { frame: options.frame, frameRate: options.frameRate }
+      return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} doExport={doExport} probeFrame={probeHD} />)
+    await user.click(openButton())
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+
+    await user.clear(widthField())
+    await user.type(widthField(), '640')
+    expect(sizeSelect()).toHaveValue('custom')
+    await user.clear(heightField())
+    await user.type(heightField(), '360')
+    await user.clear(frameRateField())
+    await user.type(frameRateField(), '24')
+
+    await user.click(exportButton())
+    await screen.findByTestId('export-download')
+    expect(requested.frame).toEqual({ width: 640, height: 360 })
+    expect(requested.frameRate).toBe(24)
+  })
+
+  it('Auto sends no frame override, keeping the automatic export path', async () => {
+    let requested: { frame?: unknown; frameRate?: number } = { frame: 'unset' }
+    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+      requested = { frame: options.frame, frameRate: options.frameRate }
+      return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} doExport={doExport} probeFrame={probeHD} />)
+    await user.click(openButton())
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+
+    await user.click(exportButton())
+    await screen.findByTestId('export-download')
+    expect(requested.frame).toBeUndefined()
+    expect(requested.frameRate).toBe(30)
+  })
+
+  it('invalid input disables Export and explains the bounds', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} probeFrame={probeHD} />)
+    await user.click(openButton())
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+
+    await user.clear(widthField())
+    await user.type(widthField(), '0')
+    expect(exportButton()).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('whole numbers')
+
+    await user.clear(widthField())
+    await user.type(widthField(), '854')
+    expect(exportButton()).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.clear(frameRateField())
+    await user.type(frameRateField(), '-5')
+    expect(exportButton()).toBeDisabled()
+  })
+
+  it('reopening the modal returns to the automatic settings', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} probeFrame={probeHD} />)
+    await user.click(openButton())
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+    await user.selectOptions(sizeSelect(), 'web')
+    expect(widthField()).toHaveValue(854)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // One-export-only settings (#169): a fresh open follows the sources again.
+    await user.click(openButton())
+    expect(sizeSelect()).toHaveValue('auto')
+    await waitFor(() => expect(widthField()).toHaveValue(1280))
+    expect(frameRateField()).toHaveValue(30)
+  })
+})

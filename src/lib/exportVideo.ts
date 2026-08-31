@@ -315,7 +315,16 @@ export interface ExportOptions {
   onProgress?: (fraction: number) => void
   /** Aborting rejects the export with ExportCanceledError. */
   signal?: AbortSignal
+  /** Frames per second for the recording; EXPORT_FRAME_RATE when absent. */
   frameRate?: number
+  /**
+   * Output frame override (#179). Absent means the automatic rule — the
+   * sources' largest dimensions via `outputFrameSize`. When present, sources
+   * letterbox/pillarbox into this frame through the same `fitRect` path, and
+   * everything fractional (overlay rectangles, text positions and sizes,
+   * zoom centres) resolves against it unchanged.
+   */
+  frame?: SourceDimensions
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
@@ -879,7 +888,7 @@ export async function exportTimeline(
     await releaseAll()
     throw error
   }
-  const { width, height } = outputFrameSize(sourceDims)
+  const { width, height } = options.frame ?? outputFrameSize(sourceDims)
 
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -990,7 +999,15 @@ export async function exportTimeline(
     const zoom = zoomAt(timeline, entryIndex, layer.time)
     const dest = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
     context.globalAlpha = spec?.outgoingAlpha ?? 1
-    context.drawImage(layer.source, dest.x, dest.y, dest.width, dest.height)
+    // Pushes (#181) move the outgoing layer off the frame; every other type
+    // has zero outgoing offsets, drawing exactly as before.
+    context.drawImage(
+      layer.source,
+      dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+      dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+      dest.width,
+      dest.height,
+    )
     if (overlay !== null && spec !== null) {
       const incoming = fitRect(overlay.layer.sourceWidth, overlay.layer.sourceHeight, width, height)
       const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
@@ -1006,14 +1023,30 @@ export async function exportTimeline(
       // with clip-path (#64). Unbacked (crossfade) layers spill only past the
       // canvas edges, which clip by themselves.
       const clipToCard = incomingZoom.scale !== 1 && spec.incomingBacking
+      // A wipe's reveal rectangle (#181), in the card's own space (equal to
+      // frame space while the card is unoffset, travelling with it
+      // otherwise) — the same region the preview cuts with clip-path.
+      const clipToReveal = spec.incomingClip !== null
+      if (clipToCard || clipToReveal) context.save()
       if (clipToCard) {
-        context.save()
         context.beginPath()
         context.rect(
           spec.incomingOffsetXFraction * width,
           spec.incomingOffsetYFraction * height,
           width,
           height,
+        )
+        context.clip()
+      }
+      if (spec.incomingClip !== null) {
+        // Successive clips intersect, exactly as the preview folds the
+        // reveal into the zoom's inset.
+        context.beginPath()
+        context.rect(
+          (spec.incomingOffsetXFraction + spec.incomingClip.x) * width,
+          (spec.incomingOffsetYFraction + spec.incomingClip.y) * height,
+          spec.incomingClip.width * width,
+          spec.incomingClip.height * height,
         )
         context.clip()
       }
@@ -1035,7 +1068,7 @@ export async function exportTimeline(
         incomingDest.width,
         incomingDest.height,
       )
-      if (clipToCard) context.restore()
+      if (clipToCard || clipToReveal) context.restore()
       context.globalCompositeOperation = 'source-over'
     }
     context.globalAlpha = 1

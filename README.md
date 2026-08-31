@@ -26,7 +26,10 @@ be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
 project files like any clip. Solid-color slates (#143) can be added to the
 timeline directly — no import, any 24-bit color, same adjustable duration —
-so a video can e.g. open on a red screen that crossfades into a clip. Video
+so a video can e.g. open on a red screen that crossfades into a clip.
+Transitions between adjacent entries offer a crossfade, four slide
+directions, four wipes, and four pushes (#181), rendered identically by the
+preview and the exported file from one shared rule. Video
 entries can be time-remapped (#138, #141, #144): any number of speed segments
 (e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
 (freeze one frame for a chosen time), edited on the timeline and honored by
@@ -46,6 +49,10 @@ Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
 shortcut stays the browser's own text undo.
+The export modal shows the output settings it will use — width, height, and
+frame rate, pre-filled with the automatic source-derived values — and lets
+them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
+edited freely for that one export (#179).
 Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is
