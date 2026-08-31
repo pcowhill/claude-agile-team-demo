@@ -59,6 +59,14 @@
 
 .clip-item {
   display: flex;
+  /* Wrapping caps the row's min-content at its widest single item instead
+     of the sum of all of them. The app grid's fr tracks floor at the panels'
+     min-content, so a non-wrapping row (name + badge + duration + up to four
+     buttons) floored the library column at ~540px and scrolled the whole
+     page horizontally at viewports under ~900px (#208). At ordinary widths
+     everything stays on one line exactly as before; the timeline's rows
+     already wrap the same way. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   padding: 0.4rem 0.6rem;
@@ -73,6 +81,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A nowrap name's min-content is the whole string, so without a floor of
+     its own it would re-inflate the wrapped row (and the page) on a long
+     filename (#208); with one it ellipsizes instead, like it always did at
+     ordinary widths. */
+  min-width: 5rem;
 }
 
 .clip-duration {
