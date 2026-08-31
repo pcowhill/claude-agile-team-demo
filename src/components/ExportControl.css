@@ -43,3 +43,36 @@
   color: #888;
   font-size: 0.85rem;
 }
+
+/* Output settings (#179): the preset selector and the editable fields. */
+.export-settings {
+  border: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.export-settings legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.export-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.export-settings-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.export-settings-row input {
+  width: 5.5rem;
+}
