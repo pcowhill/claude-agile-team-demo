@@ -124,6 +124,11 @@ export const TRANSITION_TYPES = [
   'push-from-right',
   'push-from-above',
   'push-from-below',
+  'fade-through-black',
+  'fade-through-white',
+  'iris-open',
+  'iris-close',
+  'cross-zoom',
 ] as const
 
 export type TransitionType = (typeof TRANSITION_TYPES)[number]

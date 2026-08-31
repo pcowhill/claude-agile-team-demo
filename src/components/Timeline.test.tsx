@@ -350,6 +350,11 @@ describe('timeline', () => {
         'Push from right',
         'Push from above',
         'Push from below',
+        'Fade through black',
+        'Fade through white',
+        'Iris open',
+        'Iris close',
+        'Cross-zoom',
       ])
       expect(
         screen.getByRole('spinbutton', {

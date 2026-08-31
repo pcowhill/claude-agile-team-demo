@@ -26,7 +26,7 @@ import {
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
 import { transitionLayerSpec } from '../lib/transitionRender'
-import type { TransitionClipRect } from '../lib/transitionRender'
+import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
@@ -80,6 +80,11 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
   'push-from-right': 'push from right',
   'push-from-above': 'push from above',
   'push-from-below': 'push from below',
+  'fade-through-black': 'fade through black',
+  'fade-through-white': 'fade through white',
+  'iris-open': 'iris open',
+  'iris-close': 'iris close',
+  'cross-zoom': 'cross-zoom',
 }
 
 /**
@@ -95,32 +100,47 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
  * undimmed outgoing clip, so margins are covered by sliding black instead of
  * popping at the handover. Pushes (#181) add the same translate to the
  * outgoing element; wipes (#181) pass the spec's clip rectangle through to
- * `withZoom`, which cuts the incoming card to it.
+ * `withZoom`, which cuts the incoming card to it; irises (#181) pass the
+ * spec's ellipse the same way, becoming a mask on the incoming element;
+ * cross-zoom (#181) adds a scale about the element centre to each layer;
+ * fades through a color (#181) put a full-frame veil above both elements.
  */
 function transitionLayerStyles(overlap: TransitionOverlap): {
   outgoing: CSSProperties
   incoming: CSSProperties
   incomingClip: TransitionClipRect | null
+  incomingEllipse: TransitionEllipse | null
+  veil: CSSProperties | null
 } {
   const spec = transitionLayerSpec(overlap.type, overlap.progress)
+  // A push's translate and a cross-zoom's scale never co-occur today, but
+  // composing them in this order (translate outermost, matching the export's
+  // scale-about-centre-then-offset) keeps any future combination drift-free.
+  const outgoingTransforms = [
+    ...(spec.outgoingOffsetXFraction !== 0 || spec.outgoingOffsetYFraction !== 0
+      ? [
+          `translate(${spec.outgoingOffsetXFraction * 100}%, ${spec.outgoingOffsetYFraction * 100}%)`,
+        ]
+      : []),
+    ...(spec.outgoingScale !== 1 ? [`scale(${spec.outgoingScale})`] : []),
+  ]
   return {
     outgoing: {
       opacity: spec.outgoingAlpha,
-      // Only pushes move the outgoing layer; every other type keeps the
-      // exact pre-#181 style object (no identity transform inserted).
-      ...(spec.outgoingOffsetXFraction !== 0 || spec.outgoingOffsetYFraction !== 0
-        ? {
-            transform: `translate(${spec.outgoingOffsetXFraction * 100}%, ${spec.outgoingOffsetYFraction * 100}%)`,
-          }
-        : {}),
+      // Only pushes and cross-zoom transform the outgoing layer; every other
+      // type keeps the exact pre-#181 style object (no identity transform).
+      ...(outgoingTransforms.length > 0 ? { transform: outgoingTransforms.join(' ') } : {}),
     },
     incoming: {
       opacity: spec.incomingAlpha,
-      transform: `translate(${spec.incomingOffsetXFraction * 100}%, ${spec.incomingOffsetYFraction * 100}%)`,
+      transform: `translate(${spec.incomingOffsetXFraction * 100}%, ${spec.incomingOffsetYFraction * 100}%)${spec.incomingScale !== 1 ? ` scale(${spec.incomingScale})` : ''}`,
       mixBlendMode: spec.additive ? 'plus-lighter' : undefined,
       backgroundColor: spec.incomingBacking ? '#000' : undefined,
     },
     incomingClip: spec.incomingClip,
+    incomingEllipse: spec.incomingEllipse,
+    veil:
+      spec.veil === null ? null : { backgroundColor: spec.veil.color, opacity: spec.veil.alpha },
   }
 }
 
@@ -143,16 +163,46 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
  * mapped through the inverse zoom into the element's pre-transform space
  * and intersected with the zoom's own visible region, so one inset carries
  * both cuts — the canvas export nests its two clips the same way.
+ *
+ * `frameEllipse` is an iris's reveal ellipse (#181), likewise in the card's
+ * own space: it becomes a hard-edged radial-gradient mask on the element
+ * (mask and clip-path intersect, exactly as the export's nested clips do),
+ * mapped through the same inverse zoom when the incoming entry is zoomed.
  */
 function withZoom(
   style: CSSProperties | undefined,
   zoom: ZoomState,
   frameClip: TransitionClipRect | null = null,
+  frameEllipse: TransitionEllipse | null = null,
 ): CSSProperties | undefined {
-  if (zoom.scale === 1 && frameClip === null) return style
+  if (zoom.scale === 1 && frameClip === null && frameEllipse === null) return style
   const { scale, centerX, centerY } = zoom
   const half = 1 / (2 * scale)
   const pct = (value: number) => `${value * 100}%`
+  let maskStyle: CSSProperties = {}
+  if (frameEllipse !== null) {
+    const { radiusFraction, invert } = frameEllipse
+    if (radiusFraction === 0 && !invert) {
+      // A zero-radius reveal shows nothing; a degenerate zero-size gradient
+      // is UB across browsers, so hide the element outright instead.
+      maskStyle = { visibility: 'hidden' }
+    } else if (radiusFraction === 0 && invert) {
+      // A zero-radius hole hides nothing — no mask at all.
+    } else {
+      // The ellipse is centred on the card (frame fraction 0.5), radii a
+      // fraction of each frame dimension; in the element's pre-transform
+      // space the inverse zoom moves the centre to the zoom's own centre and
+      // divides the radii by the scale. Radial-gradient percentages resolve
+      // the horizontal radius against the element width and the vertical one
+      // against its height — the same axes the export's canvas ellipse uses.
+      const rx = (radiusFraction / scale) * 100
+      const ry = (radiusFraction / scale) * 100
+      const at = `at ${pct(centerX)} ${pct(centerY)}`
+      const stops = invert ? 'transparent 100%, #000 100%' : '#000 100%, transparent 100%'
+      const mask = `radial-gradient(ellipse ${rx}% ${ry}% ${at}, ${stops})`
+      maskStyle = { maskImage: mask, WebkitMaskImage: mask }
+    }
+  }
   // The zoom's visible region in the element's pre-transform space; the
   // identity zoom sees the whole element.
   let x0 = centerX - half
@@ -174,7 +224,7 @@ function withZoom(
     y1 = Math.max(y0, y1)
   }
   const clipPath = `inset(${pct(y0)} ${pct(1 - x1)} ${pct(1 - y1)} ${pct(x0)})`
-  if (zoom.scale === 1) return { ...style, clipPath }
+  if (zoom.scale === 1) return { ...style, clipPath, ...maskStyle }
   return {
     ...style,
     transform: [
@@ -183,6 +233,7 @@ function withZoom(
       `translate(${pct(0.5 - centerX)}, ${pct(0.5 - centerY)})`,
     ].join(' '),
     clipPath,
+    ...maskStyle,
   }
 }
 
@@ -942,7 +993,7 @@ export function PreviewPlayer({
     const videoOverlap = overlap !== undefined && !stillIncoming
     return {
       className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
-      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null) : undefined,
+      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null) : undefined,
       'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
     }
   }
@@ -1010,7 +1061,7 @@ export function PreviewPlayer({
                   className="preview-video preview-video-incoming"
                   data-testid="preview-slate-incoming"
                   style={{
-                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null),
+                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null),
                     backgroundColor: overlap.entry.color,
                   }}
                 />
@@ -1022,9 +1073,16 @@ export function PreviewPlayer({
                     data-testid="preview-image-incoming"
                     alt=""
                     src={overlap.entry.url}
-                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null)}
+                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null)}
                   />
                 )
+              )}
+              {/* A fade-through-color's veil (#181): a full-frame color layer
+                  above the outgoing and incoming clips — the dip itself — but
+                  beneath overlay video layers and text overlays, exactly
+                  where the export paints it. */}
+              {overlap && layerStyles?.veil && (
+                <div className="preview-veil" data-testid="preview-veil" style={layerStyles.veil} />
               )}
               {/* Overlay video layers (#145): one <video> per layer, kept
                   mounted for the overlay's lifetime (so scrubbing never

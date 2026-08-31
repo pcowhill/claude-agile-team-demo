@@ -194,6 +194,28 @@ export function zoomRect(
 }
 
 /**
+ * Scales a frame-space rectangle about the frame centre (#181): a cross-zoom
+ * magnifies a whole transition layer — card and fitted clip together — the
+ * way the preview's outermost CSS `scale()` (transform-origin centre) does.
+ * Scale 1 returns the rect unchanged (same object), so every non-cross-zoom
+ * draw is untouched.
+ */
+export function scaleRectAboutCenter(
+  rect: FitRect,
+  scale: number,
+  frameWidth: number,
+  frameHeight: number,
+): FitRect {
+  if (scale === 1) return rect
+  return {
+    x: frameWidth / 2 + scale * (rect.x - frameWidth / 2),
+    y: frameHeight / 2 + scale * (rect.y - frameHeight / 2),
+    width: rect.width * scale,
+    height: rect.height * scale,
+  }
+}
+
+/**
  * Where an overlay video layer's frame lands on the export canvas (#146),
  * in pixels. The placement rectangle resolves exactly as the preview's
  * stage positioning (#145): `x`/`y`/`width`/`height` are fractions of the
@@ -997,7 +1019,11 @@ export async function exportTimeline(
     // of a transition. The identity zoom leaves the fitted rect untouched —
     // a zoomless timeline draws exactly as before.
     const zoom = zoomAt(timeline, entryIndex, layer.time)
-    const dest = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
+    const zoomed = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
+    // Cross-zoom (#181) scales the outgoing layer about the frame centre —
+    // the same outermost scale the preview's transform applies. Scale 1 (all
+    // other types) leaves the rect untouched.
+    const dest = scaleRectAboutCenter(zoomed, spec?.outgoingScale ?? 1, width, height)
     context.globalAlpha = spec?.outgoingAlpha ?? 1
     // Pushes (#181) move the outgoing layer off the frame; every other type
     // has zero outgoing offsets, drawing exactly as before.
@@ -1011,8 +1037,21 @@ export async function exportTimeline(
     if (overlay !== null && spec !== null) {
       const incoming = fitRect(overlay.layer.sourceWidth, overlay.layer.sourceHeight, width, height)
       const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
-      const incomingDest =
+      const incomingZoomed =
         incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
+      // Cross-zoom's incoming scale (#181), about the frame centre, applied
+      // outside the entry's own zoom — the preview composes its transforms
+      // the same way. The card (backing, reveal clip, ellipse) scales with
+      // its content, so every card-space region below maps through the same
+      // scale-then-offset the fitted clip does.
+      const incomingScale = spec.incomingScale
+      const incomingDest = scaleRectAboutCenter(incomingZoomed, incomingScale, width, height)
+      const card = scaleRectAboutCenter(
+        { x: 0, y: 0, width, height },
+        incomingScale,
+        width,
+        height,
+      )
       context.globalAlpha = spec.incomingAlpha
       // `lighter` sums the two layers, making the crossfade a true dissolve
       // over the black stage (see transitionLayerSpec).
@@ -1027,38 +1066,71 @@ export async function exportTimeline(
       // frame space while the card is unoffset, travelling with it
       // otherwise) — the same region the preview cuts with clip-path.
       const clipToReveal = spec.incomingClip !== null
-      if (clipToCard || clipToReveal) context.save()
+      // An iris's reveal ellipse (#181), likewise card-space — the same
+      // region the preview masks with a radial gradient.
+      const clipToEllipse = spec.incomingEllipse !== null
+      if (clipToCard || clipToReveal || clipToEllipse) context.save()
       if (clipToCard) {
         context.beginPath()
         context.rect(
-          spec.incomingOffsetXFraction * width,
-          spec.incomingOffsetYFraction * height,
-          width,
-          height,
+          card.x + spec.incomingOffsetXFraction * width,
+          card.y + spec.incomingOffsetYFraction * height,
+          card.width,
+          card.height,
         )
         context.clip()
       }
       if (spec.incomingClip !== null) {
         // Successive clips intersect, exactly as the preview folds the
         // reveal into the zoom's inset.
+        const reveal = scaleRectAboutCenter(
+          {
+            x: spec.incomingClip.x * width,
+            y: spec.incomingClip.y * height,
+            width: spec.incomingClip.width * width,
+            height: spec.incomingClip.height * height,
+          },
+          incomingScale,
+          width,
+          height,
+        )
         context.beginPath()
         context.rect(
-          (spec.incomingOffsetXFraction + spec.incomingClip.x) * width,
-          (spec.incomingOffsetYFraction + spec.incomingClip.y) * height,
-          spec.incomingClip.width * width,
-          spec.incomingClip.height * height,
+          reveal.x + spec.incomingOffsetXFraction * width,
+          reveal.y + spec.incomingOffsetYFraction * height,
+          reveal.width,
+          reveal.height,
         )
         context.clip()
+      }
+      if (spec.incomingEllipse !== null) {
+        // The iris (#181): the incoming card paints only inside the centred
+        // ellipse (or, inverted, only outside it — the full-frame rect plus
+        // the ellipse under the even-odd rule). Radii are fractions of the
+        // frame dimensions, matching the preview's radial-gradient mask.
+        const { radiusFraction, invert } = spec.incomingEllipse
+        context.beginPath()
+        if (invert) context.rect(0, 0, width, height)
+        context.ellipse(
+          width / 2 + spec.incomingOffsetXFraction * width,
+          height / 2 + spec.incomingOffsetYFraction * height,
+          radiusFraction * incomingScale * width,
+          radiusFraction * incomingScale * height,
+          0,
+          0,
+          2 * Math.PI,
+        )
+        context.clip(invert ? 'evenodd' : 'nonzero')
       }
       if (spec.incomingBacking) {
         // The incoming layer is a full-frame card (#74): black backing the
         // size of the whole frame, moving with the clip fitted inside it.
         context.fillStyle = '#000'
         context.fillRect(
-          spec.incomingOffsetXFraction * width,
-          spec.incomingOffsetYFraction * height,
-          width,
-          height,
+          card.x + spec.incomingOffsetXFraction * width,
+          card.y + spec.incomingOffsetYFraction * height,
+          card.width,
+          card.height,
         )
       }
       context.drawImage(
@@ -1068,8 +1140,16 @@ export async function exportTimeline(
         incomingDest.width,
         incomingDest.height,
       )
-      if (clipToCard || clipToReveal) context.restore()
+      if (clipToCard || clipToReveal || clipToEllipse) context.restore()
       context.globalCompositeOperation = 'source-over'
+    }
+    if (spec !== null && spec.veil !== null) {
+      // A fade-through-color's veil (#181): a full-frame color layer above
+      // the transition's two clips, beneath overlay video layers and text —
+      // the same stacking the preview's veil element has.
+      context.globalAlpha = spec.veil.alpha
+      context.fillStyle = spec.veil.color
+      context.fillRect(0, 0, width, height)
     }
     context.globalAlpha = 1
     // Overlay video layers (#146) composite above the fully composed base
