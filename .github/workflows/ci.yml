@@ -36,6 +36,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Plugin code must stay out of the entry bundle (#197, ADR 0003): the
+      # check reads the build's manifest, so it must follow the Build step.
+      - name: Plugin bundle discipline
+        run: npm run check:bundle
+
   e2e:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest

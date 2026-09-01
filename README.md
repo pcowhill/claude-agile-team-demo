@@ -70,6 +70,15 @@ The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
 edited freely for that one export (#179).
+A Plugins… button opens the plugin manager (#197): optional built-in
+features ship as lazy-loaded modules that download only when enabled, keeping
+the default editor lightweight (see
+[`docs/adr/0003-plugin-architecture.md`](docs/adr/0003-plugin-architecture.md)).
+Enabled plugins are remembered per browser and re-activate on the next
+visit; a project saved using plugin features records that dependency, and
+opening it prompts to enable what it needs. Until the first real plugin
+(GIF export, #198) lands, a clearly-labeled sample plugin demonstrates the
+mechanism by contributing a redundant "Sample (WebM)" export format.
 Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is
@@ -91,6 +100,7 @@ npm run test:e2e   # browser tests (Playwright — see "Browser tests" below)
 npm run lint       # oxlint
 npm run typecheck  # tsc -b
 npm run build      # production build to dist/
+npm run check:bundle  # after build: plugin chunks stay out of the entry bundle (#197)
 ```
 
 #### Browser tests

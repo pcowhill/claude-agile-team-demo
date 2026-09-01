@@ -7,6 +7,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/claude-agile-team-demo/',
   plugins: [react()],
+  build: {
+    // The manifest feeds the plugin bundle-discipline check (#197):
+    // `npm run check:bundle` proves plugin chunks stay out of the entry
+    // bundle. Costless otherwise — one extra JSON file under dist/.vite/.
+    manifest: true,
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

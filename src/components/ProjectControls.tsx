@@ -6,7 +6,7 @@ import { restoreEmbeddedProject, restoreProject } from '../lib/openProject'
 import type { RestoredProject } from '../lib/openProject'
 import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
-import type { ClipMedia, Project } from '../lib/projectFile'
+import type { ClipMedia, DeserializeResult, Project } from '../lib/projectFile'
 import { serializeProject } from '../lib/projectFile'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
@@ -18,8 +18,11 @@ import {
 } from '../lib/saveProject'
 import type { SaveDestination, SaveMode, SavePort } from '../lib/saveProject'
 import type { LibraryClip } from '../lib/mediaLibrary'
+import type { PluginRuntime } from '../lib/plugins'
+import { pluginRuntime as appPluginRuntime } from '../plugins/runtime'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExportControl } from './ExportControl'
+import { PluginManager } from './PluginManager'
 import { OpenProjectDialog } from './OpenProjectDialog'
 import { SaveModeDialog } from './SaveModeDialog'
 import './ProjectControls.css'
@@ -47,6 +50,8 @@ interface ProjectControlsProps {
   fetchClipMedia?: (clip: LibraryClip) => Promise<ClipMedia>
   /** Injectable for tests (jsdom has no URL.createObjectURL). */
   createMediaUrl?: (blob: Blob) => string
+  /** Injectable for tests; the app uses its plugin runtime singleton (#197). */
+  plugins?: PluginRuntime
 }
 
 type SaveStatus =
@@ -83,6 +88,7 @@ export function ProjectControls({
   probeMedia,
   fetchClipMedia,
   createMediaUrl,
+  plugins = appPluginRuntime,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -99,6 +105,13 @@ export function ProjectControls({
   const [pendingOpen, setPendingOpen] = useState<{ fileName: string; project: Project } | null>(
     null,
   )
+  // A picked file that needs disabled plugins (#197): the open waits for the
+  // prompt-and-enable decision, carrying everything needed to continue.
+  const [pendingPlugins, setPendingPlugins] = useState<{
+    fileName: string
+    result: Extract<DeserializeResult, { ok: true }>
+    missing: string[]
+  } | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
   const openInputRef = useRef<HTMLInputElement>(null)
 
@@ -123,7 +136,10 @@ export function ProjectControls({
       }
       const media =
         saveMode === 'embed' ? await collectClipMedia(library.clips, fetchClipMedia) : undefined
-      await target.write(await serializeProject(library, timeline, media))
+      // Record which enabled plugins' features the project uses (#197), so
+      // reopening the file can prompt to enable them.
+      const pluginIds = plugins.projectPlugins(library, timeline)
+      await target.write(await serializeProject(library, timeline, media, pluginIds))
       onSaved(snapshot)
       setStatus({ kind: 'saved', name: target.name })
     } catch (error) {
@@ -206,14 +222,8 @@ export function ProjectControls({
     else if (action === 'open') openInputRef.current?.click()
   }
 
-  const handleProjectFile = async (file: File) => {
-    const result = await deserializeProject(new Uint8Array(await file.arrayBuffer()))
-    if (!result.ok) {
-      // A failed open leaves the current project untouched — only report.
-      setOpenError(result.error)
-      return
-    }
-    setOpenError(null)
+  /** The open path once plugin dependencies are settled (#197). */
+  const openDeserialized = (fileName: string, result: Extract<DeserializeResult, { ok: true }>) => {
     if (result.media !== undefined) {
       // An embedded file (#98) carries its media: it opens fully linked with
       // no re-link step, and re-saves embedded by default.
@@ -225,7 +235,77 @@ export function ProjectControls({
       replaceProject(restoreProject(result.project, new Map()), 'references')
       return
     }
-    setPendingOpen({ fileName: file.name, project: result.project })
+    setPendingOpen({ fileName, project: result.project })
+  }
+
+  const handleProjectFile = async (file: File) => {
+    const result = await deserializeProject(new Uint8Array(await file.arrayBuffer()))
+    if (!result.ok) {
+      // A failed open leaves the current project untouched — only report.
+      setOpenError(result.error)
+      return
+    }
+    setOpenError(null)
+    // Plugin dependencies (#197): a file may need plugins that are disabled.
+    // Startup re-activation must settle first, or a plugin enabled by the
+    // persisted set would be prompted for spuriously.
+    const required = result.project.plugins ?? []
+    if (required.length > 0) {
+      await plugins.restore()
+      const unknown = required.filter((id) => plugins.find(id) === undefined)
+      if (unknown.length > 0) {
+        setOpenError(
+          `this project needs the plugin${unknown.length === 1 ? '' : 's'} ${unknown
+            .map((id) => `"${id}"`)
+            .join(', ')}, which this version of the editor does not have — it was saved by a newer version`,
+        )
+        return
+      }
+      const missing = required.filter((id) => !plugins.isEnabled(id))
+      if (missing.length > 0) {
+        // Prompt-and-enable (ADR 0003): opening waits for the decision.
+        setPendingPlugins({ fileName: file.name, result, missing })
+        return
+      }
+    }
+    openDeserialized(file.name, result)
+  }
+
+  /** Accepting the plugin prompt (#197): enable, then continue the open. */
+  const confirmEnablePlugins = async () => {
+    const pending = pendingPlugins
+    setPendingPlugins(null)
+    if (pending === null) return
+    await Promise.all(pending.missing.map((id) => plugins.enable(id)))
+    const failed = pending.missing.filter((id) => !plugins.isEnabled(id))
+    if (failed.length > 0) {
+      // A chunk that would not load: the project must not open degraded.
+      const status = plugins.status(failed[0])
+      setOpenError(
+        `the "${plugins.find(failed[0])?.name ?? failed[0]}" plugin could not be enabled` +
+          (status.kind === 'failed' ? ` (${status.message})` : ''),
+      )
+      return
+    }
+    openDeserialized(pending.fileName, pending.result)
+  }
+
+  /**
+   * Declining the plugin prompt (#197): the project is NOT opened — opening
+   * it without its plugins would silently drop the features the file
+   * records (quiet data loss, refused in ADR 0003). The current project
+   * stays untouched and the refusal says why.
+   */
+  const declineEnablePlugins = () => {
+    const pending = pendingPlugins
+    setPendingPlugins(null)
+    if (pending === null) return
+    const names = pending.missing.map((id) => plugins.find(id)?.name ?? id).join(', ')
+    setOpenError(
+      `"${pending.fileName}" was not opened — it needs the disabled plugin${
+        pending.missing.length === 1 ? '' : 's'
+      } ${names}, and opening it without them would drop those features`,
+    )
   }
 
   const handleOpenInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -271,6 +351,7 @@ export function ProjectControls({
         Save As…
       </button>
       <ExportControl timeline={timeline} />
+      <PluginManager />
       <span className="project-save-status" role="status">
         {status.kind === 'saved' && `Saved as ${status.name}`}
         {saving && 'Saving…'}
@@ -296,6 +377,19 @@ export function ProjectControls({
           confirmLabel={pendingDiscard === 'new' ? 'Discard and start new' : 'Discard and open'}
           onCancel={() => setPendingDiscard(null)}
           onConfirm={confirmDiscard}
+        />
+      )}
+      {pendingPlugins !== null && (
+        <ConfirmDialog
+          title="Enable plugins to open?"
+          body={`"${pendingPlugins.fileName}" uses features from the disabled plugin${
+            pendingPlugins.missing.length === 1 ? '' : 's'
+          } ${pendingPlugins.missing
+            .map((id) => plugins.find(id)?.name ?? id)
+            .join(', ')}. Enable and open?`}
+          confirmLabel="Enable and open"
+          onCancel={declineEnablePlugins}
+          onConfirm={() => void confirmEnablePlugins()}
         />
       )}
       {pendingOpen !== null && (
