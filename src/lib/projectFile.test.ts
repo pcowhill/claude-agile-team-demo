@@ -9,6 +9,7 @@ import fixtureV4ImageEntryReferencesBase64 from './fixtures/project-v4-image-ent
 import fixtureV4ImageEntryEmbeddedBase64 from './fixtures/project-v4-image-entry-embedded.bvep.base64?raw'
 import fixtureV5SlateReferencesBase64 from './fixtures/project-v5-slate-references.bvep.base64?raw'
 import fixtureV5SlateEmbeddedBase64 from './fixtures/project-v5-slate-embedded.bvep.base64?raw'
+import fixtureV6PluginsReferencesBase64 from './fixtures/project-v6-plugins-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
@@ -16,6 +17,7 @@ import {
   IMAGE_ENTRIES_SCHEMA_VERSION,
   IMAGES_SCHEMA_VERSION,
   SLATE_ENTRIES_SCHEMA_VERSION,
+  PLUGINS_SCHEMA_VERSION,
   PROJECT_FORMAT,
   PROJECT_SCHEMA_VERSION,
   REFERENCES_SCHEMA_VERSION,
@@ -927,19 +929,89 @@ describe('gain fields (#104)', () => {
   })
 })
 
+describe('plugin dependencies (#197, schema version 6)', () => {
+  it('writes version 6 with a plugins key exactly when dependencies exist, in both save modes', async () => {
+    const references = await gunzipJson(
+      await serializeProject(library, timeline, undefined, ['sample-webm']),
+    )
+    expect(references.schemaVersion).toBe(PLUGINS_SCHEMA_VERSION)
+    expect(references.plugins).toEqual(['sample-webm'])
+    expect(references).not.toHaveProperty('media')
+
+    const embedded = await gunzipJson(
+      await serializeProject(library, timeline, fixtureMedia(), ['sample-webm']),
+    )
+    expect(embedded.schemaVersion).toBe(PLUGINS_SCHEMA_VERSION)
+    expect(embedded.plugins).toEqual(['sample-webm'])
+    expect(embedded).toHaveProperty('media')
+  })
+
+  it('a project with no plugin dependencies stays byte-identical to earlier output', async () => {
+    // The enabled set must not leak into files that use no plugin features.
+    const withEmptyList = await serializeProject(library, timeline, undefined, [])
+    const withoutArgument = await serializeProject(library, timeline)
+    expect(withEmptyList).toEqual(withoutArgument)
+    const document = await gunzipJson(withEmptyList)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(document).not.toHaveProperty('plugins')
+  })
+
+  it('round-trips the plugin list', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, timeline, undefined, ['a-plugin', 'b-plugin']),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.plugins).toEqual(['a-plugin', 'b-plugin'])
+      // Everything else is unchanged by the plugins key.
+      expect(result.project.clips).toEqual(expectedProject.clips)
+      expect(result.project.timeline).toEqual(expectedProject.timeline)
+    }
+  })
+
+  it('rejects a duplicated dependency list at the source', async () => {
+    await expect(
+      serializeProject(library, timeline, undefined, ['p', 'p']),
+    ).rejects.toThrow(/duplicates/)
+  })
+
+  it('refuses a malformed plugins key by name', async () => {
+    const notArray = { ...validDocument(), schemaVersion: PLUGINS_SCHEMA_VERSION, plugins: 'gif' }
+    await expectRefusal(await gzipJson(notArray), 'plugins must be an array')
+
+    const badEntry = { ...validDocument(), schemaVersion: PLUGINS_SCHEMA_VERSION, plugins: ['ok', 7] }
+    await expectRefusal(await gzipJson(badEntry), 'plugins[1] must be a non-empty string')
+
+    const duplicated = {
+      ...validDocument(),
+      schemaVersion: PLUGINS_SCHEMA_VERSION,
+      plugins: ['p', 'p'],
+    }
+    await expectRefusal(await gzipJson(duplicated), 'plugins[1] "p" is duplicated')
+  })
+
+  it('treats an empty plugins array as no dependencies', async () => {
+    const empty = { ...validDocument(), plugins: [] }
+    const result = await deserializeProject(await gzipJson(empty))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.plugins).toBeUndefined()
+  })
+})
+
 describe('project file versioning', () => {
   it('carries the schema version', async () => {
     // Deserializing proves the marker + version were present and accepted;
     // this pins the constants so a bump is a conscious, reviewed change.
     // Version 2 added embedded media (#97); version 3 added images (#137);
     // version 4 added images on the timeline (#140); version 5 added color
-    // slates (#143).
-    expect(PROJECT_SCHEMA_VERSION).toBe(5)
+    // slates (#143); version 6 added plugin dependencies (#197).
+    expect(PROJECT_SCHEMA_VERSION).toBe(6)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
     expect(IMAGE_ENTRIES_SCHEMA_VERSION).toBe(4)
     expect(SLATE_ENTRIES_SCHEMA_VERSION).toBe(5)
+    expect(PLUGINS_SCHEMA_VERSION).toBe(6)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -1434,6 +1506,22 @@ describe('backwards compatibility', () => {
     )
     const result = await deserializeProject(bytes)
     expect(result).toEqual({ ok: true, project: fixtureV5ExpectedProject })
+  })
+
+  it('deserializes the committed v6 plugin-dependencies fixture (#197)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // recording plugin dependencies keep opening forever. The fixture is the
+    // standard references project plus plugins: ["sample-webm"], so its
+    // expectation re-derives from expectedProject (the fixture was written
+    // by the current serializer, whose zooms carry ids).
+    const bytes = Uint8Array.from(atob(fixtureV6PluginsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: { ...expectedProject, plugins: ['sample-webm'] },
+    })
   })
 
   it('deserializes the committed v5 slate embedded fixture, media byte-for-byte (#143)', async () => {

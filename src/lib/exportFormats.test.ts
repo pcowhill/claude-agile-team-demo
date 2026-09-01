@@ -48,6 +48,35 @@ describe('ExportFormatRegistry (#196)', () => {
     expect(registry.has('nope')).toBe(false)
     expect(() => registry.get('nope')).toThrow(/Unknown export format/)
   })
+
+  it('unregister removes a format; an unknown id is a safe no-op (#197)', () => {
+    const registry = new ExportFormatRegistry()
+    registry.register(spec('webm'))
+    registry.register(spec('gif'))
+    registry.unregister('gif')
+    expect(registry.has('gif')).toBe(false)
+    expect(registry.list().map((entry) => entry.id)).toEqual(['webm'])
+    // Deactivation order is not guaranteed; a second unregister must not throw.
+    expect(() => registry.unregister('gif')).not.toThrow()
+  })
+
+  it('notifies subscribers on register and unregister, with a moving version (#197)', () => {
+    const registry = new ExportFormatRegistry()
+    let notified = 0
+    const unsubscribe = registry.subscribe(() => notified++)
+    const initial = registry.version
+    registry.register(spec('gif'))
+    expect(notified).toBe(1)
+    registry.unregister('gif')
+    expect(notified).toBe(2)
+    expect(registry.version).toBe(initial + 2)
+    // A no-op unregister changes nothing, so it must not notify.
+    registry.unregister('gif')
+    expect(notified).toBe(2)
+    unsubscribe()
+    registry.register(spec('gif'))
+    expect(notified).toBe(2)
+  })
 })
 
 describe('core export formats (#114, #196)', () => {

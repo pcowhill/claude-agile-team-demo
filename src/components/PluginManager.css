@@ -1,0 +1,52 @@
+/* The plugin manager modal (#197). Rows: description left, toggle right. */
+
+.plugin-manager {
+  max-width: 30rem;
+}
+
+.plugin-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.plugin-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-name {
+  font-weight: 600;
+}
+
+.plugin-version {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+.plugin-description {
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.plugin-error {
+  font-size: 0.85rem;
+  color: #f28b82;
+}
+
+.plugin-row button {
+  flex-shrink: 0;
+}

@@ -23,7 +23,10 @@ import type { ExportOptions } from './exportVideo'
  * ADR 0003 updated in the same PR. Per the approved scope-creep guard it
  * carries only what a registered format demonstrably needs today; it grows
  * when a concrete plugin needs more (e.g. a support probe beyond MIME
- * candidates), not in anticipation.
+ * candidates), not in anticipation. Phase 2 (#197) grew it deliberately:
+ * `unregister` (a disabled plugin's format leaves the picker) and
+ * `subscribe` (the picker re-reads the registry when plugins change it at
+ * runtime) — recorded in ADR 0003.
  */
 export interface ExportFormatSpec {
   /** Stable identifier, unique within the registry (e.g. 'webm'). */
@@ -65,6 +68,9 @@ export type ExportEncodeOptions = Omit<ExportOptions, 'container'>
  */
 export class ExportFormatRegistry {
   private readonly specs = new Map<string, ExportFormatSpec>()
+  private readonly listeners = new Set<() => void>()
+  /** Monotonic change counter — the snapshot for `useSyncExternalStore`. */
+  version = 0
 
   /** Adds a format. A duplicate id is a programming error and throws. */
   register(spec: ExportFormatSpec): void {
@@ -72,6 +78,31 @@ export class ExportFormatRegistry {
       throw new Error(`Export format '${spec.id}' is already registered.`)
     }
     this.specs.set(spec.id, spec)
+    this.notify()
+  }
+
+  /**
+   * Removes a format (#197): how a disabled plugin's contribution leaves the
+   * picker. Removing an id that is not registered is a no-op — a plugin's
+   * deactivate must stay safe whatever order teardown runs in.
+   */
+  unregister(id: string): void {
+    if (this.specs.delete(id)) this.notify()
+  }
+
+  /**
+   * Change notification for the UI (#197): the export picker subscribes so a
+   * plugin registering or unregistering a format at runtime re-renders it.
+   * Pair with `version` under React's `useSyncExternalStore`.
+   */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private notify(): void {
+    this.version++
+    for (const listener of this.listeners) listener()
   }
 
   has(id: string): boolean {

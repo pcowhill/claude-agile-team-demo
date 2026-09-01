@@ -29,7 +29,8 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4 | 5, // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6, // integer; bumped on breaking change
+ *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
  *     "media": {                         // version 2 always; version 3 when
@@ -91,6 +92,16 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  * when a slate is on the timeline so older builds route slate-carrying
  * files to the "saved by a newer version" refusal.
  *
+ * Schema version 6 (#197) marks that the project uses features contributed
+ * by plugins (ADR 0003): a top-level `plugins` array names the plugin ids
+ * the project depends on, written exactly when an enabled plugin's features
+ * are in the saveable state — so plugin-free projects stay byte-identical
+ * to what earlier builds wrote, and older builds route plugin-dependent
+ * files to the "saved by a newer version" refusal instead of opening them
+ * silently degraded. Opening a version-6 file prompts to enable the named
+ * plugins when they are disabled (prompt-and-enable, `ProjectControls`).
+ * The media section's presence keeps distinguishing the save modes.
+ *
  * Schema version 4 (#140) marks that the *timeline* places still images:
  * a sequence entry may reference an image clip, showing it for the entry's
  * `duration` (equal to its `outPoint`; a still has no source trim). The
@@ -110,7 +121,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 5
+export const PROJECT_SCHEMA_VERSION = 6
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -121,6 +132,8 @@ export const IMAGES_SCHEMA_VERSION = 3
 export const IMAGE_ENTRIES_SCHEMA_VERSION = 4
 /** The version any color slate forces, whichever the save mode (#143). */
 export const SLATE_ENTRIES_SCHEMA_VERSION = 5
+/** The version any plugin dependency forces, whichever the save mode (#197). */
+export const PLUGINS_SCHEMA_VERSION = 6
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -212,6 +225,13 @@ export interface ProjectTimeline {
 export interface Project {
   clips: ProjectClip[]
   timeline: ProjectTimeline
+  /**
+   * Ids of the plugins whose features this project uses (#197, schema
+   * version 6). Present exactly when non-empty, mirroring the serializer.
+   * The open flow prompts to enable these when they are disabled, and
+   * refuses by name any id this build's catalog does not know.
+   */
+  plugins?: string[]
 }
 
 /**
@@ -233,6 +253,10 @@ export type DeserializeResult =
  * version is the lowest that can represent the content (see the format
  * notes above): 1 or 2 by save mode, byte-compatible with what this
  * function always produced, or 3 as soon as the library has images (#137).
+ * `plugins` (#197) names the plugin ids whose features the state uses —
+ * the caller computes it via `PluginRuntime.projectPlugins` — and forces
+ * schema version 6 exactly when non-empty, so plugin-free projects stay
+ * byte-identical whatever the enabled set.
  * Throws only on programmer error: a timeline entry referencing a clip that
  * is not in the library — or a media map that does not match the library
  * exactly — would produce a file our own deserializer refuses, so it is
@@ -242,6 +266,7 @@ export async function serializeProject(
   library: MediaLibraryState,
   timeline: TimelineState,
   media?: ReadonlyMap<string, ClipMedia>,
+  plugins: readonly string[] = [],
 ): Promise<Uint8Array<ArrayBuffer>> {
   const clipIds = new Set(library.clips.map((clip) => clip.id))
   for (const entry of timeline.entries) {
@@ -276,12 +301,16 @@ export async function serializeProject(
       }
     }
   }
+  const uniquePlugins = new Set(plugins)
+  if (uniquePlugins.size !== plugins.length) {
+    throw new Error('cannot serialize: the plugin dependency list contains duplicates')
+  }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // A color slate forces version 5 (#143), an image on the timeline
-  // version 4 (#140), an image merely in the library version 3 (#137),
-  // whichever the save mode; otherwise the mode alone decides, exactly as
-  // before images existed.
+  // A plugin dependency forces version 6 (#197), a color slate version 5
+  // (#143), an image on the timeline version 4 (#140), an image merely in
+  // the library version 3 (#137), whichever the save mode; otherwise the
+  // mode alone decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
   const hasSlateEntries = timeline.entries.some(isSlateEntry)
   const hasImageEntries = timeline.entries.some(
@@ -290,15 +319,21 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasSlateEntries
-      ? SLATE_ENTRIES_SCHEMA_VERSION
-      : hasImageEntries
-        ? IMAGE_ENTRIES_SCHEMA_VERSION
-        : hasImages
-          ? IMAGES_SCHEMA_VERSION
-          : media === undefined
-            ? REFERENCES_SCHEMA_VERSION
-            : EMBEDDED_SCHEMA_VERSION,
+    schemaVersion:
+      plugins.length > 0
+        ? PLUGINS_SCHEMA_VERSION
+        : hasSlateEntries
+          ? SLATE_ENTRIES_SCHEMA_VERSION
+          : hasImageEntries
+            ? IMAGE_ENTRIES_SCHEMA_VERSION
+            : hasImages
+              ? IMAGES_SCHEMA_VERSION
+              : media === undefined
+                ? REFERENCES_SCHEMA_VERSION
+                : EMBEDDED_SCHEMA_VERSION,
+    // Plugin dependencies (#197) are written only while any exist, so
+    // plugin-free projects stay byte-identical to earlier output.
+    ...(plugins.length === 0 ? {} : { plugins: [...plugins] }),
     clips: library.clips.map(({ id, name, duration, kind, width, height, extractedFrom }) => ({
       id,
       name,
@@ -569,6 +604,22 @@ const asBoolean = (value: unknown, path: string): boolean => {
 }
 
 function validateProject(document: Record<string, unknown>): Project {
+  // Plugin dependencies (#197): absent in files saved before them, and in
+  // plugin-free files since. Validated whatever the version — within a known
+  // version unknown extra keys are ignored, but a present `plugins` key that
+  // is malformed is a defect, not an unknown key.
+  const plugins =
+    document.plugins === undefined
+      ? []
+      : asArray(document.plugins, 'plugins').map((value, index) =>
+          asString(value, `plugins[${index}]`),
+        )
+  const pluginIds = new Set<string>()
+  for (const [index, id] of plugins.entries()) {
+    if (pluginIds.has(id)) throw new Error(`plugins[${index}] "${id}" is duplicated`)
+    pluginIds.add(id)
+  }
+
   const clips = asArray(document.clips, 'clips').map((value, index) => {
     const raw = asRecord(value, `clips[${index}]`)
     // Absent in files saved before #101, whose clips are all videos.
@@ -964,6 +1015,7 @@ function validateProject(document: Record<string, unknown>): Project {
       audioTracks,
       ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },
+    ...(plugins.length === 0 ? {} : { plugins }),
   }
 }
 

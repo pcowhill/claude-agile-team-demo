@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
 import { exportFileName, exportFormats, supportedExportFormats } from '../lib/exportFormats'
@@ -81,14 +81,24 @@ export function ExportControl({
   // the user has already put into a preset or custom state.
   const sizeModeRef = useRef<SizeMode>('auto')
   sizeModeRef.current = sizeMode
-  // Feature-detected once per mount: what MediaRecorder encodes is a fixed
-  // property of the running browser (#114). The registry (#196) is what the
-  // picker offers — core formats plus whatever plugins have registered.
-  const formats = useMemo(() => supportedExportFormats(isTypeSupported), [isTypeSupported])
+  // What MediaRecorder encodes is a fixed property of the running browser
+  // (#114), but the registry's contents are not: plugins register and
+  // unregister formats at runtime (#197), so the picker subscribes and
+  // re-reads on every registry change. Cheap enough to recompute per render
+  // (a handful of specs against a feature probe), so no memo to invalidate.
+  useSyncExternalStore(exportFormats.subscribe, () => exportFormats.version)
+  const formats = supportedExportFormats(isTypeSupported)
   // WebM stays the default wherever it is recordable (#114).
   const [format, setFormat] = useState<string>(() =>
     formats.some((spec) => spec.id === 'webm') ? 'webm' : (formats[0]?.id ?? 'webm'),
   )
+  // A picked format can vanish mid-session — its plugin was disabled (#197).
+  // Fall back to the default choice rather than exporting an unknown id.
+  useEffect(() => {
+    if (formats.length > 0 && !formats.some((spec) => spec.id === format)) {
+      setFormat(formats.some((spec) => spec.id === 'webm') ? 'webm' : formats[0].id)
+    }
+  }, [formats, format])
   // The finished export: a hidden anchor auto-clicks it into a download. It
   // outlives the (closed) dialog so the object URL stays alive until the
   // next export or unmount.

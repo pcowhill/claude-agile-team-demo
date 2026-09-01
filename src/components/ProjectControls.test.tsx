@@ -7,6 +7,8 @@ import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia } from '../lib/projectFile'
 import type { SaveDestination, SavePort } from '../lib/saveProject'
 import type { TimelineState } from '../lib/timeline'
+import { PluginRuntime } from '../lib/plugins'
+import type { PluginSpec } from '../lib/plugins'
 
 const library: MediaLibraryState = {
   clips: [{ id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', kind: 'video' }],
@@ -723,6 +725,230 @@ describe('New Project and Open Project (#77)', () => {
       const saved = await deserializeProject(writes[0])
       expect(saved.ok).toBe(true)
       if (saved.ok) expect(saved.media).toBeUndefined()
+    })
+  })
+
+  describe('plugin dependencies (#197)', () => {
+    /** A runtime over one fixture plugin whose features projects can use. */
+    const fixtureRuntime = (
+      overrides: Partial<PluginSpec> = {},
+    ): { runtime: PluginRuntime; active: () => boolean } => {
+      let active = false
+      const runtime = new PluginRuntime(
+        [
+          {
+            id: 'dep-plugin',
+            name: 'Dependency plugin',
+            description: 'A fixture plugin projects can depend on.',
+            version: '1.0.0',
+            load: () =>
+              Promise.resolve({
+                activate: () => {
+                  active = true
+                  return () => {
+                    active = false
+                  }
+                },
+              }),
+            usedByProject: () => true,
+            ...overrides,
+          },
+        ],
+        null,
+      )
+      return { runtime, active: () => active }
+    }
+
+    /** A version-6 references file (no clips, so it opens with no re-link). */
+    const pluginDependentFile = () =>
+      gzipJson({
+        format: 'browser-video-editor-project',
+        schemaVersion: 6,
+        plugins: ['dep-plugin'],
+        clips: [],
+        timeline: { entries: [], transitions: [], zooms: [] },
+      })
+
+    it('saving records which enabled plugins the project uses', async () => {
+      const { runtime } = fixtureRuntime()
+      await runtime.enable('dep-plugin')
+      const { port, writes } = stubPort()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty
+          onSaved={vi.fn()}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: /^Save(?! As)/ }))
+      await confirmSaveDialog(user, 'references')
+      await waitFor(() => expect(writes).toHaveLength(1))
+      const saved = await deserializeProject(writes[0])
+      expect(saved.ok).toBe(true)
+      if (saved.ok) expect(saved.project.plugins).toEqual(['dep-plugin'])
+    })
+
+    it('saving with the plugin disabled records no dependency', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port, writes } = stubPort()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty
+          onSaved={vi.fn()}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: /^Save(?! As)/ }))
+      await confirmSaveDialog(user, 'references')
+      await waitFor(() => expect(writes).toHaveLength(1))
+      const saved = await deserializeProject(writes[0])
+      expect(saved.ok).toBe(true)
+      if (saved.ok) expect(saved.project.plugins).toBeUndefined()
+    })
+
+    it('opening a file that needs a disabled plugin prompts; accepting enables and opens', async () => {
+      const { runtime, active } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await pluginDependentFile())
+      const dialog = await screen.findByRole('dialog', { name: 'Enable plugins to open?' })
+      expect(dialog).toHaveTextContent('Dependency plugin')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+
+      await user.click(screen.getByRole('button', { name: 'Enable and open' }))
+      await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
+      expect(runtime.isEnabled('dep-plugin')).toBe(true)
+      expect(active()).toBe(true)
+    })
+
+    it('declining the prompt opens nothing and says why', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await pluginDependentFile())
+      await screen.findByRole('dialog', { name: 'Enable plugins to open?' })
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      // Not opened silently degraded (#197): the current project stays, the
+      // plugin stays disabled, and the refusal names the plugin.
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+      expect(runtime.isEnabled('dep-plugin')).toBe(false)
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('was not opened')
+      expect(alert).toHaveTextContent('Dependency plugin')
+    })
+
+    it('opens without prompting when the needed plugin is already enabled', async () => {
+      const { runtime } = fixtureRuntime()
+      await runtime.enable('dep-plugin')
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await pluginDependentFile())
+      await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('refuses a file needing a plugin this build does not have, by name', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(
+        user,
+        await gzipJson({
+          format: 'browser-video-editor-project',
+          schemaVersion: 6,
+          plugins: ['from-the-future'],
+          clips: [],
+          timeline: { entries: [], transitions: [], zooms: [] },
+        }),
+      )
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('"from-the-future"')
+      expect(alert).toHaveTextContent('newer version')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+    })
+
+    it('a plugin that fails to enable on accept refuses the open with the reason', async () => {
+      const { runtime } = fixtureRuntime({
+        load: () => Promise.reject(new Error('chunk unreachable')),
+      })
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await pluginDependentFile())
+      await screen.findByRole('dialog', { name: 'Enable plugins to open?' })
+      await user.click(screen.getByRole('button', { name: 'Enable and open' }))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('could not be enabled')
+      expect(alert).toHaveTextContent('chunk unreachable')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
     })
   })
 })

@@ -73,7 +73,21 @@ extension point is built until a concrete plugin needs it**.
   and an `encode` entry point. Core WebM/MP4 register at startup and encode
   through the shared MediaRecorder pipeline; a plugin format may bring its
   own encoder. The export UI offers exactly what the registry holds and
-  feature detection supports.
+  feature detection supports. Phase 2 (#197) grew the contract deliberately,
+  because the plugin manager concretely needed both: `unregister(id)` (a
+  disabled plugin's format leaves the picker; unregistering an absent id is
+  a no-op so teardown order stays safe) and `subscribe`/`version` (the
+  picker re-reads the registry when plugins change it at runtime).
+- **Plugin runtime** (`src/lib/plugins.ts`, phase 2 #197): the catalog entry
+  contract — id, name, description, version, a `load()` that must be a
+  dynamic `import()` of a module under `src/plugins/` (so the code ships as
+  a lazy chunk, enforced in CI), and an optional `usedByProject` predicate
+  behind project-dependency recording. A plugin module exports
+  `activate(): () => void`: make the registrations, return the function
+  that undoes them. Disable semantics: disabling deactivates immediately
+  (contributions unregister and leave the UI); work already in flight — a
+  running export — completes, because the encoder captured what it needs
+  when it started.
 - **Transitions registry**: deliberately *not* built yet; it comes with the
   transitions pack plugin (phase 4 #199), after the core transitions (#181)
   landed in core (they were an unconditional customer ask).
