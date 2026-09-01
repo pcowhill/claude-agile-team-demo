@@ -8,11 +8,14 @@ import type {
 } from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
 import { ConfirmDialog } from './ConfirmDialog'
+import { RecordControl } from './RecordControl'
 import './MediaLibrary.css'
 
 interface MediaLibraryProps {
   library: MediaLibraryState
   onImportFiles: (files: File[]) => void
+  /** Routes a recording failure into the library's failure list (#224). */
+  onRecordingFailed: (reason: string) => void
   onDismissFailures: () => void
   onAddToTimeline: (clip: LibraryClip) => void
   /** Adds a video clip as an overlay layer above the sequence (#145). */
@@ -44,6 +47,7 @@ const KIND_LABELS: Record<LibraryClip['kind'], string> = {
 export function MediaLibrary({
   library,
   onImportFiles,
+  onRecordingFailed,
   onDismissFailures,
   onAddToTimeline,
   onAddOverlay,
@@ -91,6 +95,14 @@ export function MediaLibrary({
         <button type="button" onClick={() => inputRef.current?.click()}>
           Import clips
         </button>
+        {/* Voice-over recording (#224): the finished capture goes through
+            the exact same import path as a picked file. Hidden where the
+            platform cannot record. */}
+        <RecordControl
+          existingNames={library.clips.map((clip) => clip.name)}
+          onRecorded={(file) => onImportFiles([file])}
+          onFailed={onRecordingFailed}
+        />
         <input
           ref={inputRef}
           type="file"
