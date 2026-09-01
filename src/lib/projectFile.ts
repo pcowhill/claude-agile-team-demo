@@ -1,3 +1,10 @@
+import type { ColorAdjustments, ColorLook } from './colorAdjustments'
+import {
+  COLOR_ADJUSTMENT_MAX,
+  COLOR_ADJUSTMENT_MIN,
+  COLOR_LOOKS,
+  normalizeColorAdjustments,
+} from './colorAdjustments'
 import type { MediaKind, MediaLibraryState } from './mediaLibrary'
 import { TRANSITION_TYPES } from './timeline'
 import type {
@@ -29,7 +36,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6, // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7, // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -38,7 +45,9 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *     },
  *     "timeline": {
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
- *                     volume?, muted? }],
+ *                     volume?, muted?,
+ *                     colorAdjustments?: { brightness?, contrast?,
+ *                       saturation?, look? } }],                 // (#192)
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
@@ -51,7 +60,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }],
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
  *                           outPoint, x, y, width, height,
- *                           volume?, muted? }]                  // (#145)
+ *                           volume?, muted?, colorAdjustments? }] // (#145, #192)
  *     }
  *   }
  *
@@ -102,6 +111,17 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  * plugins when they are disabled (prompt-and-enable, `ProjectControls`).
  * The media section's presence keeps distinguishing the save modes.
  *
+ * Schema version 7 (#192) marks that the project carries per-clip color
+ * adjustments: a sequence entry or a video overlay may carry a
+ * `colorAdjustments` object (percent `brightness`/`contrast`/`saturation`,
+ * each 0–200 and never the identity 100, plus an optional `look` of
+ * "grayscale" or "sepia" — see `colorAdjustments.ts`). Written exactly when
+ * any entry or overlay is adjusted, so adjustment-free projects stay
+ * byte-identical to earlier output and older builds route adjusted files to
+ * the "saved by a newer version" refusal instead of opening them silently
+ * unadjusted. The media section's presence keeps distinguishing the save
+ * modes.
+ *
  * Schema version 4 (#140) marks that the *timeline* places still images:
  * a sequence entry may reference an image clip, showing it for the entry's
  * `duration` (equal to its `outPoint`; a still has no source trim). The
@@ -121,7 +141,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 6
+export const PROJECT_SCHEMA_VERSION = 7
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -134,6 +154,8 @@ export const IMAGE_ENTRIES_SCHEMA_VERSION = 4
 export const SLATE_ENTRIES_SCHEMA_VERSION = 5
 /** The version any plugin dependency forces, whichever the save mode (#197). */
 export const PLUGINS_SCHEMA_VERSION = 6
+/** The version any color adjustment forces, whichever the save mode (#192). */
+export const COLOR_ADJUSTMENTS_SCHEMA_VERSION = 7
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -246,6 +268,26 @@ export type DeserializeResult =
   | { ok: false; error: string }
 
 /**
+ * A color adjustment set as stored (#192): fixed key order (brightness,
+ * contrast, saturation, look), present fields only, so the same set always
+ * serializes to the same bytes. The state is already normalized (no
+ * identity fields — see colorAdjustments.ts); this only fixes the order.
+ */
+function storedColorAdjustments({
+  brightness,
+  contrast,
+  saturation,
+  look,
+}: ColorAdjustments): ColorAdjustments {
+  return {
+    ...(brightness === undefined ? {} : { brightness }),
+    ...(contrast === undefined ? {} : { contrast }),
+    ...(saturation === undefined ? {} : { saturation }),
+    ...(look === undefined ? {} : { look }),
+  }
+}
+
+/**
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
@@ -307,11 +349,15 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // A plugin dependency forces version 6 (#197), a color slate version 5
-  // (#143), an image on the timeline version 4 (#140), an image merely in
-  // the library version 3 (#137), whichever the save mode; otherwise the
-  // mode alone decides, exactly as before images existed.
+  // A color adjustment forces version 7 (#192), a plugin dependency
+  // version 6 (#197), a color slate version 5 (#143), an image on the
+  // timeline version 4 (#140), an image merely in the library version 3
+  // (#137), whichever the save mode; otherwise the mode alone decides,
+  // exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasColorAdjustments =
+    timeline.entries.some((entry) => entry.colorAdjustments !== undefined) ||
+    videoOverlaysOf(timeline).some((overlay) => overlay.colorAdjustments !== undefined)
   const hasSlateEntries = timeline.entries.some(isSlateEntry)
   const hasImageEntries = timeline.entries.some(
     (entry) => clipKindById.get(entry.clipId) === 'image',
@@ -319,8 +365,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion:
-      plugins.length > 0
+    schemaVersion: hasColorAdjustments
+      ? COLOR_ADJUSTMENTS_SCHEMA_VERSION
+      : plugins.length > 0
         ? PLUGINS_SCHEMA_VERSION
         : hasSlateEntries
           ? SLATE_ENTRIES_SCHEMA_VERSION
@@ -369,7 +416,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, colorAdjustments }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -379,6 +426,12 @@ export async function serializeProject(
           ...(kind === 'slate' ? { color } : {}),
           ...(volume === undefined ? {} : { volume }),
           ...(muted === undefined ? {} : { muted }),
+          // Color adjustments (#192) are written only when present — the
+          // state is normalized (identity = no key), so adjustment-free
+          // projects stay byte-identical to earlier output.
+          ...(colorAdjustments === undefined
+            ? {}
+            : { colorAdjustments: storedColorAdjustments(colorAdjustments) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -472,7 +525,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted }) => ({
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, colorAdjustments }) => ({
                 id,
                 clipId,
                 name,
@@ -486,6 +539,9 @@ export async function serializeProject(
                 height,
                 ...(volume === undefined ? {} : { volume }),
                 ...(muted === undefined ? {} : { muted }),
+                ...(colorAdjustments === undefined
+                  ? {}
+                  : { colorAdjustments: storedColorAdjustments(colorAdjustments) }),
               }),
             ),
           }),
@@ -602,6 +658,41 @@ const asBoolean = (value: unknown, path: string): boolean => {
   if (typeof value !== 'boolean') throw new Error(`${path} must be a boolean`)
   return value
 }
+/**
+ * A stored color adjustment set (#192): present dials finite within
+ * [0, 200], a present look a known one; anything else is refused by name.
+ * The result is normalized (identity fields dropped) — our own serializer
+ * never writes identity values, but a foreign writer's are meaningless
+ * rather than wrong, so they normalize away instead of refusing, exactly
+ * how open-time normalization treats an overlong fade. A set that
+ * normalizes to all-identity returns undefined: the caller stores no key.
+ */
+const asColorAdjustments = (value: unknown, path: string): ColorAdjustments | undefined => {
+  const raw = asRecord(value, path)
+  const dial = (key: 'brightness' | 'contrast' | 'saturation'): number | undefined => {
+    if (raw[key] === undefined) return undefined
+    const numeric = asFinite(raw[key], `${path}.${key}`)
+    if (numeric < COLOR_ADJUSTMENT_MIN || numeric > COLOR_ADJUSTMENT_MAX) {
+      throw new Error(
+        `${path}.${key} must be between ${COLOR_ADJUSTMENT_MIN} and ${COLOR_ADJUSTMENT_MAX}`,
+      )
+    }
+    return numeric
+  }
+  const adjustments: ColorAdjustments = {
+    brightness: dial('brightness'),
+    contrast: dial('contrast'),
+    saturation: dial('saturation'),
+  }
+  if (raw.look !== undefined) {
+    const look = asString(raw.look, `${path}.look`)
+    if (!(COLOR_LOOKS as readonly string[]).includes(look)) {
+      throw new Error(`${path}.look "${look}" is unknown`)
+    }
+    adjustments.look = look as ColorLook
+  }
+  return normalizeColorAdjustments(adjustments)
+}
 
 function validateProject(document: Record<string, unknown>): Project {
   // Plugin dependencies (#197): absent in files saved before them, and in
@@ -709,6 +800,20 @@ function validateProject(document: Record<string, unknown>): Project {
     // volume and unmuted.
     if (raw.volume !== undefined) entry.volume = asVolume(raw.volume, `${path}.volume`)
     if (raw.muted !== undefined) entry.muted = asBoolean(raw.muted, `${path}.muted`)
+    // Color adjustments (#192): absent in files saved before them, and on
+    // every unadjusted entry since, meaning as-shot.
+    if (raw.colorAdjustments !== undefined) {
+      if (entry.kind === 'slate') {
+        // A slate's color is set directly (#143): an adjusted slate could
+        // only come from a foreign writer, and would store the intended
+        // color two competing ways.
+        throw new Error(
+          `${path}.colorAdjustments is set on a slate entry, but color adjustments apply to video and image entries only`,
+        )
+      }
+      const adjustments = asColorAdjustments(raw.colorAdjustments, `${path}.colorAdjustments`)
+      if (adjustments !== undefined) entry.colorAdjustments = adjustments
+    }
     return entry
   })
   const entryIds = new Set<string>()
@@ -994,6 +1099,11 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       if (raw.volume !== undefined) overlay.volume = asVolume(raw.volume, `${path}.volume`)
       if (raw.muted !== undefined) overlay.muted = asBoolean(raw.muted, `${path}.muted`)
+      // Color adjustments (#192), exactly as on a sequence entry.
+      if (raw.colorAdjustments !== undefined) {
+        const adjustments = asColorAdjustments(raw.colorAdjustments, `${path}.colorAdjustments`)
+        if (adjustments !== undefined) overlay.colorAdjustments = adjustments
+      }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)
       }

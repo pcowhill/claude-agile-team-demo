@@ -1,3 +1,5 @@
+import type { ColorAdjustments } from './colorAdjustments'
+import { colorAdjustmentsEqual } from './colorAdjustments'
 import type { LibraryClip } from './mediaLibrary'
 
 /**
@@ -60,6 +62,13 @@ export interface VideoOverlay {
   volume?: number
   /** Mutes the overlay's audio; mute wins over volume (#104). */
   muted?: boolean
+  /**
+   * Color adjustments (#192), exactly as on a sequence entry: absent behaves
+   * as identity, present exactly when non-identity (normalized by the
+   * `video-overlay-color-set` reducer case — not part of the placement,
+   * which `video-overlay-updated` edits).
+   */
+  colorAdjustments?: ColorAdjustments
 }
 
 /**
@@ -183,6 +192,7 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     a.width === b.width &&
     a.height === b.height &&
     a.volume === b.volume &&
-    a.muted === b.muted
+    a.muted === b.muted &&
+    colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments)
   )
 }

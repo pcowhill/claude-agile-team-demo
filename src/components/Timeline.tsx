@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type {
+  ColorAdjustments,
+  ColorLook,
   RemapSpec,
   TextOverlaySpec,
   TimelineState,
@@ -10,6 +12,11 @@ import type {
   VideoOverlayPlacement,
   ZoomSpec,
 } from '../lib/timeline'
+import {
+  COLOR_ADJUSTMENT_IDENTITY,
+  COLOR_ADJUSTMENT_MAX,
+  COLOR_ADJUSTMENT_MIN,
+} from '../lib/colorAdjustments'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -74,6 +81,9 @@ interface TimelineProps {
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
   onSetEntryVolume: (id: string, volume: number) => void
   onSetEntryMuted: (id: string, muted: boolean) => void
+  /** Sets a video/image entry's color adjustments whole (#192); `{}` resets. */
+  onSetEntryColor: (id: string, adjustments: ColorAdjustments) => void
+  onSetVideoOverlayColor: (id: string, adjustments: ColorAdjustments) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
 }
@@ -253,6 +263,89 @@ function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: Seco
   )
 }
 
+interface ColorAdjustmentControlsProps {
+  /** The accessible name of the row's owner (entry or overlay). */
+  position: string
+  adjustments: ColorAdjustments | undefined
+  /** Receives the full set on every edit; `{}` is the reset (#192). */
+  onCommit: (adjustments: ColorAdjustments) => void
+}
+
+/**
+ * Per-entry color controls (#192): the three percent dials, the one-click
+ * looks, and a reset — one row in the per-entry-controls idiom, shared by
+ * video/image sequence entries and video overlays (slates carry no
+ * adjustments; their color is set directly, #143). Every edit commits the
+ * full set; the reducer normalizes (identity fields drop away, so Reset —
+ * committing `{}` — returns the entry to its stored-key-free identity).
+ */
+function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjustmentControlsProps) {
+  const brightness = adjustments?.brightness ?? COLOR_ADJUSTMENT_IDENTITY
+  const contrast = adjustments?.contrast ?? COLOR_ADJUSTMENT_IDENTITY
+  const saturation = adjustments?.saturation ?? COLOR_ADJUSTMENT_IDENTITY
+  const look = adjustments?.look
+  const commit = (change: Partial<ColorAdjustments>) => {
+    const next = { brightness, contrast, saturation, look, ...change }
+    onCommit({
+      brightness: next.brightness,
+      contrast: next.contrast,
+      saturation: next.saturation,
+      ...(next.look === undefined ? {} : { look: next.look }),
+    })
+  }
+  return (
+    <div className="timeline-entry-color">
+      <span>Color</span>
+      <SecondsField
+        label={`Brightness of ${position} (percent)`}
+        value={brightness}
+        min={COLOR_ADJUSTMENT_MIN}
+        max={COLOR_ADJUSTMENT_MAX}
+        step={5}
+        onCommit={(value) => commit({ brightness: value })}
+      />
+      <span>contrast</span>
+      <SecondsField
+        label={`Contrast of ${position} (percent)`}
+        value={contrast}
+        min={COLOR_ADJUSTMENT_MIN}
+        max={COLOR_ADJUSTMENT_MAX}
+        step={5}
+        onCommit={(value) => commit({ contrast: value })}
+      />
+      <span>saturation</span>
+      <SecondsField
+        label={`Saturation of ${position} (percent)`}
+        value={saturation}
+        min={COLOR_ADJUSTMENT_MIN}
+        max={COLOR_ADJUSTMENT_MAX}
+        step={5}
+        onCommit={(value) => commit({ saturation: value })}
+      />
+      <span>%</span>
+      <select
+        aria-label={`Look of ${position}`}
+        value={look ?? 'none'}
+        onChange={(event) =>
+          commit({ look: event.target.value === 'none' ? undefined : (event.target.value as ColorLook) })
+        }
+      >
+        <option value="none">No look</option>
+        <option value="grayscale">Grayscale</option>
+        <option value="sepia">Sepia</option>
+      </select>
+      <button
+        type="button"
+        aria-label={`Reset color of ${position}`}
+        disabled={adjustments === undefined}
+        onClick={() => onCommit({})}
+      >
+        Reset
+      </button>
+    </div>
+  )
+}
+
 export function Timeline({
   timeline,
   canUndo,
@@ -283,6 +376,8 @@ export function Timeline({
   onTrimAudioTrack,
   onSetEntryVolume,
   onSetEntryMuted,
+  onSetEntryColor,
+  onSetVideoOverlayColor,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
 }: TimelineProps) {
@@ -548,6 +643,15 @@ export function Timeline({
                       </label>
                     </div>
                   </>
+                )}
+                {/* Color adjustments (#192) apply to video and image entries;
+                    a slate's color is set directly above (#143). */}
+                {!isSlateEntry(entry) && (
+                  <ColorAdjustmentControls
+                    position={position}
+                    adjustments={entry.colorAdjustments}
+                    onCommit={(adjustments) => onSetEntryColor(entry.id, adjustments)}
+                  />
                 )}
                 {(() => {
                   // An entry carries any number of non-overlapping zooms
@@ -1064,6 +1168,12 @@ export function Timeline({
                       Mute
                     </label>
                   </div>
+                  {/* Color adjustments (#192), exactly as on a sequence entry. */}
+                  <ColorAdjustmentControls
+                    position={position}
+                    adjustments={overlay.colorAdjustments}
+                    onCommit={(adjustments) => onSetVideoOverlayColor(overlay.id, adjustments)}
+                  />
                 </li>
               )
             })}

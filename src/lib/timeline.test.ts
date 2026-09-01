@@ -2143,3 +2143,176 @@ describe('entry-split (#190)', () => {
     })
   })
 })
+
+describe('color adjustments (#192)', () => {
+  const withVideoEntry = () => stateOf(['e1'])
+
+  describe('entry-color-set', () => {
+    it('stores the normalized set: identity fields drop away', () => {
+      const next = timelineReducer(withVideoEntry(), {
+        type: 'entry-color-set',
+        id: 'e1',
+        adjustments: { brightness: 150, contrast: 100, saturation: 100, look: 'sepia' },
+      })
+      expect(next.entries[0].colorAdjustments).toEqual({ brightness: 150, look: 'sepia' })
+    })
+
+    it('clamps the dials into 0–200', () => {
+      const next = timelineReducer(withVideoEntry(), {
+        type: 'entry-color-set',
+        id: 'e1',
+        adjustments: { brightness: 400, saturation: -50 },
+      })
+      expect(next.entries[0].colorAdjustments).toEqual({ brightness: 200, saturation: 0 })
+    })
+
+    it('a fully-identity set removes the key entirely — never stores {}', () => {
+      const adjusted = timelineReducer(withVideoEntry(), {
+        type: 'entry-color-set',
+        id: 'e1',
+        adjustments: { brightness: 150 },
+      })
+      const reset = timelineReducer(adjusted, { type: 'entry-color-set', id: 'e1', adjustments: {} })
+      expect('colorAdjustments' in reset.entries[0]).toBe(false)
+    })
+
+    it('no-ops with the same reference on unknown id, invalid input, or unchanged values', () => {
+      const state = withVideoEntry()
+      expect(
+        timelineReducer(state, { type: 'entry-color-set', id: 'nope', adjustments: { brightness: 150 } }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-color-set',
+          id: 'e1',
+          adjustments: { brightness: Number.NaN },
+        }),
+      ).toBe(state)
+      // Identity on an untouched entry is a no-op, not an edit.
+      expect(
+        timelineReducer(state, {
+          type: 'entry-color-set',
+          id: 'e1',
+          adjustments: { brightness: 100, contrast: 100, saturation: 100 },
+        }),
+      ).toBe(state)
+      const adjusted = timelineReducer(state, {
+        type: 'entry-color-set',
+        id: 'e1',
+        adjustments: { look: 'grayscale' },
+      })
+      expect(
+        timelineReducer(adjusted, { type: 'entry-color-set', id: 'e1', adjustments: { look: 'grayscale' } }),
+      ).toBe(adjusted)
+    })
+
+    it('vetoes adjustments on a slate — its color is set directly (#143)', () => {
+      const state = timelineReducer(withVideoEntry(), {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      expect(
+        timelineReducer(state, { type: 'entry-color-set', id: 's1', adjustments: { brightness: 150 } }),
+      ).toBe(state)
+    })
+
+    it('adjusts image entries — looks apply to stills too', () => {
+      const state = timelineReducer(
+        { entries: [] },
+        {
+          type: 'entry-added',
+          entry: entryFromClip(clip({ id: 'clip-img', kind: 'image', duration: 0 }), 'i1'),
+        },
+      )
+      const next = timelineReducer(state, {
+        type: 'entry-color-set',
+        id: 'i1',
+        adjustments: { look: 'sepia' },
+      })
+      expect(next.entries[0].colorAdjustments).toEqual({ look: 'sepia' })
+    })
+
+    it('adjustments survive unrelated edits and follow the entry through a split (#190)', () => {
+      const adjusted = timelineReducer(stateOf(['e1'], ['e2']), {
+        type: 'entry-color-set',
+        id: 'e1',
+        adjustments: { contrast: 130 },
+      })
+      const moved = timelineReducer(adjusted, { type: 'entry-moved', id: 'e2', direction: 'up' })
+      expect(moved.entries.find((entry) => entry.id === 'e1')?.colorAdjustments).toEqual({
+        contrast: 130,
+      })
+      const split = timelineReducer(adjusted, {
+        type: 'entry-split',
+        id: 'e1',
+        atSourceTime: 5,
+        newEntryId: 'e1b',
+      })
+      // Both halves show the same footage — both keep the look.
+      expect(split.entries[0].colorAdjustments).toEqual({ contrast: 130 })
+      expect(split.entries[1].colorAdjustments).toEqual({ contrast: 130 })
+    })
+  })
+
+  describe('video-overlay-color-set', () => {
+    const overlay = (): VideoOverlay => ({
+      id: 'v1',
+      clipId: 'clip-cam',
+      name: 'cam.webm',
+      duration: 8,
+      url: 'blob:cam',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    })
+    const withOverlay = () =>
+      timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay: overlay() })
+
+    it('stores the normalized set on the overlay and resets to no key', () => {
+      const adjusted = timelineReducer(withOverlay(), {
+        type: 'video-overlay-color-set',
+        id: 'v1',
+        adjustments: { saturation: 0, brightness: 100 },
+      })
+      expect(videoOverlaysOf(adjusted)[0].colorAdjustments).toEqual({ saturation: 0 })
+      const reset = timelineReducer(adjusted, {
+        type: 'video-overlay-color-set',
+        id: 'v1',
+        adjustments: {},
+      })
+      expect('colorAdjustments' in videoOverlaysOf(reset)[0]).toBe(false)
+    })
+
+    it('no-ops with the same reference on unknown id or unchanged values', () => {
+      const state = withOverlay()
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-color-set',
+          id: 'nope',
+          adjustments: { brightness: 150 },
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'video-overlay-color-set', id: 'v1', adjustments: {} }),
+      ).toBe(state)
+    })
+
+    it('survives a placement edit — the placement spread carries the adjustments', () => {
+      const adjusted = timelineReducer(withOverlay(), {
+        type: 'video-overlay-color-set',
+        id: 'v1',
+        adjustments: { look: 'grayscale' },
+      })
+      const moved = timelineReducer(adjusted, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(moved)[0].colorAdjustments).toEqual({ look: 'grayscale' })
+    })
+  })
+})

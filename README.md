@@ -56,6 +56,11 @@ first frame of the trimmed range, re-captured when the in-point changes;
 image entries show the image itself and slates a color swatch. Thumbnails
 are session state, recomputed from the media — never stored in project
 files.
+Video and image entries (and video overlays) take per-clip color
+adjustments (#192): brightness, contrast, and saturation dials (0–200%)
+plus one-click grayscale and sepia looks, edited on the timeline row,
+rendered live in the preview, and saved with the project. Export rendering
+of adjustments is the follow-up #195.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
