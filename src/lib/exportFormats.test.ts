@@ -134,6 +134,21 @@ describe('supportedExportFormats (#114)', () => {
       supportedExportFormats((type) => type === 'video/gif', registry).map((entry) => entry.id),
     ).toEqual(['gif'])
   })
+
+  it('a format with its own support probe is judged by the probe, not by MIME candidates (#198)', () => {
+    const registry = new ExportFormatRegistry()
+    // Empty candidate lists would always fail the MIME rule; the probe wins.
+    registry.register({
+      ...spec('probed'),
+      candidates: [],
+      candidatesWithAudio: [],
+      isSupported: () => true,
+    })
+    registry.register({ ...spec('refused'), isSupported: () => false })
+    expect(supportedExportFormats(() => true, registry).map((entry) => entry.id)).toEqual([
+      'probed',
+    ])
+  })
 })
 
 describe('exportFileName (#114)', () => {

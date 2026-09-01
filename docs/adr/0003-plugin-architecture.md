@@ -77,7 +77,20 @@ extension point is built until a concrete plugin needs it**.
   because the plugin manager concretely needed both: `unregister(id)` (a
   disabled plugin's format leaves the picker; unregistering an absent id is
   a no-op so teardown order stays safe) and `subscribe`/`version` (the
-  picker re-reads the registry when plugins change it at runtime).
+  picker re-reads the registry when plugins change it at runtime). Phase 3
+  (#198, the GIF plugin) grew it again, each addition for a concrete need:
+  `isSupported?` (a support probe replacing the MIME-candidates rule — the
+  growth the contract's own doc anticipated — because a pure-JS encoder's
+  availability is not a recordable MIME type) and `note?` (one line the
+  export modal shows for the selected format, where a format states its
+  limits in the UI). Phase 3 also gave the shared pipeline an
+  `ExportFrameSink` seam (`ExportOptions.sink`, exportVideo.ts): a format
+  that does not encode through MediaRecorder receives every frame the
+  pipeline composes — the same `drawFrame` composition the WebM recording
+  captures, so preview/export parity extends to plugin formats — and
+  produces the Blob itself. Sink-driven exports are soundless by definition
+  (no sink-based format with sound exists; sound support here waits for a
+  concrete format, per the scope-creep guard).
 - **Plugin runtime** (`src/lib/plugins.ts`, phase 2 #197): the catalog entry
   contract — id, name, description, version, a `load()` that must be a
   dynamic `import()` of a module under `src/plugins/` (so the code ships as
@@ -88,6 +101,15 @@ extension point is built until a concrete plugin needs it**.
   (contributions unregister and leave the UI); work already in flight — a
   running export — completes, because the encoder captured what it needs
   when it started.
+- **GIF export plugin** (`src/plugins/gif/`, phase 3 #198): the first real
+  plugin, replacing phase 2's sample plugin. Encodes with `gifenc` (small,
+  dependency-free, MIT), which lives only in the plugin's lazy chunk — the
+  CI bundle-discipline check proves the dependency never reaches the entry
+  bundle. Fixed 10 fps sampling (exactly 10 cs per frame — GIF stores
+  delays in centiseconds), a 480 px dimension cap (the sink downscales the
+  composed frame; composition coordinates stay at the requested
+  resolution), and a per-frame 256-color palette; the numbers and the why
+  live in `gifSink.ts`, and the format's `note` states them in the UI.
 - **Transitions registry**: deliberately *not* built yet; it comes with the
   transitions pack plugin (phase 4 #199), after the core transitions (#181)
   landed in core (they were an unconditional customer ask).

@@ -86,9 +86,11 @@ the default editor lightweight (see
 [`docs/adr/0003-plugin-architecture.md`](docs/adr/0003-plugin-architecture.md)).
 Enabled plugins are remembered per browser and re-activate on the next
 visit; a project saved using plugin features records that dependency, and
-opening it prompts to enable what it needs. Until the first real plugin
-(GIF export, #198) lands, a clearly-labeled sample plugin demonstrates the
-mechanism by contributing a redundant "Sample (WebM)" export format.
+opening it prompts to enable what it needs. The first official plugin is
+GIF export (#198): enabling it adds an "Animated GIF" format to the export
+dialog — the full composed timeline, encoded soundless at 10 fps and
+downscaled to at most 480 px (the limits are stated beside the format) so
+files stay manageable.
 Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is

@@ -303,6 +303,13 @@ export function ExportControl({
                   {spec.label}
                 </label>
               ))}
+              {/* The selected format's stated limits (#198): a spec with a
+                  note (e.g. the GIF plugin's frame-rate and size caps) says
+                  so right where the format is chosen. */}
+              {(() => {
+                const note = formats.find((spec) => spec.id === format)?.note
+                return note !== undefined && <p className="export-format-note">{note}</p>
+              })()}
             </fieldset>
             <fieldset className="export-settings">
               <legend>Output</legend>

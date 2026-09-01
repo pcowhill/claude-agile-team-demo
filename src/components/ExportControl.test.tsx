@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ExportControl } from './ExportControl'
 import type { DoExport } from './ExportControl'
 import { ExportCanceledError } from '../lib/exportVideo'
+import { exportFormats } from '../lib/exportFormats'
 import type { TimelineState } from '../lib/timeline'
 
 const timeline: TimelineState = {
@@ -296,5 +297,33 @@ describe('output settings (#179)', () => {
     expect(sizeSelect()).toHaveValue('auto')
     await waitFor(() => expect(widthField()).toHaveValue(1280))
     expect(frameRateField()).toHaveValue(30)
+  })
+})
+
+describe('format notes (#198)', () => {
+  it('shows the selected format\'s note and nothing for formats without one', async () => {
+    const user = userEvent.setup()
+    exportFormats.register({
+      id: 'noted',
+      label: 'Noted format',
+      extension: 'noted',
+      candidates: [],
+      candidatesWithAudio: [],
+      isSupported: () => true,
+      note: 'Noted exports are capped for the test.',
+      encode: () => Promise.resolve(new Blob()),
+    })
+    try {
+      render(<ExportControl timeline={timeline} isTypeSupported={recordsEverything} />)
+      await user.click(openButton())
+      // WebM is the default selection and carries no note.
+      expect(screen.queryByText('Noted exports are capped for the test.')).not.toBeInTheDocument()
+      await user.click(screen.getByRole('radio', { name: 'Noted format' }))
+      expect(screen.getByText('Noted exports are capped for the test.')).toBeInTheDocument()
+      await user.click(screen.getByRole('radio', { name: 'WebM' }))
+      expect(screen.queryByText('Noted exports are capped for the test.')).not.toBeInTheDocument()
+    } finally {
+      exportFormats.unregister('noted')
+    }
   })
 })

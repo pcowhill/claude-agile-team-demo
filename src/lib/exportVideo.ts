@@ -299,9 +299,39 @@ export function activeTextDraws(
     .map((text) => textDraw(text, frameWidth, frameHeight, sequenceTime))
 }
 
+/**
+ * An alternative destination for the composed frames (#198, ADR 0003): a
+ * format that does not encode through MediaRecorder — the GIF plugin is the
+ * concrete case — receives every frame the shared pipeline draws, from
+ * exactly the same composition (`drawFrame`: transitions, zooms, remaps,
+ * overlay layers, text) the WebM/MP4 recording captures, and produces the
+ * finished Blob itself. The playback still runs in real time; the sink
+ * decides which frames to keep (e.g. sampling down to a GIF-friendly rate).
+ * A sink-driven export is soundless by definition — audio capture is
+ * skipped — because no sink-based format with sound exists; growing sound
+ * support here without a concrete format would violate the ADR 0003
+ * scope-creep guard.
+ */
+export interface ExportFrameSink {
+  /**
+   * Called once per composed frame with the shared canvas and the frame's
+   * sequence time in output seconds. The canvas is reused — read it now,
+   * never keep a reference across calls.
+   */
+  frame: (canvas: HTMLCanvasElement, sequenceTime: number) => void
+  /** Called after the sequence has fully played; produces the export. */
+  finish: () => Promise<Blob>
+}
+
 export interface ExportOptions {
   /** Target container; MIME candidates are picked within it only (#114). */
   container?: ExportContainer
+  /**
+   * Frame sink replacing the MediaRecorder capture (#198): when present the
+   * pipeline records nothing itself — it hands every composed frame to the
+   * sink and returns `sink.finish()`. See {@link ExportFrameSink}.
+   */
+  sink?: ExportFrameSink
   /** Called with overall progress in [0, 1] while the sequence records. */
   onProgress?: (fraction: number) => void
   /** Aborting rejects the export with ExportCanceledError. */
@@ -688,7 +718,10 @@ export async function exportTimeline(
   if (entries.length === 0) {
     throw new Error('The timeline is empty — add clips before exporting.')
   }
-  if (typeof MediaRecorder === 'undefined') {
+  // A sink-driven export (#198) records nothing itself, so it does not need
+  // MediaRecorder at all — its requirement is the canvas, checked below.
+  const sink = options.sink
+  if (sink === undefined && typeof MediaRecorder === 'undefined') {
     throw new ExportUnsupportedError('This browser does not support recording video (MediaRecorder).')
   }
 
@@ -729,14 +762,19 @@ export async function exportTimeline(
     return { overlay, element }
   })
 
-  const audioCapture = await createAudioCapture(
-    [
-      ...replays,
-      ...overlayReplays.map(({ element }) => element),
-      ...trackReplays.map(({ element }) => element),
-    ],
-    options.createAudioContext,
-  )
+  // A sink-driven export (#198) is soundless (see ExportFrameSink): no audio
+  // graph is built, which also leaves the replays muted below — the export
+  // never sounds from the speakers.
+  const audioCapture = sink !== undefined
+    ? null
+    : await createAudioCapture(
+        [
+          ...replays,
+          ...overlayReplays.map(({ element }) => element),
+          ...trackReplays.map(({ element }) => element),
+        ],
+        options.createAudioContext,
+      )
   for (const replay of [...replays, ...overlayReplays.map(({ element }) => element)]) {
     // Muting an element silences its Web Audio output too, so the replays can
     // only stay muted when there is no audio to capture. Nothing reaches the
@@ -748,11 +786,14 @@ export async function exportTimeline(
   // so the video-only fallback leaves them untouched.
   const recordedTracks = audioCapture === null ? [] : trackReplays
 
-  const mimeType = pickExportMimeType(
-    (type) => MediaRecorder.isTypeSupported(type),
-    audioCapture === null ? container.candidates : container.candidatesWithAudio,
-  )
-  if (mimeType === null) {
+  // The sink is its own encoder (#198): no recorder MIME type to negotiate.
+  const mimeType = sink !== undefined
+    ? null
+    : pickExportMimeType(
+        (type) => MediaRecorder.isTypeSupported(type),
+        audioCapture === null ? container.candidates : container.candidatesWithAudio,
+      )
+  if (sink === undefined && mimeType === null) {
     await audioCapture?.dispose()
     throw new ExportUnsupportedError(`This browser cannot encode ${container.label} video.`)
   }
@@ -884,7 +925,9 @@ export async function exportTimeline(
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d')
-  if (context === null || typeof canvas.captureStream !== 'function') {
+  // A sink reads the canvas directly (#198); only the recorder path needs
+  // the canvas to be capturable as a stream.
+  if (context === null || (sink === undefined && typeof canvas.captureStream !== 'function')) {
     await releaseAll()
     throw new ExportUnsupportedError('This browser cannot capture canvas video.')
   }
@@ -1197,25 +1240,31 @@ export async function exportTimeline(
   }
 
   const total = totalDuration(timeline)
-  const stream = canvas.captureStream(frameRate)
-  if (audioCapture !== null) stream.addTrack(audioCapture.track)
-  let recorder: MediaRecorder
-  try {
-    recorder = new MediaRecorder(stream, { mimeType })
-  } catch (error) {
-    // A rejected track combination must not strand the audio context, which
-    // holds a rendering thread until it is closed.
-    await releaseAll()
-    throw error
-  }
+  // The recorder exists only without a sink (#198): a sink-driven export
+  // takes its frames straight from the shared canvas below.
+  let recorder: MediaRecorder | null = null
   const chunks: Blob[] = []
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data)
+  let stopped: Promise<void> = Promise.resolve()
+  if (sink === undefined) {
+    const stream = canvas.captureStream(frameRate)
+    if (audioCapture !== null) stream.addTrack(audioCapture.track)
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: mimeType as string })
+    } catch (error) {
+      // A rejected track combination must not strand the audio context, which
+      // holds a rendering thread until it is closed.
+      await releaseAll()
+      throw error
+    }
+    const started = recorder
+    started.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data)
+    }
+    stopped = new Promise<void>((resolve) => {
+      started.onstop = () => resolve()
+    })
+    started.start()
   }
-  const stopped = new Promise<void>((resolve) => {
-    recorder.onstop = () => resolve()
-  })
-  recorder.start()
 
   // A handover can leave the raw fraction a hair behind where the outgoing
   // clip left off (the two elements are never perfectly in sync); publish a
@@ -1273,6 +1322,7 @@ export async function exportTimeline(
         primary.volume = videoEntryGain(entry)
         // The cue point is output 0 into the entry: sequence time startTime.
         drawFrame(videoFrame(primary), index, startTime)
+        sink?.frame(canvas, startTime)
         if (replayState.hold === null) {
           // The rate at the cue point (#144): 1 for an unremapped entry,
           // the segment's factor when the entry starts inside one.
@@ -1448,6 +1498,9 @@ export async function exportTimeline(
             sequenceTime,
             overlayFrame,
           )
+          // A frame sink (#198) sees exactly what the recorder would have:
+          // the same canvas, right after the same composition.
+          sink?.frame(canvas, sequenceTime)
           // Every frame re-syncs the audio tracks against the export clock,
           // exactly as the preview's rAF loop does (#105): windows open and
           // close on time and fades record as continuous ramps — the clock
@@ -1515,15 +1568,18 @@ export async function exportTimeline(
     }
   } finally {
     releaseVideos()
-    recorder.stop()
+    recorder?.stop()
     await stopped
     // After the recorder has flushed, so the tail of the audio survives.
     await audioCapture?.dispose()
   }
 
   onProgress?.(1)
+  // A sink is its own encoder (#198): the export is whatever it produces.
+  if (sink !== undefined) return sink.finish()
   // The recorder may refine the requested type (a bare `video/mp4` request
   // comes back with the codecs it actually chose), so the saved Blob carries
   // what was really encoded (#114).
-  return new Blob(chunks, { type: recorder.mimeType || mimeType })
+  const finished = recorder as MediaRecorder
+  return new Blob(chunks, { type: finished.mimeType || (mimeType as string) })
 }
