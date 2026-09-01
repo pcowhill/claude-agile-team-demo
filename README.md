@@ -51,6 +51,11 @@ composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all
 scaled to the video sequence's duration, with anything past the video's
 end clamped (it never plays).
+Video entries and overlay rows also carry a small thumbnail (#193) — the
+first frame of the trimmed range, re-captured when the in-point changes;
+image entries show the image itself and slates a color swatch. Thumbnails
+are session state, recomputed from the media — never stored in project
+files.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
