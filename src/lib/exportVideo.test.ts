@@ -4,6 +4,7 @@ import {
   activeVideoOverlays,
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
+  canvasSupportsColorFilter,
   createAudioCapture,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
@@ -17,6 +18,8 @@ import {
   syncOverlayReplay,
   syncTrackReplay,
   textDraw,
+  timelineHasColorAdjustments,
+  withLayerColorFilter,
   zoomRect,
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
@@ -868,5 +871,115 @@ describe('syncOverlayReplay (#146)', () => {
     // element that stopped within the tolerance keeps its own clock, as a
     // playing one does.)
     expect(element.currentTime).toBe(7)
+  })
+})
+
+// Per-clip color adjustments in the export (#195). The actual filtered
+// pixels can only render in a real browser (e2e/export-color.spec.ts);
+// these tests pin the pure decisions — when adjustments require canvas
+// filter support, how support is probed, and that the draw path sets the
+// shared canonical string around exactly the adjusted layer's draw.
+
+describe('timelineHasColorAdjustments (#195)', () => {
+  const entry = (colorAdjustments?: { brightness?: number; look?: 'grayscale' | 'sepia' }) => ({
+    id: 'e1',
+    clipId: 'c1',
+    name: 'clip.webm',
+    duration: 10,
+    url: 'blob:clip',
+    inPoint: 0,
+    outPoint: 10,
+    ...(colorAdjustments === undefined ? {} : { colorAdjustments }),
+  })
+
+  it('is false for an adjustment-free timeline, pre-#192 states included', () => {
+    expect(timelineHasColorAdjustments({ entries: [entry()] })).toBe(false)
+    expect(
+      timelineHasColorAdjustments({ entries: [entry()], videoOverlays: [exportOverlay()] }),
+    ).toBe(false)
+  })
+
+  it('is true when a sequence entry carries adjustments', () => {
+    expect(timelineHasColorAdjustments({ entries: [entry(), entry({ brightness: 150 })] })).toBe(
+      true,
+    )
+  })
+
+  it('is true when only a video overlay carries adjustments', () => {
+    expect(
+      timelineHasColorAdjustments({
+        entries: [entry()],
+        videoOverlays: [exportOverlay({ colorAdjustments: { look: 'sepia' } })],
+      }),
+    ).toBe(true)
+  })
+})
+
+/** A fake 2D context whose `filter` records every assignment. */
+function fakeFilterContext(initial = 'none') {
+  let value = initial
+  const sets: string[] = []
+  const context = {} as CanvasRenderingContext2D
+  Object.defineProperty(context, 'filter', {
+    get: () => value,
+    set: (next: string) => {
+      sets.push(next)
+      value = next
+    },
+  })
+  return { context, sets }
+}
+
+describe('canvasSupportsColorFilter (#195)', () => {
+  it('is true when a set filter sticks, and restores the prior value', () => {
+    const { context } = fakeFilterContext('sepia(100%)')
+    expect(canvasSupportsColorFilter(context)).toBe(true)
+    expect(context.filter).toBe('sepia(100%)')
+  })
+
+  it('is false when the context has no filter property (unsupported browser)', () => {
+    expect(canvasSupportsColorFilter({} as CanvasRenderingContext2D)).toBe(false)
+  })
+
+  it('is false when assignments do not stick', () => {
+    const context = {} as CanvasRenderingContext2D
+    Object.defineProperty(context, 'filter', { get: () => 'none', set: () => {} })
+    expect(canvasSupportsColorFilter(context)).toBe(false)
+  })
+})
+
+describe('withLayerColorFilter (#195)', () => {
+  it('sets the canonical shared string during the draw and resets after', () => {
+    const { context, sets } = fakeFilterContext()
+    let during = ''
+    withLayerColorFilter(context, { brightness: 150, look: 'grayscale' }, () => {
+      during = context.filter
+    })
+    // The same string the preview sets as CSS filter (#192): one rule.
+    expect(during).toBe('brightness(150%) grayscale(100%)')
+    expect(context.filter).toBe('none')
+    expect(sets).toEqual(['brightness(150%) grayscale(100%)', 'none'])
+  })
+
+  it('leaves the context completely untouched for an unadjusted layer', () => {
+    const { context, sets } = fakeFilterContext()
+    let ran = false
+    withLayerColorFilter(context, undefined, () => {
+      ran = true
+    })
+    expect(ran).toBe(true)
+    // Never assigned, not even 'none' — an unadjusted layer draws exactly
+    // as before #195, filter-capable browser or not.
+    expect(sets).toEqual([])
+  })
+
+  it('resets the filter even when the draw throws', () => {
+    const { context } = fakeFilterContext()
+    expect(() =>
+      withLayerColorFilter(context, { look: 'sepia' }, () => {
+        throw new Error('draw failed')
+      }),
+    ).toThrow('draw failed')
+    expect(context.filter).toBe('none')
   })
 })

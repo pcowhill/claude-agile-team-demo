@@ -1,5 +1,6 @@
 import type {
   AudioTrack,
+  ColorAdjustments,
   RemapEffect,
   TextOverlay,
   TimelineEntry,
@@ -7,6 +8,7 @@ import type {
   TransitionType,
   VideoOverlay,
 } from './timeline'
+import { colorFilterFor } from './colorAdjustments'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -297,6 +299,62 @@ export function activeTextDraws(
   return textsOf(timeline)
     .filter((text) => textActiveAt(text, sequenceTime))
     .map((text) => textDraw(text, frameWidth, frameHeight, sequenceTime))
+}
+
+/**
+ * Whether any entry or video overlay carries color adjustments (#195) —
+ * the condition under which the export needs canvas `filter` support at
+ * all. An adjustment-free timeline must export exactly as before #195,
+ * filter-capable browser or not.
+ */
+export function timelineHasColorAdjustments(timeline: TimelineState): boolean {
+  return (
+    timeline.entries.some((entry) => entry.colorAdjustments !== undefined) ||
+    videoOverlaysOf(timeline).some((overlay) => overlay.colorAdjustments !== undefined)
+  )
+}
+
+/**
+ * Feature check for canvas 2D `filter` (#195): browsers without support
+ * (canvas filters are newer than the rest of the 2D API) expose no `filter`
+ * property, and a set that does not stick is equally unusable. Probed by
+ * assigning a known-valid filter and reading it back; the context's prior
+ * value is restored either way.
+ */
+export function canvasSupportsColorFilter(context: CanvasRenderingContext2D): boolean {
+  if (typeof context.filter !== 'string') return false
+  const previous = context.filter
+  context.filter = 'grayscale(100%)'
+  const supported = context.filter !== 'none' && context.filter !== ''
+  context.filter = previous
+  return supported
+}
+
+/**
+ * Runs `draw` with the layer's color adjustments (#195) set as the
+ * context's `filter` — the same canonical string the preview sets as the
+ * element's CSS filter (`colorFilterFor`, #192/#66 pattern) — and resets
+ * the filter afterwards, so the next layer never inherits it. The identity
+ * set draws with the context untouched: an unadjusted layer's draw calls
+ * are byte-for-byte the pre-#195 ones, whether or not the browser supports
+ * canvas filters at all.
+ */
+export function withLayerColorFilter(
+  context: CanvasRenderingContext2D,
+  adjustments: ColorAdjustments | undefined,
+  draw: () => void,
+): void {
+  const filter = colorFilterFor(adjustments)
+  if (filter === 'none') {
+    draw()
+    return
+  }
+  context.filter = filter
+  try {
+    draw()
+  } finally {
+    context.filter = 'none'
+  }
 }
 
 /**
@@ -931,6 +989,18 @@ export async function exportTimeline(
     await releaseAll()
     throw new ExportUnsupportedError('This browser cannot capture canvas video.')
   }
+  // Per-clip color adjustments (#195) render through the context's `filter`,
+  // probed once up front. The rule: an export must never silently produce
+  // unadjusted frames the preview showed adjusted (#66 parity) — a browser
+  // whose canvas cannot filter fails loudly instead, and only when the
+  // timeline actually carries an adjustment.
+  if (timelineHasColorAdjustments(timeline) && !canvasSupportsColorFilter(context)) {
+    await releaseAll()
+    throw new ExportUnsupportedError(
+      'This browser cannot render color adjustments when exporting (canvas filters are unsupported). ' +
+        'Reset the color adjustments, or export from a browser that supports canvas filters.',
+    )
+  }
 
   /**
    * Autoplay policy can still refuse unmuted playback. Falling back to a
@@ -1038,13 +1108,18 @@ export async function exportTimeline(
     context.globalAlpha = spec?.outgoingAlpha ?? 1
     // Pushes (#181) move the outgoing layer off the frame; every other type
     // has zero outgoing offsets, drawing exactly as before.
-    context.drawImage(
-      layer.source,
-      dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
-      dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
-      dest.width,
-      dest.height,
-    )
+    // The entry's color adjustments (#195): the same canonical filter string
+    // the preview sets as the element's CSS filter (#192), applied to
+    // exactly this layer's draw.
+    withLayerColorFilter(context, timeline.entries[entryIndex]?.colorAdjustments, () => {
+      context.drawImage(
+        layer.source,
+        dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+        dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+        dest.width,
+        dest.height,
+      )
+    })
     if (overlay !== null && spec !== null) {
       const incoming = fitRect(overlay.layer.sourceWidth, overlay.layer.sourceHeight, width, height)
       const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
@@ -1133,24 +1208,29 @@ export async function exportTimeline(
         )
         context.clip(invert ? 'evenodd' : 'nonzero')
       }
-      if (spec.incomingBacking) {
-        // The incoming layer is a full-frame card (#74): black backing the
-        // size of the whole frame, moving with the clip fitted inside it.
-        context.fillStyle = '#000'
-        context.fillRect(
-          card.x + spec.incomingOffsetXFraction * width,
-          card.y + spec.incomingOffsetYFraction * height,
-          card.width,
-          card.height,
+      // The incoming entry's own color adjustments (#195) cover its whole
+      // card — backing included — exactly as the preview's CSS filter covers
+      // the element's background along with its pixels (#192/#218).
+      withLayerColorFilter(context, timeline.entries[overlay.index]?.colorAdjustments, () => {
+        if (spec.incomingBacking) {
+          // The incoming layer is a full-frame card (#74): black backing the
+          // size of the whole frame, moving with the clip fitted inside it.
+          context.fillStyle = '#000'
+          context.fillRect(
+            card.x + spec.incomingOffsetXFraction * width,
+            card.y + spec.incomingOffsetYFraction * height,
+            card.width,
+            card.height,
+          )
+        }
+        context.drawImage(
+          overlay.layer.source,
+          incomingDest.x + spec.incomingOffsetXFraction * width,
+          incomingDest.y + spec.incomingOffsetYFraction * height,
+          incomingDest.width,
+          incomingDest.height,
         )
-      }
-      context.drawImage(
-        overlay.layer.source,
-        incomingDest.x + spec.incomingOffsetXFraction * width,
-        incomingDest.y + spec.incomingOffsetYFraction * height,
-        incomingDest.width,
-        incomingDest.height,
-      )
+      })
       if (clipToCard || clipToReveal || clipToEllipse) context.restore()
       context.globalCompositeOperation = 'source-over'
     }
@@ -1176,7 +1256,11 @@ export async function exportTimeline(
         if (!activeOverlays.includes(layer)) continue
         if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
         const dest = overlayDestRect(layer, element.videoWidth, element.videoHeight, width, height)
-        context.drawImage(element, dest.x, dest.y, dest.width, dest.height)
+        // The overlay's own color adjustments (#195), independent of the
+        // base layers' — exactly the preview's per-element filter (#192).
+        withLayerColorFilter(context, layer.colorAdjustments, () => {
+          context.drawImage(element, dest.x, dest.y, dest.width, dest.height)
+        })
       }
     }
     // Text overlays (#142) draw last, above the composed frame — the
