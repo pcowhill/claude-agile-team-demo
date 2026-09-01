@@ -508,7 +508,22 @@ export function Timeline({
                       ...laneBar(entryStarts[index], entryOutputDuration(entry, remaps)),
                       ...(isSlateEntry(entry) ? { background: entry.color } : {}),
                     }}
-                  />
+                  >
+                    {/* The clip's audio amplitude (#230), exactly the audio
+                        lane's waveform (#191) — the decoder reads the audio
+                        track out of the video container, and a soundless or
+                        undecodable clip renders the plain bar. Stills and
+                        slates have no audio to draw. */}
+                    {!isStillEntry(entry) && (
+                      <AudioWaveform
+                        url={entry.url}
+                        duration={entry.duration}
+                        inPoint={entry.inPoint}
+                        outPoint={entry.outPoint}
+                        data-testid={`timeline-entry-waveform-${index}`}
+                      />
+                    )}
+                  </div>
                 </div>
                 <div className="timeline-entry-main">
                   {/* A recognizable still per row (#193): videos get a
@@ -1086,7 +1101,17 @@ export function Timeline({
                       className="audio-track-bar video-overlay-bar"
                       data-testid={`video-overlay-bar-${index}`}
                       style={laneBar(overlay.offset, trimmedLength)}
-                    />
+                    >
+                      {/* Overlay clips are always video (#145): same audio
+                          amplitude visual as the sequence entries (#230). */}
+                      <AudioWaveform
+                        url={overlay.url}
+                        duration={overlay.duration}
+                        inPoint={overlay.inPoint}
+                        outPoint={overlay.outPoint}
+                        data-testid={`video-overlay-waveform-${index}`}
+                      />
+                    </div>
                   </div>
                   <div className="video-overlay-main">
                     {/* Overlay rows are always video (#145) — captured

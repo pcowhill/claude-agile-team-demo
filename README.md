@@ -60,7 +60,10 @@ Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all
 scaled to the video sequence's duration, with anything past the video's
-end clamped (it never plays).
+end clamped (it never plays). Every sound-bearing bar draws its clip's
+audio amplitude as a waveform (#191, #230): audio tracks, video entries,
+and video overlays alike — soundless items (stills, slates, clips whose
+audio cannot be decoded) keep the plain bar.
 Video entries and overlay rows also carry a small thumbnail (#193) — the
 first frame of the trimmed range, re-captured when the in-point changes;
 image entries show the image itself and slates a color swatch. Thumbnails
