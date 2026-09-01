@@ -26,6 +26,8 @@ import {
 } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
+import { colorFilterFor } from '../lib/colorAdjustments'
+import type { ColorAdjustments } from '../lib/colorAdjustments'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
@@ -156,6 +158,24 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
     veil:
       spec.veil === null ? null : { backgroundColor: spec.veil.color, opacity: spec.veil.alpha },
   }
+}
+
+/**
+ * Composes a layer's styles with its entry's color adjustments (#192): the
+ * shared filter string (colorAdjustments.ts — the same string the export
+ * will hand the canvas context, #195) set as the element's CSS `filter`.
+ * Identity adds nothing, so unadjusted layers keep their exact style
+ * objects. Applied to the media element itself (video/image), outside the
+ * transition and zoom styling — the adjustment belongs to the clip, so it
+ * rides along through overlaps exactly like the clip's pixels do.
+ */
+function withColorFilter(
+  style: CSSProperties | undefined,
+  adjustments: ColorAdjustments | undefined,
+): CSSProperties | undefined {
+  const filter = colorFilterFor(adjustments)
+  if (filter === 'none') return style
+  return { ...style, filter }
 }
 
 /**
@@ -1046,13 +1066,19 @@ export function PreviewPlayer({
       return {
         className: 'preview-video',
         'data-testid': 'preview-video',
-        style: withZoom(layerStyles?.outgoing, primaryZoom),
+        // The entry's color adjustments (#192) ride the element for exactly
+        // its portion of playback: they follow the fronting entry through
+        // cues, and through a transition each side keeps its own filter.
+        style: withColorFilter(
+          withZoom(layerStyles?.outgoing, primaryZoom),
+          location?.entry.colorAdjustments,
+        ),
       }
     }
     const videoOverlap = overlap !== undefined && !stillIncoming
     return {
       className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
-      style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null) : undefined,
+      style: videoOverlap ? withColorFilter(withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null), overlap.entry.colorAdjustments) : undefined,
       'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
     }
   }
@@ -1111,7 +1137,10 @@ export function PreviewPlayer({
                     data-testid="preview-image"
                     alt=""
                     src={location.entry.url}
-                    style={withZoom(layerStyles?.outgoing, primaryZoom)}
+                    style={withColorFilter(
+                      withZoom(layerStyles?.outgoing, primaryZoom),
+                      location.entry.colorAdjustments,
+                    )}
                   />
                 )
               )}
@@ -1132,7 +1161,10 @@ export function PreviewPlayer({
                     data-testid="preview-image-incoming"
                     alt=""
                     src={overlap.entry.url}
-                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null)}
+                    style={withColorFilter(
+                      withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null),
+                      overlap.entry.colorAdjustments,
+                    )}
                   />
                 )
               )}
@@ -1169,12 +1201,15 @@ export function PreviewPlayer({
                     playsInline
                     className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
                     data-testid={`preview-overlay-${index}`}
-                    style={{
-                      left: `${overlay.x * 100}%`,
-                      top: `${overlay.y * 100}%`,
-                      width: `${overlay.width * 100}%`,
-                      height: `${overlay.height * 100}%`,
-                    }}
+                    style={withColorFilter(
+                      {
+                        left: `${overlay.x * 100}%`,
+                        top: `${overlay.y * 100}%`,
+                        width: `${overlay.width * 100}%`,
+                        height: `${overlay.height * 100}%`,
+                      },
+                      overlay.colorAdjustments,
+                    )}
                   />
                 )
               })}

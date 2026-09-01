@@ -1,3 +1,9 @@
+import type { ColorAdjustments } from './colorAdjustments'
+import {
+  colorAdjustmentsEqual,
+  isValidColorAdjustments,
+  normalizeColorAdjustments,
+} from './colorAdjustments'
 import type { LibraryClip } from './mediaLibrary'
 import type { RemapEffect, RemapSpec } from './remap'
 import {
@@ -17,6 +23,7 @@ import {
   videoOverlaysEqual,
 } from './videoOverlay'
 
+export type { ColorAdjustments, ColorLook } from './colorAdjustments'
 export type { PauseRemapSpec, RemapEffect, RemapSpec, SpeedRemapSpec } from './remap'
 export type { TextOverlay, TextOverlaySpec } from './textOverlay'
 export type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
@@ -61,6 +68,15 @@ export interface TimelineEntry {
   volume?: number
   /** Whether the entry's own audio is silenced entirely (#104). Absent means false. */
   muted?: boolean
+  /**
+   * Color adjustments on a video/image entry (#192). Absent behaves as
+   * identity (as shot), like the gain fields, so pre-#192 states and files
+   * stay valid; present exactly when non-identity (the reducer normalizes —
+   * see `normalizeColorAdjustments`). Slates carry none: their color is set
+   * directly (#143), and filtering a chosen flat color would just store the
+   * intended color two competing ways.
+   */
+  colorAdjustments?: ColorAdjustments
 }
 
 /**
@@ -375,6 +391,18 @@ export type TimelineAction =
   | { type: 'audio-track-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'entry-volume-set'; id: string; volume: number }
   | { type: 'entry-mute-set'; id: string; muted: boolean }
+  | {
+      /**
+       * Sets a video/image entry's color adjustments whole (#192): the
+       * action carries the full set (absent fields = identity), and the
+       * reducer stores the normalized form — identity normalizes to no
+       * `colorAdjustments` key at all, so `{}` is the "reset" action.
+       */
+      type: 'entry-color-set'
+      id: string
+      adjustments: ColorAdjustments
+    }
+  | { type: 'video-overlay-color-set'; id: string; adjustments: ColorAdjustments }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
 
@@ -1300,6 +1328,42 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       const entries = [...state.entries]
       entries[index] = { ...entries[index], muted: action.muted }
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'entry-color-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no adjustments (#192): their color is set directly
+      // (#143) — see the TimelineEntry field comment.
+      if (isSlateEntry(entry)) return state
+      if (!isValidColorAdjustments(action.adjustments)) return state
+      const normalized = normalizeColorAdjustments(action.adjustments)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same values — or resetting an untouched entry — is
+      // a no-op, not an edit (edits stop preview playback).
+      if (colorAdjustmentsEqual(normalized, entry.colorAdjustments)) return state
+      const entries = [...state.entries]
+      // Identity means no key at all, never `{}` — what keeps adjustment-free
+      // saved files byte-identical (see colorAdjustments.ts).
+      const next = { ...entry }
+      if (normalized === undefined) delete next.colorAdjustments
+      else next.colorAdjustments = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'video-overlay-color-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!isValidColorAdjustments(action.adjustments)) return state
+      const normalized = normalizeColorAdjustments(action.adjustments)
+      if (colorAdjustmentsEqual(normalized, overlay.colorAdjustments)) return state
+      const overlays = [...videoOverlays]
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.colorAdjustments
+      else next.colorAdjustments = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }
     case 'audio-track-volume-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)

@@ -1615,3 +1615,106 @@ describe('coverage bars and the sequence-scaled lane (#180)', () => {
     ).toHaveValue(30)
   })
 })
+
+describe('color adjustments (#192)', () => {
+  const brightnessField = (position: string) =>
+    screen.getByRole('spinbutton', { name: `Brightness of ${position} (percent)` })
+  const commitField = async (field: HTMLElement, value: string) => {
+    await userEvent.clear(field)
+    await userEvent.type(field, value)
+    await userEvent.tab()
+  }
+
+  it('shows the color row at identity for a video entry and applies edits to the preview', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    const brightness = brightnessField(position)
+    expect(brightness).toHaveValue(100)
+    // Identity means nothing to reset, and no filter on the preview element.
+    expect(screen.getByRole('button', { name: `Reset color of ${position}` })).toBeDisabled()
+    expect(screen.getByTestId('preview-video').style.filter).toBe('')
+
+    await commitField(brightness, '150')
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: `Look of ${position}` }),
+      'sepia',
+    )
+    expect(brightness).toHaveValue(150)
+    // The preview element carries the shared filter string (#66 pattern).
+    expect(screen.getByTestId('preview-video').style.filter).toBe('brightness(150%) sepia(100%)')
+    expect(screen.getByRole('button', { name: `Reset color of ${position}` })).toBeEnabled()
+  })
+
+  it('clamps out-of-range dials visibly, like other fields', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const brightness = brightnessField('a.mp4 at position 1')
+    await commitField(brightness, '400')
+    expect(brightness).toHaveValue(200)
+    expect(screen.getByTestId('preview-video').style.filter).toBe('brightness(200%)')
+  })
+
+  it('reset returns every dial and the look to identity', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await commitField(brightnessField(position), '80')
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: `Look of ${position}` }),
+      'grayscale',
+    )
+    await userEvent.click(screen.getByRole('button', { name: `Reset color of ${position}` }))
+
+    expect(brightnessField(position)).toHaveValue(100)
+    expect(screen.getByRole('combobox', { name: `Look of ${position}` })).toHaveValue('none')
+    expect(screen.getByRole('button', { name: `Reset color of ${position}` })).toBeDisabled()
+    expect(screen.getByTestId('preview-video').style.filter).toBe('')
+  })
+
+  it('offers no color row for a slate — its color is set directly (#143)', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    expect(
+      screen.queryByRole('spinbutton', { name: /Brightness of Color slate/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('adjusts a video overlay and filters its preview element', async () => {
+    render(<App />)
+    await importClip('base.mp4', 10)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const position = 'overlay cam.mp4 at position 1'
+    const saturation = screen.getByRole('spinbutton', { name: `Saturation of ${position} (percent)` })
+    await commitField(saturation, '0')
+    expect(saturation).toHaveValue(0)
+    expect(screen.getByTestId('preview-overlay-0').style.filter).toBe('saturate(0%)')
+
+    await userEvent.click(screen.getByRole('button', { name: `Reset color of ${position}` }))
+    expect(screen.getByTestId('preview-overlay-0').style.filter).toBe('')
+  })
+
+  it('color edits participate in undo/redo like any timeline edit (#189)', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await commitField(brightnessField(position), '150')
+    expect(brightnessField(position)).toHaveValue(150)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(brightnessField(position)).toHaveValue(100)
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(brightnessField(position)).toHaveValue(150)
+  })
+})

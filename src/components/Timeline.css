@@ -499,3 +499,33 @@
   background: #1a1a1a;
   color: #eee;
 }
+
+/* The entry's color-adjustment row (#192): three percent dials, the look
+   select, and a reset — same look as the gain row above. */
+.timeline-entry-color {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.timeline-entry-color input[type='number'] {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-entry-color select {
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+}

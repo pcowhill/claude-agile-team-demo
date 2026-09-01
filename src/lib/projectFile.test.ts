@@ -10,9 +10,11 @@ import fixtureV4ImageEntryEmbeddedBase64 from './fixtures/project-v4-image-entry
 import fixtureV5SlateReferencesBase64 from './fixtures/project-v5-slate-references.bvep.base64?raw'
 import fixtureV5SlateEmbeddedBase64 from './fixtures/project-v5-slate-embedded.bvep.base64?raw'
 import fixtureV6PluginsReferencesBase64 from './fixtures/project-v6-plugins-references.bvep.base64?raw'
+import fixtureV7ColorReferencesBase64 from './fixtures/project-v7-color-adjustments-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
+  COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
   IMAGE_ENTRIES_SCHEMA_VERSION,
   IMAGES_SCHEMA_VERSION,
@@ -1004,14 +1006,16 @@ describe('project file versioning', () => {
     // this pins the constants so a bump is a conscious, reviewed change.
     // Version 2 added embedded media (#97); version 3 added images (#137);
     // version 4 added images on the timeline (#140); version 5 added color
-    // slates (#143); version 6 added plugin dependencies (#197).
-    expect(PROJECT_SCHEMA_VERSION).toBe(6)
+    // slates (#143); version 6 added plugin dependencies (#197); version 7
+    // added per-clip color adjustments (#192).
+    expect(PROJECT_SCHEMA_VERSION).toBe(7)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
     expect(IMAGE_ENTRIES_SCHEMA_VERSION).toBe(4)
     expect(SLATE_ENTRIES_SCHEMA_VERSION).toBe(5)
     expect(PLUGINS_SCHEMA_VERSION).toBe(6)
+    expect(COLOR_ADJUSTMENTS_SCHEMA_VERSION).toBe(7)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -1896,5 +1900,158 @@ describe('overlay video layers in project files (#145)', () => {
       { ...stored, x: 0.1 },
     ]
     await expectRefusal(await gzipJson(document), 'timeline.videoOverlays[1].id "v1" is duplicated')
+  })
+})
+
+describe('color adjustments in project files (#192, schema version 7)', () => {
+  const adjustedTimeline = (): TimelineState => ({
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], colorAdjustments: { brightness: 150, look: 'sepia' } },
+      ...timeline.entries.slice(1),
+    ],
+  })
+  const overlayAdjustedTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        colorAdjustments: { saturation: 0 },
+      },
+    ],
+  })
+
+  it('writes version 7 with the adjustments exactly when any exist, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, adjustedTimeline()))
+    expect(references.schemaVersion).toBe(COLOR_ADJUSTMENTS_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const embedded = await gunzipJson(
+      await serializeProject(library, adjustedTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(COLOR_ADJUSTMENTS_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+    // An adjusted overlay alone forces version 7 too.
+    const overlayOnly = await gunzipJson(await serializeProject(library, overlayAdjustedTimeline()))
+    expect(overlayOnly.schemaVersion).toBe(COLOR_ADJUSTMENTS_SCHEMA_VERSION)
+  })
+
+  it('an adjustment-free project stays byte-identical to earlier output', async () => {
+    const withKeylessEntries = await serializeProject(library, timeline)
+    const document = await gunzipJson(withKeylessEntries)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document)).not.toContain('colorAdjustments')
+  })
+
+  it('round-trips adjustments on entries and overlays', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, {
+        ...adjustedTimeline(),
+        videoOverlays: overlayAdjustedTimeline().videoOverlays,
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].colorAdjustments).toEqual({
+        brightness: 150,
+        look: 'sepia',
+      })
+      expect(result.project.timeline.entries[1].colorAdjustments).toBeUndefined()
+      expect(result.project.timeline.videoOverlays?.[0].colorAdjustments).toEqual({ saturation: 0 })
+    }
+  })
+
+  it('pre-#192 files (and adjustment-free files since) open unadjusted', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(
+        result.project.timeline.entries.every((entry) => entry.colorAdjustments === undefined),
+      ).toBe(true)
+    }
+  })
+
+  it('refuses malformed adjustments by name', async () => {
+    const notRecord = validDocument()
+    ;(notRecord.timeline.entries[0] as Record<string, unknown>).colorAdjustments = 'sepia'
+    await expectRefusal(
+      await gzipJson(notRecord),
+      'timeline.entries[0].colorAdjustments must be an object',
+    )
+
+    const outOfRange = validDocument()
+    ;(outOfRange.timeline.entries[0] as Record<string, unknown>).colorAdjustments = { brightness: 300 }
+    await expectRefusal(
+      await gzipJson(outOfRange),
+      'timeline.entries[0].colorAdjustments.brightness must be between 0 and 200',
+    )
+
+    const unknownLook = validDocument()
+    ;(unknownLook.timeline.entries[0] as Record<string, unknown>).colorAdjustments = { look: 'blur' }
+    await expectRefusal(
+      await gzipJson(unknownLook),
+      'timeline.entries[0].colorAdjustments.look "blur" is unknown',
+    )
+  })
+
+  it('refuses adjustments on a slate entry — its color is set directly (#143)', async () => {
+    const document = validDocument()
+    ;(document.timeline.entries as Record<string, unknown>[]).push({
+      id: 's1',
+      name: 'Color slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      color: '#ff0000',
+      colorAdjustments: { brightness: 150 },
+    })
+    await expectRefusal(await gzipJson(document), 'slate entry', 'video and image entries only')
+  })
+
+  it("normalizes a foreign writer's identity values away instead of refusing", async () => {
+    const document = validDocument()
+    ;(document.timeline.entries[0] as Record<string, unknown>).colorAdjustments = {
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+    }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].colorAdjustments).toBeUndefined()
+    }
+  })
+
+  it('deserializes the committed v7 color-adjustments fixture (#192)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // carrying color adjustments keep opening forever. The fixture holds an
+    // adjusted first entry (brightness + sepia), an unadjusted second, and a
+    // desaturated overlay, references-only.
+    const bytes = Uint8Array.from(atob(fixtureV7ColorReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: [
+            { ...expectedProject.timeline.entries[0], colorAdjustments: { brightness: 150, look: 'sepia' } },
+            expectedProject.timeline.entries[1],
+          ],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+          zooms: [],
+          audioTracks: [],
+          videoOverlays: [
+            {
+              id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+              offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+              colorAdjustments: { saturation: 0 },
+            },
+          ],
+        },
+      },
+    })
   })
 })

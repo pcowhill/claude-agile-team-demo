@@ -329,6 +329,12 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'entry-volume-set', id, volume })
           }
           onSetEntryMuted={(id, muted) => dispatchTimeline({ type: 'entry-mute-set', id, muted })}
+          onSetEntryColor={(id, adjustments) =>
+            dispatchTimeline({ type: 'entry-color-set', id, adjustments })
+          }
+          onSetVideoOverlayColor={(id, adjustments) =>
+            dispatchTimeline({ type: 'video-overlay-color-set', id, adjustments })
+          }
           onSetAudioTrackVolume={(id, volume) =>
             dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
           }
