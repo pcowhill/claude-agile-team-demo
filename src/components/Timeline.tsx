@@ -81,6 +81,7 @@ interface TimelineProps {
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
   onSetEntryVolume: (id: string, volume: number) => void
   onSetEntryMuted: (id: string, muted: boolean) => void
+  onSetEntryFades: (id: string, fadeIn: number, fadeOut: number) => void
   /** Sets a video/image entry's color adjustments whole (#192); `{}` resets. */
   onSetEntryColor: (id: string, adjustments: ColorAdjustments) => void
   onSetVideoOverlayColor: (id: string, adjustments: ColorAdjustments) => void
@@ -165,6 +166,8 @@ const overlayPlacementOf = ({
   height,
   volume,
   muted,
+  fadeIn,
+  fadeOut,
 }: VideoOverlay): VideoOverlayPlacement => ({
   offset,
   inPoint,
@@ -175,6 +178,8 @@ const overlayPlacementOf = ({
   height,
   volume,
   muted,
+  ...(fadeIn === undefined ? {} : { fadeIn }),
+  ...(fadeOut === undefined ? {} : { fadeOut }),
 })
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
@@ -376,6 +381,7 @@ export function Timeline({
   onTrimAudioTrack,
   onSetEntryVolume,
   onSetEntryMuted,
+  onSetEntryFades,
   onSetEntryColor,
   onSetVideoOverlayColor,
   onSetAudioTrackVolume,
@@ -641,6 +647,23 @@ export function Timeline({
                         />
                         Mute
                       </label>
+                      {/* Audio fades (#220), in the audio-track fade-fields
+                          idiom (#104) — over the entry's output window, so
+                          the max is the remapped duration when remaps exist. */}
+                      <span>Fade in</span>
+                      <SecondsField
+                        label={`Audio fade-in of ${position} in seconds`}
+                        value={entry.fadeIn ?? 0}
+                        max={entryOutputDuration(entry, remapsOf(timeline))}
+                        onCommit={(fadeIn) => onSetEntryFades(entry.id, fadeIn, entry.fadeOut ?? 0)}
+                      />
+                      <span>out</span>
+                      <SecondsField
+                        label={`Audio fade-out of ${position} in seconds`}
+                        value={entry.fadeOut ?? 0}
+                        max={entryOutputDuration(entry, remapsOf(timeline))}
+                        onCommit={(fadeOut) => onSetEntryFades(entry.id, entry.fadeIn ?? 0, fadeOut)}
+                      />
                     </div>
                   </>
                 )}
@@ -1167,6 +1190,22 @@ export function Timeline({
                       />
                       Mute
                     </label>
+                    {/* Audio fades (#220), in the audio-track fade-fields
+                        idiom (#104), over the overlay's trimmed window. */}
+                    <span>Fade in</span>
+                    <SecondsField
+                      label={`Audio fade-in of ${position} in seconds`}
+                      value={overlay.fadeIn ?? 0}
+                      max={trimmedLength}
+                      onCommit={(fadeIn) => set({ fadeIn })}
+                    />
+                    <span>out</span>
+                    <SecondsField
+                      label={`Audio fade-out of ${position} in seconds`}
+                      value={overlay.fadeOut ?? 0}
+                      max={trimmedLength}
+                      onCommit={(fadeOut) => set({ fadeOut })}
+                    />
                   </div>
                   {/* Color adjustments (#192), exactly as on a sequence entry. */}
                   <ColorAdjustmentControls

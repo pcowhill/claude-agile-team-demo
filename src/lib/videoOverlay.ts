@@ -63,6 +63,16 @@ export interface VideoOverlay {
   /** Mutes the overlay's audio; mute wins over volume (#104). */
   muted?: boolean
   /**
+   * Linear audio fade-in duration in seconds, from the start of the
+   * overlay's window (#220) — the same envelope shape as an audio track's
+   * (#104). Absent means no fade, and zero fades are stored as no fields at
+   * all, so fade-free states and saved files stay byte-identical.
+   * `clampVideoOverlay` keeps fadeIn + fadeOut within the trimmed length.
+   */
+  fadeIn?: number
+  /** Linear audio fade-out duration in seconds, ending at the window's end (#220). */
+  fadeOut?: number
+  /**
    * Color adjustments (#192), exactly as on a sequence entry: absent behaves
    * as identity, present exactly when non-identity (normalized by the
    * `video-overlay-color-set` reducer case — not part of the placement,
@@ -86,6 +96,8 @@ export interface VideoOverlayPlacement {
   height: number
   volume?: number
   muted?: boolean
+  fadeIn?: number
+  fadeOut?: number
 }
 
 /**
@@ -141,17 +153,21 @@ export function isValidVideoOverlayPlacement(placement: VideoOverlayPlacement): 
     Number.isFinite(placement.width) &&
     Number.isFinite(placement.height) &&
     (placement.volume === undefined || Number.isFinite(placement.volume)) &&
-    (placement.muted === undefined || typeof placement.muted === 'boolean')
+    (placement.muted === undefined || typeof placement.muted === 'boolean') &&
+    (placement.fadeIn === undefined || Number.isFinite(placement.fadeIn)) &&
+    (placement.fadeOut === undefined || Number.isFinite(placement.fadeOut))
   )
 }
 
 /**
  * Clamps one overlay's continuous fields into their ranges: offset at 0 but
  * unbounded above (the allowed-tail decision — see the module comment), trim
- * within the source clip, volume into 0..1, and the rectangle fully onto the
- * frame — size first into its bounds, then position into what the size
- * leaves. Returns the same object when nothing changes, so no-op edits are
- * cheap to detect.
+ * within the source clip, volume into 0..1, audio fades within the trimmed
+ * length (#220, fadeIn keeps its value first as for audio tracks — and zero
+ * fades normalize to absent fields, the byte-identity rule), and the
+ * rectangle fully onto the frame — size first into its bounds, then position
+ * into what the size leaves. Returns the same object when nothing changes,
+ * so no-op edits are cheap to detect.
  */
 export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
   const offset = Math.max(0, overlay.offset)
@@ -162,6 +178,11 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
   const x = clamp(overlay.x, 0, 1 - width)
   const y = clamp(overlay.y, 0, 1 - height)
   const volume = overlay.volume === undefined ? undefined : clamp(overlay.volume, 0, 1)
+  const trimmedLength = Math.max(0, outPoint - inPoint)
+  const clampedFadeIn = clamp(overlay.fadeIn ?? 0, 0, trimmedLength)
+  const clampedFadeOut = clamp(overlay.fadeOut ?? 0, 0, trimmedLength - clampedFadeIn)
+  const fadeIn = clampedFadeIn === 0 ? undefined : clampedFadeIn
+  const fadeOut = clampedFadeOut === 0 ? undefined : clampedFadeOut
   if (
     offset === overlay.offset &&
     inPoint === overlay.inPoint &&
@@ -170,11 +191,18 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
     y === overlay.y &&
     width === overlay.width &&
     height === overlay.height &&
-    volume === overlay.volume
+    volume === overlay.volume &&
+    fadeIn === overlay.fadeIn &&
+    fadeOut === overlay.fadeOut
   ) {
     return overlay
   }
-  return { ...overlay, offset, inPoint, outPoint, x, y, width, height, volume }
+  const next = { ...overlay, offset, inPoint, outPoint, x, y, width, height, volume }
+  if (fadeIn === undefined) delete next.fadeIn
+  else next.fadeIn = fadeIn
+  if (fadeOut === undefined) delete next.fadeOut
+  else next.fadeOut = fadeOut
+  return next
 }
 
 export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
@@ -193,6 +221,8 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     a.height === b.height &&
     a.volume === b.volume &&
     a.muted === b.muted &&
+    a.fadeIn === b.fadeIn &&
+    a.fadeOut === b.fadeOut &&
     colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments)
   )
 }

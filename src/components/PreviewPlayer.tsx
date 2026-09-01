@@ -25,7 +25,7 @@ import {
   splitTargetAt,
 } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
-import { audioTrackGainAt, videoEntryGain } from '../lib/gain'
+import { audioTrackGainAt, videoEntryGainAt, videoOverlayGainAt } from '../lib/gain'
 import { colorFilterFor } from '../lib/colorAdjustments'
 import type { ColorAdjustments } from '../lib/colorAdjustments'
 import { transitionLayerSpec } from '../lib/transitionRender'
@@ -404,10 +404,11 @@ export function PreviewPlayer({
    * (#145), exactly as syncAudioTracks aligns the audio tracks — the same
    * window math (`audioTrackPlaybackAt` applies structurally: offset +
    * trim, half-open) and the same drift tolerance. Volume is the overlay's
-   * own volume × mute (`videoEntryGain`), set every call so edits apply
-   * mid-play; overlays have no fades. Each element keeps a single source
-   * for the overlay's lifetime (src set in the render), so cueing is only
-   * ever a seek.
+   * own volume × mute × fade envelope (`videoOverlayGainAt`, #220), set
+   * every call — the rAF loop calls this each frame, which is what renders
+   * fades as continuous ramps, as for the audio tracks. Each element keeps
+   * a single source for the overlay's lifetime (src set in the render), so
+   * cueing is only ever a seek.
    */
   const syncVideoOverlays = useCallback(
     (sequenceTime: number, running: boolean) => {
@@ -415,7 +416,7 @@ export function PreviewPlayer({
         const element = overlayRefs.current.get(overlay.id)
         if (!element) continue
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
-        element.volume = videoEntryGain(overlay)
+        element.volume = videoOverlayGainAt(overlay, sequenceTime)
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
@@ -537,16 +538,25 @@ export function PreviewPlayer({
    * a transition.
    */
   const syncSecondary = useCallback(
-    (location: PlaybackLocation, thenPlay: boolean) => {
+    (location: PlaybackLocation, thenPlay: boolean, sequenceTime: number) => {
       const primary = primaryVideo()
       const secondary = secondaryVideo()
       if (!primary || !secondary) return
       const overlap = location.transition
+      // Output seconds into the fronting entry — the position its fade
+      // envelope (#220) is evaluated at, like every gain call here.
+      const outputInto = sequenceTime - entryStartTime(timeline, location.index)
+      const outputLength = entryOutputDuration(location.entry, remapsOf(timeline))
       if (overlap) {
         // A still layer has no audio to ramp (#140); only video elements
         // carry gain through the crossfade.
         if (!isStillEntry(location.entry)) {
-          primary.volume = videoEntryGain(location.entry, 1 - overlap.progress)
+          primary.volume = videoEntryGainAt(
+            location.entry,
+            outputInto,
+            outputLength,
+            1 - overlap.progress,
+          )
         }
         setEngaged(location.index)
         if (isStillEntry(overlap.entry)) {
@@ -554,10 +564,15 @@ export function PreviewPlayer({
           // whatever clip the secondary element held must not keep playing.
           if (!secondary.paused) secondary.pause()
         } else {
-          secondary.volume = videoEntryGain(overlap.entry, overlap.progress)
+          const duration = boundaryTransitions(timeline)[location.index]?.duration ?? 0
+          secondary.volume = videoEntryGainAt(
+            overlap.entry,
+            overlap.progress * duration,
+            entryOutputDuration(overlap.entry, remapsOf(timeline)),
+            overlap.progress,
+          )
           // The incoming entry's remap state at this point of the overlap
           // (#141): output seconds into it are the overlap's elapsed output.
-          const duration = boundaryTransitions(timeline)[location.index]?.duration ?? 0
           const inState = remapPlaybackAt(
             effectiveDuration(overlap.entry),
             remapsForEntry(timeline, overlap.entry.id),
@@ -572,7 +587,9 @@ export function PreviewPlayer({
           )
         }
       } else {
-        if (!isStillEntry(location.entry)) primary.volume = videoEntryGain(location.entry)
+        if (!isStillEntry(location.entry)) {
+          primary.volume = videoEntryGainAt(location.entry, outputInto, outputLength)
+        }
         if (engagedForRef.current !== null) {
           setEngaged(null)
           secondary.pause()
@@ -732,9 +749,14 @@ export function PreviewPlayer({
         if (!incoming) return
         const wasEngaged = engagedForRef.current === index
         if (!still) video.pause()
-        // The incoming entry leaves its transition ramp for its own steady
-        // gain; the outgoing element is paused, its volume set when next cued.
-        incoming.volume = videoEntryGain(next)
+        // The incoming entry leaves its transition ramp for its own gain at
+        // the handover point — overlap.duration output seconds in (#220);
+        // the outgoing element is paused, its volume set when next cued.
+        incoming.volume = videoEntryGainAt(
+          next,
+          overlap.duration,
+          entryOutputDuration(next, remapsOf(timeline)),
+        )
         setEngaged(null)
         indexRef.current = index + 1
         stillClockRef.current = null
@@ -768,9 +790,12 @@ export function PreviewPlayer({
         syncAudioTracks(time, true)
         syncVideoOverlays(time, true)
         // A hard cut continues in the same element — apply the next entry's
-        // gain (#104) where the transition path would have swapped roles.
-        // (A still has no element or gain; cuePrimary starts its clock.)
-        if (!isStillEntry(next)) video.volume = videoEntryGain(next)
+        // gain (#104) at its start where the transition path would have
+        // swapped roles. (A still has no element or gain; cuePrimary starts
+        // its clock.)
+        if (!isStillEntry(next)) {
+          video.volume = videoEntryGainAt(next, 0, entryOutputDuration(next, remapsOf(timeline)))
+        }
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, 0, true)
       } else {
         video.pause()
@@ -790,11 +815,16 @@ export function PreviewPlayer({
       // windows, and drifting clocks are snapped back (#103).
       syncAudioTracks(time, true)
       syncVideoOverlays(time, true)
+      const outDuration = entryOutputDuration(entry, remapsOf(timeline))
+      // The entry's own gain every frame (#220): its fade envelope ramps
+      // continuously, exactly as the audio tracks' do. Inside a transition
+      // overlap the branch below re-sets it with the crossfade ramp.
+      if (!still) video.volume = videoEntryGainAt(entry, outputInto, outDuration)
       if (next && overlap) {
         // The overlap plays out in output seconds (#141): it starts where
         // the entry's remaining *output* equals the transition's duration —
         // for an entry without effects, exactly the old source-time math.
-        const overlapStartOut = entryOutputDuration(entry, remapsOf(timeline)) - overlap.duration
+        const overlapStartOut = outDuration - overlap.duration
         if (outputInto >= overlapStartOut) {
           const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
           if (isStillEntry(next)) {
@@ -802,7 +832,9 @@ export function PreviewPlayer({
             // time (#140) — engagement just marks the overlay active. Only
             // the outgoing side has audio to ramp.
             if (engagedForRef.current !== index) setEngaged(index)
-            if (!still) video.volume = videoEntryGain(entry, 1 - progress)
+            if (!still) {
+              video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+            }
           } else {
             const secondary = secondaryVideo()
             if (secondary) {
@@ -841,8 +873,15 @@ export function PreviewPlayer({
                   secondary.currentTime = expected
                 }
               }
-              if (!still) video.volume = videoEntryGain(entry, 1 - progress)
-              secondary.volume = videoEntryGain(next, progress)
+              if (!still) {
+                video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+              }
+              secondary.volume = videoEntryGainAt(
+                next,
+                outputInto - overlapStartOut,
+                entryOutputDuration(next, remapsOf(timeline)),
+                progress,
+              )
             }
           }
         }
@@ -859,7 +898,7 @@ export function PreviewPlayer({
     setPlaying(true)
     setSequenceTime(from)
     cuePrimary(location, from - entryStartTime(timeline, location.index), true)
-    syncSecondary(location, true)
+    syncSecondary(location, true, from)
     syncAudioTracks(from, true)
     syncVideoOverlays(from, true)
     stopLoop()
@@ -881,7 +920,7 @@ export function PreviewPlayer({
       if (!location) return
       setSequenceTime(time)
       cuePrimary(location, time - entryStartTime(timeline, location.index), playing)
-      syncSecondary(location, playing)
+      syncSecondary(location, playing, time)
       // Scrubbing re-cues every track: active ones re-seek (and keep playing
       // if we are playing), the rest pause where they would next start.
       syncAudioTracks(time, playing)

@@ -95,6 +95,53 @@ test('a track volume and fades drive its element volume, scrubbed and playing', 
   expect(live).toBeLessThanOrEqual(0.5)
 })
 
+test('a video entry\'s audio fades drive its element volume, scrubbed and playing (#220)', async ({
+  page,
+}) => {
+  const position = 'clip.webm at position 1'
+  await setField(page, `Trim out point of ${position} in seconds`, '1.4')
+  await setField(page, `Volume of ${position} (0 to 1)`, '0.5')
+  await setField(page, `Audio fade-in of ${position} in seconds`, '1')
+
+  const video = page.getByTestId('preview-video')
+  const volumeAt = () => video.evaluate((el: HTMLVideoElement) => el.volume)
+
+  // Scrubbing evaluates the envelope deterministically: half through the 1s
+  // fade-in the gain is volume × 0.5; past the fade it is the full volume.
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await seek.fill('0.5')
+  expect(await volumeAt()).toBeCloseTo(0.25, 5)
+  await seek.fill('1.2')
+  expect(await volumeAt()).toBeCloseTo(0.5, 5)
+
+  // The same gain applies live: playing from a mid-fade position, the
+  // element's volume stays within the envelope and never exceeds the
+  // entry's volume.
+  await seek.fill('0.5')
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(false)
+  const live = await volumeAt()
+  expect(live).toBeGreaterThan(0)
+  expect(live).toBeLessThanOrEqual(0.5)
+})
+
+test('an overlay video\'s audio fades drive its element volume (#220)', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+  const position = 'overlay clip.webm at position 1'
+  await setField(page, `Audio fade-in of ${position} in seconds`, '1')
+
+  const overlay = page.getByTestId('preview-overlay-0')
+  const volumeAt = () => overlay.evaluate((el: HTMLVideoElement) => el.volume)
+
+  // The overlay's window starts at sequence 0: half through its 1s fade-in
+  // the gain is 0.5, past the fade it is full.
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await seek.fill('0.5')
+  expect(await volumeAt()).toBeCloseTo(0.5, 5)
+  await seek.fill('1.2')
+  expect(await volumeAt()).toBeCloseTo(1, 5)
+})
+
 test('muting the video entry silences its element while a track still plays', async ({
   page,
 }) => {

@@ -823,13 +823,17 @@ describe('activeVideoOverlays (#146)', () => {
 })
 
 describe('syncOverlayReplay (#146)', () => {
-  it('sets the element volume to the overlay gain — volume × mute, no fades', () => {
+  it('sets the element volume to the overlay gain — volume × mute × fades', () => {
     const element = fakeTrackElement({ paused: false, currentTime: 3 })
     syncOverlayReplay(exportOverlay({ volume: 0.4 }), element, 4)
     expect(element.volume).toBe(0.4)
     // Mute wins over everything (#104), exactly as the preview mixes it.
     syncOverlayReplay(exportOverlay({ volume: 0.4, muted: true }), element, 4)
     expect(element.volume).toBe(0)
+    // The fade envelope (#220) rides the same call: window [2, 8), fadeIn 4
+    // puts sequence 4 halfway up the ramp.
+    syncOverlayReplay(exportOverlay({ volume: 0.4, fadeIn: 4 }), element, 4)
+    expect(element.volume).toBe(0.2)
   })
 
   it('starts a paused element at the mapped source time when the window opens', () => {

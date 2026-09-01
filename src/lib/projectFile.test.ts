@@ -11,9 +11,11 @@ import fixtureV5SlateReferencesBase64 from './fixtures/project-v5-slate-referenc
 import fixtureV5SlateEmbeddedBase64 from './fixtures/project-v5-slate-embedded.bvep.base64?raw'
 import fixtureV6PluginsReferencesBase64 from './fixtures/project-v6-plugins-references.bvep.base64?raw'
 import fixtureV7ColorReferencesBase64 from './fixtures/project-v7-color-adjustments-references.bvep.base64?raw'
+import fixtureV8FadesReferencesBase64 from './fixtures/project-v8-audio-fades-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
+  AUDIO_FADES_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
   IMAGE_ENTRIES_SCHEMA_VERSION,
@@ -1007,8 +1009,9 @@ describe('project file versioning', () => {
     // Version 2 added embedded media (#97); version 3 added images (#137);
     // version 4 added images on the timeline (#140); version 5 added color
     // slates (#143); version 6 added plugin dependencies (#197); version 7
-    // added per-clip color adjustments (#192).
-    expect(PROJECT_SCHEMA_VERSION).toBe(7)
+    // added per-clip color adjustments (#192); version 8 added entry and
+    // overlay audio fades (#220).
+    expect(PROJECT_SCHEMA_VERSION).toBe(8)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1016,6 +1019,7 @@ describe('project file versioning', () => {
     expect(SLATE_ENTRIES_SCHEMA_VERSION).toBe(5)
     expect(PLUGINS_SCHEMA_VERSION).toBe(6)
     expect(COLOR_ADJUSTMENTS_SCHEMA_VERSION).toBe(7)
+    expect(AUDIO_FADES_SCHEMA_VERSION).toBe(8)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2048,6 +2052,161 @@ describe('color adjustments in project files (#192, schema version 7)', () => {
               id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
               offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
               colorAdjustments: { saturation: 0 },
+            },
+          ],
+        },
+      },
+    })
+  })
+})
+
+describe('entry and overlay audio fades in project files (#220, schema version 8)', () => {
+  const fadingTimeline = (): TimelineState => ({
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], fadeIn: 1.5, fadeOut: 2 },
+      ...timeline.entries.slice(1),
+    ],
+  })
+  const overlayFadingTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        fadeIn: 0.75,
+      },
+    ],
+  })
+
+  it('writes version 8 with the fades exactly when any exist, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, fadingTimeline()))
+    expect(references.schemaVersion).toBe(AUDIO_FADES_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const embedded = await gunzipJson(
+      await serializeProject(library, fadingTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(AUDIO_FADES_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+    // A fading overlay alone forces version 8 too.
+    const overlayOnly = await gunzipJson(await serializeProject(library, overlayFadingTimeline()))
+    expect(overlayOnly.schemaVersion).toBe(AUDIO_FADES_SCHEMA_VERSION)
+  })
+
+  it('a fade-free project stays byte-identical to earlier output', async () => {
+    // Audio-track fades (#104) and text fades (#177) predate version 8 and
+    // must not force it — only entry/overlay fades are new.
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('fadeIn')
+    expect(JSON.stringify(document.timeline)).not.toContain('fadeOut')
+  })
+
+  it('audio-track fades alone stay at their pre-#220 version', async () => {
+    const withTrackFades: TimelineState = {
+      ...timeline,
+      audioTracks: [
+        {
+          id: 't1', clipId: 'c1', name: 'holiday.mp4', duration: 12.375, url: 'blob:session/c1',
+          offset: 0, inPoint: 0, outPoint: 10, fadeIn: 1, fadeOut: 1,
+        },
+      ],
+    }
+    const document = await gunzipJson(await serializeProject(library, withTrackFades))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+  })
+
+  it('round-trips fades on entries and overlays', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, {
+        ...fadingTimeline(),
+        videoOverlays: overlayFadingTimeline().videoOverlays,
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0]).toMatchObject({ fadeIn: 1.5, fadeOut: 2 })
+      expect(result.project.timeline.entries[1].fadeIn).toBeUndefined()
+      expect(result.project.timeline.entries[1].fadeOut).toBeUndefined()
+      expect(result.project.timeline.videoOverlays?.[0].fadeIn).toBe(0.75)
+      expect(result.project.timeline.videoOverlays?.[0].fadeOut).toBeUndefined()
+    }
+  })
+
+  it('pre-#220 files (and fade-free files since) open unfaded', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(
+        result.project.timeline.entries.every(
+          (entry) => entry.fadeIn === undefined && entry.fadeOut === undefined,
+        ),
+      ).toBe(true)
+    }
+  })
+
+  it('refuses malformed fades by name', async () => {
+    const negative = validDocument()
+    ;(negative.timeline.entries[0] as Record<string, unknown>).fadeIn = -1
+    await expectRefusal(await gzipJson(negative), 'timeline.entries[0].fadeIn must not be negative')
+
+    const notANumber = validDocument()
+    ;(notANumber.timeline.entries[0] as Record<string, unknown>).fadeOut = 'long'
+    await expectRefusal(await gzipJson(notANumber), 'timeline.entries[0].fadeOut')
+  })
+
+  it('refuses fades on slate and image entries — they are soundless', async () => {
+    const slate = validDocument()
+    ;(slate.timeline.entries as Record<string, unknown>[]).push({
+      id: 's1',
+      name: 'Color slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      color: '#ff0000',
+      fadeIn: 1,
+    })
+    await expectRefusal(await gzipJson(slate), 'slate entry is soundless', 'video entries only')
+  })
+
+  it('refuses malformed overlay fades by name', async () => {
+    const document = validDocument()
+    ;(document.timeline as unknown as Record<string, unknown>).videoOverlays = [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        fadeOut: Number.NaN,
+      },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.videoOverlays[0].fadeOut')
+  })
+
+  it('deserializes the committed v8 audio-fades fixture (#220)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // carrying entry/overlay audio fades keep opening forever. The fixture
+    // holds a fading first entry (fadeIn 1.5, fadeOut 2), an unfaded second,
+    // and an overlay with fadeIn 0.75, references-only.
+    const bytes = Uint8Array.from(atob(fixtureV8FadesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: [
+            { ...expectedProject.timeline.entries[0], fadeIn: 1.5, fadeOut: 2 },
+            expectedProject.timeline.entries[1],
+          ],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+          zooms: [],
+          audioTracks: [],
+          videoOverlays: [
+            {
+              id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+              offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+              fadeIn: 0.75,
             },
           ],
         },

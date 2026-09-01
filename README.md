@@ -27,7 +27,10 @@ audio clip in the library (#154), which keeps working even after the video
 itself is removed. The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
 video entry's volume and mute (#104), and the exported file carries that
-same mix (#105). Still images import into the media library too (#137),
+same mix (#105). Video entries and video overlays take the same optional
+audio fade-in/fade-out (#220): their sound ramps from silence to the item's
+volume and back, identically in the preview and the exported mix, and a
+fade on a transition boundary rides the crossfade. Still images import into the media library too (#137),
 with their pixel dimensions probed and shown with an Image badge, and can
 be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
