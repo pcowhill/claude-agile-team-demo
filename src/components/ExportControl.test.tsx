@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportControl } from './ExportControl'
-import { ExportCanceledError, exportTimeline } from '../lib/exportVideo'
+import type { DoExport } from './ExportControl'
+import { ExportCanceledError } from '../lib/exportVideo'
 import type { TimelineState } from '../lib/timeline'
 
 const timeline: TimelineState = {
@@ -50,7 +51,7 @@ describe('ExportControl', () => {
   })
 
   it('opens the modal, and Cancel closes it without exporting', async () => {
-    const doExport = vi.fn<typeof exportTimeline>()
+    const doExport = vi.fn<DoExport>()
     const user = userEvent.setup()
     render(
       <ExportControl timeline={timeline} doExport={doExport} isTypeSupported={recordsEverything} />,
@@ -68,7 +69,7 @@ describe('ExportControl', () => {
   it('shows progress while exporting, then downloads and closes the modal', async () => {
     let reportProgress: ((fraction: number) => void) | undefined
     let finish: ((blob: Blob) => void) | undefined
-    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+    const doExport: DoExport = (_timeline, options) => {
       reportProgress = options.onProgress
       return new Promise((resolve) => {
         finish = resolve
@@ -99,7 +100,7 @@ describe('ExportControl', () => {
   })
 
   it('cancel mid-export aborts it and closes the modal quietly', async () => {
-    const doExport: typeof exportTimeline = (_timeline, options = {}) =>
+    const doExport: DoExport = (_timeline, options) =>
       new Promise((_resolve, reject) => {
         options.signal?.addEventListener('abort', () => reject(new ExportCanceledError()))
       })
@@ -136,7 +137,7 @@ describe('ExportControl', () => {
 
   it('exports the selected format and names the download after it (#114)', async () => {
     let requestedFormat: string | undefined
-    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+    const doExport: DoExport = (_timeline, options) => {
       requestedFormat = options.format
       return Promise.resolve(new Blob(['x'], { type: 'video/mp4' }))
     }
@@ -155,7 +156,7 @@ describe('ExportControl', () => {
   })
 
   it('surfaces failures in the modal, which stays open for a retry', async () => {
-    const doExport: typeof exportTimeline = () =>
+    const doExport: DoExport = () =>
       Promise.reject(new Error('This browser cannot encode WebM video.'))
     const user = userEvent.setup()
     render(<ExportControl timeline={timeline} doExport={doExport} />)
@@ -170,7 +171,7 @@ describe('ExportControl', () => {
   })
 
   it('does not carry a stale error into a reopened modal', async () => {
-    const doExport: typeof exportTimeline = () => Promise.reject(new Error('boom'))
+    const doExport: DoExport = () => Promise.reject(new Error('boom'))
     const user = userEvent.setup()
     render(<ExportControl timeline={timeline} doExport={doExport} />)
 
@@ -220,7 +221,7 @@ describe('output settings (#179)', () => {
 
   it('editing a field switches the selector to Custom and the export honors the values', async () => {
     let requested: { frame?: { width: number; height: number }; frameRate?: number } = {}
-    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+    const doExport: DoExport = (_timeline, options) => {
       requested = { frame: options.frame, frameRate: options.frameRate }
       return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
     }
@@ -245,7 +246,7 @@ describe('output settings (#179)', () => {
 
   it('Auto sends no frame override, keeping the automatic export path', async () => {
     let requested: { frame?: unknown; frameRate?: number } = { frame: 'unset' }
-    const doExport: typeof exportTimeline = (_timeline, options = {}) => {
+    const doExport: DoExport = (_timeline, options) => {
       requested = { frame: options.frame, frameRate: options.frameRate }
       return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
     }

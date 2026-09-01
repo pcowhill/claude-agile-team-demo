@@ -69,55 +69,24 @@ export const EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO: readonly string[] = [
   'video/mp4',
 ]
 
-/** Container formats the export can target (#114). */
-export type ExportFormat = 'webm' | 'mp4'
-
-export interface ExportFormatSpec {
-  /** Human-readable name, shown in the picker and in error messages. */
+/**
+ * The container an export records into: the MIME candidates the recorder
+ * may use and the label failures name. The registered export formats
+ * (`exportFormats.ts`, #196) supply one per format; the pipeline itself
+ * knows no format list.
+ */
+export interface ExportContainer {
+  /** Human-readable name, used in error messages. */
   label: string
-  /** Download filename extension, without the dot. */
-  extension: string
   candidates: readonly string[]
   candidatesWithAudio: readonly string[]
 }
 
-export const EXPORT_FORMAT_SPECS: Record<ExportFormat, ExportFormatSpec> = {
-  webm: {
-    label: 'WebM',
-    extension: 'webm',
-    candidates: EXPORT_MIME_CANDIDATES,
-    candidatesWithAudio: EXPORT_MIME_CANDIDATES_WITH_AUDIO,
-  },
-  mp4: {
-    label: 'MP4',
-    extension: 'mp4',
-    candidates: EXPORT_MP4_MIME_CANDIDATES,
-    candidatesWithAudio: EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
-  },
-}
-
-/** All formats, in picker order; WebM first so it stays the default. */
-export const EXPORT_FORMATS: readonly ExportFormat[] = ['webm', 'mp4']
-
-/**
- * The formats the current browser can actually record (#114). What
- * MediaRecorder encodes is a runtime property of the visitor's browser
- * (Firefox is WebM-only; MP4 needs Chromium 126+ or Safari), so the offered
- * formats come from feature detection, never a hardcoded list. A format
- * counts as supported when any of its video-only candidates is: the
- * with-audio lists target the same container and end in the same bare
- * fallback, and an export may run video-only anyway when Web Audio is
- * unavailable.
- */
-export function supportedExportFormats(isSupported: (type: string) => boolean): ExportFormat[] {
-  return EXPORT_FORMATS.filter(
-    (format) => pickExportMimeType(isSupported, EXPORT_FORMAT_SPECS[format].candidates) !== null,
-  )
-}
-
-/** Download filename for an export; the extension follows the container. */
-export function exportFileName(format: ExportFormat): string {
-  return `sequence-export.${EXPORT_FORMAT_SPECS[format].extension}`
+/** The default container: WebM, the one MediaRecorder records everywhere. */
+export const WEBM_CONTAINER: ExportContainer = {
+  label: 'WebM',
+  candidates: EXPORT_MIME_CANDIDATES,
+  candidatesWithAudio: EXPORT_MIME_CANDIDATES_WITH_AUDIO,
 }
 
 export const EXPORT_FRAME_RATE = 30
@@ -332,7 +301,7 @@ export function activeTextDraws(
 
 export interface ExportOptions {
   /** Target container; MIME candidates are picked within it only (#114). */
-  format?: ExportFormat
+  container?: ExportContainer
   /** Called with overall progress in [0, 1] while the sequence records. */
   onProgress?: (fraction: number) => void
   /** Aborting rejects the export with ExportCanceledError. */
@@ -723,8 +692,7 @@ export async function exportTimeline(
     throw new ExportUnsupportedError('This browser does not support recording video (MediaRecorder).')
   }
 
-  const { onProgress, signal, frameRate = EXPORT_FRAME_RATE, format = 'webm' } = options
-  const formatSpec = EXPORT_FORMAT_SPECS[format]
+  const { onProgress, signal, frameRate = EXPORT_FRAME_RATE, container = WEBM_CONTAINER } = options
   const boundaries = boundaryTransitions(timeline)
   const createVideo = options.createVideo ?? (() => document.createElement('video'))
   const createImage = options.createImage ?? (() => new Image())
@@ -782,11 +750,11 @@ export async function exportTimeline(
 
   const mimeType = pickExportMimeType(
     (type) => MediaRecorder.isTypeSupported(type),
-    audioCapture === null ? formatSpec.candidates : formatSpec.candidatesWithAudio,
+    audioCapture === null ? container.candidates : container.candidatesWithAudio,
   )
   if (mimeType === null) {
     await audioCapture?.dispose()
-    throw new ExportUnsupportedError(`This browser cannot encode ${formatSpec.label} video.`)
+    throw new ExportUnsupportedError(`This browser cannot encode ${container.label} video.`)
   }
 
   const canceled = () => new ExportCanceledError()
