@@ -349,6 +349,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'entry-volume-set', id, volume })
           }
           onSetEntryMuted={(id, muted) => dispatchTimeline({ type: 'entry-mute-set', id, muted })}
+          onSetEntryFades={(id, fadeIn, fadeOut) =>
+            dispatchTimeline({ type: 'entry-fades-set', id, fadeIn, fadeOut })
+          }
           onSetEntryColor={(id, adjustments) =>
             dispatchTimeline({ type: 'entry-color-set', id, adjustments })
           }

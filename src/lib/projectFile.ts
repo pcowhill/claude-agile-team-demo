@@ -36,7 +36,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7, // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -45,7 +45,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *     },
  *     "timeline": {
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
- *                     volume?, muted?,
+ *                     volume?, muted?, fadeIn?, fadeOut?,        // (#220)
  *                     colorAdjustments?: { brightness?, contrast?,
  *                       saturation?, look? } }],                 // (#192)
  *       "transitions": [{ beforeId, afterId, type, duration }],
@@ -59,8 +59,9 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }],
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
- *                           outPoint, x, y, width, height,
- *                           volume?, muted?, colorAdjustments? }] // (#145, #192)
+ *                           outPoint, x, y, width, height, volume?, muted?,
+ *                           fadeIn?, fadeOut?,                    // (#220)
+ *                           colorAdjustments? }]                  // (#145, #192)
  *     }
  *   }
  *
@@ -122,6 +123,15 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  * unadjusted. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 8 (#220) marks that a sequence entry or a video overlay
+ * carries audio fades: optional `fadeIn`/`fadeOut` durations in seconds
+ * (non-negative, exactly the audio-track fade shape from #104). Written
+ * exactly when any entry or overlay fade is set, so fade-free projects stay
+ * byte-identical to earlier output and older builds route fading files to
+ * the "saved by a newer version" refusal instead of opening them silently
+ * unfaded. The media section's presence keeps distinguishing the save
+ * modes.
+ *
  * Schema version 4 (#140) marks that the *timeline* places still images:
  * a sequence entry may reference an image clip, showing it for the entry's
  * `duration` (equal to its `outPoint`; a still has no source trim). The
@@ -141,7 +151,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 7
+export const PROJECT_SCHEMA_VERSION = 8
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -156,6 +166,8 @@ export const SLATE_ENTRIES_SCHEMA_VERSION = 5
 export const PLUGINS_SCHEMA_VERSION = 6
 /** The version any color adjustment forces, whichever the save mode (#192). */
 export const COLOR_ADJUSTMENTS_SCHEMA_VERSION = 7
+/** The version any entry/overlay audio fade forces, whichever the save mode (#220). */
+export const AUDIO_FADES_SCHEMA_VERSION = 8
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -349,12 +361,17 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // A color adjustment forces version 7 (#192), a plugin dependency
-  // version 6 (#197), a color slate version 5 (#143), an image on the
-  // timeline version 4 (#140), an image merely in the library version 3
-  // (#137), whichever the save mode; otherwise the mode alone decides,
-  // exactly as before images existed.
+  // An entry/overlay audio fade forces version 8 (#220), a color adjustment
+  // version 7 (#192), a plugin dependency version 6 (#197), a color slate
+  // version 5 (#143), an image on the timeline version 4 (#140), an image
+  // merely in the library version 3 (#137), whichever the save mode;
+  // otherwise the mode alone decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasAudioFades =
+    timeline.entries.some((entry) => entry.fadeIn !== undefined || entry.fadeOut !== undefined) ||
+    videoOverlaysOf(timeline).some(
+      (overlay) => overlay.fadeIn !== undefined || overlay.fadeOut !== undefined,
+    )
   const hasColorAdjustments =
     timeline.entries.some((entry) => entry.colorAdjustments !== undefined) ||
     videoOverlaysOf(timeline).some((overlay) => overlay.colorAdjustments !== undefined)
@@ -365,9 +382,11 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasColorAdjustments
-      ? COLOR_ADJUSTMENTS_SCHEMA_VERSION
-      : plugins.length > 0
+    schemaVersion: hasAudioFades
+      ? AUDIO_FADES_SCHEMA_VERSION
+      : hasColorAdjustments
+        ? COLOR_ADJUSTMENTS_SCHEMA_VERSION
+        : plugins.length > 0
         ? PLUGINS_SCHEMA_VERSION
         : hasSlateEntries
           ? SLATE_ENTRIES_SCHEMA_VERSION
@@ -416,7 +435,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, colorAdjustments }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -426,6 +445,11 @@ export async function serializeProject(
           ...(kind === 'slate' ? { color } : {}),
           ...(volume === undefined ? {} : { volume }),
           ...(muted === undefined ? {} : { muted }),
+          // Audio fades (#220) are written only when set (zero fades are
+          // stored as absent by the reducer), so fade-free projects stay
+          // byte-identical to earlier output.
+          ...(fadeIn === undefined ? {} : { fadeIn }),
+          ...(fadeOut === undefined ? {} : { fadeOut }),
           // Color adjustments (#192) are written only when present — the
           // state is normalized (identity = no key), so adjustment-free
           // projects stay byte-identical to earlier output.
@@ -525,7 +549,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, colorAdjustments }) => ({
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments }) => ({
                 id,
                 clipId,
                 name,
@@ -539,6 +563,10 @@ export async function serializeProject(
                 height,
                 ...(volume === undefined ? {} : { volume }),
                 ...(muted === undefined ? {} : { muted }),
+                // Audio fades (#220), written only when set — like the
+                // entries above, keeping fade-free output byte-identical.
+                ...(fadeIn === undefined ? {} : { fadeIn }),
+                ...(fadeOut === undefined ? {} : { fadeOut }),
                 ...(colorAdjustments === undefined
                   ? {}
                   : { colorAdjustments: storedColorAdjustments(colorAdjustments) }),
@@ -800,6 +828,18 @@ function validateProject(document: Record<string, unknown>): Project {
     // volume and unmuted.
     if (raw.volume !== undefined) entry.volume = asVolume(raw.volume, `${path}.volume`)
     if (raw.muted !== undefined) entry.muted = asBoolean(raw.muted, `${path}.muted`)
+    // Audio fades (#220): absent in files saved before them, and on every
+    // fade-free entry since, meaning no fade. Stills and slates are
+    // soundless — a fading one could only come from a foreign writer.
+    if (raw.fadeIn !== undefined || raw.fadeOut !== undefined) {
+      if (entry.kind !== undefined) {
+        throw new Error(
+          `${path} carries audio fades, but a ${entry.kind} entry is soundless — fades apply to video entries only`,
+        )
+      }
+      if (raw.fadeIn !== undefined) entry.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
+      if (raw.fadeOut !== undefined) entry.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
+    }
     // Color adjustments (#192): absent in files saved before them, and on
     // every unadjusted entry since, meaning as-shot.
     if (raw.colorAdjustments !== undefined) {
@@ -1099,6 +1139,12 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       if (raw.volume !== undefined) overlay.volume = asVolume(raw.volume, `${path}.volume`)
       if (raw.muted !== undefined) overlay.muted = asBoolean(raw.muted, `${path}.muted`)
+      // Audio fades (#220): absent in files saved before them, and on every
+      // fade-free overlay since, meaning no fade.
+      if (raw.fadeIn !== undefined) overlay.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
+      if (raw.fadeOut !== undefined) {
+        overlay.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
+      }
       // Color adjustments (#192), exactly as on a sequence entry.
       if (raw.colorAdjustments !== undefined) {
         const adjustments = asColorAdjustments(raw.colorAdjustments, `${path}.colorAdjustments`)

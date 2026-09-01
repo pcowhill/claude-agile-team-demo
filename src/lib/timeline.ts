@@ -69,6 +69,19 @@ export interface TimelineEntry {
   /** Whether the entry's own audio is silenced entirely (#104). Absent means false. */
   muted?: boolean
   /**
+   * Linear audio fade-in duration in seconds (#220), from the start of the
+   * entry's *output* window — output seconds (#141), so a speed segment
+   * never stretches an audible ramp. Absent means no fade, and zero fades
+   * are stored as no fields at all (like `colorAdjustments`' identity), so
+   * fade-free states and saved files stay byte-identical. Present only on
+   * video entries — stills and slates are soundless. The reducer clamps
+   * fadeIn and fadeOut so together they never exceed the entry's output
+   * duration (the #104 rule).
+   */
+  fadeIn?: number
+  /** Linear audio fade-out duration in seconds, ending at the output window's end (#220). */
+  fadeOut?: number
+  /**
    * Color adjustments on a video/image entry (#192). Absent behaves as
    * identity (as shot), like the gain fields, so pre-#192 states and files
    * stay valid; present exactly when non-identity (the reducer normalizes —
@@ -391,6 +404,7 @@ export type TimelineAction =
   | { type: 'audio-track-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'entry-volume-set'; id: string; volume: number }
   | { type: 'entry-mute-set'; id: string; muted: boolean }
+  | { type: 'entry-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | {
       /**
        * Sets a video/image entry's color adjustments whole (#192): the
@@ -800,6 +814,31 @@ function clampTrackFades(track: AudioTrack): AudioTrack {
   return { ...track, fadeIn, fadeOut }
 }
 
+/**
+ * Clamps one entry's audio fades against its *output* duration (#220) — the
+ * window they ramp over (fades are output-time, see the field comment) —
+ * with the same keep-fadeIn-first rule as `clampTrackFades`. Re-run by
+ * `withEffects` so a retrim or remap edit shrinks an envelope rather than
+ * leaving it longer than the audio. Zero fades are stored as no fields at
+ * all (the byte-identity rule); fade-free entries pass through untouched by
+ * reference.
+ */
+function clampEntryFades(entry: TimelineEntry, remaps: readonly RemapEffect[]): TimelineEntry {
+  if (entry.fadeIn === undefined && entry.fadeOut === undefined) return entry
+  const length = entryOutputDuration(entry, remaps)
+  const clampedIn = clamp(entry.fadeIn ?? 0, 0, length)
+  const clampedOut = clamp(entry.fadeOut ?? 0, 0, length - clampedIn)
+  const fadeIn = clampedIn === 0 ? undefined : clampedIn
+  const fadeOut = clampedOut === 0 ? undefined : clampedOut
+  if (fadeIn === entry.fadeIn && fadeOut === entry.fadeOut) return entry
+  const next = { ...entry }
+  if (fadeIn === undefined) delete next.fadeIn
+  else next.fadeIn = fadeIn
+  if (fadeOut === undefined) delete next.fadeOut
+  else next.fadeOut = fadeOut
+  return next
+}
+
 function withEffects(
   entries: TimelineEntry[],
   transitions: TimelineTransition[],
@@ -811,10 +850,15 @@ function withEffects(
 ): TimelineState {
   // Remaps normalize first: transition clamping reads output durations, and
   // an unclamped effect window would count source time the entry no longer
-  // plays.
+  // plays. Entry fades (#220) clamp against those output durations, so they
+  // follow — a retrim or remap edit shrinks an envelope with its window.
   const normalizedRemapList = normalizedRemaps(entries, remaps)
+  const clampedEntries = entries.map((entry) => clampEntryFades(entry, normalizedRemapList))
+  const fadedEntries = clampedEntries.every((entry, index) => entry === entries[index])
+    ? entries
+    : clampedEntries
   return {
-    entries,
+    entries: fadedEntries,
     transitions: normalizedBoundaries(entries, transitions, normalizedRemapList).filter(
       (transition): transition is TimelineTransition => transition !== undefined,
     ),
@@ -1327,6 +1371,35 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (action.muted === (state.entries[index].muted ?? false)) return state
       const entries = [...state.entries]
       entries[index] = { ...entries[index], muted: action.muted }
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'entry-fades-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      if (!Number.isFinite(action.fadeIn) || !Number.isFinite(action.fadeOut)) return state
+      const entry = state.entries[index]
+      // Stills (images and slates) are soundless (#220): there is no audio
+      // to fade, exactly as color adjustments reject slates (#192).
+      if (isStillEntry(entry)) return state
+      // clampEntryFades (via withEffects) enforces the invariant; clamping
+      // negatives here keeps the no-op comparison honest, and zero fades
+      // store as no fields at all (the byte-identity rule).
+      const fadeIn = Math.max(0, action.fadeIn)
+      const fadeOut = Math.max(0, action.fadeOut)
+      const candidate = { ...entry }
+      if (fadeIn === 0) delete candidate.fadeIn
+      else candidate.fadeIn = fadeIn
+      if (fadeOut === 0) delete candidate.fadeOut
+      else candidate.fadeOut = fadeOut
+      const clamped = clampEntryFades(candidate, remaps)
+      if (
+        (clamped.fadeIn ?? 0) === (entry.fadeIn ?? 0) &&
+        (clamped.fadeOut ?? 0) === (entry.fadeOut ?? 0)
+      ) {
+        return state
+      }
+      const entries = [...state.entries]
+      entries[index] = clamped
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
     }
     case 'entry-color-set': {

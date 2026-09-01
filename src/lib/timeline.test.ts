@@ -1296,6 +1296,184 @@ describe('gain: volume, mute, fades (#104)', () => {
       })
     })
   })
+
+  describe('entry-fades-set (#220)', () => {
+    const fades = (state: TimelineState, id: string, fadeIn: number, fadeOut: number) =>
+      timelineReducer(state, { type: 'entry-fades-set', id, fadeIn, fadeOut })
+
+    it('stores non-negative fades that fit the output duration', () => {
+      const state = fades(withEntry(), 'e1', 2, 3)
+      expect(state.entries[0]).toMatchObject({ fadeIn: 2, fadeOut: 3 })
+    })
+
+    it('stores zero fades as no fields at all (byte-identity rule)', () => {
+      const faded = fades(withEntry(), 'e1', 2, 3)
+      const cleared = fades(faded, 'e1', 0, 0)
+      expect('fadeIn' in cleared.entries[0]).toBe(false)
+      expect('fadeOut' in cleared.entries[0]).toBe(false)
+      const halfCleared = fades(faded, 'e1', 2, 0)
+      expect(halfCleared.entries[0].fadeIn).toBe(2)
+      expect('fadeOut' in halfCleared.entries[0]).toBe(false)
+    })
+
+    it('clamps: negatives to 0, fadeIn to the duration, fadeOut to what remains', () => {
+      const state = withEntry()
+      // Clip length 10: fadeIn keeps its value first, fadeOut absorbs.
+      expect(fades(state, 'e1', 99, 5).entries[0]).toMatchObject({ fadeIn: 10 })
+      expect('fadeOut' in fades(state, 'e1', 99, 5).entries[0]).toBe(false)
+      expect(fades(state, 'e1', 7, 7).entries[0]).toMatchObject({ fadeIn: 7, fadeOut: 3 })
+      // Negatives clamp to 0 — the default — so an untouched entry no-ops.
+      expect(fades(state, 'e1', -1, -2)).toBe(state)
+    })
+
+    it('no-ops with the same reference on unknown id, non-finite, or unchanged values', () => {
+      const state = withEntry()
+      expect(fades(state, 'nope', 1, 1)).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-fades-set',
+          id: 'e1',
+          fadeIn: Number.NaN,
+          fadeOut: 1,
+        }),
+      ).toBe(state)
+      expect(fades(state, 'e1', 0, 0)).toBe(state)
+    })
+
+    it('rejects fades on stills and slates — they are soundless', () => {
+      const withStill = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ id: 'img-1', name: 'photo.png', duration: 0, kind: 'image' }), 'e1'),
+      })
+      expect(fades(withStill, 'e1', 1, 1)).toBe(withStill)
+      const withSlate = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      expect(fades(withSlate, 's1', 1, 1)).toBe(withSlate)
+    })
+
+    it('measures fades in output seconds: a remap re-clamps them', () => {
+      // Clip length 10 at 0.5× over its whole window: output duration 20.
+      let state = timelineReducer(withEntry(), {
+        type: 'remap-added',
+        remap: { id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 10, factor: 0.5 },
+      })
+      state = fades(state, 'e1', 12, 8)
+      expect(state.entries[0]).toMatchObject({ fadeIn: 12, fadeOut: 8 })
+      // Removing the remap halves the output window back to 10: the fades
+      // re-clamp with it (fadeIn keeps its value first).
+      state = timelineReducer(state, { type: 'remap-removed', id: 'r1' })
+      expect(state.entries[0]).toMatchObject({ fadeIn: 10 })
+      expect('fadeOut' in state.entries[0]).toBe(false)
+    })
+
+    it('retrimming an entry re-clamps its fades to the new output duration', () => {
+      let state = fades(withEntry(), 'e1', 6, 4)
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'e1', inPoint: 0, outPoint: 5 })
+      expect(state.entries[0]).toMatchObject({ fadeIn: 5 })
+      expect('fadeOut' in state.entries[0]).toBe(false)
+    })
+  })
+
+  describe('video overlay fades (#220)', () => {
+    const withOverlay = () => {
+      const base = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(clip(), 'e1'),
+      })
+      return timelineReducer(base, {
+        type: 'video-overlay-added',
+        overlay: { ...videoOverlayPlacementBase(), id: 'v1' },
+      })
+    }
+
+    const videoOverlayPlacementBase = (): VideoOverlay => ({
+      id: 'v1',
+      clipId: 'clip-cam',
+      name: 'cam.webm',
+      duration: 8,
+      url: 'blob:cam',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.62,
+      y: 0.62,
+      width: 0.35,
+      height: 0.35,
+    })
+
+    const placementOf = (overlay: VideoOverlay) => ({
+      offset: overlay.offset,
+      inPoint: overlay.inPoint,
+      outPoint: overlay.outPoint,
+      x: overlay.x,
+      y: overlay.y,
+      width: overlay.width,
+      height: overlay.height,
+      volume: overlay.volume,
+      muted: overlay.muted,
+      fadeIn: overlay.fadeIn,
+      fadeOut: overlay.fadeOut,
+    })
+
+    it('stores fades through the placement update, clamped to the trimmed length', () => {
+      const state = withOverlay()
+      const overlay = videoOverlaysOf(state)[0]
+      const faded = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(overlay), fadeIn: 2, fadeOut: 3 },
+      })
+      expect(videoOverlaysOf(faded)[0]).toMatchObject({ fadeIn: 2, fadeOut: 3 })
+      // Length 8: fadeIn keeps its value first, fadeOut absorbs the shortfall.
+      const overlong = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(overlay), fadeIn: 6, fadeOut: 6 },
+      })
+      expect(videoOverlaysOf(overlong)[0]).toMatchObject({ fadeIn: 6, fadeOut: 2 })
+    })
+
+    it('normalizes zero fades to absent fields, so clearing is a no-op from the default', () => {
+      const state = withOverlay()
+      const overlay = videoOverlaysOf(state)[0]
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'v1',
+          placement: { ...placementOf(overlay), fadeIn: 0, fadeOut: 0 },
+        }),
+      ).toBe(state)
+      const faded = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(overlay), fadeIn: 2 },
+      })
+      const cleared = timelineReducer(faded, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(videoOverlaysOf(faded)[0]), fadeIn: 0 },
+      })
+      expect('fadeIn' in videoOverlaysOf(cleared)[0]).toBe(false)
+    })
+
+    it('retrimming an overlay re-clamps its fades', () => {
+      const state = withOverlay()
+      const overlay = videoOverlaysOf(state)[0]
+      const faded = timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(overlay), fadeIn: 4, fadeOut: 4 },
+      })
+      const trimmed = timelineReducer(faded, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { ...placementOf(videoOverlaysOf(faded)[0]), inPoint: 0, outPoint: 5 },
+      })
+      expect(videoOverlaysOf(trimmed)[0]).toMatchObject({ fadeIn: 4, fadeOut: 1 })
+    })
+  })
 })
 
 describe('time remapping (#138)', () => {

@@ -25,7 +25,7 @@ import {
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
-import { audioTrackGainAt, videoEntryGain } from './gain'
+import { audioTrackGainAt, videoEntryGain, videoEntryGainAt, videoOverlayGainAt } from './gain'
 import { transitionLayerSpec } from './transitionRender'
 import { outputFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -525,8 +525,8 @@ export function syncTrackReplay(
  * (#145), and the same clock discipline as the audio tracks above: the
  * shared window helper decides playing state and source position, and the
  * element free-runs within the drift tolerance. Gain is the overlay's own
- * volume × mute (`videoEntryGain`, applied structurally as the preview
- * does); overlays have no fades.
+ * volume × mute × fade envelope (`videoOverlayGainAt`, #220 — applied
+ * every frame, as the preview does, so fades record as continuous ramps).
  */
 export function syncOverlayReplay(
   overlay: VideoOverlay,
@@ -534,7 +534,7 @@ export function syncOverlayReplay(
   sequenceTime: number,
 ): void {
   const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
-  element.volume = videoEntryGain(overlay)
+  element.volume = videoOverlayGainAt(overlay, sequenceTime)
   alignReplayClock(element, shouldPlay, sourceTime)
 }
 
@@ -1401,9 +1401,11 @@ export async function exportTimeline(
         replayState = initial.state
         await cueTo(primary, entry.url, entry.inPoint + initial.relSource)
         throwIfAborted()
-        // The entry's steady gain (#104): volume × mute, no ramp outside a
-        // transition. Before #104 this was implicitly 1.
-        primary.volume = videoEntryGain(entry)
+        // The entry's gain at its start (#104/#220): volume × mute × fade
+        // envelope at output 0, no ramp outside a transition. The draw loop
+        // below re-applies it every frame, which is what records a fade-in
+        // as a continuous ramp.
+        primary.volume = videoEntryGainAt(entry, 0, outDuration)
         // The cue point is output 0 into the entry: sequence time startTime.
         drawFrame(videoFrame(primary), index, startTime)
         sink?.frame(canvas, startTime)
@@ -1497,6 +1499,11 @@ export async function exportTimeline(
             }
           }
           lastOutputInto = outputInto
+          // The entry's own gain every frame (#220): its fade envelope
+          // records as a continuous ramp, exactly as the preview renders it.
+          // Inside a transition overlap the branches below re-set it with
+          // the crossfade ramp.
+          if (!still) primary.volume = videoEntryGainAt(entry, outputInto, outDuration)
           let overlayFrame: OverlayFrame | null = null
           if (overlap !== undefined && next !== undefined && outputInto >= overlapStartOut) {
             const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
@@ -1505,7 +1512,9 @@ export async function exportTimeline(
               // per the effect. It has no audio, so only the outgoing
               // entry's gain ramps. (A still carries no remaps, so output
               // elapsed is exactly its source elapsed.)
-              if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
+              if (!still) {
+                primary.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+              }
               overlayFrame = {
                 layer: stillFrame(next, next.inPoint + (outputInto - overlapStartOut)),
                 index: index + 1,
@@ -1553,9 +1562,17 @@ export async function exportTimeline(
                   }
                 }
                 // The transition crossfade rides each entry's own gain (#104),
-                // so a muted or half-volume entry stays that way mid-effect.
-                if (!still) primary.volume = videoEntryGain(entry, 1 - progress)
-                secondary.volume = videoEntryGain(next, progress)
+                // so a muted or half-volume entry stays that way mid-effect —
+                // fade envelopes included (#220), each over its own window.
+                if (!still) {
+                  primary.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+                }
+                secondary.volume = videoEntryGainAt(
+                  next,
+                  outputInto - overlapStartOut,
+                  entryOutputDuration(next, remapsOf(timeline)),
+                  progress,
+                )
                 overlayFrame = {
                   layer: videoFrame(secondary),
                   index: index + 1,
@@ -1614,9 +1631,14 @@ export async function exportTimeline(
         // next boundary. (The clamp in timeline.ts guarantees overlaps never
         // chain, so the freed element is always idle when next needed.)
         if (!still) primary.pause()
-        // The incoming entry leaves its ramp for its steady gain; the paused
-        // outgoing element's volume is set again when it is next cued.
-        secondary.volume = videoEntryGain(next)
+        // The incoming entry leaves its ramp for its own gain at the
+        // handover point — overlap.duration output seconds in (#220); the
+        // paused outgoing element's volume is set again when it is next cued.
+        secondary.volume = videoEntryGainAt(
+          next,
+          overlap.duration,
+          entryOutputDuration(next, remapsOf(timeline)),
+        )
         const incoming = secondary
         secondary = primary
         primary = incoming
