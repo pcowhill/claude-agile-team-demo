@@ -8,6 +8,17 @@ vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
 }))
 
+// jsdom has no Web Audio or blob fetch, so the peaks decode is mocked
+// (resolved peaks make the waveform render, #191/#230); everything else in
+// the module — windowing, path building — is the real code.
+vi.mock('../lib/audioPeaks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/audioPeaks')>()
+  return {
+    ...actual,
+    peaksForClip: vi.fn(() => Promise.resolve(new Float32Array([0.2, 0.8, 0.5, 0.3]))),
+  }
+})
+
 const probeMock = vi.mocked(probeMediaFile)
 
 const importClip = async (name: string, duration: number) => {
@@ -1716,5 +1727,46 @@ describe('color adjustments (#192)', () => {
     expect(brightnessField(position)).toHaveValue(100)
     await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
     expect(brightnessField(position)).toHaveValue(150)
+  })
+})
+
+describe('entry and overlay waveforms (#230)', () => {
+  it('draws the audio amplitude in a video entry bar, but not for a slate', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+
+    const waveform = await screen.findByTestId('timeline-entry-waveform-0')
+    expect(screen.getByTestId('timeline-entry-bar-0')).toContainElement(waveform)
+    expect(waveform.querySelector('path')?.getAttribute('d')).toMatch(/^M0 1L.*Z$/)
+    // The slate is soundless: its bar stays a plain swatch.
+    expect(screen.queryByTestId('timeline-entry-waveform-1')).not.toBeInTheDocument()
+  })
+
+  it('windows the waveform to the entry trim, like an audio track', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    const outField = screen.getByRole('spinbutton', {
+      name: 'Trim out point of a.mp4 at position 1 in seconds',
+    })
+    await userEvent.clear(outField)
+    await userEvent.type(outField, '5')
+    fireEvent.blur(outField)
+
+    // Two of the four mocked peak buckets survive the [0, 5] window of 10s.
+    const waveform = await screen.findByTestId('timeline-entry-waveform-0')
+    expect(waveform.getAttribute('viewBox')).toBe('0 0 2 2')
+  })
+
+  it('draws the audio amplitude in an overlay bar', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+
+    const waveform = await screen.findByTestId('video-overlay-waveform-0')
+    expect(screen.getByTestId('video-overlay-bar-0')).toContainElement(waveform)
   })
 })

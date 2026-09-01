@@ -107,3 +107,81 @@ test("an added track draws its clip's waveform inside the coverage bar (#191)", 
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   await expect(page.getByTestId('audio-track-waveform-1')).toBeVisible()
 })
+
+/**
+ * Records a real WebM carrying a 440 Hz audio track (the
+ * export-audio-mix.spec idiom), so the entry-waveform decode path (#230) has
+ * genuine audio to reduce to peaks.
+ */
+async function recordWebmWithTone(page: import('@playwright/test').Page): Promise<Buffer> {
+  const webmBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 320
+    canvas.height = 180
+    const ctx = canvas.getContext('2d')!
+    const stream = canvas.captureStream(30)
+    const audio = new AudioContext()
+    if (audio.state === 'suspended') await audio.resume()
+    const destination = audio.createMediaStreamDestination()
+    const oscillator = audio.createOscillator()
+    oscillator.frequency.value = 440
+    oscillator.connect(destination)
+    oscillator.start()
+    stream.addTrack(destination.stream.getAudioTracks()[0])
+    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' })
+    const chunks: Blob[] = []
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data)
+    }
+    const stopped = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve()
+    })
+    recorder.start()
+    const start = performance.now()
+    await new Promise<void>((resolve) => {
+      const draw = () => {
+        ctx.fillStyle = 'rgb(0, 128, 0)'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        if (performance.now() - start > 1200) resolve()
+        else requestAnimationFrame(draw)
+      }
+      draw()
+    })
+    recorder.stop()
+    await stopped
+    await audio.close()
+    const buffer = await new Blob(chunks, { type: 'video/webm' }).arrayBuffer()
+    let binary = ''
+    for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
+    return btoa(binary)
+  })
+  return Buffer.from(webmBase64, 'base64')
+}
+
+test('video entries and overlays draw their audio amplitude in the coverage bars (#230)', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  const webm = await recordWebmWithTone(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+
+  // The video entry's bar carries a real waveform path decoded from the
+  // clip's own audio track; a tone is loud, so the path spans amplitude.
+  const entryWaveform = page.getByTestId('timeline-entry-waveform-0')
+  await expect(entryWaveform).toBeVisible()
+  const path = await entryWaveform.locator('path').getAttribute('d')
+  expect(path).toMatch(/^M0 1L/)
+  expect(path?.length).toBeGreaterThan(100)
+
+  // The soundless slate keeps its plain bar.
+  await expect(page.getByTestId('timeline-entry-bar-1')).toBeVisible()
+  await expect(page.getByTestId('timeline-entry-waveform-1')).toHaveCount(0)
+
+  // The overlay's bar draws the same clip's waveform (shared peaks cache).
+  await expect(page.getByTestId('video-overlay-waveform-0')).toBeVisible()
+})
