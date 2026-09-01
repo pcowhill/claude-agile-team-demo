@@ -76,3 +76,10 @@
 .export-settings-row input {
   width: 5.5rem;
 }
+
+/* The selected format's stated limits (#198), e.g. the GIF plugin's caps. */
+.export-format-note {
+  margin: 0.35rem 0 0;
+  color: #aaa;
+  font-size: 0.8rem;
+}

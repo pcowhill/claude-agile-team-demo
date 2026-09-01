@@ -9,20 +9,20 @@ import type { PluginSpec } from '../lib/plugins'
  * in CI — `tools/checkPluginChunks.ts`).
  *
  * Adding a plugin = adding an entry here plus its module under
- * `src/plugins/<id>/`. The GIF export plugin (phase 3, #198) is the first
- * real one; until it lands, the sample plugin proves the chain end to end.
+ * `src/plugins/<id>/`. The GIF export plugin (#198) is the first real one;
+ * it retired the sample plugin that #197 shipped as a placeholder.
  */
 export const builtInPlugins: readonly PluginSpec[] = [
   {
-    id: 'sample-webm',
-    name: 'Sample plugin',
+    id: 'gif-export',
+    name: 'GIF export',
     description:
-      'Demonstrates the plugin system: adds a "Sample (WebM)" export format that encodes ' +
-      'through the same pipeline as the built-in WebM export. Safe to enable or disable ' +
-      'at any time; it will be retired when the first real plugin arrives.',
+      'Adds an "Animated GIF" format to the export dialog: the composed timeline — ' +
+      'transitions, zooms, overlays, text and all — encoded as a soundless animated GIF, ' +
+      'downscaled and rate-capped to keep file sizes manageable.',
     version: '1.0.0',
-    load: () => import('./sample/index'),
-    // The sample contributes only an export format, which projects do not
+    load: () => import('./gif/index'),
+    // The plugin contributes only an export format, which projects do not
     // store — no project ever depends on it (`usedByProject` omitted).
   },
 ]

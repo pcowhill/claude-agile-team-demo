@@ -26,7 +26,12 @@ import type { ExportOptions } from './exportVideo'
  * candidates), not in anticipation. Phase 2 (#197) grew it deliberately:
  * `unregister` (a disabled plugin's format leaves the picker) and
  * `subscribe` (the picker re-reads the registry when plugins change it at
- * runtime) — recorded in ADR 0003.
+ * runtime) — recorded in ADR 0003. Phase 3 (#198) grew it again, for the
+ * GIF plugin's concrete needs: `isSupported` (the support probe beyond MIME
+ * candidates the doc above anticipated — GIF encodes in pure JS, so
+ * MediaRecorder support is the wrong question) and `note` (a line the
+ * export modal shows for the selected format — where a format states its
+ * limits in the UI) — recorded in ADR 0003.
  */
 export interface ExportFormatSpec {
   /** Stable identifier, unique within the registry (e.g. 'webm'). */
@@ -54,6 +59,20 @@ export interface ExportFormatSpec {
    * (`exportTimeline`); a plugin format may bring its own encoder.
    */
   encode: (timeline: TimelineState, options?: ExportEncodeOptions) => Promise<Blob>
+  /**
+   * Support probe beyond MIME candidates (#198): when present it replaces
+   * the candidates rule in `supportedExportFormats` — for a format that
+   * does not encode through MediaRecorder (the GIF plugin), recordable MIME
+   * types are the wrong question. Receives the same feature-detection
+   * function the candidates rule uses, for probes that still care about it.
+   */
+  isSupported?: (isTypeSupported: (type: string) => boolean) => boolean
+  /**
+   * One short line the export modal shows while this format is selected
+   * (#198) — where a format states its limits (e.g. the GIF plugin's frame
+   * rate and size caps) in the UI. Absent means nothing to state.
+   */
+  note?: string
 }
 
 /**
@@ -141,7 +160,13 @@ export function supportedExportFormats(
   isSupported: (type: string) => boolean,
   registry: ExportFormatRegistry = exportFormats,
 ): ExportFormatSpec[] {
-  return registry.list().filter((spec) => pickExportMimeType(isSupported, spec.candidates) !== null)
+  return registry
+    .list()
+    .filter((spec) =>
+      spec.isSupported !== undefined
+        ? spec.isSupported(isSupported)
+        : pickExportMimeType(isSupported, spec.candidates) !== null,
+    )
 }
 
 /** Download filename for an export; the extension follows the container. */

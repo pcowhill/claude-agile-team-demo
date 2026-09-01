@@ -12,9 +12,9 @@ const healthyManifest = (): Manifest => ({
     imports: ['_shared-def.js'],
   },
   '_shared-def.js': { file: 'assets/shared-def.js' },
-  'src/plugins/sample/index.ts': {
+  'src/plugins/gif/index.ts': {
     file: 'assets/index-ghi.js',
-    src: 'src/plugins/sample/index.ts',
+    src: 'src/plugins/gif/index.ts',
     imports: ['_shared-def.js'],
   },
 })
@@ -38,21 +38,21 @@ describe('findPluginChunkProblems (#197)', () => {
   it('passes a healthy build and names the plugin chunks it verified', () => {
     const { pluginKeys, problems } = findPluginChunkProblems(healthyManifest())
     expect(problems).toEqual([])
-    expect(pluginKeys).toEqual(['src/plugins/sample/index.ts'])
+    expect(pluginKeys).toEqual(['src/plugins/gif/index.ts'])
   })
 
   it('fails when a plugin module is statically reachable from the entry', () => {
     const manifest = healthyManifest()
-    manifest['index.html'].imports = ['_shared-def.js', 'src/plugins/sample/index.ts']
+    manifest['index.html'].imports = ['_shared-def.js', 'src/plugins/gif/index.ts']
     const { problems } = findPluginChunkProblems(manifest)
     expect(problems).toHaveLength(1)
-    expect(problems[0]).toContain('src/plugins/sample/index.ts')
+    expect(problems[0]).toContain('src/plugins/gif/index.ts')
     expect(problems[0]).toContain('statically reachable')
   })
 
   it('fails when no plugin chunk was emitted at all', () => {
     const manifest = healthyManifest()
-    delete manifest['src/plugins/sample/index.ts']
+    delete manifest['src/plugins/gif/index.ts']
     const { problems } = findPluginChunkProblems(manifest)
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('no plugin chunk was emitted')
@@ -69,6 +69,6 @@ describe('findPluginChunkProblems (#197)', () => {
     manifest['index.html'].imports = ['_shared-def.js', 'src/plugins/catalog.ts']
     const { pluginKeys, problems } = findPluginChunkProblems(manifest)
     expect(problems).toEqual([])
-    expect(pluginKeys).toEqual(['src/plugins/sample/index.ts'])
+    expect(pluginKeys).toEqual(['src/plugins/gif/index.ts'])
   })
 })
