@@ -952,3 +952,170 @@ describe('New Project and Open Project (#77)', () => {
     })
   })
 })
+
+describe('crash-safe autosave (#194)', () => {
+  /** In-memory AutosaveStore; the IndexedDB one runs only in e2e. */
+  function fakeAutosaveStore() {
+    const state = {
+      structure: null as Uint8Array<ArrayBuffer> | null,
+      media: new Map<string, Blob>(),
+      failMediaWrites: false,
+      cleared: 0,
+    }
+    const store = {
+      writeStructure: (bytes: Uint8Array<ArrayBuffer>) => {
+        state.structure = bytes
+        return Promise.resolve()
+      },
+      readStructure: () => Promise.resolve(state.structure),
+      writeMedia: (clipId: string, blob: Blob) => {
+        if (state.failMediaWrites) return Promise.reject(new Error('quota'))
+        state.media.set(clipId, blob)
+        return Promise.resolve()
+      },
+      listMediaIds: () => Promise.resolve([...state.media.keys()]),
+      readAllMedia: () => Promise.resolve(new Map(state.media)),
+      deleteMedia: (ids: readonly string[]) => {
+        for (const id of ids) state.media.delete(id)
+        return Promise.resolve()
+      },
+      clear: () => {
+        state.cleared += 1
+        state.structure = null
+        state.media.clear()
+        return Promise.resolve()
+      },
+    }
+    return { store, state }
+  }
+
+  const renderWithAutosave = (
+    store: ReturnType<typeof fakeAutosaveStore>['store'],
+    overrides: Partial<Parameters<typeof ProjectControls>[0]> = {},
+  ) => {
+    const onProjectReplaced = vi.fn()
+    render(
+      <ProjectControls
+        library={overrides.library ?? library}
+        timeline={overrides.timeline ?? timeline}
+        dirty={false}
+        onSaved={() => {}}
+        onProjectReplaced={onProjectReplaced}
+        port={stubPort().port}
+        fetchClipMedia={stubClipMedia}
+        createMediaUrl={(_blob: Blob) => 'blob:restored-c1'}
+        autosave={store}
+        autosaveDebounceMs={1}
+        {...overrides}
+      />,
+    )
+    return { onProjectReplaced }
+  }
+
+  it('snapshots the session: structure round-trips and each blob is stored', async () => {
+    const { store, state } = fakeAutosaveStore()
+    renderWithAutosave(store)
+
+    await waitFor(() => expect(state.structure).not.toBeNull())
+    await waitFor(() => expect([...state.media.keys()]).toEqual(['c1']))
+    // The structure is a real project file: the same deserializer opens it.
+    const result = await deserializeProject(state.structure as Uint8Array<ArrayBuffer>)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips.map((clip) => clip.id)).toEqual(['c1'])
+      expect(result.project.timeline.entries.map((entry) => entry.id)).toEqual(['e1'])
+    }
+    // The stored blob carries the clip's bytes (from the fetch stub).
+    expect(await state.media.get('c1')?.text()).toBe('media:c1')
+  })
+
+  it('offers restore on startup and restores fully linked when every blob survived', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    state.media.set('c1', new Blob([asciiBytes('media:c1')], { type: 'video/mp4' }))
+    const user = userEvent.setup()
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    const restored = onProjectReplaced.mock.calls[0][0]
+    // The media library came back with a fresh object URL — no re-picking.
+    expect(restored.clips).toEqual([
+      { id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:restored-c1', kind: 'video' },
+    ])
+    expect(restored.timeline.entries.map((entry: { id: string }) => entry.id)).toEqual(['e1'])
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
+  it('routes a structure-only snapshot through the existing re-link dialog', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    // No media blobs stored — the quota degrade case.
+    const user = userEvent.setup()
+    renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }))
+    await screen.findByRole('dialog', { name: 'Open the autosaved session' })
+
+    // Canceling the re-link puts the offer back — the snapshot is not lost.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('button', { name: 'Restore' })).toBeInTheDocument()
+  })
+
+  it('discarding the offer clears the snapshot', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    const user = userEvent.setup()
+    renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Discard' }))
+    await waitFor(() => expect(state.cleared).toBeGreaterThan(0))
+    expect(state.structure).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
+  it('degrades to structure-only on a failed blob write and says so unobtrusively', async () => {
+    const { store, state } = fakeAutosaveStore()
+    state.failMediaWrites = true
+    renderWithAutosave(store)
+
+    await waitFor(() => expect(state.structure).not.toBeNull())
+    expect(
+      await screen.findByText(/only the project structure is being kept/),
+    ).toBeInTheDocument()
+    expect(state.media.size).toBe(0)
+  })
+
+  it('a corrupt snapshot is cleared without an offer, and autosave proceeds', async () => {
+    const { store, state } = fakeAutosaveStore()
+    state.structure = asciiBytes('not a project file')
+    renderWithAutosave(store)
+
+    // No offer; the bad snapshot was replaced by a snapshot of the live state.
+    await waitFor(() => expect(state.cleared).toBeGreaterThan(0), { timeout: 3000 })
+    await waitFor(
+      async () => {
+        const structure = state.structure
+        // Between the clear and the autosaver's first pass the structure is
+        // null; deserializing must wait for real bytes.
+        expect(structure).not.toBeNull()
+        const result = await deserializeProject(structure as Uint8Array<ArrayBuffer>)
+        expect(result.ok).toBe(true)
+      },
+      { timeout: 3000 },
+    )
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+})

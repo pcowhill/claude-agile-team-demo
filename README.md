@@ -12,7 +12,14 @@ single file moves to another computer and opens ready to edit with no
 re-linking. Choosing "references only" at first save (revisitable via Save
 As…) writes a small file with edits and clip metadata instead; opening one
 asks you to re-select the original media files and matches them back up by
-filename and duration. Audio files (music, voice-overs, sound effects) can
+filename and duration.
+The session is also autosaved continuously (#194): the project structure and
+the imported media are snapshotted into the browser's own storage shortly
+after every edit, and reopening the page after a crash or refresh offers
+"Restore last session?" — restoring brings back the timeline and the media
+with no file re-picking. If the media outgrows browser storage, autosave
+unobtrusively degrades to keeping the structure only, and restore then asks
+for the media files again via the usual re-link dialog. Audio files (music, voice-overs, sound effects) can
 be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). A video clip's audio can also be extracted into a standalone

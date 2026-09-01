@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
+import { createAutosaver, readAutosaveSnapshot } from '../lib/autosave'
+import type { AutosaveSnapshot, AutosaveStatus, AutosaveStore, Autosaver } from '../lib/autosave'
 import { emptyLibrary } from '../lib/mediaLibrary'
 import type { MediaLibraryState } from '../lib/mediaLibrary'
 import { restoreEmbeddedProject, restoreProject } from '../lib/openProject'
@@ -15,6 +17,7 @@ import {
   PROJECT_FILE_EXTENSION,
   collectClipMedia,
   createSavePort,
+  fetchClipMedia as fetchClipMediaFromUrl,
 } from '../lib/saveProject'
 import type { SaveDestination, SaveMode, SavePort } from '../lib/saveProject'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -52,6 +55,13 @@ interface ProjectControlsProps {
   createMediaUrl?: (blob: Blob) => string
   /** Injectable for tests; the app uses its plugin runtime singleton (#197). */
   plugins?: PluginRuntime
+  /**
+   * The crash-safe autosave snapshot store (#194); absent or null means
+   * autosave is off (storage unavailable, or a test that predates it).
+   */
+  autosave?: AutosaveStore | null
+  /** Injectable for tests; defaults to the production debounce. */
+  autosaveDebounceMs?: number
 }
 
 type SaveStatus =
@@ -89,6 +99,8 @@ export function ProjectControls({
   fetchClipMedia,
   createMediaUrl,
   plugins = appPluginRuntime,
+  autosave = null,
+  autosaveDebounceMs,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -114,6 +126,87 @@ export function ProjectControls({
   } | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
   const openInputRef = useRef<HTMLInputElement>(null)
+
+  // Crash-safe autosave (#194). The gate keeps the autosaver from writing —
+  // and thereby clobbering the stored snapshot — until the startup restore
+  // offer is resolved: 'checking' while the snapshot is read, 'offer' while
+  // "Restore last session?" is pending, 'active' once restored, discarded,
+  // or there was nothing to offer.
+  const [autosaveGate, setAutosaveGate] = useState<'checking' | 'offer' | 'active'>('checking')
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('ok')
+  const [pendingRestore, setPendingRestore] = useState<{
+    result: Extract<DeserializeResult, { ok: true }>
+    media: Map<string, Blob>
+  } | null>(null)
+  // A restore that has left the bar but not yet replaced the project (it is
+  // in the plugin prompt or the re-link dialog). If that path dead-ends —
+  // canceled, declined, or failed — the offer returns instead of the
+  // snapshot silently expiring with autosave still off.
+  const restoreInFlight = useRef<typeof pendingRestore>(null)
+  // Set once anything replaces the project: the async startup snapshot read
+  // must not surface a stale offer over a project the user already opened.
+  const offerSuperseded = useRef(false)
+  const autosaverRef = useRef<Autosaver | null>(null)
+
+  // Startup (#194): read the snapshot once the store exists. A snapshot
+  // that deserializes becomes the restore offer; a corrupt or foreign one
+  // is cleared (nothing restorable); no snapshot just activates autosave.
+  useEffect(() => {
+    if (autosave === null) return
+    let canceled = false
+    void (async () => {
+      let offer: { result: Extract<DeserializeResult, { ok: true }>; media: Map<string, Blob> } | null =
+        null
+      try {
+        const snapshot: AutosaveSnapshot | null = await readAutosaveSnapshot(autosave)
+        if (snapshot !== null) {
+          const result = await deserializeProject(snapshot.structure)
+          if (result.ok) offer = { result, media: snapshot.media }
+          else await autosave.clear()
+        }
+      } catch {
+        // Unreadable storage: autosave still activates; a failing write
+        // will report 'unavailable' from the autosaver itself.
+      }
+      if (canceled || offerSuperseded.current) return
+      if (offer !== null) {
+        setPendingRestore(offer)
+        setAutosaveGate('offer')
+      } else {
+        setAutosaveGate('active')
+      }
+    })()
+    return () => {
+      canceled = true
+    }
+  }, [autosave])
+
+  // The autosave loop (#194): one autosaver per store, running only once
+  // the restore offer is resolved, mirroring every committed change.
+  useEffect(() => {
+    if (autosave === null || autosaveGate !== 'active') return
+    const autosaver = createAutosaver({
+      store: autosave,
+      serialize: (lib, tl) => serializeProject(lib, tl, undefined, plugins.projectPlugins(lib, tl)),
+      fetchBlob: async (clip) => {
+        const media = await (fetchClipMedia ?? fetchClipMediaFromUrl)(clip)
+        return new Blob([media.bytes as BlobPart], { type: media.mimeType ?? '' })
+      },
+      onStatus: setAutosaveStatus,
+      ...(autosaveDebounceMs === undefined ? {} : { debounceMs: autosaveDebounceMs }),
+    })
+    autosaverRef.current = autosaver
+    return () => {
+      autosaver.dispose()
+      autosaverRef.current = null
+    }
+  }, [autosave, autosaveGate, plugins, fetchClipMedia, autosaveDebounceMs])
+
+  // Feed every committed change (and the moment the gate opens, so state
+  // edited while the offer was pending is snapshotted too).
+  useEffect(() => {
+    autosaverRef.current?.stateChanged(library, timeline)
+  }, [library, timeline, autosaveGate])
 
   /** Writes the project in the given mode, picking a destination if needed. */
   const performSave = async (alwaysPick: boolean, saveMode: SaveMode) => {
@@ -197,6 +290,14 @@ export function ProjectControls({
     setMode(nextMode)
     setStatus({ kind: 'idle' })
     setOpenError(null)
+    // Any project replacement resolves the startup restore offer (#194):
+    // restoring lands here, and opening a file or starting fresh while the
+    // offer was pending supersedes it — the snapshot then re-mirrors the
+    // new state on the next autosave pass, which is the replace rule.
+    restoreInFlight.current = null
+    offerSuperseded.current = true
+    setPendingRestore(null)
+    setAutosaveGate('active')
   }
 
   const startNewProject = () => {
@@ -238,13 +339,20 @@ export function ProjectControls({
     setPendingOpen({ fileName, project: result.project })
   }
 
-  const handleProjectFile = async (file: File) => {
-    const result = await deserializeProject(new Uint8Array(await file.arrayBuffer()))
-    if (!result.ok) {
-      // A failed open leaves the current project untouched — only report.
-      setOpenError(result.error)
-      return
-    }
+  /**
+   * A restore path that dead-ended (declined plugins, canceled re-link,
+   * failed enable) puts the offer back (#194): the snapshot is still there
+   * and autosave is still gated, so the user must decide again — silently
+   * dropping the offer would strand the session with autosave off.
+   */
+  const reofferRestore = () => {
+    if (restoreInFlight.current === null) return
+    setPendingRestore(restoreInFlight.current)
+    restoreInFlight.current = null
+  }
+
+  /** The open path once bytes are deserialized: plugin gate, then open. */
+  const openResult = async (fileName: string, result: Extract<DeserializeResult, { ok: true }>) => {
     setOpenError(null)
     // Plugin dependencies (#197): a file may need plugins that are disabled.
     // Startup re-activation must settle first, or a plugin enabled by the
@@ -259,16 +367,66 @@ export function ProjectControls({
             .map((id) => `"${id}"`)
             .join(', ')}, which this version of the editor does not have — it was saved by a newer version`,
         )
+        reofferRestore()
         return
       }
       const missing = required.filter((id) => !plugins.isEnabled(id))
       if (missing.length > 0) {
         // Prompt-and-enable (ADR 0003): opening waits for the decision.
-        setPendingPlugins({ fileName: file.name, result, missing })
+        setPendingPlugins({ fileName, result, missing })
         return
       }
     }
-    openDeserialized(file.name, result)
+    openDeserialized(fileName, result)
+  }
+
+  const handleProjectFile = async (file: File) => {
+    const result = await deserializeProject(new Uint8Array(await file.arrayBuffer()))
+    if (!result.ok) {
+      // A failed open leaves the current project untouched — only report.
+      setOpenError(result.error)
+      return
+    }
+    await openResult(file.name, result)
+  }
+
+  /**
+   * Accepting the restore offer (#194). With every clip's blob stored, the
+   * snapshot is materially an embedded project: synthesize the media map
+   * and the existing embedded-open path restores it fully linked under
+   * fresh object URLs. With blobs missing (a structure-only degrade), the
+   * same call lands in the existing re-link dialog — the established
+   * re-attach flow — instead of failing.
+   */
+  const confirmRestore = () => {
+    const pending = pendingRestore
+    setPendingRestore(null)
+    if (pending === null) return
+    restoreInFlight.current = pending
+    void (async () => {
+      const project = pending.result.project
+      let result = pending.result
+      if (project.clips.length > 0 && project.clips.every((clip) => pending.media.has(clip.id))) {
+        const media = new Map<string, ClipMedia>()
+        for (const clip of project.clips) {
+          const blob = pending.media.get(clip.id) as Blob
+          media.set(clip.id, {
+            bytes: new Uint8Array(await blob.arrayBuffer()),
+            ...(blob.type === '' ? {} : { mimeType: blob.type }),
+          })
+        }
+        result = { ...pending.result, media }
+      }
+      await openResult('the autosaved session', result)
+    })()
+  }
+
+  /** Declining the restore offer (#194): the snapshot is cleared for good. */
+  const discardRestore = () => {
+    setPendingRestore(null)
+    restoreInFlight.current = null
+    setAutosaveGate('active')
+    void autosave?.clear()
   }
 
   /** Accepting the plugin prompt (#197): enable, then continue the open. */
@@ -285,6 +443,7 @@ export function ProjectControls({
         `the "${plugins.find(failed[0])?.name ?? failed[0]}" plugin could not be enabled` +
           (status.kind === 'failed' ? ` (${status.message})` : ''),
       )
+      reofferRestore()
       return
     }
     openDeserialized(pending.fileName, pending.result)
@@ -306,6 +465,7 @@ export function ProjectControls({
         pending.missing.length === 1 ? '' : 's'
       } ${names}, and opening it without them would drop those features`,
     )
+    reofferRestore()
   }
 
   const handleOpenInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -366,6 +526,31 @@ export function ProjectControls({
           Could not open: {openError}
         </span>
       )}
+      {/* Crash-safe autosave (#194): the startup restore offer, and the two
+          degradations worth telling the user about before a crash makes
+          them matter. */}
+      {pendingRestore !== null && (
+        <div className="project-restore-offer" role="status">
+          <span>Restore last session? An autosaved project from a previous session was found.</span>
+          <button type="button" onClick={confirmRestore}>
+            Restore
+          </button>
+          <button type="button" onClick={discardRestore}>
+            Discard
+          </button>
+        </div>
+      )}
+      {autosaveStatus === 'structure-only' && (
+        <span className="project-autosave-note" role="status">
+          Autosave: the media no longer fits in browser storage, so only the project structure is
+          being kept — restoring will ask for the media files again.
+        </span>
+      )}
+      {autosaveStatus === 'unavailable' && (
+        <span className="project-autosave-note" role="status">
+          Autosave is currently unavailable — save your project to a file to keep it safe.
+        </span>
+      )}
       {pendingDiscard !== null && (
         <ConfirmDialog
           title="Discard unsaved changes?"
@@ -397,7 +582,12 @@ export function ProjectControls({
           fileName={pendingOpen.fileName}
           project={pendingOpen.project}
           probeMedia={probeMedia}
-          onCancel={() => setPendingOpen(null)}
+          onCancel={() => {
+            setPendingOpen(null)
+            // A canceled re-link that was the restore path (#194) puts the
+            // restore offer back; a canceled file open reoffers nothing.
+            reofferRestore()
+          }}
           onOpen={(restored) => {
             setPendingOpen(null)
             replaceProject(restored, 'references')

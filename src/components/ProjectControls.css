@@ -19,3 +19,21 @@
   color: #ff7b72;
   font-size: 0.85rem;
 }
+
+/* The crash-safe autosave surfaces (#194): the startup restore offer and
+   the unobtrusive degradation notes. */
+.project-restore-offer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #4a4a2a;
+  border-radius: 6px;
+  background: #2b2b1d;
+  font-size: 0.85rem;
+}
+
+.project-autosave-note {
+  color: #999;
+  font-size: 0.85rem;
+}
