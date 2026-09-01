@@ -4,6 +4,8 @@ import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { ProjectControls } from './components/ProjectControls'
 import { Timeline } from './components/Timeline'
+import { openAutosaveStore } from './lib/autosave'
+import type { AutosaveStore } from './lib/autosave'
 import { extractAudioClip } from './lib/extractAudio'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
@@ -51,6 +53,23 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   // dragenter/dragleave fire for every child element crossed; only the
   // outermost balance matters.
   const dragDepth = useRef(0)
+
+  // Crash-safe autosave (#194): the IndexedDB snapshot store, opened once.
+  // An environment without usable IndexedDB leaves it null — autosave is
+  // simply off, never an editing failure.
+  const [autosaveStore, setAutosaveStore] = useState<AutosaveStore | null>(null)
+  useEffect(() => {
+    let canceled = false
+    openAutosaveStore().then(
+      (store) => {
+        if (!canceled) setAutosaveStore(store)
+      },
+      () => {},
+    )
+    return () => {
+      canceled = true
+    }
+  }, [])
 
   // What the last save wrote (or the startup state). The project is dirty
   // exactly when the saveable state has moved past it — reference equality
@@ -239,6 +258,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onProjectReplaced={handleProjectReplaced}
           port={savePort}
           probeMedia={probeMedia}
+          autosave={autosaveStore}
         />
       </header>
       <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
