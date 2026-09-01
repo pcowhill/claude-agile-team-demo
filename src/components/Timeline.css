@@ -42,6 +42,22 @@
   gap: 0.75rem;
 }
 
+/* Row thumbnails (#193): a fixed tiny still so entries are recognizable at
+   a glance. Fixed box whatever the source; a swatch for slates. */
+.clip-thumbnail {
+  width: 64px;
+  height: 36px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+  background: #111;
+}
+
+.clip-thumbnail-swatch {
+  display: inline-block;
+}
+
 .timeline-entry .clip-name {
   flex: 1;
   overflow: hidden;

@@ -32,6 +32,7 @@ import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
+import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import './Timeline.css'
 
@@ -409,6 +410,33 @@ export function Timeline({
                   />
                 </div>
                 <div className="timeline-entry-main">
+                  {/* A recognizable still per row (#193): videos get a
+                      captured frame of their trimmed range, images show
+                      themselves scaled, and a slate's color is its identity —
+                      a swatch, no capture. All decorative; the name stays
+                      the accessible identification. */}
+                  {isSlateEntry(entry) ? (
+                    <span
+                      className="clip-thumbnail clip-thumbnail-swatch"
+                      style={{ background: entry.color }}
+                      aria-hidden="true"
+                      data-testid={`timeline-entry-thumbnail-${index}`}
+                    />
+                  ) : isStillEntry(entry) ? (
+                    <img
+                      className="clip-thumbnail"
+                      src={entry.url}
+                      alt=""
+                      aria-hidden="true"
+                      data-testid={`timeline-entry-thumbnail-${index}`}
+                    />
+                  ) : (
+                    <ClipThumbnail
+                      url={entry.url}
+                      inPoint={entry.inPoint}
+                      data-testid={`timeline-entry-thumbnail-${index}`}
+                    />
+                  )}
                   <span className="clip-name" title={entry.name}>
                     {entry.name}
                   </span>
@@ -934,6 +962,13 @@ export function Timeline({
                     />
                   </div>
                   <div className="video-overlay-main">
+                    {/* Overlay rows are always video (#145) — captured
+                        thumbnail like a sequence video entry (#193). */}
+                    <ClipThumbnail
+                      url={overlay.url}
+                      inPoint={overlay.inPoint}
+                      data-testid={`video-overlay-thumbnail-${index}`}
+                    />
                     <span className="clip-name" title={overlay.name}>
                       {overlay.name}
                     </span>
