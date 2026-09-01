@@ -2494,3 +2494,180 @@ describe('color adjustments (#192)', () => {
     })
   })
 })
+
+describe('orientation (#232)', () => {
+  const withVideoEntry = () => stateOf(['e1'])
+
+  describe('entry-orient-set', () => {
+    it('stores the normalized orientation: identity fields drop away', () => {
+      const next = timelineReducer(withVideoEntry(), {
+        type: 'entry-orient-set',
+        id: 'e1',
+        orientation: { rotation: 90, flipH: true, flipV: false },
+      })
+      expect(next.entries[0].orientation).toEqual({ rotation: 90, flipH: true })
+    })
+
+    it('a fully-identity orientation removes the key entirely — never stores {}', () => {
+      const oriented = timelineReducer(withVideoEntry(), {
+        type: 'entry-orient-set',
+        id: 'e1',
+        orientation: { rotation: 180 },
+      })
+      const reset = timelineReducer(oriented, { type: 'entry-orient-set', id: 'e1', orientation: {} })
+      expect('orientation' in reset.entries[0]).toBe(false)
+    })
+
+    it('no-ops with the same reference on unknown id, invalid input, or unchanged values', () => {
+      const state = withVideoEntry()
+      expect(
+        timelineReducer(state, { type: 'entry-orient-set', id: 'nope', orientation: { rotation: 90 } }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-orient-set',
+          id: 'e1',
+          orientation: { rotation: 45 as never },
+        }),
+      ).toBe(state)
+      // Identity on an untouched entry is a no-op, not an edit.
+      expect(
+        timelineReducer(state, {
+          type: 'entry-orient-set',
+          id: 'e1',
+          orientation: { flipH: false, flipV: false },
+        }),
+      ).toBe(state)
+      const oriented = timelineReducer(state, {
+        type: 'entry-orient-set',
+        id: 'e1',
+        orientation: { flipV: true },
+      })
+      expect(
+        timelineReducer(oriented, { type: 'entry-orient-set', id: 'e1', orientation: { flipV: true } }),
+      ).toBe(oriented)
+    })
+
+    it('vetoes orientation on a slate — a flat color has no sideways', () => {
+      const state = timelineReducer(withVideoEntry(), {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      expect(
+        timelineReducer(state, { type: 'entry-orient-set', id: 's1', orientation: { rotation: 90 } }),
+      ).toBe(state)
+    })
+
+    it('orients image entries — the sideways photo is the use case', () => {
+      const state = timelineReducer(
+        { entries: [] },
+        {
+          type: 'entry-added',
+          entry: entryFromClip(clip({ id: 'clip-img', kind: 'image', duration: 0 }), 'i1'),
+        },
+      )
+      const next = timelineReducer(state, {
+        type: 'entry-orient-set',
+        id: 'i1',
+        orientation: { rotation: 270, flipV: true },
+      })
+      expect(next.entries[0].orientation).toEqual({ rotation: 270, flipV: true })
+    })
+
+    it('orientation survives unrelated edits and follows the entry through a split (#190)', () => {
+      const oriented = timelineReducer(stateOf(['e1'], ['e2']), {
+        type: 'entry-orient-set',
+        id: 'e1',
+        orientation: { rotation: 90 },
+      })
+      const moved = timelineReducer(oriented, { type: 'entry-moved', id: 'e2', direction: 'up' })
+      expect(moved.entries.find((entry) => entry.id === 'e1')?.orientation).toEqual({
+        rotation: 90,
+      })
+      const split = timelineReducer(oriented, {
+        type: 'entry-split',
+        id: 'e1',
+        atSourceTime: 5,
+        newEntryId: 'e1b',
+      })
+      // Both halves show the same footage — both keep the orientation.
+      expect(split.entries[0].orientation).toEqual({ rotation: 90 })
+      expect(split.entries[1].orientation).toEqual({ rotation: 90 })
+    })
+  })
+
+  describe('video-overlay-orient-set', () => {
+    const overlay = (): VideoOverlay => ({
+      id: 'v1',
+      clipId: 'clip-cam',
+      name: 'cam.webm',
+      duration: 8,
+      url: 'blob:cam',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    })
+    const withOverlay = () =>
+      timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay: overlay() })
+
+    it('stores the normalized orientation on the overlay and resets to no key', () => {
+      const oriented = timelineReducer(withOverlay(), {
+        type: 'video-overlay-orient-set',
+        id: 'v1',
+        orientation: { rotation: 180, flipH: false },
+      })
+      expect(videoOverlaysOf(oriented)[0].orientation).toEqual({ rotation: 180 })
+      const reset = timelineReducer(oriented, {
+        type: 'video-overlay-orient-set',
+        id: 'v1',
+        orientation: {},
+      })
+      expect('orientation' in videoOverlaysOf(reset)[0]).toBe(false)
+    })
+
+    it('no-ops on unknown id, invalid input, or unchanged values', () => {
+      const state = withOverlay()
+      expect(
+        timelineReducer(state, { type: 'video-overlay-orient-set', id: 'nope', orientation: { rotation: 90 } }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-orient-set',
+          id: 'v1',
+          orientation: { flipH: 'yes' as never },
+        }),
+      ).toBe(state)
+      const oriented = timelineReducer(state, {
+        type: 'video-overlay-orient-set',
+        id: 'v1',
+        orientation: { flipH: true },
+      })
+      expect(
+        timelineReducer(oriented, {
+          type: 'video-overlay-orient-set',
+          id: 'v1',
+          orientation: { flipH: true },
+        }),
+      ).toBe(oriented)
+    })
+
+    it('orientation survives placement edits — it is not part of the placement', () => {
+      const oriented = timelineReducer(withOverlay(), {
+        type: 'video-overlay-orient-set',
+        id: 'v1',
+        orientation: { rotation: 90 },
+      })
+      const moved = timelineReducer(oriented, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.4, height: 0.4 },
+      })
+      expect(videoOverlaysOf(moved)[0].orientation).toEqual({ rotation: 90 })
+      expect(videoOverlaysOf(moved)[0].offset).toBe(2)
+    })
+  })
+})

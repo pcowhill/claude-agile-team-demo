@@ -89,9 +89,14 @@ test('playing across a crossfade keeps both clips live, fading the incoming one 
           const incoming = document.querySelector<HTMLVideoElement>(
             '[data-testid="preview-video-incoming"]',
           )
-          if (primary && incoming) {
+          // The crossfade's opacity rides the incoming layer card (#232);
+          // the media element inside carries only the clip's own looks.
+          const incomingCard = document.querySelector<HTMLElement>(
+            '[data-testid="preview-video-incoming-card"]',
+          )
+          if (primary && incoming && incomingCard) {
             if (!primary.paused && !incoming.paused) result.bothPlaying = true
-            const opacity = Number(getComputedStyle(incoming).opacity)
+            const opacity = Number(getComputedStyle(incomingCard).opacity)
             if (opacity > 0.05 && opacity < 0.95) result.sawMidFade = true
           }
           if ((result.bothPlaying && result.sawMidFade) || performance.now() - started > 15_000) {
@@ -151,15 +156,20 @@ function watchForEndFlash(page: import('@playwright/test').Page) {
           const pauseButton = document.querySelector('[aria-label="Pause preview"]')
           if (pauseButton) sawPlaying = true
           if (!firstSrc && primary?.currentSrc) firstSrc = primary.currentSrc
-          if (incoming && firstSrc) {
+          // Transition styles live on the incoming layer card (#232); the
+          // media element inside identifies the clip via its src.
+          const incomingCard = document.querySelector<HTMLElement>(
+            '[data-testid="preview-video-incoming-card"]',
+          )
+          if (incoming && incomingCard && firstSrc) {
             result.sawOverlay = true
             if (incoming.currentSrc === firstSrc) {
-              const style = getComputedStyle(incoming)
+              const style = getComputedStyle(incomingCard)
               const opacity = Number(style.opacity)
               const matrix = new DOMMatrixReadOnly(
                 style.transform === 'none' ? undefined : style.transform,
               )
-              const inFrame = matrix.m42 > -incoming.clientHeight * 0.05
+              const inFrame = matrix.m42 > -incomingCard.clientHeight * 0.05
               if (style.visibility !== 'hidden' && opacity > 0.5 && inFrame) {
                 result.sawFlash = true
                 result.detail = `outgoing clip on the top layer (opacity=${opacity.toFixed(3)}, translateY=${matrix.m42.toFixed(1)}px)`
@@ -576,7 +586,10 @@ test('seeking into a slide-from-above overlap renders the mid-effect state', asy
   await seek.fill('0.75')
   const incoming = page.getByTestId('preview-video-incoming')
   await expect(incoming).toBeVisible()
-  expect(await incoming.evaluate((el) => el.style.transform)).toBe('translate(0%, -50%)')
+  // The slide's transform rides the incoming layer card (#232).
+  expect(
+    await page.getByTestId('preview-video-incoming-card').evaluate((el) => el.style.transform),
+  ).toBe('translate(0%, -50%)')
   await expect(page.getByTestId('preview-now-playing')).toHaveText(
     'Clip 1 of 2: first.webm → second.webm (slide from above)',
   )
@@ -628,8 +641,9 @@ test('seeking into each other slide direction renders the mid-effect transform (
       .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
       .selectOption(type)
     await seek.fill('0.75')
-    const incoming = page.getByTestId('preview-video-incoming')
-    await expect(incoming).toBeVisible()
+    await expect(page.getByTestId('preview-video-incoming')).toBeVisible()
+    // Transition styles ride the incoming layer card (#232).
+    const incoming = page.getByTestId('preview-video-incoming-card')
     expect(await incoming.evaluate((el) => el.style.transform)).toBe(transform)
     // The #74 card backing applies to every direction.
     expect(await incoming.evaluate((el) => el.style.backgroundColor)).toBe('rgb(0, 0, 0)')

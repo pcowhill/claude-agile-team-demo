@@ -1770,3 +1770,89 @@ describe('entry and overlay waveforms (#230)', () => {
     expect(screen.getByTestId('video-overlay-bar-0')).toContainElement(waveform)
   })
 })
+
+describe('orientation (#232)', () => {
+  const rotateButton = (position: string, degrees: number) =>
+    screen.getByRole('button', {
+      name: `Rotate ${position} 90 degrees clockwise (currently ${degrees} degrees)`,
+    })
+
+  it('shows the orientation row at identity and applies edits to the preview', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    // Identity: nothing to reset, no transform on the preview media element.
+    expect(screen.getByRole('button', { name: `Reset orientation of ${position}` })).toBeDisabled()
+    expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe('')
+
+    await userEvent.click(rotateButton(position, 0))
+    await userEvent.click(screen.getByRole('checkbox', { name: `Flip ${position} horizontally` }))
+    // The preview media element carries the shared transform rule (#66
+    // pattern): quarter turn = swapped box, centred, rotated; flip rides it.
+    expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe(
+      'translate(-50%, -50%) rotate(90deg) scale(-1, 1)',
+    )
+    expect(rotateButton(position, 90)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Reset orientation of ${position}` })).toBeEnabled()
+  })
+
+  it('the rotate button cycles the quarter turns back to 0', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await userEvent.click(rotateButton(position, 0))
+    await userEvent.click(rotateButton(position, 90))
+    await userEvent.click(rotateButton(position, 180))
+    expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe(
+      'translate(-50%, -50%) rotate(270deg)',
+    )
+    await userEvent.click(rotateButton(position, 270))
+    // Back to identity — stored as no key, so reset has nothing to do.
+    expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe('')
+    expect(screen.getByRole('button', { name: `Reset orientation of ${position}` })).toBeDisabled()
+  })
+
+  it('reset returns the rotation and flips to identity', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await userEvent.click(rotateButton(position, 0))
+    await userEvent.click(screen.getByRole('checkbox', { name: `Flip ${position} vertically` }))
+    await userEvent.click(screen.getByRole('button', { name: `Reset orientation of ${position}` }))
+    expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe('')
+    expect(screen.getByRole('checkbox', { name: `Flip ${position} vertically` })).not.toBeChecked()
+    expect(rotateButton(position, 0)).toBeInTheDocument()
+  })
+
+  it('offers no orientation row for a slate', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    expect(
+      screen.queryByRole('button', { name: /Rotate Color slate at position 1/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('orients an overlay row and undoes like any timeline edit (#189)', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const position = 'overlay cam.mp4 at position 1'
+    await userEvent.click(rotateButton(position, 0))
+    await userEvent.click(rotateButton(position, 90))
+    expect((screen.getByTestId('preview-overlay-0') as HTMLElement).style.transform).toBe(
+      'rotate(180deg)',
+    )
+    // Undoable like every timeline edit: one step back to the quarter turn.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(rotateButton(position, 90)).toBeInTheDocument()
+  })
+})

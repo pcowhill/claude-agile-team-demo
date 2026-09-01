@@ -28,6 +28,8 @@ import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
 import { audioTrackGainAt, videoEntryGainAt, videoOverlayGainAt } from '../lib/gain'
 import { colorFilterFor } from '../lib/colorAdjustments'
 import type { ColorAdjustments } from '../lib/colorAdjustments'
+import { orientationTransform, orientedDimensions } from '../lib/orientation'
+import type { Orientation } from '../lib/orientation'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
@@ -176,6 +178,46 @@ function withColorFilter(
   const filter = colorFilterFor(adjustments)
   if (filter === 'none') return style
   return { ...style, filter }
+}
+
+/**
+ * The media element's styles for its orientation (#232), mapped from the
+ * shared transform rule (orientation.ts) that the export will also consume
+ * (#233). The media element sits inside its layer card (the frame-shaped —
+ * or, for an overlay, rectangle-shaped — box that transitions and zooms
+ * style), so orientation composes *inside* everything downstream: a push
+ * slides the oriented card, a zoom magnifies the oriented picture.
+ *
+ * A quarter turn (90°/270°) additionally swaps the element's box to the
+ * card's transposed rectangle, centred: `object-fit: contain` then fits the
+ * source into the swapped box, and rotating that box back over the card
+ * yields exactly the rotated source contained in the card — the two
+ * letterbox ratios are the same two numbers — with no need to know the
+ * source's own dimensions. `cardAspect` is the card box's width ÷ height
+ * (the percentages resolve against the card), so the swapped box is
+ * height × width of the card exactly.
+ *
+ * The identity orientation returns no style at all, keeping unoriented
+ * layers' style objects untouched.
+ */
+function orientedMediaStyle(
+  orientation: Orientation | undefined,
+  cardAspect: number,
+): CSSProperties | undefined {
+  if (orientation === undefined) return undefined
+  const { rotation, scaleX, scaleY } = orientationTransform(orientation)
+  const flip = scaleX === -1 || scaleY === -1 ? `scale(${scaleX}, ${scaleY})` : ''
+  if ((rotation === 90 || rotation === 270) && Number.isFinite(cardAspect) && cardAspect > 0) {
+    return {
+      left: '50%',
+      top: '50%',
+      width: `${100 / cardAspect}%`,
+      height: `${100 * cardAspect}%`,
+      transform: `translate(-50%, -50%) rotate(${rotation}deg)${flip === '' ? '' : ` ${flip}`}`,
+    }
+  }
+  const parts = [...(rotation !== 0 ? [`rotate(${rotation}deg)`] : []), ...(flip !== '' ? [flip] : [])]
+  return parts.length === 0 ? undefined : { transform: parts.join(' ') }
 }
 
 /**
@@ -1076,7 +1118,9 @@ export function PreviewPlayer({
     timeline.entries.flatMap((entry) => {
       if (isSlateEntry(entry)) return []
       const dims = sourceDims.get(entry.url)
-      return dims === undefined ? [] : [dims]
+      // An oriented source presents its oriented shape to the frame rule
+      // (#232): a quarter-turned landscape clip is a portrait source.
+      return dims === undefined ? [] : [orientedDimensions(dims, entry.orientation)]
     }),
   )
   const previewAspect = frameAspect(frame)
@@ -1094,33 +1138,55 @@ export function PreviewPlayer({
   const incomingZoom = overlap ? zoomAt(timeline, overlap.index, overlap.sourceTime) : IDENTITY_ZOOM
 
   /**
-   * Role-dependent props for one of the two stacked video elements. A still
-   * layer (#140) takes over its slot with an <img> instead, so the video
-   * element standing in that role hides as idle.
+   * Role-dependent props for one of the two stacked video slots, each a
+   * layer card (the frame-shaped box transitions and zooms style) wrapping
+   * the media element (which carries the clip's own looks — color filter,
+   * #192, and orientation, #232 — so they ride the clip through overlaps
+   * exactly like its pixels, while a push slides and a zoom magnifies the
+   * *oriented* card). A still layer (#140) takes over its slot with an
+   * <img> instead, so the video slot standing in that role hides as idle.
    */
-  const videoProps = (isA: boolean) => {
+  const videoSlotProps = (isA: boolean) => {
     const isPrimary = isA === primaryIsA
     if (isPrimary) {
-      if (stillPrimary) return { className: 'preview-video preview-video-idle' }
+      if (stillPrimary) {
+        return { card: { className: 'preview-video preview-video-idle' }, media: {} }
+      }
       return {
-        className: 'preview-video',
-        'data-testid': 'preview-video',
-        // The entry's color adjustments (#192) ride the element for exactly
-        // its portion of playback: they follow the fronting entry through
-        // cues, and through a transition each side keeps its own filter.
-        style: withColorFilter(
-          withZoom(layerStyles?.outgoing, primaryZoom),
-          location?.entry.colorAdjustments,
-        ),
+        card: {
+          className: 'preview-video',
+          'data-testid': 'preview-video-card',
+          style: withZoom(layerStyles?.outgoing, primaryZoom),
+        },
+        media: {
+          'data-testid': 'preview-video',
+          style: withColorFilter(
+            orientedMediaStyle(location?.entry.orientation, previewAspect),
+            location?.entry.colorAdjustments,
+          ),
+        },
       }
     }
     const videoOverlap = overlap !== undefined && !stillIncoming
     return {
-      className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
-      style: videoOverlap ? withColorFilter(withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null), overlap.entry.colorAdjustments) : undefined,
-      'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
+      card: {
+        className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
+        style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null) : undefined,
+        'data-testid': videoOverlap ? 'preview-video-incoming-card' : undefined,
+      },
+      media: {
+        style: videoOverlap
+          ? withColorFilter(
+              orientedMediaStyle(overlap.entry.orientation, previewAspect),
+              overlap.entry.colorAdjustments,
+            )
+          : undefined,
+        'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
+      },
     }
   }
+  const slotA = videoSlotProps(true)
+  const slotB = videoSlotProps(false)
 
   return (
     <section className="panel preview-panel" aria-label="Preview">
@@ -1151,8 +1217,12 @@ export function PreviewPlayer({
             style={{ '--preview-aspect': String(previewAspect) } as CSSProperties}
           >
             <div className="preview-frame" data-testid="preview-frame">
-              <video ref={videoARef} playsInline preload="auto" {...videoProps(true)} />
-              <video ref={videoBRef} playsInline preload="auto" {...videoProps(false)} />
+              <div {...slotA.card}>
+                <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
+              </div>
+              <div {...slotB.card}>
+                <video ref={videoBRef} playsInline preload="auto" className="preview-media" {...slotB.media} />
+              </div>
               {/* Still layers (#140): an <img> in the same stacked slot,
                   sharing the video layers' classes so transitions and zooms
                   style it identically. Decorative — the still's name is
@@ -1171,16 +1241,22 @@ export function PreviewPlayer({
               ) : (
                 stillPrimary &&
                 location && (
-                  <img
+                  <div
                     className="preview-video"
-                    data-testid="preview-image"
-                    alt=""
-                    src={location.entry.url}
-                    style={withColorFilter(
-                      withZoom(layerStyles?.outgoing, primaryZoom),
-                      location.entry.colorAdjustments,
-                    )}
-                  />
+                    data-testid="preview-image-card"
+                    style={withZoom(layerStyles?.outgoing, primaryZoom)}
+                  >
+                    <img
+                      className="preview-media"
+                      data-testid="preview-image"
+                      alt=""
+                      src={location.entry.url}
+                      style={withColorFilter(
+                        orientedMediaStyle(location.entry.orientation, previewAspect),
+                        location.entry.colorAdjustments,
+                      )}
+                    />
+                  </div>
                 )
               )}
               {slateIncoming && overlap ? (
@@ -1195,16 +1271,22 @@ export function PreviewPlayer({
               ) : (
                 stillIncoming &&
                 overlap && (
-                  <img
+                  <div
                     className="preview-video preview-video-incoming"
-                    data-testid="preview-image-incoming"
-                    alt=""
-                    src={overlap.entry.url}
-                    style={withColorFilter(
-                      withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null),
-                      overlap.entry.colorAdjustments,
-                    )}
-                  />
+                    data-testid="preview-image-incoming-card"
+                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null)}
+                  >
+                    <img
+                      className="preview-media"
+                      data-testid="preview-image-incoming"
+                      alt=""
+                      src={overlap.entry.url}
+                      style={withColorFilter(
+                        orientedMediaStyle(overlap.entry.orientation, previewAspect),
+                        overlap.entry.colorAdjustments,
+                      )}
+                    />
+                  </div>
                 )
               )}
               {/* A fade-through-color's veil (#181): a full-frame color layer
@@ -1229,27 +1311,40 @@ export function PreviewPlayer({
                   audio follow via syncVideoOverlays each frame. */}
               {videoOverlays.map((overlay, index) => {
                 const active = audioTrackPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
+                // The overlay's card is its fractional rectangle; the media
+                // element inside carries the clip's own looks (filter,
+                // orientation) — the base slots' split, at rectangle scale.
+                // The card's aspect is the rectangle's: frame aspect times
+                // the fractions' ratio (both resolve against the frame).
+                const cardAspect =
+                  overlay.height > 0 ? previewAspect * (overlay.width / overlay.height) : 0
                 return (
-                  <video
+                  <div
                     key={overlay.id}
-                    ref={(element) => {
-                      overlayRefs.current.set(overlay.id, element)
-                    }}
-                    src={overlay.url}
-                    preload="auto"
-                    playsInline
                     className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
-                    data-testid={`preview-overlay-${index}`}
-                    style={withColorFilter(
-                      {
-                        left: `${overlay.x * 100}%`,
-                        top: `${overlay.y * 100}%`,
-                        width: `${overlay.width * 100}%`,
-                        height: `${overlay.height * 100}%`,
-                      },
-                      overlay.colorAdjustments,
-                    )}
-                  />
+                    data-testid={`preview-overlay-card-${index}`}
+                    style={{
+                      left: `${overlay.x * 100}%`,
+                      top: `${overlay.y * 100}%`,
+                      width: `${overlay.width * 100}%`,
+                      height: `${overlay.height * 100}%`,
+                    }}
+                  >
+                    <video
+                      ref={(element) => {
+                        overlayRefs.current.set(overlay.id, element)
+                      }}
+                      src={overlay.url}
+                      preload="auto"
+                      playsInline
+                      className="preview-media"
+                      data-testid={`preview-overlay-${index}`}
+                      style={withColorFilter(
+                        orientedMediaStyle(overlay.orientation, cardAspect),
+                        overlay.colorAdjustments,
+                      )}
+                    />
+                  </div>
                 )
               })}
               {/* Text overlays (#139): items whose window covers the published

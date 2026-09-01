@@ -76,6 +76,12 @@ rendered live in the preview, saved with the project, and rendered
 identically in exports (#195) — GIFs included, through the shared frame
 pipeline. A browser whose canvas cannot apply filters refuses to export an
 adjusted timeline rather than silently exporting it unadjusted.
+They also take an orientation (#232): rotate 90°/180°/270° and flip
+horizontal/vertical on the timeline row — the fix for sideways phone
+footage and mirrored webcam clips — rendered live in the preview, saved
+with the project, and composing with zooms, transitions, and color
+adjustments; a quarter-turned clip letterboxes into the frame like any
+portrait source. Export-side rendering of orientation lands with #233.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
