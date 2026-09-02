@@ -16,13 +16,16 @@ import fixtureV9OrientationReferencesBase64 from './fixtures/project-v9-orientat
 import fixtureV10DuckingReferencesBase64 from './fixtures/project-v10-ducking-references.bvep.base64?raw'
 import fixtureV11SubtitleReferencesBase64 from './fixtures/project-v11-subtitle-references.bvep.base64?raw'
 import fixtureV12CropReferencesBase64 from './fixtures/project-v12-crop-references.bvep.base64?raw'
+import fixtureV13SubtitleStyleReferencesBase64 from './fixtures/project-v13-subtitle-style-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
+import type { TextOverlay } from './textOverlay'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
   DUCKING_SCHEMA_VERSION,
   SUBTITLE_SCHEMA_VERSION,
   CROP_SCHEMA_VERSION,
+  SUBTITLE_STYLE_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1021,8 +1024,9 @@ describe('project file versioning', () => {
     // overlay audio fades (#220); version 9 added entry and overlay
     // orientation (#232); version 10 added audio-track ducking (#241);
     // version 11 added the subtitle-import marker on text overlays (#249);
-    // version 12 added entry and overlay crop (#255).
-    expect(PROJECT_SCHEMA_VERSION).toBe(12)
+    // version 12 added entry and overlay crop (#255); version 13 added the
+    // default subtitle style and per-overlay style overrides (#250).
+    expect(PROJECT_SCHEMA_VERSION).toBe(13)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1035,6 +1039,7 @@ describe('project file versioning', () => {
     expect(DUCKING_SCHEMA_VERSION).toBe(10)
     expect(SUBTITLE_SCHEMA_VERSION).toBe(11)
     expect(CROP_SCHEMA_VERSION).toBe(12)
+    expect(SUBTITLE_STYLE_SCHEMA_VERSION).toBe(13)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2825,6 +2830,203 @@ describe('entry and overlay crop in project files (#255, schema version 12)', ()
               crop: { right: 0.2 },
             },
           ],
+        },
+      },
+    })
+  })
+})
+
+describe('default subtitle style in project files (#250, schema version 13)', () => {
+  const customStyle = {
+    x: 0.5,
+    y: 0.9,
+    font: 'serif',
+    size: 0.06,
+    color: '#ffff00',
+    bold: true,
+    italic: false,
+  } as const
+
+  const subtitleText = (overrides: Partial<TextOverlay> = {}): TextOverlay => ({
+    id: 't-sub',
+    content: 'Hello there',
+    offset: 1,
+    duration: 2,
+    x: 0.5,
+    y: 0.9,
+    font: 'sans',
+    size: 0.05,
+    color: '#ffffff',
+    bold: false,
+    italic: false,
+    subtitle: true,
+    ...overrides,
+  })
+
+  const styledTimeline = (): TimelineState => ({
+    ...timeline,
+    texts: [subtitleText()],
+    subtitleStyle: { ...customStyle },
+  })
+
+  it('writes version 13 with the style exactly when customized, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, styledTimeline()))
+    expect(references.schemaVersion).toBe(SUBTITLE_STYLE_SCHEMA_VERSION)
+    expect((references.timeline as Record<string, unknown>).subtitleStyle).toEqual(customStyle)
+    const embedded = await gunzipJson(
+      await serializeProject(library, styledTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(SUBTITLE_STYLE_SCHEMA_VERSION)
+
+    // A style override alone forces version 13 too — the file must reach a
+    // build that knows to honor it.
+    const overridesOnly = await gunzipJson(
+      await serializeProject(library, {
+        ...timeline,
+        texts: [subtitleText({ color: '#00ff00', styleOverrides: ['color'] })],
+      }),
+    )
+    expect(overridesOnly.schemaVersion).toBe(SUBTITLE_STYLE_SCHEMA_VERSION)
+  })
+
+  it('a style-free project stays byte-identical to earlier output', async () => {
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('subtitleStyle')
+    expect(JSON.stringify(document.timeline)).not.toContain('styleOverrides')
+    // An imported subtitle that never diverged from the default carries no
+    // style data either — it stays at the subtitle marker's own version.
+    const subtitled = await gunzipJson(
+      await serializeProject(library, { ...timeline, texts: [subtitleText()] }),
+    )
+    expect(subtitled.schemaVersion).toBe(SUBTITLE_SCHEMA_VERSION)
+  })
+
+  it('a crop without style data stays at version 12 — the chain orders by newest feature', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, {
+        ...timeline,
+        entries: [{ ...timeline.entries[0], crop: { left: 0.25 } }, ...timeline.entries.slice(1)],
+      }),
+    )
+    expect(document.schemaVersion).toBe(CROP_SCHEMA_VERSION)
+  })
+
+  it('round-trips the style and per-overlay overrides', async () => {
+    const styled: TimelineState = {
+      ...timeline,
+      texts: [
+        subtitleText({ color: '#00ff00', styleOverrides: ['color'] }),
+        subtitleText({ id: 't-hand', subtitle: undefined, content: 'Hand-made title' }),
+      ],
+      subtitleStyle: { ...customStyle },
+    }
+    const result = await deserializeProject(await serializeProject(library, styled))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.subtitleStyle).toEqual(customStyle)
+      expect(result.project.timeline.texts?.[0].styleOverrides).toEqual(['color'])
+      expect(result.project.timeline.texts?.[1].styleOverrides).toBeUndefined()
+      expect(result.project.timeline.texts?.[1].subtitle).toBeUndefined()
+    }
+  })
+
+  it('pre-#250 files (and style-free files since) open with no stored style', async () => {
+    const result = await deserializeProject(await serializeProject(library, timeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.subtitleStyle).toBeUndefined()
+  })
+
+  it("normalizes a foreign writer's built-in-default style away", async () => {
+    const document = validDocument()
+    ;(document.timeline as unknown as Record<string, unknown>).subtitleStyle = {
+      x: 0.5,
+      y: 0.9,
+      font: 'sans',
+      size: 0.05,
+      color: '#ffffff',
+      bold: false,
+      italic: false,
+    }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.subtitleStyle).toBeUndefined()
+  })
+
+  it('normalizes foreign override lists to canonical order and drops empty ones', async () => {
+    const document = validDocument()
+    ;(document.timeline as unknown as Record<string, unknown>).texts = [
+      { ...subtitleText({ styleOverrides: ['italic', 'x'] as never }) },
+      { ...subtitleText({ id: 't2', styleOverrides: [] as never }) },
+    ]
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.texts?.[0].styleOverrides).toEqual(['x', 'italic'])
+      expect(result.project.timeline.texts?.[1].styleOverrides).toBeUndefined()
+    }
+  })
+
+  it('refuses a malformed style by name', async () => {
+    const badFont = validDocument()
+    ;(badFont.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, font: 'comic-sans' }
+    await expectRefusal(await gzipJson(badFont), 'timeline.subtitleStyle.font "comic-sans" is unknown')
+
+    const badColor = validDocument()
+    ;(badColor.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, color: 'yellow' }
+    await expectRefusal(
+      await gzipJson(badColor),
+      'timeline.subtitleStyle.color "yellow" is not a lowercase #rrggbb color',
+    )
+
+    const outOfRange = validDocument()
+    ;(outOfRange.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, y: 1.5 }
+    await expectRefusal(await gzipJson(outOfRange), 'timeline.subtitleStyle.y must be between 0 and 1')
+
+    const badSize = validDocument()
+    ;(badSize.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, size: 2 }
+    await expectRefusal(await gzipJson(badSize), 'timeline.subtitleStyle.size must be between')
+  })
+
+  it('refuses malformed or misplaced style overrides by name', async () => {
+    const unknownField = validDocument()
+    ;(unknownField.timeline as unknown as Record<string, unknown>).texts = [
+      subtitleText({ styleOverrides: ['shadow'] as never }),
+    ]
+    await expectRefusal(
+      await gzipJson(unknownField),
+      'timeline.texts[0].styleOverrides[0] "shadow" is not a subtitle style field',
+    )
+
+    const onHandMade = validDocument()
+    ;(onHandMade.timeline as unknown as Record<string, unknown>).texts = [
+      subtitleText({ id: 't-hand', subtitle: undefined, styleOverrides: ['color'] }),
+    ]
+    await expectRefusal(
+      await gzipJson(onHandMade),
+      'timeline.texts[0].styleOverrides is set on a non-subtitle text overlay',
+    )
+  })
+
+  it('deserializes the committed v13 subtitle-style fixture (#250)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced the default subtitle style keep
+    // opening identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV13SubtitleStyleReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: expectedProject.timeline.entries,
+          transitions: expectedProject.timeline.transitions,
+          zooms: expectedProject.timeline.zooms,
+          texts: [subtitleText({ color: '#00ff00', styleOverrides: ['color'] })],
+          subtitleStyle: customStyle,
+          audioTracks: [],
         },
       },
     })

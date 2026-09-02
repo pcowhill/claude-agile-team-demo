@@ -79,7 +79,12 @@ the same relative size, position, and fade envelope (#142). Subtitles can be
 imported from a standard .srt file (#249): every cue lands as an ordinary
 text overlay timed to the cue, bottom-center at a readable caption default,
 individually editable like any other, with skipped/malformed cue blocks
-reported in the library's failure list. Video clips can
+reported in the library's failure list. A per-project default subtitle
+style (#250) — font, size, color, bold/italic, position, edited beside the
+import control — restyles every imported subtitle at once, at import time
+or any time after; a property edited on an individual cue is pinned and
+keeps its value through later default changes, while the cue's other
+properties keep following. Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the

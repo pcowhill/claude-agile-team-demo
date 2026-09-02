@@ -26,9 +26,17 @@ import {
   videoOverlaysOf,
   zoomsOf,
 } from './timeline'
-import type { TextOverlay } from './textOverlay'
+import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
-import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
+import {
+  isTextFontId,
+  isValidTextColor,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
+  normalizeStyleOverrides,
+  normalizeSubtitleStyle,
+  SUBTITLE_STYLE_FIELDS,
+} from './textOverlay'
 import type { Orientation, OrientationRotation } from './orientation'
 import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
 import type { Crop } from './crop'
@@ -40,7 +48,7 @@ import { normalizeCrop } from './crop'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | .. | 12,      // integer; bumped on breaking change
+ *     "schemaVersion": 1 | .. | 13,      // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -62,7 +70,9 @@ import { normalizeCrop } from './crop'
  *       "texts": [{ id, content, offset, duration, x, y, font, size,
  *                   color, bold, italic,
  *                   fadeIn?, fadeOut?,                          // (#139, #177)
- *                   subtitle? }],                               // (#249)
+ *                   subtitle?,                                  // (#249)
+ *                   styleOverrides? }],                         // (#250)
+ *       "subtitleStyle": { x, y, font, size, color, bold, italic }, // (#250)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -141,6 +151,18 @@ import { normalizeCrop } from './crop'
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 13 (#250) marks that the project carries default-subtitle-
+ * style data: a customized `timeline.subtitleStyle` (the full style — x, y,
+ * font, size, color, bold, italic — present exactly when it differs from
+ * the built-in subtitle default; see textOverlay.ts), and/or a text
+ * overlay's `styleOverrides` list naming the style fields that overlay owns
+ * individually (canonical field order, only on `subtitle: true` overlays).
+ * Written exactly when either exists, so style-free projects stay
+ * byte-identical to earlier output and older builds route styled files to
+ * the "saved by a newer version" refusal instead of opening them silently
+ * unstyled. The media section's presence keeps distinguishing the save
+ * modes.
+ *
  * Schema version 12 (#255) marks that a sequence entry or a video overlay
  * carries a crop: an optional `crop` object with `left`/`right`/`top`/
  * `bottom` edge fractions (each in [0, 1), present exactly when non-zero,
@@ -178,7 +200,7 @@ import { normalizeCrop } from './crop'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 12
+export const PROJECT_SCHEMA_VERSION = 13
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -203,6 +225,8 @@ export const DUCKING_SCHEMA_VERSION = 10
 export const SUBTITLE_SCHEMA_VERSION = 11
 /** The version any entry/overlay crop forces, whichever the save mode (#255). */
 export const CROP_SCHEMA_VERSION = 12
+/** The version any default-subtitle-style data forces, whichever the save mode (#250). */
+export const SUBTITLE_STYLE_SCHEMA_VERSION = 13
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -278,6 +302,12 @@ export interface ProjectTimeline {
    * additive within a schema version exactly like `remaps`.
    */
   texts?: TextOverlay[]
+  /**
+   * The customized default subtitle style (#250, schema version 13).
+   * Present exactly when it differs from the built-in subtitle default,
+   * mirroring `TimelineState` where absence means that default.
+   */
+  subtitleStyle?: SubtitleStyle
   /**
    * Overlay video layers (#145). Present exactly when the file carries any,
    * additive within a schema version exactly like `remaps`.
@@ -364,6 +394,16 @@ function storedCrop({ left, right, top, bottom }: Crop): Crop {
 }
 
 /**
+ * The default subtitle style as stored (#250): every field, fixed key order
+ * (x, y, font, size, color, bold, italic — `SUBTITLE_STYLE_FIELDS`), so the
+ * same style always serializes to the same bytes. The state stores it only
+ * when it differs from the built-in default (see textOverlay.ts).
+ */
+function storedSubtitleStyle({ x, y, font, size, color, bold, italic }: SubtitleStyle): SubtitleStyle {
+  return { x, y, font, size, color, bold, italic }
+}
+
+/**
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
@@ -425,7 +465,8 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // An entry/overlay crop forces version 12 (#255), a
+  // Default-subtitle-style data forces version 13 (#250), an
+  // entry/overlay crop version 12 (#255), a
   // subtitle-imported text overlay version 11 (#249), a
   // duck-enabled audio track version 10 (#241), an entry/overlay
   // orientation version 9 (#232), an entry/overlay
@@ -435,6 +476,9 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasSubtitleStyle =
+    timeline.subtitleStyle !== undefined ||
+    textsOf(timeline).some((text) => text.styleOverrides !== undefined)
   const hasCrop =
     timeline.entries.some((entry) => entry.crop !== undefined) ||
     videoOverlaysOf(timeline).some((overlay) => overlay.crop !== undefined)
@@ -458,7 +502,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasCrop
+    schemaVersion: hasSubtitleStyle
+      ? SUBTITLE_STYLE_SCHEMA_VERSION
+      : hasCrop
       ? CROP_SCHEMA_VERSION
       : hasSubtitles
       ? SUBTITLE_SCHEMA_VERSION
@@ -601,7 +647,7 @@ export async function serializeProject(
         ? {}
         : {
             texts: textsOf(timeline).map(
-              ({ id, content, offset, duration, x, y, font, size, color, bold, italic, fadeIn, fadeOut, subtitle }) => ({
+              ({ id, content, offset, duration, x, y, font, size, color, bold, italic, fadeIn, fadeOut, subtitle, styleOverrides }) => ({
                 id,
                 content,
                 offset,
@@ -621,9 +667,18 @@ export async function serializeProject(
                 // set, so subtitle-free projects stay byte-identical (and
                 // keep their lower schema version).
                 ...(subtitle === true ? { subtitle } : {}),
+                // Individually-overridden style fields (#250), already in
+                // canonical order in state; written only when any exist.
+                ...(styleOverrides === undefined ? {} : { styleOverrides: [...styleOverrides] }),
               }),
             ),
           }),
+      // The customized default subtitle style (#250) is written only when it
+      // differs from the built-in default (the state stores it exactly then),
+      // so never-customized projects stay byte-identical to earlier output.
+      ...(timeline.subtitleStyle === undefined
+        ? {}
+        : { subtitleStyle: storedSubtitleStyle(timeline.subtitleStyle) }),
       audioTracks: audioTracksOf(timeline).map(
         ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
           id,
@@ -878,6 +933,43 @@ const asCrop = (value: unknown, path: string): Crop | undefined => {
     top: edge('top'),
     bottom: edge('bottom'),
   })
+}
+
+/**
+ * A stored default subtitle style (#250): the full style, every field
+ * validated exactly as a text overlay's own (unknown font, malformed color,
+ * and out-of-range numbers are refused by name — the same rules, because
+ * they are the same fields). A foreign writer's style equal to the built-in
+ * default normalizes away — the caller stores no key — exactly as a
+ * zero-edge crop does (#255).
+ */
+const asSubtitleStyle = (value: unknown, path: string): SubtitleStyle | undefined => {
+  const raw = asRecord(value, path)
+  const font = asString(raw.font, `${path}.font`)
+  if (!isTextFontId(font)) throw new Error(`${path}.font "${font}" is unknown`)
+  const color = asString(raw.color, `${path}.color`)
+  if (!isValidTextColor(color)) {
+    throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)
+  }
+  const style: SubtitleStyle = {
+    x: asFinite(raw.x, `${path}.x`),
+    y: asFinite(raw.y, `${path}.y`),
+    font,
+    size: asFinite(raw.size, `${path}.size`),
+    color,
+    bold: asBoolean(raw.bold, `${path}.bold`),
+    italic: asBoolean(raw.italic, `${path}.italic`),
+  }
+  for (const [field, fraction] of [
+    ['x', style.x],
+    ['y', style.y],
+  ] as const) {
+    if (fraction < 0 || fraction > 1) throw new Error(`${path}.${field} must be between 0 and 1`)
+  }
+  if (style.size < MIN_TEXT_SIZE || style.size > MAX_TEXT_SIZE) {
+    throw new Error(`${path}.size must be between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`)
+  }
+  return normalizeSubtitleStyle(style)
 }
 
 function validateProject(document: Record<string, unknown>): Project {
@@ -1220,6 +1312,27 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       if (raw.subtitle) text.subtitle = true
     }
+    // Individually-overridden style fields (#250, schema version 13):
+    // absent means the overlay follows the default subtitle style entirely.
+    // Unknown field names are refused by name — silently dropping one would
+    // let a later default edit clobber a value the user pinned. A foreign
+    // writer's empty or unordered list normalizes to the canonical form.
+    if (raw.styleOverrides !== undefined) {
+      if (text.subtitle !== true) {
+        throw new Error(
+          `${path}.styleOverrides is set on a non-subtitle text overlay, but style overrides apply to imported subtitles only`,
+        )
+      }
+      const fields = asArray(raw.styleOverrides, `${path}.styleOverrides`).map((value, fieldIndex) => {
+        const field = asString(value, `${path}.styleOverrides[${fieldIndex}]`)
+        if (!(SUBTITLE_STYLE_FIELDS as readonly string[]).includes(field)) {
+          throw new Error(`${path}.styleOverrides[${fieldIndex}] "${field}" is not a subtitle style field`)
+        }
+        return field as SubtitleStyleField
+      })
+      const normalized = normalizeStyleOverrides(fields)
+      if (normalized !== undefined) text.styleOverrides = normalized
+    }
     return text
   })
   const textIds = new Set<string>()
@@ -1229,6 +1342,14 @@ function validateProject(document: Record<string, unknown>): Project {
     }
     textIds.add(text.id)
   }
+
+  // The customized default subtitle style (#250, schema version 13): absent
+  // in files saved before it, and in every never-customized file since,
+  // meaning the built-in subtitle default.
+  const subtitleStyle =
+    timelineRaw.subtitleStyle === undefined
+      ? undefined
+      : asSubtitleStyle(timelineRaw.subtitleStyle, 'timeline.subtitleStyle')
 
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
@@ -1385,6 +1506,7 @@ function validateProject(document: Record<string, unknown>): Project {
       // serializer and TimelineState (see the ProjectTimeline field).
       ...(remaps.length === 0 ? {} : { remaps }),
       ...(texts.length === 0 ? {} : { texts }),
+      ...(subtitleStyle === undefined ? {} : { subtitleStyle }),
       audioTracks,
       ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },

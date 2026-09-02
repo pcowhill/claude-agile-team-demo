@@ -37,7 +37,14 @@ import {
 } from '../lib/timeline'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
-import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
+import {
+  DEFAULT_SUBTITLE_STYLE,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
+  subtitleStylesEqual,
+  TEXT_FONTS,
+} from '../lib/textOverlay'
+import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
 import { formatDuration } from '../lib/mediaLibrary'
@@ -83,6 +90,15 @@ interface TimelineProps {
   onImportSubtitles: (file: File) => void
   onUpdateText: (id: string, text: TextOverlaySpec) => void
   onRemoveText: (id: string) => void
+  /**
+   * The project's customized default subtitle style (#250); undefined means
+   * the built-in default. Shown and edited by the controls beside the
+   * subtitle import.
+   */
+  subtitleStyle: SubtitleStyle | undefined
+  /** Sets the default subtitle style whole (#250); committing the built-in
+   * default is the reset. */
+  onSetSubtitleStyle: (style: SubtitleStyle) => void
   onUpdateVideoOverlay: (id: string, placement: VideoOverlayPlacement) => void
   onRemoveVideoOverlay: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
@@ -124,6 +140,7 @@ const textSpecOf = ({
   fadeIn,
   fadeOut,
   subtitle,
+  styleOverrides,
 }: TextOverlaySpec): TextOverlaySpec => ({
   content,
   offset,
@@ -137,8 +154,10 @@ const textSpecOf = ({
   italic,
   ...(fadeIn === undefined ? {} : { fadeIn }),
   ...(fadeOut === undefined ? {} : { fadeOut }),
-  // The subtitle-import marker (#249) rides along so edits never strip it.
+  // The subtitle-import marker (#249) rides along so edits never strip it;
+  // so does the override record (#250) — the reducer recomputes it anyway.
   ...(subtitle === undefined ? {} : { subtitle }),
+  ...(styleOverrides === undefined ? {} : { styleOverrides }),
 })
 
 interface TextContentFieldProps {
@@ -514,6 +533,99 @@ function CropControls({ position, crop, onCommit }: CropControlsProps) {
   )
 }
 
+interface SubtitleStyleControlsProps {
+  /** The stored default; undefined means the built-in subtitle default. */
+  style: SubtitleStyle | undefined
+  /** Receives the full style on every edit; the built-in default resets. */
+  onCommit: (style: SubtitleStyle) => void
+}
+
+/**
+ * The default-subtitle-style editor (#250), beside the subtitle import: the
+ * text-overlay style surface (font, size, color, bold/italic, centre) for
+ * the whole project's imported subtitles at once. Every edit commits the
+ * full style; the reducer restyles every subtitle overlay's
+ * non-individually-overridden fields and normalizes the stored default
+ * (equal to the built-in default means no stored key — Reset commits
+ * exactly that). Undoable like any timeline edit (#189).
+ */
+function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) {
+  const effective = style ?? DEFAULT_SUBTITLE_STYLE
+  const commit = (change: Partial<SubtitleStyle>) => onCommit({ ...effective, ...change })
+  return (
+    <div className="timeline-entry-color">
+      <span>Subtitle style</span>
+      <select
+        aria-label="Default subtitle font"
+        value={effective.font}
+        onChange={(event) => commit({ font: event.target.value as TextFontId })}
+      >
+        {TEXT_FONTS.map((font) => (
+          <option key={font.id} value={font.id}>
+            {font.label}
+          </option>
+        ))}
+      </select>
+      <span>Size</span>
+      <SecondsField
+        label="Default subtitle size (fraction of frame height)"
+        value={effective.size}
+        min={MIN_TEXT_SIZE}
+        max={MAX_TEXT_SIZE}
+        step={0.01}
+        onCommit={(size) => commit({ size })}
+      />
+      <input
+        type="color"
+        aria-label="Default subtitle color"
+        value={effective.color}
+        onChange={(event) => commit({ color: event.target.value })}
+      />
+      <label className="timeline-mute">
+        <input
+          type="checkbox"
+          aria-label="Default subtitle bold"
+          checked={effective.bold}
+          onChange={(event) => commit({ bold: event.target.checked })}
+        />
+        Bold
+      </label>
+      <label className="timeline-mute">
+        <input
+          type="checkbox"
+          aria-label="Default subtitle italic"
+          checked={effective.italic}
+          onChange={(event) => commit({ italic: event.target.checked })}
+        />
+        Italic
+      </label>
+      <span>centre</span>
+      <SecondsField
+        label="Default subtitle centre X (0 to 1)"
+        value={effective.x}
+        max={1}
+        step={0.05}
+        onCommit={(x) => commit({ x })}
+      />
+      <SecondsField
+        label="Default subtitle centre Y (0 to 1)"
+        value={effective.y}
+        max={1}
+        step={0.05}
+        onCommit={(y) => commit({ y })}
+      />
+      <button
+        type="button"
+        aria-label="Reset default subtitle style"
+        disabled={style === undefined || subtitleStylesEqual(style, DEFAULT_SUBTITLE_STYLE)}
+        onClick={() => onCommit(DEFAULT_SUBTITLE_STYLE)}
+      >
+        Reset
+      </button>
+    </div>
+  )
+}
+
 export function Timeline({
   timeline,
   canUndo,
@@ -535,6 +647,8 @@ export function Timeline({
   onUpdateRemap,
   onRemoveRemap,
   onAddText,
+  subtitleStyle,
+  onSetSubtitleStyle,
   onImportSubtitles,
   onUpdateText,
   onRemoveText,
@@ -672,6 +786,11 @@ export function Timeline({
           Total: <span data-testid="timeline-total">{formatDuration(totalDuration(timeline))}</span>
         </span>
       </div>
+
+      {/* The default subtitle style (#250) lives beside the import it
+          governs — editable before the first import (new cues take it) and
+          any time after (all imported subtitles restyle at once). */}
+      <SubtitleStyleControls style={subtitleStyle} onCommit={onSetSubtitleStyle} />
 
       {entries.length === 0 ? (
         <p className="placeholder">

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applySubtitleStyle,
+  changedStyleFields,
+  clampSubtitleStyle,
   clampTextOverlay,
+  DEFAULT_SUBTITLE_STYLE,
   DEFAULT_TEXT,
+  isValidSubtitleStyle,
+  normalizeStyleOverrides,
+  normalizeSubtitleStyle,
+  SUBTITLE_STYLE_FIELDS,
   isTextFontId,
   isValidTextOverlaySpec,
   MAX_TEXT_SIZE,
@@ -206,5 +214,157 @@ describe('textOpacityAt (#177)', () => {
     expect(textOpacityAt(overlay, 1)).toBeCloseTo(0.25, 10)
     expect(textOpacityAt(overlay, 2)).toBeCloseTo(0.5, 10)
     expect(textOpacityAt(overlay, 3)).toBeCloseTo(0.25, 10)
+  })
+})
+
+// The default subtitle style (#250): the pure rules the reducer and the
+// serializer consume — validation, clamping, absent-as-default
+// normalization, override bookkeeping, and the mass-restyle application.
+
+const subtitleOverlay = (overrides: Partial<TextOverlay> = {}): TextOverlay => ({
+  id: 't1',
+  content: 'Hello',
+  offset: 0,
+  duration: 2,
+  x: 0.5,
+  y: 0.9,
+  font: 'sans',
+  size: 0.05,
+  color: '#ffffff',
+  bold: false,
+  italic: false,
+  subtitle: true,
+  ...overrides,
+})
+
+describe('DEFAULT_SUBTITLE_STYLE (#250)', () => {
+  it('is the #249 import style: bottom-center, readable, white sans', () => {
+    expect(DEFAULT_SUBTITLE_STYLE.x).toBe(0.5)
+    expect(DEFAULT_SUBTITLE_STYLE.y).toBeGreaterThan(0.75)
+    expect(DEFAULT_SUBTITLE_STYLE.y).toBeLessThanOrEqual(1)
+    expect(DEFAULT_SUBTITLE_STYLE.font).toBe('sans')
+    expect(DEFAULT_SUBTITLE_STYLE.color).toBe('#ffffff')
+    expect(isValidSubtitleStyle(DEFAULT_SUBTITLE_STYLE)).toBe(true)
+  })
+})
+
+describe('isValidSubtitleStyle / clampSubtitleStyle (#250)', () => {
+  it('accepts the text-overlay style surface and refuses malformed fields', () => {
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, color: '#123abc' })).toBe(true)
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, x: Number.NaN })).toBe(false)
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, font: 'papyrus' as never })).toBe(false)
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, color: 'red' })).toBe(false)
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, bold: 1 as never })).toBe(false)
+  })
+
+  it('clamps centre and size exactly as an overlay clamps, same-object when clean', () => {
+    const clean = { ...DEFAULT_SUBTITLE_STYLE, y: 0.8 }
+    expect(clampSubtitleStyle(clean)).toBe(clean)
+    expect(clampSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, x: -1, y: 2, size: 5 })).toEqual({
+      ...DEFAULT_SUBTITLE_STYLE,
+      x: 0,
+      y: 1,
+      size: MAX_TEXT_SIZE,
+    })
+  })
+})
+
+describe('normalizeSubtitleStyle (#250)', () => {
+  it('normalizes the built-in default to undefined — the stored form is no key at all', () => {
+    expect(normalizeSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE })).toBeUndefined()
+  })
+
+  it('keeps a customized style, clamped', () => {
+    expect(normalizeSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, color: '#ffff00', y: 2 })).toEqual({
+      ...DEFAULT_SUBTITLE_STYLE,
+      color: '#ffff00',
+      y: 1,
+    })
+  })
+
+  it('a style that clamps back to the default normalizes away too', () => {
+    expect(normalizeSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, x: -0.5, y: 0.9 })).toEqual({
+      ...DEFAULT_SUBTITLE_STYLE,
+      x: 0,
+    })
+    // x clamps to 0 (≠ default 0.5) so it survives; but a no-op clamp equal
+    // to the default vanishes:
+    expect(normalizeSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, size: 0.05 })).toBeUndefined()
+  })
+})
+
+describe('normalizeStyleOverrides (#250)', () => {
+  it('orders fields canonically, deduplicates, and drops empty lists', () => {
+    expect(normalizeStyleOverrides([])).toBeUndefined()
+    expect(normalizeStyleOverrides(['italic', 'x', 'italic'])).toEqual(['x', 'italic'])
+    expect(normalizeStyleOverrides([...SUBTITLE_STYLE_FIELDS].reverse())).toEqual([
+      ...SUBTITLE_STYLE_FIELDS,
+    ])
+  })
+})
+
+describe('changedStyleFields (#250)', () => {
+  it('names exactly the style fields that differ', () => {
+    const before = subtitleOverlay()
+    expect(changedStyleFields(before, before)).toEqual([])
+    expect(changedStyleFields(before, { ...before, color: '#000000', y: 0.1 })).toEqual([
+      'y',
+      'color',
+    ])
+    // Non-style fields never register.
+    expect(changedStyleFields(before, { ...before, content: 'Edited' } as never)).toEqual([])
+  })
+})
+
+describe('applySubtitleStyle (#250)', () => {
+  const newStyle = { ...DEFAULT_SUBTITLE_STYLE, font: 'serif' as const, color: '#ffff00', y: 0.8 }
+
+  it('rewrites every non-overridden style field and nothing else', () => {
+    const text = subtitleOverlay({ content: 'Keep me', offset: 3, fadeIn: 0.5 })
+    expect(applySubtitleStyle(text, newStyle)).toEqual({
+      ...text,
+      font: 'serif',
+      color: '#ffff00',
+      y: 0.8,
+    })
+  })
+
+  it('leaves individually overridden fields alone while the rest follow', () => {
+    const text = subtitleOverlay({ color: '#ff0000', styleOverrides: ['color'] })
+    expect(applySubtitleStyle(text, newStyle)).toEqual({
+      ...text,
+      font: 'serif',
+      y: 0.8,
+      // color stays the overlay's own #ff0000.
+    })
+  })
+
+  it('returns the same object when nothing changes', () => {
+    const styled = subtitleOverlay({ font: 'serif', color: '#ffff00', y: 0.8 })
+    expect(applySubtitleStyle(styled, newStyle)).toBe(styled)
+    const fullyOverridden = subtitleOverlay({ styleOverrides: [...SUBTITLE_STYLE_FIELDS] })
+    expect(applySubtitleStyle(fullyOverridden, newStyle)).toBe(fullyOverridden)
+  })
+})
+
+describe('styleOverrides validation and equality (#250)', () => {
+  it('accepts overrides only on subtitle overlays, naming known fields once', () => {
+    expect(isValidTextOverlaySpec(subtitleOverlay({ styleOverrides: ['color', 'y'] }))).toBe(true)
+    expect(
+      isValidTextOverlaySpec(subtitleOverlay({ subtitle: undefined, styleOverrides: ['color'] })),
+    ).toBe(false)
+    expect(isValidTextOverlaySpec(subtitleOverlay({ styleOverrides: ['shadow'] as never }))).toBe(
+      false,
+    )
+    expect(
+      isValidTextOverlaySpec(subtitleOverlay({ styleOverrides: ['color', 'color'] })),
+    ).toBe(false)
+  })
+
+  it('textOverlaysEqual distinguishes override records', () => {
+    const a = subtitleOverlay({ styleOverrides: ['color'] })
+    expect(textOverlaysEqual(a, subtitleOverlay({ styleOverrides: ['color'] }))).toBe(true)
+    expect(textOverlaysEqual(a, subtitleOverlay())).toBe(false)
+    expect(textOverlaysEqual(a, subtitleOverlay({ styleOverrides: ['y'] }))).toBe(false)
   })
 })
