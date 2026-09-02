@@ -1707,3 +1707,93 @@ describe('orientation (#232)', () => {
     }
   })
 })
+
+describe('crop (#255)', () => {
+  /** The Image-probe stub from the #176 tests: an 800×450 landscape photo. */
+  class InstantLandscapeImage {
+    onload: (() => void) | null = null
+    naturalWidth = 0
+    naturalHeight = 0
+    set src(_value: string) {
+      this.naturalWidth = 800
+      this.naturalHeight = 450
+      queueMicrotask(() => this.onload?.())
+    }
+    removeAttribute() {}
+  }
+
+  const croppedStill = (crop: object, orientation?: object): TimelineState => ({
+    entries: [
+      {
+        id: 'i1',
+        clipId: 'c1',
+        name: 'photo.png',
+        duration: 4,
+        url: 'blob:photo',
+        inPoint: 0,
+        outPoint: 4,
+        kind: 'image',
+        crop,
+        ...(orientation === undefined ? {} : { orientation }),
+      },
+    ],
+  })
+
+  it('a cropped source presents its kept region to the frame rule and clips to it', async () => {
+    vi.stubGlobal('Image', InstantLandscapeImage)
+    try {
+      // Keeping the right half of 800×450 is a 400×450 source: the frame
+      // reshapes to it, and the media element clips, scales, and recentres
+      // per the shared placement rule (crop.ts).
+      const { container } = render(
+        <PreviewPlayer timeline={croppedStill({ left: 0.5 })} />,
+      )
+      await act(async () => {})
+      const stage = container.querySelector('.preview-stage') as HTMLElement
+      expect(stage.style.getPropertyValue('--preview-aspect')).toBe(String(400 / 450))
+      const media = screen.getByTestId('preview-image')
+      // Box aspect 8/9, source 16/9: the source letterboxes to half height;
+      // its right half contain-fits at twice the size, shifted left.
+      expect(media.style.clipPath).toBe('inset(25% 0% 25% 50%)')
+      expect(media.style.transform).toBe('translate(-50%, 0%) scale(2)')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('crop composes with a quarter turn: the kept region is what rotates (#232)', async () => {
+    vi.stubGlobal('Image', InstantLandscapeImage)
+    try {
+      const { container } = render(
+        <PreviewPlayer timeline={croppedStill({ left: 0.5 }, { rotation: 90 })} />,
+      )
+      await act(async () => {})
+      // Crop before orientation: 800×450 cropped to 400×450, turned to
+      // 450×400 — the frame rule sees the rotated kept region.
+      const stage = container.querySelector('.preview-stage') as HTMLElement
+      expect(stage.style.getPropertyValue('--preview-aspect')).toBe(String(450 / 400))
+      // The element box is the transposed card (the #232 swap), and the
+      // crop placement works in that box: same clip and inner transform as
+      // the unrotated case, with the swap and rotation outside it.
+      const media = screen.getByTestId('preview-image')
+      expect(media.style.clipPath).toBe('inset(25% 0% 25% 50%)')
+      expect(media.style.transform).toBe(
+        'translate(-50%, -50%) rotate(90deg) translate(-50%, 0%) scale(2)',
+      )
+      expect(parseFloat(media.style.width)).toBeCloseTo(100 / (450 / 400), 10)
+      expect(parseFloat(media.style.height)).toBeCloseTo(100 * (450 / 400), 10)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('an unprobed source styles no crop yet — the probe gates the placement', async () => {
+    // No Image stub: jsdom never reports dimensions, so the media element
+    // stays unclipped (and the frame at the fallback) until a probe lands.
+    render(<PreviewPlayer timeline={croppedStill({ left: 0.5 })} />)
+    await act(async () => {})
+    const media = screen.getByTestId('preview-image')
+    expect(media.style.clipPath).toBe('')
+    expect(media.style.transform).toBe('')
+  })
+})

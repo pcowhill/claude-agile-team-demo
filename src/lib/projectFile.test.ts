@@ -15,12 +15,14 @@ import fixtureV8FadesReferencesBase64 from './fixtures/project-v8-audio-fades-re
 import fixtureV9OrientationReferencesBase64 from './fixtures/project-v9-orientation-references.bvep.base64?raw'
 import fixtureV10DuckingReferencesBase64 from './fixtures/project-v10-ducking-references.bvep.base64?raw'
 import fixtureV11SubtitleReferencesBase64 from './fixtures/project-v11-subtitle-references.bvep.base64?raw'
+import fixtureV12CropReferencesBase64 from './fixtures/project-v12-crop-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
   DUCKING_SCHEMA_VERSION,
   SUBTITLE_SCHEMA_VERSION,
+  CROP_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1018,8 +1020,9 @@ describe('project file versioning', () => {
     // added per-clip color adjustments (#192); version 8 added entry and
     // overlay audio fades (#220); version 9 added entry and overlay
     // orientation (#232); version 10 added audio-track ducking (#241);
-    // version 11 added the subtitle-import marker on text overlays (#249).
-    expect(PROJECT_SCHEMA_VERSION).toBe(11)
+    // version 11 added the subtitle-import marker on text overlays (#249);
+    // version 12 added entry and overlay crop (#255).
+    expect(PROJECT_SCHEMA_VERSION).toBe(12)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1031,6 +1034,7 @@ describe('project file versioning', () => {
     expect(ORIENTATION_SCHEMA_VERSION).toBe(9)
     expect(DUCKING_SCHEMA_VERSION).toBe(10)
     expect(SUBTITLE_SCHEMA_VERSION).toBe(11)
+    expect(CROP_SCHEMA_VERSION).toBe(12)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2643,6 +2647,184 @@ describe('subtitle text overlays in project files (#249, schema version 11)', ()
         timeline: {
           ...expectedProject.timeline,
           texts: [subtitleOverlay, plainOverlay],
+        },
+      },
+    })
+  })
+})
+
+describe('entry and overlay crop in project files (#255, schema version 12)', () => {
+  const croppedTimeline = (): TimelineState => ({
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], crop: { left: 0.25, top: 0.1 } },
+      ...timeline.entries.slice(1),
+    ],
+  })
+  const overlayCroppedTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        crop: { right: 0.2 },
+      },
+    ],
+  })
+
+  it('writes version 12 with the crop exactly when any exists, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, croppedTimeline()))
+    expect(references.schemaVersion).toBe(CROP_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const embedded = await gunzipJson(
+      await serializeProject(library, croppedTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(CROP_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+    // A cropped overlay alone forces version 12 too.
+    const overlayOnly = await gunzipJson(await serializeProject(library, overlayCroppedTimeline()))
+    expect(overlayOnly.schemaVersion).toBe(CROP_SCHEMA_VERSION)
+  })
+
+  it('a crop-free project stays byte-identical to earlier output', async () => {
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('crop')
+  })
+
+  it('a subtitle without crop stays at version 11 — the chain orders by newest feature', async () => {
+    const subtitled: TimelineState = {
+      ...timeline,
+      texts: [
+        {
+          id: 't1', content: 'Cue', offset: 0, duration: 1, x: 0.5, y: 0.9,
+          font: 'sans', size: 0.05, color: '#ffffff', bold: false, italic: false,
+          subtitle: true,
+        },
+      ],
+    }
+    const document = await gunzipJson(await serializeProject(library, subtitled))
+    expect(document.schemaVersion).toBe(SUBTITLE_SCHEMA_VERSION)
+  })
+
+  it('round-trips crop on entries and overlays', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, {
+        ...croppedTimeline(),
+        videoOverlays: overlayCroppedTimeline().videoOverlays,
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].crop).toEqual({ left: 0.25, top: 0.1 })
+      expect(result.project.timeline.entries[1].crop).toBeUndefined()
+      expect(result.project.timeline.videoOverlays?.[0].crop).toEqual({ right: 0.2 })
+    }
+  })
+
+  it('pre-#255 files (and crop-free files since) open uncropped', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries.every((entry) => entry.crop === undefined)).toBe(true)
+    }
+  })
+
+  it("normalizes a foreign writer's zero-edge crop away", async () => {
+    const document = validDocument()
+    ;(document.timeline.entries[0] as Record<string, unknown>).crop = {
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+    }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.entries[0].crop).toBeUndefined()
+  })
+
+  it("clamps a foreign writer's over-deep pair to the minimum kept fraction", async () => {
+    const document = validDocument()
+    ;(document.timeline.entries[0] as Record<string, unknown>).crop = { left: 0.6, right: 0.5 }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const { left = 0, right = 0 } = result.project.timeline.entries[0].crop!
+      expect(1 - left - right).toBeCloseTo(0.1, 10)
+    }
+  })
+
+  it('refuses malformed crop by name', async () => {
+    const outOfRange = validDocument()
+    ;(outOfRange.timeline.entries[0] as Record<string, unknown>).crop = { left: 1.5 }
+    await expectRefusal(
+      await gzipJson(outOfRange),
+      'timeline.entries[0].crop.left must be a fraction at least 0 and below 1',
+    )
+    const negative = validDocument()
+    ;(negative.timeline.entries[0] as Record<string, unknown>).crop = { top: -0.2 }
+    await expectRefusal(
+      await gzipJson(negative),
+      'timeline.entries[0].crop.top must be a fraction at least 0 and below 1',
+    )
+    const wrongType = validDocument()
+    ;(wrongType.timeline.entries[0] as Record<string, unknown>).crop = { bottom: 'deep' }
+    await expectRefusal(await gzipJson(wrongType), 'timeline.entries[0].crop.bottom')
+  })
+
+  it('refuses crop on slate entries — a flat color has nothing to trim', async () => {
+    const document = validDocument()
+    ;(document.timeline.entries as unknown[]).push({
+      id: 's1',
+      name: 'Slate',
+      duration: 2,
+      inPoint: 0,
+      outPoint: 2,
+      color: '#112233',
+      crop: { left: 0.5 },
+    })
+    await expectRefusal(await gzipJson(document), 'timeline.entries[3].crop is set on a slate entry')
+  })
+
+  it('refuses malformed overlay crop by name', async () => {
+    const document = validDocument()
+    ;(document.timeline as unknown as Record<string, unknown>).videoOverlays = [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        crop: { right: 2 },
+      },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.videoOverlays[0].crop.right')
+  })
+
+  it('deserializes the committed v12 crop fixture (#255)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced crop keep opening identically
+    // forever.
+    const bytes = Uint8Array.from(atob(fixtureV12CropReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: [
+            { ...expectedProject.timeline.entries[0], crop: { left: 0.25, top: 0.1 } },
+            expectedProject.timeline.entries[1],
+          ],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+          zooms: [],
+          audioTracks: [],
+          videoOverlays: [
+            {
+              id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+              offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+              crop: { right: 0.2 },
+            },
+          ],
         },
       },
     })

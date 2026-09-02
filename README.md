@@ -112,6 +112,12 @@ adjustments; a quarter-turned clip letterboxes into the frame like any
 portrait source, and reshapes the output frame the same way. Exports
 render orientation through the same shared rule (#233) — GIFs included,
 through the shared frame pipeline.
+They also take a crop (#255): trim a percentage off each edge on the
+timeline row — chrome strips in screen recordings, headroom in webcam
+clips — and only the kept region renders in the preview, applied before
+orientation, reshaping the output frame like any source and saved with the
+project (each axis always keeps at least a tenth). Export rendering of
+crop is the follow-up #256.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
