@@ -213,3 +213,11 @@
 .preview-overlay-hidden {
   visibility: hidden;
 }
+
+/* A failed frame snapshot (#237) reports beside the transport it came from,
+   in the app's established error tone. */
+.preview-save-frame-error {
+  color: #ff7b72;
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0;
+}

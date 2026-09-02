@@ -37,6 +37,7 @@ import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
+import { frameFileName, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import {
   modalDialogOpen,
   stepTarget,
@@ -372,6 +373,10 @@ export function PreviewPlayer({
   const [sequenceTime, setSequenceTime] = useState(0)
   // The keyboard-shortcut cheat sheet (#203), opened with `?`.
   const [helpOpen, setHelpOpen] = useState(false)
+  // Save frame (#237): one snapshot at a time; a failure reports where the
+  // transport lives rather than failing silently.
+  const [savingFrame, setSavingFrame] = useState(false)
+  const [saveFrameError, setSaveFrameError] = useState<string | null>(null)
   // Intrinsic dimensions per source URL, probed off-DOM as sources join the
   // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
   // shapes the preview frame. Sources still probing simply don't contribute
@@ -956,6 +961,34 @@ export function PreviewPlayer({
     setPlaying(false)
   }, [stopLoop, pauseAudioTracks, pauseVideoOverlays])
 
+  /**
+   * Save frame (#237): compose the playhead's frame through the export's own
+   * draw path (frameSnapshot.ts) at the output resolution and download it as
+   * a PNG. The snapshot cues its own off-DOM elements, so it neither
+   * disturbs playback nor reads the on-screen preview.
+   */
+  const saveFrame = () => {
+    if (savingFrame || timeline.entries.length === 0) return
+    setSavingFrame(true)
+    setSaveFrameError(null)
+    const time = Math.min(sequenceTime, total)
+    void (async () => {
+      try {
+        const blob = await snapshotTimelineFrame(timeline, time)
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = frameFileName(time)
+        anchor.click()
+        URL.revokeObjectURL(url)
+      } catch (error) {
+        setSaveFrameError(error instanceof Error ? error.message : 'Saving the frame failed.')
+      } finally {
+        setSavingFrame(false)
+      }
+    })()
+  }
+
   const seek = useCallback(
     (time: number) => {
       const location = locateInSequence(timeline, time)
@@ -1422,6 +1455,18 @@ export function PreviewPlayer({
             >
               ✂ Split
             </button>
+            {/* Save frame (#237): the playhead's frame as a PNG at the output
+                resolution, composed through the export's draw path. Disabled
+                with nothing on the timeline, matching the export control. */}
+            <button
+              type="button"
+              data-testid="preview-save-frame"
+              title="Save the current frame as a PNG image at the output resolution"
+              disabled={timeline.entries.length === 0 || savingFrame}
+              onClick={saveFrame}
+            >
+              📷 Save frame
+            </button>
             <input
               type="range"
               aria-label="Seek within sequence"
@@ -1435,6 +1480,11 @@ export function PreviewPlayer({
               {formatDuration(Math.min(sequenceTime, total))} / {formatDuration(total)}
             </span>
           </div>
+          {saveFrameError !== null && (
+            <p className="preview-save-frame-error" role="alert">
+              Could not save the frame: {saveFrameError}
+            </p>
+          )}
           {location && (
             <p className="preview-now-playing" data-testid="preview-now-playing">
               Clip {location.index + 1} of {timeline.entries.length}: {location.entry.name}

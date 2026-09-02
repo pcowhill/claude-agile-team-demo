@@ -106,6 +106,11 @@ per-entry effects follow the cut (speed segments and pauses split exactly,
 zooms move to or split with the half that shows them), and the button
 disables where there is nothing to split — entry boundaries and transition
 overlaps.
+A 📷 Save frame button on the same transport downloads the exact frame under
+the playhead as a PNG at the output resolution (#237) — composed through the
+export's own draw path, so transitions mid-overlap, zooms, color
+adjustments, orientation, video overlays, and text render exactly as an
+export of that moment would.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
