@@ -23,6 +23,18 @@
   text-align: left;
 }
 
+/* The live capture preview (#225): what the screen recording is capturing,
+   sized to the dialog and muted (no feedback loop). */
+.record-preview {
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  max-height: 14rem;
+  background: #000;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
 .record-status {
   display: flex;
   align-items: center;

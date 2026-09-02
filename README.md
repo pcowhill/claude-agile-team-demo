@@ -29,7 +29,13 @@ itself is removed. Voice-overs can be recorded directly into the library
 ask for permission; the control hides entirely where recording is
 unsupported), and stopping the capture adds it as an ordinary audio clip —
 `Voice-over 1` — placeable, trimmable, mixable, and exportable like any
-imported audio file, autosave included. A references-only project file
+imported audio file, autosave included. The same menu offers a Screen
+source (#225): the browser's own tab/window/display picker starts a capture
+— with tab/system audio kept when the browser grants it — shown live in
+the recording dialog, and stopping (our Stop button or the browser's own
+"stop sharing") adds it as an ordinary video clip, `Screen recording 1`,
+ready to trim, overlay, transition, and export; the source hides where
+`getDisplayMedia` is unavailable. A references-only project file
 cannot re-link a recording (it never existed on disk); save with embedded
 media to carry recordings across machines. The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
