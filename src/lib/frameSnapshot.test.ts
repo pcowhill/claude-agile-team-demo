@@ -233,6 +233,20 @@ describe('snapshotTimelineFrame (#237)', () => {
     expect(draws[1].source).toBe(overlayElement)
   })
 
+  it('draws a cropped entry through the kept source rectangle (#256)', async () => {
+    const { options, draws } = snapshotOptions()
+    const timeline: TimelineState = { entries: [entry({ id: 'a', crop: { left: 0.5 } })] }
+    await snapshotTimelineFrame(timeline, 1, options)
+
+    // The composer consumes the shared crop rule (#255): the 320×180 fake
+    // source presents its kept 160×180 region to the fit (pillarboxed in the
+    // 320×180 frame) and the drawImage call carries the kept rect as its
+    // source rectangle — the snapshot renders crop exactly as an export
+    // frame does.
+    expect(draws).toHaveLength(1)
+    expect(draws[0].args).toEqual([160, 0, 160, 180, 80, 0, 160, 180])
+  })
+
   it('skips the seek when the entry starts at the element position and waits for data', async () => {
     const { options, videos } = snapshotOptions()
     const timeline: TimelineState = { entries: [entry({ id: 'a' })] }

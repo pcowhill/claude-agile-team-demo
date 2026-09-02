@@ -6,6 +6,7 @@ import {
   AUDIO_DRIFT_EPSILON,
   canvasSupportsColorFilter,
   createAudioCapture,
+  drawLayerSource,
   EXPORT_AUDIO_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
@@ -1202,5 +1203,80 @@ describe('withLayerOrientation (#233)', () => {
       }),
     ).toThrow('draw failed')
     expect(calls[calls.length - 1]).toBe('restore')
+  })
+})
+
+// Per-clip crop in the export (#256). The cropped pixels can only render in
+// a real browser (e2e/export-crop.spec.ts); these tests pin the pure
+// decision — the kept source rectangle (`cropSourceRect`, the shared #255
+// rule) becoming the drawImage source rect, with the crop-free path
+// byte-identical to the pre-#256 draw.
+
+/** A fake 2D context recording drawImage calls (and transforms, composed). */
+function fakeDrawContext() {
+  const draws: number[][] = []
+  const calls: string[] = []
+  const context = {
+    save: () => calls.push('save'),
+    restore: () => calls.push('restore'),
+    translate: (x: number, y: number) => calls.push(`translate(${x}, ${y})`),
+    rotate: (angle: number) => calls.push(`rotate(${(angle * 180) / Math.PI})`),
+    scale: (x: number, y: number) => calls.push(`scale(${x}, ${y})`),
+    drawImage: (_source: unknown, ...args: number[]) => {
+      draws.push(args)
+      calls.push('draw')
+    },
+  } as unknown as CanvasRenderingContext2D
+  return { context, draws, calls }
+}
+
+describe('drawLayerSource (#256)', () => {
+  const source = {} as CanvasImageSource
+  const drawRect = { x: 40, y: 20, width: 160, height: 90 }
+
+  it('a crop-free layer keeps the 5-argument draw — byte-for-byte the pre-#256 call', () => {
+    const { context, draws } = fakeDrawContext()
+    drawLayerSource(context, source, undefined, 320, 180, drawRect)
+    expect(draws).toEqual([[40, 20, 160, 90]])
+  })
+
+  it('a single cropped edge maps to the kept source rectangle', () => {
+    const { context, draws } = fakeDrawContext()
+    drawLayerSource(context, source, { left: 0.25 }, 320, 180, drawRect)
+    // Left quarter trimmed from a 320×180 source: the draw starts 80px in
+    // and spans the remaining 240px, into the whole destination box.
+    expect(draws).toEqual([[80, 0, 240, 180, 40, 20, 160, 90]])
+  })
+
+  it('a vertical edge maps to the vertical axis', () => {
+    const { context, draws } = fakeDrawContext()
+    drawLayerSource(context, source, { top: 0.5 }, 320, 180, drawRect)
+    expect(draws).toEqual([[0, 90, 320, 90, 40, 20, 160, 90]])
+  })
+
+  it('combined edges intersect into one kept rectangle', () => {
+    const { context, draws } = fakeDrawContext()
+    drawLayerSource(
+      context,
+      source,
+      { left: 0.1, right: 0.2, top: 0.25, bottom: 0.25 },
+      320,
+      180,
+      drawRect,
+    )
+    expect(draws).toEqual([[32, 45, 224, 90, 40, 20, 160, 90]])
+  })
+
+  it('composes with orientation: the kept rect draws into the transposed box (#255 order)', () => {
+    const { context, draws, calls } = fakeDrawContext()
+    withLayerOrientation(context, { rotation: 90 }, drawRect, (rect) => {
+      drawLayerSource(context, source, { left: 0.5 }, 320, 180, rect)
+    })
+    // Crop selects the source content (the right half, in source pixels);
+    // the quarter turn then rotates that kept region — the draw box is the
+    // transposed one withLayerOrientation supplies, the source rect the
+    // crop's, independent of the rotation.
+    expect(calls).toEqual(['save', 'translate(120, 65)', 'rotate(90)', 'draw', 'restore'])
+    expect(draws).toEqual([[160, 0, 160, 180, -45, -80, 90, 160]])
   })
 })

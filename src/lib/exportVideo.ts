@@ -36,6 +36,8 @@ import {
 } from './gain'
 import { orientationTransform, orientedDimensions } from './orientation'
 import type { Orientation } from './orientation'
+import { croppedDimensions, cropSourceRect } from './crop'
+import type { Crop } from './crop'
 import { transitionLayerSpec } from './transitionRender'
 import { outputFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -431,6 +433,41 @@ export function withLayerOrientation(
 }
 
 /**
+ * Draws a layer's source pixels into `drawRect`, honoring the layer's crop
+ * (#256): a cropped layer draws only its kept source rectangle
+ * (`cropSourceRect` — the shared rule from #255, the same geometry the
+ * preview clips to), scaled to fill the destination box, whose shape the
+ * cropped dimensions already determined upstream of the fit. A crop-free
+ * layer keeps the 5-argument draw, so its calls are byte-for-byte the
+ * pre-#256 ones.
+ */
+export function drawLayerSource(
+  context: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  crop: Crop | undefined,
+  sourceWidth: number,
+  sourceHeight: number,
+  drawRect: FitRect,
+): void {
+  if (crop === undefined) {
+    context.drawImage(source, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+    return
+  }
+  const src = cropSourceRect(crop, { width: sourceWidth, height: sourceHeight })
+  context.drawImage(
+    source,
+    src.x,
+    src.y,
+    src.width,
+    src.height,
+    drawRect.x,
+    drawRect.y,
+    drawRect.width,
+    drawRect.height,
+  )
+}
+
+/**
  * One layer of a composited frame: what to draw (a playing <video> replay
  * or a still's <img>, #140), its intrinsic size, and the layer's current
  * source-clip time (the element clock for video, the export's wall clock
@@ -455,7 +492,7 @@ export interface OverlayFrame {
 /**
  * The single-frame composition, factored (#237): everything that turns "the
  * timeline at a sequence time, with these decoded sources" into pixels on
- * the shared canvas — base layer fit/zoom/orientation/color, transition
+ * the shared canvas — base layer fit/zoom/crop/orientation/color, transition
  * compositing, overlay video layers, text. `exportTimeline` builds one for
  * its real-time loop and the frame snapshot (`frameSnapshot.ts`) builds one
  * for a single instant, so the two can never re-derive composition
@@ -547,8 +584,12 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // below rotates/flips the source pixels into that box, exactly the
     // preview's card/media split (#232). Slates never carry one (#232).
     const outgoingOrientation = timeline.entries[entryIndex]?.orientation
+    // The entry's crop (#256): the fit sees the kept region's shape — crop
+    // before orientation, the shared rule's fixed order (#255) — and the
+    // draw below paints only the kept source rectangle into that box.
+    const outgoingCrop = timeline.entries[entryIndex]?.crop
     const outgoingDims = orientedDimensions(
-      { width: layer.sourceWidth, height: layer.sourceHeight },
+      croppedDimensions({ width: layer.sourceWidth, height: layer.sourceHeight }, outgoingCrop),
       outgoingOrientation,
     )
     const rect = fitRect(outgoingDims.width, outgoingDims.height, width, height)
@@ -579,15 +620,27 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           height: dest.height,
         },
         (drawRect) => {
-          context.drawImage(layer.source, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+          drawLayerSource(
+            context,
+            layer.source,
+            outgoingCrop,
+            layer.sourceWidth,
+            layer.sourceHeight,
+            drawRect,
+          )
         },
       )
     })
     if (overlay !== null && spec !== null) {
-      // The incoming entry's orientation (#233), exactly as the outgoing's.
+      // The incoming entry's orientation (#233) and crop (#256), exactly as
+      // the outgoing's.
       const incomingOrientation = timeline.entries[overlay.index]?.orientation
+      const incomingCrop = timeline.entries[overlay.index]?.crop
       const incomingDims = orientedDimensions(
-        { width: overlay.layer.sourceWidth, height: overlay.layer.sourceHeight },
+        croppedDimensions(
+          { width: overlay.layer.sourceWidth, height: overlay.layer.sourceHeight },
+          incomingCrop,
+        ),
         incomingOrientation,
       )
       const incoming = fitRect(incomingDims.width, incomingDims.height, width, height)
@@ -702,12 +755,13 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             height: incomingDest.height,
           },
           (drawRect) => {
-            context.drawImage(
+            drawLayerSource(
+              context,
               overlay.layer.source,
-              drawRect.x,
-              drawRect.y,
-              drawRect.width,
-              drawRect.height,
+              incomingCrop,
+              overlay.layer.sourceWidth,
+              overlay.layer.sourceHeight,
+              drawRect,
             )
           },
         )
@@ -739,8 +793,13 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // The overlay's orientation (#233): the oriented shape letterboxes
         // within the placement rectangle — the preview's swapped media box
         // at rectangle scale — and the draw rotates/flips into that box.
+        // Its crop (#256) shapes the box first, crop before orientation
+        // (#255), and the draw paints only the kept source rectangle.
         const layerDims = orientedDimensions(
-          { width: element.videoWidth, height: element.videoHeight },
+          croppedDimensions(
+            { width: element.videoWidth, height: element.videoHeight },
+            layer.crop,
+          ),
           layer.orientation,
         )
         const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
@@ -748,7 +807,14 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // base layers' — exactly the preview's per-element filter (#192).
         withLayerColorFilter(context, layer.colorAdjustments, () => {
           withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
-            context.drawImage(element, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+            drawLayerSource(
+              context,
+              element,
+              layer.crop,
+              element.videoWidth,
+              element.videoHeight,
+              drawRect,
+            )
           })
         })
       }
@@ -1419,8 +1485,9 @@ export async function exportTimeline(
   // Slates (#143) have no media at all: nothing to load, no intrinsic size —
   // they fill whatever frame the real sources (or the fallback) decide.
   // Dimensions are probed once per URL but contributed once per *entry*,
-  // oriented (#232/#233): a quarter-turned entry presents swapped
-  // dimensions to the frame rule, exactly as the preview computes its stage.
+  // cropped (#255/#256) then oriented (#232/#233): a cropped entry presents
+  // its kept region and a quarter-turned entry swapped dimensions to the
+  // frame rule, exactly as the preview computes its stage.
   const urlDims = new Map<string, SourceDimensions>()
   try {
     for (const url of new Set(
@@ -1460,7 +1527,9 @@ export async function exportTimeline(
   const sourceDims = entries.flatMap((entry) => {
     if (isSlateEntry(entry)) return []
     const dims = urlDims.get(entry.url)
-    return dims === undefined ? [] : [orientedDimensions(dims, entry.orientation)]
+    return dims === undefined
+      ? []
+      : [orientedDimensions(croppedDimensions(dims, entry.crop), entry.orientation)]
   })
   const { width, height } = options.frame ?? outputFrameSize(sourceDims)
 
