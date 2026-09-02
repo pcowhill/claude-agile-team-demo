@@ -1,4 +1,6 @@
 import type { ColorAdjustments } from './colorAdjustments'
+import type { Orientation } from './orientation'
+import { isValidOrientation, normalizeOrientation, orientationsEqual } from './orientation'
 import {
   colorAdjustmentsEqual,
   isValidColorAdjustments,
@@ -90,6 +92,15 @@ export interface TimelineEntry {
    * intended color two competing ways.
    */
   colorAdjustments?: ColorAdjustments
+  /**
+   * Orientation of a video/image entry (#232): quarter-turn rotation and
+   * horizontal/vertical flips, exactly the `colorAdjustments` shape — absent
+   * behaves as identity (as shot), so pre-#232 states and files stay valid;
+   * present exactly when non-identity (the reducer normalizes — see
+   * `normalizeOrientation`). Slates carry none: a flat color has no
+   * orientation, exactly as it has no color adjustments.
+   */
+  orientation?: Orientation
 }
 
 /**
@@ -417,6 +428,19 @@ export type TimelineAction =
       adjustments: ColorAdjustments
     }
   | { type: 'video-overlay-color-set'; id: string; adjustments: ColorAdjustments }
+  | {
+      /**
+       * Sets a video/image entry's orientation whole (#232), the
+       * `entry-color-set` idiom: the action carries the full orientation
+       * (absent fields = identity) and the reducer stores the normalized
+       * form — identity normalizes to no `orientation` key at all, so `{}`
+       * is the "reset" action.
+       */
+      type: 'entry-orient-set'
+      id: string
+      orientation: Orientation
+    }
+  | { type: 'video-overlay-orient-set'; id: string; orientation: Orientation }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
 
@@ -1435,6 +1459,42 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       const next = { ...overlay }
       if (normalized === undefined) delete next.colorAdjustments
       else next.colorAdjustments = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'entry-orient-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no orientation (#232): a flat color has no sideways,
+      // exactly as they carry no color adjustments (#192).
+      if (isSlateEntry(entry)) return state
+      if (!isValidOrientation(action.orientation)) return state
+      const normalized = normalizeOrientation(action.orientation)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same state — or resetting an untouched entry — is
+      // a no-op, not an edit (edits stop preview playback).
+      if (orientationsEqual(normalized, entry.orientation)) return state
+      const entries = [...state.entries]
+      // Identity means no key at all, never `{}` — what keeps
+      // orientation-free saved files byte-identical (see orientation.ts).
+      const next = { ...entry }
+      if (normalized === undefined) delete next.orientation
+      else next.orientation = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'video-overlay-orient-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!isValidOrientation(action.orientation)) return state
+      const normalized = normalizeOrientation(action.orientation)
+      if (orientationsEqual(normalized, overlay.orientation)) return state
+      const overlays = [...videoOverlays]
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.orientation
+      else next.orientation = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

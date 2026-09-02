@@ -12,11 +12,13 @@ import fixtureV5SlateEmbeddedBase64 from './fixtures/project-v5-slate-embedded.b
 import fixtureV6PluginsReferencesBase64 from './fixtures/project-v6-plugins-references.bvep.base64?raw'
 import fixtureV7ColorReferencesBase64 from './fixtures/project-v7-color-adjustments-references.bvep.base64?raw'
 import fixtureV8FadesReferencesBase64 from './fixtures/project-v8-audio-fades-references.bvep.base64?raw'
+import fixtureV9OrientationReferencesBase64 from './fixtures/project-v9-orientation-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
+  ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
   IMAGE_ENTRIES_SCHEMA_VERSION,
   IMAGES_SCHEMA_VERSION,
@@ -1010,8 +1012,9 @@ describe('project file versioning', () => {
     // version 4 added images on the timeline (#140); version 5 added color
     // slates (#143); version 6 added plugin dependencies (#197); version 7
     // added per-clip color adjustments (#192); version 8 added entry and
-    // overlay audio fades (#220).
-    expect(PROJECT_SCHEMA_VERSION).toBe(8)
+    // overlay audio fades (#220); version 9 added entry and overlay
+    // orientation (#232).
+    expect(PROJECT_SCHEMA_VERSION).toBe(9)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1020,6 +1023,7 @@ describe('project file versioning', () => {
     expect(PLUGINS_SCHEMA_VERSION).toBe(6)
     expect(COLOR_ADJUSTMENTS_SCHEMA_VERSION).toBe(7)
     expect(AUDIO_FADES_SCHEMA_VERSION).toBe(8)
+    expect(ORIENTATION_SCHEMA_VERSION).toBe(9)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2207,6 +2211,197 @@ describe('entry and overlay audio fades in project files (#220, schema version 8
               id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
               offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
               fadeIn: 0.75,
+            },
+          ],
+        },
+      },
+    })
+  })
+})
+
+describe('entry and overlay orientation in project files (#232, schema version 9)', () => {
+  const orientedTimeline = (): TimelineState => ({
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], orientation: { rotation: 90, flipH: true } },
+      ...timeline.entries.slice(1),
+    ],
+  })
+  const overlayOrientedTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        orientation: { rotation: 180 },
+      },
+    ],
+  })
+
+  it('writes version 9 with the orientation exactly when any exists, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, orientedTimeline()))
+    expect(references.schemaVersion).toBe(ORIENTATION_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const embedded = await gunzipJson(
+      await serializeProject(library, orientedTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(ORIENTATION_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+    // An oriented overlay alone forces version 9 too.
+    const overlayOnly = await gunzipJson(await serializeProject(library, overlayOrientedTimeline()))
+    expect(overlayOnly.schemaVersion).toBe(ORIENTATION_SCHEMA_VERSION)
+  })
+
+  it('an orientation-free project stays byte-identical to earlier output', async () => {
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('orientation')
+  })
+
+  it('audio fades without orientation stay at version 8 — the chain orders by newest feature', async () => {
+    const faded: TimelineState = {
+      ...timeline,
+      entries: [{ ...timeline.entries[0], fadeIn: 1 }, ...timeline.entries.slice(1)],
+    }
+    const document = await gunzipJson(await serializeProject(library, faded))
+    expect(document.schemaVersion).toBe(AUDIO_FADES_SCHEMA_VERSION)
+  })
+
+  it('round-trips orientation on entries and overlays', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, {
+        ...orientedTimeline(),
+        videoOverlays: overlayOrientedTimeline().videoOverlays,
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].orientation).toEqual({
+        rotation: 90,
+        flipH: true,
+      })
+      expect(result.project.timeline.entries[1].orientation).toBeUndefined()
+      expect(result.project.timeline.videoOverlays?.[0].orientation).toEqual({ rotation: 180 })
+    }
+  })
+
+  it('pre-#232 files (and orientation-free files since) open unoriented', async () => {
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(
+        result.project.timeline.entries.every((entry) => entry.orientation === undefined),
+      ).toBe(true)
+    }
+  })
+
+  it("normalizes a foreign writer's identity-only orientation away", async () => {
+    const document = validDocument()
+    ;(document.timeline.entries[0] as Record<string, unknown>).orientation = {
+      flipH: false,
+      flipV: false,
+    }
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.entries[0].orientation).toBeUndefined()
+  })
+
+  it('refuses malformed orientation by name', async () => {
+    const angle = validDocument()
+    ;(angle.timeline.entries[0] as Record<string, unknown>).orientation = { rotation: 45 }
+    await expectRefusal(
+      await gzipJson(angle),
+      'timeline.entries[0].orientation.rotation must be one of 90, 180, 270',
+    )
+
+    const flip = validDocument()
+    ;(flip.timeline.entries[0] as Record<string, unknown>).orientation = { flipH: 'yes' }
+    await expectRefusal(
+      await gzipJson(flip),
+      'timeline.entries[0].orientation.flipH must be a boolean',
+    )
+  })
+
+  it('refuses orientation on slate entries — a flat color has no sideways', async () => {
+    const slate = validDocument()
+    ;(slate.timeline.entries as Record<string, unknown>[]).push({
+      id: 's1',
+      name: 'Color slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      color: '#ff0000',
+      orientation: { rotation: 90 },
+    })
+    await expectRefusal(await gzipJson(slate), 'slate entry', 'video and image entries only')
+  })
+
+  it('accepts orientation on image entries — a sideways photo is the use case', async () => {
+    const document = validDocument()
+    ;(document.clips as unknown as Record<string, unknown>[]).push({
+      id: 'c3',
+      name: 'photo.png',
+      duration: 0,
+      kind: 'image',
+    })
+    ;(document.timeline.entries as Record<string, unknown>[]).push({
+      id: 'e4',
+      clipId: 'c3',
+      name: 'photo.png',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      kind: 'image',
+      orientation: { rotation: 270, flipV: true },
+    })
+    ;(document as Record<string, unknown>).schemaVersion = ORIENTATION_SCHEMA_VERSION
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[3].orientation).toEqual({
+        rotation: 270,
+        flipV: true,
+      })
+    }
+  })
+
+  it('refuses malformed overlay orientation by name', async () => {
+    const document = validDocument()
+    ;(document.timeline as unknown as Record<string, unknown>).videoOverlays = [
+      {
+        id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+        offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+        orientation: { rotation: 'sideways' },
+      },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.videoOverlays[0].orientation.rotation')
+  })
+
+  it('deserializes the committed v9 orientation fixture (#232)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced orientation keep opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV9OrientationReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: [
+            { ...expectedProject.timeline.entries[0], orientation: { rotation: 90, flipH: true } },
+            expectedProject.timeline.entries[1],
+          ],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+          zooms: [],
+          audioTracks: [],
+          videoOverlays: [
+            {
+              id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
+              offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+              orientation: { rotation: 180 },
             },
           ],
         },

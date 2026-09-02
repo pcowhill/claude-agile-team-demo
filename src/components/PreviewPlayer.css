@@ -80,6 +80,22 @@
   object-fit: contain;
 }
 
+/* The media element inside a layer card (#232): fills its card and
+   letterboxes within it exactly as the card itself did when it was the
+   media element. The card (a .preview-video or .preview-overlay-video div)
+   carries the transition/zoom styling and the overlay rectangle; the media
+   inside carries the clip's own looks — color filter (#192) and
+   orientation (#232), whose quarter turns swap this box to the card's
+   transposed rectangle via inline styles. */
+.preview-media {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 /* During a transition the incoming clip renders on top of the outgoing one,
    styled per-frame (opacity for crossfade, transform for slide). */
 .preview-video-incoming {

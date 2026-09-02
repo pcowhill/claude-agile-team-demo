@@ -29,6 +29,8 @@ import {
 import type { TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
+import type { Orientation, OrientationRotation } from './orientation'
+import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -36,7 +38,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, // integer; bumped on breaking change
+ *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -47,7 +49,8 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *       "entries": [{ id, clipId, name, duration, inPoint, outPoint,
  *                     volume?, muted?, fadeIn?, fadeOut?,        // (#220)
  *                     colorAdjustments?: { brightness?, contrast?,
- *                       saturation?, look? } }],                 // (#192)
+ *                       saturation?, look? },                    // (#192)
+ *                     orientation?: { rotation?, flipH?, flipV? } }], // (#232)
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
@@ -61,7 +64,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
  *                           outPoint, x, y, width, height, volume?, muted?,
  *                           fadeIn?, fadeOut?,                    // (#220)
- *                           colorAdjustments? }]                  // (#145, #192)
+ *                           colorAdjustments?, orientation? }]    // (#145, #192, #232)
  *     }
  *   }
  *
@@ -132,6 +135,15 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 9 (#232) marks that a sequence entry or a video overlay
+ * carries an orientation: an optional `orientation` object with `rotation`
+ * (90 | 180 | 270 — 0 is expressed by absence) and boolean `flipH`/`flipV`
+ * (present exactly when true; see orientation.ts). Written exactly when any
+ * orientation exists, so orientation-free projects stay byte-identical to
+ * earlier output and older builds route oriented files to the "saved by a
+ * newer version" refusal instead of opening them silently unrotated. The
+ * media section's presence keeps distinguishing the save modes.
+ *
  * Schema version 4 (#140) marks that the *timeline* places still images:
  * a sequence entry may reference an image clip, showing it for the entry's
  * `duration` (equal to its `outPoint`; a still has no source trim). The
@@ -151,7 +163,7 @@ import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 8
+export const PROJECT_SCHEMA_VERSION = 9
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -168,6 +180,8 @@ export const PLUGINS_SCHEMA_VERSION = 6
 export const COLOR_ADJUSTMENTS_SCHEMA_VERSION = 7
 /** The version any entry/overlay audio fade forces, whichever the save mode (#220). */
 export const AUDIO_FADES_SCHEMA_VERSION = 8
+/** The version any entry/overlay orientation forces, whichever the save mode (#232). */
+export const ORIENTATION_SCHEMA_VERSION = 9
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -300,6 +314,20 @@ function storedColorAdjustments({
 }
 
 /**
+ * An orientation as stored (#232): fixed key order (rotation, flipH,
+ * flipV), present fields only, so the same orientation always serializes to
+ * the same bytes. The state is already normalized (no identity fields — see
+ * orientation.ts); this only fixes the order.
+ */
+function storedOrientation({ rotation, flipH, flipV }: Orientation): Orientation {
+  return {
+    ...(rotation === undefined ? {} : { rotation }),
+    ...(flipH === undefined ? {} : { flipH }),
+    ...(flipV === undefined ? {} : { flipV }),
+  }
+}
+
+/**
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
@@ -361,12 +389,16 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // An entry/overlay audio fade forces version 8 (#220), a color adjustment
-  // version 7 (#192), a plugin dependency version 6 (#197), a color slate
-  // version 5 (#143), an image on the timeline version 4 (#140), an image
-  // merely in the library version 3 (#137), whichever the save mode;
-  // otherwise the mode alone decides, exactly as before images existed.
+  // An entry/overlay orientation forces version 9 (#232), an entry/overlay
+  // audio fade version 8 (#220), a color adjustment version 7 (#192), a
+  // plugin dependency version 6 (#197), a color slate version 5 (#143), an
+  // image on the timeline version 4 (#140), an image merely in the library
+  // version 3 (#137), whichever the save mode; otherwise the mode alone
+  // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasOrientation =
+    timeline.entries.some((entry) => entry.orientation !== undefined) ||
+    videoOverlaysOf(timeline).some((overlay) => overlay.orientation !== undefined)
   const hasAudioFades =
     timeline.entries.some((entry) => entry.fadeIn !== undefined || entry.fadeOut !== undefined) ||
     videoOverlaysOf(timeline).some(
@@ -382,9 +414,11 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasAudioFades
-      ? AUDIO_FADES_SCHEMA_VERSION
-      : hasColorAdjustments
+    schemaVersion: hasOrientation
+      ? ORIENTATION_SCHEMA_VERSION
+      : hasAudioFades
+        ? AUDIO_FADES_SCHEMA_VERSION
+        : hasColorAdjustments
         ? COLOR_ADJUSTMENTS_SCHEMA_VERSION
         : plugins.length > 0
         ? PLUGINS_SCHEMA_VERSION
@@ -435,7 +469,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -456,6 +490,10 @@ export async function serializeProject(
           ...(colorAdjustments === undefined
             ? {}
             : { colorAdjustments: storedColorAdjustments(colorAdjustments) }),
+          // Orientation (#232) is written only when present — normalized
+          // state has no identity key, so unoriented projects stay
+          // byte-identical to earlier output.
+          ...(orientation === undefined ? {} : { orientation: storedOrientation(orientation) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -549,7 +587,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments }) => ({
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation }) => ({
                 id,
                 clipId,
                 name,
@@ -570,6 +608,9 @@ export async function serializeProject(
                 ...(colorAdjustments === undefined
                   ? {}
                   : { colorAdjustments: storedColorAdjustments(colorAdjustments) }),
+                ...(orientation === undefined
+                  ? {}
+                  : { orientation: storedOrientation(orientation) }),
               }),
             ),
           }),
@@ -722,6 +763,32 @@ const asColorAdjustments = (value: unknown, path: string): ColorAdjustments | un
   return normalizeColorAdjustments(adjustments)
 }
 
+/**
+ * A stored orientation (#232): a present rotation must be one of the
+ * quarter turns (0 is expressed by absence) and present flips booleans;
+ * anything else is refused by name — the states are discrete, so unlike a
+ * dial there is nothing to clamp. A `false` flip from a foreign writer is
+ * meaningless rather than wrong and normalizes away, exactly as an identity
+ * dial does. An all-identity object returns undefined: the caller stores no
+ * key.
+ */
+const asOrientation = (value: unknown, path: string): Orientation | undefined => {
+  const raw = asRecord(value, path)
+  const orientation: Orientation = {}
+  if (raw.rotation !== undefined) {
+    const rotation = asFinite(raw.rotation, `${path}.rotation`)
+    if (!(ORIENTATION_ROTATIONS as readonly number[]).includes(rotation)) {
+      throw new Error(
+        `${path}.rotation must be one of ${ORIENTATION_ROTATIONS.join(', ')} (0 is expressed by omitting it)`,
+      )
+    }
+    orientation.rotation = rotation as OrientationRotation
+  }
+  if (raw.flipH !== undefined) orientation.flipH = asBoolean(raw.flipH, `${path}.flipH`)
+  if (raw.flipV !== undefined) orientation.flipV = asBoolean(raw.flipV, `${path}.flipV`)
+  return normalizeOrientation(orientation)
+}
+
 function validateProject(document: Record<string, unknown>): Project {
   // Plugin dependencies (#197): absent in files saved before them, and in
   // plugin-free files since. Validated whatever the version — within a known
@@ -853,6 +920,19 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const adjustments = asColorAdjustments(raw.colorAdjustments, `${path}.colorAdjustments`)
       if (adjustments !== undefined) entry.colorAdjustments = adjustments
+    }
+    // Orientation (#232): absent in files saved before it, and on every
+    // unoriented entry since, meaning as shot.
+    if (raw.orientation !== undefined) {
+      if (entry.kind === 'slate') {
+        // A flat color has no sideways: an oriented slate could only come
+        // from a foreign writer.
+        throw new Error(
+          `${path}.orientation is set on a slate entry, but orientation applies to video and image entries only`,
+        )
+      }
+      const orientation = asOrientation(raw.orientation, `${path}.orientation`)
+      if (orientation !== undefined) entry.orientation = orientation
     }
     return entry
   })
@@ -1149,6 +1229,11 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.colorAdjustments !== undefined) {
         const adjustments = asColorAdjustments(raw.colorAdjustments, `${path}.colorAdjustments`)
         if (adjustments !== undefined) overlay.colorAdjustments = adjustments
+      }
+      // Orientation (#232), exactly as on a sequence entry.
+      if (raw.orientation !== undefined) {
+        const orientation = asOrientation(raw.orientation, `${path}.orientation`)
+        if (orientation !== undefined) overlay.orientation = orientation
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

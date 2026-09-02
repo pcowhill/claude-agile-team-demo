@@ -17,6 +17,7 @@ import {
   COLOR_ADJUSTMENT_MAX,
   COLOR_ADJUSTMENT_MIN,
 } from '../lib/colorAdjustments'
+import type { Orientation } from '../lib/orientation'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -85,6 +86,9 @@ interface TimelineProps {
   /** Sets a video/image entry's color adjustments whole (#192); `{}` resets. */
   onSetEntryColor: (id: string, adjustments: ColorAdjustments) => void
   onSetVideoOverlayColor: (id: string, adjustments: ColorAdjustments) => void
+  /** Sets a video/image entry's orientation whole (#232); `{}` resets. */
+  onSetEntryOrientation: (id: string, orientation: Orientation) => void
+  onSetVideoOverlayOrientation: (id: string, orientation: Orientation) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
 }
@@ -351,6 +355,78 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
   )
 }
 
+interface OrientationControlsProps {
+  /** The accessible name of the row's owner (entry or overlay). */
+  position: string
+  orientation: Orientation | undefined
+  /** Receives the full orientation on every edit; `{}` is the reset (#232). */
+  onCommit: (orientation: Orientation) => void
+}
+
+/**
+ * Per-entry orientation controls (#232): a rotate button cycling the
+ * quarter turns (0° → 90° → 180° → 270° → 0°), flip toggles, and a reset —
+ * one row in the per-entry-controls idiom, shared by video/image sequence
+ * entries and video overlays (slates carry no orientation; a flat color has
+ * no sideways). Every edit commits the full orientation; the reducer
+ * normalizes (identity fields drop away, so Reset — committing `{}` —
+ * returns the item to its stored-key-free identity).
+ */
+function OrientationControls({ position, orientation, onCommit }: OrientationControlsProps) {
+  const rotation = orientation?.rotation ?? 0
+  const flipH = orientation?.flipH ?? false
+  const flipV = orientation?.flipV ?? false
+  const commit = (change: Orientation) => {
+    const next = { rotation: orientation?.rotation, flipH, flipV, ...change }
+    onCommit({
+      ...(next.rotation === undefined ? {} : { rotation: next.rotation }),
+      flipH: next.flipH,
+      flipV: next.flipV,
+    })
+  }
+  return (
+    <div className="timeline-entry-color">
+      <span>Orientation</span>
+      <button
+        type="button"
+        aria-label={`Rotate ${position} 90 degrees clockwise (currently ${rotation} degrees)`}
+        onClick={() => {
+          const turned = (rotation + 90) % 360
+          commit({ rotation: turned === 0 ? undefined : (turned as 90 | 180 | 270) })
+        }}
+      >
+        Rotate {rotation}°
+      </button>
+      <label>
+        <input
+          type="checkbox"
+          aria-label={`Flip ${position} horizontally`}
+          checked={flipH}
+          onChange={(event) => commit({ flipH: event.target.checked })}
+        />
+        Flip H
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          aria-label={`Flip ${position} vertically`}
+          checked={flipV}
+          onChange={(event) => commit({ flipV: event.target.checked })}
+        />
+        Flip V
+      </label>
+      <button
+        type="button"
+        aria-label={`Reset orientation of ${position}`}
+        disabled={orientation === undefined}
+        onClick={() => onCommit({})}
+      >
+        Reset
+      </button>
+    </div>
+  )
+}
+
 export function Timeline({
   timeline,
   canUndo,
@@ -384,6 +460,8 @@ export function Timeline({
   onSetEntryFades,
   onSetEntryColor,
   onSetVideoOverlayColor,
+  onSetEntryOrientation,
+  onSetVideoOverlayOrientation,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
 }: TimelineProps) {
@@ -689,6 +767,15 @@ export function Timeline({
                     position={position}
                     adjustments={entry.colorAdjustments}
                     onCommit={(adjustments) => onSetEntryColor(entry.id, adjustments)}
+                  />
+                )}
+                {/* Orientation (#232): video and image entries; a slate has
+                    no sideways, exactly as it has no color adjustments. */}
+                {!isSlateEntry(entry) && (
+                  <OrientationControls
+                    position={position}
+                    orientation={entry.orientation}
+                    onCommit={(orientation) => onSetEntryOrientation(entry.id, orientation)}
                   />
                 )}
                 {(() => {
@@ -1237,6 +1324,12 @@ export function Timeline({
                     position={position}
                     adjustments={overlay.colorAdjustments}
                     onCommit={(adjustments) => onSetVideoOverlayColor(overlay.id, adjustments)}
+                  />
+                  {/* Orientation (#232), exactly as on a sequence entry. */}
+                  <OrientationControls
+                    position={position}
+                    orientation={overlay.orientation}
+                    onCommit={(orientation) => onSetVideoOverlayOrientation(overlay.id, orientation)}
                   />
                 </li>
               )

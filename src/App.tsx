@@ -358,6 +358,12 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetVideoOverlayColor={(id, adjustments) =>
             dispatchTimeline({ type: 'video-overlay-color-set', id, adjustments })
           }
+          onSetEntryOrientation={(id, orientation) =>
+            dispatchTimeline({ type: 'entry-orient-set', id, orientation })
+          }
+          onSetVideoOverlayOrientation={(id, orientation) =>
+            dispatchTimeline({ type: 'video-overlay-orient-set', id, orientation })
+          }
           onSetAudioTrackVolume={(id, volume) =>
             dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
           }

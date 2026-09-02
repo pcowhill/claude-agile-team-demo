@@ -1,5 +1,7 @@
 import type { ColorAdjustments } from './colorAdjustments'
 import { colorAdjustmentsEqual } from './colorAdjustments'
+import type { Orientation } from './orientation'
+import { orientationsEqual } from './orientation'
 import type { LibraryClip } from './mediaLibrary'
 
 /**
@@ -79,6 +81,13 @@ export interface VideoOverlay {
    * which `video-overlay-updated` edits).
    */
   colorAdjustments?: ColorAdjustments
+  /**
+   * Orientation (#232), exactly as on a sequence entry: absent behaves as
+   * identity, present exactly when non-identity (normalized by the
+   * `video-overlay-orient-set` reducer case — not part of the placement,
+   * which `video-overlay-updated` edits).
+   */
+  orientation?: Orientation
 }
 
 /**
@@ -223,6 +232,7 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     a.muted === b.muted &&
     a.fadeIn === b.fadeIn &&
     a.fadeOut === b.fadeOut &&
-    colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments)
+    colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments) &&
+    orientationsEqual(a.orientation, b.orientation)
   )
 }

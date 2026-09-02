@@ -206,9 +206,11 @@ describe('PreviewPlayer', () => {
     // Outside the overlap: only the primary element is exposed.
     expect(screen.queryByTestId('preview-video-incoming')).not.toBeInTheDocument()
 
-    // Sequence 3.5 is halfway through the 1s crossfade.
+    // Sequence 3.5 is halfway through the 1s crossfade. Transition styles
+    // live on the layer cards (#232); the media elements inside carry only
+    // the clip's own looks.
     fireEvent.change(slider, { target: { value: '3.5' } })
-    const incoming = screen.getByTestId('preview-video-incoming')
+    const incoming = screen.getByTestId('preview-video-incoming-card')
     expect(incoming).toHaveStyle({ opacity: '0.5' })
     // The incoming layer ADDS to the outgoing one (a true dissolve), and the
     // outgoing element fades to the stage's black at 1 − progress — so
@@ -217,7 +219,7 @@ describe('PreviewPlayer', () => {
     // No backing on a crossfade's incoming element: the additive blend needs
     // its fitted box's surroundings to stay empty (#74).
     expect(incoming).not.toHaveStyle({ backgroundColor: '#000' })
-    expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '0.5' })
+    expect(screen.getByTestId('preview-video-card')).toHaveStyle({ opacity: '0.5' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm → second.webm (crossfade)',
     )
@@ -225,7 +227,7 @@ describe('PreviewPlayer', () => {
     // Seeking back out returns to single-clip rendering at full opacity.
     fireEvent.change(slider, { target: { value: '1' } })
     expect(screen.queryByTestId('preview-video-incoming')).not.toBeInTheDocument()
-    expect(screen.getByTestId('preview-video')).not.toHaveStyle({ opacity: '0.5' })
+    expect(screen.getByTestId('preview-video-card')).not.toHaveStyle({ opacity: '0.5' })
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm',
     )
@@ -252,7 +254,7 @@ describe('PreviewPlayer', () => {
       fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
         target: { value: '3.25' },
       })
-      const incoming = screen.getByTestId('preview-video-incoming')
+      const incoming = screen.getByTestId('preview-video-incoming-card')
       expect(incoming).toHaveStyle({ transform })
       // Slides keep both layers opaque and non-blended; the incoming element
       // is a full-frame card with its own black backing, so the areas its
@@ -260,7 +262,7 @@ describe('PreviewPlayer', () => {
       // decision on #67).
       expect(incoming).toHaveStyle({ opacity: '1' })
       expect(incoming).toHaveStyle({ backgroundColor: '#000' })
-      expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '1' })
+      expect(screen.getByTestId('preview-video-card')).toHaveStyle({ opacity: '1' })
       expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(label)
     })
   }
@@ -322,7 +324,7 @@ describe('PreviewPlayer', () => {
       expect(screen.queryByTestId('preview-video-incoming')).not.toBeInTheDocument()
 
       fireEvent.change(slider, { target: { value: '7.5' } })
-      expect(screen.getByTestId('preview-video-incoming')).toHaveStyle({ opacity: '0.5' })
+      expect(screen.getByTestId('preview-video-incoming-card')).toHaveStyle({ opacity: '0.5' })
       expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
         'Clip 1 of 2: first.webm → second.webm (crossfade)',
       )
@@ -359,7 +361,7 @@ describe('PreviewPlayer', () => {
 
     it('renders no zoom styling outside the window and full zoom during the hold', () => {
       render(<PreviewPlayer timeline={withZoomOnFirst} />)
-      const video = screen.getByTestId('preview-video')
+      const video = screen.getByTestId('preview-video-card')
 
       seekTo('0.5')
       expect(video.style.transform).toBe('')
@@ -375,7 +377,7 @@ describe('PreviewPlayer', () => {
 
     it('renders the eased intermediate magnification inside the ramps', () => {
       render(<PreviewPlayer timeline={withZoomOnFirst} />)
-      const video = screen.getByTestId('preview-video')
+      const video = screen.getByTestId('preview-video-card')
 
       // Ramp-in midpoint: g = smoothstep(0.5) = 0.5, so scale 1.5 and the
       // centre halfway from 0.5 to 0.25 — exactly zoomAt's output.
@@ -425,14 +427,14 @@ describe('PreviewPlayer', () => {
       seekTo('3.25')
 
       // Outgoing: zoom only (transitions never transform the primary).
-      const outgoing = screen.getByTestId('preview-video')
+      const outgoing = screen.getByTestId('preview-video-card')
       expect(outgoing.style.transform).toBe('scale(2) translate(-25%, 0%)')
       expect(outgoing).toHaveStyle({ opacity: '1' })
 
       // Incoming: the slide's card translate composes with the zoom, in
       // card-then-zoom order, and the #74 backing plus clip keep the card
       // covering exactly its slice of the stage.
-      const incoming = screen.getByTestId('preview-video-incoming')
+      const incoming = screen.getByTestId('preview-video-incoming-card')
       expect(incoming.style.transform).toBe('translate(-75%, 0%) scale(2) translate(0%, 25%)')
       expect(incoming.style.clipPath).toBe('inset(0% 25% 50% 25%)')
       expect(incoming).toHaveStyle({ backgroundColor: '#000' })
@@ -781,7 +783,10 @@ describe('PreviewPlayer', () => {
       render(<PreviewPlayer timeline={{ entries: [stillEntry] }} />)
       const image = screen.getByTestId('preview-image')
       expect(image).toHaveAttribute('src', 'blob:logo')
-      expect(image).toHaveClass('preview-video')
+      // The image is the media inside its layer card (#232), which carries
+      // the stacked-slot class the video slots share.
+      expect(image).toHaveClass('preview-media')
+      expect(screen.getByTestId('preview-image-card')).toHaveClass('preview-video')
       // The primary video element stands idle — the still owns the slot.
       expect(screen.queryByTestId('preview-video')).not.toBeInTheDocument()
       expect(screen.getByRole('slider', { name: 'Seek within sequence' })).toHaveAttribute(
@@ -803,11 +808,11 @@ describe('PreviewPlayer', () => {
       fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
         target: { value: '3.5' },
       })
-      const incoming = screen.getByTestId('preview-image-incoming')
-      expect(incoming).toHaveAttribute('src', 'blob:logo')
+      expect(screen.getByTestId('preview-image-incoming')).toHaveAttribute('src', 'blob:logo')
+      const incoming = screen.getByTestId('preview-image-incoming-card')
       expect(incoming).toHaveStyle({ opacity: '0.5' })
       expect(incoming).toHaveStyle({ mixBlendMode: 'plus-lighter' })
-      expect(screen.getByTestId('preview-video')).toHaveStyle({ opacity: '0.5' })
+      expect(screen.getByTestId('preview-video-card')).toHaveStyle({ opacity: '0.5' })
       expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
         'Clip 1 of 2: first.webm → logo.png (crossfade)',
       )
@@ -824,7 +829,7 @@ describe('PreviewPlayer', () => {
         target: { value: '4.25' },
       })
       expect(screen.getByTestId('preview-image')).toBeInTheDocument()
-      const incoming = screen.getByTestId('preview-video-incoming')
+      const incoming = screen.getByTestId('preview-video-incoming-card')
       expect(incoming).toHaveStyle({ transform: 'translate(-75%, 0%)' })
       expect(incoming).toHaveStyle({ backgroundColor: '#000' })
       expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
@@ -853,7 +858,7 @@ describe('PreviewPlayer', () => {
       fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
         target: { value: '2.5' },
       })
-      const image = screen.getByTestId('preview-image')
+      const image = screen.getByTestId('preview-image-card')
       expect(image.style.transform).toBe('scale(2) translate(25%, 0%)')
       expect(image.style.clipPath).toBe('inset(25% 50% 25% 0%)')
     })
@@ -895,7 +900,7 @@ describe('PreviewPlayer', () => {
           target: { value: '4.5' },
         })
         expect(screen.getByTestId('preview-slate')).toHaveStyle({ backgroundColor: '#ff0000' })
-        const incoming = screen.getByTestId('preview-video-incoming')
+        const incoming = screen.getByTestId('preview-video-incoming-card')
         expect(incoming).toHaveStyle({ opacity: '0.5' })
         expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
           'Clip 1 of 2: Color slate → first.webm (crossfade)',
@@ -1195,6 +1200,9 @@ describe('overlay video layers (#145)', () => {
 
   const overlayElement = (index: number) =>
     screen.getByTestId(`preview-overlay-${index}`) as HTMLVideoElement
+  // The overlay's card (#232): carries the fractional rectangle and the
+  // hidden state; the media element inside carries the clip's own looks.
+  const overlayCard = (index: number) => screen.getByTestId(`preview-overlay-card-${index}`)
   const seekTo = (value: string) =>
     fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
       target: { value },
@@ -1203,20 +1211,20 @@ describe('overlay video layers (#145)', () => {
 
   it('renders one element per overlay at its rectangle, hidden outside its window', () => {
     render(<PreviewPlayer timeline={withOverlays} />)
-    const element = overlayElement(0)
-    expect(element).toHaveAttribute('src', 'blob:cam')
-    expect(parseFloat(element.style.left)).toBeCloseTo(60, 10)
-    expect(parseFloat(element.style.top)).toBeCloseTo(55, 10)
-    expect(parseFloat(element.style.width)).toBeCloseTo(35, 10)
-    expect(parseFloat(element.style.height)).toBeCloseTo(40, 10)
+    expect(overlayElement(0)).toHaveAttribute('src', 'blob:cam')
+    const card = overlayCard(0)
+    expect(parseFloat(card.style.left)).toBeCloseTo(60, 10)
+    expect(parseFloat(card.style.top)).toBeCloseTo(55, 10)
+    expect(parseFloat(card.style.width)).toBeCloseTo(35, 10)
+    expect(parseFloat(card.style.height)).toBeCloseTo(40, 10)
     // Before its window: mounted (source stays loaded) but hidden.
-    expect(element.className).toContain('preview-overlay-hidden')
+    expect(card.className).toContain('preview-overlay-hidden')
 
     seekTo('3')
-    expect(overlayElement(0).className).not.toContain('preview-overlay-hidden')
+    expect(overlayCard(0).className).not.toContain('preview-overlay-hidden')
     // Half-open window end, like an audio track's.
     seekTo('4')
-    expect(overlayElement(0).className).toContain('preview-overlay-hidden')
+    expect(overlayCard(0).className).toContain('preview-overlay-hidden')
   })
 
   it('renders overlays below text overlays in the stage paint order', () => {
@@ -1243,7 +1251,7 @@ describe('overlay video layers (#145)', () => {
       />,
     )
     seekTo('3')
-    const overlay = overlayElement(0)
+    const overlay = overlayCard(0)
     const text = screen.getByTestId('preview-text-0')
     // Same stage; the text follows the overlay in document order and carries
     // the higher z-index, so it paints on top.
@@ -1291,7 +1299,7 @@ describe('overlay video layers (#145)', () => {
   it('an overlay whose window lies past the sequence end never shows', () => {
     render(<PreviewPlayer timeline={withOverlays} />)
     seekTo('10')
-    expect(overlayElement(1).className).toContain('preview-overlay-hidden')
+    expect(overlayCard(1).className).toContain('preview-overlay-hidden')
   })
 })
 
@@ -1492,5 +1500,180 @@ describe('transport keyboard shortcuts (#203)', () => {
     // The transport keys stay harmless no-ops.
     pressOnWindow(' ')
     pressOnWindow('ArrowRight')
+  })
+})
+
+describe('orientation (#232)', () => {
+  const entryWith = (orientation?: TimelineState['entries'][number]['orientation']): TimelineState => ({
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 4,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 4,
+        ...(orientation === undefined ? {} : { orientation }),
+      },
+    ],
+  })
+
+  it('renders an unoriented entry with no orientation styling on the media element', () => {
+    render(<PreviewPlayer timeline={entryWith()} />)
+    const media = screen.getByTestId('preview-video')
+    expect(media).toHaveClass('preview-media')
+    expect(media.style.transform).toBe('')
+    expect(media.style.width).toBe('')
+  })
+
+  it('a quarter turn swaps the media box to the transposed frame and rotates it back', () => {
+    render(<PreviewPlayer timeline={entryWith({ rotation: 90, flipH: true })} />)
+    const media = screen.getByTestId('preview-video')
+    // No probe resolves in jsdom, so the frame is the 640×360 fallback:
+    // the swapped box is 100/(16/9)% wide and 100×(16/9)% tall, centred.
+    expect(media.style.transform).toBe('translate(-50%, -50%) rotate(90deg) scale(-1, 1)')
+    expect(parseFloat(media.style.width)).toBeCloseTo(56.25, 10)
+    expect(parseFloat(media.style.height)).toBeCloseTo((16 / 9) * 100, 10)
+    expect(media.style.left).toBe('50%')
+    expect(media.style.top).toBe('50%')
+    // The card carries no orientation — it stays the frame-shaped box that
+    // transitions and zooms style.
+    expect(screen.getByTestId('preview-video-card').style.transform).toBe('')
+  })
+
+  it('shape-preserving orientations transform in place, box untouched', () => {
+    render(<PreviewPlayer timeline={entryWith({ rotation: 180 })} />)
+    const media = screen.getByTestId('preview-video')
+    expect(media.style.transform).toBe('rotate(180deg)')
+    expect(media.style.width).toBe('')
+
+    render(<PreviewPlayer timeline={entryWith({ flipH: true, flipV: true })} />)
+    const flipped = screen.getAllByTestId('preview-video')[1]
+    expect(flipped.style.transform).toBe('scale(-1, -1)')
+    expect(flipped.style.width).toBe('')
+  })
+
+  it('composes with a zoom: the card zooms, the media inside stays oriented', () => {
+    const timeline: TimelineState = {
+      ...entryWith({ rotation: 90 }),
+      zooms: [
+        {
+          id: 'z1',
+          entryId: 'e1',
+          start: 1,
+          rampIn: 1,
+          hold: 1,
+          rampOut: 1,
+          scale: 2,
+          centerX: 0.25,
+          centerY: 0.5,
+        },
+      ],
+    }
+    render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '2.5' },
+    })
+    expect(screen.getByTestId('preview-video-card').style.transform).toBe(
+      'scale(2) translate(25%, 0%)',
+    )
+    expect(screen.getByTestId('preview-video').style.transform).toBe(
+      'translate(-50%, -50%) rotate(90deg)',
+    )
+  })
+
+  it('composes with color adjustments on the same media element', () => {
+    render(
+      <PreviewPlayer
+        timeline={{
+          entries: [
+            { ...entryWith({ flipH: true }).entries[0], colorAdjustments: { brightness: 150 } },
+          ],
+        }}
+      />,
+    )
+    const media = screen.getByTestId('preview-video')
+    expect(media.style.transform).toBe('scale(-1, 1)')
+    expect(media.style.filter).toBe('brightness(150%)')
+  })
+
+  it('orients an overlay inside its rectangle card', () => {
+    const timeline: TimelineState = {
+      ...entryWith(),
+      videoOverlays: [
+        {
+          id: 'v1',
+          clipId: 'c2',
+          name: 'cam.webm',
+          duration: 8,
+          url: 'blob:cam',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 4,
+          x: 0.6,
+          y: 0.55,
+          width: 0.35,
+          height: 0.4,
+          orientation: { rotation: 270 },
+        },
+      ],
+    }
+    render(<PreviewPlayer timeline={timeline} />)
+    const media = screen.getByTestId('preview-overlay-0') as HTMLVideoElement
+    // The overlay card's aspect is the frame aspect × (0.35 / 0.4); the
+    // swapped media box inverts it, exactly as for the base slots.
+    const cardAspect = (640 / 360) * (0.35 / 0.4)
+    expect(media.style.transform).toBe('translate(-50%, -50%) rotate(270deg)')
+    expect(parseFloat(media.style.width)).toBeCloseTo(100 / cardAspect, 10)
+    expect(parseFloat(media.style.height)).toBeCloseTo(100 * cardAspect, 10)
+    // The rectangle stays on the card, orientation-free.
+    const card = screen.getByTestId('preview-overlay-card-0')
+    expect(card.style.transform).toBe('')
+    expect(parseFloat(card.style.width)).toBeCloseTo(35, 10)
+  })
+
+  it('an oriented source presents its swapped shape to the frame rule', async () => {
+    // The Image-probe stub from the #176 tests: a 800×450 landscape photo,
+    // rotated a quarter turn, must shape the frame portrait (450/800).
+    class InstantLandscapeImage {
+      onload: (() => void) | null = null
+      naturalWidth = 0
+      naturalHeight = 0
+      set src(_value: string) {
+        this.naturalWidth = 800
+        this.naturalHeight = 450
+        queueMicrotask(() => this.onload?.())
+      }
+      removeAttribute() {}
+    }
+    vi.stubGlobal('Image', InstantLandscapeImage)
+    try {
+      const still: TimelineState = {
+        entries: [
+          {
+            id: 'i1',
+            clipId: 'c1',
+            name: 'photo.png',
+            duration: 4,
+            url: 'blob:photo',
+            inPoint: 0,
+            outPoint: 4,
+            kind: 'image',
+            orientation: { rotation: 90 },
+          },
+        ],
+      }
+      const { container } = render(<PreviewPlayer timeline={still} />)
+      await act(async () => {})
+      const stage = container.querySelector('.preview-stage') as HTMLElement
+      expect(stage.style.getPropertyValue('--preview-aspect')).toBe(String(450 / 800))
+      // And the oriented image's media box swaps against that frame.
+      const media = screen.getByTestId('preview-image')
+      expect(media.style.transform).toBe('translate(-50%, -50%) rotate(90deg)')
+      expect(parseFloat(media.style.width)).toBeCloseTo(100 / (450 / 800), 10)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

@@ -112,6 +112,8 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   // contain), so the green band's frame-fraction geometry comes from the
   // real boxes.
   const video = page.getByTestId('preview-video')
+  // Zoom styling rides the layer card (#232); geometry reads stay on the media element.
+  const videoCard = page.getByTestId('preview-video-card')
   const stage = (await video.boundingBox())!
   const containScale = Math.min(stage.width / 320, stage.height / 180)
   const fit = {
@@ -187,7 +189,7 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   // Outside the window (before): the unzoomed frame shows both bands and no
   // zoom styling is applied.
   await seekAndSettle('0.1')
-  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  expect(await videoCard.evaluate((el) => el.style.transform)).toBe('')
   const beforeLeft = await sampleScreenRect(page, leftProbe)
   const beforeRight = await sampleScreenRect(page, rightProbe)
   expect(beforeLeft.g).toBeGreaterThan(120)
@@ -199,9 +201,9 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   // exactly 1 + (scale − 1)·0.5 — an intermediate state between 1× and the
   // full scale, asserted on the rendered transform.
   await seekAndSettle('0.3')
-  const midRampTransform = await video.evaluate((el) => el.style.transform)
+  const midRampTransform = await videoCard.evaluate((el) => el.style.transform)
   expect(midRampTransform.startsWith(`scale(${midRampScale}) translate(`)).toBe(true)
-  expect(await video.evaluate((el) => el.style.clipPath)).toContain('inset(')
+  expect(await videoCard.evaluate((el) => el.style.clipPath)).toContain('inset(')
 
   // Mid-hold: the region (inside the green band) fills the frame, so every
   // probe — left, right, and everything the fitted box spans — reads green
@@ -209,7 +211,7 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   // (the region never crosses a frame edge, and the scale is uniform, so
   // the aspect ratio is unchanged).
   await seekAndSettle('0.55')
-  const holdTransform = await video.evaluate((el) => el.style.transform)
+  const holdTransform = await videoCard.evaluate((el) => el.style.transform)
   expect(holdTransform.startsWith(`scale(${scale}) translate(`)).toBe(true)
   const holdLeft = await sampleScreenRect(page, leftProbe)
   const holdRight = await sampleScreenRect(page, rightProbe)
@@ -222,7 +224,7 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
 
   // Outside the window (after): unzoomed again.
   await seekAndSettle('0.95')
-  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  expect(await videoCard.evaluate((el) => el.style.transform)).toBe('')
   const afterRight = await sampleScreenRect(page, rightProbe)
   expect(afterRight.b).toBeGreaterThan(120)
   expect(afterRight.g).toBeLessThan(40)
@@ -249,6 +251,8 @@ test('two zooms on one clip each magnify their own window, identity between (#12
   // the scale is the smallest quarter-step whose visible region fits inside
   // one band with 20% headroom. The blue band's centre mirrors the green's.
   const video = page.getByTestId('preview-video')
+  // Zoom styling rides the layer card (#232); geometry reads stay on the media element.
+  const videoCard = page.getByTestId('preview-video-card')
   const stage = (await video.boundingBox())!
   const containScale = Math.min(stage.width / 320, stage.height / 180)
   const fit = {
@@ -328,12 +332,12 @@ test('two zooms on one clip each magnify their own window, identity between (#12
 
   // Before the first window: identity, both bands visible.
   await seekAndSettle('0.1')
-  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  expect(await videoCard.evaluate((el) => el.style.transform)).toBe('')
 
   // Mid-hold of zoom 1: the green region fills the frame everywhere.
   await seekAndSettle('0.4')
   expect(
-    (await video.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
+    (await videoCard.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
   ).toBe(true)
   const firstLeft = await sampleScreenRect(page, leftProbe)
   const firstRight = await sampleScreenRect(page, rightProbe)
@@ -344,7 +348,7 @@ test('two zooms on one clip each magnify their own window, identity between (#12
 
   // In the gap between the windows: identity again — both bands visible.
   await seekAndSettle('0.75')
-  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  expect(await videoCard.evaluate((el) => el.style.transform)).toBe('')
   const gapLeft = await sampleScreenRect(page, leftProbe)
   const gapRight = await sampleScreenRect(page, rightProbe)
   expect(gapLeft.g).toBeGreaterThan(120)
@@ -355,7 +359,7 @@ test('two zooms on one clip each magnify their own window, identity between (#12
   // Mid-hold of zoom 2: the blue region fills the frame everywhere.
   await seekAndSettle('1.1')
   expect(
-    (await video.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
+    (await videoCard.evaluate((el) => el.style.transform)).startsWith(`scale(${scale}) translate(`),
   ).toBe(true)
   const secondLeft = await sampleScreenRect(page, leftProbe)
   const secondRight = await sampleScreenRect(page, rightProbe)
@@ -366,5 +370,5 @@ test('two zooms on one clip each magnify their own window, identity between (#12
 
   // After the second window: identity once more.
   await seekAndSettle('1.35')
-  expect(await video.evaluate((el) => el.style.transform)).toBe('')
+  expect(await videoCard.evaluate((el) => el.style.transform)).toBe('')
 })
