@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { frameFileName, snapshotTimelineFrame } from './frameSnapshot'
 import { ExportUnsupportedError } from './exportVideo'
 import type { TimelineEntry, TimelineState } from './timeline'
@@ -245,6 +245,75 @@ describe('snapshotTimelineFrame (#237)', () => {
     // frame does.
     expect(draws).toHaveLength(1)
     expect(draws[0].args).toEqual([160, 0, 160, 180, 80, 0, 160, 180])
+  })
+
+  it('waits for the sought frame to be PRESENTED before drawing (#276)', async () => {
+    // A <video> exposing requestVideoFrameCallback: `seeked` alone no longer
+    // releases the draw — presentation does. Callbacks are collected and
+    // fired manually so the ordering is pinned, not assumed.
+    class PresentingFakeVideo extends FakeVideo {
+      frameCallbacks: (() => void)[] = []
+      requestVideoFrameCallback(callback: () => void) {
+        this.frameCallbacks.push(callback)
+      }
+      presentFrame() {
+        const callbacks = [...this.frameCallbacks]
+        this.frameCallbacks = []
+        for (const callback of callbacks) callback()
+      }
+    }
+    const videos: PresentingFakeVideo[] = []
+    const { canvas, draws } = fakeCanvas()
+    const options = {
+      frame: { width: 320, height: 180 },
+      createCanvas: () => canvas,
+      createVideo: () => {
+        const video = new PresentingFakeVideo()
+        videos.push(video)
+        return video as unknown as HTMLVideoElement
+      },
+    }
+    const timeline: TimelineState = { entries: [entry({ id: 'a', inPoint: 2, outPoint: 6 })] }
+    let settled = false
+    const pending = snapshotTimelineFrame(timeline, 1.5, options).then((blob) => {
+      settled = true
+      return blob
+    })
+    // Load and seek settle on microtasks; drain them. The snapshot must
+    // still be waiting — `seeked` has fired but no frame was presented.
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    expect(videos[0].seeks).toEqual([3.5])
+    expect(draws).toHaveLength(0)
+    expect(settled).toBe(false)
+    videos[0].presentFrame()
+    const blob = await pending
+    expect(blob.type).toBe('image/png')
+    expect(draws).toHaveLength(1)
+  })
+
+  it('a browser that never presents a detached frame falls back after the bounded wait (#276)', async () => {
+    // requestVideoFrameCallback exists but never fires: the snapshot must
+    // degrade to the pre-#276 behavior after the bound, never hang.
+    vi.useFakeTimers()
+    try {
+      class SilentRvfcFakeVideo extends FakeVideo {
+        requestVideoFrameCallback() {}
+      }
+      const { canvas, draws } = fakeCanvas()
+      const options = {
+        frame: { width: 320, height: 180 },
+        createCanvas: () => canvas,
+        createVideo: () => new SilentRvfcFakeVideo() as unknown as HTMLVideoElement,
+      }
+      const timeline: TimelineState = { entries: [entry({ id: 'a', inPoint: 2, outPoint: 6 })] }
+      const pending = snapshotTimelineFrame(timeline, 1.5, options)
+      await vi.advanceTimersByTimeAsync(300)
+      const blob = await pending
+      expect(blob.type).toBe('image/png')
+      expect(draws).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('skips the seek when the entry starts at the element position and waits for data', async () => {

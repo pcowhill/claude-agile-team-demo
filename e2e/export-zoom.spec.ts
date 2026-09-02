@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { sampleExportedFrame } from './decodedFrame'
+import type { SampleRect } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -95,98 +97,22 @@ async function exportOnce(page: Page): Promise<Buffer> {
   return await readFile(await download.path())
 }
 
-interface FrameSample {
-  r: number
-  g: number
-  b: number
-  duration: number
+/**
+ * Named bands of the decoded frame (see export-transitions.spec), sampled
+ * through the shared presented-frame decoder (#276).
+ */
+const BANDS: Record<'full' | 'left-fifth' | 'right-fifth', SampleRect> = {
+  full: { x: 0, y: 0, width: 1, height: 1 },
+  'left-fifth': { x: 0, y: 0, width: 0.2, height: 1 },
+  'right-fifth': { x: 0.8, y: 0, width: 0.2, height: 1 },
 }
 
-/**
- * Decodes the exported WebM, seeks to `fromEndSeconds` before its end, and
- * averages the pixels of a band of that frame (see export-transitions.spec).
- */
-async function sampleExportedFrame(
+const sampleExportedBand = (
   page: Page,
   webm: Buffer,
   fromEndSeconds: number,
-  band: 'full' | 'left-fifth' | 'right-fifth',
-): Promise<FrameSample> {
-  return await page.evaluate(
-    async ({ base64, fromEndSeconds, band }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const settleIfKnown = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) {
-              resolve()
-              return true
-            }
-            return false
-          }
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (settleIfKnown()) return
-            // MediaRecorder WebMs may report Infinity until forced to scan.
-            video.ondurationchange = () => settleIfKnown()
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-          video.src = url
-        })
-        const duration = video.duration
-        const target = Math.max(0, duration - fromEndSeconds)
-        video.currentTime = target
-        // Poll instead of listening for `seeked`: the duration scan above may
-        // still have a seek in flight, and its events would race a listener.
-        await new Promise<void>((resolve, reject) => {
-          const started = performance.now()
-          const check = () => {
-            if (
-              !video.seeking &&
-              Math.abs(video.currentTime - target) < 0.25 &&
-              video.readyState >= 2
-            ) {
-              resolve()
-            } else if (performance.now() - started > 10_000) {
-              reject(new Error('seeking the exported file timed out'))
-            } else {
-              requestAnimationFrame(check)
-            }
-          }
-          check()
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(video, 0, 0)
-        let bandX = 0
-        let bandWidth = canvas.width
-        if (band === 'left-fifth' || band === 'right-fifth') {
-          bandWidth = Math.max(1, Math.floor(canvas.width / 5))
-          bandX = band === 'right-fifth' ? canvas.width - bandWidth : 0
-        }
-        const data = ctx.getImageData(bandX, 0, bandWidth, canvas.height).data
-        let r = 0
-        let g = 0
-        let b = 0
-        const pixels = data.length / 4
-        for (let index = 0; index < data.length; index += 4) {
-          r += data[index]
-          g += data[index + 1]
-          b += data[index + 2]
-        }
-        return { r: r / pixels, g: g / pixels, b: b / pixels, duration }
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    },
-    { base64: webm.toString('base64'), fromEndSeconds, band },
-  )
-}
+  band: keyof typeof BANDS,
+) => sampleExportedFrame(page, webm, fromEndSeconds, BANDS[band])
 
 /** Strong presence of a clip's own colour channel in a frame average. */
 const DOMINANT = 80
@@ -232,10 +158,10 @@ test('an export renders the zoom: the held region fills the frame (#65)', async 
 
   // The file's last 1.5 s are the entry; entry time t samples at 1.5 − t.
   const before = {
-    left: await sampleExportedFrame(page, exported, 1.3, 'left-fifth'),
-    right: await sampleExportedFrame(page, exported, 1.3, 'right-fifth'),
+    left: await sampleExportedBand(page, exported, 1.3, 'left-fifth'),
+    right: await sampleExportedBand(page, exported, 1.3, 'right-fifth'),
   }
-  const hold = await sampleExportedFrame(page, exported, 0.5, 'full')
+  const hold = await sampleExportedBand(page, exported, 0.5, 'full')
   expect(hold.duration).toBeGreaterThan(1.5 * 0.6)
   expect(hold.duration).toBeLessThan(1.5 + 1)
 
@@ -310,8 +236,8 @@ test('a zoomed clip on the incoming side of a slide exports both effects (#65)',
   // (blue) half in that slice. The outgoing red clip still owns the right of
   // the frame: the zoomed card was clipped to its own slice, exactly as the
   // preview clips it (#64).
-  const left = await sampleExportedFrame(page, exported, 0.75, 'left-fifth')
-  const right = await sampleExportedFrame(page, exported, 0.75, 'right-fifth')
+  const left = await sampleExportedBand(page, exported, 0.75, 'left-fifth')
+  const right = await sampleExportedBand(page, exported, 0.75, 'right-fifth')
   expect(left.duration).toBeGreaterThan(1.5 * 0.6)
   expect(left.duration).toBeLessThan(1.5 + 1)
 

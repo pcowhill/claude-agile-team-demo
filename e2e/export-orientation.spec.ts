@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { sampleExportedFrame } from './decodedFrame'
+import type { SampleRect } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -61,115 +63,6 @@ async function exportOnce(page: Page): Promise<Buffer> {
   return await readFile(await download.path())
 }
 
-interface FrameSample {
-  r: number
-  g: number
-  b: number
-  duration: number
-  width: number
-  height: number
-}
-
-/** A sampling region as fractions of the decoded frame. */
-interface SampleRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/**
- * Decodes the exported WebM, seeks to `fromEndSeconds` before its end, and
- * averages the pixels of a fractional region of that frame (the
- * export-color.spec approach, plus the decoded frame's dimensions so a
- * quarter turn's portrait output is checkable).
- */
-async function sampleExportedFrame(
-  page: Page,
-  webm: Buffer,
-  fromEndSeconds: number,
-  rect: SampleRect,
-): Promise<FrameSample> {
-  return await page.evaluate(
-    async ({ base64, fromEndSeconds, rect }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const settleIfKnown = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) {
-              resolve()
-              return true
-            }
-            return false
-          }
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (settleIfKnown()) return
-            // MediaRecorder WebMs may report Infinity until forced to scan.
-            video.ondurationchange = () => settleIfKnown()
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-          video.src = url
-        })
-        const duration = video.duration
-        const target = Math.max(0, duration - fromEndSeconds)
-        video.currentTime = target
-        // Poll instead of listening for `seeked`: the duration scan above may
-        // still have a seek in flight, and its events would race a listener.
-        await new Promise<void>((resolve, reject) => {
-          const started = performance.now()
-          const check = () => {
-            if (
-              !video.seeking &&
-              Math.abs(video.currentTime - target) < 0.25 &&
-              video.readyState >= 2
-            ) {
-              resolve()
-            } else if (performance.now() - started > 10_000) {
-              reject(new Error('seeking the exported file timed out'))
-            } else {
-              requestAnimationFrame(check)
-            }
-          }
-          check()
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(video, 0, 0)
-        const x = Math.floor(rect.x * canvas.width)
-        const y = Math.floor(rect.y * canvas.height)
-        const w = Math.max(1, Math.floor(rect.width * canvas.width))
-        const h = Math.max(1, Math.floor(rect.height * canvas.height))
-        const data = ctx.getImageData(x, y, w, h).data
-        let r = 0
-        let g = 0
-        let b = 0
-        const pixels = data.length / 4
-        for (let index = 0; index < data.length; index += 4) {
-          r += data[index]
-          g += data[index + 1]
-          b += data[index + 2]
-        }
-        return {
-          r: r / pixels,
-          g: g / pixels,
-          b: b / pixels,
-          duration,
-          width: video.videoWidth,
-          height: video.videoHeight,
-        }
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    },
-    { base64: webm.toString('base64'), fromEndSeconds, rect },
-  )
-}
 
 /** Imports the banded clip, places it, and trims it to 1.5 s. */
 async function placeBandedClip(page: Page) {
