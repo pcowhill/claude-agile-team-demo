@@ -1086,6 +1086,58 @@ describe('crash-safe autosave (#194)', () => {
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
   })
 
+  it('keeps the offer up, buttons disabled, until the discard clear commits (#240)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    // A clear whose commit the test controls — the IndexedDB delete a
+    // reload used to race.
+    let commitClear!: () => void
+    const baseClear = store.clear
+    store.clear = () =>
+      new Promise<void>((resolve) => {
+        commitClear = () => {
+          void baseClear()
+          resolve()
+        }
+      })
+    const user = userEvent.setup()
+    renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    const discard = await screen.findByRole('button', { name: 'Discard' })
+    await user.click(discard)
+    // Mid-clear: the offer is still up — dismissal must be the signal that
+    // the delete committed — and neither button can act again.
+    expect(discard).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeDisabled()
+    expect(state.cleared).toBe(0)
+
+    commitClear()
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull())
+    expect(state.cleared).toBe(1)
+    expect(state.structure).toBeNull()
+  })
+
+  it('a failed discard clear still dismisses the offer and activates autosave (#240)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    store.clear = () => Promise.reject(new Error('storage gone'))
+    const user = userEvent.setup()
+    renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Discard' }))
+    // Storage trouble must never trap the user in the offer.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
   it('degrades to structure-only on a failed blob write and says so unobtrusively', async () => {
     const { store, state } = fakeAutosaveStore()
     state.failMediaWrites = true

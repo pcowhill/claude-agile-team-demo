@@ -154,6 +154,11 @@ test('discarding the offer clears the snapshot and starts fresh', async ({ page 
 
   await page.reload()
   await page.getByRole('button', { name: 'Discard' }).click()
+  // The offer dismisses only once the snapshot clear has committed (#240),
+  // so waiting for it is what makes the reload below race-free — reloading
+  // mid-delete used to abort the IndexedDB transaction and resurrect the
+  // snapshot.
+  await expect(page.getByRole('button', { name: 'Discard' })).toHaveCount(0)
 
   // Fresh session: nothing restored, and the stored snapshot is gone — a
   // second reload offers nothing.
