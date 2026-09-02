@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type {
   ColorAdjustments,
@@ -74,6 +74,12 @@ interface TimelineProps {
   onRemoveRemap: (id: string) => void
   /** Adds a text overlay with the default spec (#139); the id is the caller's to mint. */
   onAddText: () => void
+  /**
+   * Imports an `.srt` subtitle file as text overlays (#249): parsing,
+   * validation, dispatch, and failure reporting all live with the caller —
+   * this component only surfaces the picker.
+   */
+  onImportSubtitles: (file: File) => void
   onUpdateText: (id: string, text: TextOverlaySpec) => void
   onRemoveText: (id: string) => void
   onUpdateVideoOverlay: (id: string, placement: VideoOverlayPlacement) => void
@@ -113,6 +119,7 @@ const textSpecOf = ({
   italic,
   fadeIn,
   fadeOut,
+  subtitle,
 }: TextOverlaySpec): TextOverlaySpec => ({
   content,
   offset,
@@ -126,6 +133,8 @@ const textSpecOf = ({
   italic,
   ...(fadeIn === undefined ? {} : { fadeIn }),
   ...(fadeOut === undefined ? {} : { fadeOut }),
+  // The subtitle-import marker (#249) rides along so edits never strip it.
+  ...(subtitle === undefined ? {} : { subtitle }),
 })
 
 interface TextContentFieldProps {
@@ -454,6 +463,7 @@ export function Timeline({
   onUpdateRemap,
   onRemoveRemap,
   onAddText,
+  onImportSubtitles,
   onUpdateText,
   onRemoveText,
   onUpdateVideoOverlay,
@@ -517,6 +527,9 @@ export function Timeline({
   // remap, a transition) stays immediate, since re-adding one is cheap.
   // `name` heads the dialog; `consequence` says what goes with the item;
   // `action` fires the removal callback on confirm.
+  // The subtitle import's hidden picker (#249), clicked by its toolbar
+  // button — the same idiom as the media library's clip input.
+  const subtitleInputRef = useRef<HTMLInputElement | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -559,6 +572,28 @@ export function Timeline({
         <button type="button" aria-label="Add text overlay to timeline" onClick={onAddText}>
           + Text
         </button>
+        {/* Subtitles are sequence-anchored text overlays (#249), so their
+            import lives beside "+ Text" rather than in the media library. */}
+        <button
+          type="button"
+          aria-label="Import subtitles from an SRT file"
+          onClick={() => subtitleInputRef.current?.click()}
+        >
+          Import subtitles…
+        </button>
+        <input
+          ref={subtitleInputRef}
+          type="file"
+          accept=".srt"
+          hidden
+          data-testid="subtitle-file-input"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file !== undefined) onImportSubtitles(file)
+            // Allow re-importing the same file (e.g. after fixing it).
+            event.target.value = ''
+          }}
+        />
         <span className="timeline-total">
           Total: <span data-testid="timeline-total">{formatDuration(totalDuration(timeline))}</span>
         </span>

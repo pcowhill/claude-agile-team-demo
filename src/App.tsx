@@ -18,6 +18,7 @@ import {
 } from './lib/timeline'
 import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
 import { DEFAULT_TEXT } from './lib/textOverlay'
+import { parseSrt, subtitleOverlaySpec } from './lib/srt'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
 import { probeMediaFile } from './lib/probeMedia'
@@ -118,6 +119,52 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       void importFiles(files)
     },
     [importFiles],
+  )
+
+  // Subtitle import (#249): parse the .srt, land every cue as one batched
+  // timeline action (a single undo step), and report skipped blocks — or a
+  // file with no usable cues at all — in the library's dismissible failure
+  // list, exactly like a failed media import.
+  const importSubtitles = useCallback(async (file: File) => {
+    const reportFailure = (reason: string) =>
+      dispatch({
+        type: 'import-failed',
+        failure: { id: crypto.randomUUID(), name: file.name, reason },
+      })
+    let parsed: ReturnType<typeof parseSrt>
+    try {
+      parsed = parseSrt(await file.text())
+    } catch {
+      reportFailure(`Could not read "${file.name}".`)
+      return
+    }
+    const { cues, skipped } = parsed
+    if (cues.length === 0) {
+      reportFailure(`No subtitle cues found in "${file.name}".`)
+      return
+    }
+    dispatchTimeline({
+      type: 'texts-added',
+      texts: cues.map((cue) => ({ ...subtitleOverlaySpec(cue), id: crypto.randomUUID() })),
+    })
+    if (skipped.length > 0) {
+      // The cues that did parse are in; the diagnostic names what was not.
+      const details = skipped
+        .slice(0, 3)
+        .map(({ block, reason }) => `block ${block} ${reason}`)
+        .join('; ')
+      const more = skipped.length > 3 ? `; and ${skipped.length - 3} more` : ''
+      reportFailure(
+        `Imported ${cues.length} subtitle${cues.length === 1 ? '' : 's'} from "${file.name}" but skipped ${skipped.length} cue block${skipped.length === 1 ? '' : 's'}: ${details}${more}.`,
+      )
+    }
+  }, [])
+
+  const handleImportSubtitles = useCallback(
+    (file: File) => {
+      void importSubtitles(file)
+    },
+    [importSubtitles],
   )
 
   const handleAddToTimeline = useCallback((clip: LibraryClip) => {
@@ -338,6 +385,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               text: { ...DEFAULT_TEXT, id: crypto.randomUUID() },
             })
           }
+          onImportSubtitles={handleImportSubtitles}
           onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
           onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
           onUpdateVideoOverlay={(id, placement) =>

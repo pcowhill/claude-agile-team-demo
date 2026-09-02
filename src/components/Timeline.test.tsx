@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { probeMediaFile } from '../lib/probeMedia'
+import { deserializeProject } from '../lib/projectFile'
+import type { SavePort } from '../lib/saveProject'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -1890,5 +1892,121 @@ describe('orientation (#232)', () => {
     // Undoable like every timeline edit: one step back to the quarter turn.
     await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
     expect(rotateButton(position, 90)).toBeInTheDocument()
+  })
+})
+
+describe('subtitle import (#249)', () => {
+  const srtFile = (content: string, name = 'captions.srt') =>
+    new File([content], name, { type: 'application/x-subrip' })
+
+  const importSrt = async (content: string, name?: string) => {
+    await userEvent.upload(screen.getByTestId('subtitle-file-input'), srtFile(content, name))
+  }
+
+  const textList = () => screen.getByRole('list', { name: 'Text overlays' })
+
+  it('imports each cue as a text overlay, timed and marked, in one undoable edit', async () => {
+    render(<App />)
+    await importSrt(
+      '1\n00:00:01,000 --> 00:00:02,500\nHello there\n\n2\n00:00:03,000 --> 00:00:04,000\n<i>Second</i> cue\n',
+    )
+
+    // Both cues landed as ordinary overlays: content editable in the text
+    // lane, timing from the cue, markup stripped.
+    const items = within(await screen.findByRole('list', { name: 'Text overlays' })).getAllByRole(
+      'listitem',
+    )
+    expect(items).toHaveLength(2)
+    expect(
+      screen.getByRole('textbox', { name: 'Content of text overlay at position 1' }),
+    ).toHaveValue('Hello there')
+    expect(
+      screen.getByRole('textbox', { name: 'Content of text overlay at position 2' }),
+    ).toHaveValue('Second cue')
+    expect(
+      screen.getByRole('spinbutton', { name: 'Start time of text overlay at position 1 in seconds' }),
+    ).toHaveValue(1)
+    expect(
+      screen.getByRole('spinbutton', { name: 'Duration of text overlay at position 1 in seconds' }),
+    ).toHaveValue(1.5)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // The whole import is one edit: a single undo removes every cue.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('list', { name: 'Text overlays' })).not.toBeInTheDocument()
+  })
+
+  it('reports a file with no usable cues in the failure list, adding nothing', async () => {
+    render(<App />)
+    await importSrt('this is not an srt file at all', 'notes.srt')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No subtitle cues found in "notes.srt".',
+    )
+    expect(screen.queryByRole('list', { name: 'Text overlays' })).not.toBeInTheDocument()
+  })
+
+  it('imports the good cues and reports the skipped blocks', async () => {
+    render(<App />)
+    await importSrt(
+      '1\n00:00:01,000 --> 00:00:02,000\nGood cue\n\n2\nno timing here\n\n3\n00:00:05,000 --> 00:00:04,000\ninverted\n',
+    )
+
+    expect(
+      within(await screen.findByRole('list', { name: 'Text overlays' })).getAllByRole('listitem'),
+    ).toHaveLength(1)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Imported 1 subtitle from "captions.srt"')
+    expect(alert).toHaveTextContent('skipped 2 cue blocks')
+    expect(alert).toHaveTextContent('block 2 has no timing line')
+    expect(alert).toHaveTextContent('block 3 ends at or before its start')
+  })
+
+  it('keeps the subtitle marker across an individual edit and a save round-trip', async () => {
+    // The marker (#249) is what the default-subtitle-style work (#250) will
+    // target: editing one overlay's content must not strip it. Provenance
+    // is asserted through persistence (the UI shows no marker), so the
+    // fixture saves and the written file is deserialized.
+    const writes: Uint8Array<ArrayBuffer>[] = []
+    const port: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: () =>
+        Promise.resolve({
+          kind: 'picked' as const,
+          destination: {
+            name: 'project.bvep',
+            write: (bytes: Uint8Array<ArrayBuffer>) => {
+              writes.push(bytes)
+              return Promise.resolve()
+            },
+          },
+        }),
+    }
+    render(<App savePort={port} />)
+    await importSrt('1\n00:00:01,000 --> 00:00:02,000\nBefore edit\n')
+    const content = await screen.findByRole('textbox', {
+      name: 'Content of text overlay at position 1',
+    })
+    await userEvent.clear(content)
+    await userEvent.type(content, 'After edit')
+    fireEvent.blur(content)
+    expect(textList()).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as project.bvep')
+
+    expect(writes).toHaveLength(1)
+    const saved = await deserializeProject(writes[0])
+    expect(saved.ok).toBe(true)
+    if (saved.ok) {
+      expect(saved.project.timeline.texts).toHaveLength(1)
+      expect(saved.project.timeline.texts?.[0]).toMatchObject({
+        content: 'After edit',
+        subtitle: true,
+      })
+    }
   })
 })

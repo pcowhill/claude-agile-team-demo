@@ -107,6 +107,23 @@ describe('textOverlaysEqual', () => {
     expect(textOverlaysEqual(base, text({ color: '#000000' }))).toBe(false)
     expect(textOverlaysEqual(base, text({ font: 'serif' }))).toBe(false)
   })
+
+  it('treats an absent subtitle marker as false, and compares it (#249)', () => {
+    expect(textOverlaysEqual(text(), text({ subtitle: false }))).toBe(true)
+    expect(textOverlaysEqual(text(), text({ subtitle: true }))).toBe(false)
+    expect(textOverlaysEqual(text({ subtitle: true }), text({ subtitle: true }))).toBe(true)
+  })
+})
+
+describe('subtitle marker validation (#249)', () => {
+  it('accepts absent and boolean subtitle markers, rejects other types', () => {
+    expect(isValidTextOverlaySpec(text())).toBe(true)
+    expect(isValidTextOverlaySpec(text({ subtitle: true }))).toBe(true)
+    expect(isValidTextOverlaySpec(text({ subtitle: false }))).toBe(true)
+    expect(
+      isValidTextOverlaySpec(text({ subtitle: 'yes' as unknown as boolean })),
+    ).toBe(false)
+  })
 })
 
 describe('textActiveAt (#139)', () => {

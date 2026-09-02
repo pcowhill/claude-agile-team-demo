@@ -65,7 +65,11 @@ subtitles, labels — can be added to the timeline with editable content
 to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
 durations (#177), rendering in the preview above the composed frame for
 their window — and in the exported file, which draws the same overlays with
-the same relative size, position, and fade envelope (#142). Video clips can
+the same relative size, position, and fade envelope (#142). Subtitles can be
+imported from a standard .srt file (#249): every cue lands as an ordinary
+text overlay timed to the cue, bottom-center at a readable caption default,
+individually editable like any other, with skipped/malformed cue blocks
+reported in the library's failure list. Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
