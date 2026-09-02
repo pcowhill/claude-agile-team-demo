@@ -1514,6 +1514,38 @@ describe('frame composition of background fill (#260)', () => {
     ])
   })
 
+  it('an incoming blur fill composes inside the entry color filter without wiping it', () => {
+    const { composer, main } = composerFor({
+      entries: [
+        fillEntry('e1'),
+        fillEntry('e2', { kind: 'blur' }, { colorAdjustments: { saturation: 50 } }),
+      ],
+    })
+    composer.drawFrame(
+      { source: { tag: 'clip-a' } as unknown as CanvasImageSource, sourceWidth: 640, sourceHeight: 360, time: 0 },
+      0,
+      0.5,
+      {
+        layer: portraitLayer('clip-b'),
+        index: 1,
+        type: 'crossfade',
+        progress: 0.5,
+      },
+    )
+    // The incoming card's color filter (#218) covers the backdrop child too:
+    // the buffer draws blurred THEN color-filtered (canvas filter lists
+    // apply left to right — the preview's card filter wraps the blurred
+    // child), and the media drawn after it still carries the color filter —
+    // the backdrop draw must restore it, never reset the context to none.
+    const blur = `blur(${backdropBlurRadius({ width: 320, height: 180 })}px)`
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(clip-a, [0, 0, 320, 180], none)',
+      `draw(backdrop-buffer, [0, 0, 320, 180], ${blur} saturate(50%))`,
+      'draw(clip-b, [115, 0, 90, 180], saturate(50%))',
+    ])
+  })
+
   it('an incoming transition layer draws its own fill between the layers', () => {
     const { composer, main } = composerFor({
       entries: [fillEntry('e1'), fillEntry('e2', { kind: 'color', color: '#00cc00' })],

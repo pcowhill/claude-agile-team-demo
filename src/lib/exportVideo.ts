@@ -670,12 +670,19 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       // The shared strength (#259): the blur fraction of the drawn card's
       // shorter side — the frame's when unzoomed, scaling with the card
       // under zooms and cross-zooms exactly as the preview's CSS transform
-      // scales its rendered blur.
-      context.filter = `blur(${backdropBlurRadius({ width: dest.width, height: dest.height })}px)`
+      // scales its rendered blur. An incoming transition layer's backdrop
+      // draws inside its entry's color filter (#218): the blur composes
+      // BEFORE that filter (canvas filter lists apply left to right — the
+      // preview's card filter wraps the already-blurred backdrop child),
+      // and the active filter is restored afterwards, never wiped — the
+      // media drawn next still carries its color adjustments.
+      const previous = context.filter
+      const blur = `blur(${backdropBlurRadius({ width: dest.width, height: dest.height })}px)`
+      context.filter = previous === 'none' || previous === '' ? blur : `${blur} ${previous}`
       try {
         context.drawImage(buffer, dest.x, dest.y, dest.width, dest.height)
       } finally {
-        context.filter = 'none'
+        context.filter = previous
       }
     } else {
       context.drawImage(buffer, dest.x, dest.y, dest.width, dest.height)
