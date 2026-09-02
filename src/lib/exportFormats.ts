@@ -1,5 +1,7 @@
 import type { TimelineState } from './timeline'
 import {
+  AUDIO_WEBM_CONTAINER,
+  EXPORT_AUDIO_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   EXPORT_MP4_MIME_CANDIDATES,
@@ -31,7 +33,9 @@ import type { ExportOptions } from './exportVideo'
  * candidates the doc above anticipated — GIF encodes in pure JS, so
  * MediaRecorder support is the wrong question) and `note` (a line the
  * export modal shows for the selected format — where a format states its
- * limits in the UI) — recorded in ADR 0003.
+ * limits in the UI) — recorded in ADR 0003. #245 grew it once more:
+ * `audioOnly` (the export modal hides the video-only output settings for a
+ * format that records no video track) — recorded in ADR 0003.
  */
 export interface ExportFormatSpec {
   /** Stable identifier, unique within the registry (e.g. 'webm'). */
@@ -73,6 +77,13 @@ export interface ExportFormatSpec {
    * rate and size caps) in the UI. Absent means nothing to state.
    */
   note?: string
+  /**
+   * The format records no video track (#245): the export modal hides the
+   * video-only output settings (frame size, frame rate) while it is
+   * selected and passes no frame overrides to `encode`. Absent means a
+   * video format.
+   */
+  audioOnly?: boolean
 }
 
 /**
@@ -215,6 +226,28 @@ export function registerCoreExportFormats(registry: ExportFormatRegistry): void 
       candidatesWithAudio: EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
     }),
   )
+  // Audio only (#245): the project's mixed soundtrack, recorded through the
+  // same pipeline with no canvas video track. Registers last so the video
+  // formats keep their picker positions; support needs Web Audio (the mix
+  // capture is the point) on top of a recordable audio MIME type.
+  registry.register({
+    id: 'audio-webm',
+    label: 'Audio only (WebM/Opus)',
+    extension: 'webm',
+    candidates: EXPORT_AUDIO_MIME_CANDIDATES,
+    candidatesWithAudio: EXPORT_AUDIO_MIME_CANDIDATES,
+    audioOnly: true,
+    note: 'Saves just the mixed soundtrack — the file has no video track.',
+    isSupported: (isTypeSupported) =>
+      typeof AudioContext !== 'undefined' &&
+      pickExportMimeType(isTypeSupported, EXPORT_AUDIO_MIME_CANDIDATES) !== null,
+    encode: (timeline, options = {}) =>
+      exportTimeline(timeline, {
+        ...options,
+        audioOnly: true,
+        container: AUDIO_WEBM_CONTAINER,
+      }),
+  })
 }
 
 // Startup registration: this module is part of the core bundle, so the core

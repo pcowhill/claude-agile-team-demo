@@ -101,6 +101,24 @@ export const WEBM_CONTAINER: ExportContainer = {
   candidatesWithAudio: EXPORT_MIME_CANDIDATES_WITH_AUDIO,
 }
 
+/**
+ * Audio-only preference order (#245): Opus in WebM — the audio half of the
+ * default video container, recordable wherever WebM video is. The recording
+ * always carries audio (an audio-only export without audio is refused), so
+ * both candidate roles use this one list.
+ */
+export const EXPORT_AUDIO_MIME_CANDIDATES: readonly string[] = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+]
+
+/** The audio-only container (#245): the project's mixed soundtrack alone. */
+export const AUDIO_WEBM_CONTAINER: ExportContainer = {
+  label: 'WebM audio',
+  candidates: EXPORT_AUDIO_MIME_CANDIDATES,
+  candidatesWithAudio: EXPORT_AUDIO_MIME_CANDIDATES,
+}
+
 export const EXPORT_FRAME_RATE = 30
 
 /** Thrown when the browser lacks the APIs the export needs. */
@@ -789,6 +807,15 @@ export interface ExportOptions {
   /** Target container; MIME candidates are picked within it only (#114). */
   container?: ExportContainer
   /**
+   * Record only the mixed audio (#245): the recorder gets the audio capture
+   * track alone — no canvas video track — so the file is the project's
+   * soundtrack in an audio container. The replay/composition loop runs
+   * unchanged (it is what drives the mix's gains and timing), and audio
+   * capture becomes a requirement: where Web Audio is unavailable the
+   * export refuses rather than falling back to video-only.
+   */
+  audioOnly?: boolean
+  /**
    * Frame sink replacing the MediaRecorder capture (#198): when present the
    * pipeline records nothing itself — it hands every composed frame to the
    * sink and returns `sink.finish()`. See {@link ExportFrameSink}.
@@ -822,6 +849,31 @@ export interface ExportOptions {
 export interface AudioCapture {
   track: MediaStreamTrack
   dispose: () => Promise<void>
+}
+
+/**
+ * The stream the recorder records (#245), as a pure decision: an audio-only
+ * export records the mixed audio track alone — the canvas is never captured,
+ * so the file carries no video track — while a video export records the
+ * canvas stream with the audio track added when one was captured. The
+ * audio-only caller guarantees a track exists (the pipeline refuses an
+ * audio-only export without audio capture before reaching here).
+ */
+export function recorderStream(
+  audioOnly: boolean,
+  captureCanvas: () => MediaStream,
+  audioTrack: MediaStreamTrack | null,
+  createStream: (tracks: MediaStreamTrack[]) => MediaStream = (tracks) => new MediaStream(tracks),
+): MediaStream {
+  if (audioOnly) {
+    if (audioTrack === null) {
+      throw new ExportUnsupportedError('An audio-only export requires captured audio.')
+    }
+    return createStream([audioTrack])
+  }
+  const stream = captureCanvas()
+  if (audioTrack !== null) stream.addTrack(audioTrack)
+  return stream
 }
 
 function defaultAudioContext(): AudioContext | null {
@@ -1193,7 +1245,13 @@ export async function exportTimeline(
     throw new ExportUnsupportedError('This browser does not support recording video (MediaRecorder).')
   }
 
-  const { onProgress, signal, frameRate = EXPORT_FRAME_RATE, container = WEBM_CONTAINER } = options
+  const {
+    onProgress,
+    signal,
+    frameRate = EXPORT_FRAME_RATE,
+    container = WEBM_CONTAINER,
+    audioOnly = false,
+  } = options
   const boundaries = boundaryTransitions(timeline)
   const createVideo = options.createVideo ?? (() => document.createElement('video'))
   const createImage = options.createImage ?? (() => new Image())
@@ -1243,6 +1301,15 @@ export async function exportTimeline(
         ],
         options.createAudioContext,
       )
+  // An audio-only export (#245) exists to carry the mix: without Web Audio
+  // there is nothing to record, so it refuses rather than silently falling
+  // back to the video-only path (which for this format would be an empty
+  // recording).
+  if (audioOnly && audioCapture === null) {
+    throw new ExportUnsupportedError(
+      'This browser cannot capture audio for an audio-only export (Web Audio is unavailable).',
+    )
+  }
   for (const replay of [...replays, ...overlayReplays.map(({ element }) => element)]) {
     // Muting an element silences its Web Audio output too, so the replays can
     // only stay muted when there is no audio to capture. Nothing reaches the
@@ -1401,9 +1468,13 @@ export async function exportTimeline(
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d')
-  // A sink reads the canvas directly (#198); only the recorder path needs
-  // the canvas to be capturable as a stream.
-  if (context === null || (sink === undefined && typeof canvas.captureStream !== 'function')) {
+  // A sink reads the canvas directly (#198), and an audio-only export never
+  // captures the canvas (#245); only the video recorder path needs the
+  // canvas to be capturable as a stream.
+  if (
+    context === null ||
+    (sink === undefined && !audioOnly && typeof canvas.captureStream !== 'function')
+  ) {
     await releaseAll()
     throw new ExportUnsupportedError('This browser cannot capture canvas video.')
   }
@@ -1494,8 +1565,13 @@ export async function exportTimeline(
   const chunks: Blob[] = []
   let stopped: Promise<void> = Promise.resolve()
   if (sink === undefined) {
-    const stream = canvas.captureStream(frameRate)
-    if (audioCapture !== null) stream.addTrack(audioCapture.track)
+    // The audio-only decision is the shared pure rule (#245): the recorder
+    // gets just the mixed audio track, or the canvas stream plus audio.
+    const stream = recorderStream(
+      audioOnly,
+      () => canvas.captureStream(frameRate),
+      audioCapture?.track ?? null,
+    )
     try {
       recorder = new MediaRecorder(stream, { mimeType: mimeType as string })
     } catch (error) {

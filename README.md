@@ -131,7 +131,10 @@ export of that moment would.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
-edited freely for that one export (#179).
+edited freely for that one export (#179). An "Audio only (WebM/Opus)"
+format (#245) saves just the project's mixed soundtrack — the same mix a
+video export records, with no video track — hiding the video-only output
+settings while it is selected.
 A Plugins… button opens the plugin manager (#197): optional built-in
 features ship as lazy-loaded modules that download only when enabled, keeping
 the default editor lightweight (see
