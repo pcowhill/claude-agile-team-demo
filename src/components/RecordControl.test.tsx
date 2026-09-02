@@ -9,6 +9,7 @@ import {
   isScreenRecordingSupported,
   startMicrophoneRecording,
   startScreenRecording,
+  startWebcamRecording,
 } from '../lib/recording'
 import type { RecordingSession } from '../lib/recording'
 
@@ -27,6 +28,7 @@ vi.mock('../lib/recording', async (importOriginal) => ({
   startMicrophoneRecording: vi.fn(),
   isScreenRecordingSupported: vi.fn(() => true),
   startScreenRecording: vi.fn(),
+  startWebcamRecording: vi.fn(),
 }))
 
 const probeMock = vi.mocked(probeMediaFile)
@@ -34,6 +36,7 @@ const startMock = vi.mocked(startMicrophoneRecording)
 const supportedMock = vi.mocked(isRecordingSupported)
 const startScreenMock = vi.mocked(startScreenRecording)
 const screenSupportedMock = vi.mocked(isScreenRecordingSupported)
+const startWebcamMock = vi.mocked(startWebcamRecording)
 
 const fakeSession = (
   mimeType = 'audio/webm;codecs=opus',
@@ -266,5 +269,101 @@ describe('screen recording (#225)', () => {
     await screen.findByRole('dialog', { name: 'Recording screen' })
     await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
     expect(session.stop).toHaveBeenCalledWith('Screen recording 3.webm')
+  })
+})
+
+describe('webcam recording (#226)', () => {
+  const webcamSession = () => fakeSession('video/webm;codecs=vp9,opus', 'video/webm')
+
+  beforeEach(() => {
+    // The dialog's self-view preview plays the capture stream; jsdom's media
+    // elements need the established play stub (the PreviewPlayer idiom).
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  })
+
+  it('rides the microphone feature detection: no getUserMedia, no Webcam item', async () => {
+    supportedMock.mockReturnValue(false)
+    render(
+      <RecordControl existingNames={[]} onRecorded={() => {}} onFailed={() => {}} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    expect(screen.queryByRole('menuitem', { name: 'Webcam' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Screen' })).toBeInTheDocument()
+  })
+
+  it('records the webcam through the source menu and lands the capture as a video clip', async () => {
+    const session = webcamSession()
+    startWebcamMock.mockResolvedValue(session)
+    probeMock.mockResolvedValue({ duration: 3, url: 'blob:cam', kind: 'video' })
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
+
+    // The webcam dialog carries a live self-view of the capture, muted so
+    // the microphone's own audio never feeds back.
+    const dialog = await screen.findByRole('dialog', { name: 'Recording webcam' })
+    expect(dialog).toHaveTextContent('Recording')
+    const preview = screen.getByTestId('record-preview') as HTMLVideoElement
+    expect(preview.muted).toBe(true)
+    expect(preview.srcObject).toBe(session.stream)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(session.stop).toHaveBeenCalledWith('Webcam recording 1.webm')
+
+    // The capture went through the ordinary import path: probed and listed
+    // as a normal video clip — timeline, overlays, export, no special-casing.
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('Webcam recording 1.webm')
+    expect(
+      screen.getByRole('button', { name: 'Add Webcam recording 1.webm to timeline' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('cancel discards the webcam capture without touching the library', async () => {
+    const session = webcamSession()
+    startWebcamMock.mockResolvedValue(session)
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
+    await screen.findByRole('dialog', { name: 'Recording webcam' })
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(session.cancel).toHaveBeenCalled()
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(probeMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('list', { name: 'Imported clips' })).not.toBeInTheDocument()
+  })
+
+  it('a denied camera lands in the dismissible failure list, like a failed import', async () => {
+    startWebcamMock.mockRejectedValue(new Error('Permission denied'))
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Webcam recording failed: Permission denied')
+  })
+
+  it('numbers webcam recordings independently of the other sources', async () => {
+    const session = webcamSession()
+    startWebcamMock.mockResolvedValue(session)
+    probeMock.mockResolvedValue({ duration: 1, url: 'blob:v1', kind: 'video' })
+    render(<App />)
+
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['a'], 'Webcam recording 4.webm', { type: 'video/webm' }),
+    )
+    await screen.findByRole('list', { name: 'Imported clips' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
+    await screen.findByRole('dialog', { name: 'Recording webcam' })
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(session.stop).toHaveBeenCalledWith('Webcam recording 5.webm')
   })
 })

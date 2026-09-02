@@ -1,12 +1,12 @@
 /**
- * Recording into the media library: microphone capture (#224) via
- * `getUserMedia({ audio: true })` and screen capture (#225) via
- * `getDisplayMedia` — both through `MediaRecorder`, delivered as an
+ * Recording into the media library: microphone capture (#224) and webcam
+ * capture (#226) via `getUserMedia`, and screen capture (#225) via
+ * `getDisplayMedia` — all through `MediaRecorder`, delivered as an
  * ordinary `File` that the existing import path probes and adds like any
  * picked file — playable, placeable, trimmable, mixable, exportable, with
  * **no special-casing downstream** (the probe already handles
  * MediaRecorder's streamed-WebM Infinity duration). The Record control is
- * the UI surface the remaining recording source (webcam #226) extends.
+ * the UI surface all three sources share.
  *
  * `RecordingDependencies` is injectable for tests: jsdom has neither
  * `getUserMedia`/`getDisplayMedia` nor `MediaRecorder`.
@@ -90,7 +90,7 @@ export function videoRecordingFileExtension(mimeType: string): string {
  * smallest N greater than every existing number under that prefix, so
  * removing an old recording never re-issues its name for a new one. The
  * prefix is one of this module's literals ("Voice-over", "Screen
- * recording"), never user input.
+ * recording", "Webcam recording"), never user input.
  */
 export function recordedClipName(
   prefix: string,
@@ -118,6 +118,11 @@ export function voiceOverName(existingNames: readonly string[], extension: strin
 /** The display name for the next screen recording (#225), same numbering rule. */
 export function screenRecordingName(existingNames: readonly string[], extension: string): string {
   return recordedClipName('Screen recording', existingNames, extension)
+}
+
+/** The display name for the next webcam recording (#226), same numbering rule. */
+export function webcamRecordingName(existingNames: readonly string[], extension: string): string {
+  return recordedClipName('Webcam recording', existingNames, extension)
 }
 
 /** A capture in progress: exactly one of stop/cancel concludes it. */
@@ -313,4 +318,37 @@ export async function startScreenRecording(
     track.addEventListener('ended', onShareEnded)
   }
   return session
+}
+
+/**
+ * Starts a webcam capture (#226): camera video plus microphone audio via
+ * `getUserMedia`, recorded until `stop` or `cancel` — the third one-line
+ * caller of the shared session logic, exactly as #225 anticipated. A camera
+ * without a microphone still records: when the combined request fails, a
+ * video-only request is tried before giving up, so the missing device costs
+ * the sound, never the recording (a genuine denial or missing camera fails
+ * both attempts and surfaces the second failure). Rejects exactly like a
+ * failed import — the caller routes the message into the library's failure
+ * list. Feature detection is `isRecordingSupported`: the webcam source uses
+ * the same `getUserMedia` + `MediaRecorder` pair the microphone does.
+ */
+export async function startWebcamRecording(
+  dependencies: RecordingDependencies | null = defaultDependencies(),
+): Promise<RecordingSession> {
+  if (dependencies === null) {
+    throw new Error('Webcam recording is not supported in this browser or context.')
+  }
+  let stream: MediaStream
+  try {
+    stream = await dependencies.getUserMedia({ video: true, audio: true })
+  } catch {
+    stream = await dependencies.getUserMedia({ video: true })
+  }
+  return recordStream(
+    stream,
+    dependencies,
+    VIDEO_MIME_CANDIDATES,
+    'video/webm',
+    'The webcam recorder could not start.',
+  )
 }
