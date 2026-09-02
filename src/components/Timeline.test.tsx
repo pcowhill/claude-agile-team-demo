@@ -2090,3 +2090,76 @@ describe('crop (#255)', () => {
     expect(cropField('top', 'a.mp4 at position 1')).toHaveValue(0)
   })
 })
+
+describe('default subtitle style (#250)', () => {
+  const srtFile = (content: string, name = 'captions.srt') =>
+    new File([content], name, { type: 'application/x-subrip' })
+  const importSrt = async (content: string, name?: string) => {
+    await userEvent.upload(screen.getByTestId('subtitle-file-input'), srtFile(content, name))
+  }
+  const TWO_CUES =
+    '1\n00:00:01,000 --> 00:00:02,000\nFirst cue\n\n2\n00:00:03,000 --> 00:00:04,000\nSecond cue\n'
+
+  it('editing the default restyles every imported subtitle at once, not hand-made text, undoably', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await importSrt(TWO_CUES)
+    await screen.findByRole('textbox', { name: 'Content of text overlay at position 3' })
+
+    fireEvent.change(screen.getByLabelText('Default subtitle color'), {
+      target: { value: '#ffff00' },
+    })
+
+    // The hand-made title (position 1) keeps its color; both cues follow.
+    expect(screen.getByLabelText('Color of text overlay at position 1')).toHaveValue('#ffffff')
+    expect(screen.getByLabelText('Color of text overlay at position 2')).toHaveValue('#ffff00')
+    expect(screen.getByLabelText('Color of text overlay at position 3')).toHaveValue('#ffff00')
+
+    // One undo returns both cues to the previous style (#189).
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.getByLabelText('Color of text overlay at position 2')).toHaveValue('#ffffff')
+    expect(screen.getByLabelText('Color of text overlay at position 3')).toHaveValue('#ffffff')
+  })
+
+  it('an individually restyled cue keeps its value when the default changes later', async () => {
+    render(<App />)
+    await importSrt(TWO_CUES)
+    await screen.findByRole('textbox', { name: 'Content of text overlay at position 1' })
+
+    // The user pins cue 1's color by editing it directly…
+    fireEvent.change(screen.getByLabelText('Color of text overlay at position 1'), {
+      target: { value: '#ff0000' },
+    })
+    // …then restyles the default font and color.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Default subtitle font' }), 'serif')
+    fireEvent.change(screen.getByLabelText('Default subtitle color'), {
+      target: { value: '#ffff00' },
+    })
+
+    // The pinned color survives; the unpinned font still follows; cue 2
+    // follows entirely.
+    expect(screen.getByLabelText('Color of text overlay at position 1')).toHaveValue('#ff0000')
+    expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })).toHaveValue('serif')
+    expect(screen.getByLabelText('Color of text overlay at position 2')).toHaveValue('#ffff00')
+    expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 2' })).toHaveValue('serif')
+  })
+
+  it('a customized default styles later imports, and Reset returns everything to the standard', async () => {
+    render(<App />)
+    const reset = screen.getByRole('button', { name: 'Reset default subtitle style' })
+    expect(reset).toBeDisabled()
+
+    // Customize before any subtitles exist — the next import takes it.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Default subtitle font' }), 'serif')
+    expect(reset).toBeEnabled()
+    await importSrt('1\n00:00:01,000 --> 00:00:02,000\nStyled on arrival\n')
+    expect(
+      await screen.findByRole('combobox', { name: 'Font of text overlay at position 1' }),
+    ).toHaveValue('serif')
+
+    await userEvent.click(reset)
+    expect(reset).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })).toHaveValue('sans')
+    expect(screen.getByRole('combobox', { name: 'Default subtitle font' })).toHaveValue('sans')
+  })
+})

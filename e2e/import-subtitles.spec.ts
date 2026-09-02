@@ -89,3 +89,29 @@ test('a file with no usable cues reports a failure and adds nothing', async ({ p
   )
   await expect(page.getByRole('list', { name: 'Text overlays' })).not.toBeAttached()
 })
+
+test('editing the default subtitle style restyles rendered captions at once (#250)', async ({
+  page,
+}) => {
+  await page.goto('./')
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await importSrt(page, SRT)
+
+  // The first cue renders at the built-in default: white.
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await seek.fill('1')
+  const first = page.getByTestId('preview-text-0')
+  await expect(first).toHaveText('First caption')
+  await expect(first).toHaveCSS('color', 'rgb(255, 255, 255)')
+
+  // One edit of the default recolors every imported cue — the preview
+  // renders the restyled overlays through the existing text path.
+  await page.getByLabel('Default subtitle color').fill('#ffff00')
+  await expect(first).toHaveCSS('color', 'rgb(255, 255, 0)')
+  await seek.fill('3')
+  await expect(page.getByTestId('preview-text-1')).toHaveCSS('color', 'rgb(255, 255, 0)')
+
+  // Reset returns the standard style.
+  await page.getByRole('button', { name: 'Reset default subtitle style' }).click()
+  await expect(page.getByTestId('preview-text-1')).toHaveCSS('color', 'rgb(255, 255, 255)')
+})

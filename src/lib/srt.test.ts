@@ -119,4 +119,16 @@ describe('subtitleOverlaySpec (#249)', () => {
     expect(SUBTITLE_TEXT_DEFAULTS.y).toBeGreaterThan(0.75)
     expect(SUBTITLE_TEXT_DEFAULTS.y).toBeLessThanOrEqual(1)
   })
+
+  it("styles a cue with the project's customized default subtitle style (#250)", () => {
+    const spec = subtitleOverlaySpec(
+      { start: 0, end: 1, content: 'Styled' },
+      { ...SUBTITLE_TEXT_DEFAULTS, font: 'serif', color: '#ffff00' },
+    )
+    expect(spec).toMatchObject({ font: 'serif', color: '#ffff00', subtitle: true })
+    // Timing and content stay the cue's; only the look comes from the style.
+    expect(spec.offset).toBe(0)
+    expect(spec.duration).toBe(1)
+    expect(isValidTextOverlaySpec(spec)).toBe(true)
+  })
 })

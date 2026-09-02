@@ -99,12 +99,22 @@ export interface TextOverlaySpec {
   /**
    * Subtitle-import provenance (#249): `true` on overlays created by the
    * SRT import, absent on hand-made ones — the persisted marker the default
-   * subtitle style (#250) will target. Absent-as-default like every
+   * subtitle style (#250) targets. Absent-as-default like every
    * optional field, so subtitle-free projects are unchanged; the marker
    * says where the overlay came from and changes nothing about how it
    * renders or edits.
    */
   subtitle?: boolean
+  /**
+   * Which style fields this subtitle overlay owns individually (#250):
+   * present only on `subtitle: true` overlays the user has restyled by
+   * hand, listing the fields (in `SUBTITLE_STYLE_FIELDS` order, no
+   * duplicates) that a later default-subtitle-style edit must leave alone —
+   * the overlay's other style fields keep following the default. Absent
+   * means the overlay follows the default entirely; hand-made overlays
+   * never carry the key (the default never touches them at all).
+   */
+  styleOverrides?: SubtitleStyleField[]
 }
 
 /** A text overlay in the timeline state. The id is the edit handle. */
@@ -165,7 +175,14 @@ export function isValidTextOverlaySpec(spec: TextOverlaySpec): boolean {
     typeof spec.italic === 'boolean' &&
     (spec.fadeIn === undefined || Number.isFinite(spec.fadeIn)) &&
     (spec.fadeOut === undefined || Number.isFinite(spec.fadeOut)) &&
-    (spec.subtitle === undefined || typeof spec.subtitle === 'boolean')
+    (spec.subtitle === undefined || typeof spec.subtitle === 'boolean') &&
+    // Style overrides (#250) only mean anything on a subtitle overlay, and
+    // must name known style fields with no repeats.
+    (spec.styleOverrides === undefined ||
+      (spec.subtitle === true &&
+        Array.isArray(spec.styleOverrides) &&
+        spec.styleOverrides.every((field) => (SUBTITLE_STYLE_FIELDS as readonly string[]).includes(field)) &&
+        new Set(spec.styleOverrides).size === spec.styleOverrides.length))
   )
 }
 
@@ -215,7 +232,11 @@ export function textOverlaysEqual(a: TextOverlay, b: TextOverlay): boolean {
     a.italic === b.italic &&
     (a.fadeIn ?? 0) === (b.fadeIn ?? 0) &&
     (a.fadeOut ?? 0) === (b.fadeOut ?? 0) &&
-    (a.subtitle ?? false) === (b.subtitle ?? false)
+    (a.subtitle ?? false) === (b.subtitle ?? false) &&
+    // Overrides are stored normalized (canonical order, no repeats — see
+    // normalizeStyleOverrides), so positional comparison is equality.
+    (a.styleOverrides ?? []).length === (b.styleOverrides ?? []).length &&
+    (a.styleOverrides ?? []).every((field, index) => field === (b.styleOverrides ?? [])[index])
   )
 }
 
@@ -245,4 +266,147 @@ export function textOpacityAt(text: TextOverlay, sequenceTime: number): number {
   const inRamp = fadeIn > 0 ? Math.min(into / fadeIn, 1) : 1
   const outRamp = fadeOut > 0 ? Math.min((text.duration - into) / fadeOut, 1) : 1
   return Math.min(inRamp, outRamp)
+}
+
+/**
+ * The default subtitle style (#250): the style fields the SRT import (#249)
+ * stamps on every cue, editable per project so all imported subtitles
+ * restyle at once. Subtitle overlays keep **storing their effective style
+ * in their own fields** — editing the default rewrites the non-overridden
+ * fields of every `subtitle: true` overlay (see `applySubtitleStyle`), so
+ * the preview and export render restyled subtitles through the existing
+ * text draw path with zero new rendering code. Timing (`offset`/`duration`)
+ * and `content` come from the cue, never from the style; fades are not
+ * part of the subtitle look either.
+ */
+
+/** The style fields the default subtitle style governs, in canonical
+ * (stored) order — position, then type, then color and emphasis. */
+export const SUBTITLE_STYLE_FIELDS = [
+  'x',
+  'y',
+  'font',
+  'size',
+  'color',
+  'bold',
+  'italic',
+] as const
+
+export type SubtitleStyleField = (typeof SUBTITLE_STYLE_FIELDS)[number]
+
+/** The default subtitle style's shape: exactly the text-overlay style
+ * surface, every field present (the *stored project default* may be absent
+ * as a whole — absent means this built-in default — but a style value is
+ * always complete). */
+export type SubtitleStyle = Pick<TextOverlaySpec, SubtitleStyleField>
+
+/**
+ * The built-in subtitle style (#249): bottom-center, a readable caption
+ * size, white sans-serif — what every imported cue starts as, and what a
+ * project's stored default is measured against (a stored default equal to
+ * this normalizes to no key at all, keeping style-free projects
+ * byte-identical).
+ */
+export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
+  x: 0.5,
+  y: 0.9,
+  font: 'sans',
+  size: 0.05,
+  color: '#ffffff',
+  bold: false,
+  italic: false,
+}
+
+/** Whether a style is acceptable input at all — the text-overlay rule over
+ * just the style fields. Out-of-range positions and sizes clamp
+ * (`clampSubtitleStyle`), like the overlay's own. */
+export function isValidSubtitleStyle(style: SubtitleStyle): boolean {
+  return (
+    Number.isFinite(style.x) &&
+    Number.isFinite(style.y) &&
+    Number.isFinite(style.size) &&
+    isTextFontId(style.font) &&
+    isValidTextColor(style.color) &&
+    typeof style.bold === 'boolean' &&
+    typeof style.italic === 'boolean'
+  )
+}
+
+/** Clamps the style's continuous fields exactly as `clampTextOverlay`
+ * clamps an overlay's: centre within the frame, size within its bounds.
+ * Returns the same object when nothing changes. */
+export function clampSubtitleStyle(style: SubtitleStyle): SubtitleStyle {
+  const x = clamp(style.x, 0, 1)
+  const y = clamp(style.y, 0, 1)
+  const size = clamp(style.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)
+  if (x === style.x && y === style.y && size === style.size) return style
+  return { ...style, x, y, size }
+}
+
+export function subtitleStylesEqual(a: SubtitleStyle, b: SubtitleStyle): boolean {
+  return SUBTITLE_STYLE_FIELDS.every((field) => a[field] === b[field])
+}
+
+/**
+ * The canonical stored form of a project's default subtitle style (#250):
+ * clamped, and `undefined` — no key at all — when equal to the built-in
+ * default, so never-customized projects stay byte-identical to earlier
+ * output (the #192/#232/#255 absent-as-default rule).
+ */
+export function normalizeSubtitleStyle(style: SubtitleStyle): SubtitleStyle | undefined {
+  const clamped = clampSubtitleStyle(style)
+  if (subtitleStylesEqual(clamped, DEFAULT_SUBTITLE_STYLE)) return undefined
+  return {
+    x: clamped.x,
+    y: clamped.y,
+    font: clamped.font,
+    size: clamped.size,
+    color: clamped.color,
+    bold: clamped.bold,
+    italic: clamped.italic,
+  }
+}
+
+/**
+ * The canonical stored form of an overlay's override list: unique fields in
+ * `SUBTITLE_STYLE_FIELDS` order, `undefined` — no key — when empty, so the
+ * same override set is never stored two ways.
+ */
+export function normalizeStyleOverrides(
+  fields: readonly SubtitleStyleField[],
+): SubtitleStyleField[] | undefined {
+  const present = new Set(fields)
+  if (present.size === 0) return undefined
+  return SUBTITLE_STYLE_FIELDS.filter((field) => present.has(field))
+}
+
+/** The style fields whose values differ between two specs — what a
+ * `text-updated` edit on a subtitle overlay marks as overridden (#250). */
+export function changedStyleFields(
+  a: Pick<TextOverlaySpec, SubtitleStyleField>,
+  b: Pick<TextOverlaySpec, SubtitleStyleField>,
+): SubtitleStyleField[] {
+  return SUBTITLE_STYLE_FIELDS.filter((field) => a[field] !== b[field])
+}
+
+/**
+ * One subtitle overlay after a default-style edit (#250): every style field
+ * the overlay has not individually overridden takes the new default's
+ * value; overridden fields — and everything that is not style (content,
+ * timing, fades, provenance) — stay untouched. Returns the same object when
+ * nothing changes, so a no-op restyle is free.
+ */
+export function applySubtitleStyle(text: TextOverlay, style: SubtitleStyle): TextOverlay {
+  const overridden = new Set(text.styleOverrides ?? [])
+  const changed = SUBTITLE_STYLE_FIELDS.filter(
+    (field) => !overridden.has(field) && text[field] !== style[field],
+  )
+  if (changed.length === 0) return text
+  const next = { ...text }
+  for (const field of changed) {
+    // Field-by-field so overridden values survive verbatim; the loop only
+    // ever writes a style field with that same field's value.
+    ;(next as Record<SubtitleStyleField, SubtitleStyle[SubtitleStyleField]>)[field] = style[field]
+  }
+  return next
 }

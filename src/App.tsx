@@ -125,6 +125,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   // timeline action (a single undo step), and report skipped blocks — or a
   // file with no usable cues at all — in the library's dismissible failure
   // list, exactly like a failed media import.
+  // New cues take the project's default subtitle style (#250) — read via a
+  // ref so the stable callback always sees the current default.
+  const subtitleStyleRef = useRef(timeline.subtitleStyle)
+  subtitleStyleRef.current = timeline.subtitleStyle
   const importSubtitles = useCallback(async (file: File) => {
     const reportFailure = (reason: string) =>
       dispatch({
@@ -145,7 +149,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     }
     dispatchTimeline({
       type: 'texts-added',
-      texts: cues.map((cue) => ({ ...subtitleOverlaySpec(cue), id: crypto.randomUUID() })),
+      texts: cues.map((cue) => ({
+        ...subtitleOverlaySpec(cue, subtitleStyleRef.current),
+        id: crypto.randomUUID(),
+      })),
     })
     if (skipped.length > 0) {
       // The cues that did parse are in; the diagnostic names what was not.
@@ -386,6 +393,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             })
           }
           onImportSubtitles={handleImportSubtitles}
+          subtitleStyle={timeline.subtitleStyle}
+          onSetSubtitleStyle={(style) => dispatchTimeline({ type: 'subtitle-style-set', style })}
           onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
           onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
           onUpdateVideoOverlay={(id, placement) =>

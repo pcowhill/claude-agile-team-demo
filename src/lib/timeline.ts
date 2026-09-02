@@ -18,8 +18,20 @@ import {
   remapsEqual,
   remapStart,
 } from './remap'
-import type { TextOverlay, TextOverlaySpec } from './textOverlay'
-import { clampTextOverlay, isValidTextOverlaySpec, textOverlaysEqual } from './textOverlay'
+import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
+import {
+  DEFAULT_SUBTITLE_STYLE,
+  applySubtitleStyle,
+  changedStyleFields,
+  clampSubtitleStyle,
+  clampTextOverlay,
+  isValidSubtitleStyle,
+  isValidTextOverlaySpec,
+  normalizeStyleOverrides,
+  normalizeSubtitleStyle,
+  subtitleStylesEqual,
+  textOverlaysEqual,
+} from './textOverlay'
 import type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
 import {
   clampVideoOverlay,
@@ -297,6 +309,17 @@ export interface TimelineState {
    * while overlays exist, so every earlier state stays shaped as before.
    */
   videoOverlays?: VideoOverlay[]
+  /**
+   * The project's default subtitle style (#250): what the SRT import (#249)
+   * stamps on new cues, and what every `subtitle: true` overlay's
+   * non-overridden style fields follow (see `subtitle-style-set`). Present
+   * exactly when it differs from `DEFAULT_SUBTITLE_STYLE` — absent means
+   * the built-in default, so never-customized states (and files) stay
+   * shaped exactly as before. Unlike the collection fields this is not
+   * rebuilt by normalization: the reducer carries it across every edit
+   * verbatim (see `timelineReducer`).
+   */
+  subtitleStyle?: SubtitleStyle
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
@@ -432,6 +455,19 @@ export type TimelineAction =
   | { type: 'texts-added'; texts: TextOverlay[] }
   | { type: 'text-updated'; id: string; text: TextOverlaySpec }
   | { type: 'text-removed'; id: string }
+  | {
+      /**
+       * Sets the project's default subtitle style whole (#250), the
+       * orient/crop-set idiom: the action carries the full style; the
+       * reducer clamps it, stores the normalized form (equal to the
+       * built-in default means no `subtitleStyle` key at all — committing
+       * `DEFAULT_SUBTITLE_STYLE` is the reset), and rewrites every
+       * `subtitle: true` overlay's non-overridden style fields to it.
+       * Hand-made text overlays are untouched.
+       */
+      type: 'subtitle-style-set'
+      style: SubtitleStyle
+    }
   | { type: 'video-overlay-added'; overlay: VideoOverlay }
   | { type: 'video-overlay-updated'; id: string; placement: VideoOverlayPlacement }
   | { type: 'video-overlay-removed'; id: string }
@@ -966,11 +1002,56 @@ export function normalizedTimelineState(
   remaps: RemapEffect[] = [],
   texts: TextOverlay[] = [],
   videoOverlays: VideoOverlay[] = [],
+  subtitleStyle?: SubtitleStyle,
 ): TimelineState {
-  return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+  const state = withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+  // The default subtitle style (#250) is carried, not normalized — the
+  // caller (deserialization) already stores it in canonical form.
+  return subtitleStyle === undefined ? state : { ...state, subtitleStyle }
 }
 
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
+  // The default subtitle style (#250) is project-level state, not a
+  // collection `withEffects` rebuilds, so it is handled here: its own
+  // action first, and after any other edit the stored style is carried onto
+  // the new state verbatim. `timeline-replaced` swaps in a whole state
+  // (opening a project) that brings its own style — nothing to carry.
+  if (action.type === 'subtitle-style-set') {
+    if (!isValidSubtitleStyle(action.style)) return state
+    const clamped = clampSubtitleStyle(action.style)
+    // Compare against the effective current default, so re-committing the
+    // stored state — or resetting a never-customized project — is a no-op,
+    // not an edit (edits stop preview playback).
+    if (subtitleStylesEqual(clamped, state.subtitleStyle ?? DEFAULT_SUBTITLE_STYLE)) return state
+    // The mass restyle the customer asked for (#246 → #250): every subtitle
+    // overlay's non-overridden style fields follow the new default at once;
+    // hand-made overlays never move.
+    const restyled = textsOf(state).map((text) =>
+      text.subtitle === true ? applySubtitleStyle(text, clamped) : text,
+    )
+    const next = withEffects(
+      state.entries,
+      transitionsOf(state),
+      zoomsOf(state),
+      audioTracksOf(state),
+      remapsOf(state),
+      restyled,
+      videoOverlaysOf(state),
+    )
+    // Equal to the built-in default means no key at all (#192/#232/#255
+    // rule), which is what keeps never-customized files byte-identical.
+    const normalized = normalizeSubtitleStyle(clamped)
+    return normalized === undefined ? next : { ...next, subtitleStyle: normalized }
+  }
+  const next = reduceTimelineCollections(state, action)
+  if (next === state || action.type === 'timeline-replaced') return next
+  return state.subtitleStyle === undefined ? next : { ...next, subtitleStyle: state.subtitleStyle }
+}
+
+function reduceTimelineCollections(
+  state: TimelineState,
+  action: Exclude<TimelineAction, { type: 'subtitle-style-set' }>,
+): TimelineState {
   const transitions = transitionsOf(state)
   const zooms = zoomsOf(state)
   const audioTracks = audioTracksOf(state)
@@ -1337,7 +1418,20 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       const existing = texts.find((text) => text.id === action.id)
       if (existing === undefined) return state
       if (!isValidTextOverlaySpec(action.text)) return state
-      const candidate: TextOverlay = { ...action.text, id: existing.id }
+      let candidate: TextOverlay = { ...action.text, id: existing.id }
+      if (existing.subtitle === true) {
+        // An individual edit to a subtitle overlay's style claims those
+        // fields (#250): the union of what was already overridden and what
+        // this edit changes, recomputed here so the stored list is the
+        // reducer's truth whatever the action carried. A later default-
+        // style edit leaves claimed fields alone.
+        const overrides = normalizeStyleOverrides([
+          ...(existing.styleOverrides ?? []),
+          ...changedStyleFields(existing, clampTextOverlay(candidate)),
+        ])
+        delete candidate.styleOverrides
+        if (overrides !== undefined) candidate = { ...candidate, styleOverrides: overrides }
+      }
       // Normalization can clamp the edit back to what is already stored — a
       // no-op must keep the state reference (edits stop preview playback).
       if (textOverlaysEqual(existing, clampTextOverlay(candidate))) return state

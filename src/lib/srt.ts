@@ -16,7 +16,8 @@
  * whole import.
  */
 
-import type { TextOverlaySpec } from './textOverlay'
+import type { SubtitleStyle, TextOverlaySpec } from './textOverlay'
+import { DEFAULT_SUBTITLE_STYLE } from './textOverlay'
 
 /** One parsed cue: seconds on the sequence clock, markup already stripped. */
 export interface SubtitleCue {
@@ -111,30 +112,33 @@ export function parseSrt(text: string): ParsedSubtitles {
 /**
  * The subtitle-appropriate default style (#249): bottom-center, a readable
  * caption size, white sans-serif — what every imported cue starts as. The
- * overlay stays individually restylable afterwards like any other.
+ * canonical value lives with the text-overlay style machinery (#250) as
+ * `DEFAULT_SUBTITLE_STYLE`; this alias keeps the import-side name.
  */
-export const SUBTITLE_TEXT_DEFAULTS = {
-  x: 0.5,
-  y: 0.9,
-  font: 'sans',
-  size: 0.05,
-  color: '#ffffff',
-  bold: false,
-  italic: false,
-} as const
+export const SUBTITLE_TEXT_DEFAULTS = DEFAULT_SUBTITLE_STYLE
 
 /**
  * A cue as the text overlay it imports to: timed to the cue's window,
- * styled with the subtitle defaults, and carrying the persisted
- * subtitle-provenance marker the default-subtitle-style work (#250)
- * targets. The id is the caller's to mint, exactly as for `DEFAULT_TEXT`.
+ * styled with the project's default subtitle style (#250) — the built-in
+ * defaults when the project never customized it — and carrying the
+ * persisted subtitle-provenance marker that default targets. The id is the
+ * caller's to mint, exactly as for `DEFAULT_TEXT`.
  */
-export function subtitleOverlaySpec(cue: SubtitleCue): TextOverlaySpec {
+export function subtitleOverlaySpec(
+  cue: SubtitleCue,
+  style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE,
+): TextOverlaySpec {
   return {
     content: cue.content,
     offset: cue.start,
     duration: cue.end - cue.start,
-    ...SUBTITLE_TEXT_DEFAULTS,
+    x: style.x,
+    y: style.y,
+    font: style.font,
+    size: style.size,
+    color: style.color,
+    bold: style.bold,
+    italic: style.italic,
     subtitle: true,
   }
 }

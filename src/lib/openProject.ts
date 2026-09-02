@@ -175,6 +175,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
         ...overlay,
         url: urlOf(overlay.clipId),
       })),
+      project.timeline.subtitleStyle,
     ),
   }
 }

@@ -28,7 +28,7 @@ import {
   zoomsOf,
 } from './timeline'
 import type { RemapEffect, TextOverlay, VideoOverlay, ZoomEffect } from './timeline'
-import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
+import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import { zoomAt } from './zoom'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
@@ -2940,6 +2940,202 @@ describe('crop (#255)', () => {
       })
       expect(videoOverlaysOf(moved)[0].crop).toEqual({ left: 0.2 })
       expect(videoOverlaysOf(moved)[0].offset).toBe(2)
+    })
+  })
+})
+
+describe('default subtitle style (#250)', () => {
+  const subtitleText = (id: string, overrides: Partial<TextOverlay> = {}): TextOverlay => ({
+    id,
+    content: `Cue ${id}`,
+    offset: 0,
+    duration: 2,
+    x: DEFAULT_SUBTITLE_STYLE.x,
+    y: DEFAULT_SUBTITLE_STYLE.y,
+    font: DEFAULT_SUBTITLE_STYLE.font,
+    size: DEFAULT_SUBTITLE_STYLE.size,
+    color: DEFAULT_SUBTITLE_STYLE.color,
+    bold: DEFAULT_SUBTITLE_STYLE.bold,
+    italic: DEFAULT_SUBTITLE_STYLE.italic,
+    subtitle: true,
+    ...overrides,
+  })
+  const handMade = (id: string): TextOverlay => ({ ...DEFAULT_TEXT, id })
+  const newStyle = { ...DEFAULT_SUBTITLE_STYLE, font: 'serif' as const, color: '#ffff00' }
+
+  const withTexts = (...texts: TextOverlay[]): TimelineState =>
+    texts.reduce(
+      (state, text) => timelineReducer(state, { type: 'text-added', text }),
+      emptyTimeline,
+    )
+
+  describe('subtitle-style-set', () => {
+    it('restyles every subtitle overlay at once and stores the customized default', () => {
+      const state = timelineReducer(withTexts(subtitleText('s1'), subtitleText('s2')), {
+        type: 'subtitle-style-set',
+        style: newStyle,
+      })
+      expect(state.subtitleStyle).toEqual(newStyle)
+      for (const text of textsOf(state)) {
+        expect(text.font).toBe('serif')
+        expect(text.color).toBe('#ffff00')
+        // Non-style fields are untouched.
+        expect(text.duration).toBe(2)
+      }
+    })
+
+    it('leaves hand-made text overlays alone', () => {
+      const before = withTexts(handMade('h1'), subtitleText('s1'))
+      const state = timelineReducer(before, { type: 'subtitle-style-set', style: newStyle })
+      expect(textsOf(state)[0]).toEqual(textsOf(before)[0])
+      expect(textsOf(state)[1].color).toBe('#ffff00')
+    })
+
+    it('leaves individually overridden fields alone while the rest follow', () => {
+      const state = timelineReducer(
+        withTexts(subtitleText('s1', { color: '#ff0000', styleOverrides: ['color'] })),
+        { type: 'subtitle-style-set', style: newStyle },
+      )
+      expect(textsOf(state)[0].color).toBe('#ff0000')
+      expect(textsOf(state)[0].font).toBe('serif')
+    })
+
+    it('committing the built-in default resets: restyles back and deletes the key', () => {
+      const customized = timelineReducer(withTexts(subtitleText('s1')), {
+        type: 'subtitle-style-set',
+        style: newStyle,
+      })
+      const reset = timelineReducer(customized, {
+        type: 'subtitle-style-set',
+        style: DEFAULT_SUBTITLE_STYLE,
+      })
+      expect('subtitleStyle' in reset).toBe(false)
+      expect(textsOf(reset)[0].font).toBe(DEFAULT_SUBTITLE_STYLE.font)
+      expect(textsOf(reset)[0].color).toBe(DEFAULT_SUBTITLE_STYLE.color)
+    })
+
+    it('no-ops on equality and rejects invalid styles, keeping the state reference', () => {
+      const state = timelineReducer(withTexts(subtitleText('s1')), {
+        type: 'subtitle-style-set',
+        style: newStyle,
+      })
+      expect(timelineReducer(state, { type: 'subtitle-style-set', style: newStyle })).toBe(state)
+      expect(
+        timelineReducer(emptyTimeline, {
+          type: 'subtitle-style-set',
+          style: DEFAULT_SUBTITLE_STYLE,
+        }),
+      ).toBe(emptyTimeline)
+      expect(
+        timelineReducer(state, {
+          type: 'subtitle-style-set',
+          style: { ...newStyle, color: 'yellow' },
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'subtitle-style-set',
+          style: { ...newStyle, size: Number.NaN },
+        }),
+      ).toBe(state)
+    })
+
+    it('clamps out-of-range values, the dial idiom', () => {
+      const state = timelineReducer(withTexts(subtitleText('s1')), {
+        type: 'subtitle-style-set',
+        style: { ...newStyle, y: 2 },
+      })
+      expect(state.subtitleStyle?.y).toBe(1)
+      expect(textsOf(state)[0].y).toBe(1)
+    })
+  })
+
+  describe('the stored default survives unrelated edits', () => {
+    it('carries through entry, effect, and text edits', () => {
+      let state = timelineReducer(withTexts(subtitleText('s1')), {
+        type: 'subtitle-style-set',
+        style: newStyle,
+      })
+      state = timelineReducer(state, {
+        type: 'entry-added',
+        entry: {
+          id: 'e1',
+          clipId: 'c1',
+          name: 'clip.webm',
+          duration: 5,
+          url: 'blob:c1',
+          inPoint: 0,
+          outPoint: 5,
+        },
+      })
+      state = timelineReducer(state, { type: 'text-added', text: handMade('h1') })
+      state = timelineReducer(state, { type: 'text-removed', id: 'h1' })
+      expect(state.subtitleStyle).toEqual(newStyle)
+      // And new imports would read it from the state (App passes it to the
+      // import spec), while timeline-replaced swaps in a whole new state:
+      const replaced = timelineReducer(state, {
+        type: 'timeline-replaced',
+        timeline: emptyTimeline,
+      })
+      expect('subtitleStyle' in replaced).toBe(false)
+    })
+  })
+
+  describe('text-updated records style overrides on subtitles (#250)', () => {
+    it('an individual style edit claims exactly the changed fields', () => {
+      const base = withTexts(subtitleText('s1'))
+      const edited = timelineReducer(base, {
+        type: 'text-updated',
+        id: 's1',
+        text: { ...textsOf(base)[0], color: '#ff0000' },
+      })
+      expect(textsOf(edited)[0].styleOverrides).toEqual(['color'])
+      // A second edit unions with what is already claimed.
+      const moved = timelineReducer(edited, {
+        type: 'text-updated',
+        id: 's1',
+        text: { ...textsOf(edited)[0], y: 0.1 },
+      })
+      expect(textsOf(moved)[0].styleOverrides).toEqual(['y', 'color'])
+    })
+
+    it('a non-style edit claims nothing', () => {
+      const base = withTexts(subtitleText('s1'))
+      const edited = timelineReducer(base, {
+        type: 'text-updated',
+        id: 's1',
+        text: { ...textsOf(base)[0], content: 'Edited cue', offset: 3 },
+      })
+      expect(textsOf(edited)[0].styleOverrides).toBeUndefined()
+    })
+
+    it('hand-made overlays never grow an override record', () => {
+      const base = withTexts(handMade('h1'))
+      const edited = timelineReducer(base, {
+        type: 'text-updated',
+        id: 'h1',
+        text: { ...textsOf(base)[0], color: '#ff0000' },
+      })
+      expect(textsOf(edited)[0].styleOverrides).toBeUndefined()
+    })
+
+    it('the customer scenario end to end: move one cue, restyle the rest', () => {
+      // Two imported cues; the user moves one to the top of the frame
+      // (text in the video), then changes the default color: the moved
+      // cue keeps its position but takes the new color; the other follows
+      // entirely.
+      let state = withTexts(subtitleText('s1'), subtitleText('s2'))
+      state = timelineReducer(state, {
+        type: 'text-updated',
+        id: 's1',
+        text: { ...textsOf(state)[0], y: 0.1 },
+      })
+      state = timelineReducer(state, { type: 'subtitle-style-set', style: newStyle })
+      const [moved, following] = textsOf(state)
+      expect(moved.y).toBe(0.1)
+      expect(moved.color).toBe('#ffff00')
+      expect(following.y).toBe(DEFAULT_SUBTITLE_STYLE.y)
+      expect(following.color).toBe('#ffff00')
     })
   })
 })
