@@ -1,6 +1,7 @@
 import type { SourceDimensions } from './frameSize'
 import { outputFrameSize } from './frameSize'
 import { EXPORT_FRAME_RATE } from './exportVideo'
+import { orientedDimensions } from './orientation'
 import type { TimelineState } from './timeline'
 import { isSlateEntry, isStillEntry } from './timeline'
 
@@ -74,9 +75,11 @@ export function automaticSettings(frame: SourceDimensions): ExportSettings {
  * The output frame the automatic rule would pick for the current timeline —
  * what the modal pre-fills (#179). Probes each distinct non-slate source's
  * dimensions from its (in-memory) blob metadata, then applies the same
- * `outputFrameSize` rule the export and preview stage (#176) use. Sources
- * that fail to probe contribute nothing, exactly as in the export's own
- * sizing pass; with nothing probed the fallback frame comes back.
+ * `outputFrameSize` rule the export and preview stage (#176) use — per
+ * *entry*, oriented (#232/#233): a quarter-turned entry contributes swapped
+ * dimensions, so the shown values match the frame the export derives.
+ * Sources that fail to probe contribute nothing, exactly as in the export's
+ * own sizing pass; with nothing probed the fallback frame comes back.
  */
 export function automaticExportFrame(timeline: TimelineState): Promise<SourceDimensions> {
   const targets: { url: string; still: boolean }[] = []
@@ -107,7 +110,14 @@ export function automaticExportFrame(timeline: TimelineState): Promise<SourceDim
         }
       }),
   )
-  return Promise.all(probes).then((dims) =>
-    outputFrameSize(dims.filter((dim): dim is SourceDimensions => dim !== null)),
-  )
+  return Promise.all(probes).then((dims) => {
+    const byUrl = new Map(targets.map((target, index) => [target.url, dims[index]]))
+    return outputFrameSize(
+      timeline.entries.flatMap((entry) => {
+        if (isSlateEntry(entry)) return []
+        const dim = byUrl.get(entry.url)
+        return dim == null ? [] : [orientedDimensions(dim, entry.orientation)]
+      }),
+    )
+  })
 }

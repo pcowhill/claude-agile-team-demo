@@ -26,6 +26,8 @@ import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
 import { audioTrackGainAt, videoEntryGain, videoEntryGainAt, videoOverlayGainAt } from './gain'
+import { orientationTransform, orientedDimensions } from './orientation'
+import type { Orientation } from './orientation'
 import { transitionLayerSpec } from './transitionRender'
 import { outputFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -354,6 +356,51 @@ export function withLayerColorFilter(
     draw()
   } finally {
     context.filter = 'none'
+  }
+}
+
+/**
+ * Runs `draw` with the context transformed for the layer's orientation
+ * (#233) — the same shared rule (`orientationTransform`, #232) the preview
+ * maps to a CSS transform, mapped here to the equivalent canvas transform.
+ * `dest` is where the *oriented* picture lands on the canvas: the fit of
+ * the oriented dimensions after zoom/transition mapping — the preview's
+ * layer-card media box. `draw` receives the rectangle to paint the
+ * unrotated source pixels into: centred on `dest` and transposed for a
+ * quarter turn (the preview's swapped media box — the two letterbox ratios
+ * are the same two numbers, so contain-of-rotated equals rotate-of-contained).
+ *
+ * The transforms compose so the flip applies in the source's own space
+ * first, then the rotation — the shared rule's fixed order (a canvas
+ * `translate`·`rotate`·`scale` maps drawn content scale-first, exactly as
+ * CSS `rotate() scale()` applies right-to-left).
+ *
+ * The identity orientation calls `draw` with `dest` itself and the context
+ * untouched, so an orientation-free layer's draw calls are byte-for-byte
+ * the pre-#233 ones.
+ */
+export function withLayerOrientation(
+  context: CanvasRenderingContext2D,
+  orientation: Orientation | undefined,
+  dest: FitRect,
+  draw: (drawRect: FitRect) => void,
+): void {
+  if (orientation === undefined) {
+    draw(dest)
+    return
+  }
+  const { rotation, scaleX, scaleY } = orientationTransform(orientation)
+  const swaps = rotation === 90 || rotation === 270
+  const drawWidth = swaps ? dest.height : dest.width
+  const drawHeight = swaps ? dest.width : dest.height
+  context.save()
+  try {
+    context.translate(dest.x + dest.width / 2, dest.y + dest.height / 2)
+    if (rotation !== 0) context.rotate((rotation * Math.PI) / 180)
+    if (scaleX !== 1 || scaleY !== 1) context.scale(scaleX, scaleY)
+    draw({ x: -drawWidth / 2, y: -drawHeight / 2, width: drawWidth, height: drawHeight })
+  } finally {
+    context.restore()
   }
 }
 
@@ -941,14 +988,17 @@ export async function exportTimeline(
   // an <img> — a <video> cannot decode them — and keep it for the draw loop.
   // Slates (#143) have no media at all: nothing to load, no intrinsic size —
   // they fill whatever frame the real sources (or the fallback) decide.
-  const sourceDims: SourceDimensions[] = []
+  // Dimensions are probed once per URL but contributed once per *entry*,
+  // oriented (#232/#233): a quarter-turned entry presents swapped
+  // dimensions to the frame rule, exactly as the preview computes its stage.
+  const urlDims = new Map<string, SourceDimensions>()
   try {
     for (const url of new Set(
       entries.filter((entry) => !isStillEntry(entry)).map((entry) => entry.url),
     )) {
       throwIfAborted()
       await loadSource(replays[0], url)
-      sourceDims.push({ width: replays[0].videoWidth, height: replays[0].videoHeight })
+      urlDims.set(url, { width: replays[0].videoWidth, height: replays[0].videoHeight })
     }
     for (const url of new Set(
       entries.filter((entry) => entry.kind === 'image').map((entry) => entry.url),
@@ -956,7 +1006,7 @@ export async function exportTimeline(
       throwIfAborted()
       const image = await loadStill(url)
       stillSources.set(url, image)
-      sourceDims.push({ width: image.naturalWidth, height: image.naturalHeight })
+      urlDims.set(url, { width: image.naturalWidth, height: image.naturalHeight })
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track
@@ -977,6 +1027,11 @@ export async function exportTimeline(
     await releaseAll()
     throw error
   }
+  const sourceDims = entries.flatMap((entry) => {
+    if (isSlateEntry(entry)) return []
+    const dims = urlDims.get(entry.url)
+    return dims === undefined ? [] : [orientedDimensions(dims, entry.orientation)]
+  })
   const { width, height } = options.frame ?? outputFrameSize(sourceDims)
 
   const canvas = document.createElement('canvas')
@@ -1094,7 +1149,16 @@ export async function exportTimeline(
     context.fillStyle = '#000'
     context.fillRect(0, 0, width, height)
     const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
-    const rect = fitRect(layer.sourceWidth, layer.sourceHeight, width, height)
+    // The entry's orientation (#233): the fit sees the oriented shape — a
+    // quarter-turned clip letterboxes like a portrait source — and the draw
+    // below rotates/flips the source pixels into that box, exactly the
+    // preview's card/media split (#232). Slates never carry one (#232).
+    const outgoingOrientation = timeline.entries[entryIndex]?.orientation
+    const outgoingDims = orientedDimensions(
+      { width: layer.sourceWidth, height: layer.sourceHeight },
+      outgoingOrientation,
+    )
+    const rect = fitRect(outgoingDims.width, outgoingDims.height, width, height)
     // Each layer's zoom (#65) at its own source time: applied per layer,
     // before the transition compositing, so a zoomed clip can be either side
     // of a transition. The identity zoom leaves the fitted rect untouched —
@@ -1112,16 +1176,28 @@ export async function exportTimeline(
     // the preview sets as the element's CSS filter (#192), applied to
     // exactly this layer's draw.
     withLayerColorFilter(context, timeline.entries[entryIndex]?.colorAdjustments, () => {
-      context.drawImage(
-        layer.source,
-        dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
-        dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
-        dest.width,
-        dest.height,
+      withLayerOrientation(
+        context,
+        outgoingOrientation,
+        {
+          x: dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+          y: dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+          width: dest.width,
+          height: dest.height,
+        },
+        (drawRect) => {
+          context.drawImage(layer.source, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+        },
       )
     })
     if (overlay !== null && spec !== null) {
-      const incoming = fitRect(overlay.layer.sourceWidth, overlay.layer.sourceHeight, width, height)
+      // The incoming entry's orientation (#233), exactly as the outgoing's.
+      const incomingOrientation = timeline.entries[overlay.index]?.orientation
+      const incomingDims = orientedDimensions(
+        { width: overlay.layer.sourceWidth, height: overlay.layer.sourceHeight },
+        incomingOrientation,
+      )
+      const incoming = fitRect(incomingDims.width, incomingDims.height, width, height)
       const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
       const incomingZoomed =
         incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
@@ -1223,12 +1299,24 @@ export async function exportTimeline(
             card.height,
           )
         }
-        context.drawImage(
-          overlay.layer.source,
-          incomingDest.x + spec.incomingOffsetXFraction * width,
-          incomingDest.y + spec.incomingOffsetYFraction * height,
-          incomingDest.width,
-          incomingDest.height,
+        withLayerOrientation(
+          context,
+          incomingOrientation,
+          {
+            x: incomingDest.x + spec.incomingOffsetXFraction * width,
+            y: incomingDest.y + spec.incomingOffsetYFraction * height,
+            width: incomingDest.width,
+            height: incomingDest.height,
+          },
+          (drawRect) => {
+            context.drawImage(
+              overlay.layer.source,
+              drawRect.x,
+              drawRect.y,
+              drawRect.width,
+              drawRect.height,
+            )
+          },
         )
       })
       if (clipToCard || clipToReveal || clipToEllipse) context.restore()
@@ -1255,11 +1343,20 @@ export async function exportTimeline(
       for (const { overlay: layer, element } of overlayReplays) {
         if (!activeOverlays.includes(layer)) continue
         if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
-        const dest = overlayDestRect(layer, element.videoWidth, element.videoHeight, width, height)
+        // The overlay's orientation (#233): the oriented shape letterboxes
+        // within the placement rectangle — the preview's swapped media box
+        // at rectangle scale — and the draw rotates/flips into that box.
+        const layerDims = orientedDimensions(
+          { width: element.videoWidth, height: element.videoHeight },
+          layer.orientation,
+        )
+        const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
         withLayerColorFilter(context, layer.colorAdjustments, () => {
-          context.drawImage(element, dest.x, dest.y, dest.width, dest.height)
+          withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
+            context.drawImage(element, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+          })
         })
       }
     }

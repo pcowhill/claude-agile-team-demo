@@ -20,6 +20,7 @@ import {
   textDraw,
   timelineHasColorAdjustments,
   withLayerColorFilter,
+  withLayerOrientation,
   zoomRect,
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
@@ -985,5 +986,109 @@ describe('withLayerColorFilter (#195)', () => {
       }),
     ).toThrow('draw failed')
     expect(context.filter).toBe('none')
+  })
+})
+
+// Per-clip orientation in the export (#233). The rotated pixels can only
+// render in a real browser (e2e/export-orientation.spec.ts); these tests
+// pin the pure decision — how the shared rule (#232) maps to the canvas
+// transform around exactly the oriented layer's draw, in the fixed
+// flip-then-rotate order, with the identity path byte-identical.
+
+/** A fake 2D context recording every transform call, in order. */
+function fakeTransformContext() {
+  const calls: string[] = []
+  const context = {
+    save: () => calls.push('save'),
+    restore: () => calls.push('restore'),
+    translate: (x: number, y: number) => calls.push(`translate(${x}, ${y})`),
+    rotate: (angle: number) => calls.push(`rotate(${(angle * 180) / Math.PI})`),
+    scale: (x: number, y: number) => calls.push(`scale(${x}, ${y})`),
+  } as unknown as CanvasRenderingContext2D
+  return { context, calls }
+}
+
+describe('withLayerOrientation (#233)', () => {
+  const dest = { x: 40, y: 20, width: 160, height: 90 }
+
+  it('passes the destination through untouched for an unoriented layer', () => {
+    const { context, calls } = fakeTransformContext()
+    let received: unknown = null
+    withLayerOrientation(context, undefined, dest, (rect) => {
+      received = rect
+    })
+    // The exact object, and not a single context call — an unoriented
+    // layer's draw is byte-for-byte the pre-#233 one.
+    expect(received).toBe(dest)
+    expect(calls).toEqual([])
+  })
+
+  it('mirrors a flip about the destination centre, no rotation', () => {
+    const { context, calls } = fakeTransformContext()
+    let received: unknown = null
+    withLayerOrientation(context, { flipH: true }, dest, (rect) => {
+      received = rect
+      calls.push('draw')
+    })
+    expect(calls).toEqual(['save', 'translate(120, 65)', 'scale(-1, 1)', 'draw', 'restore'])
+    expect(received).toEqual({ x: -80, y: -45, width: 160, height: 90 })
+  })
+
+  it('maps flipV to the vertical axis', () => {
+    const { context, calls } = fakeTransformContext()
+    withLayerOrientation(context, { flipV: true }, dest, () => {})
+    expect(calls).toEqual(['save', 'translate(120, 65)', 'scale(1, -1)', 'restore'])
+  })
+
+  it('rotates 180° in place: same box, no scale call', () => {
+    const { context, calls } = fakeTransformContext()
+    let received: unknown = null
+    withLayerOrientation(context, { rotation: 180 }, dest, (rect) => {
+      received = rect
+    })
+    expect(calls).toEqual(['save', 'translate(120, 65)', 'rotate(180)', 'restore'])
+    expect(received).toEqual({ x: -80, y: -45, width: 160, height: 90 })
+  })
+
+  it('draws a quarter turn into the transposed box (the preview swapped media box)', () => {
+    const { context, calls } = fakeTransformContext()
+    let received: unknown = null
+    withLayerOrientation(context, { rotation: 90 }, dest, (rect) => {
+      received = rect
+    })
+    expect(calls).toEqual(['save', 'translate(120, 65)', 'rotate(90)', 'restore'])
+    // The unrotated source paints into height × width, centred; the
+    // rotation carries it onto dest exactly (the two letterbox ratios are
+    // the same two numbers — orientation.ts).
+    expect(received).toEqual({ x: -45, y: -80, width: 90, height: 160 })
+  })
+
+  it('composes rotation after flips — the shared rule fixed order', () => {
+    const { context, calls } = fakeTransformContext()
+    let received: unknown = null
+    withLayerOrientation(context, { rotation: 270, flipH: true, flipV: true }, dest, (rect) => {
+      received = rect
+    })
+    // Canvas transforms map drawn content through the calls right-to-left:
+    // scale (the source own axes) first, then rotate — exactly the CSS
+    // `rotate() scale()` order the preview sets (#232).
+    expect(calls).toEqual([
+      'save',
+      'translate(120, 65)',
+      'rotate(270)',
+      'scale(-1, -1)',
+      'restore',
+    ])
+    expect(received).toEqual({ x: -45, y: -80, width: 90, height: 160 })
+  })
+
+  it('restores the context even when the draw throws', () => {
+    const { context, calls } = fakeTransformContext()
+    expect(() =>
+      withLayerOrientation(context, { rotation: 90 }, dest, () => {
+        throw new Error('draw failed')
+      }),
+    ).toThrow('draw failed')
+    expect(calls[calls.length - 1]).toBe('restore')
   })
 })
