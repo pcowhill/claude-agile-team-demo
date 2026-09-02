@@ -1797,3 +1797,107 @@ describe('crop (#255)', () => {
     expect(media.style.transform).toBe('')
   })
 })
+
+describe('background fill (#259)', () => {
+  /** The Image-probe stub from the #176 tests: an 800×450 landscape photo. */
+  class InstantLandscapeImage {
+    onload: (() => void) | null = null
+    naturalWidth = 0
+    naturalHeight = 0
+    set src(_value: string) {
+      this.naturalWidth = 800
+      this.naturalHeight = 450
+      queueMicrotask(() => this.onload?.())
+    }
+    removeAttribute() {}
+  }
+
+  type Fill = NonNullable<TimelineState['entries'][number]['backgroundFill']>
+
+  const filledStill = (backgroundFill?: Fill): TimelineState => ({
+    entries: [
+      {
+        id: 'i1',
+        clipId: 'c1',
+        name: 'photo.png',
+        duration: 4,
+        url: 'blob:photo',
+        inPoint: 0,
+        outPoint: 4,
+        kind: 'image',
+        ...(backgroundFill === undefined ? {} : { backgroundFill }),
+      },
+    ],
+  })
+
+  const videoWithFill = (backgroundFill: Fill): TimelineState => ({
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'clip.webm',
+        duration: 10,
+        url: 'blob:clip',
+        inPoint: 0,
+        outPoint: 10,
+        backgroundFill,
+      },
+    ],
+  })
+
+  it('a color fill renders the backdrop div under the still, a blur the canvas', () => {
+    const { rerender } = render(
+      <PreviewPlayer timeline={filledStill({ kind: 'color', color: '#2244aa' })} />,
+    )
+    const card = screen.getByTestId('preview-image-card')
+    const backdrop = screen.getByTestId('preview-backfill-color')
+    // First child of the card — behind the media element that follows it.
+    expect(card.firstElementChild).toBe(backdrop)
+    expect(backdrop).toHaveClass('preview-backfill')
+    expect(backdrop.style.backgroundColor).toBe('rgb(34, 68, 170)')
+
+    rerender(<PreviewPlayer timeline={filledStill({ kind: 'blur' })} />)
+    const canvas = screen.getByTestId('preview-backfill-blur')
+    expect(screen.getByTestId('preview-image-card').firstElementChild).toBe(canvas)
+    expect(canvas.tagName).toBe('CANVAS')
+    expect(canvas).toHaveClass('preview-backfill')
+    // The blur strength comes from the shared rule, in frame-relative cq
+    // units — 2% of the frame's shorter side, matching the export's radius.
+    expect(canvas.style.filter).toBe('blur(min(2cqw, 2cqh))')
+  })
+
+  it('a fill-free entry renders no backdrop node at all — DOM unchanged', () => {
+    render(<PreviewPlayer timeline={filledStill()} />)
+    expect(screen.queryByTestId('preview-backfill-color')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-backfill-blur')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-image-card').firstElementChild).toBe(
+      screen.getByTestId('preview-image'),
+    )
+  })
+
+  it('a video entry renders its backdrop inside the primary layer card', () => {
+    render(<PreviewPlayer timeline={videoWithFill({ kind: 'color', color: '#000000' })} />)
+    const card = screen.getByTestId('preview-video-card')
+    expect(card.firstElementChild).toBe(screen.getByTestId('preview-backfill-color'))
+    // The media element still follows inside the same card.
+    expect(card.contains(screen.getByTestId('preview-video'))).toBe(true)
+  })
+
+  it('fill never shapes the frame: the aspect matches the fill-free value', async () => {
+    vi.stubGlobal('Image', InstantLandscapeImage)
+    try {
+      const { container, rerender } = render(<PreviewPlayer timeline={filledStill()} />)
+      await act(async () => {})
+      const stage = () => container.querySelector('.preview-stage') as HTMLElement
+      const bare = stage().style.getPropertyValue('--preview-aspect')
+      expect(bare).toBe(String(800 / 450))
+      rerender(<PreviewPlayer timeline={filledStill({ kind: 'blur' })} />)
+      await act(async () => {})
+      // The output-frame rule (#176) never consults the fill — a backdrop
+      // fills whatever bars the rule leaves, it never shapes the frame.
+      expect(stage().style.getPropertyValue('--preview-aspect')).toBe(bare)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

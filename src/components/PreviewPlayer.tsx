@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
-import type { TimelineState, TransitionType } from '../lib/timeline'
+import type { CSSProperties, RefObject } from 'react'
+import type { TimelineEntry, TimelineState, TransitionType } from '../lib/timeline'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -39,6 +39,8 @@ import { orientationTransform, orientedDimensions } from '../lib/orientation'
 import type { Orientation } from '../lib/orientation'
 import { croppedDimensions, cropMediaPlacement } from '../lib/crop'
 import type { Crop } from '../lib/crop'
+import { BACKDROP_BLUR_FRACTION, backdropRect } from '../lib/backgroundFill'
+import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
@@ -268,6 +270,107 @@ function croppedOrientedMediaStyle(
   }
 }
 
+/** The blur backdrop buffer's fixed width in canvas pixels (#259): the
+ * picture is heavily blurred by design, so a small buffer both looks
+ * identical and keeps the per-frame copy trivially cheap. */
+const BACKDROP_BUFFER_WIDTH = 192
+
+/**
+ * The blur-fill backdrop (#259): a low-resolution canvas behind the fitted
+ * media element, repainting the same element's current frame on its own rAF
+ * loop — sampling the element the user already sees, so the backdrop can
+ * never drift from playback. The picture is composed exactly as the export
+ * composes a layer — the shared crop rule (#255) then orientation (#232)
+ * via the compositor's own `drawLayerSource`/`withLayerOrientation`, into
+ * `backdropRect` (the shared cover-fit rule) — and the blur itself is CSS
+ * on the element, `BACKDROP_BLUR_FRACTION` of the frame's shorter side in
+ * cq units (the frame is the size container), so the strength matches the
+ * export's frame-relative radius at any rendered size.
+ */
+function BlurBackdrop({
+  sourceRef,
+  crop,
+  orientation,
+}: {
+  sourceRef: RefObject<HTMLVideoElement | HTMLImageElement | null>
+  crop: Crop | undefined
+  orientation: Orientation | undefined
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    let frame = 0
+    const paint = () => {
+      frame = requestAnimationFrame(paint)
+      const canvas = canvasRef.current
+      const source = sourceRef.current
+      if (canvas === null || source === null) return
+      // Unlaid-out (or jsdom) canvases have no box to shape the buffer by.
+      if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return
+      const isVideo = source instanceof HTMLVideoElement
+      if (isVideo && source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+      const sourceWidth = isVideo ? source.videoWidth : source.naturalWidth
+      const sourceHeight = isVideo ? source.videoHeight : source.naturalHeight
+      if (sourceWidth <= 0 || sourceHeight <= 0) return
+      // The buffer mirrors the element box's aspect (the frame's), so the
+      // CSS stretch to 100%/100% never distorts.
+      const width = BACKDROP_BUFFER_WIDTH
+      const height = Math.max(1, Math.round((width * canvas.clientHeight) / canvas.clientWidth))
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const context = canvas.getContext('2d')
+      if (context === null) return
+      const dims = orientedDimensions(
+        croppedDimensions({ width: sourceWidth, height: sourceHeight }, crop),
+        orientation,
+      )
+      const rect = backdropRect(dims, { width, height })
+      withLayerOrientation(context, orientation, rect, (drawRect) => {
+        drawLayerSource(context, source, crop, sourceWidth, sourceHeight, drawRect)
+      })
+    }
+    frame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(frame)
+  }, [sourceRef, crop, orientation])
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-backfill"
+      data-testid="preview-backfill-blur"
+      aria-hidden="true"
+      style={{
+        filter: `blur(min(${styleNumber(BACKDROP_BLUR_FRACTION * 100)}cqw, ${styleNumber(BACKDROP_BLUR_FRACTION * 100)}cqh))`,
+      }}
+    />
+  )
+}
+
+/**
+ * An entry's background-fill backdrop (#259), rendered as its layer card's
+ * first child so the fitted media element paints above it and the bars the
+ * fit leaves show it: a flat color as a plain div, blur as the sampled
+ * canvas. Fill-free entries render nothing at all, keeping their cards'
+ * DOM byte-identical (the #255 discipline). Inside the card, the backdrop
+ * rides transitions and zooms with the entry — the backdrop is part of the
+ * entry's rendered frame, exactly the export's compositing order (#260).
+ */
+function entryBackdrop(
+  entry: TimelineEntry | undefined,
+  sourceRef: RefObject<HTMLVideoElement | HTMLImageElement | null>,
+) {
+  const fill = entry?.backgroundFill
+  if (entry === undefined || fill === undefined) return null
+  if (fill.kind === 'color') {
+    return (
+      <div
+        className="preview-backfill"
+        data-testid="preview-backfill-color"
+        style={{ backgroundColor: fill.color }}
+      />
+    )
+  }
+  return <BlurBackdrop sourceRef={sourceRef} crop={entry.crop} orientation={entry.orientation} />
+}
+
 /**
  * Composes an element's transition styles with its entry's zoom state (#64).
  * The element box is the frame (it fills the stage), so the transform maps a
@@ -383,6 +486,10 @@ export function PreviewPlayer({
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
+  // The still layers' <img> elements (#140) — what a blur backdrop (#259)
+  // samples when a still fronts (or transitions into) the sequence.
+  const stillImageRef = useRef<HTMLImageElement>(null)
+  const stillIncomingImageRef = useRef<HTMLImageElement>(null)
   const frameRef = useRef(0)
   // The entry index the primary element is currently cued to. Kept in a ref
   // (not state) because the rAF loop reads and writes it between renders.
@@ -1255,9 +1362,11 @@ export function PreviewPlayer({
    */
   const videoSlotProps = (isA: boolean) => {
     const isPrimary = isA === primaryIsA
+    // The slot's own element — what a blur backdrop (#259) samples.
+    const slotVideoRef = isA ? videoARef : videoBRef
     if (isPrimary) {
       if (stillPrimary) {
-        return { card: { className: 'preview-video preview-video-idle' }, media: {} }
+        return { card: { className: 'preview-video preview-video-idle' }, media: {}, backdrop: null }
       }
       return {
         card: {
@@ -1277,6 +1386,7 @@ export function PreviewPlayer({
             location?.entry.colorAdjustments,
           ),
         },
+        backdrop: entryBackdrop(location?.entry, slotVideoRef),
       }
     }
     const videoOverlap = overlap !== undefined && !stillIncoming
@@ -1300,6 +1410,7 @@ export function PreviewPlayer({
           : undefined,
         'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
       },
+      backdrop: videoOverlap ? entryBackdrop(overlap.entry, slotVideoRef) : null,
     }
   }
   const slotA = videoSlotProps(true)
@@ -1335,9 +1446,11 @@ export function PreviewPlayer({
           >
             <div className="preview-frame" data-testid="preview-frame">
               <div {...slotA.card}>
+                {slotA.backdrop}
                 <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
               </div>
               <div {...slotB.card}>
+                {slotB.backdrop}
                 <video ref={videoBRef} playsInline preload="auto" className="preview-media" {...slotB.media} />
               </div>
               {/* Still layers (#140): an <img> in the same stacked slot,
@@ -1363,7 +1476,9 @@ export function PreviewPlayer({
                     data-testid="preview-image-card"
                     style={withZoom(layerStyles?.outgoing, primaryZoom)}
                   >
+                    {entryBackdrop(location.entry, stillImageRef)}
                     <img
+                      ref={stillImageRef}
                       className="preview-media"
                       data-testid="preview-image"
                       alt=""
@@ -1398,7 +1513,9 @@ export function PreviewPlayer({
                     data-testid="preview-image-incoming-card"
                     style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null)}
                   >
+                    {entryBackdrop(overlap.entry, stillIncomingImageRef)}
                     <img
+                      ref={stillIncomingImageRef}
                       className="preview-media"
                       data-testid="preview-image-incoming"
                       alt=""

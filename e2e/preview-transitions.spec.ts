@@ -338,6 +338,11 @@ test('a crossfade between different aspect ratios fades the uncovered margins to
 
   // Both elements fill the stage with object-fit: contain, so each clip's
   // painted box is the aspect-fit of its source size into the stage box.
+  // The timeline's per-entry rows can scroll the page while editing; every
+  // sample below reuses coordinates measured here, so pin the scroll to the
+  // top (where the preview lives) before measuring and keep it there after
+  // each seek (see seekAndSettle).
+  await page.evaluate(() => window.scrollTo(0, 0))
   const stage = (await page.getByTestId('preview-video').boundingBox())!
   const contain = (sourceWidth: number, sourceHeight: number) => {
     const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
@@ -386,6 +391,7 @@ test('a crossfade between different aspect ratios fades the uncovered margins to
         )
         .toBeGreaterThanOrEqual(2)
     }
+    await page.evaluate(() => window.scrollTo(0, 0))
   }
   const marginRedAt = async (time: string) => {
     await seekAndSettle(time)
@@ -459,6 +465,11 @@ test('a slide between different aspect ratios slides a black card over the margi
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
   await expect(seek).toHaveAttribute('max', '1.5')
 
+  // The timeline's per-entry rows can scroll the page while editing; every
+  // sample below reuses coordinates measured here, so pin the scroll to the
+  // top (where the preview lives) before measuring and keep it there after
+  // each seek (see seekAndSettle).
+  await page.evaluate(() => window.scrollTo(0, 0))
   const stage = (await page.getByTestId('preview-video').boundingBox())!
   const contain = (sourceWidth: number, sourceHeight: number) => {
     const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
@@ -503,7 +514,8 @@ test('a slide between different aspect ratios slides a black card over the margi
   // zeros like "0.70" as malformed.
   const overlapTime = (progress: number) => String(Math.round((0.5 + 0.5 * progress) * 100) / 100)
 
-  /** Seeks (paused), waits for decodable frames on both live elements. */
+  /** Seeks (paused), waits for decodable frames on both live elements, and
+   * re-pins the scroll so the measured coordinates stay valid to sample. */
   const seekAndSettle = async (time: string) => {
     await seek.fill(time)
     await expect
@@ -520,6 +532,7 @@ test('a slide between different aspect ratios slides a black card over the margi
         )
         .toBeGreaterThanOrEqual(2)
     }
+    await page.evaluate(() => window.scrollTo(0, 0))
   }
 
   // Solo: both strips show the outgoing clip at full brightness.

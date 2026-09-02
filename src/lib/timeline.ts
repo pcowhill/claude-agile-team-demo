@@ -3,6 +3,12 @@ import type { Orientation } from './orientation'
 import { isValidOrientation, normalizeOrientation, orientationsEqual } from './orientation'
 import type { Crop } from './crop'
 import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
+import type { BackgroundFill, BackgroundFillInput } from './backgroundFill'
+import {
+  backgroundFillsEqual,
+  isValidBackgroundFillInput,
+  normalizeBackgroundFill,
+} from './backgroundFill'
 import {
   colorAdjustmentsEqual,
   isValidColorAdjustments,
@@ -125,6 +131,18 @@ export interface TimelineEntry {
    * nothing to trim away, exactly as it has no orientation.
    */
   crop?: Crop
+  /**
+   * Background fill of a video/image entry (#259): what shows behind a
+   * source that doesn't fill the output frame — a blurred cover-fit copy of
+   * its own frame, or a flat color — exactly the `crop` shape: absent
+   * behaves as none (today's black bars), so fill-free states and files
+   * stay valid; present exactly when set (the reducer normalizes — see
+   * `normalizeBackgroundFill`). The fill never changes the entry's
+   * effective dimensions or the output frame — it fills whatever bars the
+   * frame rule leaves. Slates carry none: a flat color fills its frame by
+   * construction, exactly as it carries no crop.
+   */
+  backgroundFill?: BackgroundFill
 }
 
 /**
@@ -515,6 +533,17 @@ export type TimelineAction =
       crop: Crop
     }
   | { type: 'video-overlay-crop-set'; id: string; crop: Crop }
+  | {
+      /**
+       * Sets a video/image entry's background fill whole (#259), the
+       * `entry-crop-set` idiom: the action carries the full fill and the
+       * reducer stores the normalized form — `{ kind: 'none' }` normalizes
+       * to no `backgroundFill` key at all, so it is the reset.
+       */
+      type: 'entry-background-fill-set'
+      id: string
+      fill: BackgroundFillInput
+    }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
@@ -1665,6 +1694,28 @@ function reduceTimelineCollections(
       const next = { ...entry }
       if (normalized === undefined) delete next.crop
       else next.crop = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'entry-background-fill-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no fill (#259): a flat color fills its frame by
+      // construction, exactly as it carries no crop (#255).
+      if (isSlateEntry(entry)) return state
+      if (!isValidBackgroundFillInput(action.fill)) return state
+      const normalized = normalizeBackgroundFill(action.fill)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same state — or resetting an untouched entry — is
+      // a no-op, not an edit (edits stop preview playback).
+      if (backgroundFillsEqual(normalized, entry.backgroundFill)) return state
+      const entries = [...state.entries]
+      // None means no key at all (see backgroundFill.ts) — what keeps
+      // fill-free saved files byte-identical.
+      const next = { ...entry }
+      if (normalized === undefined) delete next.backgroundFill
+      else next.backgroundFill = normalized
       entries[index] = next
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
     }

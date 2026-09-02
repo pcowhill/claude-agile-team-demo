@@ -17,6 +17,7 @@ import fixtureV10DuckingReferencesBase64 from './fixtures/project-v10-ducking-re
 import fixtureV11SubtitleReferencesBase64 from './fixtures/project-v11-subtitle-references.bvep.base64?raw'
 import fixtureV12CropReferencesBase64 from './fixtures/project-v12-crop-references.bvep.base64?raw'
 import fixtureV13SubtitleStyleReferencesBase64 from './fixtures/project-v13-subtitle-style-references.bvep.base64?raw'
+import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-background-fill-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import type { TextOverlay } from './textOverlay'
@@ -26,6 +27,7 @@ import {
   SUBTITLE_SCHEMA_VERSION,
   CROP_SCHEMA_VERSION,
   SUBTITLE_STYLE_SCHEMA_VERSION,
+  BACKGROUND_FILL_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1025,8 +1027,9 @@ describe('project file versioning', () => {
     // orientation (#232); version 10 added audio-track ducking (#241);
     // version 11 added the subtitle-import marker on text overlays (#249);
     // version 12 added entry and overlay crop (#255); version 13 added the
-    // default subtitle style and per-overlay style overrides (#250).
-    expect(PROJECT_SCHEMA_VERSION).toBe(13)
+    // default subtitle style and per-overlay style overrides (#250);
+    // version 14 added entry background fill (#259).
+    expect(PROJECT_SCHEMA_VERSION).toBe(14)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1040,6 +1043,7 @@ describe('project file versioning', () => {
     expect(SUBTITLE_SCHEMA_VERSION).toBe(11)
     expect(CROP_SCHEMA_VERSION).toBe(12)
     expect(SUBTITLE_STYLE_SCHEMA_VERSION).toBe(13)
+    expect(BACKGROUND_FILL_SCHEMA_VERSION).toBe(14)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3026,6 +3030,135 @@ describe('default subtitle style in project files (#250, schema version 13)', ()
           zooms: expectedProject.timeline.zooms,
           texts: [subtitleText({ color: '#00ff00', styleOverrides: ['color'] })],
           subtitleStyle: customStyle,
+          audioTracks: [],
+        },
+      },
+    })
+  })
+})
+
+describe('background fill in project files (#259, schema version 14)', () => {
+  const filledTimeline = (): TimelineState => ({
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], backgroundFill: { kind: 'blur' } },
+      { ...timeline.entries[1], backgroundFill: { kind: 'color', color: '#112233' } },
+      ...timeline.entries.slice(2),
+    ],
+  })
+
+  it('writes version 14 with the fill exactly when set, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, filledTimeline()))
+    expect(references.schemaVersion).toBe(BACKGROUND_FILL_SCHEMA_VERSION)
+    const entries = (references.timeline as { entries: Record<string, unknown>[] }).entries
+    expect(entries[0].backgroundFill).toEqual({ kind: 'blur' })
+    expect(entries[1].backgroundFill).toEqual({ kind: 'color', color: '#112233' })
+    expect('backgroundFill' in entries[2]).toBe(false)
+    const embedded = await gunzipJson(
+      await serializeProject(library, filledTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(BACKGROUND_FILL_SCHEMA_VERSION)
+  })
+
+  it('a fill-free project stays byte-identical to earlier output', async () => {
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('backgroundFill')
+  })
+
+  it('subtitle-style data without a fill stays at version 13 — the chain orders by newest feature', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, {
+        ...timeline,
+        subtitleStyle: { x: 0.5, y: 0.9, font: 'serif', size: 0.05, color: '#ffffff', bold: false, italic: false },
+      }),
+    )
+    expect(document.schemaVersion).toBe(SUBTITLE_STYLE_SCHEMA_VERSION)
+  })
+
+  it('round-trips both fill kinds and leaves fill-free entries bare', async () => {
+    const result = await deserializeProject(await serializeProject(library, filledTimeline()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].backgroundFill).toEqual({ kind: 'blur' })
+      expect(result.project.timeline.entries[1].backgroundFill).toEqual({
+        kind: 'color',
+        color: '#112233',
+      })
+      expect(result.project.timeline.entries[2].backgroundFill).toBeUndefined()
+    }
+  })
+
+  it('pre-#259 files (and fill-free files since) open with no fill', async () => {
+    const result = await deserializeProject(await serializeProject(library, timeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries.every((entry) => entry.backgroundFill === undefined)).toBe(true)
+    }
+  })
+
+  it('refuses unknown kinds, malformed colors, and fills on slates by name', async () => {
+    const unknownKind = validDocument()
+    ;(unknownKind.timeline.entries[0] as unknown as Record<string, unknown>).backgroundFill = {
+      kind: 'gradient',
+    }
+    await expectRefusal(
+      await gzipJson(unknownKind),
+      'timeline.entries[0].backgroundFill.kind "gradient" is not a background fill kind',
+    )
+
+    const badColor = validDocument()
+    ;(badColor.timeline.entries[0] as unknown as Record<string, unknown>).backgroundFill = {
+      kind: 'color',
+      color: '#ABCDEF',
+    }
+    await expectRefusal(
+      await gzipJson(badColor),
+      'timeline.entries[0].backgroundFill.color "#ABCDEF" is not a lowercase #rrggbb color',
+    )
+
+    const onSlate = validDocument()
+    ;(onSlate.timeline as unknown as { entries: unknown[] }).entries = [
+      {
+        id: 's1',
+        name: 'Color slate',
+        duration: 2,
+        inPoint: 0,
+        outPoint: 2,
+        kind: 'slate',
+        color: '#ff0000',
+        backgroundFill: { kind: 'blur' },
+      },
+    ]
+    await expectRefusal(
+      await gzipJson(onSlate),
+      'timeline.entries[0].backgroundFill is set on a slate entry',
+    )
+  })
+
+  it('deserializes the committed v14 background-fill fixture (#259)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced background fill keep opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV14BackgroundFillReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: [
+            { ...expectedProject.timeline.entries[0], backgroundFill: { kind: 'blur' } },
+            {
+              ...expectedProject.timeline.entries[1],
+              backgroundFill: { kind: 'color', color: '#112233' },
+            },
+            expectedProject.timeline.entries[2],
+          ],
+          transitions: expectedProject.timeline.transitions,
+          zooms: expectedProject.timeline.zooms,
           audioTracks: [],
         },
       },

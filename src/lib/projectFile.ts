@@ -41,6 +41,8 @@ import type { Orientation, OrientationRotation } from './orientation'
 import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
 import type { Crop } from './crop'
 import { normalizeCrop } from './crop'
+import type { BackgroundFill } from './backgroundFill'
+import { isValidBackgroundFillInput } from './backgroundFill'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -61,7 +63,9 @@ import { normalizeCrop } from './crop'
  *                     colorAdjustments?: { brightness?, contrast?,
  *                       saturation?, look? },                    // (#192)
  *                     orientation?: { rotation?, flipH?, flipV? },   // (#232)
- *                     crop?: { left?, right?, top?, bottom? } }],    // (#255)
+ *                     crop?: { left?, right?, top?, bottom? },       // (#255)
+ *                     backgroundFill?: { kind: 'blur' } |
+ *                                      { kind: 'color', color } }],  // (#259)
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
@@ -151,6 +155,16 @@ import { normalizeCrop } from './crop'
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 14 (#259) marks that a sequence entry carries a background
+ * fill: an optional `backgroundFill` object — `{ kind: 'blur' }` (the
+ * entry's own frame, cover-fit behind the fitted clip and blurred) or
+ * `{ kind: 'color', color }` (a flat lowercase `#rrggbb` backdrop); absence
+ * means none — today's black bars (see backgroundFill.ts). Written exactly
+ * when any fill exists, so fill-free projects stay byte-identical to
+ * earlier output and older builds route filled files to the "saved by a
+ * newer version" refusal instead of opening them silently unfilled. The
+ * media section's presence keeps distinguishing the save modes.
+ *
  * Schema version 13 (#250) marks that the project carries default-subtitle-
  * style data: a customized `timeline.subtitleStyle` (the full style — x, y,
  * font, size, color, bold, italic — present exactly when it differs from
@@ -200,7 +214,7 @@ import { normalizeCrop } from './crop'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 13
+export const PROJECT_SCHEMA_VERSION = 14
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -227,6 +241,8 @@ export const SUBTITLE_SCHEMA_VERSION = 11
 export const CROP_SCHEMA_VERSION = 12
 /** The version any default-subtitle-style data forces, whichever the save mode (#250). */
 export const SUBTITLE_STYLE_SCHEMA_VERSION = 13
+/** The version any entry background fill forces, whichever the save mode (#259). */
+export const BACKGROUND_FILL_SCHEMA_VERSION = 14
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -394,6 +410,15 @@ function storedCrop({ left, right, top, bottom }: Crop): Crop {
 }
 
 /**
+ * A background fill as stored (#259): fixed key order (kind, then color for
+ * the color kind), exactly the normalized state's own fields, so the same
+ * fill always serializes to the same bytes.
+ */
+function storedBackgroundFill(fill: BackgroundFill): BackgroundFill {
+  return fill.kind === 'color' ? { kind: 'color', color: fill.color } : { kind: 'blur' }
+}
+
+/**
  * The default subtitle style as stored (#250): every field, fixed key order
  * (x, y, font, size, color, bold, italic — `SUBTITLE_STYLE_FIELDS`), so the
  * same style always serializes to the same bytes. The state stores it only
@@ -465,7 +490,8 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // Default-subtitle-style data forces version 13 (#250), an
+  // An entry background fill forces version 14 (#259),
+  // default-subtitle-style data version 13 (#250), an
   // entry/overlay crop version 12 (#255), a
   // subtitle-imported text overlay version 11 (#249), a
   // duck-enabled audio track version 10 (#241), an entry/overlay
@@ -476,6 +502,7 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasBackgroundFill = timeline.entries.some((entry) => entry.backgroundFill !== undefined)
   const hasSubtitleStyle =
     timeline.subtitleStyle !== undefined ||
     textsOf(timeline).some((text) => text.styleOverrides !== undefined)
@@ -502,7 +529,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasSubtitleStyle
+    schemaVersion: hasBackgroundFill
+      ? BACKGROUND_FILL_SCHEMA_VERSION
+      : hasSubtitleStyle
       ? SUBTITLE_STYLE_SCHEMA_VERSION
       : hasCrop
       ? CROP_SCHEMA_VERSION
@@ -565,7 +594,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -594,6 +623,12 @@ export async function serializeProject(
           // no identity key, so crop-free projects stay byte-identical to
           // earlier output.
           ...(crop === undefined ? {} : { crop: storedCrop(crop) }),
+          // Background fill (#259) is written only when present — none is
+          // no key at all, so fill-free projects stay byte-identical to
+          // earlier output.
+          ...(backgroundFill === undefined
+            ? {}
+            : { backgroundFill: storedBackgroundFill(backgroundFill) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -936,6 +971,26 @@ const asCrop = (value: unknown, path: string): Crop | undefined => {
 }
 
 /**
+ * A stored background fill (#259): a known kind, and for `color` a storable
+ * lowercase `#rrggbb` value — unknown kinds and malformed colors are
+ * refused by name (silently dropping one would open the file rendering
+ * differently from the build that wrote it). A stored `none` cannot occur
+ * (absence means none), so any object here must be a real fill.
+ */
+const asBackgroundFill = (value: unknown, path: string): BackgroundFill => {
+  const raw = asRecord(value, path)
+  const kind = asString(raw.kind, `${path}.kind`)
+  if (kind === 'blur') return { kind: 'blur' }
+  if (kind !== 'color') throw new Error(`${path}.kind "${kind}" is not a background fill kind`)
+  const color = asString(raw.color, `${path}.color`)
+  const fill: BackgroundFill = { kind: 'color', color }
+  if (!isValidBackgroundFillInput(fill)) {
+    throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)
+  }
+  return fill
+}
+
+/**
  * A stored default subtitle style (#250): the full style, every field
  * validated exactly as a text overlay's own (unknown font, malformed color,
  * and out-of-range numbers are refused by name — the same rules, because
@@ -1129,6 +1184,18 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const crop = asCrop(raw.crop, `${path}.crop`)
       if (crop !== undefined) entry.crop = crop
+    }
+    // Background fill (#259): absent in files saved before it, and on every
+    // fill-free entry since, meaning none — today's black bars.
+    if (raw.backgroundFill !== undefined) {
+      if (entry.kind === 'slate') {
+        // A slate fills its frame by construction: a filled slate could only
+        // come from a foreign writer.
+        throw new Error(
+          `${path}.backgroundFill is set on a slate entry, but background fill applies to video and image entries only`,
+        )
+      }
+      entry.backgroundFill = asBackgroundFill(raw.backgroundFill, `${path}.backgroundFill`)
     }
     return entry
   })
