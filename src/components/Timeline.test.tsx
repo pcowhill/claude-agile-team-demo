@@ -2010,3 +2010,83 @@ describe('subtitle import (#249)', () => {
     }
   })
 })
+
+describe('crop (#255)', () => {
+  const cropField = (edge: string, position: string) =>
+    screen.getByRole('spinbutton', { name: `Crop ${edge} of ${position} (percent)` })
+  const commitField = async (field: HTMLElement, value: string) => {
+    await userEvent.clear(field)
+    await userEvent.type(field, value)
+    await userEvent.tab()
+  }
+
+  it('shows the crop row at identity and stores committed edges', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    // Identity: all edges zero, nothing to reset.
+    expect(cropField('left', position)).toHaveValue(0)
+    expect(screen.getByRole('button', { name: `Reset crop of ${position}` })).toBeDisabled()
+
+    await commitField(cropField('left', position), '25')
+    await commitField(cropField('top', position), '10')
+    expect(cropField('left', position)).toHaveValue(25)
+    expect(cropField('top', position)).toHaveValue(10)
+    expect(screen.getByRole('button', { name: `Reset crop of ${position}` })).toBeEnabled()
+  })
+
+  it('an over-deep pair snaps back to the clamped stored state — the clamp is visible', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await commitField(cropField('left', position), '60')
+    await commitField(cropField('right', position), '50')
+    // The reducer keeps at least 10% of the axis; the fields show the
+    // proportionally scaled stored values, not the typed ones.
+    const left = Number((cropField('left', position) as HTMLInputElement).value)
+    const right = Number((cropField('right', position) as HTMLInputElement).value)
+    expect(left + right).toBeCloseTo(90, 1)
+    expect(left / right).toBeCloseTo(60 / 50, 2)
+  })
+
+  it('reset returns every edge to zero, and undo steps the edit back (#189)', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    await commitField(cropField('bottom', position), '30')
+    await userEvent.click(screen.getByRole('button', { name: `Reset crop of ${position}` }))
+    expect(cropField('bottom', position)).toHaveValue(0)
+    expect(screen.getByRole('button', { name: `Reset crop of ${position}` })).toBeDisabled()
+    // Undoable like every timeline edit: one step back to the cropped state.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(cropField('bottom', position)).toHaveValue(30)
+  })
+
+  it('offers no crop row for a slate', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    expect(
+      screen.queryByRole('spinbutton', { name: /Crop left of Color slate/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('crops an overlay row independently of the base entry', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    const overlayPosition = 'overlay cam.mp4 at position 1'
+    await commitField(cropField('top', overlayPosition), '15')
+    expect(cropField('top', overlayPosition)).toHaveValue(15)
+    // The base entry's crop row is untouched.
+    expect(cropField('top', 'a.mp4 at position 1')).toHaveValue(0)
+  })
+})

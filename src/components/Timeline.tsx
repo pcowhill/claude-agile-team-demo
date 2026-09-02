@@ -18,6 +18,7 @@ import {
   COLOR_ADJUSTMENT_MIN,
 } from '../lib/colorAdjustments'
 import type { Orientation } from '../lib/orientation'
+import type { Crop } from '../lib/crop'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -96,6 +97,9 @@ interface TimelineProps {
   /** Sets a video/image entry's orientation whole (#232); `{}` resets. */
   onSetEntryOrientation: (id: string, orientation: Orientation) => void
   onSetVideoOverlayOrientation: (id: string, orientation: Orientation) => void
+  /** Sets a video/image entry's crop whole (#255); `{}` resets. */
+  onSetEntryCrop: (id: string, crop: Crop) => void
+  onSetVideoOverlayCrop: (id: string, crop: Crop) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
   /**
@@ -442,6 +446,74 @@ function OrientationControls({ position, orientation, onCommit }: OrientationCon
   )
 }
 
+interface CropControlsProps {
+  /** The accessible name of the row's owner (entry or overlay). */
+  position: string
+  crop: Crop | undefined
+  /** Receives the full crop on every edit; `{}` is the reset (#255). */
+  onCommit: (crop: Crop) => void
+}
+
+/**
+ * Per-entry crop controls (#255): a percent field per edge (the fraction
+ * trimmed from that edge) and a reset — one row in the per-entry-controls
+ * idiom, shared by video/image sequence entries and video overlays (slates
+ * carry no crop; a flat color has nothing to trim). Every edit commits the
+ * full crop; the reducer normalizes (zero fields drop away, deep pairs
+ * clamp to the minimum kept fraction, and Reset — committing `{}` — returns
+ * the item to its stored-key-free identity), and the fields snap back to
+ * the stored state, so a clamp is visible rather than silent.
+ */
+function CropControls({ position, crop, onCommit }: CropControlsProps) {
+  const percent = (value: number | undefined) => (value ?? 0) * 100
+  const commit = (change: Partial<Record<keyof Crop, number>>) => {
+    const next = {
+      left: percent(crop?.left),
+      right: percent(crop?.right),
+      top: percent(crop?.top),
+      bottom: percent(crop?.bottom),
+      ...change,
+    }
+    onCommit({
+      left: next.left / 100,
+      right: next.right / 100,
+      top: next.top / 100,
+      bottom: next.bottom / 100,
+    })
+  }
+  const field = (edge: keyof Crop, label: string) => (
+    <SecondsField
+      label={`Crop ${label} of ${position} (percent)`}
+      value={percent(crop?.[edge])}
+      min={0}
+      max={90}
+      step={5}
+      onCommit={(value) => commit({ [edge]: value })}
+    />
+  )
+  return (
+    <div className="timeline-entry-color">
+      <span>Crop</span>
+      {field('left', 'left')}
+      <span>right</span>
+      {field('right', 'right')}
+      <span>top</span>
+      {field('top', 'top')}
+      <span>bottom</span>
+      {field('bottom', 'bottom')}
+      <span>%</span>
+      <button
+        type="button"
+        aria-label={`Reset crop of ${position}`}
+        disabled={crop === undefined}
+        onClick={() => onCommit({})}
+      >
+        Reset
+      </button>
+    </div>
+  )
+}
+
 export function Timeline({
   timeline,
   canUndo,
@@ -478,6 +550,8 @@ export function Timeline({
   onSetVideoOverlayColor,
   onSetEntryOrientation,
   onSetVideoOverlayOrientation,
+  onSetEntryCrop,
+  onSetVideoOverlayCrop,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
   onSetAudioTrackDuck,
@@ -818,6 +892,15 @@ export function Timeline({
                     position={position}
                     orientation={entry.orientation}
                     onCommit={(orientation) => onSetEntryOrientation(entry.id, orientation)}
+                  />
+                )}
+                {/* Crop (#255): video and image entries; a slate has nothing
+                    to trim, exactly as it has no orientation. */}
+                {!isSlateEntry(entry) && (
+                  <CropControls
+                    position={position}
+                    crop={entry.crop}
+                    onCommit={(crop) => onSetEntryCrop(entry.id, crop)}
                   />
                 )}
                 {(() => {
@@ -1400,6 +1483,12 @@ export function Timeline({
                     position={position}
                     orientation={overlay.orientation}
                     onCommit={(orientation) => onSetVideoOverlayOrientation(overlay.id, orientation)}
+                  />
+                  {/* Crop (#255), exactly as on a sequence entry. */}
+                  <CropControls
+                    position={position}
+                    crop={overlay.crop}
+                    onCommit={(crop) => onSetVideoOverlayCrop(overlay.id, crop)}
                   />
                 </li>
               )

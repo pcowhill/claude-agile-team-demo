@@ -37,6 +37,8 @@ import { colorFilterFor } from '../lib/colorAdjustments'
 import type { ColorAdjustments } from '../lib/colorAdjustments'
 import { orientationTransform, orientedDimensions } from '../lib/orientation'
 import type { Orientation } from '../lib/orientation'
+import { croppedDimensions, cropMediaPlacement } from '../lib/crop'
+import type { Crop } from '../lib/crop'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { frameAspect, outputFrameSize } from '../lib/frameSize'
@@ -226,6 +228,44 @@ function orientedMediaStyle(
   }
   const parts = [...(rotation !== 0 ? [`rotate(${rotation}deg)`] : []), ...(flip !== '' ? [flip] : [])]
   return parts.length === 0 ? undefined : { transform: parts.join(' ') }
+}
+
+/** Style numbers rounded so inline styles stay readable and stable. */
+const styleNumber = (value: number) => String(Math.round(value * 10000) / 10000)
+
+/**
+ * The media element's styles for its crop (#255) composed with its
+ * orientation (#232): the orientation style is untouched (crop-free layers
+ * keep byte-identical styles), and a crop appends the shared placement
+ * rule's three pieces — a clip-path cutting the element to the kept region,
+ * then (rightmost in the transform, so innermost in CSS order) the scale
+ * and centring translate that contain-fit the kept region in the element
+ * box. The box is the card, or the transposed card a quarter turn already
+ * swaps to — `cropMediaPlacement` works in that box, which is exactly why
+ * crop-then-rotate needs no new cases here. Until the source's dimensions
+ * are probed (`sourceAspect` undefined) the crop styles nothing, exactly as
+ * the frame rule waits for the same probe.
+ */
+function croppedOrientedMediaStyle(
+  crop: Crop | undefined,
+  orientation: Orientation | undefined,
+  cardAspect: number,
+  sourceAspect: number | undefined,
+): CSSProperties | undefined {
+  const base = orientedMediaStyle(orientation, cardAspect)
+  if (crop === undefined) return base
+  const swapped =
+    (orientation?.rotation === 90 || orientation?.rotation === 270) &&
+    Number.isFinite(cardAspect) &&
+    cardAspect > 0
+  const placement = cropMediaPlacement(crop, sourceAspect, swapped ? 1 / cardAspect : cardAspect)
+  if (placement === undefined) return base
+  const cropTransform = `translate(${styleNumber(placement.translateX)}%, ${styleNumber(placement.translateY)}%) scale(${styleNumber(placement.scale)})`
+  return {
+    ...base,
+    clipPath: `inset(${styleNumber(placement.insetTop)}% ${styleNumber(placement.insetRight)}% ${styleNumber(placement.insetBottom)}% ${styleNumber(placement.insetLeft)}%)`,
+    transform: base?.transform === undefined ? cropTransform : `${base.transform} ${cropTransform}`,
+  }
 }
 
 /**
@@ -1114,8 +1154,16 @@ export function PreviewPlayer({
       seen.add(entry.url)
       targets.push(`${isStillEntry(entry) ? 'image' : 'video'} ${entry.url}`)
     }
+    // Overlay sources are probed too (#255) — their crop placement needs
+    // the source's aspect — but the frame rule above still reads only the
+    // base entries, so overlays keep never shaping the frame (#145).
+    for (const overlay of videoOverlaysOf(timeline)) {
+      if (seen.has(overlay.url)) continue
+      seen.add(overlay.url)
+      targets.push(`video ${overlay.url}`)
+    }
     return targets.join('\n')
-  }, [timeline.entries])
+  }, [timeline])
   useEffect(() => {
     if (probeSignature === '') {
       setSourceDims(new Map())
@@ -1166,12 +1214,23 @@ export function PreviewPlayer({
     timeline.entries.flatMap((entry) => {
       if (isSlateEntry(entry)) return []
       const dims = sourceDims.get(entry.url)
-      // An oriented source presents its oriented shape to the frame rule
-      // (#232): a quarter-turned landscape clip is a portrait source.
-      return dims === undefined ? [] : [orientedDimensions(dims, entry.orientation)]
+      // A cropped source presents its kept region (#255), then an oriented
+      // source its oriented shape (#232), to the frame rule — crop before
+      // orientation: a quarter-turned landscape clip is a portrait source.
+      return dims === undefined
+        ? []
+        : [orientedDimensions(croppedDimensions(dims, entry.crop), entry.orientation)]
     }),
   )
   const previewAspect = frameAspect(frame)
+
+  // A source's own aspect for the crop placement rule (#255), from the same
+  // probe that shapes the frame; undefined until (or unless) it reports.
+  const sourceAspectOf = (url: string | undefined): number | undefined => {
+    if (url === undefined) return undefined
+    const dims = sourceDims.get(url)
+    return dims === undefined || dims.height <= 0 ? undefined : dims.width / dims.height
+  }
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
@@ -1209,7 +1268,12 @@ export function PreviewPlayer({
         media: {
           'data-testid': 'preview-video',
           style: withColorFilter(
-            orientedMediaStyle(location?.entry.orientation, previewAspect),
+            croppedOrientedMediaStyle(
+              location?.entry.crop,
+              location?.entry.orientation,
+              previewAspect,
+              sourceAspectOf(location?.entry.url),
+            ),
             location?.entry.colorAdjustments,
           ),
         },
@@ -1225,7 +1289,12 @@ export function PreviewPlayer({
       media: {
         style: videoOverlap
           ? withColorFilter(
-              orientedMediaStyle(overlap.entry.orientation, previewAspect),
+              croppedOrientedMediaStyle(
+                overlap.entry.crop,
+                overlap.entry.orientation,
+                previewAspect,
+                sourceAspectOf(overlap.entry.url),
+              ),
               overlap.entry.colorAdjustments,
             )
           : undefined,
@@ -1300,7 +1369,12 @@ export function PreviewPlayer({
                       alt=""
                       src={location.entry.url}
                       style={withColorFilter(
-                        orientedMediaStyle(location.entry.orientation, previewAspect),
+                        croppedOrientedMediaStyle(
+                          location.entry.crop,
+                          location.entry.orientation,
+                          previewAspect,
+                          sourceAspectOf(location.entry.url),
+                        ),
                         location.entry.colorAdjustments,
                       )}
                     />
@@ -1330,7 +1404,12 @@ export function PreviewPlayer({
                       alt=""
                       src={overlap.entry.url}
                       style={withColorFilter(
-                        orientedMediaStyle(overlap.entry.orientation, previewAspect),
+                        croppedOrientedMediaStyle(
+                          overlap.entry.crop,
+                          overlap.entry.orientation,
+                          previewAspect,
+                          sourceAspectOf(overlap.entry.url),
+                        ),
                         overlap.entry.colorAdjustments,
                       )}
                     />
@@ -1388,7 +1467,12 @@ export function PreviewPlayer({
                       className="preview-media"
                       data-testid={`preview-overlay-${index}`}
                       style={withColorFilter(
-                        orientedMediaStyle(overlay.orientation, cardAspect),
+                        croppedOrientedMediaStyle(
+                          overlay.crop,
+                          overlay.orientation,
+                          cardAspect,
+                          sourceAspectOf(overlay.url),
+                        ),
                         overlay.colorAdjustments,
                       )}
                     />

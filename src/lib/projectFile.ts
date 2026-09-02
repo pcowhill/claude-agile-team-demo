@@ -31,6 +31,8 @@ import type { VideoOverlay } from './videoOverlay'
 import { isTextFontId, isValidTextColor, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import type { Orientation, OrientationRotation } from './orientation'
 import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
+import type { Crop } from './crop'
+import { normalizeCrop } from './crop'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -38,7 +40,7 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | .. | 11,      // integer; bumped on breaking change
+ *     "schemaVersion": 1 | .. | 12,      // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -50,7 +52,8 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  *                     volume?, muted?, fadeIn?, fadeOut?,        // (#220)
  *                     colorAdjustments?: { brightness?, contrast?,
  *                       saturation?, look? },                    // (#192)
- *                     orientation?: { rotation?, flipH?, flipV? } }], // (#232)
+ *                     orientation?: { rotation?, flipH?, flipV? },   // (#232)
+ *                     crop?: { left?, right?, top?, bottom? } }],    // (#255)
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
@@ -66,7 +69,8 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
  *                           outPoint, x, y, width, height, volume?, muted?,
  *                           fadeIn?, fadeOut?,                    // (#220)
- *                           colorAdjustments?, orientation? }]    // (#145, #192, #232)
+ *                           colorAdjustments?, orientation?,       // (#145, #192, #232)
+ *                           crop? }]                               // (#255)
  *     }
  *   }
  *
@@ -137,6 +141,15 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 12 (#255) marks that a sequence entry or a video overlay
+ * carries a crop: an optional `crop` object with `left`/`right`/`top`/
+ * `bottom` edge fractions (each in [0, 1), present exactly when non-zero,
+ * each axis keeping at least MIN_KEPT_FRACTION — see crop.ts). Written
+ * exactly when any crop exists, so crop-free projects stay byte-identical
+ * to earlier output and older builds route cropped files to the "saved by
+ * a newer version" refusal instead of opening them silently uncropped. The
+ * media section's presence keeps distinguishing the save modes.
+ *
  * Schema version 9 (#232) marks that a sequence entry or a video overlay
  * carries an orientation: an optional `orientation` object with `rotation`
  * (90 | 180 | 270 — 0 is expressed by absence) and boolean `flipH`/`flipV`
@@ -165,7 +178,7 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 11
+export const PROJECT_SCHEMA_VERSION = 12
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -188,6 +201,8 @@ export const ORIENTATION_SCHEMA_VERSION = 9
 export const DUCKING_SCHEMA_VERSION = 10
 /** The version any subtitle-imported text overlay forces, whichever the save mode (#249). */
 export const SUBTITLE_SCHEMA_VERSION = 11
+/** The version any entry/overlay crop forces, whichever the save mode (#255). */
+export const CROP_SCHEMA_VERSION = 12
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -334,6 +349,21 @@ function storedOrientation({ rotation, flipH, flipV }: Orientation): Orientation
 }
 
 /**
+ * A crop as stored (#255): fixed key order (left, right, top, bottom),
+ * present fields only, so the same crop always serializes to the same
+ * bytes. The state is already normalized (no zero fields — see crop.ts);
+ * this only fixes the order.
+ */
+function storedCrop({ left, right, top, bottom }: Crop): Crop {
+  return {
+    ...(left === undefined ? {} : { left }),
+    ...(right === undefined ? {} : { right }),
+    ...(top === undefined ? {} : { top }),
+    ...(bottom === undefined ? {} : { bottom }),
+  }
+}
+
+/**
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
@@ -395,7 +425,8 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // A subtitle-imported text overlay forces version 11 (#249), a
+  // An entry/overlay crop forces version 12 (#255), a
+  // subtitle-imported text overlay version 11 (#249), a
   // duck-enabled audio track version 10 (#241), an entry/overlay
   // orientation version 9 (#232), an entry/overlay
   // audio fade version 8 (#220), a color adjustment version 7 (#192), a
@@ -404,6 +435,9 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasCrop =
+    timeline.entries.some((entry) => entry.crop !== undefined) ||
+    videoOverlaysOf(timeline).some((overlay) => overlay.crop !== undefined)
   const hasSubtitles = textsOf(timeline).some((text) => text.subtitle === true)
   const hasDucking = audioTracksOf(timeline).some((track) => track.duck === true)
   const hasOrientation =
@@ -424,7 +458,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasSubtitles
+    schemaVersion: hasCrop
+      ? CROP_SCHEMA_VERSION
+      : hasSubtitles
       ? SUBTITLE_SCHEMA_VERSION
       : hasDucking
       ? DUCKING_SCHEMA_VERSION
@@ -483,7 +519,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -508,6 +544,10 @@ export async function serializeProject(
           // state has no identity key, so unoriented projects stay
           // byte-identical to earlier output.
           ...(orientation === undefined ? {} : { orientation: storedOrientation(orientation) }),
+          // Crop (#255) is written only when present — normalized state has
+          // no identity key, so crop-free projects stay byte-identical to
+          // earlier output.
+          ...(crop === undefined ? {} : { crop: storedCrop(crop) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -610,7 +650,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation }) => ({
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop }) => ({
                 id,
                 clipId,
                 name,
@@ -634,6 +674,7 @@ export async function serializeProject(
                 ...(orientation === undefined
                   ? {}
                   : { orientation: storedOrientation(orientation) }),
+                ...(crop === undefined ? {} : { crop: storedCrop(crop) }),
               }),
             ),
           }),
@@ -812,6 +853,33 @@ const asOrientation = (value: unknown, path: string): Orientation | undefined =>
   return normalizeOrientation(orientation)
 }
 
+/**
+ * A stored crop (#255): present edges must be finite fractions in [0, 1);
+ * anything else is refused by name. Zero edges from a foreign writer are
+ * meaningless rather than wrong and normalize away, exactly as an identity
+ * dial does — and a foreign pair of edges too deep for the minimum kept
+ * fraction clamps back (normalizeCrop), exactly how open-time
+ * normalization treats an overlong fade. A crop that normalizes to all-zero
+ * returns undefined: the caller stores no key.
+ */
+const asCrop = (value: unknown, path: string): Crop | undefined => {
+  const raw = asRecord(value, path)
+  const edge = (key: 'left' | 'right' | 'top' | 'bottom'): number | undefined => {
+    if (raw[key] === undefined) return undefined
+    const numeric = asFinite(raw[key], `${path}.${key}`)
+    if (numeric < 0 || numeric >= 1) {
+      throw new Error(`${path}.${key} must be a fraction at least 0 and below 1`)
+    }
+    return numeric
+  }
+  return normalizeCrop({
+    left: edge('left'),
+    right: edge('right'),
+    top: edge('top'),
+    bottom: edge('bottom'),
+  })
+}
+
 function validateProject(document: Record<string, unknown>): Project {
   // Plugin dependencies (#197): absent in files saved before them, and in
   // plugin-free files since. Validated whatever the version — within a known
@@ -956,6 +1024,19 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const orientation = asOrientation(raw.orientation, `${path}.orientation`)
       if (orientation !== undefined) entry.orientation = orientation
+    }
+    // Crop (#255): absent in files saved before it, and on every uncropped
+    // entry since, meaning the whole frame.
+    if (raw.crop !== undefined) {
+      if (entry.kind === 'slate') {
+        // A flat color has nothing to trim: a cropped slate could only come
+        // from a foreign writer.
+        throw new Error(
+          `${path}.crop is set on a slate entry, but crop applies to video and image entries only`,
+        )
+      }
+      const crop = asCrop(raw.crop, `${path}.crop`)
+      if (crop !== undefined) entry.crop = crop
     }
     return entry
   })
@@ -1280,6 +1361,11 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.orientation !== undefined) {
         const orientation = asOrientation(raw.orientation, `${path}.orientation`)
         if (orientation !== undefined) overlay.orientation = orientation
+      }
+      // Crop (#255), exactly as on a sequence entry.
+      if (raw.crop !== undefined) {
+        const crop = asCrop(raw.crop, `${path}.crop`)
+        if (crop !== undefined) overlay.crop = crop
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

@@ -1,6 +1,8 @@
 import type { ColorAdjustments } from './colorAdjustments'
 import type { Orientation } from './orientation'
 import { isValidOrientation, normalizeOrientation, orientationsEqual } from './orientation'
+import type { Crop } from './crop'
+import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
 import {
   colorAdjustmentsEqual,
   isValidColorAdjustments,
@@ -101,6 +103,16 @@ export interface TimelineEntry {
    * orientation, exactly as it has no color adjustments.
    */
   orientation?: Orientation
+  /**
+   * Crop of a video/image entry (#255): fractions trimmed from each edge,
+   * exactly the `orientation` shape — absent behaves as identity (whole
+   * frame), so pre-crop states and files stay valid; present exactly when
+   * non-identity (the reducer normalizes — see `normalizeCrop`). Applies in
+   * source space BEFORE orientation (crop selects sensor content;
+   * orientation turns the kept region). Slates carry none: a flat color has
+   * nothing to trim away, exactly as it has no orientation.
+   */
+  crop?: Crop
 }
 
 /**
@@ -455,6 +467,18 @@ export type TimelineAction =
       orientation: Orientation
     }
   | { type: 'video-overlay-orient-set'; id: string; orientation: Orientation }
+  | {
+      /**
+       * Sets a video/image entry's crop whole (#255), the
+       * `entry-orient-set` idiom: the action carries the full crop and the
+       * reducer stores the normalized form — a no-op crop normalizes to no
+       * `crop` key at all, so `{}` is the reset.
+       */
+      type: 'entry-crop-set'
+      id: string
+      crop: Crop
+    }
+  | { type: 'video-overlay-crop-set'; id: string; crop: Crop }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
@@ -1525,6 +1549,42 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       const next = { ...overlay }
       if (normalized === undefined) delete next.orientation
       else next.orientation = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'entry-crop-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no crop (#255): a flat color has nothing to trim,
+      // exactly as it carries no orientation (#232).
+      if (isSlateEntry(entry)) return state
+      if (!isValidCrop(action.crop)) return state
+      const normalized = normalizeCrop(action.crop)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same state — or resetting an untouched entry — is
+      // a no-op, not an edit (edits stop preview playback).
+      if (cropsEqual(normalized, entry.crop)) return state
+      const entries = [...state.entries]
+      // Identity means no key at all, never `{}` — what keeps crop-free
+      // saved files byte-identical (see crop.ts).
+      const next = { ...entry }
+      if (normalized === undefined) delete next.crop
+      else next.crop = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'video-overlay-crop-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!isValidCrop(action.crop)) return state
+      const normalized = normalizeCrop(action.crop)
+      if (cropsEqual(normalized, overlay.crop)) return state
+      const overlays = [...videoOverlays]
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.crop
+      else next.crop = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

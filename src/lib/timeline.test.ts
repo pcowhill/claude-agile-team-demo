@@ -2763,3 +2763,183 @@ describe('orientation (#232)', () => {
     })
   })
 })
+
+describe('crop (#255)', () => {
+  const withVideoEntry = () => stateOf(['e1'])
+
+  describe('entry-crop-set', () => {
+    it('stores the normalized crop: zero fields drop away', () => {
+      const next = timelineReducer(withVideoEntry(), {
+        type: 'entry-crop-set',
+        id: 'e1',
+        crop: { left: 0.25, right: 0, top: 0.1, bottom: 0 },
+      })
+      expect(next.entries[0].crop).toEqual({ left: 0.25, top: 0.1 })
+    })
+
+    it('a no-op crop removes the key entirely — never stores {}', () => {
+      const cropped = timelineReducer(withVideoEntry(), {
+        type: 'entry-crop-set',
+        id: 'e1',
+        crop: { left: 0.5 },
+      })
+      const reset = timelineReducer(cropped, { type: 'entry-crop-set', id: 'e1', crop: {} })
+      expect('crop' in reset.entries[0]).toBe(false)
+    })
+
+    it('clamps an over-deep pair to the minimum kept fraction', () => {
+      const next = timelineReducer(withVideoEntry(), {
+        type: 'entry-crop-set',
+        id: 'e1',
+        crop: { left: 0.6, right: 0.5 },
+      })
+      const { left = 0, right = 0 } = next.entries[0].crop!
+      expect(1 - left - right).toBeCloseTo(0.1, 10)
+    })
+
+    it('rejects unknown ids and non-finite edges', () => {
+      const state = withVideoEntry()
+      expect(
+        timelineReducer(state, { type: 'entry-crop-set', id: 'nope', crop: { left: 0.5 } }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-crop-set',
+          id: 'e1',
+          crop: { left: Number.NaN },
+        }),
+      ).toBe(state)
+    })
+
+    it('re-committing the stored crop is a no-op, not an edit', () => {
+      const cropped = timelineReducer(withVideoEntry(), {
+        type: 'entry-crop-set',
+        id: 'e1',
+        crop: { top: 0.2 },
+      })
+      expect(
+        timelineReducer(cropped, { type: 'entry-crop-set', id: 'e1', crop: { top: 0.2 } }),
+      ).toBe(cropped)
+    })
+
+    it('vetoes crop on a slate — a flat color has nothing to trim', () => {
+      const state = timelineReducer(withVideoEntry(), {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      expect(
+        timelineReducer(state, { type: 'entry-crop-set', id: 's1', crop: { left: 0.5 } }),
+      ).toBe(state)
+    })
+
+    it('crops image entries — trimming a photo edge is the use case', () => {
+      const state = timelineReducer(
+        { entries: [] },
+        {
+          type: 'entry-added',
+          entry: entryFromClip(clip({ id: 'clip-img', kind: 'image', duration: 0 }), 'i1'),
+        },
+      )
+      const next = timelineReducer(state, {
+        type: 'entry-crop-set',
+        id: 'i1',
+        crop: { bottom: 0.3 },
+      })
+      expect(next.entries[0].crop).toEqual({ bottom: 0.3 })
+    })
+
+    it('crop survives unrelated edits and follows the entry through a split (#190)', () => {
+      const cropped = timelineReducer(stateOf(['e1'], ['e2']), {
+        type: 'entry-crop-set',
+        id: 'e1',
+        crop: { left: 0.25 },
+      })
+      const moved = timelineReducer(cropped, { type: 'entry-moved', id: 'e2', direction: 'up' })
+      expect(moved.entries.find((entry) => entry.id === 'e1')?.crop).toEqual({ left: 0.25 })
+      const split = timelineReducer(cropped, {
+        type: 'entry-split',
+        id: 'e1',
+        atSourceTime: 5,
+        newEntryId: 'e1b',
+      })
+      // Both halves show the same footage — both keep the crop.
+      expect(split.entries[0].crop).toEqual({ left: 0.25 })
+      expect(split.entries[1].crop).toEqual({ left: 0.25 })
+    })
+  })
+
+  describe('video-overlay-crop-set', () => {
+    const overlay = (): VideoOverlay => ({
+      id: 'v1',
+      clipId: 'clip-cam',
+      name: 'cam.webm',
+      duration: 8,
+      url: 'blob:cam',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    })
+    const withOverlay = () =>
+      timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay: overlay() })
+
+    it('stores the normalized crop on the overlay and resets to no key', () => {
+      const cropped = timelineReducer(withOverlay(), {
+        type: 'video-overlay-crop-set',
+        id: 'v1',
+        crop: { top: 0.15, bottom: 0 },
+      })
+      expect(videoOverlaysOf(cropped)[0].crop).toEqual({ top: 0.15 })
+      const reset = timelineReducer(cropped, {
+        type: 'video-overlay-crop-set',
+        id: 'v1',
+        crop: {},
+      })
+      expect('crop' in videoOverlaysOf(reset)[0]).toBe(false)
+    })
+
+    it('rejects unknown ids and invalid edges, and no-ops on the same crop', () => {
+      const state = withOverlay()
+      expect(
+        timelineReducer(state, { type: 'video-overlay-crop-set', id: 'nope', crop: { left: 0.5 } }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-crop-set',
+          id: 'v1',
+          crop: { right: 'deep' as never },
+        }),
+      ).toBe(state)
+      const cropped = timelineReducer(state, {
+        type: 'video-overlay-crop-set',
+        id: 'v1',
+        crop: { right: 0.3 },
+      })
+      expect(
+        timelineReducer(cropped, {
+          type: 'video-overlay-crop-set',
+          id: 'v1',
+          crop: { right: 0.3 },
+        }),
+      ).toBe(cropped)
+    })
+
+    it('crop survives placement edits — it is not part of the placement', () => {
+      const cropped = timelineReducer(withOverlay(), {
+        type: 'video-overlay-crop-set',
+        id: 'v1',
+        crop: { left: 0.2 },
+      })
+      const moved = timelineReducer(cropped, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(moved)[0].crop).toEqual({ left: 0.2 })
+      expect(videoOverlaysOf(moved)[0].offset).toBe(2)
+    })
+  })
+})
