@@ -88,7 +88,9 @@ horizontal/vertical on the timeline row — the fix for sideways phone
 footage and mirrored webcam clips — rendered live in the preview, saved
 with the project, and composing with zooms, transitions, and color
 adjustments; a quarter-turned clip letterboxes into the frame like any
-portrait source. Export-side rendering of orientation lands with #233.
+portrait source, and reshapes the output frame the same way. Exports
+render orientation through the same shared rule (#233) — GIFs included,
+through the shared frame pipeline.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
