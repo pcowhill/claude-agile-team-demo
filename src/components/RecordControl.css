@@ -1,0 +1,50 @@
+/* The Record control (#224): the source menu anchors to the button; the
+   recording dialog reuses the shared dialog styles. */
+.record-control {
+  position: relative;
+}
+
+.record-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 9rem;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.25rem;
+}
+
+.record-menu button {
+  text-align: left;
+}
+
+.record-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The "recording" indicator (#224): a pulsing red dot — meaning is carried
+   by the adjacent text, the dot is decoration. */
+.record-indicator {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #d33;
+  animation: record-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes record-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

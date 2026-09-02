@@ -265,6 +265,12 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
+          onRecordingFailed={(reason) =>
+            dispatch({
+              type: 'import-failed',
+              failure: { id: crypto.randomUUID(), name: 'Voice-over', reason },
+            })
+          }
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
           onAddOverlay={handleAddOverlay}
