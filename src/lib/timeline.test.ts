@@ -3273,3 +3273,131 @@ describe('background fill (#259)', () => {
     })
   })
 })
+
+describe('video-overlay shape mask (#266)', () => {
+  const overlay = (): VideoOverlay => ({
+    id: 'v1',
+    clipId: 'clip-cam',
+    name: 'cam.webm',
+    duration: 8,
+    url: 'blob:cam',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 8,
+    x: 0.6,
+    y: 0.6,
+    width: 0.3,
+    height: 0.3,
+  })
+  const withOverlay = () =>
+    timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay: overlay() })
+
+  describe('video-overlay-mask-set', () => {
+    it('stores both kinds in their normalized shapes', () => {
+      const rounded = timelineReducer(withOverlay(), {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'rounded', radius: 0.2 },
+      })
+      expect(videoOverlaysOf(rounded)[0].shapeMask).toEqual({ kind: 'rounded', radius: 0.2 })
+      const ellipse = timelineReducer(rounded, {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'ellipse' },
+      })
+      expect(videoOverlaysOf(ellipse)[0].shapeMask).toEqual({ kind: 'ellipse' })
+    })
+
+    it('rectangle removes the key entirely — the reset stores nothing', () => {
+      const masked = timelineReducer(withOverlay(), {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'ellipse' },
+      })
+      const reset = timelineReducer(masked, {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'rectangle' },
+      })
+      expect('shapeMask' in videoOverlaysOf(reset)[0]).toBe(false)
+    })
+
+    it('clamps an over-deep radius and stores a zero radius as no mask', () => {
+      const capped = timelineReducer(withOverlay(), {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'rounded', radius: 2 },
+      })
+      expect(videoOverlaysOf(capped)[0].shapeMask).toEqual({ kind: 'rounded', radius: 0.5 })
+      const zeroed = timelineReducer(capped, {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'rounded', radius: 0 },
+      })
+      expect('shapeMask' in videoOverlaysOf(zeroed)[0]).toBe(false)
+    })
+
+    it('rejects unknown ids, unknown kinds, and non-finite radii', () => {
+      const state = withOverlay()
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-mask-set',
+          id: 'nope',
+          mask: { kind: 'ellipse' },
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-mask-set',
+          id: 'v1',
+          mask: { kind: 'star' } as never,
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-mask-set',
+          id: 'v1',
+          mask: { kind: 'rounded', radius: Number.NaN },
+        }),
+      ).toBe(state)
+    })
+
+    it('re-committing the stored mask — or resetting an unmasked overlay — is a no-op', () => {
+      const state = withOverlay()
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-mask-set',
+          id: 'v1',
+          mask: { kind: 'rectangle' },
+        }),
+      ).toBe(state)
+      const masked = timelineReducer(state, {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'ellipse' },
+      })
+      expect(
+        timelineReducer(masked, {
+          type: 'video-overlay-mask-set',
+          id: 'v1',
+          mask: { kind: 'ellipse' },
+        }),
+      ).toBe(masked)
+    })
+
+    it('the mask survives placement edits — it is not part of the placement', () => {
+      const masked = timelineReducer(withOverlay(), {
+        type: 'video-overlay-mask-set',
+        id: 'v1',
+        mask: { kind: 'rounded', radius: 0.3 },
+      })
+      const moved = timelineReducer(masked, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(moved)[0].shapeMask).toEqual({ kind: 'rounded', radius: 0.3 })
+      expect(videoOverlaysOf(moved)[0].offset).toBe(2)
+    })
+  })
+})

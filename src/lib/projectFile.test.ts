@@ -18,6 +18,7 @@ import fixtureV11SubtitleReferencesBase64 from './fixtures/project-v11-subtitle-
 import fixtureV12CropReferencesBase64 from './fixtures/project-v12-crop-references.bvep.base64?raw'
 import fixtureV13SubtitleStyleReferencesBase64 from './fixtures/project-v13-subtitle-style-references.bvep.base64?raw'
 import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-background-fill-references.bvep.base64?raw'
+import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-mask-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import type { TextOverlay } from './textOverlay'
@@ -28,6 +29,7 @@ import {
   CROP_SCHEMA_VERSION,
   SUBTITLE_STYLE_SCHEMA_VERSION,
   BACKGROUND_FILL_SCHEMA_VERSION,
+  SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1028,8 +1030,9 @@ describe('project file versioning', () => {
     // version 11 added the subtitle-import marker on text overlays (#249);
     // version 12 added entry and overlay crop (#255); version 13 added the
     // default subtitle style and per-overlay style overrides (#250);
-    // version 14 added entry background fill (#259).
-    expect(PROJECT_SCHEMA_VERSION).toBe(14)
+    // version 14 added entry background fill (#259); version 15 added
+    // overlay shape masks (#266).
+    expect(PROJECT_SCHEMA_VERSION).toBe(15)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1044,6 +1047,7 @@ describe('project file versioning', () => {
     expect(CROP_SCHEMA_VERSION).toBe(12)
     expect(SUBTITLE_STYLE_SCHEMA_VERSION).toBe(13)
     expect(BACKGROUND_FILL_SCHEMA_VERSION).toBe(14)
+    expect(SHAPE_MASK_SCHEMA_VERSION).toBe(15)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3160,6 +3164,162 @@ describe('background fill in project files (#259, schema version 14)', () => {
           transitions: expectedProject.timeline.transitions,
           zooms: expectedProject.timeline.zooms,
           audioTracks: [],
+        },
+      },
+    })
+  })
+})
+
+describe('overlay shape mask in project files (#266, schema version 15)', () => {
+  const overlayBase = {
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    url: 'blob:session/c2',
+    offset: 1,
+    inPoint: 0,
+    outPoint: 4,
+    y: 0.55,
+    width: 0.35,
+    height: 0.4,
+  }
+  const maskedTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [
+      { id: 'v1', x: 0.6, ...overlayBase, shapeMask: { kind: 'ellipse' } },
+      { id: 'v2', x: 0.05, ...overlayBase, shapeMask: { kind: 'rounded', radius: 0.2 } },
+      { id: 'v3', x: 0.3, ...overlayBase },
+    ],
+  })
+  // The stored form omits `url` (an object URL never survives a session).
+  const { url: overlayUrl, ...storedFixtureOverlay } = overlayBase
+  void overlayUrl
+
+  it('writes version 15 with the mask exactly when set, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, maskedTimeline()))
+    expect(references.schemaVersion).toBe(SHAPE_MASK_SCHEMA_VERSION)
+    const overlays = (references.timeline as { videoOverlays: Record<string, unknown>[] })
+      .videoOverlays
+    expect(overlays[0].shapeMask).toEqual({ kind: 'ellipse' })
+    expect(overlays[1].shapeMask).toEqual({ kind: 'rounded', radius: 0.2 })
+    expect('shapeMask' in overlays[2]).toBe(false)
+    const embedded = await gunzipJson(
+      await serializeProject(library, maskedTimeline(), fixtureMedia()),
+    )
+    expect(embedded.schemaVersion).toBe(SHAPE_MASK_SCHEMA_VERSION)
+  })
+
+  it('a mask-free project stays byte-identical to earlier output', async () => {
+    const overlaysNoMask: TimelineState = {
+      ...timeline,
+      videoOverlays: [{ id: 'v1', x: 0.6, ...overlayBase }],
+    }
+    const document = await gunzipJson(await serializeProject(library, overlaysNoMask))
+    // Overlays alone are additive within version 1 (#145); no mask, no bump.
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('shapeMask')
+  })
+
+  it('background-fill data without a mask stays at version 14 — the chain orders by newest feature', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, {
+        ...timeline,
+        entries: [
+          { ...timeline.entries[0], backgroundFill: { kind: 'blur' } },
+          ...timeline.entries.slice(1),
+        ],
+      }),
+    )
+    expect(document.schemaVersion).toBe(BACKGROUND_FILL_SCHEMA_VERSION)
+  })
+
+  it('round-trips both mask kinds and leaves mask-free overlays bare', async () => {
+    const result = await deserializeProject(await serializeProject(library, maskedTimeline()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const overlays = result.project.timeline.videoOverlays!
+      expect(overlays[0].shapeMask).toEqual({ kind: 'ellipse' })
+      expect(overlays[1].shapeMask).toEqual({ kind: 'rounded', radius: 0.2 })
+      expect(overlays[2].shapeMask).toBeUndefined()
+    }
+  })
+
+  it('pre-#266 files (and mask-free files since) open with no mask', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, {
+        ...timeline,
+        videoOverlays: [{ id: 'v1', x: 0.6, ...overlayBase }],
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.videoOverlays![0].shapeMask).toBeUndefined()
+    }
+  })
+
+  it('refuses unknown kinds, bad radii, and masks on sequence entries by name', async () => {
+    const storedOverlay = () => ({
+      id: 'v1',
+      clipId: 'c2',
+      name: 'city.webm',
+      duration: 4,
+      offset: 1,
+      inPoint: 0,
+      outPoint: 4,
+      x: 0.6,
+      y: 0.55,
+      width: 0.35,
+      height: 0.4,
+    })
+    const withMask = (shapeMask: unknown) => {
+      const document = validDocument()
+      ;(document.timeline as unknown as { videoOverlays: unknown[] }).videoOverlays = [
+        { ...storedOverlay(), shapeMask },
+      ]
+      return document
+    }
+    await expectRefusal(
+      await gzipJson(withMask({ kind: 'star' })),
+      'timeline.videoOverlays[0].shapeMask.kind "star" is not a shape mask kind',
+    )
+    for (const radius of [0, -0.2, 0.75]) {
+      await expectRefusal(
+        await gzipJson(withMask({ kind: 'rounded', radius })),
+        "timeline.videoOverlays[0].shapeMask.radius must be within (0, 0.5] of the rectangle's shorter side",
+      )
+    }
+    const onEntry = validDocument()
+    ;(onEntry.timeline.entries[0] as unknown as Record<string, unknown>).shapeMask = {
+      kind: 'ellipse',
+    }
+    await expectRefusal(
+      await gzipJson(onEntry),
+      'timeline.entries[0].shapeMask is set on a sequence entry, but shape masks apply to video overlays only',
+    )
+  })
+
+  it('deserializes the committed v15 shape-mask fixture (#266)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced shape masks keep opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV15ShapeMaskReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: expectedProject.timeline.entries,
+          transitions: expectedProject.timeline.transitions,
+          zooms: expectedProject.timeline.zooms,
+          audioTracks: [],
+          videoOverlays: [
+            { id: 'v1', x: 0.6, ...storedFixtureOverlay, shapeMask: { kind: 'ellipse' } },
+            { id: 'v2', x: 0.05, ...storedFixtureOverlay, shapeMask: { kind: 'rounded', radius: 0.2 } },
+            { id: 'v3', x: 0.3, ...storedFixtureOverlay },
+          ],
         },
       },
     })

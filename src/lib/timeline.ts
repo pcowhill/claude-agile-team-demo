@@ -3,6 +3,8 @@ import type { Orientation } from './orientation'
 import { isValidOrientation, normalizeOrientation, orientationsEqual } from './orientation'
 import type { Crop } from './crop'
 import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
+import type { ShapeMaskInput } from './shapeMask'
+import { isValidShapeMaskInput, normalizeShapeMask, shapeMasksEqual } from './shapeMask'
 import type { BackgroundFill, BackgroundFillInput } from './backgroundFill'
 import {
   backgroundFillsEqual,
@@ -533,6 +535,17 @@ export type TimelineAction =
       crop: Crop
     }
   | { type: 'video-overlay-crop-set'; id: string; crop: Crop }
+  | {
+      /**
+       * Sets a video overlay's shape mask whole (#266), the
+       * `video-overlay-crop-set` idiom: the action carries the full mask
+       * and the reducer stores the normalized form — `{ kind: 'rectangle' }`
+       * normalizes to no `shapeMask` key at all, so it is the reset.
+       */
+      type: 'video-overlay-mask-set'
+      id: string
+      mask: ShapeMaskInput
+    }
   | {
       /**
        * Sets a video/image entry's background fill whole (#259), the
@@ -1730,6 +1743,25 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (normalized === undefined) delete next.crop
       else next.crop = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'video-overlay-mask-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!isValidShapeMaskInput(action.mask)) return state
+      const normalized = normalizeShapeMask(action.mask)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same shape — or resetting an unmasked overlay —
+      // is a no-op, not an edit.
+      if (shapeMasksEqual(normalized, overlay.shapeMask)) return state
+      const overlays = [...videoOverlays]
+      // Rectangle means no key at all (see shapeMask.ts) — what keeps
+      // mask-free saved files byte-identical.
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.shapeMask
+      else next.shapeMask = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }
