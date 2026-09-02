@@ -2,6 +2,7 @@ import type { SourceDimensions } from './frameSize'
 import { outputFrameSize } from './frameSize'
 import { EXPORT_FRAME_RATE } from './exportVideo'
 import { orientedDimensions } from './orientation'
+import { croppedDimensions } from './crop'
 import type { TimelineState } from './timeline'
 import { isSlateEntry, isStillEntry } from './timeline'
 
@@ -76,7 +77,8 @@ export function automaticSettings(frame: SourceDimensions): ExportSettings {
  * what the modal pre-fills (#179). Probes each distinct non-slate source's
  * dimensions from its (in-memory) blob metadata, then applies the same
  * `outputFrameSize` rule the export and preview stage (#176) use — per
- * *entry*, oriented (#232/#233): a quarter-turned entry contributes swapped
+ * *entry*, cropped (#255/#256) then oriented (#232/#233): a cropped entry
+ * contributes its kept region and a quarter-turned entry swapped
  * dimensions, so the shown values match the frame the export derives.
  * Sources that fail to probe contribute nothing, exactly as in the export's
  * own sizing pass; with nothing probed the fallback frame comes back.
@@ -116,7 +118,9 @@ export function automaticExportFrame(timeline: TimelineState): Promise<SourceDim
       timeline.entries.flatMap((entry) => {
         if (isSlateEntry(entry)) return []
         const dim = byUrl.get(entry.url)
-        return dim == null ? [] : [orientedDimensions(dim, entry.orientation)]
+        return dim == null
+          ? []
+          : [orientedDimensions(croppedDimensions(dim, entry.crop), entry.orientation)]
       }),
     )
   })
