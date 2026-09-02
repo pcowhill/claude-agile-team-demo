@@ -417,6 +417,7 @@ export type TimelineAction =
   | { type: 'remap-updated'; id: string; remap: RemapSpec }
   | { type: 'remap-removed'; id: string }
   | { type: 'text-added'; text: TextOverlay }
+  | { type: 'texts-added'; texts: TextOverlay[] }
   | { type: 'text-updated'; id: string; text: TextOverlaySpec }
   | { type: 'text-removed'; id: string }
   | { type: 'video-overlay-added'; overlay: VideoOverlay }
@@ -1292,6 +1293,21 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       if (texts.some((existing) => existing.id === text.id)) return state
       if (!isValidTextOverlaySpec(text)) return state
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, text], videoOverlays)
+    }
+    case 'texts-added': {
+      // A subtitle import (#249) lands as one action, so a file of many
+      // cues is a single edit — one undo removes the whole import. The
+      // batch is all-or-nothing, mirroring text-added's strictness: the
+      // import path parses and validates before dispatching, so a rejected
+      // batch is a programming error, not a user-visible outcome.
+      if (action.texts.length === 0) return state
+      const ids = new Set(texts.map((text) => text.id))
+      for (const text of action.texts) {
+        if (ids.has(text.id)) return state
+        ids.add(text.id)
+        if (!isValidTextOverlaySpec(text)) return state
+      }
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, ...action.texts], videoOverlays)
     }
     case 'text-updated': {
       const existing = texts.find((text) => text.id === action.id)

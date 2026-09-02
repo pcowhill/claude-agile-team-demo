@@ -14,11 +14,13 @@ import fixtureV7ColorReferencesBase64 from './fixtures/project-v7-color-adjustme
 import fixtureV8FadesReferencesBase64 from './fixtures/project-v8-audio-fades-references.bvep.base64?raw'
 import fixtureV9OrientationReferencesBase64 from './fixtures/project-v9-orientation-references.bvep.base64?raw'
 import fixtureV10DuckingReferencesBase64 from './fixtures/project-v10-ducking-references.bvep.base64?raw'
+import fixtureV11SubtitleReferencesBase64 from './fixtures/project-v11-subtitle-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
   DUCKING_SCHEMA_VERSION,
+  SUBTITLE_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1015,8 +1017,9 @@ describe('project file versioning', () => {
     // slates (#143); version 6 added plugin dependencies (#197); version 7
     // added per-clip color adjustments (#192); version 8 added entry and
     // overlay audio fades (#220); version 9 added entry and overlay
-    // orientation (#232); version 10 added audio-track ducking (#241).
-    expect(PROJECT_SCHEMA_VERSION).toBe(10)
+    // orientation (#232); version 10 added audio-track ducking (#241);
+    // version 11 added the subtitle-import marker on text overlays (#249).
+    expect(PROJECT_SCHEMA_VERSION).toBe(11)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1027,6 +1030,7 @@ describe('project file versioning', () => {
     expect(AUDIO_FADES_SCHEMA_VERSION).toBe(8)
     expect(ORIENTATION_SCHEMA_VERSION).toBe(9)
     expect(DUCKING_SCHEMA_VERSION).toBe(10)
+    expect(SUBTITLE_SCHEMA_VERSION).toBe(11)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2537,6 +2541,108 @@ describe('audio ducking in project files (#241, schema version 10)', () => {
               offset: 8, inPoint: 0, outPoint: 6, duck: true,
             },
           ],
+        },
+      },
+    })
+  })
+})
+
+describe('subtitle text overlays in project files (#249, schema version 11)', () => {
+  const subtitleOverlay = {
+    id: 't1',
+    content: 'Hello there',
+    offset: 1,
+    duration: 2,
+    x: 0.5,
+    y: 0.9,
+    font: 'sans',
+    size: 0.05,
+    color: '#ffffff',
+    bold: false,
+    italic: false,
+    subtitle: true,
+  } as const
+  const plainOverlay = {
+    id: 't2',
+    content: 'Hand-made title',
+    offset: 4,
+    duration: 2,
+    x: 0.5,
+    y: 0.5,
+    font: 'serif',
+    size: 0.08,
+    color: '#00ff88',
+    bold: true,
+    italic: false,
+  } as const
+  const subtitleTimeline = (): TimelineState => ({
+    ...timeline,
+    texts: [subtitleOverlay, plainOverlay],
+  })
+
+  it('writes version 11 exactly when a subtitle-marked overlay exists, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(library, subtitleTimeline()))
+    expect(references.schemaVersion).toBe(SUBTITLE_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const media = fixtureMedia()
+    const embedded = await gunzipJson(await serializeProject(library, subtitleTimeline(), media))
+    expect(embedded.schemaVersion).toBe(SUBTITLE_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+  })
+
+  it('a subtitle-free project keeps its earlier version and carries no subtitle keys', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, texts: [plainOverlay] }),
+    )
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('subtitle')
+  })
+
+  it('round-trips the subtitle marker through serialize/deserialize', async () => {
+    const result = await deserializeProject(await serializeProject(library, subtitleTimeline()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.texts).toEqual([subtitleOverlay, plainOverlay])
+    }
+  })
+
+  it('normalizes a foreign subtitle:false to absent', async () => {
+    const document = validDocument()
+    ;(document as Record<string, unknown>).schemaVersion = SUBTITLE_SCHEMA_VERSION
+    ;(document.timeline as { texts?: unknown[] }).texts = [
+      { ...plainOverlay, subtitle: false },
+    ]
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.texts?.[0].subtitle).toBeUndefined()
+    }
+  })
+
+  it('refuses a malformed subtitle field by name', async () => {
+    const document = validDocument()
+    ;(document as Record<string, unknown>).schemaVersion = SUBTITLE_SCHEMA_VERSION
+    ;(document.timeline as { texts?: unknown[] }).texts = [
+      { ...plainOverlay, subtitle: 'yes' },
+    ]
+    await expectRefusal(await gzipJson(document), 'timeline.texts[0].subtitle')
+  })
+
+  it('deserializes the committed v11 subtitle fixture (#249)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced the subtitle marker keep opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV11SubtitleReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          ...expectedProject.timeline,
+          texts: [subtitleOverlay, plainOverlay],
         },
       },
     })

@@ -1829,6 +1829,47 @@ describe('text overlays (#139)', () => {
     })
   })
 
+  describe('texts-added (#249)', () => {
+    it('appends a whole batch in order as one action — one undo step', () => {
+      const state = timelineReducer(emptyTimeline, {
+        type: 'texts-added',
+        texts: [
+          overlay('s1', { subtitle: true, offset: 1 }),
+          overlay('s2', { subtitle: true, offset: 3 }),
+        ],
+      })
+      expect(textIds(state)).toEqual(['s1', 's2'])
+      expect(textsOf(state).every((text) => text.subtitle === true)).toBe(true)
+    })
+
+    it('appends after existing overlays, preserving stacking order', () => {
+      let state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      state = timelineReducer(state, { type: 'texts-added', texts: [overlay('s1'), overlay('s2')] })
+      expect(textIds(state)).toEqual(['t1', 's1', 's2'])
+    })
+
+    it('rejects the whole batch on a duplicate id — against state or within itself', () => {
+      const state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      expect(
+        timelineReducer(state, { type: 'texts-added', texts: [overlay('s1'), overlay('t1')] }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, { type: 'texts-added', texts: [overlay('s1'), overlay('s1')] }),
+      ).toBe(state)
+    })
+
+    it('rejects the whole batch when any spec is invalid, and an empty batch', () => {
+      const state = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
+      expect(
+        timelineReducer(state, {
+          type: 'texts-added',
+          texts: [overlay('s1'), overlay('s2', { content: '' })],
+        }),
+      ).toBe(state)
+      expect(timelineReducer(state, { type: 'texts-added', texts: [] })).toBe(state)
+    })
+  })
+
   describe('text-updated', () => {
     const base = timelineReducer(emptyTimeline, { type: 'text-added', text: overlay('t1') })
     const spec = (overrides: Partial<TextOverlay>): TextOverlay => overlay('ignored', overrides)

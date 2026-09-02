@@ -96,6 +96,15 @@ export interface TextOverlaySpec {
    */
   fadeIn?: number
   fadeOut?: number
+  /**
+   * Subtitle-import provenance (#249): `true` on overlays created by the
+   * SRT import, absent on hand-made ones — the persisted marker the default
+   * subtitle style (#250) will target. Absent-as-default like every
+   * optional field, so subtitle-free projects are unchanged; the marker
+   * says where the overlay came from and changes nothing about how it
+   * renders or edits.
+   */
+  subtitle?: boolean
 }
 
 /** A text overlay in the timeline state. The id is the edit handle. */
@@ -155,7 +164,8 @@ export function isValidTextOverlaySpec(spec: TextOverlaySpec): boolean {
     typeof spec.bold === 'boolean' &&
     typeof spec.italic === 'boolean' &&
     (spec.fadeIn === undefined || Number.isFinite(spec.fadeIn)) &&
-    (spec.fadeOut === undefined || Number.isFinite(spec.fadeOut))
+    (spec.fadeOut === undefined || Number.isFinite(spec.fadeOut)) &&
+    (spec.subtitle === undefined || typeof spec.subtitle === 'boolean')
   )
 }
 
@@ -204,7 +214,8 @@ export function textOverlaysEqual(a: TextOverlay, b: TextOverlay): boolean {
     a.bold === b.bold &&
     a.italic === b.italic &&
     (a.fadeIn ?? 0) === (b.fadeIn ?? 0) &&
-    (a.fadeOut ?? 0) === (b.fadeOut ?? 0)
+    (a.fadeOut ?? 0) === (b.fadeOut ?? 0) &&
+    (a.subtitle ?? false) === (b.subtitle ?? false)
   )
 }
 
