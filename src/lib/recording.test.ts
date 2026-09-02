@@ -5,8 +5,10 @@ import {
   screenRecordingName,
   startMicrophoneRecording,
   startScreenRecording,
+  startWebcamRecording,
   videoRecordingFileExtension,
   voiceOverName,
+  webcamRecordingName,
 } from './recording'
 import type { RecorderLike, RecordingDependencies, ScreenRecordingDependencies } from './recording'
 
@@ -287,5 +289,134 @@ describe('startScreenRecording (#225)', () => {
 
   it('refuses to record where the platform has no display capture', async () => {
     await expect(startScreenRecording(() => {}, null)).rejects.toThrow('not supported')
+  })
+})
+
+/** A controllable camera capture standing in for the browser (#226). */
+function fakeWebcamWorld(options?: {
+  supportedTypes?: string[]
+  denyCombined?: Error
+  denyVideoOnly?: Error
+  failConstruction?: Error
+}) {
+  const stopTrack = vi.fn()
+  /** Every getUserMedia constraints object, in request order. */
+  const requests: MediaStreamConstraints[] = []
+  const stream = {
+    getTracks: () => [{ stop: stopTrack }, { stop: stopTrack }],
+  } as unknown as MediaStream
+  let recorder: (RecorderLike & { started: boolean; requestedMime: string | undefined }) | null =
+    null
+  const dependencies: RecordingDependencies = {
+    getUserMedia: vi.fn((constraints: MediaStreamConstraints) => {
+      requests.push(constraints)
+      if (constraints.audio === true) {
+        return options?.denyCombined
+          ? Promise.reject(options.denyCombined)
+          : Promise.resolve(stream)
+      }
+      return options?.denyVideoOnly
+        ? Promise.reject(options.denyVideoOnly)
+        : Promise.resolve(stream)
+    }),
+    createRecorder: (_stream, recorderOptions) => {
+      if (options?.failConstruction) throw options.failConstruction
+      recorder = {
+        started: false,
+        requestedMime: recorderOptions.mimeType,
+        mimeType: recorderOptions.mimeType ?? 'video/webm',
+        ondataavailable: null,
+        onstop: null,
+        onerror: null,
+        start() {
+          this.started = true
+        },
+        stop() {
+          queueMicrotask(() => this.onstop?.())
+        },
+      }
+      return recorder
+    },
+    isTypeSupported: (mimeType) =>
+      (options?.supportedTypes ?? ['video/webm;codecs=vp9,opus']).includes(mimeType),
+  }
+  return {
+    dependencies,
+    stopTrack,
+    requests,
+    recorder: () => {
+      if (recorder === null) throw new Error('recorder was never constructed')
+      return recorder
+    },
+  }
+}
+
+describe('webcam recording names (#226)', () => {
+  it('numbers webcam recordings past the highest existing one, independently', () => {
+    expect(webcamRecordingName([], 'webm')).toBe('Webcam recording 1.webm')
+    expect(
+      webcamRecordingName(
+        ['Webcam recording 2.webm', 'Screen recording 9.webm', 'Voice-over 5.webm'],
+        'webm',
+      ),
+    ).toBe('Webcam recording 3.webm')
+  })
+})
+
+describe('startWebcamRecording (#226)', () => {
+  it('requests camera and microphone together and records into a named video File', async () => {
+    const world = fakeWebcamWorld()
+    const session = await startWebcamRecording(world.dependencies)
+    expect(world.requests).toEqual([{ video: true, audio: true }])
+    const recorder = world.recorder()
+    expect(recorder.started).toBe(true)
+    expect(recorder.requestedMime).toBe('video/webm;codecs=vp9,opus')
+
+    recorder.ondataavailable?.({ data: new Blob(['we'], { type: 'video/webm' }) })
+    recorder.ondataavailable?.({ data: new Blob(['bcam'], { type: 'video/webm' }) })
+
+    const file = await session.stop('Webcam recording 1.webm')
+    expect(file.name).toBe('Webcam recording 1.webm')
+    expect(file.type).toBe('video/webm;codecs=vp9,opus')
+    expect(await file.text()).toBe('webcam')
+    expect(world.stopTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('a camera without a microphone still records: the video-only fallback (#226)', async () => {
+    const world = fakeWebcamWorld({ denyCombined: new Error('Requested device not found') })
+    const session = await startWebcamRecording(world.dependencies)
+    expect(world.requests).toEqual([{ video: true, audio: true }, { video: true }])
+    expect(world.recorder().started).toBe(true)
+    session.cancel()
+  })
+
+  it('a denial that fails both attempts propagates like a failed import', async () => {
+    const world = fakeWebcamWorld({
+      denyCombined: new Error('Permission denied'),
+      denyVideoOnly: new Error('Permission denied again'),
+    })
+    await expect(startWebcamRecording(world.dependencies)).rejects.toThrow(
+      'Permission denied again',
+    )
+    expect(world.stopTrack).not.toHaveBeenCalled()
+  })
+
+  it('cancel discards the capture without producing a file', async () => {
+    const world = fakeWebcamWorld()
+    const session = await startWebcamRecording(world.dependencies)
+    session.cancel()
+    await Promise.resolve()
+    expect(world.stopTrack).toHaveBeenCalledTimes(2)
+    await expect(session.stop('Webcam recording 1.webm')).rejects.toThrow('already concluded')
+  })
+
+  it('releases the capture when the recorder itself cannot start', async () => {
+    const world = fakeWebcamWorld({ failConstruction: new Error('NotSupportedError') })
+    await expect(startWebcamRecording(world.dependencies)).rejects.toThrow('NotSupportedError')
+    expect(world.stopTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to record where the platform has no recording APIs', async () => {
+    await expect(startWebcamRecording(null)).rejects.toThrow('not supported')
   })
 })

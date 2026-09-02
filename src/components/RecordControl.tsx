@@ -6,35 +6,48 @@ import {
   screenRecordingName,
   startMicrophoneRecording,
   startScreenRecording,
+  startWebcamRecording,
   videoRecordingFileExtension,
   voiceOverName,
+  webcamRecordingName,
 } from '../lib/recording'
 import type { RecordingSession } from '../lib/recording'
 import { formatDuration } from '../lib/mediaLibrary'
 import './dialog.css'
 import './RecordControl.css'
 
-type RecordingSource = 'microphone' | 'screen'
+type RecordingSource = 'microphone' | 'screen' | 'webcam'
 
-/** Per-source wording: the dialog heading, failure prefix, and clip name. */
+/** Per-source wording — dialog heading, failure prefix, clip name — plus
+ * whether the dialog shows the live capture preview (video sources only). */
 const SOURCE_LABELS: Record<
   RecordingSource,
   {
     heading: string
     failure: string
+    preview: boolean
     fileName: (existingNames: readonly string[], mimeType: string) => string
   }
 > = {
   microphone: {
     heading: 'Recording voice-over',
     failure: 'Microphone recording failed',
+    preview: false,
     fileName: (names, mimeType) => voiceOverName(names, recordingFileExtension(mimeType)),
   },
   screen: {
     heading: 'Recording screen',
     failure: 'Screen recording failed',
+    preview: true,
     fileName: (names, mimeType) =>
       screenRecordingName(names, videoRecordingFileExtension(mimeType)),
+  },
+  webcam: {
+    heading: 'Recording webcam',
+    failure: 'Webcam recording failed',
+    preview: true,
+    fileName: (names, mimeType) =>
+      webcamRecordingName(names, videoRecordingFileExtension(mimeType)),
   },
 }
 
@@ -51,15 +64,19 @@ interface RecordControlProps {
   /** Injectable for tests: jsdom has no getDisplayMedia either (#225). */
   startScreenCapture?: typeof startScreenRecording
   screenSupported?: boolean
+  /** Injectable for tests (#226); availability rides `supported`, since the
+   * webcam uses the same getUserMedia + MediaRecorder pair the mic does. */
+  startWebcamCapture?: typeof startWebcamRecording
 }
 
 /**
  * The Record control in the media library header (#224): a source menu —
- * Microphone (#224) and Screen (#225); webcam (#226) extends it — and,
- * while capturing, a small modal dialog with the elapsed time, a recording
- * indicator, a live preview for a video source, and Stop / Cancel. Stop
- * hands the capture to the ordinary import path as `Voice-over N` /
- * `Screen recording N`; Cancel discards it. Each source is hidden where
+ * Microphone (#224), Screen (#225), and Webcam (#226) — and, while
+ * capturing, a small modal dialog with the elapsed time, a recording
+ * indicator, a live preview for a video source (the capture itself for the
+ * screen, a self-view for the webcam), and Stop / Cancel. Stop hands the
+ * capture to the ordinary import path as `Voice-over N` /
+ * `Screen recording N` / `Webcam recording N`; Cancel discards it. Each source is hidden where
  * the platform cannot provide it (feature detection, never a crash); a
  * capture failure — permission denied, no device, the user dismissing the
  * browser's screen picker — lands in the library's dismissible failure
@@ -74,6 +91,7 @@ export function RecordControl({
   supported = isRecordingSupported(),
   startScreenCapture = startScreenRecording,
   screenSupported = isScreenRecordingSupported(),
+  startWebcamCapture = startWebcamRecording,
 }: RecordControlProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [session, setSession] = useState<RecordingSession | null>(null)
@@ -106,11 +124,12 @@ export function RecordControl({
     return () => clearInterval(timer)
   }, [session])
 
-  // The live preview (#225): the dialog's <video> plays the capture stream
-  // itself, muted — showing what is recorded without echoing its audio.
+  // The live preview (#225/#226): the dialog's <video> plays the capture
+  // stream itself, muted — what is recorded (screen) or a self-view
+  // (webcam), without echoing the captured audio.
   useEffect(() => {
     const preview = previewRef.current
-    if (session === null || source !== 'screen' || preview === null) return
+    if (session === null || !SOURCE_LABELS[source].preview || preview === null) return
     preview.srcObject = session.stream
     // play() rejects (AbortError) when interrupted by teardown — expected.
     preview.play().catch(() => {})
@@ -207,6 +226,15 @@ export function RecordControl({
                 Screen
               </button>
             )}
+            {supported && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void begin('webcam', () => startWebcamCapture())}
+              >
+                Webcam
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -214,9 +242,9 @@ export function RecordControl({
         <div className="dialog-overlay">
           <div role="dialog" aria-modal="true" aria-labelledby={headingId} className="dialog">
             <h3 id={headingId}>{SOURCE_LABELS[source].heading}</h3>
-            {source === 'screen' && (
-              // Muted live preview of the capture itself (#225) — the user
-              // sees what is being recorded without an audio feedback loop.
+            {SOURCE_LABELS[source].preview && (
+              // Muted live preview of the capture itself (#225/#226) — the
+              // user sees what records without an audio feedback loop.
               <video
                 ref={previewRef}
                 className="record-preview"

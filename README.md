@@ -35,7 +35,11 @@ source (#225): the browser's own tab/window/display picker starts a capture
 the recording dialog, and stopping (our Stop button or the browser's own
 "stop sharing") adds it as an ordinary video clip, `Screen recording 1`,
 ready to trim, overlay, transition, and export; the source hides where
-`getDisplayMedia` is unavailable. A references-only project file
+`getDisplayMedia` is unavailable. A Webcam source (#226) records camera
+video plus microphone audio the same way — a live self-view in the dialog,
+the clip landing as `Webcam recording 1`, ready to layer as a
+picture-in-picture commentary bubble; a camera without a microphone still
+records, video-only. A references-only project file
 cannot re-link a recording (it never existed on disk); save with embedded
 media to carry recordings across machines. The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each
