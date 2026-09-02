@@ -38,6 +38,8 @@ import { orientationTransform, orientedDimensions } from './orientation'
 import type { Orientation } from './orientation'
 import { croppedDimensions, cropSourceRect } from './crop'
 import type { Crop } from './crop'
+import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backgroundFill'
+import type { BackgroundFill } from './backgroundFill'
 import { transitionLayerSpec } from './transitionRender'
 import { outputFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -508,6 +510,9 @@ export interface FrameComposerOptions {
   stillSources: ReadonlyMap<string, HTMLImageElement>
   /** One replay element per overlay video layer (#146), in add order. */
   overlayReplays: readonly { overlay: VideoOverlay; element: HTMLVideoElement }[]
+  /** Injectable for tests (jsdom has no canvas rendering) — creates the
+   * blur backdrop's downscaled buffer (#260). */
+  createCanvas?: () => HTMLCanvasElement
 }
 
 export interface FrameComposer {
@@ -523,6 +528,7 @@ export interface FrameComposer {
 
 export function createFrameComposer(options: FrameComposerOptions): FrameComposer {
   const { context, width, height, timeline, stillSources, overlayReplays } = options
+  const createCanvas = options.createCanvas ?? (() => document.createElement('canvas'))
 
   const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
     source: element,
@@ -570,6 +576,112 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     }
   }
 
+  /**
+   * The blur backdrop's downscaled scratch buffer (#260), created on first
+   * use — a fill-free timeline never touches it. The same fixed buffer
+   * width the preview samples into (#259, `BACKDROP_BUFFER_WIDTH`), so both
+   * renderers blur a copy of identical resolution; the buffer mirrors the
+   * frame's aspect, so stretching it over the card never distorts.
+   */
+  let backdropBuffer: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null =
+    null
+  /**
+   * Whether this context's `filter` works, probed on the first blur draw
+   * (canvas filter support is one feature — the #195 color probe answers
+   * for blur too). Where it doesn't, the backdrop degrades visibly to the
+   * unblurred downscaled copy (#260) — its 192px buffer stretched over the
+   * frame is already soft — rather than refusing or silently drawing wrong
+   * geometry; the picture and placement stay the preview's.
+   */
+  let backdropBlurSupported: boolean | null = null
+
+  /**
+   * An entry's background-fill backdrop (#260): what the preview renders as
+   * the layer card's first child (#259), drawn here under the fitted media.
+   * The backdrop is the card's own face — the full frame mapped through the
+   * same zoom and transition scale/offset chain the fitted media rides — so
+   * it moves, scales, and fades with its entry exactly as the preview's
+   * card-child backdrop does. A fitted picture already covering the frame
+   * leaves no bars to fill: matching-aspect entries draw no backdrop at
+   * all, keeping their frames byte-identical to fill-free ones.
+   */
+  const drawLayerBackdrop = (
+    fill: BackgroundFill | undefined,
+    layer: LayerFrame,
+    crop: Crop | undefined,
+    orientation: Orientation | undefined,
+    fitted: FitRect,
+    zoom: ZoomState,
+    transitionScale: number,
+    offsetX: number,
+    offsetY: number,
+  ) => {
+    if (fill === undefined) return
+    if (fitted.width >= width - 0.001 && fitted.height >= height - 0.001) return
+    const frameRect = { x: 0, y: 0, width, height }
+    const zoomedCard = zoom.scale === 1 ? frameRect : zoomRect(frameRect, zoom, width, height)
+    const card = scaleRectAboutCenter(zoomedCard, transitionScale, width, height)
+    const dest = { x: card.x + offsetX, y: card.y + offsetY, width: card.width, height: card.height }
+    if (fill.kind === 'color') {
+      context.fillStyle = fill.color
+      context.fillRect(dest.x, dest.y, dest.width, dest.height)
+      return
+    }
+    // A source with no decodable dimensions has no picture to blur; the
+    // frame's own black stays, exactly as the preview's not-ready skip.
+    if (layer.sourceWidth <= 0 || layer.sourceHeight <= 0) return
+    if (backdropBuffer === null) {
+      const buffer = createCanvas()
+      const bufferContext = buffer.getContext('2d')
+      if (bufferContext === null) {
+        // The main canvas's 2d context was already verified; a browser that
+        // granted one and refuses another is not a real case, but never
+        // draw nothing silently.
+        throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
+      }
+      backdropBuffer = { canvas: buffer, context: bufferContext }
+    }
+    const { canvas: buffer, context: bufferContext } = backdropBuffer
+    const bufferHeight = Math.max(1, Math.round((BACKDROP_BUFFER_WIDTH * height) / width))
+    if (buffer.width !== BACKDROP_BUFFER_WIDTH) buffer.width = BACKDROP_BUFFER_WIDTH
+    if (buffer.height !== bufferHeight) buffer.height = bufferHeight
+    // The buffer composes exactly as the preview's backdrop canvas (#259):
+    // the shared crop rule then orientation, into the shared cover-fit
+    // overscan rectangle — the same picture, at the same buffer resolution.
+    const dims = orientedDimensions(
+      croppedDimensions({ width: layer.sourceWidth, height: layer.sourceHeight }, crop),
+      orientation,
+    )
+    const rect = backdropRect(dims, { width: BACKDROP_BUFFER_WIDTH, height: bufferHeight })
+    withLayerOrientation(bufferContext, orientation, rect, (drawRect) => {
+      drawLayerSource(
+        bufferContext,
+        layer.source,
+        crop,
+        layer.sourceWidth,
+        layer.sourceHeight,
+        drawRect,
+      )
+    })
+    if (backdropBlurSupported === null) {
+      backdropBlurSupported = canvasSupportsColorFilter(context)
+    }
+    if (backdropBlurSupported) {
+      // The shared strength (#259): the blur fraction of the drawn card's
+      // shorter side — the frame's when unzoomed, scaling with the card
+      // under zooms and cross-zooms exactly as the preview's CSS transform
+      // scales its rendered blur.
+      context.filter = `blur(${backdropBlurRadius({ width: dest.width, height: dest.height })}px)`
+      try {
+        context.drawImage(buffer, dest.x, dest.y, dest.width, dest.height)
+      } finally {
+        context.filter = 'none'
+      }
+    } else {
+      context.drawImage(buffer, dest.x, dest.y, dest.width, dest.height)
+    }
+  }
+
   const drawFrame = (
     layer: LayerFrame,
     entryIndex: number,
@@ -604,6 +716,20 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // other types) leaves the rect untouched.
     const dest = scaleRectAboutCenter(zoomed, spec?.outgoingScale ?? 1, width, height)
     context.globalAlpha = spec?.outgoingAlpha ?? 1
+    // The entry's background fill (#260) draws under its fitted media,
+    // outside the color filter below — the preview's base-layer filter
+    // applies to the media element alone, not its backdrop sibling (#259).
+    drawLayerBackdrop(
+      timeline.entries[entryIndex]?.backgroundFill,
+      layer,
+      outgoingCrop,
+      outgoingOrientation,
+      rect,
+      zoom,
+      spec?.outgoingScale ?? 1,
+      (spec?.outgoingOffsetXFraction ?? 0) * width,
+      (spec?.outgoingOffsetYFraction ?? 0) * height,
+    )
     // Pushes (#181) move the outgoing layer off the frame; every other type
     // has zero outgoing offsets, drawing exactly as before.
     // The entry's color adjustments (#195): the same canonical filter string
@@ -745,6 +871,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             card.height,
           )
         }
+        // The incoming entry's background fill (#260), over the backing and
+        // under the fitted media — the preview's card stacking (#259). It
+        // sits inside this color filter because the preview's incoming
+        // filter covers the whole card, children included (#218).
+        drawLayerBackdrop(
+          timeline.entries[overlay.index]?.backgroundFill,
+          overlay.layer,
+          incomingCrop,
+          incomingOrientation,
+          incoming,
+          incomingZoom,
+          incomingScale,
+          spec.incomingOffsetXFraction * width,
+          spec.incomingOffsetYFraction * height,
+        )
         withLayerOrientation(
           context,
           incomingOrientation,

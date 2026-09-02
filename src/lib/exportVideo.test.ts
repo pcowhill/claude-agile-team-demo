@@ -6,6 +6,7 @@ import {
   AUDIO_DRIFT_EPSILON,
   canvasSupportsColorFilter,
   createAudioCapture,
+  createFrameComposer,
   drawLayerSource,
   EXPORT_AUDIO_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES,
@@ -39,6 +40,7 @@ import {
 import type { TimelineState } from './timeline'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
+import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -1278,5 +1280,263 @@ describe('drawLayerSource (#256)', () => {
     // crop's, independent of the rotation.
     expect(calls).toEqual(['save', 'translate(120, 65)', 'rotate(90)', 'draw', 'restore'])
     expect(draws).toEqual([[160, 0, 160, 180, -45, -80, 90, 160]])
+  })
+})
+
+// Background fill in the export composition (#260). The blurred pixels can
+// only render in a real browser (e2e/export-background-fill.spec.ts); these
+// tests pin the draw geometry and call order — the backdrop under the fitted
+// media, composed from the shared #259 rules — through the real composer
+// with a fake context and an injected buffer canvas.
+
+/** A 2D context stand-in recording ordered ops (fills, transforms, draws). */
+function fakeComposerContext(filterSupported = true) {
+  const ops: string[] = []
+  let filterValue = 'none'
+  let fillStyleValue = ''
+  const num = (value: number) => {
+    const rounded = Math.round(value * 100) / 100
+    // Never format negative zero: -0.001 rounds to -0, which prints "0".
+    return Object.is(rounded, -0) ? 0 : rounded
+  }
+  const context = {
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    textAlign: '',
+    textBaseline: '',
+    font: '',
+    get filter() {
+      return filterValue
+    },
+    set filter(value: string) {
+      filterValue = filterSupported || value === 'none' ? value : 'none'
+    },
+    get fillStyle() {
+      return fillStyleValue
+    },
+    set fillStyle(value: string) {
+      fillStyleValue = value
+    },
+    fillRect: (x: number, y: number, w: number, h: number) =>
+      ops.push(`fill(${fillStyleValue}, ${num(x)}, ${num(y)}, ${num(w)}, ${num(h)})`),
+    fillText: () => {},
+    save: () => ops.push('save'),
+    restore: () => ops.push('restore'),
+    translate: (x: number, y: number) => ops.push(`translate(${num(x)}, ${num(y)})`),
+    rotate: (angle: number) => ops.push(`rotate(${num((angle * 180) / Math.PI)})`),
+    scale: (x: number, y: number) => ops.push(`scale(${x}, ${y})`),
+    beginPath: () => {},
+    rect: () => {},
+    ellipse: () => {},
+    clip: () => {},
+    drawImage: (source: unknown, ...args: number[]) =>
+      ops.push(
+        `draw(${(source as { tag?: string }).tag ?? 'source'}, [${args
+          .map(num)
+          .join(', ')}], ${filterValue})`,
+      ),
+  }
+  return { context: context as unknown as CanvasRenderingContext2D, ops }
+}
+
+describe('frame composition of background fill (#260)', () => {
+  const fillEntry = (
+    id: string,
+    backgroundFill?: TimelineState['entries'][number]['backgroundFill'],
+    overrides: Partial<TimelineState['entries'][number]> = {},
+  ) => ({
+    id,
+    clipId: `c-${id}`,
+    name: `${id}.webm`,
+    duration: 10,
+    url: `blob:${id}`,
+    inPoint: 0,
+    outPoint: 10,
+    ...(backgroundFill === undefined ? {} : { backgroundFill }),
+    ...overrides,
+  })
+
+  /** The real composer over a 320×180 frame, everything else faked. */
+  const composerFor = (timeline: TimelineState, filterSupported = true) => {
+    const main = fakeComposerContext(filterSupported)
+    const buffer = fakeComposerContext()
+    let bufferCreations = 0
+    const bufferCanvas = {
+      tag: 'backdrop-buffer',
+      width: 0,
+      height: 0,
+      getContext: () => buffer.context,
+    } as unknown as HTMLCanvasElement
+    const composer = createFrameComposer({
+      context: main.context,
+      width: 320,
+      height: 180,
+      timeline,
+      stillSources: new Map(),
+      overlayReplays: [],
+      createCanvas: () => {
+        bufferCreations += 1
+        return bufferCanvas
+      },
+    })
+    return { composer, main, buffer, bufferCanvas, bufferCreations: () => bufferCreations }
+  }
+
+  /** A portrait 90×180 source: pillarboxes in the 320×180 frame. */
+  const portraitLayer = (tag = 'clip') => ({
+    source: { tag } as unknown as CanvasImageSource,
+    sourceWidth: 90,
+    sourceHeight: 180,
+    time: 0,
+  })
+
+  it('a color fill paints the full frame under the fitted media', () => {
+    const { composer, main, bufferCreations } = composerFor({
+      entries: [fillEntry('e1', { kind: 'color', color: '#cc0000' })],
+    })
+    composer.drawFrame(portraitLayer(), 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'fill(#cc0000, 0, 0, 320, 180)',
+      'draw(clip, [115, 0, 90, 180], none)',
+    ])
+    expect(bufferCreations()).toBe(0)
+  })
+
+  it('a fill-free entry draws byte-for-byte the pre-#260 frame', () => {
+    const { composer, main, bufferCreations } = composerFor({ entries: [fillEntry('e1')] })
+    composer.drawFrame(portraitLayer(), 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(clip, [115, 0, 90, 180], none)',
+    ])
+    expect(bufferCreations()).toBe(0)
+  })
+
+  it('a matching-aspect source leaves no bars — no backdrop is drawn at all', () => {
+    const { composer, main, bufferCreations } = composerFor({
+      entries: [fillEntry('e1', { kind: 'blur' })],
+    })
+    composer.drawFrame(
+      { source: { tag: 'clip' } as unknown as CanvasImageSource, sourceWidth: 640, sourceHeight: 360, time: 0 },
+      0,
+      0,
+    )
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(clip, [0, 0, 320, 180], none)',
+    ])
+    expect(bufferCreations()).toBe(0)
+  })
+
+  it('a blur fill composes the shared overscan cover fit into the buffer and blurs it over the frame', () => {
+    const { composer, main, buffer, bufferCanvas, bufferCreations } = composerFor({
+      entries: [fillEntry('e1', { kind: 'blur' })],
+    })
+    composer.drawFrame(portraitLayer(), 0, 0)
+    // The buffer mirrors the frame's aspect at the shared fixed width.
+    expect(bufferCreations()).toBe(1)
+    expect(bufferCanvas.width).toBe(BACKDROP_BUFFER_WIDTH)
+    expect(bufferCanvas.height).toBe(108)
+    // The 90×180 shape cover-fits the 192×108 buffer (scale 192/90), inflated
+    // by the shared overscan — backdropRect (#259), crop-free 5-argument draw.
+    expect(buffer.ops).toEqual(['draw(clip, [-3.84, -145.68, 199.68, 399.36], none)'])
+    // The blurred buffer stretches over the full frame, under the media; the
+    // blur strength is the shared fraction of the frame's shorter side.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      `draw(backdrop-buffer, [0, 0, 320, 180], blur(${backdropBlurRadius({ width: 320, height: 180 })}px))`,
+      'draw(clip, [115, 0, 90, 180], none)',
+    ])
+  })
+
+  it('a blur backdrop composes crop then orientation — the shared #255/#232 order', () => {
+    const { composer, main, buffer } = composerFor({
+      entries: [
+        fillEntry('e1', { kind: 'blur' }, { crop: { left: 0.5 }, orientation: { rotation: 90 } }),
+      ],
+    })
+    composer.drawFrame(
+      { source: { tag: 'clip' } as unknown as CanvasImageSource, sourceWidth: 320, sourceHeight: 180, time: 0 },
+      0,
+      0,
+    )
+    // Buffer: the kept right half (crop source rect [160, 0, 160, 180]) turns
+    // a quarter into the transposed box centred on the overscanned cover fit
+    // of the composed 180×160 shape.
+    expect(buffer.ops).toEqual([
+      'save',
+      'translate(96, 54)',
+      'rotate(90)',
+      'draw(clip, [160, 0, 160, 180, -88.75, -99.84, 177.49, 199.68], none)',
+      'restore',
+    ])
+    // Main canvas: blurred backdrop over the frame, then the fitted media
+    // through the same crop + orientation path as ever.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      `draw(backdrop-buffer, [0, 0, 320, 180], blur(${backdropBlurRadius({ width: 320, height: 180 })}px))`,
+      'save',
+      'translate(160, 90)',
+      'rotate(90)',
+      'draw(clip, [160, 0, 160, 180, -90, -101.25, 180, 202.5], none)',
+      'restore',
+    ])
+  })
+
+  it('the backdrop rides the entry zoom like the preview card it mirrors', () => {
+    const { composer, main } = composerFor({
+      entries: [fillEntry('e1', { kind: 'color', color: '#cc0000' })],
+      zooms: [
+        { id: 'z1', entryId: 'e1', start: 0, rampIn: 0, hold: 10, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 },
+      ],
+    })
+    composer.drawFrame({ ...portraitLayer(), time: 5 }, 0, 5)
+    // The full-frame backdrop maps through the same zoom the fitted media
+    // does: scale 2 about the frame centre.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'fill(#cc0000, -160, -90, 640, 360)',
+      'draw(clip, [70, -90, 180, 360], none)',
+    ])
+  })
+
+  it('without canvas filter support the blur degrades to the unblurred downscale, never nothing', () => {
+    const { composer, main } = composerFor(
+      { entries: [fillEntry('e1', { kind: 'blur' })] },
+      false,
+    )
+    composer.drawFrame(portraitLayer(), 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(backdrop-buffer, [0, 0, 320, 180], none)',
+      'draw(clip, [115, 0, 90, 180], none)',
+    ])
+  })
+
+  it('an incoming transition layer draws its own fill between the layers', () => {
+    const { composer, main } = composerFor({
+      entries: [fillEntry('e1'), fillEntry('e2', { kind: 'color', color: '#00cc00' })],
+    })
+    composer.drawFrame(
+      { source: { tag: 'clip-a' } as unknown as CanvasImageSource, sourceWidth: 640, sourceHeight: 360, time: 0 },
+      0,
+      0.5,
+      {
+        layer: portraitLayer('clip-b'),
+        index: 1,
+        type: 'crossfade',
+        progress: 0.5,
+      },
+    )
+    // Outgoing (matching aspect, fill-free) draws bare; the incoming card
+    // paints its backdrop under its own fitted media — the preview's card
+    // stacking (#259).
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(clip-a, [0, 0, 320, 180], none)',
+      'fill(#00cc00, 0, 0, 320, 180)',
+      'draw(clip-b, [115, 0, 90, 180], none)',
+    ])
   })
 })

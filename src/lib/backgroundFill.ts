@@ -97,6 +97,15 @@ export function backdropBlurRadius(frame: { width: number; height: number }): nu
 }
 
 /**
+ * The blur backdrop buffer's fixed width in canvas pixels: the picture is
+ * heavily blurred by design, so a small buffer both looks identical and
+ * keeps the per-frame copy trivially cheap. Shared by both renderers —
+ * the preview's backdrop canvas (#259) and the export's backdrop buffer
+ * (#260) — so the blur draws from the same source resolution everywhere.
+ */
+export const BACKDROP_BUFFER_WIDTH = 192
+
+/**
  * Where a backdrop's picture lands in the frame: the content shape (the
  * cropped-then-oriented dimensions, #255/#232 — the same composed shape the
  * fit rule sees) scaled uniformly to COVER the frame and centered, so the

@@ -184,6 +184,8 @@ export async function snapshotTimelineFrame(
       timeline,
       stillSources,
       overlayReplays,
+      // The blur backdrop's buffer (#260) rides the same injectable.
+      createCanvas,
     })
     const baseLayer: LayerFrame =
       baseCued === 'still' ? stillFrame(location.entry, location.sourceTime) : videoFrame(baseCued)

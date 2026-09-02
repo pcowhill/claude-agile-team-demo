@@ -76,9 +76,16 @@ class FakeVideo {
 /** A 2D context stand-in recording draws; `filter` behaves like a browser's. */
 function fakeContext(filterSupported: boolean) {
   const draws: { source: unknown; args: number[] }[] = []
+  const fills: { style: string; args: number[] }[] = []
   let filterValue = 'none'
+  let fillStyleValue = ''
   const context = {
-    fillStyle: '',
+    get fillStyle() {
+      return fillStyleValue
+    },
+    set fillStyle(value: string) {
+      fillStyleValue = value
+    },
     globalAlpha: 1,
     globalCompositeOperation: 'source-over',
     textAlign: '',
@@ -90,7 +97,9 @@ function fakeContext(filterSupported: boolean) {
     set filter(value: string) {
       filterValue = filterSupported || value === 'none' ? value : 'none'
     },
-    fillRect: () => {},
+    fillRect: (...args: number[]) => {
+      fills.push({ style: fillStyleValue, args })
+    },
     fillText: () => {},
     save: () => {},
     restore: () => {},
@@ -105,11 +114,11 @@ function fakeContext(filterSupported: boolean) {
       draws.push({ source, args })
     },
   }
-  return { context: context as unknown as CanvasRenderingContext2D, draws }
+  return { context: context as unknown as CanvasRenderingContext2D, draws, fills }
 }
 
 function fakeCanvas(filterSupported = true) {
-  const { context, draws } = fakeContext(filterSupported)
+  const { context, draws, fills } = fakeContext(filterSupported)
   const canvas = {
     width: 0,
     height: 0,
@@ -118,15 +127,16 @@ function fakeCanvas(filterSupported = true) {
       callback(new Blob(['png-bytes'], { type }))
     },
   }
-  return { canvas: canvas as unknown as HTMLCanvasElement, draws }
+  return { canvas: canvas as unknown as HTMLCanvasElement, draws, fills }
 }
 
 function snapshotOptions(filterSupported = true) {
   const videos: FakeVideo[] = []
-  const { canvas, draws } = fakeCanvas(filterSupported)
+  const { canvas, draws, fills } = fakeCanvas(filterSupported)
   return {
     videos,
     draws,
+    fills,
     options: {
       frame: { width: 320, height: 180 },
       createCanvas: () => canvas,
@@ -245,6 +255,24 @@ describe('snapshotTimelineFrame (#237)', () => {
     // frame does.
     expect(draws).toHaveLength(1)
     expect(draws[0].args).toEqual([160, 0, 160, 180, 80, 0, 160, 180])
+  })
+
+  it('renders an entry background fill under the fitted media (#260)', async () => {
+    const { options, draws, fills } = snapshotOptions()
+    // The cropped 160×180 region pillarboxes in the forced 320×180 frame —
+    // bars for the fill to paint.
+    const timeline: TimelineState = {
+      entries: [
+        entry({ id: 'a', crop: { left: 0.5 }, backgroundFill: { kind: 'color', color: '#cc0000' } }),
+      ],
+    }
+    await snapshotTimelineFrame(timeline, 1, options)
+
+    // The snapshot composes through the shared composer (#260): the stage's
+    // black, then the backdrop over the full frame, then the media above it.
+    expect(fills.map((fill) => fill.style)).toEqual(['#000', '#cc0000'])
+    expect(fills[1].args).toEqual([0, 0, 320, 180])
+    expect(draws).toHaveLength(1)
   })
 
   it('skips the seek when the entry starts at the element position and waits for data', async () => {
