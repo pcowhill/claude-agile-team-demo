@@ -108,11 +108,13 @@ test('selecting MP4 exports a file that demuxes as MP4 (#114)', async ({ page })
   expect(probed.duration).toBeGreaterThan(0.5)
 })
 
-test('with a single supported format there is no picker and WebM exports as today (#114)', async ({
+test('without MP4 support the picker drops MP4 and WebM exports as today (#114)', async ({
   page,
 }) => {
-  // Simulate a WebM-only browser (Firefox) by narrowing the real feature
-  // detection before the app loads.
+  // Simulate a browser without MP4 recording (Firefox) by narrowing the
+  // real feature detection before the app loads. WebM stays the checked
+  // default; the audio-only format (#245) rides the same WebM support, so
+  // only MP4 vanishes.
   await page.addInitScript(() => {
     const original = MediaRecorder.isTypeSupported.bind(MediaRecorder)
     MediaRecorder.isTypeSupported = (type: string) =>
@@ -122,7 +124,7 @@ test('with a single supported format there is no picker and WebM exports as toda
   await importOneClip(page)
 
   await page.getByRole('button', { name: 'Export Project…' }).click()
-  await expect(page.getByRole('radio', { name: 'WebM' })).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'WebM', exact: true })).toBeChecked()
   await expect(page.getByRole('radio', { name: 'MP4' })).toHaveCount(0)
 
   const downloadPromise = page.waitForEvent('download')

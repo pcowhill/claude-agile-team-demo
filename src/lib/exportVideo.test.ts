@@ -6,6 +6,7 @@ import {
   AUDIO_DRIFT_EPSILON,
   canvasSupportsColorFilter,
   createAudioCapture,
+  EXPORT_AUDIO_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   EXPORT_MP4_MIME_CANDIDATES,
@@ -13,8 +14,10 @@ import {
   fitRect,
   initialRemapReplay,
   OUT_POINT_EPSILON,
+  ExportUnsupportedError,
   overlayDestRect,
   pickExportMimeType,
+  recorderStream,
   syncOverlayReplay,
   syncTrackReplay,
   textDraw,
@@ -64,6 +67,62 @@ describe('EXPORT_MIME_CANDIDATES_WITH_AUDIO', () => {
   it('keeps the video-only preference order (vp9 before vp8)', () => {
     const videoCodecs = EXPORT_MIME_CANDIDATES_WITH_AUDIO.join(' ')
     expect(videoCodecs.indexOf('vp9')).toBeLessThan(videoCodecs.indexOf('vp8'))
+  })
+})
+
+describe('EXPORT_AUDIO_MIME_CANDIDATES (#245)', () => {
+  it('stays inside the audio WebM container, Opus first', () => {
+    expect(EXPORT_AUDIO_MIME_CANDIDATES[0]).toBe('audio/webm;codecs=opus')
+    for (const type of EXPORT_AUDIO_MIME_CANDIDATES) {
+      expect(type.startsWith('audio/webm')).toBe(true)
+    }
+  })
+})
+
+describe('recorderStream (#245)', () => {
+  const track = { kind: 'audio' } as unknown as MediaStreamTrack
+
+  it('an audio-only export records the mixed audio track alone — no canvas capture', () => {
+    let captured = false
+    const created: MediaStreamTrack[][] = []
+    const stream = {} as MediaStream
+    const result = recorderStream(
+      true,
+      () => {
+        captured = true
+        return {} as MediaStream
+      },
+      track,
+      (tracks) => {
+        created.push(tracks)
+        return stream
+      },
+    )
+    expect(result).toBe(stream)
+    expect(created).toEqual([[track]])
+    expect(captured).toBe(false)
+  })
+
+  it('an audio-only export without captured audio is refused, never silently empty', () => {
+    expect(() =>
+      recorderStream(true, () => ({}) as MediaStream, null, () => ({}) as MediaStream),
+    ).toThrow(ExportUnsupportedError)
+  })
+
+  it('a video export records the canvas stream, adding the audio track when captured', () => {
+    const added: MediaStreamTrack[] = []
+    const canvasStream = { addTrack: (added_: MediaStreamTrack) => added.push(added_) }
+    const result = recorderStream(false, () => canvasStream as unknown as MediaStream, track)
+    expect(result).toBe(canvasStream)
+    expect(added).toEqual([track])
+  })
+
+  it('a video export without audio capture records the canvas stream alone', () => {
+    const added: MediaStreamTrack[] = []
+    const canvasStream = { addTrack: (added_: MediaStreamTrack) => added.push(added_) }
+    const result = recorderStream(false, () => canvasStream as unknown as MediaStream, null)
+    expect(result).toBe(canvasStream)
+    expect(added).toEqual([])
   })
 })
 

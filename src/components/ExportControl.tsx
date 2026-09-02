@@ -161,6 +161,10 @@ export function ExportControl({
     frameRate: Number(frameRateDraft),
   }
   const settingsValid = isValidExportSettings(parsedSettings)
+  // An audio-only format (#245) records no video track, so the video-only
+  // output settings are hidden while it is selected — and their drafts,
+  // valid or not, neither gate nor parameterize the export.
+  const audioOnly = formats.find((spec) => spec.id === format)?.audioOnly === true
 
   /** A manual field edit puts the selector into its Custom state (#179). */
   const editField = (set: (value: string) => void) => (value: string) => {
@@ -209,11 +213,16 @@ export function ExportControl({
         format,
         // Auto sends no frame override — the export derives the frame from
         // the sources exactly as before (#179); anything else exports at
-        // what the fields say.
-        ...(sizeMode === 'auto'
+        // what the fields say. An audio-only format (#245) has no frame or
+        // frame rate to send at all.
+        ...(audioOnly
           ? {}
-          : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
-        frameRate: parsedSettings.frameRate,
+          : {
+              ...(sizeMode === 'auto'
+                ? {}
+                : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
+              frameRate: parsedSettings.frameRate,
+            }),
         signal: controller.signal,
         onProgress: (fraction) => setStatus({ kind: 'exporting', fraction }),
       })
@@ -311,6 +320,7 @@ export function ExportControl({
                 return note !== undefined && <p className="export-format-note">{note}</p>
               })()}
             </fieldset>
+            {!audioOnly && (
             <fieldset className="export-settings">
               <legend>Output</legend>
               <label className="export-settings-row">
@@ -382,6 +392,7 @@ export function ExportControl({
                 </p>
               )}
             </fieldset>
+            )}
             {exporting ? (
               <div className="export-progress-row">
                 <progress
@@ -412,7 +423,7 @@ export function ExportControl({
               <button
                 type="button"
                 ref={exportRef}
-                disabled={exporting || !settingsValid}
+                disabled={exporting || (!audioOnly && !settingsValid)}
                 onClick={() => void startExport()}
               >
                 Export

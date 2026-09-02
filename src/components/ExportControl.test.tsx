@@ -327,3 +327,87 @@ describe('format notes (#198)', () => {
     }
   })
 })
+
+describe('audio-only export format (#245)', () => {
+  // The audio format's support probe needs Web Audio; jsdom has none, so
+  // tests that offer the format stub the constructor (the URL stub in
+  // beforeEach shows unstubAllGlobals cleans these up per test).
+  const withWebAudio = () => vi.stubGlobal('AudioContext', class {})
+
+  it('is not offered without Web Audio, whatever MediaRecorder reports', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} isTypeSupported={() => true} />)
+    await user.click(openButton())
+    expect(screen.queryByRole('radio', { name: 'Audio only (WebM/Opus)' })).not.toBeInTheDocument()
+  })
+
+  it('hides the video-only output settings while selected, and restores them after', async () => {
+    withWebAudio()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} isTypeSupported={() => true} />)
+    await user.click(openButton())
+
+    // The video default shows the output settings.
+    expect(screen.getByRole('spinbutton', { name: 'Export width in pixels' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'Audio only (WebM/Opus)' }))
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Export width in pixels' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Export height in pixels' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Export frame rate in frames per second' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Export size preset' })).not.toBeInTheDocument()
+    // The format states its shape right where it is chosen.
+    expect(
+      screen.getByText('Saves just the mixed soundtrack — the file has no video track.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'WebM' }))
+    expect(screen.getByRole('spinbutton', { name: 'Export width in pixels' })).toBeInTheDocument()
+  })
+
+  it('exports with no frame or frame-rate overrides', async () => {
+    withWebAudio()
+    const calls: { format: string; frame?: unknown; frameRate?: unknown }[] = []
+    const doExport: DoExport = (_timeline, options) => {
+      calls.push({ format: options.format, frame: options.frame, frameRate: options.frameRate })
+      return Promise.resolve(new Blob(['x']))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} doExport={doExport} isTypeSupported={() => true} />)
+    await user.click(openButton())
+    await user.click(screen.getByRole('radio', { name: 'Audio only (WebM/Opus)' }))
+    await user.click(exportButton())
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(calls).toEqual([{ format: 'audio-webm', frame: undefined, frameRate: undefined }])
+  })
+
+  it('invalid video-settings drafts neither gate nor reach an audio-only export', async () => {
+    withWebAudio()
+    const calls: string[] = []
+    const doExport: DoExport = (_timeline, options) => {
+      calls.push(options.format)
+      return Promise.resolve(new Blob(['x']))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} doExport={doExport} isTypeSupported={() => true} />)
+    await user.click(openButton())
+
+    // Make the video settings invalid: the video export button locks.
+    const width = screen.getByRole('spinbutton', { name: 'Export width in pixels' })
+    await user.clear(width)
+    await user.type(width, '0')
+    expect(exportButton()).toBeDisabled()
+
+    // The audio-only format does not consume them, so it stays exportable.
+    await user.click(screen.getByRole('radio', { name: 'Audio only (WebM/Opus)' }))
+    expect(exportButton()).toBeEnabled()
+    await user.click(exportButton())
+    await waitFor(() => expect(calls).toEqual(['audio-webm']))
+  })
+})

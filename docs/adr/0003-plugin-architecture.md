@@ -90,7 +90,16 @@ extension point is built until a concrete plugin needs it**.
   captures, so preview/export parity extends to plugin formats — and
   produces the Blob itself. Sink-driven exports are soundless by definition
   (no sink-based format with sound exists; sound support here waits for a
-  concrete format, per the scope-creep guard).
+  concrete format, per the scope-creep guard). The audio-only export (#245)
+  grew the spec once more, again for a concrete need: `audioOnly?` marks a
+  format that records no video track, so the export modal hides the
+  video-only output settings (frame size, frame rate) while it is selected
+  and passes no frame overrides to `encode`. The pipeline half is
+  `ExportOptions.audioOnly` (exportVideo.ts): the recorder receives the
+  mixed audio-capture track alone — the same replay/gain loop drives the
+  mix, so audio parity with video exports is inherited — and an audio-only
+  export refuses where Web Audio is unavailable instead of falling back to
+  video-only.
 - **Plugin runtime** (`src/lib/plugins.ts`, phase 2 #197): the catalog entry
   contract — id, name, description, version, a `load()` that must be a
   dynamic `import()` of a module under `src/plugins/` (so the code ships as
