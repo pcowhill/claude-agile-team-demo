@@ -1901,3 +1901,58 @@ describe('background fill (#259)', () => {
     }
   })
 })
+
+describe('overlay shape mask (#266)', () => {
+  const maskedTimeline = (
+    shapeMask?: NonNullable<TimelineState['videoOverlays']>[number]['shapeMask'],
+  ): TimelineState => ({
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'base.webm',
+        duration: 10,
+        url: 'blob:base',
+        inPoint: 0,
+        outPoint: 10,
+      },
+    ],
+    videoOverlays: [
+      {
+        id: 'v1',
+        clipId: 'c2',
+        name: 'cam.webm',
+        duration: 8,
+        url: 'blob:cam',
+        offset: 0,
+        inPoint: 0,
+        outPoint: 8,
+        x: 0.6,
+        y: 0.55,
+        width: 0.35,
+        height: 0.4,
+        ...(shapeMask === undefined ? {} : { shapeMask }),
+      },
+    ],
+  })
+
+  const card = () => screen.getByTestId('preview-overlay-card-0')
+
+  it('an ellipse mask clips the overlay card to the inscribed ellipse', () => {
+    render(<PreviewPlayer timeline={maskedTimeline({ kind: 'ellipse' })} />)
+    expect(card().style.clipPath).toBe('ellipse(50% 50% at 50% 50%)')
+  })
+
+  it('a rounded mask clips by the shared rule in frame-container units', () => {
+    render(<PreviewPlayer timeline={maskedTimeline({ kind: 'rounded', radius: 0.2 })} />)
+    // 0.2 of the shorter card side: the card is 0.35 frame-widths by 0.4
+    // frame-heights, so min(0.2·35cqw, 0.2·40cqh) — the shared maskClipPath.
+    expect(card().style.clipPath).toBe('inset(0 round min(7cqw, 8cqh))')
+  })
+
+  it('a mask-free overlay card styles no clip-path at all — DOM unchanged', () => {
+    render(<PreviewPlayer timeline={maskedTimeline()} />)
+    expect(card().style.clipPath).toBe('')
+    expect(card().getAttribute('style')).not.toContain('clip-path')
+  })
+})

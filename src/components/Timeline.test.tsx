@@ -2219,3 +2219,64 @@ describe('background fill (#259)', () => {
     expect(fillSelect('b.mp4 at position 2')).toHaveValue('none')
   })
 })
+
+describe('overlay shape mask (#266)', () => {
+  const maskSelect = (position: string) =>
+    screen.getByRole('combobox', { name: `Shape mask of ${position}` })
+  const radiusField = (position: string) =>
+    screen.getByRole('spinbutton', { name: `Corner radius of ${position} (percent)` })
+  const addOverlay = async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    return 'overlay cam.mp4 at position 1'
+  }
+
+  it('defaults to Rectangle, stores Ellipse, and undo steps the edit back (#189)', async () => {
+    const position = await addOverlay()
+    expect(maskSelect(position)).toHaveValue('rectangle')
+    await userEvent.selectOptions(maskSelect(position), 'ellipse')
+    expect(maskSelect(position)).toHaveValue('ellipse')
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(maskSelect(position)).toHaveValue('rectangle')
+  })
+
+  it('Rounded shows the radius amount, commits edits, and Rectangle hides it again', async () => {
+    const position = await addOverlay()
+    expect(
+      screen.queryByRole('spinbutton', { name: `Corner radius of ${position} (percent)` }),
+    ).not.toBeInTheDocument()
+    await userEvent.selectOptions(maskSelect(position), 'rounded')
+    // Picking Rounded commits the default radius immediately.
+    expect(radiusField(position)).toHaveValue(15)
+    const field = radiusField(position)
+    await userEvent.clear(field)
+    await userEvent.type(field, '30')
+    await userEvent.tab()
+    expect(radiusField(position)).toHaveValue(30)
+    await userEvent.selectOptions(maskSelect(position), 'rectangle')
+    expect(
+      screen.queryByRole('spinbutton', { name: `Corner radius of ${position} (percent)` }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('a radius edited to zero resets the mask to the rectangle', async () => {
+    const position = await addOverlay()
+    await userEvent.selectOptions(maskSelect(position), 'rounded')
+    const field = radiusField(position)
+    await userEvent.clear(field)
+    await userEvent.type(field, '0')
+    await userEvent.tab()
+    // Zero rounds nothing — the reducer normalizes it to no mask at all.
+    expect(maskSelect(position)).toHaveValue('rectangle')
+  })
+
+  it('offers no shape-mask control on sequence entry rows', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(
+      screen.queryByRole('combobox', { name: /Shape mask of a\.mp4/ }),
+    ).not.toBeInTheDocument()
+  })
+})

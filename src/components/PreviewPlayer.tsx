@@ -40,6 +40,7 @@ import type { Orientation } from '../lib/orientation'
 import { croppedDimensions, cropMediaPlacement } from '../lib/crop'
 import type { Crop } from '../lib/crop'
 import { BACKDROP_BLUR_FRACTION, backdropRect } from '../lib/backgroundFill'
+import { maskClipPath } from '../lib/shapeMask'
 import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
@@ -1562,6 +1563,11 @@ export function PreviewPlayer({
                 // the fractions' ratio (both resolve against the frame).
                 const cardAspect =
                   overlay.height > 0 ? previewAspect * (overlay.width / overlay.height) : 0
+                // Shape mask (#266): the card's box IS the placed rectangle,
+                // so the shared rule's clip-path cuts the placed silhouette —
+                // after crop/orientation shaped the picture inside. Mask-free
+                // overlays get no clipPath key at all (the #255 discipline).
+                const clipPath = maskClipPath(overlay.shapeMask, overlay)
                 return (
                   <div
                     key={overlay.id}
@@ -1572,6 +1578,7 @@ export function PreviewPlayer({
                       top: `${overlay.y * 100}%`,
                       width: `${overlay.width * 100}%`,
                       height: `${overlay.height * 100}%`,
+                      ...(clipPath === undefined ? {} : { clipPath }),
                     }}
                   >
                     <video

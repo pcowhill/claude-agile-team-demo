@@ -434,6 +434,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetVideoOverlayCrop={(id, crop) =>
             dispatchTimeline({ type: 'video-overlay-crop-set', id, crop })
           }
+          onSetVideoOverlayMask={(id, mask) =>
+            dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
+          }
           onSetAudioTrackVolume={(id, volume) =>
             dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
           }
