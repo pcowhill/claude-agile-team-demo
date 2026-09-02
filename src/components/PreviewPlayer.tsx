@@ -25,7 +25,14 @@ import {
   splitTargetAt,
 } from '../lib/playback'
 import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
-import { audioTrackGainAt, videoEntryGainAt, videoOverlayGainAt } from '../lib/gain'
+import {
+  audioTrackGainAt,
+  duckFactorAt,
+  duckWindows,
+  trackDuckFactorAt,
+  videoEntryGainAt,
+  videoOverlayGainAt,
+} from '../lib/gain'
 import { colorFilterFor } from '../lib/colorAdjustments'
 import type { ColorAdjustments } from '../lib/colorAdjustments'
 import { orientationTransform, orientedDimensions } from '../lib/orientation'
@@ -396,6 +403,10 @@ export function PreviewPlayer({
   // One <video> element per overlay layer (#145), keyed by overlay id —
   // rendered inside the stage at its rectangle, synced like an audio track.
   const overlayRefs = useRef(new Map<string, HTMLVideoElement | null>())
+  // Duck windows (#241), resolved once per timeline change: every gain
+  // assignment below multiplies in the shared duck factor, exactly as the
+  // export mix does, so the two renders duck identically.
+  const ducking = useMemo(() => duckWindows(timeline), [timeline])
 
   const primaryVideo = () => (primaryIsARef.current ? videoARef.current : videoBRef.current)
   const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
@@ -417,7 +428,8 @@ export function PreviewPlayer({
         const element = audioRefs.current.get(track.id)
         if (!element) continue
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
-        element.volume = audioTrackGainAt(track, sequenceTime)
+        element.volume =
+          audioTrackGainAt(track, sequenceTime) * trackDuckFactorAt(track, ducking, sequenceTime)
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
@@ -437,7 +449,7 @@ export function PreviewPlayer({
         }
       }
     },
-    [audioTracks],
+    [audioTracks, ducking],
   )
 
   const pauseAudioTracks = useCallback(() => {
@@ -463,7 +475,8 @@ export function PreviewPlayer({
         const element = overlayRefs.current.get(overlay.id)
         if (!element) continue
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
-        element.volume = videoOverlayGainAt(overlay, sequenceTime)
+        element.volume =
+          videoOverlayGainAt(overlay, sequenceTime) * duckFactorAt(ducking, sequenceTime)
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
@@ -484,7 +497,7 @@ export function PreviewPlayer({
         }
       }
     },
-    [videoOverlays],
+    [videoOverlays, ducking],
   )
 
   const pauseVideoOverlays = useCallback(() => {
@@ -593,17 +606,15 @@ export function PreviewPlayer({
       // Output seconds into the fronting entry — the position its fade
       // envelope (#220) is evaluated at, like every gain call here.
       const outputInto = sequenceTime - entryStartTime(timeline, location.index)
+      // Video-entry audio ducks with the rest of the mix (#241).
+      const duck = duckFactorAt(ducking, sequenceTime)
       const outputLength = entryOutputDuration(location.entry, remapsOf(timeline))
       if (overlap) {
         // A still layer has no audio to ramp (#140); only video elements
         // carry gain through the crossfade.
         if (!isStillEntry(location.entry)) {
-          primary.volume = videoEntryGainAt(
-            location.entry,
-            outputInto,
-            outputLength,
-            1 - overlap.progress,
-          )
+          primary.volume =
+            videoEntryGainAt(location.entry, outputInto, outputLength, 1 - overlap.progress) * duck
         }
         setEngaged(location.index)
         if (isStillEntry(overlap.entry)) {
@@ -612,12 +623,13 @@ export function PreviewPlayer({
           if (!secondary.paused) secondary.pause()
         } else {
           const duration = boundaryTransitions(timeline)[location.index]?.duration ?? 0
-          secondary.volume = videoEntryGainAt(
-            overlap.entry,
-            overlap.progress * duration,
-            entryOutputDuration(overlap.entry, remapsOf(timeline)),
-            overlap.progress,
-          )
+          secondary.volume =
+            videoEntryGainAt(
+              overlap.entry,
+              overlap.progress * duration,
+              entryOutputDuration(overlap.entry, remapsOf(timeline)),
+              overlap.progress,
+            ) * duck
           // The incoming entry's remap state at this point of the overlap
           // (#141): output seconds into it are the overlap's elapsed output.
           const inState = remapPlaybackAt(
@@ -635,7 +647,7 @@ export function PreviewPlayer({
         }
       } else {
         if (!isStillEntry(location.entry)) {
-          primary.volume = videoEntryGainAt(location.entry, outputInto, outputLength)
+          primary.volume = videoEntryGainAt(location.entry, outputInto, outputLength) * duck
         }
         if (engagedForRef.current !== null) {
           setEngaged(null)
@@ -643,7 +655,7 @@ export function PreviewPlayer({
         }
       }
     },
-    [cueElement, setEngaged, timeline],
+    [cueElement, setEngaged, timeline, ducking],
   )
 
   const stopLoop = useCallback(() => {
@@ -799,11 +811,9 @@ export function PreviewPlayer({
         // The incoming entry leaves its transition ramp for its own gain at
         // the handover point — overlap.duration output seconds in (#220);
         // the outgoing element is paused, its volume set when next cued.
-        incoming.volume = videoEntryGainAt(
-          next,
-          overlap.duration,
-          entryOutputDuration(next, remapsOf(timeline)),
-        )
+        incoming.volume =
+          videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
+          duckFactorAt(ducking, entryStartTime(timeline, index + 1) + overlap.duration)
         setEngaged(null)
         indexRef.current = index + 1
         stillClockRef.current = null
@@ -841,7 +851,9 @@ export function PreviewPlayer({
         // swapped roles. (A still has no element or gain; cuePrimary starts
         // its clock.)
         if (!isStillEntry(next)) {
-          video.volume = videoEntryGainAt(next, 0, entryOutputDuration(next, remapsOf(timeline)))
+          video.volume =
+            videoEntryGainAt(next, 0, entryOutputDuration(next, remapsOf(timeline))) *
+            duckFactorAt(ducking, time)
         }
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, 0, true)
       } else {
@@ -863,10 +875,12 @@ export function PreviewPlayer({
       syncAudioTracks(time, true)
       syncVideoOverlays(time, true)
       const outDuration = entryOutputDuration(entry, remapsOf(timeline))
-      // The entry's own gain every frame (#220): its fade envelope ramps
-      // continuously, exactly as the audio tracks' do. Inside a transition
-      // overlap the branch below re-sets it with the crossfade ramp.
-      if (!still) video.volume = videoEntryGainAt(entry, outputInto, outDuration)
+      // The entry's own gain every frame (#220), ducked with the rest of the
+      // mix (#241): its fade envelope ramps continuously, exactly as the
+      // audio tracks' do. Inside a transition overlap the branch below
+      // re-sets it with the crossfade ramp.
+      const duck = duckFactorAt(ducking, time)
+      if (!still) video.volume = videoEntryGainAt(entry, outputInto, outDuration) * duck
       if (next && overlap) {
         // The overlap plays out in output seconds (#141): it starts where
         // the entry's remaining *output* equals the transition's duration —
@@ -880,7 +894,7 @@ export function PreviewPlayer({
             // the outgoing side has audio to ramp.
             if (engagedForRef.current !== index) setEngaged(index)
             if (!still) {
-              video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+              video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
             }
           } else {
             const secondary = secondaryVideo()
@@ -921,21 +935,22 @@ export function PreviewPlayer({
                 }
               }
               if (!still) {
-                video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+                video.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
               }
-              secondary.volume = videoEntryGainAt(
-                next,
-                outputInto - overlapStartOut,
-                entryOutputDuration(next, remapsOf(timeline)),
-                progress,
-              )
+              secondary.volume =
+                videoEntryGainAt(
+                  next,
+                  outputInto - overlapStartOut,
+                  entryOutputDuration(next, remapsOf(timeline)),
+                  progress,
+                ) * duck
             }
           }
         }
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays])
+  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.

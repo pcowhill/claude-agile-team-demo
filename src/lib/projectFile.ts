@@ -38,7 +38,7 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  *
  *   {
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
- *     "schemaVersion": 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, // integer; bumped on breaking change
+ *     "schemaVersion": 1 | .. | 10,      // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
  *     "clips": [{ id, name, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
@@ -60,7 +60,8 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  *                   color, bold, italic,
  *                   fadeIn?, fadeOut? }],                       // (#139, #177)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
- *                         inPoint, outPoint, volume?, fadeIn?, fadeOut? }],
+ *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
+ *                         duck?, duckLevel? }],                 // (#241)
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
  *                           outPoint, x, y, width, height, volume?, muted?,
  *                           fadeIn?, fadeOut?,                    // (#220)
@@ -163,7 +164,7 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 9
+export const PROJECT_SCHEMA_VERSION = 10
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -182,6 +183,8 @@ export const COLOR_ADJUSTMENTS_SCHEMA_VERSION = 7
 export const AUDIO_FADES_SCHEMA_VERSION = 8
 /** The version any entry/overlay orientation forces, whichever the save mode (#232). */
 export const ORIENTATION_SCHEMA_VERSION = 9
+/** The version any duck-enabled audio track forces, whichever the save mode (#241). */
+export const DUCKING_SCHEMA_VERSION = 10
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -389,13 +392,15 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // An entry/overlay orientation forces version 9 (#232), an entry/overlay
+  // A duck-enabled audio track forces version 10 (#241), an entry/overlay
+  // orientation version 9 (#232), an entry/overlay
   // audio fade version 8 (#220), a color adjustment version 7 (#192), a
   // plugin dependency version 6 (#197), a color slate version 5 (#143), an
   // image on the timeline version 4 (#140), an image merely in the library
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasDucking = audioTracksOf(timeline).some((track) => track.duck === true)
   const hasOrientation =
     timeline.entries.some((entry) => entry.orientation !== undefined) ||
     videoOverlaysOf(timeline).some((overlay) => overlay.orientation !== undefined)
@@ -414,7 +419,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOrientation
+    schemaVersion: hasDucking
+      ? DUCKING_SCHEMA_VERSION
+      : hasOrientation
       ? ORIENTATION_SCHEMA_VERSION
       : hasAudioFades
         ? AUDIO_FADES_SCHEMA_VERSION
@@ -567,7 +574,7 @@ export async function serializeProject(
             ),
           }),
       audioTracks: audioTracksOf(timeline).map(
-        ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut }) => ({
+        ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
           id,
           clipId,
           name,
@@ -578,6 +585,11 @@ export async function serializeProject(
           ...(volume === undefined ? {} : { volume }),
           ...(fadeIn === undefined ? {} : { fadeIn }),
           ...(fadeOut === undefined ? {} : { fadeOut }),
+          // Ducking (#241) is written only when on, so duck-free projects
+          // stay byte-identical to earlier output (and keep their lower
+          // schema version).
+          ...(duck === true ? { duck } : {}),
+          ...(duck === true && duckLevel !== undefined ? { duckLevel } : {}),
         }),
       ),
       // Overlay video layers (#145) are written only while any exist, so
@@ -1156,6 +1168,20 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.volume !== undefined) track.volume = asVolume(raw.volume, `${path}.volume`)
       if (raw.fadeIn !== undefined) track.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
       if (raw.fadeOut !== undefined) track.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
+      // Ducking (#241, schema version 10): absent means off. Only `true` is
+      // stored, so a foreign writer's `duck: false` normalizes to absent on
+      // the next save; the level is meaningless (and dropped) without it.
+      if (raw.duck !== undefined) {
+        if (typeof raw.duck !== 'boolean') {
+          throw new Error(`${path}.duck must be a boolean`)
+        }
+        if (raw.duck) {
+          track.duck = true
+          if (raw.duckLevel !== undefined) {
+            track.duckLevel = asVolume(raw.duckLevel, `${path}.duckLevel`)
+          }
+        }
+      }
       if (trackIds.has(track.id)) {
         throw new Error(`${path}.id "${track.id}" is duplicated`)
       }

@@ -1270,6 +1270,57 @@ describe('gain: volume, mute, fades (#104)', () => {
     })
   })
 
+  describe('audio-track-duck-set (#241)', () => {
+    it('toggles ducking on without a level — absent means the shared default', () => {
+      const state = timelineReducer(withTrack(), { type: 'audio-track-duck-set', id: 't1', duck: true })
+      expect(audioTracksOf(state)[0].duck).toBe(true)
+      expect(audioTracksOf(state)[0].duckLevel).toBeUndefined()
+    })
+
+    it('stores a clamped duck level alongside the toggle', () => {
+      const state = timelineReducer(withTrack(), {
+        type: 'audio-track-duck-set',
+        id: 't1',
+        duck: true,
+        duckLevel: 0.4,
+      })
+      expect(audioTracksOf(state)[0]).toMatchObject({ duck: true, duckLevel: 0.4 })
+      const clamped = timelineReducer(state, {
+        type: 'audio-track-duck-set',
+        id: 't1',
+        duck: true,
+        duckLevel: 5,
+      })
+      expect(audioTracksOf(clamped)[0].duckLevel).toBe(1)
+    })
+
+    it('toggling off removes both fields, restoring the absent-as-default shape', () => {
+      const on = timelineReducer(withTrack(), {
+        type: 'audio-track-duck-set',
+        id: 't1',
+        duck: true,
+        duckLevel: 0.4,
+      })
+      const off = timelineReducer(on, { type: 'audio-track-duck-set', id: 't1', duck: false })
+      expect('duck' in audioTracksOf(off)[0]).toBe(false)
+      expect('duckLevel' in audioTracksOf(off)[0]).toBe(false)
+    })
+
+    it('no-ops with the same reference on unknown id, non-finite level, or unchanged values', () => {
+      const state = withTrack()
+      expect(timelineReducer(state, { type: 'audio-track-duck-set', id: 'nope', duck: true })).toBe(state)
+      // Off is the default.
+      expect(timelineReducer(state, { type: 'audio-track-duck-set', id: 't1', duck: false })).toBe(state)
+      const on = timelineReducer(state, { type: 'audio-track-duck-set', id: 't1', duck: true, duckLevel: 0.4 })
+      expect(
+        timelineReducer(on, { type: 'audio-track-duck-set', id: 't1', duck: true, duckLevel: 0.4 }),
+      ).toBe(on)
+      expect(
+        timelineReducer(on, { type: 'audio-track-duck-set', id: 't1', duck: true, duckLevel: Number.NaN }),
+      ).toBe(on)
+    })
+  })
+
   describe('fades under retrim', () => {
     it('retrimming a track re-clamps its fades to the new length', () => {
       let state = timelineReducer(withTrack(), {

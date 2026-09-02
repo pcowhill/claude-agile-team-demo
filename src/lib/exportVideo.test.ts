@@ -25,7 +25,14 @@ import {
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
 import type { AudioTrack, RemapEffect, TextOverlay, VideoOverlay } from './timeline'
-import { audioTrackGainAt } from './gain'
+import {
+  audioTrackGainAt,
+  duckFactorAt,
+  duckWindows,
+  trackDuckFactorAt,
+  videoOverlayGainAt,
+} from './gain'
+import type { TimelineState } from './timeline'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 
@@ -305,6 +312,40 @@ describe('syncTrackReplay (#105)', () => {
     }
     expect(volumes).toEqual([0, 0.5, 1, 1, 0.5])
     expect(element.playCalls).toBe(1)
+  })
+
+  it('multiplies the passed duck factor into the recorded volume (#241)', () => {
+    // The export loop passes trackDuckFactorAt per frame; the recorded
+    // element must carry gain × duck — the same product the preview sets —
+    // so the two mixes duck identically.
+    const music = exportTrack({ volume: 0.5 })
+    const element = fakeTrackElement({ paused: false, currentTime: 11 })
+    syncTrackReplay(music, element, 6, 0.25)
+    expect(element.volume).toBe(0.5 * 0.25)
+    // The default factor is 1 — no ducking, the pre-#241 behavior exactly.
+    syncTrackReplay(music, element, 6)
+    expect(element.volume).toBe(0.5)
+  })
+
+  it('the export duck curve is the shared rule, duck-enabled tracks exempt (#241)', () => {
+    // Pin the exact per-frame product the export loop computes against the
+    // shared rule the preview multiplies with — identical by construction,
+    // sampled here across the window edges and inside it.
+    const voice = exportTrack({ id: 'voice', duck: true, duckLevel: 0.4, offset: 6, inPoint: 0, outPoint: 6 })
+    const music = exportTrack({ id: 'music' })
+    const state: TimelineState = { entries: [], transitions: [], zooms: [], audioTracks: [voice, music] }
+    const windows = duckWindows(state)
+    for (const sequenceTime of [5.5, 5.875, 6, 9, 12, 12.125, 12.25, 13]) {
+      const element = fakeTrackElement({ paused: false, currentTime: sequenceTime + 5 })
+      syncTrackReplay(music, element, sequenceTime, trackDuckFactorAt(music, windows, sequenceTime))
+      expect(element.volume).toBe(
+        audioTrackGainAt(music, sequenceTime) * trackDuckFactorAt(music, windows, sequenceTime),
+      )
+      const voiceElement = fakeTrackElement({ paused: false, currentTime: sequenceTime })
+      syncTrackReplay(voice, voiceElement, sequenceTime, trackDuckFactorAt(voice, windows, sequenceTime))
+      // The ducking voice itself is never ducked.
+      expect(voiceElement.volume).toBe(audioTrackGainAt(voice, sequenceTime))
+    }
   })
 })
 
@@ -835,6 +876,18 @@ describe('syncOverlayReplay (#146)', () => {
     // puts sequence 4 halfway up the ramp.
     syncOverlayReplay(exportOverlay({ volume: 0.4, fadeIn: 4 }), element, 4)
     expect(element.volume).toBe(0.2)
+  })
+
+  it('multiplies the passed duck factor into the overlay volume (#241)', () => {
+    const element = fakeTrackElement({ paused: false, currentTime: 3 })
+    const overlay = exportOverlay({ volume: 0.4 })
+    syncOverlayReplay(overlay, element, 4, 0.25)
+    expect(element.volume).toBeCloseTo(0.4 * 0.25, 10)
+    // The factor the loop passes is the shared rule's — same as the preview.
+    expect(element.volume).toBeCloseTo(
+      videoOverlayGainAt(overlay, 4) * duckFactorAt([{ start: 0, end: 10, level: 0.25 }], 4),
+      10,
+    )
   })
 
   it('starts a paused element at the mapped source time when the window opens', () => {

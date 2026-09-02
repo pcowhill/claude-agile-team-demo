@@ -632,6 +632,32 @@ describe('PreviewPlayer', () => {
         expect(audio(1).volume).toBe(0.9)
       })
 
+      it('a duck-enabled track lowers every other source to its level, itself exempt (#241)', () => {
+        // t1 becomes a ducking voice over [0, 2); t2 moves under it as music.
+        // Inside the window the music and the entry's own audio carry
+        // gain × duck level — the same product the export records — while
+        // the voice itself is never ducked.
+        const ducked: TimelineState = {
+          ...withAudioTracks,
+          audioTracks: [
+            { ...withAudioTracks.audioTracks![0], duck: true, duckLevel: 0.4 },
+            { ...withAudioTracks.audioTracks![1], offset: 0, volume: 0.9 },
+          ],
+        }
+        render(<PreviewPlayer timeline={ducked} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+        expect(audio(0).volume).toBe(1)
+        expect(audio(1).volume).toBeCloseTo(0.9 * 0.4, 10)
+        expect(video().volume).toBeCloseTo(0.4, 10)
+
+        // Past the voice window (and its ramp) the mix recovers: the entry's
+        // audio is back at full gain on the next tick.
+        video().currentTime = 6
+        runTick()
+        expect(video().volume).toBe(1)
+      })
+
       it('adjusting a track volume is reflected next time it plays', () => {
         const { rerender } = render(<PreviewPlayer timeline={withAudioTracks} />)
         fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))

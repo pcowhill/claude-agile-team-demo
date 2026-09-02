@@ -1,6 +1,6 @@
-import type { AudioTrack, TimelineEntry } from './timeline'
+import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
-import { effectiveDuration } from './timeline'
+import { audioTracksOf, effectiveDuration } from './timeline'
 
 /**
  * Effective audio gain (#104): the single source of truth composing volume,
@@ -90,4 +90,101 @@ export function audioTrackGainAt(track: AudioTrack, sequenceTime: number): numbe
   const into = sequenceTime - track.offset
   if (into < 0 || into >= length) return 0
   return clamp01(track.volume ?? 1) * fadeRampAt(track.fadeIn, track.fadeOut, into, length)
+}
+
+/**
+ * Audio ducking (#241): while a duck-enabled audio track plays, every other
+ * sound source is lowered to that track's duck level — one more
+ * multiplicative factor in this shared rule, so the preview mix and the
+ * export mix duck identically by construction. The factor ramps linearly
+ * over `DUCK_RAMP_SECONDS` just *outside* each window — down before it
+ * starts, back up after it ends — so the drop is smooth and the ducking
+ * track's own first audible instant is already fully clear of the others.
+ */
+
+/** Fixed ramp length at each duck window edge, in seconds. */
+export const DUCK_RAMP_SECONDS = 0.25
+
+/** Gain other audio drops to while ducked, when a track sets no level. */
+export const DEFAULT_DUCK_LEVEL = 0.25
+
+/** One resolved span of ducking on the sequence clock, merged and sorted. */
+export interface DuckWindow {
+  start: number
+  end: number
+  /** The gain other sources drop to inside the span, 0..1. */
+  level: number
+}
+
+/**
+ * The sequence spans during which other audio ducks: the audible window of
+ * every duck-enabled track that can actually be heard — a muted (zero- or
+ * zero-clamped-volume) track ducks nothing. Windows separated by less than
+ * the ramp time merge, so brief gaps in a voice-over do not audibly pump;
+ * where merged windows disagree on level, the deeper duck wins.
+ */
+export function duckWindows(timeline: TimelineState): DuckWindow[] {
+  const windows = audioTracksOf(timeline)
+    .filter(
+      (track) =>
+        track.duck === true && clamp01(track.volume ?? 1) > 0 && effectiveDuration(track) > 0,
+    )
+    .map((track) => ({
+      start: track.offset,
+      end: track.offset + effectiveDuration(track),
+      level: clamp01(track.duckLevel ?? DEFAULT_DUCK_LEVEL),
+    }))
+    .sort((a, b) => a.start - b.start)
+  const merged: DuckWindow[] = []
+  for (const window of windows) {
+    const last = merged[merged.length - 1]
+    if (last !== undefined && window.start - last.end < DUCK_RAMP_SECONDS) {
+      last.end = Math.max(last.end, window.end)
+      last.level = Math.min(last.level, window.level)
+    } else {
+      merged.push({ ...window })
+    }
+  }
+  return merged
+}
+
+/**
+ * The multiplicative duck factor a non-exempt source applies at one sequence
+ * position: 1 outside every duck window (and beyond its ramps), the window's
+ * level inside it, linear between over the fixed ramps at each edge. Where
+ * two windows' ramps overlap (a gap of one to two ramp lengths), the lower
+ * factor wins — the mix never briefly recovers louder than either duck.
+ */
+export function duckFactorAt(windows: readonly DuckWindow[], sequenceTime: number): number {
+  let factor = 1
+  for (const window of windows) {
+    if (sequenceTime <= window.start - DUCK_RAMP_SECONDS) break
+    let inWindow: number
+    if (sequenceTime < window.start) {
+      inWindow =
+        window.level + ((window.start - sequenceTime) / DUCK_RAMP_SECONDS) * (1 - window.level)
+    } else if (sequenceTime <= window.end) {
+      inWindow = window.level
+    } else if (sequenceTime < window.end + DUCK_RAMP_SECONDS) {
+      inWindow =
+        window.level + ((sequenceTime - window.end) / DUCK_RAMP_SECONDS) * (1 - window.level)
+    } else {
+      continue
+    }
+    factor = Math.min(factor, inWindow)
+  }
+  return clamp01(factor)
+}
+
+/**
+ * The duck factor one audio track applies (#241): duck-enabled tracks are
+ * exempt — the ducking voice (and any fellow duck-enabled track) is never
+ * itself ducked — while every other track ducks like the rest of the mix.
+ */
+export function trackDuckFactorAt(
+  track: AudioTrack,
+  windows: readonly DuckWindow[],
+  sequenceTime: number,
+): number {
+  return track.duck === true ? 1 : duckFactorAt(windows, sequenceTime)
 }

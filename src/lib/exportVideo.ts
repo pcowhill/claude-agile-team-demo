@@ -25,7 +25,15 @@ import {
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime } from './playback'
-import { audioTrackGainAt, videoEntryGain, videoEntryGainAt, videoOverlayGainAt } from './gain'
+import {
+  audioTrackGainAt,
+  duckFactorAt,
+  duckWindows,
+  trackDuckFactorAt,
+  videoEntryGain,
+  videoEntryGainAt,
+  videoOverlayGainAt,
+} from './gain'
 import { orientationTransform, orientedDimensions } from './orientation'
 import type { Orientation } from './orientation'
 import { transitionLayerSpec } from './transitionRender'
@@ -904,14 +912,18 @@ export interface TrackReplayElement {
  * ramps in the recording, and `audioTrackPlaybackAt` decides playing state
  * and source position. Elements are cued exactly when their window starts;
  * while playing they keep their own clock unless it drifts audibly.
+ * `duckFactor` is the shared duck factor at this instant (#241) — 1 when no
+ * ducking applies; the caller exempts duck-enabled tracks via
+ * `trackDuckFactorAt`, exactly as the preview does.
  */
 export function syncTrackReplay(
   track: AudioTrack,
   element: TrackReplayElement,
   sequenceTime: number,
+  duckFactor = 1,
 ): void {
   const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
-  element.volume = audioTrackGainAt(track, sequenceTime)
+  element.volume = audioTrackGainAt(track, sequenceTime) * duckFactor
   alignReplayClock(element, shouldPlay, sourceTime)
 }
 
@@ -922,15 +934,17 @@ export function syncTrackReplay(
  * shared window helper decides playing state and source position, and the
  * element free-runs within the drift tolerance. Gain is the overlay's own
  * volume × mute × fade envelope (`videoOverlayGainAt`, #220 — applied
- * every frame, as the preview does, so fades record as continuous ramps).
+ * every frame, as the preview does, so fades record as continuous ramps),
+ * ducked with the rest of the mix by `duckFactor` (#241).
  */
 export function syncOverlayReplay(
   overlay: VideoOverlay,
   element: TrackReplayElement,
   sequenceTime: number,
+  duckFactor = 1,
 ): void {
   const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
-  element.volume = videoOverlayGainAt(overlay, sequenceTime)
+  element.volume = videoOverlayGainAt(overlay, sequenceTime) * duckFactor
   alignReplayClock(element, shouldPlay, sourceTime)
 }
 
@@ -1430,6 +1444,12 @@ export async function exportTimeline(
     overlayReplays,
   })
 
+  // Duck windows (#241), resolved once — the timeline is fixed for the
+  // export's duration. Every gain assignment below multiplies in the shared
+  // duck factor, exactly as the preview's rAF loop does, so the recording
+  // ducks identically to what the preview played.
+  const ducking = duckWindows(timeline)
+
   /**
    * Starts the incoming clip mid-overlap without blocking the draw loop. The
    * target position is computed at the moment playback can actually start
@@ -1549,7 +1569,7 @@ export async function exportTimeline(
         // envelope at output 0, no ramp outside a transition. The draw loop
         // below re-applies it every frame, which is what records a fade-in
         // as a continuous ramp.
-        primary.volume = videoEntryGainAt(entry, 0, outDuration)
+        primary.volume = videoEntryGainAt(entry, 0, outDuration) * duckFactorAt(ducking, startTime)
         // The cue point is output 0 into the entry: sequence time startTime.
         drawFrame(videoFrame(primary), index, startTime)
         sink?.frame(canvas, startTime)
@@ -1643,11 +1663,16 @@ export async function exportTimeline(
             }
           }
           lastOutputInto = outputInto
+          const sequenceTime = startTime + outputInto
+          // The shared duck factor at this frame (#241): every gain set in
+          // this tick — entry audio, the transition's incoming side, overlay
+          // layers, audio tracks — rides it, exactly as the preview does.
+          const duck = duckFactorAt(ducking, sequenceTime)
           // The entry's own gain every frame (#220): its fade envelope
           // records as a continuous ramp, exactly as the preview renders it.
           // Inside a transition overlap the branches below re-set it with
           // the crossfade ramp.
-          if (!still) primary.volume = videoEntryGainAt(entry, outputInto, outDuration)
+          if (!still) primary.volume = videoEntryGainAt(entry, outputInto, outDuration) * duck
           let overlayFrame: OverlayFrame | null = null
           if (overlap !== undefined && next !== undefined && outputInto >= overlapStartOut) {
             const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
@@ -1657,7 +1682,8 @@ export async function exportTimeline(
               // entry's gain ramps. (A still carries no remaps, so output
               // elapsed is exactly its source elapsed.)
               if (!still) {
-                primary.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+                primary.volume =
+                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
               }
               overlayFrame = {
                 layer: stillFrame(next, next.inPoint + (outputInto - overlapStartOut)),
@@ -1709,14 +1735,16 @@ export async function exportTimeline(
                 // so a muted or half-volume entry stays that way mid-effect —
                 // fade envelopes included (#220), each over its own window.
                 if (!still) {
-                  primary.volume = videoEntryGainAt(entry, outputInto, outDuration, 1 - progress)
+                  primary.volume =
+                    videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
                 }
-                secondary.volume = videoEntryGainAt(
-                  next,
-                  outputInto - overlapStartOut,
-                  entryOutputDuration(next, remapsOf(timeline)),
-                  progress,
-                )
+                secondary.volume =
+                  videoEntryGainAt(
+                    next,
+                    outputInto - overlapStartOut,
+                    entryOutputDuration(next, remapsOf(timeline)),
+                    progress,
+                  ) * duck
                 overlayFrame = {
                   layer: videoFrame(secondary),
                   index: index + 1,
@@ -1726,14 +1754,13 @@ export async function exportTimeline(
               }
             }
           }
-          const sequenceTime = startTime + outputInto
           // Overlay layers align with the export clock before the frame is
           // drawn (#146), the way the preview syncs them before painting
           // (#145): windows open and close on time, drifted clocks snap
           // back, and gain applies every frame. Sequence-anchored like the
           // audio tracks below, so pause holds and remaps never move them.
           for (const replay of overlayReplays) {
-            syncOverlayReplay(replay.overlay, replay.element, sequenceTime)
+            syncOverlayReplay(replay.overlay, replay.element, sequenceTime, duck)
           }
           // A still's layer time is its clock read above (inPoint + output
           // elapsed — stills carry no remaps); a video draws its element.
@@ -1752,7 +1779,12 @@ export async function exportTimeline(
           // keeps advancing through pause holds (#144), so sequence-anchored
           // tracks are unaffected by remaps, matching the #141 decision.
           for (const recorded of recordedTracks) {
-            syncTrackReplay(recorded.track, recorded.element, sequenceTime)
+            syncTrackReplay(
+              recorded.track,
+              recorded.element,
+              sequenceTime,
+              trackDuckFactorAt(recorded.track, ducking, sequenceTime),
+            )
           }
           reportProgress(sequenceTime / total)
           if (finished) {
@@ -1778,11 +1810,9 @@ export async function exportTimeline(
         // The incoming entry leaves its ramp for its own gain at the
         // handover point — overlap.duration output seconds in (#220); the
         // paused outgoing element's volume is set again when it is next cued.
-        secondary.volume = videoEntryGainAt(
-          next,
-          overlap.duration,
-          entryOutputDuration(next, remapsOf(timeline)),
-        )
+        secondary.volume =
+          videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
+          duckFactorAt(ducking, startTime + outDuration)
         const incoming = secondary
         secondary = primary
         primary = incoming
