@@ -34,6 +34,7 @@ import {
   videoOverlaysOf,
   zoomsForEntry,
 } from '../lib/timeline'
+import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_FONTS } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
@@ -91,6 +92,11 @@ interface TimelineProps {
   onSetVideoOverlayOrientation: (id: string, orientation: Orientation) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
+  /**
+   * Toggles ducking on an audio track (#241); `duckLevel` undefined keeps
+   * the track's stored level (or the shared default when none is stored).
+   */
+  onSetAudioTrackDuck: (id: string, duck: boolean, duckLevel?: number) => void
 }
 
 /** A stored overlay re-expressed as the spec `onUpdateText` takes (no id). */
@@ -464,6 +470,7 @@ export function Timeline({
   onSetVideoOverlayOrientation,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
+  onSetAudioTrackDuck,
 }: TimelineProps) {
   const { entries } = timeline
   const transitions = boundaryTransitions(timeline)
@@ -1162,6 +1169,34 @@ export function Timeline({
                         onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
                       }
                     />
+                    {/* Auto-ducking (#241): while this track plays, every
+                        other sound source drops to the duck level. The level
+                        field appears only while the toggle is on — absent
+                        fields mean the shared default, like every gain
+                        field. */}
+                    <label className="timeline-mute">
+                      <input
+                        type="checkbox"
+                        aria-label={`Duck other audio while ${position} plays`}
+                        checked={track.duck ?? false}
+                        onChange={(event) =>
+                          onSetAudioTrackDuck(track.id, event.target.checked, track.duckLevel)
+                        }
+                      />
+                      Duck others
+                    </label>
+                    {track.duck === true && (
+                      <>
+                        <span>to</span>
+                        <SecondsField
+                          label={`Duck level of ${position} (0 to 1)`}
+                          value={track.duckLevel ?? DEFAULT_DUCK_LEVEL}
+                          max={1}
+                          step={0.05}
+                          onCommit={(level) => onSetAudioTrackDuck(track.id, true, level)}
+                        />
+                      </>
+                    )}
                   </div>
                 </li>
               )

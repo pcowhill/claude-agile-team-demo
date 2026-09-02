@@ -37,7 +37,14 @@ video entry's volume and mute (#104), and the exported file carries that
 same mix (#105). Video entries and video overlays take the same optional
 audio fade-in/fade-out (#220): their sound ramps from silence to the item's
 volume and back, identically in the preview and the exported mix, and a
-fade on a transition boundary rides the crossfade. Still images import into the media library too (#137),
+fade on a transition boundary rides the crossfade.
+An audio track can duck the rest of the mix (#241): with "Duck others" on,
+every other sound source — other tracks, video entries' audio, overlay-video
+audio — drops to the track's duck level (25% by default, adjustable) while
+it audibly plays, ramping smoothly down just before its window and back up
+after, with brief gaps merged so a voice-over's pauses don't pump the music.
+The ducking track itself is never ducked, preview and export apply the
+identical rule, and the setting persists with the project. Still images import into the media library too (#137),
 with their pixel dimensions probed and shown with an Image badge, and can
 be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and

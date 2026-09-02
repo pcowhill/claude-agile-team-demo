@@ -143,6 +143,19 @@ export interface AudioTrack {
   fadeIn?: number
   /** Linear fade-out duration in seconds, ending at the window's end (#104). */
   fadeOut?: number
+  /**
+   * Duck other audio while this track audibly plays (#241): every other
+   * sound source is lowered to the duck level inside this track's window.
+   * Absent means off. The rule itself lives in gain.ts (`duckWindows` /
+   * `duckFactorAt`), consumed by preview and export alike.
+   */
+  duck?: boolean
+  /**
+   * The gain other audio drops to while ducked, 0..1 (#241). Absent means
+   * the shared default (`DEFAULT_DUCK_LEVEL` in gain.ts) — absent-as-default
+   * like every optional gain field, so duck-free projects are unchanged.
+   */
+  duckLevel?: number
 }
 
 /**
@@ -443,6 +456,7 @@ export type TimelineAction =
   | { type: 'video-overlay-orient-set'; id: string; orientation: Orientation }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
+  | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
 
 export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
   // The sequence carries video and stills (#140); audio placement is its own
@@ -1528,6 +1542,33 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       }
       const tracks = [...audioTracks]
       tracks[index] = candidate
+      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+    }
+    case 'audio-track-duck-set': {
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      if (index === -1) return state
+      const track = audioTracks[index]
+      const next = { ...track }
+      if (action.duck) {
+        next.duck = true
+        // The level is stored only when the action carries one — absent
+        // means the shared default (see the AudioTrack doc comment), so a
+        // plain toggle-on writes no level field.
+        if (action.duckLevel !== undefined) {
+          if (!Number.isFinite(action.duckLevel)) return state
+          next.duckLevel = clamp(action.duckLevel, 0, 1)
+        }
+      } else {
+        // Toggling off restores the absent-as-default shape entirely, so a
+        // never-ducked and a duck-then-undone track serialize identically.
+        delete next.duck
+        delete next.duckLevel
+      }
+      if ((next.duck ?? false) === (track.duck ?? false) && next.duckLevel === track.duckLevel) {
+        return state
+      }
+      const tracks = [...audioTracks]
+      tracks[index] = next
       return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
     }
   }

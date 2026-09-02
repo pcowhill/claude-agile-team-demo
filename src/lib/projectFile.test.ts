@@ -13,10 +13,12 @@ import fixtureV6PluginsReferencesBase64 from './fixtures/project-v6-plugins-refe
 import fixtureV7ColorReferencesBase64 from './fixtures/project-v7-color-adjustments-references.bvep.base64?raw'
 import fixtureV8FadesReferencesBase64 from './fixtures/project-v8-audio-fades-references.bvep.base64?raw'
 import fixtureV9OrientationReferencesBase64 from './fixtures/project-v9-orientation-references.bvep.base64?raw'
+import fixtureV10DuckingReferencesBase64 from './fixtures/project-v10-ducking-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
+  DUCKING_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
   EMBEDDED_SCHEMA_VERSION,
@@ -1013,8 +1015,8 @@ describe('project file versioning', () => {
     // slates (#143); version 6 added plugin dependencies (#197); version 7
     // added per-clip color adjustments (#192); version 8 added entry and
     // overlay audio fades (#220); version 9 added entry and overlay
-    // orientation (#232).
-    expect(PROJECT_SCHEMA_VERSION).toBe(9)
+    // orientation (#232); version 10 added audio-track ducking (#241).
+    expect(PROJECT_SCHEMA_VERSION).toBe(10)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1024,6 +1026,7 @@ describe('project file versioning', () => {
     expect(COLOR_ADJUSTMENTS_SCHEMA_VERSION).toBe(7)
     expect(AUDIO_FADES_SCHEMA_VERSION).toBe(8)
     expect(ORIENTATION_SCHEMA_VERSION).toBe(9)
+    expect(DUCKING_SCHEMA_VERSION).toBe(10)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -2402,6 +2405,136 @@ describe('entry and overlay orientation in project files (#232, schema version 9
               id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4,
               offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
               orientation: { rotation: 180 },
+            },
+          ],
+        },
+      },
+    })
+  })
+})
+
+describe('audio ducking in project files (#241, schema version 10)', () => {
+  const duckLibrary: MediaLibraryState = {
+    clips: [
+      ...library.clips,
+      { id: 'c3', name: 'voice.webm', duration: 6, url: 'blob:session/c3', kind: 'audio' },
+    ],
+    failures: [],
+  }
+  const duckedTimeline = (): TimelineState => ({
+    ...timeline,
+    audioTracks: [
+      {
+        id: 'a1', clipId: 'c3', name: 'voice.webm', duration: 6, url: 'blob:session/c3',
+        offset: 1, inPoint: 0.5, outPoint: 5.5, volume: 0.8, duck: true, duckLevel: 0.4,
+      },
+    ],
+  })
+
+  it('writes version 10 exactly when a track ducks, in both save modes', async () => {
+    const references = await gunzipJson(await serializeProject(duckLibrary, duckedTimeline()))
+    expect(references.schemaVersion).toBe(DUCKING_SCHEMA_VERSION)
+    expect(references).not.toHaveProperty('media')
+    const media = new Map<string, ClipMedia>([
+      ['c1', { bytes: pseudoRandomBytes(64, 7), mimeType: 'video/mp4' }],
+      ['c2', { bytes: pseudoRandomBytes(64, 8), mimeType: 'video/webm' }],
+      ['c3', { bytes: pseudoRandomBytes(64, 9), mimeType: 'audio/webm' }],
+    ])
+    const embedded = await gunzipJson(await serializeProject(duckLibrary, duckedTimeline(), media))
+    expect(embedded.schemaVersion).toBe(DUCKING_SCHEMA_VERSION)
+    expect(embedded).toHaveProperty('media')
+  })
+
+  it('a duck-free project keeps its earlier version and carries no duck keys', async () => {
+    const document = await gunzipJson(await serializeProject(library, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(JSON.stringify(document.timeline)).not.toContain('duck')
+  })
+
+  it('round-trips duck fields through serialize/deserialize', async () => {
+    const result = await deserializeProject(await serializeProject(duckLibrary, duckedTimeline()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.audioTracks).toEqual([
+        {
+          id: 'a1', clipId: 'c3', name: 'voice.webm', duration: 6,
+          offset: 1, inPoint: 0.5, outPoint: 5.5, volume: 0.8, duck: true, duckLevel: 0.4,
+        },
+      ])
+    }
+  })
+
+  it('normalizes a foreign duck:false to absent and drops a level without the toggle', async () => {
+    const document = validDocument()
+    ;(document as Record<string, unknown>).schemaVersion = DUCKING_SCHEMA_VERSION
+    ;(document.clips as unknown as Record<string, unknown>[]).push({
+      id: 'c3', name: 'voice.webm', duration: 6, kind: 'audio',
+    })
+    ;(document.timeline as { audioTracks?: unknown[] }).audioTracks = [
+      {
+        id: 'a1', clipId: 'c3', name: 'voice.webm', duration: 6,
+        offset: 0, inPoint: 0, outPoint: 6, duck: false, duckLevel: 0.4,
+      },
+    ]
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const track = result.project.timeline.audioTracks[0]
+      expect(track.duck).toBeUndefined()
+      expect(track.duckLevel).toBeUndefined()
+    }
+  })
+
+  it('refuses malformed duck fields by name', async () => {
+    const document = validDocument()
+    ;(document as Record<string, unknown>).schemaVersion = DUCKING_SCHEMA_VERSION
+    ;(document.clips as unknown as Record<string, unknown>[]).push({
+      id: 'c3', name: 'voice.webm', duration: 6, kind: 'audio',
+    })
+    const withTrack = (fields: Record<string, unknown>) => {
+      const copy = structuredClone(document)
+      ;(copy.timeline as { audioTracks?: unknown[] }).audioTracks = [
+        {
+          id: 'a1', clipId: 'c3', name: 'voice.webm', duration: 6,
+          offset: 0, inPoint: 0, outPoint: 6, ...fields,
+        },
+      ]
+      return copy
+    }
+    await expectRefusal(await gzipJson(withTrack({ duck: 'yes' })), 'timeline.audioTracks[0].duck')
+    await expectRefusal(
+      await gzipJson(withTrack({ duck: true, duckLevel: 2 })),
+      'timeline.audioTracks[0].duckLevel',
+    )
+  })
+
+  it('deserializes the committed v10 ducking fixture (#241)', async () => {
+    // Same never-rewrite contract as the other fixtures: pins that files
+    // written by the build that introduced ducking keep opening identically
+    // forever.
+    const bytes = Uint8Array.from(atob(fixtureV10DuckingReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: [
+          ...expectedProject.clips,
+          { id: 'c3', name: 'voice.webm', duration: 6, kind: 'audio' },
+        ],
+        timeline: {
+          entries: [expectedProject.timeline.entries[0], expectedProject.timeline.entries[1]],
+          transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+          zooms: [],
+          audioTracks: [
+            {
+              id: 'a1', clipId: 'c3', name: 'voice.webm', duration: 6,
+              offset: 1, inPoint: 0.5, outPoint: 5.5, volume: 0.8, duck: true, duckLevel: 0.4,
+            },
+            {
+              id: 'a2', clipId: 'c3', name: 'voice.webm', duration: 6,
+              offset: 8, inPoint: 0, outPoint: 6, duck: true,
             },
           ],
         },

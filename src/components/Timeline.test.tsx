@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
+import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { probeMediaFile } from '../lib/probeMedia'
 
 vi.mock('../lib/probeMedia', () => ({
@@ -1103,6 +1104,41 @@ describe('gain controls (#104)', () => {
     await userEvent.type(fadeOut, '99')
     await userEvent.tab()
     expect(fadeOut).toHaveValue(18)
+  })
+
+  it('toggles ducking on an audio track and edits its level (#241)', async () => {
+    render(<App />)
+    await importAudioClip('voice.wav', 20)
+    await userEvent.click(screen.getByRole('button', { name: 'Add voice.wav to timeline' }))
+
+    const position = 'audio track voice.wav at position 1'
+    const levelField = () =>
+      screen.queryByRole('spinbutton', { name: `Duck level of ${position} (0 to 1)` })
+    const duck = screen.getByRole('checkbox', {
+      name: `Duck other audio while ${position} plays`,
+    })
+    // Off by default, and the level field only exists while ducking is on.
+    expect(duck).not.toBeChecked()
+    expect(levelField()).toBeNull()
+
+    await userEvent.click(duck)
+    expect(duck).toBeChecked()
+    // A plain toggle-on stores no level: the field shows the shared default.
+    expect(levelField()).toHaveValue(DEFAULT_DUCK_LEVEL)
+
+    const level = levelField()!
+    await userEvent.clear(level)
+    await userEvent.type(level, '0.5')
+    await userEvent.tab()
+    expect(level).toHaveValue(0.5)
+
+    // Toggling off hides the field and restores the absent-as-default shape;
+    // re-enabling starts from the default again rather than the old level.
+    await userEvent.click(duck)
+    expect(duck).not.toBeChecked()
+    expect(levelField()).toBeNull()
+    await userEvent.click(duck)
+    expect(levelField()).toHaveValue(DEFAULT_DUCK_LEVEL)
   })
 })
 

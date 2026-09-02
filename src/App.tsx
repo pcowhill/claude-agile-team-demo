@@ -376,6 +376,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetAudioTrackFades={(id, fadeIn, fadeOut) =>
             dispatchTimeline({ type: 'audio-track-fades-set', id, fadeIn, fadeOut })
           }
+          onSetAudioTrackDuck={(id, duck, duckLevel) =>
+            dispatchTimeline({ type: 'audio-track-duck-set', id, duck, duckLevel })
+          }
         />
       </main>
     </div>
