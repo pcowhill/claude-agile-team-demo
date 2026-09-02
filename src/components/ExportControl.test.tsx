@@ -411,3 +411,33 @@ describe('audio-only export format (#245)', () => {
     await waitFor(() => expect(calls).toEqual(['audio-webm']))
   })
 })
+
+describe('format-note layout structure (#268)', () => {
+  // jsdom computes no layout, so the geometry itself (the note below the
+  // radio rows, everything inside the dialog) is evidenced by
+  // e2e/export-modal-layout.spec.ts; these pin the structure that layout
+  // relies on — the note is the format fieldset's own last element, after
+  // every radio option, carrying the class the full-width flex rule targets.
+  const withWebAudio = () => vi.stubGlobal('AudioContext', class {})
+
+  it('renders the selected format note after every option, as the fieldset tail', async () => {
+    withWebAudio()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} isTypeSupported={() => true} />)
+    await user.click(openButton())
+    await user.click(screen.getByRole('radio', { name: 'Audio only (WebM/Opus)' }))
+
+    const note = screen.getByText(
+      'Saves just the mixed soundtrack — the file has no video track.',
+    )
+    expect(note).toHaveClass('export-format-note')
+    const fieldset = note.closest('fieldset')
+    expect(fieldset).not.toBeNull()
+    expect(fieldset!.lastElementChild).toBe(note)
+    const radios = screen.getAllByRole('radio')
+    expect(radios.length).toBeGreaterThan(1)
+    for (const radio of radios) {
+      expect(note.compareDocumentPosition(radio) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    }
+  })
+})
