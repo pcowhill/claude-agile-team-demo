@@ -138,6 +138,9 @@ export function ProjectControls({
     result: Extract<DeserializeResult, { ok: true }>
     media: Map<string, Blob>
   } | null>(null)
+  // Discard in flight (#240): the offer stays up (buttons disabled) until
+  // the snapshot clear commits, so dismissal is an honest "cleared" signal.
+  const [discarding, setDiscarding] = useState(false)
   // A restore that has left the bar but not yet replaced the project (it is
   // in the plugin prompt or the re-link dialog). If that path dead-ends —
   // canceled, declined, or failed — the offer returns instead of the
@@ -421,12 +424,31 @@ export function ProjectControls({
     })()
   }
 
-  /** Declining the restore offer (#194): the snapshot is cleared for good. */
+  /**
+   * Declining the restore offer (#194): the snapshot is cleared for good.
+   * The clear is awaited *before* the offer is dismissed (#240): dismissal
+   * is the observable signal that the delete committed, so a reload right
+   * after the bar disappears can never be re-offered the discarded
+   * snapshot. Firing the clear and dismissing immediately let a quick
+   * refresh abort the IndexedDB transaction mid-flight, leaving the
+   * snapshot alive. A failed clear still dismisses — storage trouble must
+   * never trap the user in the offer (the autosave failure policy).
+   */
   const discardRestore = () => {
-    setPendingRestore(null)
-    restoreInFlight.current = null
-    setAutosaveGate('active')
-    void autosave?.clear()
+    if (discarding) return
+    setDiscarding(true)
+    void (async () => {
+      try {
+        await autosave?.clear()
+      } catch {
+        // Nothing to do: with storage unwritable the snapshot may survive,
+        // but the autosaver will report 'unavailable' on its next pass.
+      }
+      setDiscarding(false)
+      setPendingRestore(null)
+      restoreInFlight.current = null
+      setAutosaveGate('active')
+    })()
   }
 
   /** Accepting the plugin prompt (#197): enable, then continue the open. */
@@ -532,10 +554,10 @@ export function ProjectControls({
       {pendingRestore !== null && (
         <div className="project-restore-offer" role="status">
           <span>Restore last session? An autosaved project from a previous session was found.</span>
-          <button type="button" onClick={confirmRestore}>
+          <button type="button" onClick={confirmRestore} disabled={discarding}>
             Restore
           </button>
-          <button type="button" onClick={discardRestore}>
+          <button type="button" onClick={discardRestore} disabled={discarding}>
             Discard
           </button>
         </div>
