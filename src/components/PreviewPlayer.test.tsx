@@ -47,6 +47,10 @@ describe('PreviewPlayer', () => {
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm',
     )
+    // Save frame (#237) rides the transport: offered exactly when there is
+    // a frame to save. (The empty-timeline case renders no transport at
+    // all — the placeholder test above — matching the export's idiom.)
+    expect(screen.getByTestId('preview-save-frame')).toBeEnabled()
   })
 
   describe('expand toggle (#128)', () => {

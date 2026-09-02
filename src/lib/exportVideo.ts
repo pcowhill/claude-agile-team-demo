@@ -405,6 +405,355 @@ export function withLayerOrientation(
 }
 
 /**
+ * One layer of a composited frame: what to draw (a playing <video> replay
+ * or a still's <img>, #140), its intrinsic size, and the layer's current
+ * source-clip time (the element clock for video, the export's wall clock
+ * for a still) — which is what its zoom is evaluated at.
+ */
+export interface LayerFrame {
+  source: CanvasImageSource
+  sourceWidth: number
+  sourceHeight: number
+  time: number
+}
+
+/** The incoming clip's frame to composite over the outgoing one, if any. */
+export interface OverlayFrame {
+  layer: LayerFrame
+  /** Timeline index of the incoming entry (owns any zoom on this layer). */
+  index: number
+  type: TransitionType
+  progress: number
+}
+
+/**
+ * The single-frame composition, factored (#237): everything that turns "the
+ * timeline at a sequence time, with these decoded sources" into pixels on
+ * the shared canvas — base layer fit/zoom/orientation/color, transition
+ * compositing, overlay video layers, text. `exportTimeline` builds one for
+ * its real-time loop and the frame snapshot (`frameSnapshot.ts`) builds one
+ * for a single instant, so the two can never re-derive composition
+ * independently (#66).
+ */
+export interface FrameComposerOptions {
+  context: CanvasRenderingContext2D
+  /** Output frame dimensions — the canvas size. */
+  width: number
+  height: number
+  timeline: TimelineState
+  /** Decoded <img> per still entry URL (#140). */
+  stillSources: ReadonlyMap<string, HTMLImageElement>
+  /** One replay element per overlay video layer (#146), in add order. */
+  overlayReplays: readonly { overlay: VideoOverlay; element: HTMLVideoElement }[]
+}
+
+export interface FrameComposer {
+  drawFrame: (
+    layer: LayerFrame,
+    entryIndex: number,
+    sequenceTime: number,
+    overlay?: OverlayFrame | null,
+  ) => void
+  videoFrame: (element: HTMLVideoElement) => LayerFrame
+  stillFrame: (entry: TimelineEntry, time: number) => LayerFrame
+}
+
+export function createFrameComposer(options: FrameComposerOptions): FrameComposer {
+  const { context, width, height, timeline, stillSources, overlayReplays } = options
+
+  const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
+    source: element,
+    sourceWidth: element.videoWidth,
+    sourceHeight: element.videoHeight,
+    time: element.currentTime,
+  })
+
+  /**
+   * A full-frame canvas per slate color (#143), created on first use. Sized
+   * to the output frame so fitRect fills it edge to edge — a slate is the
+   * whole picture, never letterboxed — while flowing through the same
+   * LayerFrame draw path (transitions, slides, zooms) as every other source.
+   */
+  const slateSources = new Map<string, HTMLCanvasElement>()
+  const slateSource = (color: string): HTMLCanvasElement => {
+    const existing = slateSources.get(color)
+    if (existing !== undefined) return existing
+    const slate = document.createElement('canvas')
+    slate.width = width
+    slate.height = height
+    const slateContext = slate.getContext('2d')
+    if (slateContext === null) {
+      // The main canvas's 2d context was already verified above; a browser
+      // that granted one and refuses another is not a real case, but never
+      // draw nothing silently.
+      throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
+    }
+    slateContext.fillStyle = color
+    slateContext.fillRect(0, 0, width, height)
+    slateSources.set(color, slate)
+    return slate
+  }
+
+  const stillFrame = (entry: TimelineEntry, time: number): LayerFrame => {
+    if (isSlateEntry(entry)) {
+      return { source: slateSource(entry.color as string), sourceWidth: width, sourceHeight: height, time }
+    }
+    const image = stillSources.get(entry.url) as HTMLImageElement
+    return {
+      source: image,
+      sourceWidth: image.naturalWidth,
+      sourceHeight: image.naturalHeight,
+      time,
+    }
+  }
+
+  const drawFrame = (
+    layer: LayerFrame,
+    entryIndex: number,
+    sequenceTime: number,
+    overlay: OverlayFrame | null = null,
+  ) => {
+    context.fillStyle = '#000'
+    context.fillRect(0, 0, width, height)
+    const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
+    // The entry's orientation (#233): the fit sees the oriented shape — a
+    // quarter-turned clip letterboxes like a portrait source — and the draw
+    // below rotates/flips the source pixels into that box, exactly the
+    // preview's card/media split (#232). Slates never carry one (#232).
+    const outgoingOrientation = timeline.entries[entryIndex]?.orientation
+    const outgoingDims = orientedDimensions(
+      { width: layer.sourceWidth, height: layer.sourceHeight },
+      outgoingOrientation,
+    )
+    const rect = fitRect(outgoingDims.width, outgoingDims.height, width, height)
+    // Each layer's zoom (#65) at its own source time: applied per layer,
+    // before the transition compositing, so a zoomed clip can be either side
+    // of a transition. The identity zoom leaves the fitted rect untouched —
+    // a zoomless timeline draws exactly as before.
+    const zoom = zoomAt(timeline, entryIndex, layer.time)
+    const zoomed = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
+    // Cross-zoom (#181) scales the outgoing layer about the frame centre —
+    // the same outermost scale the preview's transform applies. Scale 1 (all
+    // other types) leaves the rect untouched.
+    const dest = scaleRectAboutCenter(zoomed, spec?.outgoingScale ?? 1, width, height)
+    context.globalAlpha = spec?.outgoingAlpha ?? 1
+    // Pushes (#181) move the outgoing layer off the frame; every other type
+    // has zero outgoing offsets, drawing exactly as before.
+    // The entry's color adjustments (#195): the same canonical filter string
+    // the preview sets as the element's CSS filter (#192), applied to
+    // exactly this layer's draw.
+    withLayerColorFilter(context, timeline.entries[entryIndex]?.colorAdjustments, () => {
+      withLayerOrientation(
+        context,
+        outgoingOrientation,
+        {
+          x: dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+          y: dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+          width: dest.width,
+          height: dest.height,
+        },
+        (drawRect) => {
+          context.drawImage(layer.source, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+        },
+      )
+    })
+    if (overlay !== null && spec !== null) {
+      // The incoming entry's orientation (#233), exactly as the outgoing's.
+      const incomingOrientation = timeline.entries[overlay.index]?.orientation
+      const incomingDims = orientedDimensions(
+        { width: overlay.layer.sourceWidth, height: overlay.layer.sourceHeight },
+        incomingOrientation,
+      )
+      const incoming = fitRect(incomingDims.width, incomingDims.height, width, height)
+      const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
+      const incomingZoomed =
+        incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
+      // Cross-zoom's incoming scale (#181), about the frame centre, applied
+      // outside the entry's own zoom — the preview composes its transforms
+      // the same way. The card (backing, reveal clip, ellipse) scales with
+      // its content, so every card-space region below maps through the same
+      // scale-then-offset the fitted clip does.
+      const incomingScale = spec.incomingScale
+      const incomingDest = scaleRectAboutCenter(incomingZoomed, incomingScale, width, height)
+      const card = scaleRectAboutCenter(
+        { x: 0, y: 0, width, height },
+        incomingScale,
+        width,
+        height,
+      )
+      context.globalAlpha = spec.incomingAlpha
+      // `lighter` sums the two layers, making the crossfade a true dissolve
+      // over the black stage (see transitionLayerSpec).
+      context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
+      // A zoomed rect reaches beyond the frame; on a backed card that spill
+      // must not cover the outgoing clip outside the card's own slice of the
+      // frame, so clip to the card region — the same region the preview cuts
+      // with clip-path (#64). Unbacked (crossfade) layers spill only past the
+      // canvas edges, which clip by themselves.
+      const clipToCard = incomingZoom.scale !== 1 && spec.incomingBacking
+      // A wipe's reveal rectangle (#181), in the card's own space (equal to
+      // frame space while the card is unoffset, travelling with it
+      // otherwise) — the same region the preview cuts with clip-path.
+      const clipToReveal = spec.incomingClip !== null
+      // An iris's reveal ellipse (#181), likewise card-space — the same
+      // region the preview masks with a radial gradient.
+      const clipToEllipse = spec.incomingEllipse !== null
+      if (clipToCard || clipToReveal || clipToEllipse) context.save()
+      if (clipToCard) {
+        context.beginPath()
+        context.rect(
+          card.x + spec.incomingOffsetXFraction * width,
+          card.y + spec.incomingOffsetYFraction * height,
+          card.width,
+          card.height,
+        )
+        context.clip()
+      }
+      if (spec.incomingClip !== null) {
+        // Successive clips intersect, exactly as the preview folds the
+        // reveal into the zoom's inset.
+        const reveal = scaleRectAboutCenter(
+          {
+            x: spec.incomingClip.x * width,
+            y: spec.incomingClip.y * height,
+            width: spec.incomingClip.width * width,
+            height: spec.incomingClip.height * height,
+          },
+          incomingScale,
+          width,
+          height,
+        )
+        context.beginPath()
+        context.rect(
+          reveal.x + spec.incomingOffsetXFraction * width,
+          reveal.y + spec.incomingOffsetYFraction * height,
+          reveal.width,
+          reveal.height,
+        )
+        context.clip()
+      }
+      if (spec.incomingEllipse !== null) {
+        // The iris (#181): the incoming card paints only inside the centred
+        // ellipse (or, inverted, only outside it — the full-frame rect plus
+        // the ellipse under the even-odd rule). Radii are fractions of the
+        // frame dimensions, matching the preview's radial-gradient mask.
+        const { radiusFraction, invert } = spec.incomingEllipse
+        context.beginPath()
+        if (invert) context.rect(0, 0, width, height)
+        context.ellipse(
+          width / 2 + spec.incomingOffsetXFraction * width,
+          height / 2 + spec.incomingOffsetYFraction * height,
+          radiusFraction * incomingScale * width,
+          radiusFraction * incomingScale * height,
+          0,
+          0,
+          2 * Math.PI,
+        )
+        context.clip(invert ? 'evenodd' : 'nonzero')
+      }
+      // The incoming entry's own color adjustments (#195) cover its whole
+      // card — backing included — exactly as the preview's CSS filter covers
+      // the element's background along with its pixels (#192/#218).
+      withLayerColorFilter(context, timeline.entries[overlay.index]?.colorAdjustments, () => {
+        if (spec.incomingBacking) {
+          // The incoming layer is a full-frame card (#74): black backing the
+          // size of the whole frame, moving with the clip fitted inside it.
+          context.fillStyle = '#000'
+          context.fillRect(
+            card.x + spec.incomingOffsetXFraction * width,
+            card.y + spec.incomingOffsetYFraction * height,
+            card.width,
+            card.height,
+          )
+        }
+        withLayerOrientation(
+          context,
+          incomingOrientation,
+          {
+            x: incomingDest.x + spec.incomingOffsetXFraction * width,
+            y: incomingDest.y + spec.incomingOffsetYFraction * height,
+            width: incomingDest.width,
+            height: incomingDest.height,
+          },
+          (drawRect) => {
+            context.drawImage(
+              overlay.layer.source,
+              drawRect.x,
+              drawRect.y,
+              drawRect.width,
+              drawRect.height,
+            )
+          },
+        )
+      })
+      if (clipToCard || clipToReveal || clipToEllipse) context.restore()
+      context.globalCompositeOperation = 'source-over'
+    }
+    if (spec !== null && spec.veil !== null) {
+      // A fade-through-color's veil (#181): a full-frame color layer above
+      // the transition's two clips, beneath overlay video layers and text —
+      // the same stacking the preview's veil element has.
+      context.globalAlpha = spec.veil.alpha
+      context.fillStyle = spec.veil.color
+      context.fillRect(0, 0, width, height)
+    }
+    context.globalAlpha = 1
+    // Overlay video layers (#146) composite above the fully composed base
+    // frame — the preview's stacking order (#145): base video/still layers
+    // (transitions and zooms apply to those), then overlay layers in add
+    // order, then text. Each clip letterboxes within its placement rectangle
+    // and the gutters are simply not drawn (the base stays visible — the
+    // transparent-gutter rule). An element that cannot yet supply a frame is
+    // skipped rather than drawn black, matching the late-engage rule above.
+    const activeOverlays = activeVideoOverlays(timeline, sequenceTime)
+    if (activeOverlays.length > 0) {
+      for (const { overlay: layer, element } of overlayReplays) {
+        if (!activeOverlays.includes(layer)) continue
+        if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
+        // The overlay's orientation (#233): the oriented shape letterboxes
+        // within the placement rectangle — the preview's swapped media box
+        // at rectangle scale — and the draw rotates/flips into that box.
+        const layerDims = orientedDimensions(
+          { width: element.videoWidth, height: element.videoHeight },
+          layer.orientation,
+        )
+        const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
+        // The overlay's own color adjustments (#195), independent of the
+        // base layers' — exactly the preview's per-element filter (#192).
+        withLayerColorFilter(context, layer.colorAdjustments, () => {
+          withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
+            context.drawImage(element, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+          })
+        })
+      }
+    }
+    // Text overlays (#142) draw last, above the composed frame — the
+    // preview's documented stacking order (#139): video/still layers first
+    // (transitions and zooms apply to those), then overlays in add order.
+    // An overlay annotates the output frame; it never zooms or slides with a
+    // clip, so it is deliberately outside every transform above.
+    const texts = activeTextDraws(timeline, sequenceTime, width, height)
+    if (texts.length > 0) {
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      for (const text of texts) {
+        context.font = text.font
+        context.fillStyle = text.color
+        // The fade envelope (#177): the same textOpacityAt value the preview
+        // sets as CSS opacity, applied as the draw's alpha.
+        context.globalAlpha = text.opacity
+        text.lines.forEach((line, lineIndex) => {
+          context.fillText(line, text.x, text.firstLineY + lineIndex * text.lineHeight)
+        })
+      }
+      context.globalAlpha = 1
+    }
+  }
+
+  return { drawFrame, videoFrame, stillFrame }
+}
+
+/**
  * An alternative destination for the composed frames (#198, ADR 0003): a
  * format that does not encode through MediaRecorder — the GIF plugin is the
  * concrete case — receives every frame the shared pipeline draws, from
@@ -1072,316 +1421,14 @@ export async function exportTimeline(
     }
   }
 
-  /**
-   * One layer of a composited frame: what to draw (a playing <video> replay
-   * or a still's <img>, #140), its intrinsic size, and the layer's current
-   * source-clip time (the element clock for video, the export's wall clock
-   * for a still) — which is what its zoom is evaluated at.
-   */
-  interface LayerFrame {
-    source: CanvasImageSource
-    sourceWidth: number
-    sourceHeight: number
-    time: number
-  }
-
-  const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
-    source: element,
-    sourceWidth: element.videoWidth,
-    sourceHeight: element.videoHeight,
-    time: element.currentTime,
+  const { drawFrame, videoFrame, stillFrame } = createFrameComposer({
+    context,
+    width,
+    height,
+    timeline,
+    stillSources,
+    overlayReplays,
   })
-
-  /**
-   * A full-frame canvas per slate color (#143), created on first use. Sized
-   * to the output frame so fitRect fills it edge to edge — a slate is the
-   * whole picture, never letterboxed — while flowing through the same
-   * LayerFrame draw path (transitions, slides, zooms) as every other source.
-   */
-  const slateSources = new Map<string, HTMLCanvasElement>()
-  const slateSource = (color: string): HTMLCanvasElement => {
-    const existing = slateSources.get(color)
-    if (existing !== undefined) return existing
-    const slate = document.createElement('canvas')
-    slate.width = width
-    slate.height = height
-    const slateContext = slate.getContext('2d')
-    if (slateContext === null) {
-      // The main canvas's 2d context was already verified above; a browser
-      // that granted one and refuses another is not a real case, but never
-      // draw nothing silently.
-      throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
-    }
-    slateContext.fillStyle = color
-    slateContext.fillRect(0, 0, width, height)
-    slateSources.set(color, slate)
-    return slate
-  }
-
-  const stillFrame = (entry: TimelineEntry, time: number): LayerFrame => {
-    if (isSlateEntry(entry)) {
-      return { source: slateSource(entry.color as string), sourceWidth: width, sourceHeight: height, time }
-    }
-    const image = stillSources.get(entry.url) as HTMLImageElement
-    return {
-      source: image,
-      sourceWidth: image.naturalWidth,
-      sourceHeight: image.naturalHeight,
-      time,
-    }
-  }
-
-  /** The incoming clip's frame to composite over the outgoing one, if any. */
-  interface OverlayFrame {
-    layer: LayerFrame
-    /** Timeline index of the incoming entry (owns any zoom on this layer). */
-    index: number
-    type: TransitionType
-    progress: number
-  }
-
-  const drawFrame = (
-    layer: LayerFrame,
-    entryIndex: number,
-    sequenceTime: number,
-    overlay: OverlayFrame | null = null,
-  ) => {
-    context.fillStyle = '#000'
-    context.fillRect(0, 0, width, height)
-    const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
-    // The entry's orientation (#233): the fit sees the oriented shape — a
-    // quarter-turned clip letterboxes like a portrait source — and the draw
-    // below rotates/flips the source pixels into that box, exactly the
-    // preview's card/media split (#232). Slates never carry one (#232).
-    const outgoingOrientation = timeline.entries[entryIndex]?.orientation
-    const outgoingDims = orientedDimensions(
-      { width: layer.sourceWidth, height: layer.sourceHeight },
-      outgoingOrientation,
-    )
-    const rect = fitRect(outgoingDims.width, outgoingDims.height, width, height)
-    // Each layer's zoom (#65) at its own source time: applied per layer,
-    // before the transition compositing, so a zoomed clip can be either side
-    // of a transition. The identity zoom leaves the fitted rect untouched —
-    // a zoomless timeline draws exactly as before.
-    const zoom = zoomAt(timeline, entryIndex, layer.time)
-    const zoomed = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
-    // Cross-zoom (#181) scales the outgoing layer about the frame centre —
-    // the same outermost scale the preview's transform applies. Scale 1 (all
-    // other types) leaves the rect untouched.
-    const dest = scaleRectAboutCenter(zoomed, spec?.outgoingScale ?? 1, width, height)
-    context.globalAlpha = spec?.outgoingAlpha ?? 1
-    // Pushes (#181) move the outgoing layer off the frame; every other type
-    // has zero outgoing offsets, drawing exactly as before.
-    // The entry's color adjustments (#195): the same canonical filter string
-    // the preview sets as the element's CSS filter (#192), applied to
-    // exactly this layer's draw.
-    withLayerColorFilter(context, timeline.entries[entryIndex]?.colorAdjustments, () => {
-      withLayerOrientation(
-        context,
-        outgoingOrientation,
-        {
-          x: dest.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
-          y: dest.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
-          width: dest.width,
-          height: dest.height,
-        },
-        (drawRect) => {
-          context.drawImage(layer.source, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
-        },
-      )
-    })
-    if (overlay !== null && spec !== null) {
-      // The incoming entry's orientation (#233), exactly as the outgoing's.
-      const incomingOrientation = timeline.entries[overlay.index]?.orientation
-      const incomingDims = orientedDimensions(
-        { width: overlay.layer.sourceWidth, height: overlay.layer.sourceHeight },
-        incomingOrientation,
-      )
-      const incoming = fitRect(incomingDims.width, incomingDims.height, width, height)
-      const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
-      const incomingZoomed =
-        incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
-      // Cross-zoom's incoming scale (#181), about the frame centre, applied
-      // outside the entry's own zoom — the preview composes its transforms
-      // the same way. The card (backing, reveal clip, ellipse) scales with
-      // its content, so every card-space region below maps through the same
-      // scale-then-offset the fitted clip does.
-      const incomingScale = spec.incomingScale
-      const incomingDest = scaleRectAboutCenter(incomingZoomed, incomingScale, width, height)
-      const card = scaleRectAboutCenter(
-        { x: 0, y: 0, width, height },
-        incomingScale,
-        width,
-        height,
-      )
-      context.globalAlpha = spec.incomingAlpha
-      // `lighter` sums the two layers, making the crossfade a true dissolve
-      // over the black stage (see transitionLayerSpec).
-      context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
-      // A zoomed rect reaches beyond the frame; on a backed card that spill
-      // must not cover the outgoing clip outside the card's own slice of the
-      // frame, so clip to the card region — the same region the preview cuts
-      // with clip-path (#64). Unbacked (crossfade) layers spill only past the
-      // canvas edges, which clip by themselves.
-      const clipToCard = incomingZoom.scale !== 1 && spec.incomingBacking
-      // A wipe's reveal rectangle (#181), in the card's own space (equal to
-      // frame space while the card is unoffset, travelling with it
-      // otherwise) — the same region the preview cuts with clip-path.
-      const clipToReveal = spec.incomingClip !== null
-      // An iris's reveal ellipse (#181), likewise card-space — the same
-      // region the preview masks with a radial gradient.
-      const clipToEllipse = spec.incomingEllipse !== null
-      if (clipToCard || clipToReveal || clipToEllipse) context.save()
-      if (clipToCard) {
-        context.beginPath()
-        context.rect(
-          card.x + spec.incomingOffsetXFraction * width,
-          card.y + spec.incomingOffsetYFraction * height,
-          card.width,
-          card.height,
-        )
-        context.clip()
-      }
-      if (spec.incomingClip !== null) {
-        // Successive clips intersect, exactly as the preview folds the
-        // reveal into the zoom's inset.
-        const reveal = scaleRectAboutCenter(
-          {
-            x: spec.incomingClip.x * width,
-            y: spec.incomingClip.y * height,
-            width: spec.incomingClip.width * width,
-            height: spec.incomingClip.height * height,
-          },
-          incomingScale,
-          width,
-          height,
-        )
-        context.beginPath()
-        context.rect(
-          reveal.x + spec.incomingOffsetXFraction * width,
-          reveal.y + spec.incomingOffsetYFraction * height,
-          reveal.width,
-          reveal.height,
-        )
-        context.clip()
-      }
-      if (spec.incomingEllipse !== null) {
-        // The iris (#181): the incoming card paints only inside the centred
-        // ellipse (or, inverted, only outside it — the full-frame rect plus
-        // the ellipse under the even-odd rule). Radii are fractions of the
-        // frame dimensions, matching the preview's radial-gradient mask.
-        const { radiusFraction, invert } = spec.incomingEllipse
-        context.beginPath()
-        if (invert) context.rect(0, 0, width, height)
-        context.ellipse(
-          width / 2 + spec.incomingOffsetXFraction * width,
-          height / 2 + spec.incomingOffsetYFraction * height,
-          radiusFraction * incomingScale * width,
-          radiusFraction * incomingScale * height,
-          0,
-          0,
-          2 * Math.PI,
-        )
-        context.clip(invert ? 'evenodd' : 'nonzero')
-      }
-      // The incoming entry's own color adjustments (#195) cover its whole
-      // card — backing included — exactly as the preview's CSS filter covers
-      // the element's background along with its pixels (#192/#218).
-      withLayerColorFilter(context, timeline.entries[overlay.index]?.colorAdjustments, () => {
-        if (spec.incomingBacking) {
-          // The incoming layer is a full-frame card (#74): black backing the
-          // size of the whole frame, moving with the clip fitted inside it.
-          context.fillStyle = '#000'
-          context.fillRect(
-            card.x + spec.incomingOffsetXFraction * width,
-            card.y + spec.incomingOffsetYFraction * height,
-            card.width,
-            card.height,
-          )
-        }
-        withLayerOrientation(
-          context,
-          incomingOrientation,
-          {
-            x: incomingDest.x + spec.incomingOffsetXFraction * width,
-            y: incomingDest.y + spec.incomingOffsetYFraction * height,
-            width: incomingDest.width,
-            height: incomingDest.height,
-          },
-          (drawRect) => {
-            context.drawImage(
-              overlay.layer.source,
-              drawRect.x,
-              drawRect.y,
-              drawRect.width,
-              drawRect.height,
-            )
-          },
-        )
-      })
-      if (clipToCard || clipToReveal || clipToEllipse) context.restore()
-      context.globalCompositeOperation = 'source-over'
-    }
-    if (spec !== null && spec.veil !== null) {
-      // A fade-through-color's veil (#181): a full-frame color layer above
-      // the transition's two clips, beneath overlay video layers and text —
-      // the same stacking the preview's veil element has.
-      context.globalAlpha = spec.veil.alpha
-      context.fillStyle = spec.veil.color
-      context.fillRect(0, 0, width, height)
-    }
-    context.globalAlpha = 1
-    // Overlay video layers (#146) composite above the fully composed base
-    // frame — the preview's stacking order (#145): base video/still layers
-    // (transitions and zooms apply to those), then overlay layers in add
-    // order, then text. Each clip letterboxes within its placement rectangle
-    // and the gutters are simply not drawn (the base stays visible — the
-    // transparent-gutter rule). An element that cannot yet supply a frame is
-    // skipped rather than drawn black, matching the late-engage rule above.
-    const activeOverlays = activeVideoOverlays(timeline, sequenceTime)
-    if (activeOverlays.length > 0) {
-      for (const { overlay: layer, element } of overlayReplays) {
-        if (!activeOverlays.includes(layer)) continue
-        if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
-        // The overlay's orientation (#233): the oriented shape letterboxes
-        // within the placement rectangle — the preview's swapped media box
-        // at rectangle scale — and the draw rotates/flips into that box.
-        const layerDims = orientedDimensions(
-          { width: element.videoWidth, height: element.videoHeight },
-          layer.orientation,
-        )
-        const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
-        // The overlay's own color adjustments (#195), independent of the
-        // base layers' — exactly the preview's per-element filter (#192).
-        withLayerColorFilter(context, layer.colorAdjustments, () => {
-          withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
-            context.drawImage(element, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
-          })
-        })
-      }
-    }
-    // Text overlays (#142) draw last, above the composed frame — the
-    // preview's documented stacking order (#139): video/still layers first
-    // (transitions and zooms apply to those), then overlays in add order.
-    // An overlay annotates the output frame; it never zooms or slides with a
-    // clip, so it is deliberately outside every transform above.
-    const texts = activeTextDraws(timeline, sequenceTime, width, height)
-    if (texts.length > 0) {
-      context.textAlign = 'center'
-      context.textBaseline = 'middle'
-      for (const text of texts) {
-        context.font = text.font
-        context.fillStyle = text.color
-        // The fade envelope (#177): the same textOpacityAt value the preview
-        // sets as CSS opacity, applied as the draw's alpha.
-        context.globalAlpha = text.opacity
-        text.lines.forEach((line, lineIndex) => {
-          context.fillText(line, text.x, text.firstLineY + lineIndex * text.lineHeight)
-        })
-      }
-      context.globalAlpha = 1
-    }
-  }
 
   /**
    * Starts the incoming clip mid-overlap without blocking the draw loop. The

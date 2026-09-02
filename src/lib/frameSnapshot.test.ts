@@ -1,0 +1,243 @@
+import { describe, expect, it } from 'vitest'
+import { frameFileName, snapshotTimelineFrame } from './frameSnapshot'
+import { ExportUnsupportedError } from './exportVideo'
+import type { TimelineEntry, TimelineState } from './timeline'
+
+// The snapshot (#237) composes through the export's factored frame composer
+// (createFrameComposer — its draw behavior is pinned by exportVideo.test.ts
+// and the export e2e specs). These tests cover the snapshot's own job: the
+// refusal rules, and cueing the right sources to the right source times
+// before drawing — with fake elements, since jsdom decodes nothing.
+
+const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
+  clipId: `clip-${overrides.id}`,
+  name: `${overrides.id}.webm`,
+  duration: 10,
+  url: `blob:${overrides.id}`,
+  inPoint: 0,
+  outPoint: 10,
+  ...overrides,
+})
+
+/** A <video> stand-in: src load and seeks settle on a microtask. */
+class FakeVideo {
+  listeners = new Map<string, Set<() => void>>()
+  readyState = 0
+  videoWidth = 320
+  videoHeight = 180
+  muted = false
+  playsInline = false
+  preload = ''
+  loaded = false
+  private urlValue = ''
+  private timeValue = 0
+  /** Every currentTime assignment, for asserting the cue target. */
+  seeks: number[] = []
+  /** Every src assignment — release clears `src`, so assert against these. */
+  urls: string[] = []
+
+  addEventListener(name: string, listener: () => void) {
+    if (!this.listeners.has(name)) this.listeners.set(name, new Set())
+    this.listeners.get(name)!.add(listener)
+  }
+  removeEventListener(name: string, listener: () => void) {
+    this.listeners.get(name)?.delete(listener)
+  }
+  private dispatch(name: string) {
+    for (const listener of [...(this.listeners.get(name) ?? [])]) listener()
+  }
+  get src() {
+    return this.urlValue
+  }
+  set src(url: string) {
+    this.urlValue = url
+    this.urls.push(url)
+    queueMicrotask(() => {
+      this.readyState = 2
+      this.dispatch('loadedmetadata')
+    })
+  }
+  get currentTime() {
+    return this.timeValue
+  }
+  set currentTime(time: number) {
+    this.timeValue = time
+    this.seeks.push(time)
+    queueMicrotask(() => this.dispatch('seeked'))
+  }
+  removeAttribute() {
+    this.urlValue = ''
+  }
+  load() {
+    this.loaded = true
+  }
+}
+
+/** A 2D context stand-in recording draws; `filter` behaves like a browser's. */
+function fakeContext(filterSupported: boolean) {
+  const draws: { source: unknown; args: number[] }[] = []
+  let filterValue = 'none'
+  const context = {
+    fillStyle: '',
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    textAlign: '',
+    textBaseline: '',
+    font: '',
+    get filter() {
+      return filterValue
+    },
+    set filter(value: string) {
+      filterValue = filterSupported || value === 'none' ? value : 'none'
+    },
+    fillRect: () => {},
+    fillText: () => {},
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
+    scale: () => {},
+    beginPath: () => {},
+    rect: () => {},
+    ellipse: () => {},
+    clip: () => {},
+    drawImage: (source: unknown, ...args: number[]) => {
+      draws.push({ source, args })
+    },
+  }
+  return { context: context as unknown as CanvasRenderingContext2D, draws }
+}
+
+function fakeCanvas(filterSupported = true) {
+  const { context, draws } = fakeContext(filterSupported)
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => context,
+    toBlob: (callback: (blob: Blob | null) => void, type: string) => {
+      callback(new Blob(['png-bytes'], { type }))
+    },
+  }
+  return { canvas: canvas as unknown as HTMLCanvasElement, draws }
+}
+
+function snapshotOptions(filterSupported = true) {
+  const videos: FakeVideo[] = []
+  const { canvas, draws } = fakeCanvas(filterSupported)
+  return {
+    videos,
+    draws,
+    options: {
+      frame: { width: 320, height: 180 },
+      createCanvas: () => canvas,
+      createVideo: () => {
+        const video = new FakeVideo()
+        videos.push(video)
+        return video as unknown as HTMLVideoElement
+      },
+    },
+  }
+}
+
+describe('frameFileName (#237)', () => {
+  it('derives the name from the sequence time, clamped at zero', () => {
+    expect(frameFileName(7.254)).toBe('sequence-frame-7.25s.png')
+    expect(frameFileName(0)).toBe('sequence-frame-0.00s.png')
+    expect(frameFileName(-1)).toBe('sequence-frame-0.00s.png')
+  })
+})
+
+describe('snapshotTimelineFrame (#237)', () => {
+  it('refuses an empty timeline', async () => {
+    await expect(snapshotTimelineFrame({ entries: [] }, 0)).rejects.toThrow(
+      'The timeline is empty',
+    )
+  })
+
+  it('refuses a color-adjusted timeline when canvas filters are unsupported', async () => {
+    const { options } = snapshotOptions(false)
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', colorAdjustments: { brightness: 1.5 } })],
+    }
+    await expect(snapshotTimelineFrame(timeline, 1, options)).rejects.toThrow(
+      ExportUnsupportedError,
+    )
+    await expect(snapshotTimelineFrame(timeline, 1, options)).rejects.toThrow(
+      /color adjustments/,
+    )
+  })
+
+  it('cues the entry to the located source time and draws it as a PNG', async () => {
+    const { options, videos, draws } = snapshotOptions()
+    // Trimmed entry: sequence 1.5s into it falls at source 2 + 1.5 = 3.5s.
+    const timeline: TimelineState = { entries: [entry({ id: 'a', inPoint: 2, outPoint: 6 })] }
+    const blob = await snapshotTimelineFrame(timeline, 1.5, options)
+
+    expect(blob.type).toBe('image/png')
+    expect(videos).toHaveLength(1)
+    expect(videos[0].urls).toEqual(['blob:a'])
+    expect(videos[0].seeks).toEqual([3.5])
+    expect(draws).toHaveLength(1)
+    expect(draws[0].source).toBe(videos[0])
+    // Released after the draw — the elements are the snapshot's own.
+    expect(videos[0].loaded).toBe(true)
+  })
+
+  it('inside a transition overlap cues and draws both layers', async () => {
+    const { options, videos, draws } = snapshotOptions()
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', outPoint: 4 }), entry({ id: 'b', inPoint: 1, outPoint: 5 })],
+      transitions: [{ beforeId: 'a', afterId: 'b', type: 'crossfade', duration: 2 }],
+    }
+    // Entry a spans output [0, 4); the overlap opens at 2. Sequence 3 is 1s
+    // into the overlap: a at source 3, b at source 1 + 1 = 2.
+    await snapshotTimelineFrame(timeline, 3, options)
+
+    expect(videos).toHaveLength(2)
+    expect(videos[0].seeks).toEqual([3])
+    expect(videos[1].urls).toEqual(['blob:b'])
+    expect(videos[1].seeks).toEqual([2])
+    expect(draws).toHaveLength(2)
+    expect(draws[0].source).toBe(videos[0])
+    expect(draws[1].source).toBe(videos[1])
+  })
+
+  it('cues active video overlays to their sequence-anchored source times', async () => {
+    const { options, videos, draws } = snapshotOptions()
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', outPoint: 10 })],
+      videoOverlays: [
+        {
+          id: 'ov',
+          clipId: 'clip-ov',
+          name: 'ov.webm',
+          duration: 8,
+          url: 'blob:ov',
+          offset: 2,
+          inPoint: 1,
+          outPoint: 5,
+          x: 0.1,
+          y: 0.1,
+          width: 0.4,
+          height: 0.4,
+        },
+      ],
+    }
+    // Sequence 3 is 1s into the overlay's window: source 1 + 1 = 2.
+    await snapshotTimelineFrame(timeline, 3, options)
+
+    const overlayElement = videos.find((video) => video.urls.includes('blob:ov'))
+    expect(overlayElement?.seeks).toEqual([2])
+    // Base layer plus the overlay layer both drew.
+    expect(draws).toHaveLength(2)
+    expect(draws[1].source).toBe(overlayElement)
+  })
+
+  it('skips the seek when the entry starts at the element position and waits for data', async () => {
+    const { options, videos } = snapshotOptions()
+    const timeline: TimelineState = { entries: [entry({ id: 'a' })] }
+    await snapshotTimelineFrame(timeline, 0, options)
+    // Source time 0 equals the fresh element's clock: cued without a seek.
+    expect(videos[0].seeks).toEqual([])
+  })
+})
