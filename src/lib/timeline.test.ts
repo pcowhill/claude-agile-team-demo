@@ -3139,3 +3139,137 @@ describe('default subtitle style (#250)', () => {
     })
   })
 })
+
+describe('background fill (#259)', () => {
+  const withVideoEntry = () => stateOf(['e1'])
+
+  describe('entry-background-fill-set', () => {
+    it('stores a blur fill and a color fill in their normalized shapes', () => {
+      const blurred = timelineReducer(withVideoEntry(), {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'blur' },
+      })
+      expect(blurred.entries[0].backgroundFill).toEqual({ kind: 'blur' })
+      const colored = timelineReducer(blurred, {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'color', color: '#2244aa' },
+      })
+      expect(colored.entries[0].backgroundFill).toEqual({ kind: 'color', color: '#2244aa' })
+    })
+
+    it('none removes the key entirely — the reset stores nothing', () => {
+      const blurred = timelineReducer(withVideoEntry(), {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'blur' },
+      })
+      const reset = timelineReducer(blurred, {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'none' },
+      })
+      expect('backgroundFill' in reset.entries[0]).toBe(false)
+    })
+
+    it('rejects unknown ids, unknown kinds, and malformed colors', () => {
+      const state = withVideoEntry()
+      expect(
+        timelineReducer(state, {
+          type: 'entry-background-fill-set',
+          id: 'nope',
+          fill: { kind: 'blur' },
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-background-fill-set',
+          id: 'e1',
+          fill: { kind: 'gradient' } as never,
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'entry-background-fill-set',
+          id: 'e1',
+          fill: { kind: 'color', color: '#ABCDEF' },
+        }),
+      ).toBe(state)
+    })
+
+    it('re-committing the stored fill — or resetting an untouched entry — is a no-op', () => {
+      const state = withVideoEntry()
+      expect(
+        timelineReducer(state, {
+          type: 'entry-background-fill-set',
+          id: 'e1',
+          fill: { kind: 'none' },
+        }),
+      ).toBe(state)
+      const blurred = timelineReducer(state, {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'blur' },
+      })
+      expect(
+        timelineReducer(blurred, {
+          type: 'entry-background-fill-set',
+          id: 'e1',
+          fill: { kind: 'blur' },
+        }),
+      ).toBe(blurred)
+    })
+
+    it('vetoes fill on a slate — a flat color fills its frame by construction', () => {
+      const state = timelineReducer(withVideoEntry(), {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      expect(
+        timelineReducer(state, {
+          type: 'entry-background-fill-set',
+          id: 's1',
+          fill: { kind: 'blur' },
+        }),
+      ).toBe(state)
+    })
+
+    it('fills image entries — a portrait photo in a landscape frame is the use case', () => {
+      const state = timelineReducer(
+        { entries: [] },
+        {
+          type: 'entry-added',
+          entry: entryFromClip(clip({ id: 'clip-img', kind: 'image', duration: 0 }), 'i1'),
+        },
+      )
+      const next = timelineReducer(state, {
+        type: 'entry-background-fill-set',
+        id: 'i1',
+        fill: { kind: 'color', color: '#ffffff' },
+      })
+      expect(next.entries[0].backgroundFill).toEqual({ kind: 'color', color: '#ffffff' })
+    })
+
+    it('fill survives unrelated edits and follows the entry through a split (#190)', () => {
+      const filled = timelineReducer(stateOf(['e1'], ['e2']), {
+        type: 'entry-background-fill-set',
+        id: 'e1',
+        fill: { kind: 'blur' },
+      })
+      const moved = timelineReducer(filled, { type: 'entry-moved', id: 'e2', direction: 'up' })
+      expect(moved.entries.find((entry) => entry.id === 'e1')?.backgroundFill).toEqual({
+        kind: 'blur',
+      })
+      const split = timelineReducer(filled, {
+        type: 'entry-split',
+        id: 'e1',
+        atSourceTime: 5,
+        newEntryId: 'e1b',
+      })
+      // Both halves show the same footage — both keep the fill.
+      expect(split.entries[0].backgroundFill).toEqual({ kind: 'blur' })
+      expect(split.entries[1].backgroundFill).toEqual({ kind: 'blur' })
+    })
+  })
+})

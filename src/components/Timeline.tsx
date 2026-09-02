@@ -19,6 +19,8 @@ import {
 } from '../lib/colorAdjustments'
 import type { Orientation } from '../lib/orientation'
 import type { Crop } from '../lib/crop'
+import { DEFAULT_FILL_COLOR } from '../lib/backgroundFill'
+import type { BackgroundFill, BackgroundFillInput } from '../lib/backgroundFill'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -116,6 +118,9 @@ interface TimelineProps {
   /** Sets a video/image entry's crop whole (#255); `{}` resets. */
   onSetEntryCrop: (id: string, crop: Crop) => void
   onSetVideoOverlayCrop: (id: string, crop: Crop) => void
+  /** Sets a video/image entry's background fill whole (#259);
+   * `{ kind: 'none' }` resets. */
+  onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
   onSetAudioTrackVolume: (id: string, volume: number) => void
   onSetAudioTrackFades: (id: string, fadeIn: number, fadeOut: number) => void
   /**
@@ -533,6 +538,58 @@ function CropControls({ position, crop, onCommit }: CropControlsProps) {
   )
 }
 
+interface BackgroundFillControlsProps {
+  /** The accessible name of the row's owner (a video/image entry). */
+  position: string
+  fill: BackgroundFill | undefined
+  /** Receives the full fill on every edit; `{ kind: 'none' }` resets (#259). */
+  onCommit: (fill: BackgroundFillInput) => void
+}
+
+/**
+ * Per-entry background-fill controls (#259): a kind selector (none — today's
+ * black bars — blur, or a flat color) plus the color input when `color` is
+ * picked — one row in the per-entry-controls idiom, on video/image sequence
+ * entries only (a slate fills its frame by construction; an overlay renders
+ * in its own rectangle with no bars behind it). Every edit commits the full
+ * fill; the reducer normalizes (`none` returns the entry to its
+ * stored-key-free identity).
+ */
+function BackgroundFillControls({ position, fill, onCommit }: BackgroundFillControlsProps) {
+  return (
+    <div className="timeline-entry-color">
+      <span>Background</span>
+      <select
+        aria-label={`Background fill of ${position}`}
+        value={fill?.kind ?? 'none'}
+        onChange={(event) => {
+          const kind = event.target.value as BackgroundFillInput['kind']
+          if (kind === 'color') {
+            onCommit({
+              kind: 'color',
+              color: fill?.kind === 'color' ? fill.color : DEFAULT_FILL_COLOR,
+            })
+          } else {
+            onCommit({ kind })
+          }
+        }}
+      >
+        <option value="none">None</option>
+        <option value="blur">Blur</option>
+        <option value="color">Color</option>
+      </select>
+      {fill?.kind === 'color' && (
+        <input
+          type="color"
+          aria-label={`Background fill color of ${position}`}
+          value={fill.color}
+          onChange={(event) => onCommit({ kind: 'color', color: event.target.value })}
+        />
+      )}
+    </div>
+  )
+}
+
 interface SubtitleStyleControlsProps {
   /** The stored default; undefined means the built-in subtitle default. */
   style: SubtitleStyle | undefined
@@ -666,6 +723,7 @@ export function Timeline({
   onSetVideoOverlayOrientation,
   onSetEntryCrop,
   onSetVideoOverlayCrop,
+  onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
   onSetAudioTrackDuck,
@@ -1020,6 +1078,15 @@ export function Timeline({
                     position={position}
                     crop={entry.crop}
                     onCommit={(crop) => onSetEntryCrop(entry.id, crop)}
+                  />
+                )}
+                {/* Background fill (#259): video and image entries; a slate
+                    fills its frame by construction. */}
+                {!isSlateEntry(entry) && (
+                  <BackgroundFillControls
+                    position={position}
+                    fill={entry.backgroundFill}
+                    onCommit={(fill) => onSetEntryBackgroundFill(entry.id, fill)}
                   />
                 )}
                 {(() => {

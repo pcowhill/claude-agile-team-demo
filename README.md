@@ -121,8 +121,16 @@ They also take a crop (#255): trim a percentage off each edge on the
 timeline row — chrome strips in screen recordings, headroom in webcam
 clips — and only the kept region renders in the preview, applied before
 orientation, reshaping the output frame like any source and saved with the
-project (each axis always keeps at least a tenth). Export rendering of
-crop is the follow-up #256.
+project (each axis always keeps at least a tenth). Exports render crop
+through the same shared rule (#256).
+They also take a background fill (#259): what shows behind a clip that
+doesn't fill the output frame — a portrait phone clip in a landscape
+sequence, a quarter-turned or cropped clip — chosen on the timeline row:
+none (the default black bars), a blurred cover-fit copy of the clip's own
+current frame (the familiar social-video blur-fill), or a flat color. The
+backdrop renders live in the preview behind the normally fitted clip,
+never reshapes the output frame, and saves with the project. Export
+rendering of the fill is the follow-up #260.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

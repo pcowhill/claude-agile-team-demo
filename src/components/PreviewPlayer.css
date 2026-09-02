@@ -96,6 +96,21 @@
   object-fit: contain;
 }
 
+/* An entry's background fill (#259): the backdrop layer behind the fitted
+   media element, filling its layer card — a flat color div, or the blur
+   backdrop canvas (CSS-stretched over the card; its buffer mirrors the
+   card's aspect, so the stretch never distorts, and its blur strength is an
+   inline style in cq units from the shared rule). First child of the card,
+   so the media element later in the DOM paints above it, and inside the
+   card so transitions and zooms carry the backdrop with the entry. */
+.preview-backfill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 /* During a transition the incoming clip renders on top of the outgoing one,
    styled per-frame (opacity for crossfade, transform for slide). */
 .preview-video-incoming {

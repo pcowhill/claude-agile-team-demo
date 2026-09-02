@@ -2163,3 +2163,59 @@ describe('default subtitle style (#250)', () => {
     expect(screen.getByRole('combobox', { name: 'Default subtitle font' })).toHaveValue('sans')
   })
 })
+
+describe('background fill (#259)', () => {
+  const fillSelect = (position: string) =>
+    screen.getByRole('combobox', { name: `Background fill of ${position}` })
+  const fillColor = (position: string) =>
+    screen.getByLabelText(`Background fill color of ${position}`) as HTMLInputElement
+
+  it('defaults to None, stores Blur, and undo steps the edit back (#189)', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    expect(fillSelect(position)).toHaveValue('none')
+    await userEvent.selectOptions(fillSelect(position), 'blur')
+    expect(fillSelect(position)).toHaveValue('blur')
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(fillSelect(position)).toHaveValue('none')
+  })
+
+  it('Color shows the color input, commits edits, and None hides it again', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    const position = 'a.mp4 at position 1'
+    expect(screen.queryByLabelText(`Background fill color of ${position}`)).not.toBeInTheDocument()
+    await userEvent.selectOptions(fillSelect(position), 'color')
+    // Picking Color commits the default color immediately.
+    expect(fillColor(position).value).toBe('#000000')
+    fireEvent.change(fillColor(position), { target: { value: '#2244aa' } })
+    expect(fillColor(position).value).toBe('#2244aa')
+    await userEvent.selectOptions(fillSelect(position), 'none')
+    expect(screen.queryByLabelText(`Background fill color of ${position}`)).not.toBeInTheDocument()
+  })
+
+  it('offers no background-fill row for a slate', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    expect(
+      screen.queryByRole('combobox', { name: /Background fill of Color slate/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fills an image entry independently of other rows', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+
+    await userEvent.selectOptions(fillSelect('a.mp4 at position 1'), 'blur')
+    expect(fillSelect('a.mp4 at position 1')).toHaveValue('blur')
+    expect(fillSelect('b.mp4 at position 2')).toHaveValue('none')
+  })
+})
