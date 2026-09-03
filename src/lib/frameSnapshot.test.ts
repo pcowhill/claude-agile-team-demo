@@ -238,9 +238,13 @@ describe('snapshotTimelineFrame (#237)', () => {
 
     const overlayElement = videos.find((video) => video.urls.includes('blob:ov'))
     expect(overlayElement?.seeks).toEqual([2])
-    // Base layer plus the overlay layer both drew.
-    expect(draws).toHaveLength(2)
+    // Base layer, then the overlay — drawn twice, because the composer also
+    // copies each overlay's picture into its last-frame stand-in (#319) and
+    // this fake hands every canvas the same recording context.
+    expect(draws).toHaveLength(3)
+    expect(draws[0].source).not.toBe(overlayElement)
     expect(draws[1].source).toBe(overlayElement)
+    expect(draws[2].source).toBe(overlayElement)
   })
 
   it('draws a cropped entry through the kept source rectangle (#256)', async () => {

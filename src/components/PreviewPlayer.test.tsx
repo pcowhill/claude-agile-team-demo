@@ -2171,3 +2171,139 @@ describe('transition handovers (#318)', () => {
     )
   })
 })
+
+// Preview parity for the export defect in #319. The export used to delete an
+// overlay layer from a frame whose replay element could not supply a picture;
+// the preview cannot, because overlay visibility here is declarative from the
+// published time and the element is a real <video> that keeps showing its
+// last decoded frame. These tests are the reference behavior the export is
+// now held to — they pass before and after the export fix, by design.
+describe('overlay parity across a transition handover (#319)', () => {
+  const videoA = {
+    id: 'a1',
+    clipId: 'c1',
+    name: 'first.webm',
+    duration: 5,
+    url: 'blob:first',
+    inPoint: 0,
+    outPoint: 5,
+  }
+  const slateB = {
+    id: 'sl1',
+    clipId: '',
+    name: 'Color slate',
+    duration: 2,
+    url: '',
+    inPoint: 0,
+    outPoint: 2,
+    kind: 'slate' as const,
+    color: '#ff0000',
+  }
+  /** Overlay C: covers the whole sequence, so every frame owes it a picture. */
+  const cover = {
+    id: 'ov1',
+    clipId: 'c2',
+    name: 'over.webm',
+    duration: 10,
+    url: 'blob:over',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+  }
+  const timeline: TimelineState = {
+    entries: [videoA, slateB],
+    transitions: [{ beforeId: 'a1', afterId: 'sl1', type: 'crossfade', duration: 0.5 }],
+    videoOverlays: [cover],
+  }
+
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  let frames: FrameRequestCallback[]
+  let now: number
+
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const runTick = () => {
+    const tick = frames[frames.length - 1]
+    act(() => tick(0))
+  }
+  const card = () => screen.getByTestId('preview-overlay-card-0')
+  const shown = () => !card().className.includes('preview-overlay-hidden')
+
+  it('the overlay is on screen on both sides of the handover into a slate', () => {
+    render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    const primary = screen.getByTestId('preview-video') as HTMLVideoElement
+
+    // Before the overlap, inside it, and after the handover — the slate is
+    // fronting by the last of these, which is the customer's instant.
+    primary.currentTime = 3
+    runTick()
+    expect(shown()).toBe(true)
+
+    primary.currentTime = 4.75
+    runTick()
+    expect(shown()).toBe(true)
+    expect(screen.getByTestId('preview-slate-incoming')).toBeInTheDocument()
+
+    primary.currentTime = 5
+    runTick()
+    now = 1000
+    runTick()
+    expect(screen.getByTestId('preview-slate')).toBeInTheDocument()
+    expect(shown()).toBe(true)
+  })
+
+  it('the overlay stays on screen while its element cannot supply a frame', () => {
+    render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+    // A seeking or re-buffering element reports HAVE_METADATA. The preview
+    // does not consult readiness at all: the element stays mounted and its
+    // card stays visible, and the browser goes on displaying the last frame
+    // it decoded. That indifference is what the export now matches — there,
+    // the composed frame keeps the layer by drawing its stand-in.
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(
+      HTMLMediaElement.HAVE_METADATA,
+    )
+    const primary = screen.getByTestId('preview-video') as HTMLVideoElement
+    primary.currentTime = 4.75
+    runTick()
+
+    expect(shown()).toBe(true)
+    expect(screen.getByTestId('preview-overlay-0')).toHaveAttribute('src', 'blob:over')
+  })
+})
