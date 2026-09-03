@@ -1301,9 +1301,15 @@ function fakeComposerContext(filterSupported = true) {
     // Never format negative zero: -0.001 rounds to -0, which prints "0".
     return Object.is(rounded, -0) ? 0 : rounded
   }
+  let compositeValue = 'source-over'
   const context = {
     globalAlpha: 1,
-    globalCompositeOperation: 'source-over',
+    get globalCompositeOperation() {
+      return compositeValue
+    },
+    set globalCompositeOperation(value: string) {
+      compositeValue = value
+    },
     textAlign: '',
     textBaseline: '',
     font: '',
@@ -1321,6 +1327,8 @@ function fakeComposerContext(filterSupported = true) {
     },
     fillRect: (x: number, y: number, w: number, h: number) =>
       ops.push(`fill(${fillStyleValue}, ${num(x)}, ${num(y)}, ${num(w)}, ${num(h)})`),
+    clearRect: (x: number, y: number, w: number, h: number) =>
+      ops.push(`clear(${num(x)}, ${num(y)}, ${num(w)}, ${num(h)})`),
     fillText: () => {},
     save: () => ops.push('save'),
     restore: () => ops.push('restore'),
@@ -1329,7 +1337,11 @@ function fakeComposerContext(filterSupported = true) {
     scale: (x: number, y: number) => ops.push(`scale(${x}, ${y})`),
     beginPath: () => {},
     rect: () => {},
-    ellipse: () => {},
+    ellipse: (cx: number, cy: number, rx: number, ry: number) =>
+      ops.push(`ellipse(${num(cx)}, ${num(cy)}, ${num(rx)}, ${num(ry)})`),
+    roundRect: (x: number, y: number, w: number, h: number, r: number) =>
+      ops.push(`roundRect(${num(x)}, ${num(y)}, ${num(w)}, ${num(h)}, ${num(r)})`),
+    fill: () => ops.push(`fillPath(${fillStyleValue}, ${compositeValue})`),
     clip: () => {},
     drawImage: (source: unknown, ...args: number[]) =>
       ops.push(
@@ -1582,6 +1594,153 @@ describe('frame composition of background fill (#260)', () => {
 // preview never could, because a DOM <video> keeps displaying its last
 // decoded frame. These pin the composition through the real composer with a
 // fake context, which is where the decision lives.
+describe('frame composition of overlay shape masks (#267)', () => {
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c-base',
+    name: 'base.webm',
+    duration: 10,
+    url: 'blob:base',
+    inPoint: 0,
+    outPoint: 10,
+  }
+  // Round-number placement on the 320×180 frame: placed rect (160, 90, 80, 45).
+  const overlayFor = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'o1',
+    clipId: 'c-over',
+    name: 'over.webm',
+    duration: 10,
+    url: 'blob:over',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0.5,
+    y: 0.5,
+    width: 0.25,
+    height: 0.25,
+    ...overrides,
+  })
+  const overlayElement = () =>
+    ({
+      tag: 'over-element',
+      readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+      videoWidth: 160,
+      videoHeight: 90,
+      currentTime: 0,
+    }) as unknown as HTMLVideoElement
+
+  /** The real composer over a 320×180 frame; every buffer a tagged fake. */
+  const composerFor = (layer: VideoOverlay) => {
+    const main = fakeComposerContext()
+    const buffers: { tag: string; ops: string[] }[] = []
+    const composer = createFrameComposer({
+      context: main.context,
+      width: 320,
+      height: 180,
+      timeline: { entries: [baseEntry], videoOverlays: [layer] },
+      stillSources: new Map(),
+      overlayReplays: [{ overlay: layer, element: overlayElement() }],
+      createCanvas: () => {
+        const buffer = fakeComposerContext()
+        const record = { tag: `buffer-${buffers.length}`, ops: buffer.ops, width: 0, height: 0 }
+        buffers.push(record)
+        return {
+          get tag() {
+            return record.tag
+          },
+          width: 0,
+          height: 0,
+          getContext: () => buffer.context,
+        } as unknown as HTMLCanvasElement
+      },
+    })
+    return { composer, main, buffers }
+  }
+
+  const baseLayer = {
+    source: { tag: 'base' } as unknown as CanvasImageSource,
+    sourceWidth: 320,
+    sourceHeight: 180,
+    time: 0,
+  }
+
+  it('a mask-free overlay draws straight to the frame — no scratch, byte-identical calls', () => {
+    const { composer, main, buffers } = composerFor(overlayFor())
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      // The 160×90 picture fills its 16:9-shaped 80×45 card exactly.
+      'draw(over-element, [160, 90, 80, 45], none)',
+    ])
+    // The only buffer is #319's stand-in refresh — no mask scratch exists.
+    expect(buffers).toHaveLength(1)
+    expect(buffers[0].ops.some((op) => op.startsWith('fillPath('))).toBe(false)
+  })
+
+  it('an ellipse mask cuts the painted layer to the inscribed ellipse of the placed rect', () => {
+    const { composer, main, buffers } = composerFor(overlayFor({ shapeMask: { kind: 'ellipse' } }))
+    composer.drawFrame(baseLayer, 0, 0)
+
+    // The frame receives the scratch buffer, already cut, in place.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(buffer-1, [0, 0], none)',
+    ])
+    // The scratch (buffer-1; buffer-0 is the #319 stand-in): clear, the same
+    // overlay paint the unmasked path makes, then the shared rule's inscribed
+    // ellipse of the PLACED rectangle (160, 90, 80, 45) filled destination-in
+    // — the antialias-safe cut.
+    expect(buffers).toHaveLength(2)
+    expect(buffers[1].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      'draw(over-element, [160, 90, 80, 45], none)',
+      'ellipse(200, 112.5, 40, 22.5)',
+      'fillPath(#fff, destination-in)',
+    ])
+  })
+
+  it('a rounded mask fills a rounded rect with the radius fraction of the shorter side', () => {
+    const { composer, buffers } = composerFor(
+      overlayFor({ shapeMask: { kind: 'rounded', radius: 0.2 } }),
+    )
+    composer.drawFrame(baseLayer, 0, 0)
+    // Placed rect (160, 90, 80, 45); shorter side 45 × 0.2 = 9 — the same
+    // roundedCornerRadius the preview's clip-path evaluates (#266).
+    expect(buffers[1].ops.slice(-2)).toEqual([
+      'roundRect(160, 90, 80, 45, 9)',
+      'fillPath(#fff, destination-in)',
+    ])
+  })
+
+  it('the masked paint composes crop and orientation exactly as the unmasked draw', () => {
+    const treatments: Partial<VideoOverlay> = {
+      crop: { left: 0.25, right: 0, top: 0, bottom: 0.5 },
+      orientation: { rotation: 90 },
+      colorAdjustments: { brightness: 1.5 },
+    }
+    const unmasked = composerFor(overlayFor(treatments))
+    unmasked.composer.drawFrame(baseLayer, 0, 0)
+    const masked = composerFor(overlayFor({ ...treatments, shapeMask: { kind: 'ellipse' } }))
+    masked.composer.drawFrame(baseLayer, 0, 0)
+
+    // Everything after the base draw on the unmasked frame — transforms,
+    // filter, kept source rect — reappears verbatim as the scratch paint,
+    // between its clear and the mask fill. The mask changes where the layer
+    // is cut, never how it is drawn.
+    const unmaskedPaint = unmasked.main.ops.slice(2)
+    expect(unmaskedPaint.length).toBeGreaterThan(1)
+    expect(masked.buffers[1].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      ...unmaskedPaint,
+      'ellipse(200, 112.5, 40, 22.5)',
+      'fillPath(#fff, destination-in)',
+    ])
+  })
+})
+
+
 describe('an unready overlay element draws its last frame (#319)', () => {
   const overlay: VideoOverlay = {
     id: 'o1',

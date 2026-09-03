@@ -102,8 +102,10 @@ same way into the exported file, overlay audio in the mix (#146).
 An overlay also takes a shape mask (#266): clip its placed rectangle to an
 inscribed ellipse (a circle when square — the webcam-bubble look) or a
 rounded rectangle with a chosen corner radius, edited on the overlay row,
-rendered live in the preview, and saved with the project. Export rendering
-of the mask is the follow-up #267.
+rendered live in the preview, and saved with the project. Exports cut the
+same silhouette (#267): the video formats, the GIF plugin, and frame
+snapshots all draw masked overlays through one shared composition path,
+so what plays is what exports.
 Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all
