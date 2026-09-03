@@ -55,6 +55,14 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  /* A bounded library (#308): past about half the viewport the list stops
+     growing and scrolls on its own instead of pushing the timeline down the
+     page. Only a max-height — a short list stays exactly as tall as its
+     rows. Everything above the list (title, Import/Record, Sort by, the
+     selection header, import errors) is a sibling of the list, so it stays
+     put while the list scrolls with no sticky positioning. */
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .clip-item {
