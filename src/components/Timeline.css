@@ -529,3 +529,35 @@
   color: inherit;
   font: inherit;
 }
+
+/* The main section's subtitle (#299), styled exactly like the lane headings
+   below so every section reads the same way. */
+.sequence-lane-heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Per-row collapse/expand toggle (#299): a compact chevron at the start of
+   the row's main line. A collapsed row renders only its coverage strip and
+   main line — the control blocks are not rendered, so nothing reserves
+   their space. */
+.timeline-collapse-toggle {
+  flex: 0 0 auto;
+  min-width: 1.6rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+/* A collapsed text overlay (#299) shows its content on one line in place
+   of the multi-line editor — read-only until expanded. */
+.text-overlay-summary {
+  flex: 1;
+  min-width: 5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
