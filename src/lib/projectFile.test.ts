@@ -21,6 +21,7 @@ import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-bac
 import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-mask-references.bvep.base64?raw'
 import fixtureV16CanvasPresetReferencesBase64 from './fixtures/project-v16-canvas-preset-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
+import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
 import type { TextOverlay } from './textOverlay'
 import {
@@ -186,6 +187,37 @@ describe('project file round-trip', () => {
     const bytes = await serializeProject(library, timeline)
     const result = await deserializeProject(bytes)
     expect(result).toEqual({ ok: true, project: expectedProject })
+  })
+
+  it('a duplicated entry survives save → open with its settings and cloned zoom (#314)', async () => {
+    const duplicated = timelineReducer(timeline, {
+      type: 'element-duplicated',
+      kind: 'entry',
+      id: 'e2',
+      newId: 'e2-copy',
+    })
+    const result = await deserializeProject(await serializeProject(library, duplicated))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries.map(({ id }) => id)).toEqual([
+      'e1',
+      'e2',
+      'e2-copy',
+      'e3',
+    ])
+    const original = result.project.timeline.entries[1]
+    const copy = result.project.timeline.entries[2]
+    expect({ ...copy, id: 'e2' }).toEqual(original)
+    // The cloned zoom rides along under the copy's id, and the boundary the
+    // copy separated (e2 → e3) carries no transition, per the reducer rule.
+    expect(
+      result.project.timeline.zooms.filter((zoom) => zoom.entryId === 'e2-copy'),
+    ).toHaveLength(1)
+    expect(
+      result.project.timeline.transitions.map(
+        ({ beforeId, afterId }) => `${beforeId}→${afterId}`,
+      ),
+    ).toEqual(['e1→e2'])
   })
 
   it('round-trips two zooms on one entry without collapsing them (#129)', async () => {

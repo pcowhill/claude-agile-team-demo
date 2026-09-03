@@ -171,6 +171,15 @@ still follow the sources for now — rendering the preset, and the export
 modal's automatic size with it, is the companion issue (#274), so a fixed
 preset currently reshapes the editing frame and the preview but not the
 exported file.
+Every timeline row — sequence entry, audio track, video overlay, text
+overlay — has a ⧉ Duplicate button on its main line (#314): one click makes
+an exact copy carrying every adjustable setting (trim, volume and fades,
+color, orientation, crop, background fill, speed segments and pauses,
+zooms, overlay placement and shape mask, text content and style), as a
+single undo step. A duplicated sequence entry lands right after the
+original — transitions are never copied, since they belong to a boundary —
+while a duplicated track, overlay, or text starts where the original ends,
+so the two never stack.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
