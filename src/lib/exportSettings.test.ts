@@ -11,7 +11,7 @@ import {
   isValidExportSettings,
 } from './exportSettings'
 import { EXPORT_FRAME_RATE } from './exportVideo'
-import { FALLBACK_FRAME } from './frameSize'
+import { CANVAS_PRESETS, FALLBACK_FRAME, presetFrame } from './frameSize'
 import { slateEntry } from './timeline'
 
 describe('export settings validation (#179)', () => {
@@ -72,5 +72,20 @@ describe('automaticExportFrame (#179)', () => {
       FALLBACK_FRAME,
     )
     await expect(automaticExportFrame({ entries: [] })).resolves.toEqual(FALLBACK_FRAME)
+  })
+
+  it('reshapes the automatic frame by the project canvas preset (#274)', async () => {
+    // The modal pre-fills what the export will actually derive, so the
+    // preset flows through the same shared rule here — including the
+    // fallback when nothing contributes dimensions, which must not escape
+    // the preset's shape.
+    for (const { id } of CANVAS_PRESETS) {
+      await expect(automaticExportFrame({ entries: [], canvasPreset: id })).resolves.toEqual(
+        presetFrame(FALLBACK_FRAME, id),
+      )
+    }
+    await expect(
+      automaticExportFrame({ entries: [slateEntry('s1')], canvasPreset: '9:16' }),
+    ).resolves.toEqual(presetFrame(FALLBACK_FRAME, '9:16'))
   })
 })

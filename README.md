@@ -167,10 +167,11 @@ exactly the shape background fill treats. The preview stage reshapes live,
 overlay rectangles, text positions and zoom centres keep composing against
 the chosen frame, and the preset saves with the project. Auto is the
 default and is byte-identical to a project that never chose one. Exports
-still follow the sources for now — rendering the preset, and the export
-modal's automatic size with it, is the companion issue (#274), so a fixed
-preset currently reshapes the editing frame and the preview but not the
-exported file.
+render the preset too (#274): the video formats, the GIF plugin, and frame
+snapshots all derive their frame through the same shared rule, and the
+export modal's automatic size shows the preset frame's dimensions — while a
+manual size entered there still overrides everything for that one export,
+exactly as before.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

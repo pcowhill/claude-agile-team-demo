@@ -42,7 +42,8 @@ export interface SnapshotOptions {
   /**
    * Output frame override — the export modal's rule (#179). Absent means the
    * automatic rule: `automaticExportFrame`, the exact frame an export of
-   * this timeline would derive (per-entry, oriented).
+   * this timeline would derive (per-entry, oriented, composed with the
+   * project's canvas preset #274).
    */
   frame?: SourceDimensions
   /** Injectable for tests (jsdom never fires media events). */
