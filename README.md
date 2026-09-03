@@ -24,7 +24,11 @@ be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). A video clip's audio can also be extracted into a standalone
 audio clip in the library (#154), which keeps working even after the video
-itself is removed. Voice-overs can be recorded directly into the library
+itself is removed. Library rows are multi-selectable (#292): each row has a
+checkbox (faded until you hover or start selecting) with Shift+click range
+selection and a Select-all box in the header, and a selection bar adds every
+selected clip to the timeline in library order — videos and images as
+sequence entries, audio as tracks — as a single undoable step. Voice-overs can be recorded directly into the library
 (#224): a Record button beside Import offers a Microphone source (browsers
 ask for permission; the control hides entirely where recording is
 unsupported), and stopping the capture adds it as an ordinary audio clip —
