@@ -561,3 +561,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Section heading rows (#300): the lane title with its fold/unfold toggle
+   and the section's own Collapse all / Expand all. The heading keeps the
+   lane-heading typography; the row carries the spacing below. */
+.lane-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.lane-heading-row h3 {
+  margin: 0;
+}
+
+.lane-heading-action {
+  padding: 0.05rem 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}

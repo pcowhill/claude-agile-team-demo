@@ -2382,7 +2382,11 @@ describe('collapsible timeline elements (#299)', () => {
     expect(trimIn('a.mp4 at position 1')).toBeNull()
     expect(startTime('audio track m.mp3 at position 1')).toBeNull()
     expect(startTime('text overlay at position 1')).toBeNull()
-    expect(screen.getAllByRole('button', { name: /^Expand .* at position 1$/ })).toHaveLength(3)
+    // Since #300 the timeline-wide Collapse all also folds every rendered
+    // section, so what remains is one folded heading per populated lane.
+    expect(
+      screen.getAllByRole('button', { name: /^Expand (Sequence|Audio|Text) section$/ }),
+    ).toHaveLength(3)
 
     await userEvent.click(screen.getByRole('button', { name: 'Expand all timeline elements' }))
     expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
@@ -2403,5 +2407,148 @@ describe('collapsible timeline elements (#299)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
     expect(toggle(position, 'Collapse')).toHaveAttribute('aria-expanded', 'true')
     expect(trimIn(position)).toBeInTheDocument()
+  })
+})
+
+describe('section-level collapse (#300)', () => {
+  const trimIn = (position: string) =>
+    screen.queryByRole('spinbutton', { name: `Trim in point of ${position} in seconds` })
+  const startTime = (position: string) =>
+    screen.queryByRole('spinbutton', { name: `Start time of ${position} in seconds` })
+  const list = (name: string) => screen.queryByRole('list', { name })
+  const fold = (title: string) => screen.getByRole('button', { name: `Collapse ${title} section` })
+  const unfold = (title: string) => screen.getByRole('button', { name: `Expand ${title} section` })
+
+  /** One element in every lane: a clip, an audio track, an overlay, a text. */
+  const populateEveryLane = async () => {
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+  }
+
+  it('every rendered section heading offers fold/unfold and its own Collapse all / Expand all', async () => {
+    render(<App />)
+    await populateEveryLane()
+
+    for (const title of ['Sequence', 'Audio', 'Overlays', 'Text']) {
+      expect(screen.getByRole('heading', { level: 3, name: title })).toBeInTheDocument()
+      expect(fold(title)).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('button', { name: `Collapse all ${title} elements` })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `Expand all ${title} elements` })).toBeInTheDocument()
+    }
+  })
+
+  it('folding hides the section list and unfolding restores each element as it was', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 6)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse a.mp4 at position 1' }))
+    expect(trimIn('a.mp4 at position 1')).toBeNull()
+    expect(trimIn('b.mp4 at position 2')).toBeInTheDocument()
+
+    await userEvent.click(fold('Sequence'))
+    // The list is gone; the heading and its toggle remain.
+    expect(list('Sequence')).toBeNull()
+    expect(screen.getByRole('heading', { level: 3, name: 'Sequence' })).toBeInTheDocument()
+    expect(unfold('Sequence')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('timeline-entry-bar-0')).toBeNull()
+
+    await userEvent.click(unfold('Sequence'))
+    expect(sequenceNames()).toEqual(['a.mp4', 'b.mp4'])
+    // The one collapsed element is still collapsed, the other still expanded.
+    expect(trimIn('a.mp4 at position 1')).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Expand a.mp4 at position 1' }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(trimIn('b.mp4 at position 2')).toBeInTheDocument()
+  })
+
+  it("a section's Collapse all / Expand all touch only that section's elements", async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    const clip = 'a.mp4 at position 1'
+    const audio = 'audio track m.mp3 at position 1'
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all Sequence elements' }))
+    expect(trimIn(clip)).toBeNull()
+    expect(startTime(audio)).toBeInTheDocument()
+    // Neither section folded — only elements were collapsed.
+    expect(list('Sequence')).toBeInTheDocument()
+    expect(fold('Sequence')).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all Audio elements' }))
+    expect(startTime(audio)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all Sequence elements' }))
+    expect(trimIn(clip)).toBeInTheDocument()
+    expect(startTime(audio)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all Audio elements' }))
+    expect(startTime(audio)).toBeInTheDocument()
+  })
+
+  it('timeline-wide Collapse all folds every section and collapses every element; Expand all restores everything', async () => {
+    render(<App />)
+    await populateEveryLane()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all timeline elements' }))
+    for (const name of ['Sequence', 'Audio tracks', 'Overlay video layers', 'Text overlays']) {
+      expect(list(name)).toBeNull()
+    }
+    for (const title of ['Sequence', 'Audio', 'Overlays', 'Text']) {
+      expect(screen.getByRole('heading', { level: 3, name: title })).toBeInTheDocument()
+      expect(unfold(title)).toHaveAttribute('aria-expanded', 'false')
+    }
+    // Unfolding one section shows its elements collapsed, not expanded.
+    await userEvent.click(unfold('Audio'))
+    expect(list('Audio tracks')).toBeInTheDocument()
+    expect(startTime('audio track m.mp3 at position 1')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all timeline elements' }))
+    for (const name of ['Sequence', 'Audio tracks', 'Overlay video layers', 'Text overlays']) {
+      expect(list(name)).toBeInTheDocument()
+    }
+    expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
+    expect(startTime('audio track m.mp3 at position 1')).toBeInTheDocument()
+    expect(startTime('overlay a.mp4 at position 1')).toBeInTheDocument()
+    expect(startTime('text overlay at position 1')).toBeInTheDocument()
+    expect(fold('Text')).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('folding and per-section collapsing are not edits: one Undo still removes the add', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all Sequence elements' }))
+    await userEvent.click(fold('Sequence'))
+    await userEvent.click(unfold('Sequence'))
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(list('Sequence')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeDisabled()
+  })
+
+  it('a section that disappears while folded comes back unfolded', async () => {
+    render(<App />)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(fold('Audio'))
+    expect(list('Audio tracks')).toBeNull()
+
+    // The folded row's own Remove is not rendered; removing the clip from
+    // the library cascades to the track and empties the lane.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove m.mp3 from library' }))
+    await confirmRemoval()
+    expect(screen.queryByRole('heading', { level: 3, name: 'Audio' })).toBeNull()
+
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    expect(list('Audio tracks')).toBeInTheDocument()
+    expect(fold('Audio')).toHaveAttribute('aria-expanded', 'true')
   })
 })
