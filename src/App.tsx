@@ -346,6 +346,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           port={savePort}
           probeMedia={probeMedia}
           autosave={autosaveStore}
+          onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
         />
       </header>
       <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>

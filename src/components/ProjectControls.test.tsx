@@ -1248,3 +1248,58 @@ describe('crash-safe autosave (#194)', () => {
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
   })
 })
+
+// The project's canvas preset control (#273). Auto is the absent preset, so
+// the control's empty value is what maps to it — a stored 'auto' identifier
+// would break the byte-identity the model and serializer depend on.
+describe('ProjectControls canvas preset (#273)', () => {
+  it('shows Auto for a preset-free project and reports each choice', async () => {
+    const onSetCanvasPreset = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onSetCanvasPreset={onSetCanvasPreset}
+      />,
+    )
+    const select = screen.getByRole('combobox', { name: 'Canvas aspect' })
+    expect((select as HTMLSelectElement).value).toBe('')
+    expect(
+      Array.from((select as HTMLSelectElement).options).map((option) => option.value),
+    ).toEqual(['', '16:9', '9:16', '1:1', '4:5'])
+
+    await user.selectOptions(select, '9:16')
+    expect(onSetCanvasPreset).toHaveBeenLastCalledWith('9:16')
+    expect(onSetCanvasPreset).not.toHaveBeenCalledWith('auto')
+  })
+
+  it('reflects the project’s preset, and reports Auto as undefined', async () => {
+    const onSetCanvasPreset = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ProjectControls
+        library={library}
+        timeline={{ ...timeline, canvasPreset: '4:5' }}
+        dirty={false}
+        onSaved={vi.fn()}
+        onSetCanvasPreset={onSetCanvasPreset}
+      />,
+    )
+    const select = screen.getByRole('combobox', { name: 'Canvas aspect' })
+    expect((select as HTMLSelectElement).value).toBe('4:5')
+
+    // Choosing Auto must report `undefined`, which is what deletes the key.
+    await user.selectOptions(select, '')
+    expect(onSetCanvasPreset).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('renders no control when the app supplies no handler', () => {
+    render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    expect(screen.queryByRole('combobox', { name: 'Canvas aspect' })).toBeNull()
+  })
+})

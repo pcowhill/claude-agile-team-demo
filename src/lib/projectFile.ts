@@ -45,6 +45,8 @@ import type { BackgroundFill } from './backgroundFill'
 import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
 import { isValidBackgroundFillInput } from './backgroundFill'
+import type { CanvasPreset } from './frameSize'
+import { isCanvasPreset } from './frameSize'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -79,6 +81,7 @@ import { isValidBackgroundFillInput } from './backgroundFill'
  *                   subtitle?,                                  // (#249)
  *                   styleOverrides? }],                         // (#250)
  *       "subtitleStyle": { x, y, font, size, color, bold, italic }, // (#250)
+ *       "canvasPreset": "16:9" | "9:16" | "1:1" | "4:5",          // (#273)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -229,7 +232,7 @@ import { isValidBackgroundFillInput } from './backgroundFill'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 15
+export const PROJECT_SCHEMA_VERSION = 16
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -260,6 +263,8 @@ export const SUBTITLE_STYLE_SCHEMA_VERSION = 13
 export const BACKGROUND_FILL_SCHEMA_VERSION = 14
 /** The version any overlay shape mask forces, whichever the save mode (#266). */
 export const SHAPE_MASK_SCHEMA_VERSION = 15
+/** The version a set canvas preset forces, whichever the save mode (#273). */
+export const CANVAS_PRESET_SCHEMA_VERSION = 16
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -341,6 +346,11 @@ export interface ProjectTimeline {
    * mirroring `TimelineState` where absence means that default.
    */
   subtitleStyle?: SubtitleStyle
+  /**
+   * The project's canvas preset (#273, schema version 16). Present exactly
+   * when one is set, mirroring `TimelineState` where absence means Auto.
+   */
+  canvasPreset?: CanvasPreset
   /**
    * Overlay video layers (#145). Present exactly when the file carries any,
    * additive within a schema version exactly like `remaps`.
@@ -529,6 +539,7 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
   )
@@ -559,7 +570,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasShapeMask
+    schemaVersion: hasCanvasPreset
+      ? CANVAS_PRESET_SCHEMA_VERSION
+      : hasShapeMask
       ? SHAPE_MASK_SCHEMA_VERSION
       : hasBackgroundFill
       ? BACKGROUND_FILL_SCHEMA_VERSION
@@ -746,6 +759,10 @@ export async function serializeProject(
       ...(timeline.subtitleStyle === undefined
         ? {}
         : { subtitleStyle: storedSubtitleStyle(timeline.subtitleStyle) }),
+      // The canvas preset (#273) is written only when one is set (the state
+      // stores it exactly then), so Auto projects stay byte-identical to
+      // earlier output at their lower schema version.
+      ...(timeline.canvasPreset === undefined ? {} : { canvasPreset: timeline.canvasPreset }),
       audioTracks: audioTracksOf(timeline).map(
         ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
           id,
@@ -1084,6 +1101,19 @@ const asSubtitleStyle = (value: unknown, path: string): SubtitleStyle | undefine
     throw new Error(`${path}.size must be between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`)
   }
   return normalizeSubtitleStyle(style)
+}
+
+/**
+ * A stored canvas preset (#273): one of the known identifiers, or absent for
+ * Auto. An unrecognized value is refused by name rather than ignored —
+ * silently falling back to Auto would reshape the frame the file was built
+ * against, which is the whole point of storing it.
+ */
+const asCanvasPreset = (value: unknown, path: string): CanvasPreset | undefined => {
+  if (value === undefined) return undefined
+  const preset = asString(value, path)
+  if (!isCanvasPreset(preset)) throw new Error(`${path} "${preset}" is unknown`)
+  return preset
 }
 
 function validateProject(document: Record<string, unknown>): Project {
@@ -1485,6 +1515,12 @@ function validateProject(document: Record<string, unknown>): Project {
       ? undefined
       : asSubtitleStyle(timelineRaw.subtitleStyle, 'timeline.subtitleStyle')
 
+  // The canvas preset (#273, schema version 16): absent in files saved
+  // before it, and in every Auto file since, meaning the source-derived
+  // frame rule (#176). Refused by name when unknown — a preset silently
+  // dropped would reshape the project's frame without saying so.
+  const canvasPreset = asCanvasPreset(timelineRaw.canvasPreset, 'timeline.canvasPreset')
+
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
   const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
@@ -1646,6 +1682,7 @@ function validateProject(document: Record<string, unknown>): Project {
       ...(remaps.length === 0 ? {} : { remaps }),
       ...(texts.length === 0 ? {} : { texts }),
       ...(subtitleStyle === undefined ? {} : { subtitleStyle }),
+      ...(canvasPreset === undefined ? {} : { canvasPreset }),
       audioTracks,
       ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },

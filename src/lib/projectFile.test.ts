@@ -19,6 +19,7 @@ import fixtureV12CropReferencesBase64 from './fixtures/project-v12-crop-referenc
 import fixtureV13SubtitleStyleReferencesBase64 from './fixtures/project-v13-subtitle-style-references.bvep.base64?raw'
 import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-background-fill-references.bvep.base64?raw'
 import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-mask-references.bvep.base64?raw'
+import fixtureV16CanvasPresetReferencesBase64 from './fixtures/project-v16-canvas-preset-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import type { TimelineState } from './timeline'
 import type { TextOverlay } from './textOverlay'
@@ -29,6 +30,7 @@ import {
   CROP_SCHEMA_VERSION,
   SUBTITLE_STYLE_SCHEMA_VERSION,
   BACKGROUND_FILL_SCHEMA_VERSION,
+  CANVAS_PRESET_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1031,8 +1033,9 @@ describe('project file versioning', () => {
     // version 12 added entry and overlay crop (#255); version 13 added the
     // default subtitle style and per-overlay style overrides (#250);
     // version 14 added entry background fill (#259); version 15 added
-    // overlay shape masks (#266).
-    expect(PROJECT_SCHEMA_VERSION).toBe(15)
+    // overlay shape masks (#266); version 16 added the project's canvas
+    // preset (#273).
+    expect(PROJECT_SCHEMA_VERSION).toBe(16)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1048,6 +1051,7 @@ describe('project file versioning', () => {
     expect(SUBTITLE_STYLE_SCHEMA_VERSION).toBe(13)
     expect(BACKGROUND_FILL_SCHEMA_VERSION).toBe(14)
     expect(SHAPE_MASK_SCHEMA_VERSION).toBe(15)
+    expect(CANVAS_PRESET_SCHEMA_VERSION).toBe(16)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3323,5 +3327,125 @@ describe('overlay shape mask in project files (#266, schema version 15)', () => 
         },
       },
     })
+  })
+})
+
+// The project's canvas preset (#273, schema version 16). The persistence
+// rules it must obey are the ones every optional field before it obeys: the
+// key is written only when set, an Auto project stays byte-identical at its
+// lower version, and an unknown identifier is refused by name rather than
+// quietly becoming Auto — which would reshape the frame the file was built
+// against without saying so.
+describe('canvas preset persistence (#273)', () => {
+  const preset = (value: string) => ({ ...timeline, canvasPreset: value as never })
+
+  it('round-trips a set preset at the new version', async () => {
+    for (const value of ['16:9', '9:16', '1:1', '4:5'] as const) {
+      const bytes = await serializeProject(library, { ...timeline, canvasPreset: value })
+      const document = await gunzipJson(bytes)
+      expect(document.schemaVersion).toBe(CANVAS_PRESET_SCHEMA_VERSION)
+      expect((document.timeline as Record<string, unknown>).canvasPreset).toBe(value)
+      const result = await deserializeProject(bytes)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.project.timeline.canvasPreset).toBe(value)
+    }
+  })
+
+  it('writes no key and no version bump for an Auto project', async () => {
+    // Byte-identity, not merely an absent key: an Auto project must produce
+    // exactly the file it produced before presets existed, so older builds
+    // keep opening it.
+    const withoutPreset = await serializeProject(library, timeline)
+    const explicitlyAuto = await serializeProject(library, { ...timeline, canvasPreset: undefined })
+    expect(new Uint8Array(explicitlyAuto)).toEqual(new Uint8Array(withoutPreset))
+    const document = await gunzipJson(withoutPreset)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(document.timeline as Record<string, unknown>).not.toHaveProperty('canvasPreset')
+  })
+
+  it('opens a pre-preset file as Auto', async () => {
+    // No key at all is what every file written before version 16 has.
+    const result = await deserializeProject(await serializeProject(library, timeline))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline).not.toHaveProperty('canvasPreset')
+  })
+
+  it('refuses an unknown preset by name', async () => {
+    // 'auto' in particular: Auto is the absent key, never an identifier, so
+    // a file naming it is malformed rather than meaning the default.
+    for (const value of ['auto', '3:2', '16:10', 'AUTO', '9-16']) {
+      await expectRefusal(
+        await gzipJson({
+          ...validDocument(),
+          schemaVersion: CANVAS_PRESET_SCHEMA_VERSION,
+          timeline: { ...validDocument().timeline, canvasPreset: value },
+        }),
+        `timeline.canvasPreset "${value}" is unknown`,
+      )
+    }
+  })
+
+  it('refuses a preset that is not a non-empty string', async () => {
+    // The shared string validator catches these before the name check, so
+    // both a wrong type and an empty value are refused by path.
+    for (const value of [169, true, {}, [], null, '']) {
+      await expectRefusal(
+        await gzipJson({
+          ...validDocument(),
+          schemaVersion: CANVAS_PRESET_SCHEMA_VERSION,
+          timeline: { ...validDocument().timeline, canvasPreset: value },
+        }),
+        'timeline.canvasPreset must be a non-empty string',
+      )
+    }
+  })
+
+  it('deserializes the committed v16 canvas-preset fixture', async () => {
+    // The never-rewrite contract, as for every fixture before it: a file
+    // written by the build that introduced presets keeps opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV16CanvasPresetReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          entries: expectedProject.timeline.entries,
+          transitions: expectedProject.timeline.transitions,
+          zooms: expectedProject.timeline.zooms,
+          audioTracks: [],
+          canvasPreset: '9:16',
+        },
+      },
+    })
+  })
+
+  it('lets a lower-version feature keep its version when the preset is Auto', async () => {
+    // The version chain puts the preset first, so this pins that it only
+    // wins when a preset is actually set — a shape-mask project with no
+    // preset must still write version 15.
+    void preset
+    const masked: TimelineState = {
+      ...timeline,
+      videoOverlays: [
+        {
+          id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+          offset: 0, inPoint: 0, outPoint: 4, x: 0.6, y: 0.6, width: 0.3, height: 0.3,
+          shapeMask: { kind: 'ellipse' },
+        },
+      ],
+    }
+    expect((await gunzipJson(await serializeProject(library, masked))).schemaVersion).toBe(
+      SHAPE_MASK_SCHEMA_VERSION,
+    )
+    expect(
+      (await gunzipJson(await serializeProject(library, { ...masked, canvasPreset: '1:1' })))
+        .schemaVersion,
+    ).toBe(CANVAS_PRESET_SCHEMA_VERSION)
   })
 })

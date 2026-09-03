@@ -37,3 +37,12 @@
   color: #999;
   font-size: 0.85rem;
 }
+
+/* The project's canvas preset (#273): a compact labelled select beside the
+   project actions, in the same idiom as the export modal's size preset. */
+.project-canvas-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}

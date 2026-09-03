@@ -128,6 +128,156 @@ describe('PreviewPlayer', () => {
       expect(frame.querySelectorAll('.preview-video')).toHaveLength(2)
     })
 
+    // The project's canvas preset (#273): the stage takes the preset's
+    // aspect, and everything frame-fractional keeps its fractions.
+    describe('canvas preset (#273)', () => {
+      const aspectOf = (container: HTMLElement) =>
+        (container.querySelector('.preview-stage') as HTMLElement).style.getPropertyValue(
+          '--preview-aspect',
+        )
+
+      it('reshapes the stage to the preset, and Auto renders exactly as before', () => {
+        // No probe resolves in jsdom, so the fallback frame (640×360) is the
+        // source-derived one; the preset reshapes that the same way it
+        // reshapes a real frame.
+        const auto = render(<PreviewPlayer timeline={oneVideoEntry} />)
+        expect(aspectOf(auto.container)).toBe(String(640 / 360))
+        auto.unmount()
+
+        // An explicitly-Auto project is byte-identical to a preset-free one.
+        const explicitAuto = render(
+          <PreviewPlayer timeline={{ ...oneVideoEntry, canvasPreset: undefined }} />,
+        )
+        expect(aspectOf(explicitAuto.container)).toBe(String(640 / 360))
+        explicitAuto.unmount()
+
+        const portrait = render(
+          <PreviewPlayer timeline={{ ...oneVideoEntry, canvasPreset: '9:16' }} />,
+        )
+        // presetFrame({640,360}, '9:16') = 648×1152 — the smallest exact
+        // 9:16 frame containing the fallback, so nothing downscales.
+        expect(aspectOf(portrait.container)).toBe(String(648 / 1152))
+        expect(648 / 1152).toBeCloseTo(9 / 16, 10)
+      })
+
+      it('gives each preset its own aspect', () => {
+        for (const [preset, expected] of [
+          ['16:9', 16 / 9],
+          ['9:16', 9 / 16],
+          ['1:1', 1],
+          ['4:5', 4 / 5],
+        ] as const) {
+          const { container, unmount } = render(
+            <PreviewPlayer timeline={{ ...oneVideoEntry, canvasPreset: preset }} />,
+          )
+          expect(Number(aspectOf(container)), `${preset} stage aspect`).toBeCloseTo(expected, 10)
+          unmount()
+        }
+      })
+
+      it('keeps overlay rectangles and text positions at the same fractions', () => {
+        // The whole reason a reshape needs no migration: this state is
+        // fractions *of the frame*, so the same numbers mean the right place
+        // in any frame. If a preset ever moved these, the two renderers
+        // would need a migration instead of a shared rule.
+        const withLayers: TimelineState = {
+          ...oneVideoEntry,
+          videoOverlays: [
+            {
+              id: 'v1',
+              clipId: 'c1',
+              name: 'first.webm',
+              duration: 4,
+              url: 'blob:first',
+              offset: 0,
+              inPoint: 0,
+              outPoint: 4,
+              x: 0.6,
+              y: 0.65,
+              width: 0.3,
+              height: 0.25,
+            },
+          ],
+          texts: [
+            {
+              id: 't1',
+              content: 'hello',
+              offset: 0,
+              duration: 4,
+              x: 0.25,
+              y: 0.8,
+              font: 'sans',
+              size: 0.06,
+              color: '#ffffff',
+              bold: false,
+              italic: false,
+            },
+          ],
+        }
+        const geometry = (preset?: '9:16') => {
+          const { unmount } = render(
+            <PreviewPlayer
+              timeline={preset === undefined ? withLayers : { ...withLayers, canvasPreset: preset }}
+            />,
+          )
+          const card = screen.getByTestId('preview-overlay-card-0')
+          const text = screen.getByTestId('preview-text-0')
+          const shape = {
+            overlay: [card.style.left, card.style.top, card.style.width, card.style.height],
+            text: [text.style.left, text.style.top],
+          }
+          unmount()
+          return shape
+        }
+        const auto = geometry()
+        expect(auto.overlay).toEqual(['60%', '65%', '30%', '25%'])
+        expect(geometry('9:16')).toEqual(auto)
+      })
+
+      it('composes the preset with a probed source, not just the fallback', async () => {
+        // An 800×800 still with a 9:16 preset: the square source is
+        // contained, never downscaled, so the frame grows taller.
+        class InstantSquareImage {
+          onload: (() => void) | null = null
+          naturalWidth = 0
+          naturalHeight = 0
+          set src(_value: string) {
+            this.naturalWidth = 800
+            this.naturalHeight = 800
+            queueMicrotask(() => this.onload?.())
+          }
+          removeAttribute() {}
+        }
+        vi.stubGlobal('Image', InstantSquareImage)
+        try {
+          const still: TimelineState = {
+            entries: [
+              {
+                id: 'i1',
+                clipId: 'c1',
+                name: 'photo.png',
+                duration: 4,
+                url: 'blob:photo',
+                inPoint: 0,
+                outPoint: 4,
+                kind: 'image',
+              },
+            ],
+            canvasPreset: '9:16',
+          }
+          const { container } = render(<PreviewPlayer timeline={still} />)
+          await act(async () => {})
+          // presetFrame({800,800}, '9:16') = 801×1424: both dimensions cover
+          // the source, and the ratio is exactly 9:16.
+          expect(aspectOf(container)).toBe(String(801 / 1424))
+          expect(801).toBeGreaterThanOrEqual(800)
+          expect(1424).toBeGreaterThanOrEqual(800)
+        } finally {
+          vi.unstubAllGlobals()
+        }
+      })
+    })
+
     it('sizes the frame from every source via the shared rule once probes report', async () => {
       // jsdom fires no media events, but Image probes are stubbable: an
       // 800×800 still must reshape the frame to a square — proving the
