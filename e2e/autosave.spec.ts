@@ -112,11 +112,18 @@ test('a session survives a reload: restore brings back the timeline and playable
   // The debounced snapshot lands: structure plus the clip's blob.
   await waitForSnapshot(page, 1)
 
+  // The session was never saved to a file, so the indicator is up (#288).
+  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
+
   // The "crash": nothing is saved to a file, the page simply goes away.
   await page.reload()
 
   // The offer appears; restoring needs no file picking at all.
   await page.getByRole('button', { name: 'Restore' }).click()
+
+  // Restored never-saved work still shows the unsaved indicator (#288) —
+  // the restore must not silently present unsaved work as saved.
+  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
 
   // The library and the timeline are back, trim included.
   await expect(library.getByRole('listitem')).toHaveCount(1)
@@ -139,6 +146,84 @@ test('a session survives a reload: restore brings back the timeline and playable
   // The restored session keeps autosaving: the snapshot still exists after
   // restore (it re-mirrors the restored state rather than vanishing).
   await waitForSnapshot(page, 1)
+})
+
+/** Polls the snapshot's saved marker (#288) until it has the expected value. */
+async function waitForSavedMarker(page: Page, expected: boolean) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const openDb = () =>
+            new Promise<IDBDatabase | null>((resolve) => {
+              const request = indexedDB.open('bvep-autosave')
+              request.onsuccess = () => resolve(request.result)
+              request.onerror = () => resolve(null)
+            })
+          const db = await openDb()
+          if (db === null) return null
+          try {
+            if (!db.objectStoreNames.contains('structure')) return null
+            const tx = db.transaction('structure', 'readonly')
+            const get = <T>(request: IDBRequest<T>) =>
+              new Promise<T>((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result)
+                request.onerror = () => reject(request.error)
+              })
+            const saved = await get(tx.objectStore('structure').get('saved'))
+            return typeof saved === 'boolean' ? saved : null
+          } finally {
+            db.close()
+          }
+        }),
+      { timeout: 20_000 },
+    )
+    .toBe(expected)
+}
+
+test('restoring a session that was saved to a file starts clean (#288)', async ({ page }) => {
+  test.setTimeout(120_000)
+  // Force the download save path — the real picker cannot be automated.
+  await page.addInitScript(() => {
+    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker
+  })
+  await page.goto('./')
+
+  const webm = await recordWebm(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
+
+  // Save the project (references-only keeps this on the small-file path).
+  await page.getByRole('button', { name: 'Save (unsaved changes)' }).click()
+  const modeDialog = page.getByRole('dialog', { name: 'Save project' })
+  await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
+  const downloaded = page.waitForEvent('download')
+  await modeDialog.getByRole('button', { name: 'Save…' }).click()
+  await downloaded
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+
+  // The debounced snapshot pass after the save records the state as saved.
+  await waitForSnapshot(page, 1)
+  await waitForSavedMarker(page, true)
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Restore' }).click()
+
+  // The restored state matches the save: no unsaved indicator.
+  await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toHaveCount(0)
+
+  // The next edit raises the indicator again, exactly as after a live save.
+  const trimOut = page.getByRole('spinbutton', {
+    name: 'Trim out point of clip.webm at position 1 in seconds',
+  })
+  await trimOut.fill('1')
+  await trimOut.blur()
+  await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
 })
 
 test('discarding the offer clears the snapshot and starts fresh', async ({ page }) => {

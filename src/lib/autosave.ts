@@ -49,6 +49,9 @@ const STRUCTURE_STORE = 'structure'
 const MEDIA_STORE = 'media'
 /** The single structure record's key — one snapshot per browser profile. */
 const STRUCTURE_KEY = 'current'
+/** The saved marker's key (#288), in the structure store so the structure
+ * and its marker commit in one transaction. */
+const SAVED_KEY = 'saved'
 
 /**
  * The persistence surface the autosaver and the restore flow use. An
@@ -57,9 +60,21 @@ const STRUCTURE_KEY = 'current'
  * no IndexedDB.
  */
 export interface AutosaveStore {
-  writeStructure(bytes: Uint8Array<ArrayBuffer>): Promise<void>
+  /**
+   * Writes the structure bytes together with whether the snapshotted state
+   * matched the last saved project (#288) — one atomic write, so a refresh
+   * can never observe a new structure with a stale saved marker.
+   */
+  writeStructure(bytes: Uint8Array<ArrayBuffer>, saved: boolean): Promise<void>
   /** The stored structure bytes, or null when no snapshot exists. */
   readStructure(): Promise<Uint8Array<ArrayBuffer> | null>
+  /**
+   * The stored saved marker, or null when none was recorded (a snapshot
+   * from before #288). Callers treat null as unsaved — the safe direction:
+   * a false "unsaved" costs one redundant save, a false "saved" hides that
+   * restored work was never written to a file.
+   */
+  readSaved(): Promise<boolean | null>
   writeMedia(clipId: string, blob: Blob): Promise<void>
   /** Ids of every stored media blob. */
   listMediaIds(): Promise<string[]>
@@ -100,15 +115,21 @@ export async function openAutosaveStore(
   }
   const db = await requested(openRequest)
   return {
-    async writeStructure(bytes) {
+    async writeStructure(bytes, saved) {
       const tx = db.transaction(STRUCTURE_STORE, 'readwrite')
       tx.objectStore(STRUCTURE_STORE).put(bytes, STRUCTURE_KEY)
+      tx.objectStore(STRUCTURE_STORE).put(saved, SAVED_KEY)
       await transactionDone(tx)
     },
     async readStructure() {
       const tx = db.transaction(STRUCTURE_STORE, 'readonly')
       const stored = await requested(tx.objectStore(STRUCTURE_STORE).get(STRUCTURE_KEY))
       return stored instanceof Uint8Array ? (stored as Uint8Array<ArrayBuffer>) : null
+    },
+    async readSaved() {
+      const tx = db.transaction(STRUCTURE_STORE, 'readonly')
+      const stored = await requested(tx.objectStore(STRUCTURE_STORE).get(SAVED_KEY))
+      return typeof stored === 'boolean' ? stored : null
     },
     async writeMedia(clipId, blob) {
       const tx = db.transaction(MEDIA_STORE, 'readwrite')
@@ -191,8 +212,13 @@ export function sessionIsEmpty(library: MediaLibraryState, timeline: TimelineSta
 export type AutosaveStatus = 'ok' | 'structure-only' | 'unavailable'
 
 export interface Autosaver {
-  /** Feed every committed state change; passes are debounced internally. */
-  stateChanged(library: MediaLibraryState, timeline: TimelineState): void
+  /**
+   * Feed every committed state change; passes are debounced internally.
+   * `saved` says whether this state matches the last saved project (#288),
+   * so a restore can re-show the unsaved indicator; omitted means unsaved —
+   * the safe default (see readSaved).
+   */
+  stateChanged(library: MediaLibraryState, timeline: TimelineState, saved?: boolean): void
   /** Resolves when the debounced pass (if any) has fully run — for tests. */
   flush(): Promise<void>
   /** Cancels any pending pass. */
@@ -222,7 +248,8 @@ export function createAutosaver({
   onStatus,
   debounceMs = AUTOSAVE_DEBOUNCE_MS,
 }: AutosaverOptions): Autosaver {
-  let latest: { library: MediaLibraryState; timeline: TimelineState } | null = null
+  let latest: { library: MediaLibraryState; timeline: TimelineState; saved: boolean } | null =
+    null
   let timer: ReturnType<typeof setTimeout> | null = null
   let running: Promise<void> | null = null
   let disposed = false
@@ -245,7 +272,7 @@ export function createAutosaver({
         report(failed.size > 0 ? 'structure-only' : 'ok')
         return
       }
-      await store.writeStructure(await serialize(state.library, state.timeline))
+      await store.writeStructure(await serialize(state.library, state.timeline), state.saved)
       const plan = planMediaSync(state.library.clips, await store.listMediaIds(), failed)
       await store.deleteMedia(plan.prune)
       for (const clip of plan.write) {
@@ -275,9 +302,9 @@ export function createAutosaver({
   }
 
   return {
-    stateChanged(library, timeline) {
+    stateChanged(library, timeline, saved = false) {
       if (disposed) return
-      latest = { library, timeline }
+      latest = { library, timeline, saved }
       if (timer !== null) clearTimeout(timer)
       timer = setTimeout(runPass, debounceMs)
     },
@@ -300,6 +327,12 @@ export function createAutosaver({
 export interface AutosaveSnapshot {
   structure: Uint8Array<ArrayBuffer>
   media: Map<string, Blob>
+  /**
+   * Whether the snapshotted state matched the last saved project (#288).
+   * A missing marker (pre-#288 snapshot) reads as false: restoring then
+   * shows the unsaved indicator — the safe direction.
+   */
+  saved: boolean
 }
 
 /**
@@ -310,5 +343,5 @@ export interface AutosaveSnapshot {
 export async function readAutosaveSnapshot(store: AutosaveStore): Promise<AutosaveSnapshot | null> {
   const structure = await store.readStructure()
   if (structure === null) return null
-  return { structure, media: await store.readAllMedia() }
+  return { structure, media: await store.readAllMedia(), saved: (await store.readSaved()) === true }
 }

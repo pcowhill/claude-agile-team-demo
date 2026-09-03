@@ -197,13 +197,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
 
   // Open Project / New Project (#77): the whole editing state is replaced.
   // The outgoing clips' object URLs can never be cued again, so their memory
-  // is released here; the incoming state becomes the new clean baseline.
+  // is released here; the incoming state becomes the new clean baseline —
+  // unless it is a restored snapshot of never-saved work (#288), which must
+  // keep the unsaved indicator: the startup baseline stands in, guaranteed
+  // unequal to any restorable state (empty sessions are never snapshotted),
+  // and the next save re-anchors the baseline as usual.
   const handleProjectReplaced = useCallback(
-    (project: { clips: LibraryClip[]; timeline: typeof timeline }) => {
+    (project: { clips: LibraryClip[]; timeline: typeof timeline }, options?: { unsaved: boolean }) => {
       for (const clip of library.clips) URL.revokeObjectURL(clip.url)
       dispatch({ type: 'library-replaced', clips: project.clips })
       dispatchTimeline({ type: 'timeline-replaced', timeline: project.timeline })
-      setSavedState(project)
+      setSavedState(
+        options?.unsaved ? { clips: emptyLibrary.clips, timeline: emptyTimeline } : project,
+      )
     },
     [library.clips],
   )
