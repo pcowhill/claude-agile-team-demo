@@ -140,8 +140,9 @@ export function ExportControl({
   }
 
   // Pre-fill the fields with the values the automatic behavior would use
-  // (#179): the same outputFrameSize rule the export applies, probed from
-  // the current sources each time the dialog opens.
+  // (#179): the same canvasFrameSize rule the export applies (#176/#274) —
+  // sources composed with the project's canvas preset — probed from the
+  // current sources each time the dialog opens.
   useEffect(() => {
     if (!open) return undefined
     let stale = false

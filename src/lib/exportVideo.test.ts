@@ -8,6 +8,7 @@ import {
   createAudioCapture,
   createFrameComposer,
   drawLayerSource,
+  exportOutputFrame,
   EXPORT_AUDIO_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES,
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
@@ -38,6 +39,7 @@ import {
   videoOverlayGainAt,
 } from './gain'
 import type { TimelineState } from './timeline'
+import { CANVAS_PRESETS, FALLBACK_FRAME, outputFrameSize, presetFrame } from './frameSize'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
@@ -1770,5 +1772,43 @@ describe('an unready overlay element draws its last frame (#319)', () => {
     // geometry would be a visible jump, which is the defect in another form.
     expect(stalled).toEqual(ready.map((op) => op.replace('over-element', 'stand-in-0')))
     expect(stalled.some((op) => op.startsWith('rotate('))).toBe(true)
+  })
+})
+
+describe('exportOutputFrame (#274)', () => {
+  // The export's frame derivation: the one line the pipeline sizes its
+  // canvas by. The geometry itself (containment, minimality, exact aspect)
+  // is pinned in frameSize.test.ts; these pin what the *export* does with
+  // it — the preset flows in, Auto stays the source rule, and the modal's
+  // manual override wins over both.
+  const dims = [
+    { width: 640, height: 360 },
+    { width: 320, height: 240 },
+  ]
+
+  it('Auto derives the source rule unchanged', () => {
+    expect(exportOutputFrame({ entries: [] }, dims)).toEqual(outputFrameSize(dims))
+  })
+
+  it('a fixed preset reshapes through the shared rule, for every preset', () => {
+    for (const { id } of CANVAS_PRESETS) {
+      expect(exportOutputFrame({ entries: [], canvasPreset: id }, dims)).toEqual(
+        presetFrame(outputFrameSize(dims), id),
+      )
+    }
+  })
+
+  it('a manual override wins over the preset — one export, whatever the canvas says (#179)', () => {
+    const override = { width: 854, height: 480 }
+    expect(exportOutputFrame({ entries: [], canvasPreset: '9:16' }, dims, override)).toEqual(
+      override,
+    )
+  })
+
+  it('no usable source falls back to the fallback frame, reshaped by the preset', () => {
+    expect(exportOutputFrame({ entries: [], canvasPreset: '1:1' }, [])).toEqual(
+      presetFrame(FALLBACK_FRAME, '1:1'),
+    )
+    expect(exportOutputFrame({ entries: [] }, [])).toEqual(FALLBACK_FRAME)
   })
 })

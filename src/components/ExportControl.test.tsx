@@ -5,6 +5,8 @@ import { ExportControl } from './ExportControl'
 import type { DoExport } from './ExportControl'
 import { ExportCanceledError } from '../lib/exportVideo'
 import { exportFormats } from '../lib/exportFormats'
+import { FALLBACK_FRAME, presetFrame } from '../lib/frameSize'
+import { slateEntry } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 
 const timeline: TimelineState = {
@@ -243,6 +245,37 @@ describe('output settings (#179)', () => {
     await screen.findByTestId('export-download')
     expect(requested.frame).toEqual({ width: 640, height: 360 })
     expect(requested.frameRate).toBe(24)
+  })
+
+  it('the automatic size reflects the project canvas preset, still sending no override (#274)', async () => {
+    // The default probe (automaticExportFrame) applies the preset to the
+    // same shared rule the export uses; a slate-only timeline probes no
+    // media in jsdom, so the shown values are the fallback frame reshaped
+    // to 9:16. Auto stays "no frame override" — the export derives the
+    // preset frame itself, rather than the modal baking it into a one-off
+    // override.
+    let requested: { frame?: unknown } = { frame: 'unset' }
+    const doExport: DoExport = (_timeline, options) => {
+      requested = { frame: options.frame }
+      return Promise.resolve(new Blob(['x'], { type: 'video/webm' }))
+    }
+    const preset = presetFrame(FALLBACK_FRAME, '9:16')
+    const user = userEvent.setup()
+    render(
+      <ExportControl
+        timeline={{ entries: [slateEntry('s1')], canvasPreset: '9:16' }}
+        doExport={doExport}
+      />,
+    )
+    await user.click(openButton())
+
+    expect(sizeSelect()).toHaveValue('auto')
+    await waitFor(() => expect(widthField()).toHaveValue(preset.width))
+    expect(heightField()).toHaveValue(preset.height)
+
+    await user.click(exportButton())
+    await screen.findByTestId('export-download')
+    expect(requested.frame).toBeUndefined()
   })
 
   it('Auto sends no frame override, keeping the automatic export path', async () => {

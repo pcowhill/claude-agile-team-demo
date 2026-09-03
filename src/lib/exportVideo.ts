@@ -41,7 +41,7 @@ import type { Crop } from './crop'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backgroundFill'
 import type { BackgroundFill } from './backgroundFill'
 import { transitionLayerSpec } from './transitionRender'
-import { outputFrameSize } from './frameSize'
+import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
@@ -141,6 +141,23 @@ export function pickExportMimeType(
   candidates: readonly string[] = EXPORT_MIME_CANDIDATES,
 ): string | null {
   return candidates.find((type) => isSupported(type)) ?? null
+}
+
+/**
+ * The output frame an export derives (#179/#274): a manual override (the
+ * export modal's fields) wins outright — it applies to that one export,
+ * whatever the project's canvas says — and otherwise the frame is the shared
+ * rule the preview stage uses: the sources' dimensions composed with the
+ * project's canvas preset (`canvasFrameSize`, #176/#273). This is the single
+ * seam the pipeline sizes its canvas by, so preview and export cannot derive
+ * different shapes from the same project.
+ */
+export function exportOutputFrame(
+  timeline: TimelineState,
+  sourceDims: Iterable<SourceDimensions>,
+  override?: SourceDimensions,
+): SourceDimensions {
+  return override ?? canvasFrameSize(sourceDims, timeline.canvasPreset)
 }
 
 export interface FitRect {
@@ -1159,10 +1176,14 @@ export interface ExportOptions {
   frameRate?: number
   /**
    * Output frame override (#179). Absent means the automatic rule — the
-   * sources' largest dimensions via `outputFrameSize`. When present, sources
-   * letterbox/pillarbox into this frame through the same `fitRect` path, and
-   * everything fractional (overlay rectangles, text positions and sizes,
-   * zoom centres) resolves against it unchanged.
+   * sources' largest dimensions composed with the project's canvas preset
+   * via `canvasFrameSize` (#176/#274), exactly the frame the preview stage
+   * shows. When present, it wins over the preset too: a manual size applies
+   * to that one export, whatever the project's canvas says (#179 semantics
+   * unchanged). Either way sources letterbox/pillarbox into the frame
+   * through the same `fitRect` path, and everything fractional (overlay
+   * rectangles, text positions and sizes, zoom centres) resolves against it
+   * unchanged.
    */
   frame?: SourceDimensions
   /** Injectable for tests (jsdom never fires media events). */
@@ -1741,9 +1762,10 @@ export async function exportTimeline(
     })
 
   // Output frame size: the shared rule (frameSize.ts, #176) over every real
-  // source in the sequence — the same rule the preview sizes its stage by,
-  // so fractional overlay/text/zoom coordinates resolve identically in both
-  // renderers. Loading every source here also validates that each one is
+  // source in the sequence, composed with the project's canvas preset
+  // (#273/#274) — the same rule the preview sizes its stage by, so the
+  // frame's shape and every fractional overlay/text/zoom coordinate resolve
+  // identically in both renderers. Loading every source here also validates that each one is
   // decodable before the recorder starts. Image stills (#140) load through
   // an <img> — a <video> cannot decode them — and keep it for the draw loop.
   // Slates (#143) have no media at all: nothing to load, no intrinsic size —
@@ -1795,7 +1817,7 @@ export async function exportTimeline(
       ? []
       : [orientedDimensions(croppedDimensions(dims, entry.crop), entry.orientation)]
   })
-  const { width, height } = options.frame ?? outputFrameSize(sourceDims)
+  const { width, height } = exportOutputFrame(timeline, sourceDims, options.frame)
 
   const canvas = document.createElement('canvas')
   canvas.width = width

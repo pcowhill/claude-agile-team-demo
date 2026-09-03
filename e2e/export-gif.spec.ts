@@ -117,4 +117,19 @@ test('the enabled GIF plugin exports a slate timeline as a plausible animated GI
   // The plugin's fixed sampling rate, exactly representable in GIF timing.
   expect(gif.firstDelayCs).toBe(10)
   expect(gif.trailer).toBe(true)
+
+  // The canvas preset flows into the GIF too (#274): the plugin encodes
+  // whatever frame the shared pipeline composes, so fixing the canvas to
+  // 9:16 reshapes the slate timeline's fallback frame to 648×1152, which the
+  // plugin's own dimension cap scales to exactly 270×480 (gifOutputSize).
+  await page.getByRole('combobox', { name: 'Canvas aspect' }).selectOption('9:16')
+  const presetDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('radio', { name: 'Animated GIF' }).check()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const presetGif = parseGif(await readFile((await (await presetDownload).path()) as string))
+  expect(presetGif.signature).toBe('GIF89a')
+  expect(presetGif.width).toBe(270)
+  expect(presetGif.height).toBe(480)
+  expect(presetGif.frames).toBeGreaterThanOrEqual(10)
 })
