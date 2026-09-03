@@ -42,6 +42,8 @@ import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
 import type { Crop } from './crop'
 import { normalizeCrop } from './crop'
 import type { BackgroundFill } from './backgroundFill'
+import type { ShapeMask } from './shapeMask'
+import { MAX_ROUNDED_RADIUS } from './shapeMask'
 import { isValidBackgroundFillInput } from './backgroundFill'
 
 /**
@@ -84,7 +86,9 @@ import { isValidBackgroundFillInput } from './backgroundFill'
  *                           outPoint, x, y, width, height, volume?, muted?,
  *                           fadeIn?, fadeOut?,                    // (#220)
  *                           colorAdjustments?, orientation?,       // (#145, #192, #232)
- *                           crop? }]                               // (#255)
+ *                           crop?,                                 // (#255)
+ *                           shapeMask?: { kind: 'ellipse' } |
+ *                                       { kind: 'rounded', radius } }] // (#266)
  *     }
  *   }
  *
@@ -155,6 +159,17 @@ import { isValidBackgroundFillInput } from './backgroundFill'
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 15 (#266) marks that a video overlay carries a shape
+ * mask: an optional `shapeMask` object — `{ kind: 'ellipse' }` (the ellipse
+ * inscribed in the placed rectangle) or `{ kind: 'rounded', radius }` (a
+ * rounded rectangle; radius a fraction of the rectangle's shorter side in
+ * (0, 0.5]); absence means the hard rectangle — today's outline (see
+ * shapeMask.ts). Written exactly when any mask exists, so mask-free
+ * projects stay byte-identical to earlier output and older builds route
+ * masked files to the "saved by a newer version" refusal instead of opening
+ * them silently unmasked. The media section's presence keeps distinguishing
+ * the save modes.
+ *
  * Schema version 14 (#259) marks that a sequence entry carries a background
  * fill: an optional `backgroundFill` object — `{ kind: 'blur' }` (the
  * entry's own frame, cover-fit behind the fitted clip and blurred) or
@@ -214,7 +229,7 @@ import { isValidBackgroundFillInput } from './backgroundFill'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 14
+export const PROJECT_SCHEMA_VERSION = 15
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -243,6 +258,8 @@ export const CROP_SCHEMA_VERSION = 12
 export const SUBTITLE_STYLE_SCHEMA_VERSION = 13
 /** The version any entry background fill forces, whichever the save mode (#259). */
 export const BACKGROUND_FILL_SCHEMA_VERSION = 14
+/** The version any overlay shape mask forces, whichever the save mode (#266). */
+export const SHAPE_MASK_SCHEMA_VERSION = 15
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -419,6 +436,15 @@ function storedBackgroundFill(fill: BackgroundFill): BackgroundFill {
 }
 
 /**
+ * A shape mask as stored (#266): fixed key order (kind, then radius for the
+ * rounded kind), exactly the normalized state's own fields, so the same
+ * mask always serializes to the same bytes.
+ */
+function storedShapeMask(mask: ShapeMask): ShapeMask {
+  return mask.kind === 'rounded' ? { kind: 'rounded', radius: mask.radius } : { kind: 'ellipse' }
+}
+
+/**
  * The default subtitle style as stored (#250): every field, fixed key order
  * (x, y, font, size, color, bold, italic — `SUBTITLE_STYLE_FIELDS`), so the
  * same style always serializes to the same bytes. The state stores it only
@@ -490,7 +516,8 @@ export async function serializeProject(
   }
   // The lowest version that can represent the content is the one written,
   // so older builds keep opening every file that has nothing newer in it.
-  // An entry background fill forces version 14 (#259),
+  // An overlay shape mask forces version 15 (#266),
+  // an entry background fill version 14 (#259),
   // default-subtitle-style data version 13 (#250), an
   // entry/overlay crop version 12 (#255), a
   // subtitle-imported text overlay version 11 (#249), a
@@ -502,6 +529,9 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasShapeMask = videoOverlaysOf(timeline).some(
+    (overlay) => overlay.shapeMask !== undefined,
+  )
   const hasBackgroundFill = timeline.entries.some((entry) => entry.backgroundFill !== undefined)
   const hasSubtitleStyle =
     timeline.subtitleStyle !== undefined ||
@@ -529,7 +559,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasBackgroundFill
+    schemaVersion: hasShapeMask
+      ? SHAPE_MASK_SCHEMA_VERSION
+      : hasBackgroundFill
       ? BACKGROUND_FILL_SCHEMA_VERSION
       : hasSubtitleStyle
       ? SUBTITLE_STYLE_SCHEMA_VERSION
@@ -740,7 +772,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop }) => ({
+              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask }) => ({
                 id,
                 clipId,
                 name,
@@ -765,6 +797,10 @@ export async function serializeProject(
                   ? {}
                   : { orientation: storedOrientation(orientation) }),
                 ...(crop === undefined ? {} : { crop: storedCrop(crop) }),
+                // Shape mask (#266) is written only when present — the hard
+                // rectangle is no key at all, so mask-free projects stay
+                // byte-identical to earlier output.
+                ...(shapeMask === undefined ? {} : { shapeMask: storedShapeMask(shapeMask) }),
               }),
             ),
           }),
@@ -991,6 +1027,29 @@ const asBackgroundFill = (value: unknown, path: string): BackgroundFill => {
 }
 
 /**
+ * A stored shape mask (#266): a known kind, and for `rounded` a radius in
+ * (0, MAX_ROUNDED_RADIUS] — unknown kinds and out-of-range or non-finite
+ * radii are refused by name (silently dropping one would open the file
+ * rendering a different silhouette from the build that wrote it). A stored
+ * `rectangle` cannot occur (absence means the rectangle), and neither can a
+ * zero radius (it normalizes to absence), so any object here must be a real
+ * mask.
+ */
+const asShapeMask = (value: unknown, path: string): ShapeMask => {
+  const raw = asRecord(value, path)
+  const kind = asString(raw.kind, `${path}.kind`)
+  if (kind === 'ellipse') return { kind: 'ellipse' }
+  if (kind !== 'rounded') throw new Error(`${path}.kind "${kind}" is not a shape mask kind`)
+  const radius = asFinite(raw.radius, `${path}.radius`)
+  if (radius <= 0 || radius > MAX_ROUNDED_RADIUS) {
+    throw new Error(
+      `${path}.radius must be within (0, ${MAX_ROUNDED_RADIUS}] of the rectangle's shorter side`,
+    )
+  }
+  return { kind: 'rounded', radius }
+}
+
+/**
  * A stored default subtitle style (#250): the full style, every field
  * validated exactly as a text overlay's own (unknown font, malformed color,
  * and out-of-range numbers are refused by name — the same rules, because
@@ -1196,6 +1255,14 @@ function validateProject(document: Record<string, unknown>): Project {
         )
       }
       entry.backgroundFill = asBackgroundFill(raw.backgroundFill, `${path}.backgroundFill`)
+    }
+    // A shape mask is an overlay treatment (#266): on a sequence entry it
+    // could only come from a foreign writer — refuse it by name rather than
+    // silently dropping what that writer meant to render.
+    if (raw.shapeMask !== undefined) {
+      throw new Error(
+        `${path}.shapeMask is set on a sequence entry, but shape masks apply to video overlays only`,
+      )
     }
     return entry
   })
@@ -1554,6 +1621,11 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.crop !== undefined) {
         const crop = asCrop(raw.crop, `${path}.crop`)
         if (crop !== undefined) overlay.crop = crop
+      }
+      // Shape mask (#266): absent in files saved before it, and on every
+      // mask-free overlay since, meaning the hard rectangle.
+      if (raw.shapeMask !== undefined) {
+        overlay.shapeMask = asShapeMask(raw.shapeMask, `${path}.shapeMask`)
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

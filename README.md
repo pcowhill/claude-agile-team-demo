@@ -89,6 +89,11 @@ also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
 same way into the exported file, overlay audio in the mix (#146).
+An overlay also takes a shape mask (#266): clip its placed rectangle to an
+inscribed ellipse (a circle when square — the webcam-bubble look) or a
+rounded rectangle with a chosen corner radius, edited on the overlay row,
+rendered live in the preview, and saved with the project. Export rendering
+of the mask is the follow-up #267.
 Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all

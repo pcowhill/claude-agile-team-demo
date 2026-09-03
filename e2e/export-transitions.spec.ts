@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { sampleExportedFrame } from './decodedFrame'
+import type { SampleRect } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -148,129 +150,35 @@ async function exportOnce(page: Page): Promise<Buffer> {
   return await readFile(await download.path())
 }
 
-interface FrameSample {
-  r: number
-  g: number
-  b: number
-  duration: number
-}
-
 /**
- * Decodes the exported WebM, seeks to `fromEndSeconds` before its end, and
- * averages the pixels of a horizontal band of that frame.
- *
- * Sample times anchor to the END of the file because export overhead (the
- * initial cue before real-time recording) pads the front: the final entry
- * always occupies the file's last second, so the overlap is exactly
- * [end - 1.0, end - 0.5] regardless of how large the front padding was.
+ * Named bands of the decoded frame, sampled through the shared
+ * presented-frame decoder (#276). Sample times anchor to the END of the
+ * file because export overhead (the initial cue before real-time
+ * recording) pads the front: the final entry always occupies the file's
+ * last second, so the overlap is exactly [end - 1.0, end - 0.5] regardless
+ * of how large the front padding was. The margin bands are left-margin
+ * sub-bands for the slide card ladder (#74): x is the fifth of the frame a
+ * pillarboxed square incoming clip never reaches; y picks a strip the
+ * card's edge passes at a known progress (upper: 10%-30%, covered once
+ * progress >= 0.3; lower: 60%-75%, covered once progress >= 0.75).
  */
-async function sampleExportedFrame(
+const BANDS = {
+  full: { x: 0, y: 0, width: 1, height: 1 },
+  'top-quarter': { x: 0, y: 0, width: 1, height: 0.25 },
+  'bottom-quarter': { x: 0, y: 0.75, width: 1, height: 0.25 },
+  'left-fifth': { x: 0, y: 0, width: 0.2, height: 1 },
+  'right-fifth': { x: 0.8, y: 0, width: 0.2, height: 1 },
+  'center-fifth': { x: 0.4, y: 0, width: 0.2, height: 1 },
+  'margin-upper': { x: 0, y: 0.1, width: 0.2, height: 0.2 },
+  'margin-lower': { x: 0, y: 0.6, width: 0.2, height: 0.15 },
+} satisfies Record<string, SampleRect>
+
+const sampleExportedBand = (
   page: Page,
   webm: Buffer,
   fromEndSeconds: number,
-  band:
-    | 'full'
-    | 'top-quarter'
-    | 'bottom-quarter'
-    | 'left-fifth'
-    | 'right-fifth'
-    | 'center-fifth'
-    | 'margin-upper'
-    | 'margin-lower',
-): Promise<FrameSample> {
-  return await page.evaluate(
-    async ({ base64, fromEndSeconds, band }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const settleIfKnown = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) {
-              resolve()
-              return true
-            }
-            return false
-          }
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (settleIfKnown()) return
-            // MediaRecorder WebMs may report Infinity until forced to scan.
-            video.ondurationchange = () => settleIfKnown()
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-          video.src = url
-        })
-        const duration = video.duration
-        const target = Math.max(0, duration - fromEndSeconds)
-        video.currentTime = target
-        // Poll instead of listening for `seeked`: the duration scan above may
-        // still have a seek in flight, and its events would race a listener.
-        await new Promise<void>((resolve, reject) => {
-          const started = performance.now()
-          const check = () => {
-            if (!video.seeking && Math.abs(video.currentTime - target) < 0.25 && video.readyState >= 2) {
-              resolve()
-            } else if (performance.now() - started > 10_000) {
-              reject(new Error('seeking the exported file timed out'))
-            } else {
-              requestAnimationFrame(check)
-            }
-          }
-          check()
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(video, 0, 0)
-        let bandX = 0
-        let bandWidth = canvas.width
-        let bandTop = 0
-        let bandHeight = canvas.height
-        if (band === 'top-quarter' || band === 'bottom-quarter') {
-          bandHeight = Math.max(1, Math.floor(canvas.height / 4))
-          bandTop = band === 'bottom-quarter' ? canvas.height - bandHeight : 0
-        } else if (band === 'left-fifth' || band === 'right-fifth' || band === 'center-fifth') {
-          bandWidth = Math.max(1, Math.floor(canvas.width / 5))
-          bandX =
-            band === 'center-fifth'
-              ? Math.floor((canvas.width - bandWidth) / 2)
-              : band === 'right-fifth'
-                ? canvas.width - bandWidth
-                : 0
-        } else if (band === 'margin-upper' || band === 'margin-lower') {
-          // Left-margin sub-bands for the slide card ladder (#74): x is the
-          // fifth of the frame a pillarboxed square incoming clip never
-          // reaches; y picks a strip the card's edge passes at a known
-          // progress (upper: 10%-30%, covered once progress ≥ 0.3; lower:
-          // 60%-75%, covered once progress ≥ 0.75).
-          bandWidth = Math.max(1, Math.floor(canvas.width / 5))
-          bandTop = Math.floor(canvas.height * (band === 'margin-upper' ? 0.1 : 0.6))
-          bandHeight = Math.max(
-            1,
-            Math.floor(canvas.height * (band === 'margin-upper' ? 0.2 : 0.15)),
-          )
-        }
-        const data = ctx.getImageData(bandX, bandTop, bandWidth, bandHeight).data
-        let r = 0
-        let g = 0
-        let b = 0
-        const pixels = data.length / 4
-        for (let index = 0; index < data.length; index += 4) {
-          r += data[index]
-          g += data[index + 1]
-          b += data[index + 2]
-        }
-        return { r: r / pixels, g: g / pixels, b: b / pixels, duration }
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    },
-    { base64: webm.toString('base64'), fromEndSeconds, band },
-  )
-}
+  band: keyof typeof BANDS,
+) => sampleExportedFrame(page, webm, fromEndSeconds, BANDS[band])
 
 /** Peak amplitude of the exported file's audio within a time window. */
 async function measureAudioPeak(
@@ -325,7 +233,7 @@ test('a crossfade exports as a blended overlap with mixed, gapless audio', async
 
   // Duration honors the overlap-aware total (1.5 s), with the same relative
   // slack the plain export test uses for real-time recording overhead.
-  const mid = await sampleExportedFrame(page, exported, 0.75, 'full')
+  const mid = await sampleExportedBand(page, exported, 0.75, 'full')
   expect(mid.duration).toBeGreaterThan(1.5 * 0.6)
   expect(mid.duration).toBeLessThan(1.5 + 1)
 
@@ -337,10 +245,10 @@ test('a crossfade exports as a blended overlap with mixed, gapless audio', async
   // Control samples either side of the overlap prove the encode separates
   // the clips cleanly (so the blend above cannot be a decoding artifact) and
   // that the boundary region is where the mixing happens.
-  const soloRed = await sampleExportedFrame(page, exported, 1.25, 'full')
+  const soloRed = await sampleExportedBand(page, exported, 1.25, 'full')
   expect(soloRed.r).toBeGreaterThan(DOMINANT)
   expect(soloRed.b).toBeLessThan(ABSENT)
-  const soloBlue = await sampleExportedFrame(page, exported, 0.25, 'full')
+  const soloBlue = await sampleExportedBand(page, exported, 0.25, 'full')
   expect(soloBlue.b).toBeGreaterThan(DOMINANT)
   expect(soloBlue.r).toBeLessThan(ABSENT)
 
@@ -385,11 +293,11 @@ test('a crossfade between different aspect ratios exports margins fading to blac
 
   // The overlap occupies [end − 1.0, end − 0.5]. Margin ladder: solo red,
   // progress 0.2, 0.5, 0.9, then past the handover (solo blue).
-  const solo = (await sampleExportedFrame(page, exported, 1.25, 'left-fifth')).r
-  const early = (await sampleExportedFrame(page, exported, 0.9, 'left-fifth')).r
-  const mid = (await sampleExportedFrame(page, exported, 0.75, 'left-fifth')).r
-  const late = (await sampleExportedFrame(page, exported, 0.55, 'left-fifth')).r
-  const after = (await sampleExportedFrame(page, exported, 0.25, 'left-fifth')).r
+  const solo = (await sampleExportedBand(page, exported, 1.25, 'left-fifth')).r
+  const early = (await sampleExportedBand(page, exported, 0.9, 'left-fifth')).r
+  const mid = (await sampleExportedBand(page, exported, 0.75, 'left-fifth')).r
+  const late = (await sampleExportedBand(page, exported, 0.55, 'left-fifth')).r
+  const after = (await sampleExportedBand(page, exported, 0.25, 'left-fifth')).r
 
   // Mid-overlap the margin is the outgoing clip blended toward black in
   // proportion to progress — not the outgoing clip at full brightness.
@@ -407,7 +315,7 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   expect(after).toBeLessThan(ABSENT)
 
   // Where the clips do overlap, mid-crossfade still carries both families.
-  const centerMid = await sampleExportedFrame(page, exported, 0.75, 'center-fifth')
+  const centerMid = await sampleExportedBand(page, exported, 0.75, 'center-fifth')
   expect(centerMid.r).toBeGreaterThan(BLENDED)
   expect(centerMid.b).toBeGreaterThan(BLENDED)
 })
@@ -443,13 +351,13 @@ test('a slide between different aspect ratios exports a black card sliding over 
   // band passed at 0.3 → black; lower band, reached at 0.75, still ahead of
   // the edge → undimmed red), then progress 0.9 (lower band passed → black),
   // then past the handover.
-  const soloUpper = (await sampleExportedFrame(page, exported, 1.25, 'margin-upper')).r
-  const soloLower = (await sampleExportedFrame(page, exported, 1.25, 'margin-lower')).r
+  const soloUpper = (await sampleExportedBand(page, exported, 1.25, 'margin-upper')).r
+  const soloLower = (await sampleExportedBand(page, exported, 1.25, 'margin-lower')).r
   expect(soloUpper).toBeGreaterThan(120)
   expect(soloLower).toBeGreaterThan(120)
 
-  const midUpper = await sampleExportedFrame(page, exported, 0.75, 'margin-upper')
-  const midLower = await sampleExportedFrame(page, exported, 0.75, 'margin-lower')
+  const midUpper = await sampleExportedBand(page, exported, 0.75, 'margin-upper')
+  const midLower = await sampleExportedBand(page, exported, 0.75, 'margin-lower')
   // Behind the card's edge: the card's black backing, not the outgoing clip
   // dimmed or still bright.
   expect(midUpper.r).toBeLessThan(ABSENT)
@@ -457,17 +365,17 @@ test('a slide between different aspect ratios exports a black card sliding over 
   // Ahead of the card's edge: the outgoing clip at full, undimmed brightness.
   expect(midLower.r).toBeGreaterThan(soloLower * 0.85)
 
-  const lateLower = (await sampleExportedFrame(page, exported, 0.55, 'margin-lower')).r
+  const lateLower = (await sampleExportedBand(page, exported, 0.55, 'margin-lower')).r
   expect(lateLower).toBeLessThan(ABSENT)
 
-  const afterUpper = (await sampleExportedFrame(page, exported, 0.25, 'margin-upper')).r
-  const afterLower = (await sampleExportedFrame(page, exported, 0.25, 'margin-lower')).r
+  const afterUpper = (await sampleExportedBand(page, exported, 0.25, 'margin-upper')).r
+  const afterLower = (await sampleExportedBand(page, exported, 0.25, 'margin-lower')).r
   expect(afterUpper).toBeLessThan(ABSENT)
   expect(afterLower).toBeLessThan(ABSENT)
 
   // Where the card has arrived, its clip shows: mid-slide the center-fifth
   // carries the incoming blue (top half) and the outgoing red (bottom half).
-  const centerMid = await sampleExportedFrame(page, exported, 0.75, 'center-fifth')
+  const centerMid = await sampleExportedBand(page, exported, 0.75, 'center-fifth')
   expect(centerMid.b).toBeGreaterThan(BLENDED)
   expect(centerMid.r).toBeGreaterThan(BLENDED)
 })
@@ -487,8 +395,8 @@ test('a slide-from-above exports with the incoming clip covering from the top', 
 
   const exported = await exportOnce(page)
 
-  const top = await sampleExportedFrame(page, exported, 0.75, 'top-quarter')
-  const bottom = await sampleExportedFrame(page, exported, 0.75, 'bottom-quarter')
+  const top = await sampleExportedBand(page, exported, 0.75, 'top-quarter')
+  const bottom = await sampleExportedBand(page, exported, 0.75, 'bottom-quarter')
   expect(top.duration).toBeGreaterThan(1.5 * 0.6)
   expect(top.duration).toBeLessThan(1.5 + 1)
 
@@ -515,8 +423,8 @@ test('a slide-from-left exports with the incoming clip covering from the left (#
 
   const exported = await exportOnce(page)
 
-  const left = await sampleExportedFrame(page, exported, 0.75, 'left-fifth')
-  const right = await sampleExportedFrame(page, exported, 0.75, 'right-fifth')
+  const left = await sampleExportedBand(page, exported, 0.75, 'left-fifth')
+  const right = await sampleExportedBand(page, exported, 0.75, 'right-fifth')
   expect(left.duration).toBeGreaterThan(1.5 * 0.6)
   expect(left.duration).toBeLessThan(1.5 + 1)
 

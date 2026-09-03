@@ -53,6 +53,51 @@ export interface SnapshotOptions {
   createCanvas?: () => HTMLCanvasElement
 }
 
+/**
+ * Arms a wait for the element's next PRESENTED frame (#276). `seeked` and
+ * `loadeddata` fire when the seek/load completes, which is before the frame
+ * has necessarily been presented — and drawing a not-yet-presented frame
+ * intermittently rasterizes black (the save-frame flake's mechanism).
+ * `requestVideoFrameCallback` is the presentation signal, so the callback
+ * must be registered BEFORE the action that presents the frame (after a
+ * paused cue's frame is presented, no further callback ever comes); a
+ * pre-seek presentation racing in re-arms rather than settling, since the
+ * seek is always already issued when a callback can first run. Returns an
+ * awaiter that bounds the wait: presentation normally follows within a
+ * frame or two, and the bound means an engine that never presents a
+ * detached element's frames degrades to the pre-#276 behavior (a rare
+ * stale/black frame) instead of hanging the snapshot forever. Without
+ * `requestVideoFrameCallback` the awaiter resolves immediately — exactly
+ * the pre-#276 behavior.
+ */
+const armPresentedFrame = (element: HTMLVideoElement): (() => Promise<void>) => {
+  if (typeof element.requestVideoFrameCallback !== 'function') {
+    return () => Promise.resolve()
+  }
+  let presented = false
+  let settle = () => {
+    presented = true
+  }
+  const onFrame = () => {
+    if (element.seeking) element.requestVideoFrameCallback(onFrame)
+    else settle()
+  }
+  element.requestVideoFrameCallback(onFrame)
+  return () =>
+    new Promise<void>((resolve) => {
+      if (presented) {
+        resolve()
+        return
+      }
+      const timer = setTimeout(() => resolve(), 300)
+      settle = () => {
+        presented = true
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+}
+
 /** Resolves after `arm` triggers `name` on the element; rejects on error. */
 const afterEvent = (element: HTMLMediaElement | HTMLImageElement, name: string, arm: () => void) =>
   new Promise<void>((resolve, reject) => {
@@ -113,19 +158,29 @@ export async function snapshotTimelineFrame(
     element.muted = true
     element.playsInline = true
     videos.push(element)
+    // Armed before src is set so the load's first presentation cannot be
+    // missed (#276) — the no-seek path's presentation signal.
+    const firstFramePresented = armPresentedFrame(element)
     await afterEvent(element, 'loadedmetadata', () => {
       element.src = url
     })
     if (Math.abs(element.currentTime - sourceTime) > 0.001) {
+      // Armed immediately before the seek is issued: the awaited frame is
+      // the sought one, presented — `seeked` alone fires before
+      // presentation, the window where the draw could rasterize black.
+      const soughtFramePresented = armPresentedFrame(element)
       await afterEvent(element, 'seeked', () => {
         element.currentTime = sourceTime
       })
+      await soughtFramePresented()
+      return element
     }
     if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       // Cued to its existing position (e.g. 0): no seek fires, but the first
       // frame may not be decoded yet — wait for it rather than drawing black.
       await afterEvent(element, 'loadeddata', () => {})
     }
+    await firstFramePresented()
     return element
   }
   const loadStill = async (url: string): Promise<HTMLImageElement> => {

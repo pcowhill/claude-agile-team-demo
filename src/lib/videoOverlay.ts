@@ -4,6 +4,8 @@ import type { Orientation } from './orientation'
 import { orientationsEqual } from './orientation'
 import type { Crop } from './crop'
 import { cropsEqual } from './crop'
+import type { ShapeMask } from './shapeMask'
+import { shapeMasksEqual } from './shapeMask'
 import type { LibraryClip } from './mediaLibrary'
 
 /**
@@ -98,6 +100,15 @@ export interface VideoOverlay {
    * orientation.
    */
   crop?: Crop
+  /**
+   * Shape mask (#266): clips the placed rectangle to an inscribed ellipse
+   * or a rounded rectangle. Absent behaves as the hard rectangle — today's
+   * outline — present exactly when a shape is set (normalized by the
+   * `video-overlay-mask-set` reducer case). Applies in frame space, after
+   * crop and orientation have produced the picture: it shapes the placed
+   * silhouette, never the source pixels.
+   */
+  shapeMask?: ShapeMask
 }
 
 /**
@@ -244,6 +255,7 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     a.fadeOut === b.fadeOut &&
     colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments) &&
     orientationsEqual(a.orientation, b.orientation) &&
-    cropsEqual(a.crop, b.crop)
+    cropsEqual(a.crop, b.crop) &&
+    shapeMasksEqual(a.shapeMask, b.shapeMask)
   )
 }

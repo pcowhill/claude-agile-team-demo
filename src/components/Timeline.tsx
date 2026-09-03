@@ -21,6 +21,8 @@ import type { Orientation } from '../lib/orientation'
 import type { Crop } from '../lib/crop'
 import { DEFAULT_FILL_COLOR } from '../lib/backgroundFill'
 import type { BackgroundFill, BackgroundFillInput } from '../lib/backgroundFill'
+import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../lib/shapeMask'
+import type { ShapeMask, ShapeMaskInput } from '../lib/shapeMask'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -118,6 +120,9 @@ interface TimelineProps {
   /** Sets a video/image entry's crop whole (#255); `{}` resets. */
   onSetEntryCrop: (id: string, crop: Crop) => void
   onSetVideoOverlayCrop: (id: string, crop: Crop) => void
+  /** Sets a video overlay's shape mask whole (#266);
+   * `{ kind: 'rectangle' }` resets. */
+  onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -538,6 +543,64 @@ function CropControls({ position, crop, onCommit }: CropControlsProps) {
   )
 }
 
+interface ShapeMaskControlsProps {
+  /** The accessible name of the row's owner (a video overlay). */
+  position: string
+  mask: ShapeMask | undefined
+  /** Receives the full mask on every edit; `{ kind: 'rectangle' }` resets (#266). */
+  onCommit: (mask: ShapeMaskInput) => void
+}
+
+/**
+ * Per-overlay shape-mask controls (#266): a shape selector (rectangle —
+ * today's hard outline — rounded, or ellipse) plus the corner-radius amount
+ * shown for `rounded` — one row in the per-item-controls idiom, on video
+ * overlay rows only (the mask is an overlay treatment). Every edit commits
+ * the full mask; the reducer normalizes (`rectangle` — and a radius that
+ * clamps to zero — returns the overlay to its stored-key-free identity).
+ * The radius is entered as a percent of the placed rectangle's shorter side.
+ */
+function ShapeMaskControls({ position, mask, onCommit }: ShapeMaskControlsProps) {
+  return (
+    <div className="timeline-entry-color">
+      <span>Shape</span>
+      <select
+        aria-label={`Shape mask of ${position}`}
+        value={mask?.kind ?? 'rectangle'}
+        onChange={(event) => {
+          const kind = event.target.value as ShapeMaskInput['kind']
+          if (kind === 'rounded') {
+            onCommit({
+              kind: 'rounded',
+              radius: mask?.kind === 'rounded' ? mask.radius : DEFAULT_ROUNDED_RADIUS,
+            })
+          } else {
+            onCommit({ kind })
+          }
+        }}
+      >
+        <option value="rectangle">Rectangle</option>
+        <option value="rounded">Rounded</option>
+        <option value="ellipse">Ellipse</option>
+      </select>
+      {mask?.kind === 'rounded' && (
+        <>
+          <span>radius</span>
+          <SecondsField
+            label={`Corner radius of ${position} (percent)`}
+            value={mask.radius * 100}
+            min={0}
+            max={MAX_ROUNDED_RADIUS * 100}
+            step={5}
+            onCommit={(value) => onCommit({ kind: 'rounded', radius: value / 100 })}
+          />
+          <span>%</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface BackgroundFillControlsProps {
   /** The accessible name of the row's owner (a video/image entry). */
   position: string
@@ -723,6 +786,7 @@ export function Timeline({
   onSetVideoOverlayOrientation,
   onSetEntryCrop,
   onSetVideoOverlayCrop,
+  onSetVideoOverlayMask,
   onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
@@ -1675,6 +1739,13 @@ export function Timeline({
                     position={position}
                     crop={overlay.crop}
                     onCommit={(crop) => onSetVideoOverlayCrop(overlay.id, crop)}
+                  />
+                  {/* Shape mask (#266): the placed rectangle's outline —
+                      an overlay treatment, so overlay rows only. */}
+                  <ShapeMaskControls
+                    position={position}
+                    mask={overlay.shapeMask}
+                    onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
                   />
                 </li>
               )
