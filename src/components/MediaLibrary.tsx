@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type {
   ClipSortDirection,
@@ -7,6 +7,7 @@ import type {
   MediaLibraryState,
 } from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
+import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
 import './MediaLibrary.css'
@@ -18,6 +19,11 @@ interface MediaLibraryProps {
   onRecordingFailed: (reason: string) => void
   onDismissFailures: () => void
   onAddToTimeline: (clip: LibraryClip) => void
+  /**
+   * Adds a whole selection in library order as one undoable step (#292):
+   * the same per-kind rule as `onAddToTimeline`, applied to every clip.
+   */
+  onAddClipsToTimeline: (clips: LibraryClip[]) => void
   /** Adds a video clip as an overlay layer above the sequence (#145). */
   onAddOverlay: (clip: LibraryClip) => void
   /** Extracts a video clip's audio into a new library clip (#154). */
@@ -50,6 +56,7 @@ export function MediaLibrary({
   onRecordingFailed,
   onDismissFailures,
   onAddToTimeline,
+  onAddClipsToTimeline,
   onAddOverlay,
   onExtractAudio,
   onRemoveClip,
@@ -58,6 +65,38 @@ export function MediaLibrary({
 }: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [pendingRemoval, setPendingRemoval] = useState<LibraryClip | null>(null)
+  // Multi-selection (#292) lives here, not in the library model, so it can
+  // never reach project files or the autosave snapshot. The effective
+  // selection is the intersection with the current clips in display order:
+  // removed clips drop out, a replaced library starts unselected.
+  const [selection, dispatchSelection] = useReducer(librarySelectionReducer, emptySelection)
+  const selected = selectedClips(selection, library.clips)
+  const selectedIds = new Set(selected.map((clip) => clip.id))
+  const allSelected = library.clips.length > 0 && selected.length === library.clips.length
+  const someSelected = selected.length > 0 && !allSelected
+  // `indeterminate` is a DOM property, not an attribute — set it imperatively.
+  const selectAllRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected
+  }, [someSelected])
+
+  const displayOrder = () => library.clips.map((clip) => clip.id)
+
+  const handleSelectClip = (clip: LibraryClip, event: ChangeEvent<HTMLInputElement>) => {
+    // React drives a checkbox's change from its click, so the native event
+    // carries the modifier: Shift+click ranges from the anchor.
+    const shift = (event.nativeEvent as Partial<MouseEvent>).shiftKey === true
+    dispatchSelection(
+      shift
+        ? { type: 'range-selected', id: clip.id, order: displayOrder() }
+        : { type: 'toggled', id: clip.id },
+    )
+  }
+
+  const addSelectedToTimeline = () => {
+    onAddClipsToTimeline(selected)
+    dispatchSelection({ type: 'cleared' })
+  }
   // The last sort applied (#123). Sorting is an action on the stored list,
   // not a persistent view — this only marks which key a repeat click would
   // reverse, and which direction it ran.
@@ -156,9 +195,52 @@ export function MediaLibrary({
               })}
             </div>
           )}
-          <ul className="clip-list" aria-label="Imported clips">
+          {/* Selection header (#292): Select-all plus, while anything is
+              selected, the action bar. The bar is what turns the selection
+              into work; it disappears with the selection. */}
+          <div className="clip-selection-header">
+            <label className="clip-select-all">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={(event) =>
+                  dispatchSelection({
+                    type: 'all-set',
+                    ids: displayOrder(),
+                    selected: event.target.checked,
+                  })
+                }
+              />
+              Select all
+            </label>
+            {selected.length > 0 && (
+              <div className="clip-selection-bar" role="toolbar" aria-label="Selected clips">
+                <span className="clip-selection-count">{selected.length} selected</span>
+                <button type="button" onClick={addSelectedToTimeline}>
+                  Add to timeline
+                </button>
+                <button type="button" onClick={() => dispatchSelection({ type: 'cleared' })}>
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          <ul
+            className={`clip-list${selected.length > 0 ? ' has-selection' : ''}`}
+            aria-label="Imported clips"
+          >
           {library.clips.map((clip) => (
             <li key={clip.id} className="clip-item">
+              {/* Faded while idle (CSS) so the list stays quiet; always a
+                  real, focusable checkbox for keyboard and screen readers. */}
+              <input
+                type="checkbox"
+                className="clip-select"
+                aria-label={`Select ${clip.name}`}
+                checked={selectedIds.has(clip.id)}
+                onChange={(event) => handleSelectClip(clip, event)}
+              />
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>

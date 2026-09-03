@@ -3401,3 +3401,30 @@ describe('video-overlay shape mask (#266)', () => {
     })
   })
 })
+
+describe('clips-added (#292)', () => {
+  it('appends the entries to the sequence and the tracks to the audio lane, in order', () => {
+    const start = stateOf(['x'])
+    const batch = timelineReducer(start, {
+      type: 'clips-added',
+      entries: [
+        entryFromClip(clip({ id: 'v1', name: 'v1.mp4' }), 'e1'),
+        entryFromClip(clip({ id: 'i1', name: 'i1.png', kind: 'image', duration: 0 }), 'e2'),
+      ],
+      audioTracks: [
+        audioTrackFromClip(clip({ id: 'a1', name: 'a1.mp3', kind: 'audio' }), 't1'),
+        audioTrackFromClip(clip({ id: 'a2', name: 'a2.mp3', kind: 'audio' }), 't2'),
+      ],
+    })
+    expect(order(batch)).toEqual(['x', 'e1', 'e2'])
+    expect(audioTracksOf(batch).map((track) => track.id)).toEqual(['t1', 't2'])
+    // Each item is exactly what a single add would have produced.
+    expect(batch.entries[2].duration).toBe(DEFAULT_STILL_DURATION)
+    expect(start.entries).toHaveLength(1)
+  })
+
+  it('an empty batch is a same-reference no-op, so it never becomes an undo step', () => {
+    const start = stateOf(['x'])
+    expect(timelineReducer(start, { type: 'clips-added', entries: [], audioTracks: [] })).toBe(start)
+  })
+})

@@ -9,6 +9,7 @@ import type { AutosaveStore } from './lib/autosave'
 import { extractAudioClip } from './lib/extractAudio'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
+import type { AudioTrack, TimelineEntry } from './lib/timeline'
 import {
   audioTrackFromClip,
   emptyTimeline,
@@ -187,6 +188,18 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
   }, [])
 
+  // A library selection added in one step (#292): the same per-kind rule as
+  // a single Add, in library order, as one action so one undo reverts all.
+  const handleAddClipsToTimeline = useCallback((clips: LibraryClip[]) => {
+    const entries: TimelineEntry[] = []
+    const audioTracks: AudioTrack[] = []
+    for (const clip of clips) {
+      if (clip.kind === 'audio') audioTracks.push(audioTrackFromClip(clip, crypto.randomUUID()))
+      else entries.push(entryFromClip(clip, crypto.randomUUID()))
+    }
+    dispatchTimeline({ type: 'clips-added', entries, audioTracks })
+  }, [])
+
   // A video clip composited above the sequence (#145) — picture-in-picture.
   const handleAddOverlay = useCallback((clip: LibraryClip) => {
     dispatchTimeline({
@@ -333,6 +346,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
           onAddToTimeline={handleAddToTimeline}
+          onAddClipsToTimeline={handleAddClipsToTimeline}
           onAddOverlay={handleAddOverlay}
           onExtractAudio={handleExtractAudio}
           onRemoveClip={handleRemoveClip}

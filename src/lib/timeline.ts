@@ -444,6 +444,18 @@ export type TimelineAction =
   | { type: 'entry-added'; entry: TimelineEntry }
   | {
       /**
+       * Batch add from a library selection (#292): the entries join the end
+       * of the sequence and the tracks the audio lane, both in the given
+       * order, in one action — so one undo step removes the whole batch
+       * (history.ts: one action = one step). Each item is exactly what a
+       * single `entry-added` / `audio-track-added` would have carried.
+       */
+      type: 'clips-added'
+      entries: TimelineEntry[]
+      audioTracks: AudioTrack[]
+    }
+  | {
+      /**
        * The razor (#190): split one entry into two at a source instant,
        * playing back exactly as before until either half is edited. The
        * caller resolves the playhead's *output* time to `atSourceTime` (see
@@ -1105,6 +1117,18 @@ function reduceTimelineCollections(
       return action.timeline
     case 'entry-added':
       return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    case 'clips-added':
+      // An empty batch is a same-reference no-op: nothing to undo (#292).
+      if (action.entries.length === 0 && action.audioTracks.length === 0) return state
+      return withEffects(
+        [...state.entries, ...action.entries],
+        transitions,
+        zooms,
+        [...audioTracks, ...action.audioTracks],
+        remaps,
+        texts,
+        videoOverlays,
+      )
     case 'entry-split': {
       // The razor (#190). The halves cover exactly the original's trimmed
       // range, so an untouched split plays back indistinguishably; per-entry

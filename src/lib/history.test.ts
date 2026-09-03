@@ -174,3 +174,41 @@ describe('targetEditsText (#189)', () => {
     expect(targetEditsText(null)).toBe(false)
   })
 })
+
+describe('batch add from a library selection (#292)', () => {
+  const track = {
+    id: 't1',
+    clipId: 'clip-t1',
+    name: 't1.mp3',
+    duration: 4,
+    url: 'blob:t1',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 4,
+  }
+
+  it('is one undo step for the whole batch, entries and tracks together', () => {
+    const batch = timelineHistoryReducer(emptyTimelineHistory, {
+      type: 'clips-added',
+      entries: [entry('a'), entry('b')],
+      audioTracks: [track],
+    })
+    expect(batch.present.entries.map((e) => e.id)).toEqual(['a', 'b'])
+    expect(batch.present.audioTracks?.map((t) => t.id)).toEqual(['t1'])
+    expect(batch.past).toHaveLength(1)
+
+    const undone = timelineHistoryReducer(batch, { type: 'edit-undone' })
+    expect(undone.present).toBe(emptyTimelineHistory.present)
+    expect(undone.past).toEqual([])
+
+    const redone = timelineHistoryReducer(undone, { type: 'edit-redone' })
+    expect(redone.present).toBe(batch.present)
+  })
+
+  it('records nothing for an empty batch', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    expect(
+      timelineHistoryReducer(one, { type: 'clips-added', entries: [], audioTracks: [] }),
+    ).toBe(one)
+  })
+})

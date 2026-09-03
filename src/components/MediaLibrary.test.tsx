@@ -477,3 +477,167 @@ describe('sorting (#123)', () => {
     expect(listedNames()).toEqual(['apple.mp4', 'zebra.mp4', 'banana.mp3', 'mango.mp3'])
   })
 })
+
+describe('media library multi-select (#292)', () => {
+  type Kind = 'video' | 'audio' | 'image'
+  const fileOf = (name: string, kind: Kind) =>
+    new File(['content'], name, {
+      type: kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/png',
+    })
+
+  /** Imports the given clips in order; each probes as its kind. */
+  async function importClips(clips: Array<[name: string, kind: Kind]>) {
+    const input = screen.getByTestId('clip-file-input')
+    for (const [name, kind] of clips) {
+      probeMock.mockResolvedValueOnce(
+        kind === 'image'
+          ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
+          : { duration: 7, url: `blob:${name}`, kind },
+      )
+      await userEvent.upload(input, fileOf(name, kind), { applyAccept: false })
+      await screen.findByText(name)
+    }
+  }
+
+  const selectAll = () => screen.getByRole('checkbox', { name: 'Select all' })
+  const rowBox = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
+  const bar = () => screen.queryByRole('toolbar', { name: 'Selected clips' })
+
+  beforeEach(() => {
+    probeMock.mockReset()
+  })
+
+  it('every row has a focusable checkbox; the action bar appears with the count and Clear empties it', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['c.png', 'image'],
+    ])
+
+    expect(bar()).toBeNull()
+    expect(selectAll()).not.toBeChecked()
+
+    // Keyboard: focus + Space toggles like any checkbox.
+    rowBox('b.mp3').focus()
+    await userEvent.keyboard(' ')
+    expect(rowBox('b.mp3')).toBeChecked()
+    expect(bar()).toHaveTextContent('1 selected')
+    expect(selectAll()).toHaveProperty('indeterminate', true)
+
+    await userEvent.click(rowBox('a.mp4'))
+    expect(bar()).toHaveTextContent('2 selected')
+
+    await userEvent.click(within(bar()!).getByRole('button', { name: 'Clear' }))
+    expect(bar()).toBeNull()
+    expect(rowBox('a.mp4')).not.toBeChecked()
+    expect(rowBox('b.mp3')).not.toBeChecked()
+    expect(selectAll()).toHaveProperty('indeterminate', false)
+  })
+
+  it('Select all selects every clip, reports checked, and unchecking clears', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+    ])
+
+    await userEvent.click(selectAll())
+    expect(selectAll()).toBeChecked()
+    expect(rowBox('a.mp4')).toBeChecked()
+    expect(rowBox('b.mp3')).toBeChecked()
+    expect(bar()).toHaveTextContent('2 selected')
+
+    await userEvent.click(selectAll())
+    expect(bar()).toBeNull()
+    expect(rowBox('a.mp4')).not.toBeChecked()
+  })
+
+  it('Shift+click selects the inclusive range in the sorted display order', async () => {
+    render(<App />)
+    await importClips([
+      ['zebra.mp4', 'video'],
+      ['mango.mp4', 'video'],
+      ['apple.mp4', 'video'],
+      ['kiwi.mp4', 'video'],
+    ])
+    // Display order becomes apple, kiwi, mango, zebra.
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by name' }))
+
+    await userEvent.click(rowBox('kiwi.mp4'))
+    fireEvent.click(rowBox('zebra.mp4'), { shiftKey: true })
+
+    expect(rowBox('apple.mp4')).not.toBeChecked()
+    expect(rowBox('kiwi.mp4')).toBeChecked()
+    expect(rowBox('mango.mp4')).toBeChecked()
+    expect(rowBox('zebra.mp4')).toBeChecked()
+    expect(bar()).toHaveTextContent('3 selected')
+
+    // A plain click on a ranged item deselects just that one.
+    await userEvent.click(rowBox('mango.mp4'))
+    expect(bar()).toHaveTextContent('2 selected')
+  })
+
+  it('Add to timeline adds a mixed selection in library order as one undo step', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['c.png', 'image'],
+    ])
+
+    await userEvent.click(selectAll())
+    await userEvent.click(within(bar()!).getByRole('button', { name: 'Add to timeline' }))
+
+    // Video and image entries in library order; the audio clip on its lane.
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', { name: 'Duration of c.png at position 2 in seconds' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Audio tracks' })).toHaveTextContent('b.mp3')
+    // The selection is spent.
+    expect(bar()).toBeNull()
+
+    // One undo reverts the whole batch; redo restores it whole.
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Audio tracks' })).toBeNull()
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(
+      screen.getByRole('spinbutton', { name: 'Duration of c.png at position 2 in seconds' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Audio tracks' })).toHaveTextContent('b.mp3')
+  })
+
+  it('removing a selected clip prunes it from the selection', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp4', 'video'],
+    ])
+    await userEvent.click(selectAll())
+    expect(bar()).toHaveTextContent('2 selected')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
+
+    expect(bar()).toHaveTextContent('1 selected')
+    expect(selectAll()).toBeChecked()
+  })
+
+  it('single-row Add is unchanged and leaves the selection alone', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp4', 'video'],
+    ])
+    await userEvent.click(rowBox('b.mp4'))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    expect(bar()).toHaveTextContent('1 selected')
+  })
+})
