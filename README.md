@@ -101,7 +101,12 @@ scaled to the video sequence's duration, with anything past the video's
 end clamped (it never plays). Every sound-bearing bar draws its clip's
 audio amplitude as a waveform (#191, #230): audio tracks, video entries,
 and video overlays alike — soundless items (stills, slates, clips whose
-audio cannot be decoded) keep the plain bar.
+audio cannot be decoded) keep the plain bar. Every section is titled —
+Sequence, Audio, Overlays, Text — and every row can be collapsed to a thin
+wedge of just its coverage bar and main line (#299), individually or all at
+once from the timeline header's Collapse all / Expand all; collapsing is a
+view choice, never an edit, so it is not undoable and not saved with the
+project.
 Video entries and overlay rows also carry a small thumbnail (#193) — the
 first frame of the trimmed range, re-captured when the in-point changes;
 image entries show the image itself and slates a color swatch. Thumbnails

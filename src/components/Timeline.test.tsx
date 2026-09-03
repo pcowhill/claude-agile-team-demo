@@ -2280,3 +2280,128 @@ describe('overlay shape mask (#266)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('collapsible timeline elements (#299)', () => {
+  const toggle = (position: string, state: 'Collapse' | 'Expand') =>
+    screen.getByRole('button', { name: `${state} ${position}` })
+  const trimIn = (position: string) =>
+    screen.queryByRole('spinbutton', { name: `Trim in point of ${position} in seconds` })
+  const startTime = (position: string) =>
+    screen.queryByRole('spinbutton', { name: `Start time of ${position} in seconds` })
+
+  it('titles the main section "Sequence" like the other lanes', async () => {
+    render(<App />)
+    expect(screen.queryByRole('heading', { name: 'Sequence' })).toBeNull()
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(screen.getByRole('heading', { level: 3, name: 'Sequence' })).toBeInTheDocument()
+  })
+
+  it('collapses a sequence entry to its strip and main line, keeping the bar geometry, and expands it back', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    const position = 'a.mp4 at position 1'
+    const barStyle = () => screen.getByTestId('timeline-entry-bar-0').getAttribute('style')
+    const expandedStyle = barStyle()
+
+    expect(toggle(position, 'Collapse')).toHaveAttribute('aria-expanded', 'true')
+    expect(trimIn(position)).toBeInTheDocument()
+    await userEvent.click(toggle(position, 'Collapse'))
+
+    // Controls gone; the strip, name, and remove button remain.
+    expect(trimIn(position)).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` })).toBeNull()
+    expect(screen.getByTestId('timeline-entry-bar-0')).toBeInTheDocument()
+    expect(barStyle()).toBe(expandedStyle)
+    expect(sequenceNames()).toEqual(['a.mp4'])
+    expect(
+      screen.getByRole('button', { name: `Remove ${position} from timeline` }),
+    ).toBeInTheDocument()
+    expect(toggle(position, 'Expand')).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(toggle(position, 'Expand'))
+    expect(trimIn(position)).toBeInTheDocument()
+  })
+
+  it('collapsing is not an edit: no undo step, and the one real edit still undoes', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(toggle('a.mp4 at position 1', 'Collapse'))
+    // One undo removes the add — collapsing pushed nothing in between.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeDisabled()
+  })
+
+  it('collapses audio tracks, overlays, and text overlays too', async () => {
+    render(<App />)
+    await importClip('v.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add v.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    const audio = 'audio track m.mp3 at position 1'
+    const overlay = 'overlay v.mp4 at position 1'
+    const text = 'text overlay at position 1'
+    expect(startTime(audio)).toBeInTheDocument()
+    expect(startTime(overlay)).toBeInTheDocument()
+    expect(startTime(text)).toBeInTheDocument()
+
+    await userEvent.click(toggle(audio, 'Collapse'))
+    await userEvent.click(toggle(overlay, 'Collapse'))
+    await userEvent.click(toggle(text, 'Collapse'))
+    expect(startTime(audio)).toBeNull()
+    expect(startTime(overlay)).toBeNull()
+    expect(startTime(text)).toBeNull()
+    // Main lines survive: the audio name, the overlay name, the text content.
+    expect(screen.getByRole('list', { name: 'Audio tracks' })).toHaveTextContent('m.mp3')
+    expect(screen.getByRole('list', { name: 'Overlay video layers' })).toHaveTextContent('v.mp4')
+    // A collapsed text overlay shows its content on one line instead of the editor.
+    expect(screen.queryByRole('textbox', { name: `Content of ${text}` })).toBeNull()
+    expect(screen.getByRole('list', { name: 'Text overlays' })).toHaveTextContent('Title')
+    // Coverage strips stay.
+    expect(screen.getByTestId('audio-track-bar-0')).toBeInTheDocument()
+    expect(screen.getByTestId('text-overlay-bar-0')).toBeInTheDocument()
+
+    await userEvent.click(toggle(overlay, 'Expand'))
+    expect(startTime(overlay)).toBeInTheDocument()
+  })
+
+  it('Collapse all and Expand all act on every lane at once', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all timeline elements' }))
+    expect(trimIn('a.mp4 at position 1')).toBeNull()
+    expect(startTime('audio track m.mp3 at position 1')).toBeNull()
+    expect(startTime('text overlay at position 1')).toBeNull()
+    expect(screen.getAllByRole('button', { name: /^Expand .* at position 1$/ })).toHaveLength(3)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all timeline elements' }))
+    expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
+    expect(startTime('audio track m.mp3 at position 1')).toBeInTheDocument()
+    expect(startTime('text overlay at position 1')).toBeInTheDocument()
+  })
+
+  it('an element removed while collapsed comes back expanded via undo', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    const position = 'a.mp4 at position 1'
+    await userEvent.click(toggle(position, 'Collapse'))
+    await userEvent.click(screen.getByRole('button', { name: `Remove ${position} from timeline` }))
+    await confirmRemoval()
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(toggle(position, 'Collapse')).toHaveAttribute('aria-expanded', 'true')
+    expect(trimIn(position)).toBeInTheDocument()
+  })
+})

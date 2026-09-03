@@ -840,6 +840,54 @@ export function Timeline({
   // The subtitle import's hidden picker (#249), clicked by its toolbar
   // button — the same idiom as the media library's clip input.
   const subtitleInputRef = useRef<HTMLInputElement | null>(null)
+  // Collapsed rows (#299): session UI state only — a set of element ids,
+  // never part of the project model, the autosave snapshot, or the undo
+  // history (collapsing is not an edit). A collapsed row keeps its coverage
+  // strip and main line and renders none of its control blocks. Ids of
+  // elements no longer on the timeline are pruned after each timeline
+  // change, so an element brought back by undo comes back expanded.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const isCollapsed = (id: string) => collapsed.has(id)
+  const toggleCollapsed = (id: string) =>
+    setCollapsed((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const allElementIds = () => [
+    ...entries.map((entry) => entry.id),
+    ...audioTracks.map((track) => track.id),
+    ...videoOverlays.map((overlay) => overlay.id),
+    ...texts.map((text) => text.id),
+  ]
+  useEffect(() => {
+    // The timeline reference changes on every committed edit (and never
+    // otherwise), which is exactly when an element can have disappeared.
+    const live = new Set([
+      ...timeline.entries.map((entry) => entry.id),
+      ...audioTracksOf(timeline).map((track) => track.id),
+      ...videoOverlaysOf(timeline).map((overlay) => overlay.id),
+      ...textsOf(timeline).map((text) => text.id),
+    ])
+    setCollapsed((previous) => {
+      const next = new Set([...previous].filter((id) => live.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [timeline])
+  /** The row's collapse/expand toggle (#299): first item of its main line. */
+  const collapseToggle = (id: string, position: string) => (
+    <button
+      type="button"
+      className="timeline-collapse-toggle"
+      aria-expanded={!isCollapsed(id)}
+      aria-label={`${isCollapsed(id) ? 'Expand' : 'Collapse'} ${position}`}
+      title={isCollapsed(id) ? 'Expand' : 'Collapse'}
+      onClick={() => toggleCollapsed(id)}
+    >
+      {isCollapsed(id) ? '▸' : '▾'}
+    </button>
+  )
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -871,6 +919,22 @@ export function Timeline({
           onClick={onRedo}
         >
           ↻ Redo
+        </button>
+        {/* Collapse/expand every element on the timeline at once (#299);
+            the per-row toggles sit on each row's main line. */}
+        <button
+          type="button"
+          aria-label="Collapse all timeline elements"
+          onClick={() => setCollapsed(new Set(allElementIds()))}
+        >
+          Collapse all
+        </button>
+        <button
+          type="button"
+          aria-label="Expand all timeline elements"
+          onClick={() => setCollapsed(new Set<string>())}
+        >
+          Expand all
         </button>
         {/* A slate needs no imported media (#143), so it is added right
             here rather than from the library. */}
@@ -919,6 +983,10 @@ export function Timeline({
           The sequence is empty. Add clips from the media library to start building your edit.
         </p>
       ) : (
+        <div className="sequence-lane">
+          {/* The main section gets a subtitle like every other lane (#299):
+              video clips, images, and color slates are the sequence. */}
+          <h3 className="sequence-lane-heading">Sequence</h3>
         <ol className="timeline-list" aria-label="Sequence">
           {entries.map((entry, index) => {
             const position = `${entry.name} at position ${index + 1}`
@@ -961,6 +1029,7 @@ export function Timeline({
                   </div>
                 </div>
                 <div className="timeline-entry-main">
+                  {collapseToggle(entry.id, position)}
                   {/* A recognizable still per row (#193): videos get a
                       captured frame of their trimmed range, images show
                       themselves scaled, and a slate's color is its identity —
@@ -1025,6 +1094,8 @@ export function Timeline({
                     </button>
                   </span>
                 </div>
+                {!isCollapsed(entry.id) && (
+                  <>
                 {isStillEntry(entry) ? (
                   /* A still has no source material (#140): no trim window to
                      edit, just the one duration, and no audio to control. A
@@ -1429,10 +1500,13 @@ export function Timeline({
                       </div>
                     )
                   })()}
+                  </>
+                )}
               </li>
             )
           })}
         </ol>
+        </div>
       )}
 
       {audioTracks.length > 0 && (
@@ -1462,6 +1536,7 @@ export function Timeline({
                     </div>
                   </div>
                   <div className="audio-track-main">
+                    {collapseToggle(track.id, position)}
                     <span className="clip-name" title={track.name}>
                       {track.name}
                     </span>
@@ -1480,6 +1555,8 @@ export function Timeline({
                       ✕
                     </button>
                   </div>
+                  {!isCollapsed(track.id) && (
+                    <>
                   <div className="audio-track-controls">
                     <span>Starts at</span>
                     <SecondsField
@@ -1566,6 +1643,8 @@ export function Timeline({
                       </>
                     )}
                   </div>
+                    </>
+                  )}
                 </li>
               )
             })}
@@ -1604,6 +1683,7 @@ export function Timeline({
                     </div>
                   </div>
                   <div className="video-overlay-main">
+                    {collapseToggle(overlay.id, position)}
                     {/* Overlay rows are always video (#145) — captured
                         thumbnail like a sequence video entry (#193). */}
                     <ClipThumbnail
@@ -1629,6 +1709,8 @@ export function Timeline({
                       ✕
                     </button>
                   </div>
+                  {!isCollapsed(overlay.id) && (
+                    <>
                   <div className="video-overlay-controls">
                     <span>Starts at</span>
                     <SecondsField
@@ -1747,6 +1829,8 @@ export function Timeline({
                     mask={overlay.shapeMask}
                     onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
                   />
+                    </>
+                  )}
                 </li>
               )
             })}
@@ -1774,11 +1858,20 @@ export function Timeline({
                     />
                   </div>
                   <div className="text-overlay-main">
-                    <TextContentField
-                      label={`Content of ${position}`}
-                      value={text.content}
-                      onCommit={(content) => set({ content })}
-                    />
+                    {collapseToggle(text.id, position)}
+                    {isCollapsed(text.id) ? (
+                      /* Collapsed (#299): the content on one line, read-only
+                         until expanded — the editor is a control block. */
+                      <span className="text-overlay-summary" title={text.content}>
+                        {text.content}
+                      </span>
+                    ) : (
+                      <TextContentField
+                        label={`Content of ${position}`}
+                        value={text.content}
+                        onCommit={(content) => set({ content })}
+                      />
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1793,6 +1886,8 @@ export function Timeline({
                       ✕
                     </button>
                   </div>
+                  {!isCollapsed(text.id) && (
+                    <>
                   <div className="text-overlay-controls">
                     <span>Shows at</span>
                     <SecondsField
@@ -1885,6 +1980,8 @@ export function Timeline({
                       Italic
                     </label>
                   </div>
+                    </>
+                  )}
                 </li>
               )
             })}
