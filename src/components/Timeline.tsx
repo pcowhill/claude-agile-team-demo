@@ -751,7 +751,21 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
  * ids: the sections are structural, not data.
  */
 type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'text'
-const TIMELINE_SECTIONS: readonly TimelineSection[] = ['sequence', 'audio', 'overlays', 'text']
+
+/**
+ * Which sections the timeline currently renders — a lane without elements is
+ * not rendered, so it has nothing to fold. Both the fold-state pruning and
+ * the timeline-wide Collapse all read this, so folding can only ever apply
+ * to a section the user can actually see.
+ */
+function renderedSectionsOf(timeline: TimelineState): ReadonlySet<TimelineSection> {
+  const rendered = new Set<TimelineSection>()
+  if (timeline.entries.length > 0) rendered.add('sequence')
+  if (audioTracksOf(timeline).length > 0) rendered.add('audio')
+  if (videoOverlaysOf(timeline).length > 0) rendered.add('overlays')
+  if (textsOf(timeline).length > 0) rendered.add('text')
+  return rendered
+}
 
 export function Timeline({
   timeline,
@@ -913,11 +927,7 @@ export function Timeline({
       return next
     })
   useEffect(() => {
-    const rendered = new Set<TimelineSection>()
-    if (timeline.entries.length > 0) rendered.add('sequence')
-    if (audioTracksOf(timeline).length > 0) rendered.add('audio')
-    if (videoOverlaysOf(timeline).length > 0) rendered.add('overlays')
-    if (textsOf(timeline).length > 0) rendered.add('text')
+    const rendered = renderedSectionsOf(timeline)
     setFolded((previous) => {
       const next = new Set([...previous].filter((section) => rendered.has(section)))
       return next.size === previous.size ? previous : next
@@ -1013,7 +1023,13 @@ export function Timeline({
           aria-label="Collapse all timeline elements"
           onClick={() => {
             setCollapsed(new Set(allElementIds()))
-            setFolded(new Set(TIMELINE_SECTIONS))
+            // Only the sections on the timeline now — like the element set
+            // above, which names existing ids only. Folding a section that
+            // is not rendered yet would outlive this click: the pruning
+            // effect keeps a fold whose section is rendered by the time the
+            // timeline next changes, so the lane that change creates would
+            // arrive folded and hide the element the user just added.
+            setFolded(new Set(renderedSectionsOf(timeline)))
           }}
         >
           Collapse all

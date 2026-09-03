@@ -2533,6 +2533,26 @@ describe('section-level collapse (#300)', () => {
     expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeDisabled()
   })
 
+  it('a lane created after timeline-wide Collapse all arrives unfolded, showing what was just added', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    // No audio lane exists yet, so Collapse all has no Audio section to fold.
+    expect(screen.queryByRole('heading', { level: 3, name: 'Audio' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all timeline elements' }))
+    expect(unfold('Sequence')).toHaveAttribute('aria-expanded', 'false')
+
+    // The user now adds their first audio track: it must be visible, not
+    // hidden behind a fold left over from a section that did not exist.
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    expect(list('Audio tracks')).toBeInTheDocument()
+    expect(fold('Audio')).toHaveAttribute('aria-expanded', 'true')
+    expect(startTime('audio track m.mp3 at position 1')).toBeInTheDocument()
+    // The Sequence fold, applied to a section that was rendered, is untouched.
+    expect(unfold('Sequence')).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('a section that disappears while folded comes back unfolded', async () => {
     render(<App />)
     await importAudioClip('m.mp3', 8)
