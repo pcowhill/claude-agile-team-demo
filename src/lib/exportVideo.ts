@@ -531,6 +531,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   const { context, width, height, timeline, stillSources, overlayReplays } = options
   const createCanvas = options.createCanvas ?? (() => document.createElement('canvas'))
 
+  /**
+   * A video layer's frame, drawn from the element itself.
+   *
+   * The base layer needs no stand-in of its own, and #323 established why:
+   * `drawFrame` clears to black before drawing it, so it *looks* like a
+   * stalled element would record a black frame — but a seeking element
+   * paints its retained picture, so it does not. Measured on a real export
+   * whose primary was seeked throughout: 54 of 175 base draws happened with
+   * the element below `HAVE_CURRENT_DATA`, and 0 of 86 presented frames were
+   * black. `e2e/export-base-readiness.spec.ts` holds that property down.
+   *
+   * Do not add a readiness check here. Injecting one is what the black
+   * frames come from: with the element's picture replaced by an empty canvas
+   * when it reports unready, the same export recorded 28 black frames of 85.
+   */
   const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
     source: element,
     sourceWidth: element.videoWidth,
@@ -693,14 +708,35 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   /**
    * The last picture each overlay replay element supplied (#319).
    *
-   * `drawImage` of a media element below `HAVE_CURRENT_DATA` draws nothing,
-   * so the export used to skip such a layer for that frame — deleting it
-   * from the output and letting the base show through, which is what the
-   * customer saw as a color slate covering an overlay for a frame (#317).
-   * The preview cannot exhibit that: its overlay is a real <video> in the
-   * DOM, and a browser keeps displaying the last decoded frame while an
-   * element seeks or re-buffers. Holding a copy of that same last frame is
-   * what makes the canvas composition behave the way the DOM already does.
+   * The export used to *skip* an overlay layer whose element was below
+   * `HAVE_CURRENT_DATA`, which deleted the layer from that frame's output
+   * and let the base show through — the color slate covering an overlay for
+   * a frame that the customer reported in #317. Drawing the layer from a
+   * copy of its last supplied frame instead is what fixed it.
+   *
+   * **What the skip cost, measured** (#324, on real exports with the
+   * element seeked throughout, the way `alignReplayClock` snaps a drifted
+   * clock): with the skip, 34 of 82 presented frames lost the overlay; with
+   * this stand-in, 0 of 84.
+   *
+   * **Why it is kept, which is not what #319 and #322 said.** Both claimed
+   * `drawImage` of an element below `HAVE_CURRENT_DATA` draws nothing. That
+   * is false, and #323 was filed and closed on the strength of it: an
+   * element that has already decoded a frame paints its *retained* frame
+   * while seeking — measured at `readyState` 1, full alpha — exactly as a
+   * <video> in the DOM does. Deleting the skip and drawing the element live
+   * would therefore also have fixed #319 (measured: 0 of 87 frames lost).
+   * So this stand-in is not repairing a `drawImage` limitation; it is making
+   * the composition independent of a browser detail the export would
+   * otherwise lean on implicitly — that a media element keeps a paintable
+   * frame across a seek, which nothing specifies it must.
+   *
+   * That is a real but modest benefit against one canvas copy per overlay
+   * per frame (0.02 ms for a 320×180 source, 0.43 ms at 720p, 1.23 ms at
+   * 1080p, of a 33 ms budget at 30 fps). Weigh those numbers, not the
+   * `drawImage` claim, if this is ever revisited — and note that dropping it
+   * needs the `videoWidth === 0` guard below kept in some form, since an
+   * element that has never decoded anything genuinely does paint nothing.
    *
    * Keyed by element, so a layer's stand-in follows its own replay element
    * and is re-made if the source's intrinsic size ever changes.
@@ -713,9 +749,11 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   /**
    * What to draw for an overlay layer this frame, with the intrinsic size to
    * measure its crop and placement against: the element itself while it can
-   * supply a picture, otherwise the last one it did. Null only for an
-   * element that has never decoded a frame — there is nothing truthful to
-   * draw then, and skipping remains right.
+   * supply a picture, otherwise the last one it did.
+   *
+   * Null only for an element that has never decoded a frame. That case is
+   * the one where `drawImage` really does paint nothing (measured: alpha 0),
+   * so there is nothing truthful to draw and skipping remains right.
    */
   const overlayPicture = (
     element: HTMLVideoElement,
@@ -1015,6 +1053,8 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // An element that momentarily cannot supply a frame draws the last
         // one it did (#319), so a seek, a re-buffer or a decode stall costs
         // the layer a repeated frame instead of deleting it from the output.
+        // The skip this replaced is what caused #317; see `standIns` above
+        // for what is and is not true about `drawImage` here (#324).
         const picture = overlayPicture(element)
         if (picture === null) continue
         // The overlay's orientation (#233): the oriented shape letterboxes
