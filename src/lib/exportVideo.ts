@@ -511,7 +511,8 @@ export interface FrameComposerOptions {
   /** One replay element per overlay video layer (#146), in add order. */
   overlayReplays: readonly { overlay: VideoOverlay; element: HTMLVideoElement }[]
   /** Injectable for tests (jsdom has no canvas rendering) — creates the
-   * blur backdrop's downscaled buffer (#260). */
+   * composition's off-screen buffers: the blur backdrop's downscaled buffer
+   * (#260) and an overlay layer's last-frame stand-in (#319). */
   createCanvas?: () => HTMLCanvasElement
 }
 
@@ -686,6 +687,79 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       }
     } else {
       context.drawImage(buffer, dest.x, dest.y, dest.width, dest.height)
+    }
+  }
+
+  /**
+   * The last picture each overlay replay element supplied (#319).
+   *
+   * `drawImage` of a media element below `HAVE_CURRENT_DATA` draws nothing,
+   * so the export used to skip such a layer for that frame — deleting it
+   * from the output and letting the base show through, which is what the
+   * customer saw as a color slate covering an overlay for a frame (#317).
+   * The preview cannot exhibit that: its overlay is a real <video> in the
+   * DOM, and a browser keeps displaying the last decoded frame while an
+   * element seeks or re-buffers. Holding a copy of that same last frame is
+   * what makes the canvas composition behave the way the DOM already does.
+   *
+   * Keyed by element, so a layer's stand-in follows its own replay element
+   * and is re-made if the source's intrinsic size ever changes.
+   */
+  const overlayStandIns = new Map<
+    HTMLVideoElement,
+    { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }
+  >()
+
+  /**
+   * What to draw for an overlay layer this frame, with the intrinsic size to
+   * measure its crop and placement against: the element itself while it can
+   * supply a picture, otherwise the last one it did. Null only for an
+   * element that has never decoded a frame — there is nothing truthful to
+   * draw then, and skipping remains right.
+   */
+  const overlayPicture = (
+    element: HTMLVideoElement,
+  ): { source: CanvasImageSource; width: number; height: number } | null => {
+    if (
+      element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      element.videoWidth > 0 &&
+      element.videoHeight > 0
+    ) {
+      // Refresh the stand-in from the frame about to be drawn, so the next
+      // frame the element cannot supply one has the true previous picture
+      // rather than a stale or empty one.
+      let standIn = overlayStandIns.get(element)
+      if (
+        standIn === undefined ||
+        standIn.canvas.width !== element.videoWidth ||
+        standIn.canvas.height !== element.videoHeight
+      ) {
+        const canvas = createCanvas()
+        canvas.width = element.videoWidth
+        canvas.height = element.videoHeight
+        const standInContext = canvas.getContext('2d')
+        // A browser that granted the output canvas a 2d context and refuses
+        // another is not a real case; draw the live element and carry no
+        // stand-in rather than failing an export over the fallback path.
+        if (standInContext === null) {
+          return {
+            source: element,
+            width: element.videoWidth,
+            height: element.videoHeight,
+          }
+        }
+        standIn = { canvas, context: standInContext }
+        overlayStandIns.set(element, standIn)
+      }
+      standIn.context.drawImage(element, 0, 0, standIn.canvas.width, standIn.canvas.height)
+      return { source: element, width: element.videoWidth, height: element.videoHeight }
+    }
+    const standIn = overlayStandIns.get(element)
+    if (standIn === undefined) return null
+    return {
+      source: standIn.canvas,
+      width: standIn.canvas.width,
+      height: standIn.canvas.height,
     }
   }
 
@@ -931,23 +1005,25 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // (transitions and zooms apply to those), then overlay layers in add
     // order, then text. Each clip letterboxes within its placement rectangle
     // and the gutters are simply not drawn (the base stays visible — the
-    // transparent-gutter rule). An element that cannot yet supply a frame is
-    // skipped rather than drawn black, matching the late-engage rule above.
+    // transparent-gutter rule). An element that has never supplied a frame
+    // is skipped rather than drawn black, matching the late-engage rule
+    // above; one that supplied a frame earlier repeats it (#319).
     const activeOverlays = activeVideoOverlays(timeline, sequenceTime)
     if (activeOverlays.length > 0) {
       for (const { overlay: layer, element } of overlayReplays) {
         if (!activeOverlays.includes(layer)) continue
-        if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue
+        // An element that momentarily cannot supply a frame draws the last
+        // one it did (#319), so a seek, a re-buffer or a decode stall costs
+        // the layer a repeated frame instead of deleting it from the output.
+        const picture = overlayPicture(element)
+        if (picture === null) continue
         // The overlay's orientation (#233): the oriented shape letterboxes
         // within the placement rectangle — the preview's swapped media box
         // at rectangle scale — and the draw rotates/flips into that box.
         // Its crop (#256) shapes the box first, crop before orientation
         // (#255), and the draw paints only the kept source rectangle.
         const layerDims = orientedDimensions(
-          croppedDimensions(
-            { width: element.videoWidth, height: element.videoHeight },
-            layer.crop,
-          ),
+          croppedDimensions({ width: picture.width, height: picture.height }, layer.crop),
           layer.orientation,
         )
         const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
@@ -957,10 +1033,10 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
             drawLayerSource(
               context,
-              element,
+              picture.source,
               layer.crop,
-              element.videoWidth,
-              element.videoHeight,
+              picture.width,
+              picture.height,
               drawRect,
             )
           })

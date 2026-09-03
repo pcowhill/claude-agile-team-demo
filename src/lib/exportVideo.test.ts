@@ -1572,3 +1572,203 @@ describe('frame composition of background fill (#260)', () => {
     ])
   })
 })
+
+// An overlay layer whose replay element momentarily cannot supply a frame
+// (#319 — a seek after a drift snap, a re-buffer, a decode stall at a busy
+// instant). Before this, `drawFrame` skipped the layer for that frame, so it
+// vanished from the exported picture and the base showed through; the
+// preview never could, because a DOM <video> keeps displaying its last
+// decoded frame. These pin the composition through the real composer with a
+// fake context, which is where the decision lives.
+describe('an unready overlay element draws its last frame (#319)', () => {
+  const overlay: VideoOverlay = {
+    id: 'o1',
+    clipId: 'c-over',
+    name: 'over.webm',
+    duration: 10,
+    url: 'blob:over',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+  }
+
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c-base',
+    name: 'base.webm',
+    duration: 10,
+    url: 'blob:base',
+    inPoint: 0,
+    outPoint: 10,
+  }
+
+  /** A replay element stand-in whose readiness the test drives frame by frame. */
+  interface FakeOverlayElement {
+    tag: string
+    readyState: number
+    videoWidth: number
+    videoHeight: number
+    currentTime: number
+  }
+  const fakeOverlayElement = (tag = 'over-element'): FakeOverlayElement => ({
+    tag,
+    readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+    videoWidth: 160,
+    videoHeight: 90,
+    currentTime: 0,
+  })
+
+  /**
+   * The real composer over a 320×180 frame with one overlay layer. Every
+   * off-screen buffer it asks for is a tagged fake recording its own ops, so
+   * the copy into the stand-in is observable separately from the frame draw.
+   */
+  const composerFor = (
+    element: FakeOverlayElement,
+    layer: VideoOverlay = overlay,
+    timeline: TimelineState = { entries: [baseEntry], videoOverlays: [layer] },
+  ) => {
+    const main = fakeComposerContext()
+    const buffers: { tag: string; ops: string[]; width: number; height: number }[] = []
+    const composer = createFrameComposer({
+      context: main.context,
+      width: 320,
+      height: 180,
+      timeline,
+      stillSources: new Map(),
+      overlayReplays: [{ overlay: layer, element: element as unknown as HTMLVideoElement }],
+      createCanvas: () => {
+        const buffer = fakeComposerContext()
+        const record = { tag: `stand-in-${buffers.length}`, ops: buffer.ops, width: 0, height: 0 }
+        buffers.push(record)
+        return {
+          get tag() {
+            return record.tag
+          },
+          get width() {
+            return record.width
+          },
+          set width(value: number) {
+            record.width = value
+          },
+          get height() {
+            return record.height
+          },
+          set height(value: number) {
+            record.height = value
+          },
+          getContext: () => buffer.context,
+        } as unknown as HTMLCanvasElement
+      },
+    })
+    return { composer, main, buffers }
+  }
+
+  /** The base layer: a 320×180 source filling the frame, so overlay ops stand out. */
+  const baseLayer = {
+    source: { tag: 'base' } as unknown as CanvasImageSource,
+    sourceWidth: 320,
+    sourceHeight: 180,
+    time: 0,
+  }
+
+  const overlayOps = (ops: string[]) => ops.filter((op) => op.startsWith('draw(') && !op.includes('(base,'))
+
+  it('repeats the last frame instead of dropping the layer', () => {
+    const element = fakeOverlayElement()
+    const { composer, main } = composerFor(element)
+
+    // A frame the element can supply: the live element is drawn.
+    composer.drawFrame(baseLayer, 0, 0)
+    const ready = overlayOps(main.ops)
+    expect(ready).toHaveLength(1)
+    expect(ready[0]).toContain('over-element')
+
+    // The next frame it cannot — a seeking element reports HAVE_METADATA.
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 0.033)
+
+    // The layer is still in the picture, from the frame it last supplied,
+    // in exactly the place and size the live element occupied.
+    const stalled = overlayOps(main.ops)
+    expect(stalled).toHaveLength(2)
+    expect(stalled[1]).toBe(ready[0].replace('over-element', 'stand-in-0'))
+  })
+
+  it('keeps the stand-in current rather than freezing the first frame', () => {
+    const element = fakeOverlayElement()
+    const { composer, buffers } = composerFor(element)
+
+    composer.drawFrame(baseLayer, 0, 0)
+    composer.drawFrame(baseLayer, 0, 0.033)
+    composer.drawFrame(baseLayer, 0, 0.066)
+
+    // One stand-in, refreshed from the element on every frame it could
+    // supply — so the fallback is the previous picture, not an old one.
+    expect(buffers).toHaveLength(1)
+    expect(buffers[0].ops.filter((op) => op.startsWith('draw('))).toEqual([
+      'draw(over-element, [0, 0, 160, 90], none)',
+      'draw(over-element, [0, 0, 160, 90], none)',
+      'draw(over-element, [0, 0, 160, 90], none)',
+    ])
+    expect(buffers[0].width).toBe(160)
+    expect(buffers[0].height).toBe(90)
+  })
+
+  it('draws the element again once it can supply a frame', () => {
+    const element = fakeOverlayElement()
+    const { composer, main } = composerFor(element)
+
+    composer.drawFrame(baseLayer, 0, 0)
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 0.033)
+    element.readyState = HTMLMediaElement.HAVE_ENOUGH_DATA
+    composer.drawFrame(baseLayer, 0, 0.066)
+
+    const ops = overlayOps(main.ops)
+    expect(ops).toHaveLength(3)
+    expect(ops[2]).toContain('over-element')
+  })
+
+  it('skips a layer whose element has never supplied a frame', () => {
+    const element = fakeOverlayElement()
+    element.readyState = HTMLMediaElement.HAVE_NOTHING
+    element.videoWidth = 0
+    element.videoHeight = 0
+    const { composer, main, buffers } = composerFor(element)
+
+    composer.drawFrame(baseLayer, 0, 0)
+
+    // Nothing truthful to draw, so the layer is skipped exactly as before —
+    // and no stand-in is allocated for a layer that never had a picture.
+    expect(overlayOps(main.ops)).toEqual([])
+    expect(buffers).toEqual([])
+  })
+
+  it('the repeated frame carries the layer’s crop and orientation, not the raw source', () => {
+    const element = fakeOverlayElement()
+    const layer: VideoOverlay = {
+      ...overlay,
+      crop: { left: 0.25, right: 0, top: 0, bottom: 0.5 },
+      orientation: { rotation: 90 },
+    }
+    const { composer, main } = composerFor(element, layer)
+
+    composer.drawFrame(baseLayer, 0, 0)
+    const ready = main.ops.slice()
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 0.033)
+    const stalled = main.ops.slice(ready.length)
+
+    // Every op of the stalled frame matches the ready frame's — the same
+    // transforms, the same source rectangle, the same destination — with the
+    // stand-in standing in for the element. A fallback drawn from different
+    // geometry would be a visible jump, which is the defect in another form.
+    expect(stalled).toEqual(ready.map((op) => op.replace('over-element', 'stand-in-0')))
+    expect(stalled.some((op) => op.startsWith('rotate('))).toBe(true)
+  })
+})
