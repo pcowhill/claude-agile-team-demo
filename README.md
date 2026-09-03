@@ -112,9 +112,13 @@ and video overlays alike — soundless items (stills, slates, clips whose
 audio cannot be decoded) keep the plain bar. Every section is titled —
 Sequence, Audio, Overlays, Text — and every row can be collapsed to a thin
 wedge of just its coverage bar and main line (#299), individually or all at
-once from the timeline header's Collapse all / Expand all; collapsing is a
-view choice, never an edit, so it is not undoable and not saved with the
-project.
+once from the timeline header's Collapse all / Expand all. Each section
+heading carries its own controls too (#300): fold the whole section down to
+its heading (unfolding brings every row back exactly as it was), or
+collapse / expand just that section's rows; the header's Collapse all also
+folds every section and Expand all unfolds and expands everything.
+Collapsing and folding are view choices, never edits, so they are not
+undoable and not saved with the project.
 Video entries and overlay rows also carry a small thumbnail (#193) — the
 first frame of the trimmed range, re-captured when the in-point changes;
 image entries show the image itself and slates a color swatch. Thumbnails

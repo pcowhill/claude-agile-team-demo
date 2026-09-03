@@ -746,6 +746,27 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
   )
 }
 
+/**
+ * The timeline's four sections (#300), each foldable to its heading. Fixed
+ * ids: the sections are structural, not data.
+ */
+type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'text'
+
+/**
+ * Which sections the timeline currently renders — a lane without elements is
+ * not rendered, so it has nothing to fold. Both the fold-state pruning and
+ * the timeline-wide Collapse all read this, so folding can only ever apply
+ * to a section the user can actually see.
+ */
+function renderedSectionsOf(timeline: TimelineState): ReadonlySet<TimelineSection> {
+  const rendered = new Set<TimelineSection>()
+  if (timeline.entries.length > 0) rendered.add('sequence')
+  if (audioTracksOf(timeline).length > 0) rendered.add('audio')
+  if (videoOverlaysOf(timeline).length > 0) rendered.add('overlays')
+  if (textsOf(timeline).length > 0) rendered.add('text')
+  return rendered
+}
+
 export function Timeline({
   timeline,
   canUndo,
@@ -888,6 +909,80 @@ export function Timeline({
       {isCollapsed(id) ? '▸' : '▾'}
     </button>
   )
+  // Folded sections (#300): the second level of the same view state. A
+  // folded section shows only its heading row; unfolding brings its list
+  // back with each element's own collapsed/expanded state untouched. Like
+  // the element set, this never reaches the project model, autosave, or the
+  // undo history, and a section that stops being rendered (its last element
+  // removed) is dropped so it comes back unfolded if it is re-created.
+  const [folded, setFolded] = useState<ReadonlySet<TimelineSection>>(
+    () => new Set<TimelineSection>(),
+  )
+  const isFolded = (section: TimelineSection) => folded.has(section)
+  const toggleFolded = (section: TimelineSection) =>
+    setFolded((previous) => {
+      const next = new Set(previous)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
+  useEffect(() => {
+    const rendered = renderedSectionsOf(timeline)
+    setFolded((previous) => {
+      const next = new Set([...previous].filter((section) => rendered.has(section)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [timeline])
+  /** Collapses or expands only the given elements, leaving the rest as they are. */
+  const setElementsCollapsed = (ids: readonly string[], collapse: boolean) =>
+    setCollapsed((previous) => {
+      const next = new Set(previous)
+      for (const id of ids) {
+        if (collapse) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  /**
+   * A section's heading row (#300): the lane title, its fold/unfold toggle,
+   * and Collapse all / Expand all for just that section's elements.
+   */
+  const sectionHeading = (
+    section: TimelineSection,
+    title: string,
+    headingClassName: string,
+    elementIds: readonly string[],
+  ) => (
+    <div className="lane-heading-row">
+      <button
+        type="button"
+        className="timeline-collapse-toggle"
+        aria-expanded={!isFolded(section)}
+        aria-label={`${isFolded(section) ? 'Expand' : 'Collapse'} ${title} section`}
+        title={isFolded(section) ? 'Expand section' : 'Collapse section'}
+        onClick={() => toggleFolded(section)}
+      >
+        {isFolded(section) ? '▸' : '▾'}
+      </button>
+      <h3 className={headingClassName}>{title}</h3>
+      <button
+        type="button"
+        className="lane-heading-action"
+        aria-label={`Collapse all ${title} elements`}
+        onClick={() => setElementsCollapsed(elementIds, true)}
+      >
+        Collapse all
+      </button>
+      <button
+        type="button"
+        className="lane-heading-action"
+        aria-label={`Expand all ${title} elements`}
+        onClick={() => setElementsCollapsed(elementIds, false)}
+      >
+        Expand all
+      </button>
+    </div>
+  )
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -920,19 +1015,32 @@ export function Timeline({
         >
           ↻ Redo
         </button>
-        {/* Collapse/expand every element on the timeline at once (#299);
-            the per-row toggles sit on each row's main line. */}
+        {/* Collapse/expand every element on the timeline at once (#299) and,
+            since #300, fold/unfold every section with it; the per-row and
+            per-section toggles sit on the rows and the section headings. */}
         <button
           type="button"
           aria-label="Collapse all timeline elements"
-          onClick={() => setCollapsed(new Set(allElementIds()))}
+          onClick={() => {
+            setCollapsed(new Set(allElementIds()))
+            // Only the sections on the timeline now — like the element set
+            // above, which names existing ids only. Folding a section that
+            // is not rendered yet would outlive this click: the pruning
+            // effect keeps a fold whose section is rendered by the time the
+            // timeline next changes, so the lane that change creates would
+            // arrive folded and hide the element the user just added.
+            setFolded(new Set(renderedSectionsOf(timeline)))
+          }}
         >
           Collapse all
         </button>
         <button
           type="button"
           aria-label="Expand all timeline elements"
-          onClick={() => setCollapsed(new Set<string>())}
+          onClick={() => {
+            setCollapsed(new Set<string>())
+            setFolded(new Set<TimelineSection>())
+          }}
         >
           Expand all
         </button>
@@ -986,7 +1094,13 @@ export function Timeline({
         <div className="sequence-lane">
           {/* The main section gets a subtitle like every other lane (#299):
               video clips, images, and color slates are the sequence. */}
-          <h3 className="sequence-lane-heading">Sequence</h3>
+          {sectionHeading(
+            'sequence',
+            'Sequence',
+            'sequence-lane-heading',
+            entries.map((entry) => entry.id),
+          )}
+        {!isFolded('sequence') && (
         <ol className="timeline-list" aria-label="Sequence">
           {entries.map((entry, index) => {
             const position = `${entry.name} at position ${index + 1}`
@@ -1506,12 +1620,14 @@ export function Timeline({
             )
           })}
         </ol>
+        )}
         </div>
       )}
 
       {audioTracks.length > 0 && (
         <div className="audio-lane">
-          <h3 className="audio-lane-heading">Audio</h3>
+          {sectionHeading('audio', 'Audio', 'audio-lane-heading', audioTracks.map((track) => track.id))}
+          {!isFolded('audio') && (
           <ol className="audio-track-list" aria-label="Audio tracks">
             {audioTracks.map((track, index) => {
               const position = `audio track ${track.name} at position ${index + 1}`
@@ -1649,12 +1765,19 @@ export function Timeline({
               )
             })}
           </ol>
+          )}
         </div>
       )}
 
       {videoOverlays.length > 0 && (
         <div className="overlay-lane">
-          <h3 className="overlay-lane-heading">Overlays</h3>
+          {sectionHeading(
+            'overlays',
+            'Overlays',
+            'overlay-lane-heading',
+            videoOverlays.map((overlay) => overlay.id),
+          )}
+          {!isFolded('overlays') && (
           <ol className="video-overlay-list" aria-label="Overlay video layers">
             {videoOverlays.map((overlay, index) => {
               const position = `overlay ${overlay.name} at position ${index + 1}`
@@ -1835,12 +1958,14 @@ export function Timeline({
               )
             })}
           </ol>
+          )}
         </div>
       )}
 
       {texts.length > 0 && (
         <div className="text-lane">
-          <h3 className="text-lane-heading">Text</h3>
+          {sectionHeading('text', 'Text', 'text-lane-heading', texts.map((text) => text.id))}
+          {!isFolded('text') && (
           <ol className="text-overlay-list" aria-label="Text overlays">
             {texts.map((text, index) => {
               const position = `text overlay at position ${index + 1}`
@@ -1986,6 +2111,7 @@ export function Timeline({
               )
             })}
           </ol>
+          )}
         </div>
       )}
 
