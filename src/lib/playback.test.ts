@@ -3,6 +3,7 @@ import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import {
   audioTrackPlaybackAt,
   entryStartTime,
+  frontedLocation,
   isAtSequenceEnd,
   isTransitionOverlayActive,
   locateInSequence,
@@ -467,6 +468,72 @@ describe('splitTargetAt and split playback equivalence (#190)', () => {
         zoomAt(after, split?.index ?? 0, split?.sourceTime ?? 0),
         `zoom at ${time}`,
       ).toEqual(zoomAt(before, original?.index ?? 0, original?.sourceTime ?? 0))
+    }
+  })
+})
+
+describe('frontedLocation (#318)', () => {
+  /**
+   * Two entries with a 1s crossfade: e1 covers sequence [0, 4), e2 begins at
+   * 3, so the overlap is [3, 4) and the sequence totals 7.
+   */
+  const withTransition: TimelineState = {
+    entries: [
+      entry({ id: 'e1', clipId: 'clip-a', inPoint: 0, outPoint: 4 }),
+      entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b', inPoint: 0, outPoint: 4 }),
+    ],
+    transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+  }
+  const at = (time: number) => locateInSequence(withTransition, time)
+
+  it('corrects a published time still inside the overlap the player has left', () => {
+    // The handover happened (index 1 is cued) but the incoming element's
+    // clock lags, so the published time is 50ms short of the overlap's end.
+    const raw = at(3.95)
+    expect(raw?.index).toBe(0)
+    expect(raw?.transition?.index).toBe(1)
+
+    const fronted = frontedLocation(withTransition, raw, 1)
+    // The incoming entry fronts, at the geometric handover point — one
+    // transition duration into it — and the finished transition is gone.
+    expect(fronted?.index).toBe(1)
+    expect(fronted?.entry.id).toBe('e2')
+    expect(fronted?.sourceTime).toBeCloseTo(1, 10)
+    expect(fronted?.transition).toBeUndefined()
+  })
+
+  it('leaves a location alone while the player is still on it', () => {
+    // Mid-overlap before the handover: index 0 is cued, so the transition is
+    // genuinely running and must keep rendering.
+    const raw = at(3.5)
+    expect(frontedLocation(withTransition, raw, 0)).toBe(raw)
+    // And outside any overlap.
+    const plain = at(1)
+    expect(frontedLocation(withTransition, plain, 0)).toBe(plain)
+  })
+
+  it('does not hold the playhead forward when the player moves back', () => {
+    // Scrubbing back into the overlap re-cues entry 0, so playedIndex is 0
+    // again and the transition renders — the guard only ever looks forward.
+    const raw = at(3.5)
+    expect(frontedLocation(withTransition, raw, 0)?.transition?.index).toBe(1)
+  })
+
+  it('passes through a null location and a played index past the end', () => {
+    expect(frontedLocation({ entries: [] }, null, 0)).toBeNull()
+    // An edit can drop entries between a cue and the next render; a played
+    // index no entry answers to is not a correction we can make.
+    const raw = at(3.95)
+    expect(frontedLocation(withTransition, raw, 2)).toBe(raw)
+  })
+
+  it('is the identity on a timeline without transitions', () => {
+    // Every hard-cut position resolves to the entry the player is on, so
+    // nothing is ever corrected — the pre-#318 behavior, unchanged.
+    const total = totalDuration(timeline)
+    for (let time = 0; time <= total; time += 0.25) {
+      const raw = locateInSequence(timeline, time)
+      expect(frontedLocation(timeline, raw, raw?.index ?? 0), `at ${time}`).toBe(raw)
     }
   })
 })

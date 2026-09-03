@@ -19,6 +19,7 @@ import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/re
 import {
   audioTrackPlaybackAt,
   entryStartTime,
+  frontedLocation,
   isTransitionOverlayActive,
   locateInSequence,
   sequenceTimeAt,
@@ -491,9 +492,14 @@ export function PreviewPlayer({
   const stillImageRef = useRef<HTMLImageElement>(null)
   const stillIncomingImageRef = useRef<HTMLImageElement>(null)
   const frameRef = useRef(0)
-  // The entry index the primary element is currently cued to. Kept in a ref
-  // (not state) because the rAF loop reads and writes it between renders.
+  // The entry index the primary element is currently cued to. The ref is for
+  // the rAF loop, which reads and writes it between renders; the state mirror
+  // is what the render fronts, so an entry the player has already left is
+  // never painted again even while the published sequence time still trails
+  // inside the overlap it just finished (#318 — the same clock drift #61
+  // fixed on the incoming side).
   const indexRef = useRef(0)
+  const [playedIndex, setPlayedIndex] = useState(0)
   // A still entry has no element clock (#140): while one fronts the
   // sequence, this wall clock stands in for `video.currentTime`, advanced
   // by the rAF loop only while playing (so pausing freezes it for free).
@@ -659,6 +665,12 @@ export function PreviewPlayer({
     setEngagedFor(value)
   }, [])
 
+  /** Single writer for the played index, keeping the ref and its mirror in step. */
+  const setIndex = useCallback((value: number) => {
+    indexRef.current = value
+    setPlayedIndex(value)
+  }, [])
+
   /**
    * Cues one element to a source time, switching src when it plays a
    * different source clip. currentTime is only settable once metadata is
@@ -698,7 +710,7 @@ export function PreviewPlayer({
     (location: PlaybackLocation, outputInto: number, thenPlay: boolean) => {
       const video = primaryVideo()
       if (!video) return
-      indexRef.current = location.index
+      setIndex(location.index)
       holdRef.current = null
       if (isStillEntry(location.entry)) {
         // A still fronts declaratively (#140): its <img> renders from the
@@ -733,7 +745,7 @@ export function PreviewPlayer({
         )
       }
     },
-    [cueElement, timeline],
+    [cueElement, setIndex, timeline],
   )
 
   /**
@@ -939,7 +951,7 @@ export function PreviewPlayer({
         // just start its wall clock where the overlap ends.
         if (!still) video.pause()
         setEngaged(null)
-        indexRef.current = index + 1
+        setIndex(index + 1)
         stillClockRef.current = {
           sourceTime: next.inPoint + overlap.duration,
           lastNow: performance.now(),
@@ -962,7 +974,7 @@ export function PreviewPlayer({
           videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
           duckFactorAt(ducking, entryStartTime(timeline, index + 1) + overlap.duration)
         setEngaged(null)
-        indexRef.current = index + 1
+        setIndex(index + 1)
         stillClockRef.current = null
         primaryIsARef.current = !primaryIsARef.current
         setPrimaryIsA(primaryIsARef.current)
@@ -1097,7 +1109,7 @@ export function PreviewPlayer({
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary, setEngaged, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
+  }, [timeline, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence.
@@ -1215,14 +1227,22 @@ export function PreviewPlayer({
     pauseAudioTracks()
     pauseVideoOverlays()
     setEngaged(null)
+    // The played index (#318) is position state like the rest: after an edit
+    // the entry it named may be gone or renumbered, so it stops guarding
+    // anything until the next cue re-establishes it. Index 0 can never be
+    // ahead of a location, so the guard is simply inert until then.
+    setIndex(0)
     holdRef.current = null
     setPlaying(false)
     setSequenceTime((time) => Math.min(time, totalDuration(timeline)))
-  }, [timeline, stopLoop, setEngaged, pauseAudioTracks, pauseVideoOverlays])
+  }, [timeline, stopLoop, setEngaged, setIndex, pauseAudioTracks, pauseVideoOverlays])
 
   useEffect(() => stopLoop, [stopLoop])
 
-  const location = locateInSequence(timeline, sequenceTime)
+  // Never front an entry the player has already left (#318): at a handover
+  // the published time comes off the incoming element's lagging clock, so the
+  // raw location can still name the entry whose transition just ended.
+  const location = frontedLocation(timeline, locateInSequence(timeline, sequenceTime), playedIndex)
   // What the Split control would cut at the playhead (#190), or null where
   // splitting is disabled. Clamped like the seek slider's value, so a
   // published time past the end reads as the end (not splittable).
