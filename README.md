@@ -134,8 +134,9 @@ sequence, a quarter-turned or cropped clip — chosen on the timeline row:
 none (the default black bars), a blurred cover-fit copy of the clip's own
 current frame (the familiar social-video blur-fill), or a flat color. The
 backdrop renders live in the preview behind the normally fitted clip,
-never reshapes the output frame, and saves with the project. Export
-rendering of the fill is the follow-up #260.
+never reshapes the output frame, and saves with the project. Exports —
+the video formats, the GIF plugin, and frame snapshots alike — render
+the fill through the same shared rule (#260).
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

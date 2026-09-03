@@ -39,7 +39,11 @@ import { orientationTransform, orientedDimensions } from '../lib/orientation'
 import type { Orientation } from '../lib/orientation'
 import { croppedDimensions, cropMediaPlacement } from '../lib/crop'
 import type { Crop } from '../lib/crop'
-import { BACKDROP_BLUR_FRACTION, backdropRect } from '../lib/backgroundFill'
+import {
+  BACKDROP_BLUR_FRACTION,
+  BACKDROP_BUFFER_WIDTH,
+  backdropRect,
+} from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
 import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
 import { transitionLayerSpec } from '../lib/transitionRender'
@@ -270,11 +274,6 @@ function croppedOrientedMediaStyle(
     transform: base?.transform === undefined ? cropTransform : `${base.transform} ${cropTransform}`,
   }
 }
-
-/** The blur backdrop buffer's fixed width in canvas pixels (#259): the
- * picture is heavily blurred by design, so a small buffer both looks
- * identical and keeps the per-frame copy trivially cheap. */
-const BACKDROP_BUFFER_WIDTH = 192
 
 /**
  * The blur-fill backdrop (#259): a low-resolution canvas behind the fitted
