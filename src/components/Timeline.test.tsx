@@ -2572,3 +2572,95 @@ describe('section-level collapse (#300)', () => {
     expect(fold('Audio')).toHaveAttribute('aria-expanded', 'true')
   })
 })
+
+describe('duplicate a timeline element (#314)', () => {
+  it('duplicates a sequence entry right after the original, carrying its trim, as one undo step', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 20)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+    const outField = screen.getByRole('spinbutton', {
+      name: 'Trim out point of a.mp4 at position 1 in seconds',
+    })
+    fireEvent.change(outField, { target: { value: '5' } })
+    fireEvent.blur(outField)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Duplicate a.mp4 at position 1' }),
+    )
+
+    // The copy sits immediately after the original, its settings carried —
+    // the trimmed out point shows on the row at position 2.
+    expect(sequenceNames()).toEqual(['a.mp4', 'a.mp4', 'b.mp4'])
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim out point of a.mp4 at position 2 in seconds' }),
+    ).toHaveValue(5)
+
+    // One Undo removes the duplicate and leaves the original untouched.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(sequenceNames()).toEqual(['a.mp4', 'b.mp4'])
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim out point of a.mp4 at position 1 in seconds' }),
+    ).toHaveValue(5)
+    // Redo restores it.
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(sequenceNames()).toEqual(['a.mp4', 'a.mp4', 'b.mp4'])
+  })
+
+  it('duplicates an audio track onto the lane starting where the original ends', async () => {
+    render(<App />)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Duplicate audio track m.mp3 at position 1' }),
+    )
+
+    const tracks = within(screen.getByRole('list', { name: 'Audio tracks' })).getAllByRole(
+      'listitem',
+    )
+    expect(tracks).toHaveLength(2)
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of audio track m.mp3 at position 2 in seconds',
+      }),
+    ).toHaveValue(8)
+  })
+
+  it('duplicates a video overlay onto the lane starting where the original ends', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 6)
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Duplicate overlay cam.mp4 at position 1' }),
+    )
+
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of overlay cam.mp4 at position 2 in seconds',
+      }),
+    ).toHaveValue(6)
+  })
+
+  it('duplicates a text overlay onto the lane starting where the original ends', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add text overlay to timeline' }),
+    )
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Duplicate text overlay at position 1' }),
+    )
+
+    // The default text runs 0–3 s, so the copy starts at 3.
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Start time of text overlay at position 2 in seconds',
+      }),
+    ).toHaveValue(3)
+  })
+})

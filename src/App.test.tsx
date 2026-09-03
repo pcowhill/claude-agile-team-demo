@@ -90,6 +90,18 @@ describe('unsaved-changes tracking (#76)', () => {
     await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
     await waitFor(() => expect(writes).toHaveLength(2))
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+
+    // Duplicating a row is an ordinary edit (#314): it dirties the project,
+    // and the copy is in the next save.
+    await user.click(screen.getByRole('button', { name: 'Duplicate clip.webm at position 1' }))
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    await waitFor(() => expect(writes).toHaveLength(3))
+    const withDuplicate = await deserializeProject(writes[2])
+    expect(withDuplicate.ok).toBe(true)
+    if (withDuplicate.ok) {
+      expect(withDuplicate.project.timeline.entries).toHaveLength(3)
+    }
   })
 
   it('Ctrl+S mid-edit saves the committed state and leaves the field alone', async () => {

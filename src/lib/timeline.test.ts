@@ -3648,3 +3648,188 @@ describe('canvas preset (#273)', () => {
     expect(openedWithPreset.canvasPreset).toBe('1:1')
   })
 })
+
+describe('element-duplicated (#314)', () => {
+  const duplicate = (
+    state: TimelineState,
+    kind: 'entry' | 'audio-track' | 'video-overlay' | 'text',
+    id: string,
+    newId = 'dup',
+  ) => timelineReducer(state, { type: 'element-duplicated', kind, id, newId })
+
+  it('inserts an exact copy of a sequence entry immediately after the original', () => {
+    const base = stateOf(['a', 10, 1, 8], ['b'])
+    const decorated: TimelineState = {
+      ...base,
+      entries: [
+        {
+          ...base.entries[0],
+          volume: 0.5,
+          muted: true,
+          fadeIn: 0.3,
+          fadeOut: 0.4,
+          colorAdjustments: { brightness: 1.2 },
+          orientation: { rotation: 90 as const, flipH: true },
+          crop: { left: 0.1, right: 0, top: 0, bottom: 0.2 },
+          backgroundFill: { kind: 'color' as const, color: '#123456' },
+        },
+        base.entries[1],
+      ],
+    }
+    const next = duplicate(decorated, 'entry', 'a')
+
+    expect(order(next)).toEqual(['a', 'dup', 'b'])
+    // Field-by-field: everything the original carried, ids aside.
+    const { id: _originalId, ...originalFields } = next.entries[0]
+    const { id: copyId, ...copyFields } = next.entries[1]
+    expect(copyId).toBe('dup')
+    expect(copyFields).toEqual(originalFields)
+    // The original is untouched by the duplication.
+    expect(next.entries[0]).toEqual(decorated.entries[0])
+  })
+
+  it('clones remaps and zooms under the new entry id, editable independently', () => {
+    const state: TimelineState = {
+      ...stateOf(['a']),
+      zooms: [{ id: 'z1', entryId: 'a', ...DEFAULT_ZOOM }],
+      remaps: [{ id: 'r1', entryId: 'a', kind: 'speed', start: 1, end: 3, factor: 0.5 }],
+    }
+    const next = duplicate(state, 'entry', 'a')
+
+    const copyZooms = zoomsForEntry(next, 'dup')
+    expect(copyZooms).toHaveLength(1)
+    expect(copyZooms[0]).toEqual({ ...DEFAULT_ZOOM, id: 'dup:z1', entryId: 'dup' })
+    const copyRemaps = remapsOf(next).filter((remap) => remap.entryId === 'dup')
+    expect(copyRemaps).toEqual([
+      { id: 'dup:r1', entryId: 'dup', kind: 'speed', start: 1, end: 3, factor: 0.5 },
+    ])
+
+    // Editing the copy's speed leaves the original's remap untouched.
+    const edited = timelineReducer(next, {
+      type: 'remap-updated',
+      id: 'dup:r1',
+      remap: { kind: 'speed', start: 1, end: 3, factor: 2 },
+    })
+    expect(remapsOf(edited).find((remap) => remap.id === 'r1')).toEqual(
+      state.remaps![0],
+    )
+    expect(remapsOf(edited).find((remap) => remap.id === 'dup:r1')).toMatchObject({ factor: 2 })
+  })
+
+  it('copies no transition: the in-boundary keeps its own, the out-boundary drops', () => {
+    let state = stateOf(['c'], ['a'], ['b'])
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'c',
+      afterId: 'a',
+      transition: { type: 'crossfade', duration: 1 },
+    })
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'a',
+      afterId: 'b',
+      transition: { type: 'crossfade', duration: 0.5 },
+    })
+    const next = duplicate(state, 'entry', 'a')
+
+    expect(order(next)).toEqual(['c', 'a', 'dup', 'b'])
+    // The boundary INTO the original is still the adjacent pair (c, a), so
+    // its transition survives; (a, b) is separated by the copy and drops —
+    // the insert-path normalization rule — and the copy has none at all.
+    expect(transitionsOf(next)).toEqual([
+      { beforeId: 'c', afterId: 'a', type: 'crossfade', duration: 1 },
+    ])
+  })
+
+  it('an audio track copy lands on the lane where the original ends, settings intact', () => {
+    const track = {
+      ...audioTrackFromClip(clip({ id: 'clip-x', kind: 'audio', name: 'x.mp3' }), 't1'),
+      offset: 2,
+      inPoint: 1,
+      outPoint: 4,
+      volume: 0.6,
+      fadeIn: 0.2,
+      fadeOut: 0.3,
+      duck: true,
+      duckLevel: 0.4,
+    }
+    const state: TimelineState = { ...stateOf(['a']), audioTracks: [track] }
+    const next = duplicate(state, 'audio-track', 't1')
+
+    const tracks = audioTracksOf(next)
+    expect(tracks.map(({ id }) => id)).toEqual(['t1', 'dup'])
+    const { id: _id, offset, ...copyFields } = tracks[1]
+    const { id: _originalId, offset: originalOffset, ...originalFields } = tracks[0]
+    // Starts where the original's trimmed audio ends: offset + (out − in).
+    expect(offset).toBe(5)
+    expect(originalOffset).toBe(2)
+    expect(copyFields).toEqual(originalFields)
+  })
+
+  it('a video overlay copy lands where the original ends, mask and looks intact', () => {
+    const overlay: VideoOverlay = {
+      ...videoOverlayFromClip(clip({ id: 'clip-v', name: 'v.webm' }), 'v1'),
+      offset: 1,
+      inPoint: 0.5,
+      outPoint: 3.5,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.25,
+      volume: 0.7,
+      muted: false,
+      colorAdjustments: { saturation: 1.4 },
+      orientation: { rotation: 180 as const },
+      crop: { left: 0, right: 0.2, top: 0.1, bottom: 0 },
+      shapeMask: { kind: 'rounded', radius: 0.25 },
+    }
+    const state: TimelineState = { ...stateOf(['a']), videoOverlays: [overlay] }
+    const next = duplicate(state, 'video-overlay', 'v1')
+
+    const overlays = videoOverlaysOf(next)
+    expect(overlays.map(({ id }) => id)).toEqual(['v1', 'dup'])
+    const { id: _id, offset, ...copyFields } = overlays[1]
+    const { id: _originalId, offset: _originalOffset, ...originalFields } = overlays[0]
+    expect(offset).toBe(4)
+    expect(copyFields).toEqual(originalFields)
+    expect(overlays[1].shapeMask).toEqual({ kind: 'rounded', radius: 0.25 })
+  })
+
+  it('a text overlay copy starts where the original ends, content and style intact', () => {
+    const text: TextOverlay = {
+      ...DEFAULT_TEXT,
+      id: 'x1',
+      content: 'Lower third',
+      offset: 2,
+      duration: 3,
+      x: 0.2,
+      y: 0.8,
+      size: 0.08,
+      color: '#ffcc00',
+      bold: true,
+      fadeIn: 0.2,
+      fadeOut: 0.2,
+      subtitle: true,
+      styleOverrides: ['color'],
+    }
+    const state: TimelineState = { ...stateOf(['a', 20]), texts: [text] }
+    const next = duplicate(state, 'text', 'x1')
+
+    const texts = textsOf(next)
+    expect(texts.map(({ id }) => id)).toEqual(['x1', 'dup'])
+    const { id: _id, offset, ...copyFields } = texts[1]
+    const { id: _originalId, offset: _originalOffset, ...originalFields } = texts[0]
+    expect(offset).toBe(5)
+    expect(copyFields).toEqual(originalFields)
+  })
+
+  it('refuses a taken id and an unknown original as same-reference no-ops', () => {
+    const state = stateOf(['a'], ['b'])
+    // Never an edit: a no-op duplicate must not land in undo history.
+    expect(duplicate(state, 'entry', 'a', 'b')).toBe(state)
+    expect(duplicate(state, 'entry', 'missing')).toBe(state)
+    expect(duplicate(state, 'audio-track', 'missing')).toBe(state)
+    expect(duplicate(state, 'video-overlay', 'missing')).toBe(state)
+    expect(duplicate(state, 'text', 'missing')).toBe(state)
+  })
+})

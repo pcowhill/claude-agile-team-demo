@@ -485,6 +485,27 @@ export type TimelineAction =
       atSourceTime: number
       newEntryId: string
     }
+  | {
+      /**
+       * Duplicate one timeline element with every adjustable setting (#314):
+       * an exact copy of the identified row under `newId`, as one action so
+       * the history rule gives one undo step. A sequence entry's copy is
+       * inserted immediately after the original (its per-entry remaps and
+       * zooms cloned under the new entry id, so editing either copy's
+       * effects never touches the other); an audio track, video overlay, or
+       * text overlay's copy lands on the same lane starting where the
+       * original ends, so the two never stack. Transitions are never
+       * copied — they belong to a boundary, not an entry — and inserting the
+       * copy separates the original from its next entry, so normalization
+       * drops any transition on that boundary, exactly as the existing
+       * insert paths behave.
+       */
+      type: 'element-duplicated'
+      kind: 'entry' | 'audio-track' | 'video-overlay' | 'text'
+      id: string
+      /** The copy's id, supplied by the caller like every element id. */
+      newId: string
+    }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
   | {
@@ -1317,6 +1338,82 @@ function reduceTimelineCollections(
         ]
       })
       return withEffects(entries, splitTransitions, splitZooms, audioTracks, splitRemaps, texts, videoOverlays)
+    }
+    case 'element-duplicated': {
+      // Duplicate (#314): the copy is the original spread under a fresh id —
+      // every adjustable setting is a plain field, so the spread carries all
+      // of them. Ids are the handles entry-scoped actions act on: a taken
+      // newId is refused (the entry-split guard), and an unknown original is
+      // a same-reference no-op, never an edit.
+      switch (action.kind) {
+        case 'entry': {
+          const index = state.entries.findIndex((entry) => entry.id === action.id)
+          if (index === -1) return state
+          if (state.entries.some((existing) => existing.id === action.newId)) return state
+          const entries = [
+            ...state.entries.slice(0, index + 1),
+            { ...state.entries[index], id: action.newId },
+            ...state.entries.slice(index + 1),
+          ]
+          // Per-entry effects follow their entry by id, so the copy's are
+          // cloned under the new entry id — editing one copy's speed or zoom
+          // never touches the other. Derived effect ids take the entry-split
+          // form `${newEntryId}:${effectId}`, which cannot collide with any
+          // existing effect id (entry ids are fresh UUIDs).
+          const duplicatedZooms = zooms
+            .filter((zoom) => zoom.entryId === action.id)
+            .map((zoom) => ({ ...zoom, id: `${action.newId}:${zoom.id}`, entryId: action.newId }))
+          const duplicatedRemaps = remaps
+            .filter((remap) => remap.entryId === action.id)
+            .map((remap) => ({ ...remap, id: `${action.newId}:${remap.id}`, entryId: action.newId }))
+          // Transitions pass through untouched: none is copied (a transition
+          // belongs to a boundary, not an entry), the boundary INTO the
+          // original keeps its transition (that pair is still adjacent), and
+          // the one OUT of the original is dropped by normalization because
+          // the copy now separates the pair — the insert-path rule.
+          return withEffects(
+            entries,
+            transitions,
+            [...zooms, ...duplicatedZooms],
+            audioTracks,
+            [...remaps, ...duplicatedRemaps],
+            texts,
+            videoOverlays,
+          )
+        }
+        case 'audio-track': {
+          const track = audioTracks.find((candidate) => candidate.id === action.id)
+          if (track === undefined) return state
+          if (audioTracks.some((existing) => existing.id === action.newId)) return state
+          // The copy starts where the original's trimmed audio ends, so the
+          // two play back to back instead of stacking.
+          const copy = {
+            ...track,
+            id: action.newId,
+            offset: track.offset + (track.outPoint - track.inPoint),
+          }
+          return withEffects(state.entries, transitions, zooms, [...audioTracks, copy], remaps, texts, videoOverlays)
+        }
+        case 'video-overlay': {
+          const overlay = videoOverlays.find((candidate) => candidate.id === action.id)
+          if (overlay === undefined) return state
+          if (videoOverlays.some((existing) => existing.id === action.newId)) return state
+          const copy = {
+            ...overlay,
+            id: action.newId,
+            offset: overlay.offset + (overlay.outPoint - overlay.inPoint),
+          }
+          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, [...videoOverlays, copy])
+        }
+        case 'text': {
+          const text = texts.find((candidate) => candidate.id === action.id)
+          if (text === undefined) return state
+          if (texts.some((existing) => existing.id === action.newId)) return state
+          const copy = { ...text, id: action.newId, offset: text.offset + text.duration }
+          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, copy], videoOverlays)
+        }
+      }
+      return state
     }
     case 'entry-removed':
       return withEffects(

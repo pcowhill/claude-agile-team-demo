@@ -66,6 +66,13 @@ interface TimelineProps {
   onUndo: () => void
   onRedo: () => void
   onMoveEntry: (id: string, direction: 'up' | 'down') => void
+  /**
+   * Duplicates a timeline element (#314): an exact copy of the row with all
+   * its settings, as one undo step — the reducer's `element-duplicated`
+   * semantics. Optional so tests that predate it keep compiling; the
+   * Duplicate controls render only when the app supplies it.
+   */
+  onDuplicate?: (kind: 'entry' | 'audio-track' | 'video-overlay' | 'text', id: string) => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
   /** Sets a still entry's on-screen duration (#140); stills have no trim. */
@@ -774,6 +781,7 @@ export function Timeline({
   onUndo,
   onRedo,
   onMoveEntry,
+  onDuplicate,
   onRemoveEntry,
   onTrimEntry,
   onSetStillDuration,
@@ -1192,6 +1200,16 @@ export function Timeline({
                     >
                       ↓
                     </button>
+                    {onDuplicate !== undefined && (
+                      <button
+                        type="button"
+                        aria-label={`Duplicate ${position}`}
+                        title="Duplicate"
+                        onClick={() => onDuplicate('entry', entry.id)}
+                      >
+                        ⧉
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1657,6 +1675,16 @@ export function Timeline({
                       {track.name}
                     </span>
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
+                    {onDuplicate !== undefined && (
+                      <button
+                        type="button"
+                        aria-label={`Duplicate ${position}`}
+                        title="Duplicate"
+                        onClick={() => onDuplicate('audio-track', track.id)}
+                      >
+                        ⧉
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1818,6 +1846,16 @@ export function Timeline({
                       {overlay.name}
                     </span>
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
+                    {onDuplicate !== undefined && (
+                      <button
+                        type="button"
+                        aria-label={`Duplicate ${position}`}
+                        title="Duplicate"
+                        onClick={() => onDuplicate('video-overlay', overlay.id)}
+                      >
+                        ⧉
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1996,6 +2034,16 @@ export function Timeline({
                         value={text.content}
                         onCommit={(content) => set({ content })}
                       />
+                    )}
+                    {onDuplicate !== undefined && (
+                      <button
+                        type="button"
+                        aria-label={`Duplicate ${position}`}
+                        title="Duplicate"
+                        onClick={() => onDuplicate('text', text.id)}
+                      >
+                        ⧉
+                      </button>
                     )}
                     <button
                       type="button"

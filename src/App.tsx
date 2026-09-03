@@ -389,6 +389,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onUndo={() => dispatchTimeline({ type: 'edit-undone' })}
           onRedo={() => dispatchTimeline({ type: 'edit-redone' })}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
+          onDuplicate={(kind, id) =>
+            dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })
+          }
           onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
