@@ -102,8 +102,10 @@ same way into the exported file, overlay audio in the mix (#146).
 An overlay also takes a shape mask (#266): clip its placed rectangle to an
 inscribed ellipse (a circle when square — the webcam-bubble look) or a
 rounded rectangle with a chosen corner radius, edited on the overlay row,
-rendered live in the preview, and saved with the project. Export rendering
-of the mask is the follow-up #267.
+rendered live in the preview, and saved with the project. Exports cut the
+same silhouette (#267): the video formats, the GIF plugin, and frame
+snapshots all draw masked overlays through one shared composition path,
+so what plays is what exports.
 Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all
@@ -167,10 +169,11 @@ exactly the shape background fill treats. The preview stage reshapes live,
 overlay rectangles, text positions and zoom centres keep composing against
 the chosen frame, and the preset saves with the project. Auto is the
 default and is byte-identical to a project that never chose one. Exports
-still follow the sources for now — rendering the preset, and the export
-modal's automatic size with it, is the companion issue (#274), so a fixed
-preset currently reshapes the editing frame and the preview but not the
-exported file.
+render the preset too (#274): the video formats, the GIF plugin, and frame
+snapshots all derive their frame through the same shared rule, and the
+export modal's automatic size shows the preset frame's dimensions — while a
+manual size entered there still overrides everything for that one export,
+exactly as before.
 Every timeline row — sequence entry, audio track, video overlay, text
 overlay — has a ⧉ Duplicate button on its main line (#314): one click makes
 an exact copy carrying every adjustable setting (trim, volume and fades,

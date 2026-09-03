@@ -152,3 +152,35 @@ test('Save frame downloads the composed playhead frame as a PNG, orientation inc
   expect(top.g).toBeGreaterThan(top.b + 60)
   expect(bottom.b).toBeGreaterThan(bottom.g + 60)
 })
+
+test('Save frame composes at the project canvas preset frame (#274)', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+
+  const banded = await recordBandedWebm(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'banded.webm', mimeType: 'video/webm', buffer: banded }])
+  await page.getByRole('button', { name: 'Add banded.webm to timeline' }).click()
+
+  // Fix the canvas to 9:16 (#273): the snapshot derives its frame through
+  // the same automatic rule the export uses (#274), so the PNG is the preset
+  // frame — 320×180 contained in the smallest whole-pixel 9:16 frame,
+  // 324×576 — with the banded clip letterboxed across its middle and the
+  // bars above and below it.
+  await page.getByRole('combobox', { name: 'Canvas aspect' }).selectOption('9:16')
+  const saved = await saveFrameOnce(page)
+
+  // The picture occupies y ≈ 0.34–0.66 of the preset frame, so these bands
+  // sit safely inside the picture (left green, right blue) and in each bar.
+  const left = await samplePng(page, saved.png, { x: 0.02, y: 0.45, width: 0.2, height: 0.1 })
+  const right = await samplePng(page, saved.png, { x: 0.78, y: 0.45, width: 0.2, height: 0.1 })
+  const top = await samplePng(page, saved.png, { x: 0.25, y: 0.05, width: 0.5, height: 0.2 })
+  const bottom = await samplePng(page, saved.png, { x: 0.25, y: 0.75, width: 0.5, height: 0.2 })
+  expect(left.width).toBe(324)
+  expect(left.height).toBe(576)
+  expect(left.g).toBeGreaterThan(left.b + 60)
+  expect(right.b).toBeGreaterThan(right.g + 60)
+  expect(Math.max(top.r, top.g, top.b)).toBeLessThan(40)
+  expect(Math.max(bottom.r, bottom.g, bottom.b)).toBeLessThan(40)
+})

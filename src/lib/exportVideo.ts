@@ -40,8 +40,10 @@ import { croppedDimensions, cropSourceRect } from './crop'
 import type { Crop } from './crop'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backgroundFill'
 import type { BackgroundFill } from './backgroundFill'
+import { inscribedEllipse, roundedCornerRadius } from './shapeMask'
+import type { ShapeMask } from './shapeMask'
 import { transitionLayerSpec } from './transitionRender'
-import { outputFrameSize } from './frameSize'
+import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
@@ -141,6 +143,23 @@ export function pickExportMimeType(
   candidates: readonly string[] = EXPORT_MIME_CANDIDATES,
 ): string | null {
   return candidates.find((type) => isSupported(type)) ?? null
+}
+
+/**
+ * The output frame an export derives (#179/#274): a manual override (the
+ * export modal's fields) wins outright — it applies to that one export,
+ * whatever the project's canvas says — and otherwise the frame is the shared
+ * rule the preview stage uses: the sources' dimensions composed with the
+ * project's canvas preset (`canvasFrameSize`, #176/#273). This is the single
+ * seam the pipeline sizes its canvas by, so preview and export cannot derive
+ * different shapes from the same project.
+ */
+export function exportOutputFrame(
+  timeline: TimelineState,
+  sourceDims: Iterable<SourceDimensions>,
+  override?: SourceDimensions,
+): SourceDimensions {
+  return override ?? canvasFrameSize(sourceDims, timeline.canvasPreset)
 }
 
 export interface FitRect {
@@ -243,6 +262,33 @@ export function overlayDestRect(
     overlay.height * frameHeight,
   )
   return { x: left + fitted.x, y: top + fitted.y, width: fitted.width, height: fitted.height }
+}
+
+/**
+ * Traces an overlay's shape mask (#266/#267) as a canvas path over its
+ * placed rectangle in canvas pixels — the geometry the preview clips with
+ * (`maskClipPath` maps the same shared rule to CSS), consumed here as path
+ * arguments so the two renderers cut the same silhouette. The caller begins
+ * the path and decides what to do with it (the export fills it as a
+ * `destination-in` alpha mask).
+ */
+export function traceShapeMask(
+  context: CanvasRenderingContext2D,
+  mask: ShapeMask,
+  placed: FitRect,
+): void {
+  if (mask.kind === 'ellipse') {
+    const shape = inscribedEllipse(placed)
+    context.ellipse(shape.cx, shape.cy, shape.rx, shape.ry, 0, 0, 2 * Math.PI)
+    return
+  }
+  context.roundRect(
+    placed.x,
+    placed.y,
+    placed.width,
+    placed.height,
+    roundedCornerRadius(placed, mask.radius),
+  )
 }
 
 /**
@@ -601,6 +647,32 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
    */
   let backdropBuffer: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null =
     null
+  /**
+   * The masked-overlay scratch buffer (#267): a full-frame canvas a masked
+   * overlay paints into so the mask can cut it with a `destination-in` fill
+   * before it composites — the antialias-safe technique #261 called for,
+   * since a filled path's edge alpha survives the composite while engine
+   * `clip()` antialiasing is not guaranteed. Created on first use — a
+   * mask-free timeline never allocates it — and shared by every masked
+   * overlay, each compositing before the next paints.
+   */
+  let maskBuffer: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null = null
+  const maskScratch = () => {
+    if (maskBuffer === null) {
+      const buffer = createCanvas()
+      buffer.width = width
+      buffer.height = height
+      const bufferContext = buffer.getContext('2d')
+      if (bufferContext === null) {
+        // The main canvas's 2d context was already verified; a browser that
+        // granted one and refuses another is not a real case, but never
+        // draw nothing silently.
+        throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
+      }
+      maskBuffer = { canvas: buffer, context: bufferContext }
+    }
+    return maskBuffer
+  }
   /**
    * Whether this context's `filter` works, probed on the first blur draw
    * (canvas filter support is one feature — the #195 color probe answers
@@ -1069,18 +1141,48 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
-        withLayerColorFilter(context, layer.colorAdjustments, () => {
-          withLayerOrientation(context, layer.orientation, dest, (drawRect) => {
-            drawLayerSource(
-              context,
-              picture.source,
-              layer.crop,
-              picture.width,
-              picture.height,
-              drawRect,
-            )
+        const paintOverlay = (target: CanvasRenderingContext2D) => {
+          withLayerColorFilter(target, layer.colorAdjustments, () => {
+            withLayerOrientation(target, layer.orientation, dest, (drawRect) => {
+              drawLayerSource(
+                target,
+                picture.source,
+                layer.crop,
+                picture.width,
+                picture.height,
+                drawRect,
+              )
+            })
           })
+        }
+        if (layer.shapeMask === undefined) {
+          // Mask-free overlays draw exactly as before #267 — same target,
+          // same calls — so their output stays byte-identical.
+          paintOverlay(context)
+          continue
+        }
+        // Shape mask (#267): paint the layer into the scratch buffer, cut it
+        // to the shared rule's silhouette with a filled path composited
+        // `destination-in` — antialias-safe, unlike engine `clip()`, whose
+        // hard edge is the risk #261 flagged — and composite the cut result.
+        // The mask shapes the PLACED rectangle, exactly the card box the
+        // preview clips (#266): the picture letterboxes inside it first, so
+        // the cut intersects whatever the layer actually drew.
+        const scratch = maskScratch()
+        scratch.context.clearRect(0, 0, width, height)
+        paintOverlay(scratch.context)
+        scratch.context.globalCompositeOperation = 'destination-in'
+        scratch.context.fillStyle = '#fff'
+        scratch.context.beginPath()
+        traceShapeMask(scratch.context, layer.shapeMask, {
+          x: layer.x * width,
+          y: layer.y * height,
+          width: layer.width * width,
+          height: layer.height * height,
         })
+        scratch.context.fill()
+        scratch.context.globalCompositeOperation = 'source-over'
+        context.drawImage(scratch.canvas, 0, 0)
       }
     }
     // Text overlays (#142) draw last, above the composed frame — the
@@ -1159,10 +1261,14 @@ export interface ExportOptions {
   frameRate?: number
   /**
    * Output frame override (#179). Absent means the automatic rule — the
-   * sources' largest dimensions via `outputFrameSize`. When present, sources
-   * letterbox/pillarbox into this frame through the same `fitRect` path, and
-   * everything fractional (overlay rectangles, text positions and sizes,
-   * zoom centres) resolves against it unchanged.
+   * sources' largest dimensions composed with the project's canvas preset
+   * via `canvasFrameSize` (#176/#274), exactly the frame the preview stage
+   * shows. When present, it wins over the preset too: a manual size applies
+   * to that one export, whatever the project's canvas says (#179 semantics
+   * unchanged). Either way sources letterbox/pillarbox into the frame
+   * through the same `fitRect` path, and everything fractional (overlay
+   * rectangles, text positions and sizes, zoom centres) resolves against it
+   * unchanged.
    */
   frame?: SourceDimensions
   /** Injectable for tests (jsdom never fires media events). */
@@ -1741,9 +1847,10 @@ export async function exportTimeline(
     })
 
   // Output frame size: the shared rule (frameSize.ts, #176) over every real
-  // source in the sequence — the same rule the preview sizes its stage by,
-  // so fractional overlay/text/zoom coordinates resolve identically in both
-  // renderers. Loading every source here also validates that each one is
+  // source in the sequence, composed with the project's canvas preset
+  // (#273/#274) — the same rule the preview sizes its stage by, so the
+  // frame's shape and every fractional overlay/text/zoom coordinate resolve
+  // identically in both renderers. Loading every source here also validates that each one is
   // decodable before the recorder starts. Image stills (#140) load through
   // an <img> — a <video> cannot decode them — and keep it for the draw loop.
   // Slates (#143) have no media at all: nothing to load, no intrinsic size —
@@ -1795,7 +1902,7 @@ export async function exportTimeline(
       ? []
       : [orientedDimensions(croppedDimensions(dims, entry.crop), entry.orientation)]
   })
-  const { width, height } = options.frame ?? outputFrameSize(sourceDims)
+  const { width, height } = exportOutputFrame(timeline, sourceDims, options.frame)
 
   const canvas = document.createElement('canvas')
   canvas.width = width

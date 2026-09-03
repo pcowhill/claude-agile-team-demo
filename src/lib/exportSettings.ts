@@ -1,5 +1,5 @@
 import type { SourceDimensions } from './frameSize'
-import { outputFrameSize } from './frameSize'
+import { canvasFrameSize } from './frameSize'
 import { EXPORT_FRAME_RATE } from './exportVideo'
 import { orientedDimensions } from './orientation'
 import { croppedDimensions } from './crop'
@@ -76,12 +76,14 @@ export function automaticSettings(frame: SourceDimensions): ExportSettings {
  * The output frame the automatic rule would pick for the current timeline —
  * what the modal pre-fills (#179). Probes each distinct non-slate source's
  * dimensions from its (in-memory) blob metadata, then applies the same
- * `outputFrameSize` rule the export and preview stage (#176) use — per
- * *entry*, cropped (#255/#256) then oriented (#232/#233): a cropped entry
- * contributes its kept region and a quarter-turned entry swapped
- * dimensions, so the shown values match the frame the export derives.
- * Sources that fail to probe contribute nothing, exactly as in the export's
- * own sizing pass; with nothing probed the fallback frame comes back.
+ * `canvasFrameSize` rule the export and preview stage (#176/#273) use — per
+ * *entry*, cropped (#255/#256) then oriented (#232/#233), composed with the
+ * project's canvas preset (#274): a cropped entry contributes its kept
+ * region, a quarter-turned entry swapped dimensions, and a fixed preset
+ * reshapes the result, so the shown values match the frame the export
+ * derives. Sources that fail to probe contribute nothing, exactly as in the
+ * export's own sizing pass; with nothing probed the fallback frame comes
+ * back — reshaped by the preset the same way.
  */
 export function automaticExportFrame(timeline: TimelineState): Promise<SourceDimensions> {
   const targets: { url: string; still: boolean }[] = []
@@ -114,7 +116,7 @@ export function automaticExportFrame(timeline: TimelineState): Promise<SourceDim
   )
   return Promise.all(probes).then((dims) => {
     const byUrl = new Map(targets.map((target, index) => [target.url, dims[index]]))
-    return outputFrameSize(
+    return canvasFrameSize(
       timeline.entries.flatMap((entry) => {
         if (isSlateEntry(entry)) return []
         const dim = byUrl.get(entry.url)
@@ -122,6 +124,7 @@ export function automaticExportFrame(timeline: TimelineState): Promise<SourceDim
           ? []
           : [orientedDimensions(croppedDimensions(dim, entry.crop), entry.orientation)]
       }),
+      timeline.canvasPreset,
     )
   })
 }
