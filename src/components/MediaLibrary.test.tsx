@@ -478,31 +478,32 @@ describe('sorting (#123)', () => {
   })
 })
 
-describe('media library multi-select (#292)', () => {
-  type Kind = 'video' | 'audio' | 'image'
-  const fileOf = (name: string, kind: Kind) =>
-    new File(['content'], name, {
-      type: kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/png',
-    })
+// Shared by the selection suites (#292 multi-select, #293 batch Remove).
+type Kind = 'video' | 'audio' | 'image'
+const fileOf = (name: string, kind: Kind) =>
+  new File(['content'], name, {
+    type: kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/png',
+  })
 
-  /** Imports the given clips in order; each probes as its kind. */
-  async function importClips(clips: Array<[name: string, kind: Kind]>) {
-    const input = screen.getByTestId('clip-file-input')
-    for (const [name, kind] of clips) {
-      probeMock.mockResolvedValueOnce(
-        kind === 'image'
-          ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
-          : { duration: 7, url: `blob:${name}`, kind },
-      )
-      await userEvent.upload(input, fileOf(name, kind), { applyAccept: false })
-      await screen.findByText(name)
-    }
+/** Imports the given clips in order; each probes as its kind. */
+async function importClips(clips: Array<[name: string, kind: Kind]>) {
+  const input = screen.getByTestId('clip-file-input')
+  for (const [name, kind] of clips) {
+    probeMock.mockResolvedValueOnce(
+      kind === 'image'
+        ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
+        : { duration: 7, url: `blob:${name}`, kind },
+    )
+    await userEvent.upload(input, fileOf(name, kind), { applyAccept: false })
+    await screen.findByText(name)
   }
+}
 
-  const selectAll = () => screen.getByRole('checkbox', { name: 'Select all' })
-  const rowBox = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
-  const bar = () => screen.queryByRole('toolbar', { name: 'Selected clips' })
+const selectAll = () => screen.getByRole('checkbox', { name: 'Select all' })
+const rowBox = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` })
+const bar = () => screen.queryByRole('toolbar', { name: 'Selected clips' })
 
+describe('media library multi-select (#292)', () => {
   beforeEach(() => {
     probeMock.mockReset()
   })
@@ -639,5 +640,157 @@ describe('media library multi-select (#292)', () => {
       screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
     ).toBeInTheDocument()
     expect(bar()).toHaveTextContent('1 selected')
+  })
+})
+
+describe('media library batch Remove (#293)', () => {
+  const removeSelected = () =>
+    within(bar()!).getByRole('button', { name: 'Remove selected clips' })
+  const dialog = () => screen.getByRole('dialog')
+  const confirm = () => within(dialog()).getByRole('button', { name: 'Remove' })
+  const cancel = () => within(dialog()).getByRole('button', { name: 'Cancel' })
+
+  beforeEach(() => {
+    probeMock.mockReset()
+    URL.revokeObjectURL = vi.fn()
+  })
+
+  it('the bar offers Remove, and the confirmation states the batch count and the affected timeline entries', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['c.png', 'image'],
+    ])
+    // Two of the three selected clips are on the timeline: the video twice
+    // (a sequence entry and an overlay) and the audio once.
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp3 to timeline' }))
+
+    await userEvent.click(selectAll())
+    await userEvent.click(removeSelected())
+
+    expect(within(dialog()).getByRole('heading')).toHaveTextContent('Remove 3 clips?')
+    expect(dialog()).toHaveTextContent('all 3 timeline entries')
+  })
+
+  it('cancelling leaves the library, the timeline, and the selection untouched', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp4', 'video'],
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(selectAll())
+    await userEvent.click(removeSelected())
+    await userEvent.click(cancel())
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('list', { name: 'Imported clips' })).toHaveTextContent('a.mp4')
+    expect(screen.getByRole('list', { name: 'Imported clips' })).toHaveTextContent('b.mp4')
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    expect(bar()).toHaveTextContent('2 selected')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('confirming removes every selected clip, everything they made on the timeline, and their object URLs', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['keep.mp4', 'video'],
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add keep.mp4 to timeline' }))
+
+    // Everything except keep.mp4.
+    await userEvent.click(rowBox('a.mp4'))
+    await userEvent.click(rowBox('b.mp3'))
+    await userEvent.click(removeSelected())
+    await userEvent.click(confirm())
+
+    const library = screen.getByRole('list', { name: 'Imported clips' })
+    expect(library).not.toHaveTextContent('a.mp4')
+    expect(library).not.toHaveTextContent('b.mp3')
+    expect(library).toHaveTextContent('keep.mp4')
+    // Every lane the removed clips reached is empty; the survivor stays.
+    expect(screen.queryByRole('list', { name: 'Audio tracks' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).toBeNull()
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim in point of keep.mp4 at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    // Both removed clips' memory is released; the survivor's URL is not.
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:a.mp4')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:b.mp3')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:keep.mp4')
+    // The selection is spent and the bar is gone.
+    expect(bar()).toBeNull()
+    expect(selectAll()).not.toBeChecked()
+  })
+
+  it('wording is grammatical for one clip and for clips that are on no timeline', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp4', 'video'],
+    ])
+
+    await userEvent.click(rowBox('a.mp4'))
+    await userEvent.click(removeSelected())
+    expect(within(dialog()).getByRole('heading')).toHaveTextContent('Remove 1 clip?')
+    // Nothing was added to the timeline, so nothing else goes with it. The
+    // body counts clips, so a one-clip batch reads like a single removal.
+    expect(dialog()).toHaveTextContent('The clip will be removed from the media library.')
+    await userEvent.click(cancel())
+
+    // Cancelling keeps the selection, so a.mp4 is deselected before the
+    // next case, which is again a batch of exactly one — this time with a
+    // timeline entry behind it.
+    await userEvent.click(rowBox('a.mp4'))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+    await userEvent.click(rowBox('b.mp4'))
+    await userEvent.click(removeSelected())
+    expect(within(dialog()).getByRole('heading')).toHaveTextContent('Remove 1 clip?')
+    expect(dialog()).toHaveTextContent('the 1 timeline entry created from this clip.')
+  })
+
+  it('single-row Remove keeps its own wording and removes only that clip', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp4', 'video'],
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(selectAll())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    expect(within(dialog()).getByRole('heading')).toHaveTextContent('Remove a.mp4?')
+    expect(dialog()).toHaveTextContent('created from this clip.')
+    await userEvent.click(confirm())
+
+    expect(screen.getByRole('list', { name: 'Imported clips' })).toHaveTextContent('b.mp4')
+    expect(screen.getByRole('list', { name: 'Imported clips' })).not.toHaveTextContent('a.mp4')
+    // The batch path did not run: the still-listed clip stays selected.
+    expect(bar()).toHaveTextContent('1 selected')
+  })
+
+  it('a batch removal that touches the timeline clears the undo history', async () => {
+    render(<App />)
+    await importClips([['a.mp4', 'video']])
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeEnabled()
+
+    await userEvent.click(selectAll())
+    await userEvent.click(removeSelected())
+    await userEvent.click(confirm())
+
+    // Undo must not resurrect an entry whose clip's URL has been revoked.
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeDisabled()
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
   })
 })

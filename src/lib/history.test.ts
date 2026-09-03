@@ -122,6 +122,61 @@ describe('timelineHistoryReducer (#189)', () => {
     ).toBe(one)
   })
 
+  it('judges a batch removal once, over the whole set (#293)', () => {
+    // One referenced clip and one unreferenced clip in the same batch: the
+    // batch clears the history, exactly as the equivalent run of single
+    // removals would — the referenced one decides.
+    const two = addEntry(addEntry(emptyTimelineHistory, 'a'), 'b')
+    const cleared = timelineHistoryReducer(two, {
+      type: 'entries-removed-for-clips',
+      clipIds: ['clip-b', 'never-used'],
+    })
+    expect(cleared.present.entries.map((e) => e.id)).toEqual(['a'])
+    expect(cleared.past).toEqual([])
+    expect(cleared.future).toEqual([])
+  })
+
+  it('keeps the history when a batch removal references nothing held (#293)', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    expect(
+      timelineHistoryReducer(one, {
+        type: 'entries-removed-for-clips',
+        clipIds: ['unused-one', 'unused-two'],
+      }),
+    ).toBe(one)
+    expect(timelineHistoryReducer(one, { type: 'entries-removed-for-clips', clipIds: [] })).toBe(one)
+  })
+
+  it('clears the history for a batch whose clip only a held state references (#293)', () => {
+    // The entry was edited off the timeline before the batch removal, so the
+    // present is untouched — but `past` still holds it and its URL is
+    // revoked. The batch rule must look past the present, like the single one.
+    let history = addEntry(emptyTimelineHistory, 'a', 'clip-x')
+    history = timelineHistoryReducer(history, { type: 'entry-removed', id: 'a' })
+    const cleared = timelineHistoryReducer(history, {
+      type: 'entries-removed-for-clips',
+      clipIds: ['clip-x', 'clip-y'],
+    })
+    expect(cleared.present).toBe(history.present)
+    expect(cleared.past).toEqual([])
+    expect(timelineHistoryReducer(cleared, { type: 'edit-undone' })).toBe(cleared)
+  })
+
+  it('a batch removal is one history event, not one per clip (#293)', () => {
+    // Three adds, then a batch removing two clips neither the present nor
+    // any held state keeps: the history survives intact and undo still steps
+    // back through the individual adds.
+    let history = addEntry(emptyTimelineHistory, 'a', 'clip-a')
+    history = addEntry(history, 'b', 'clip-b')
+    const pastDepth = history.past.length
+    const removed = timelineHistoryReducer(history, {
+      type: 'entries-removed-for-clips',
+      clipIds: ['gone-one', 'gone-two'],
+    })
+    expect(removed).toBe(history)
+    expect(removed.past).toHaveLength(pastDepth)
+  })
+
   it('clears the history when only a past state references the removed clip', () => {
     // The entry was edited off the timeline before its clip was removed, so
     // the present is untouched by the removal — but the pre-removal state in

@@ -54,7 +54,8 @@ export type TimelineHistoryAction =
  * - `timeline-replaced` (open project / new project, #77): the replaced
  *   editing session's states belong to media that may no longer be loaded,
  *   and undoing "across" an open would silently splice two projects.
- * - `entries-removed-for-clip` (a clip removed from the media library):
+ * - `entries-removed-for-clip` / `entries-removed-for-clips` (clips removed
+ *   from the media library, singly or as a batch, #293):
  *   the clip's object URL is revoked by the same handler, so any held state
  *   still referencing it could never play again — clearing is the rule that
  *   makes "undo never resurrects references to removed media" hold. The
@@ -62,15 +63,18 @@ export type TimelineHistoryAction =
  *   (and so absent from the present) still lives in `past`/`future` states,
  *   which undo/redo would resurrect. The history is therefore cleared when
  *   the removal touches the present **or** any held state references the
- *   clip; only a removal no held state references keeps the history.
+ *   clip; only a removal no held state references keeps the history. A
+ *   batch removal is judged once, over the whole set: it clears the history
+ *   if *any* of its clips is held, which is the same verdict the equivalent
+ *   run of single removals would have reached.
  */
 
-/** Whether any item of this timeline state was created from the clip. */
-function referencesClip(state: TimelineState, clipId: string): boolean {
+/** Whether any item of this timeline state was created from one of the clips. */
+function referencesAnyClip(state: TimelineState, clipIds: ReadonlySet<string>): boolean {
   return (
-    state.entries.some((entry) => entry.clipId === clipId) ||
-    (state.audioTracks ?? []).some((track) => track.clipId === clipId) ||
-    (state.videoOverlays ?? []).some((overlay) => overlay.clipId === clipId)
+    state.entries.some((entry) => clipIds.has(entry.clipId)) ||
+    (state.audioTracks ?? []).some((track) => clipIds.has(track.clipId)) ||
+    (state.videoOverlays ?? []).some((overlay) => clipIds.has(overlay.clipId))
   )
 }
 export function timelineHistoryReducer(
@@ -98,11 +102,17 @@ export function timelineHistoryReducer(
     }
     default: {
       const present = timelineReducer(history.present, action)
-      if (action.type === 'entries-removed-for-clip') {
+      if (
+        action.type === 'entries-removed-for-clip' ||
+        action.type === 'entries-removed-for-clips'
+      ) {
+        const clipIds = new Set(
+          action.type === 'entries-removed-for-clip' ? [action.clipId] : action.clipIds,
+        )
         const holdsClip =
           present !== history.present ||
-          history.past.some((state) => referencesClip(state, action.clipId)) ||
-          history.future.some((state) => referencesClip(state, action.clipId))
+          history.past.some((state) => referencesAnyClip(state, clipIds)) ||
+          history.future.some((state) => referencesAnyClip(state, clipIds))
         return holdsClip ? { past: [], present, future: [] } : history
       }
       if (present === history.present) return history

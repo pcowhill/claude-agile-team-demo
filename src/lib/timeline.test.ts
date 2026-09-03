@@ -21,6 +21,7 @@ import {
   normalizedTimelineState,
   timelineReducer,
   textsOf,
+  videoOverlayFromClip,
   videoOverlaysOf,
   totalDuration,
   transitionsOf,
@@ -152,6 +153,89 @@ describe('timelineReducer', () => {
       expect(
         timelineReducer(start, { type: 'entries-removed-for-clip', clipId: 'unused' }),
       ).toBe(start)
+    })
+  })
+
+  describe('entries-removed-for-clips (#293)', () => {
+    it('removes every item created from any clip in the batch, across all lanes', () => {
+      const first = clip({ id: 'lib-1' })
+      const second = clip({ id: 'lib-2', name: 'other.mp4' })
+      const kept = clip({ id: 'lib-3', name: 'kept.mp4' })
+      let state = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(first, 'a'),
+      })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(kept, 'b') })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(second, 'c') })
+      state = timelineReducer(state, {
+        type: 'audio-track-added',
+        track: audioTrackFromClip(
+          { ...first, kind: 'audio', name: 'first.mp3' } as LibraryClip,
+          't1',
+        ),
+      })
+      state = timelineReducer(state, {
+        type: 'video-overlay-added',
+        overlay: videoOverlayFromClip(second, 'o1'),
+      })
+
+      const next = timelineReducer(state, {
+        type: 'entries-removed-for-clips',
+        clipIds: ['lib-1', 'lib-2'],
+      })
+      // Only the clip outside the batch survives, in every lane.
+      expect(order(next)).toEqual(['b'])
+      expect(next.audioTracks ?? []).toEqual([])
+      expect(next.videoOverlays ?? []).toEqual([])
+    })
+
+    it('returns the same state when the batch matches nothing, or is empty', () => {
+      const start = stateOf(['a'], ['b'])
+      expect(
+        timelineReducer(start, { type: 'entries-removed-for-clips', clipIds: ['unused', 'gone'] }),
+      ).toBe(start)
+      expect(timelineReducer(start, { type: 'entries-removed-for-clips', clipIds: [] })).toBe(start)
+    })
+
+    it('agrees with running the equivalent single removals one after another', () => {
+      // The batch exists to be one undo-history event, not to remove
+      // differently: the resulting timeline must be identical either way.
+      const first = clip({ id: 'lib-1' })
+      const second = clip({ id: 'lib-2', name: 'other.mp4' })
+      const kept = clip({ id: 'lib-3', name: 'kept.mp4' })
+      let state = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: entryFromClip(first, 'a'),
+      })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(kept, 'b') })
+      state = timelineReducer(state, { type: 'entry-added', entry: entryFromClip(second, 'c') })
+
+      const batched = timelineReducer(state, {
+        type: 'entries-removed-for-clips',
+        clipIds: ['lib-1', 'lib-2'],
+      })
+      let singly = timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'lib-1' })
+      singly = timelineReducer(singly, { type: 'entries-removed-for-clip', clipId: 'lib-2' })
+      expect(batched).toEqual(singly)
+    })
+
+    it('never touches a color slate, which belongs to no library clip', () => {
+      let start = timelineReducer(emptyTimeline, {
+        type: 'entry-added',
+        entry: slateEntry('s1'),
+      })
+      start = timelineReducer(start, {
+        type: 'entry-added',
+        entry: entryFromClip(clip({ id: 'lib-1' }), 'v'),
+      })
+      // A slate's clipId ('') matches no library clip, so no batch of real
+      // library ids can sweep it up — the same reason the single removal
+      // leaves slates alone.
+      const state = timelineReducer(start, {
+        type: 'entries-removed-for-clips',
+        clipIds: ['lib-1', 'lib-2'],
+      })
+      expect(order(state)).toEqual(['s1'])
     })
   })
 

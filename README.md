@@ -28,7 +28,9 @@ itself is removed. Library rows are multi-selectable (#292): each row has a
 checkbox (faded until you hover or start selecting) with Shift+click range
 selection and a Select-all box in the header, and a selection bar adds every
 selected clip to the timeline in library order — videos and images as
-sequence entries, audio as tracks — as a single undoable step. The library
+sequence entries, audio as tracks — as a single undoable step, or removes
+the whole selection at once (#293) behind one confirmation that names how
+many clips and how many timeline entries go with them. The library
 itself stops growing at about half the viewport's height (#308): past that,
 the clip list scrolls on its own while the title, Import clips, Record,
 Sort by, and selection controls stay at the top, so a big import never
