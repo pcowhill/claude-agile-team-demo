@@ -65,7 +65,9 @@ the WIP rule allows.
 ## Fixing versus reviewing
 
 Fixing a stalled PR (failing CI, merge conflict, addressing existing review
-feedback) is legitimate work distinct from reviewing it. Doing so makes you a
-co-author under the rule above when the fix is substantive — the PR then
+feedback) is legitimate work distinct from reviewing it. The fix belongs on
+that PR's own branch — see "Branches and commits" in `development.md`, which
+also holds the never-rewrite-someone-else's-history rule. Doing so makes you
+a co-author under the rule above when the fix is substantive — the PR then
 needs review from yet another session. Trivial mechanical fixes do not
 transfer authorship, but say in a comment what you did either way.
