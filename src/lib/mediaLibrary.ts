@@ -102,6 +102,15 @@ export type MediaLibraryAction =
   | { type: 'clip-removed'; id: string }
   | {
       /**
+       * A whole library selection removed in one step (#293) — the batch
+       * counterpart of `clip-removed`, dispatched alongside the timeline's
+       * `entries-removed-for-clips` so the pair is one event.
+       */
+      type: 'clips-removed'
+      ids: readonly string[]
+    }
+  | {
+      /**
        * Reorders the stored clip list (#123) — the same order every consumer
        * sees: the rendered library, the timeline Add buttons, and saved
        * project files.
@@ -124,6 +133,15 @@ export function mediaLibraryReducer(
       return { ...state, clips: [...state.clips, action.clip] }
     case 'clip-removed':
       return { ...state, clips: state.clips.filter((clip) => clip.id !== action.id) }
+    case 'clips-removed': {
+      if (action.ids.length === 0) return state
+      const removed = new Set(action.ids)
+      const clips = state.clips.filter((clip) => !removed.has(clip.id))
+      // Same reference when nothing matched, so a removal of ids the library
+      // no longer holds cannot mark the project dirty (#76 compares
+      // references) — the same discipline `clips-sorted` follows.
+      return clips.length === state.clips.length ? state : { ...state, clips }
+    }
     case 'clips-sorted': {
       const sorted = sortClips(state.clips, action.key, action.direction)
       // An order-preserving sort returns the same state reference so it

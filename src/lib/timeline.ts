@@ -471,6 +471,17 @@ export type TimelineAction =
     }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
+  | {
+      /**
+       * The batch counterpart of `entries-removed-for-clip` (#293): every
+       * timeline item created from any of these library clips goes in one
+       * action, so a batch removal is one undo-history event rather than N
+       * (history.ts evaluates its clearing rule once, over one removal,
+       * instead of N times across N intermediate states).
+       */
+      type: 'entries-removed-for-clips'
+      clipIds: readonly string[]
+    }
   | { type: 'entry-moved'; id: string; direction: 'up' | 'down' }
   | { type: 'entry-trimmed'; id: string; inPoint: number; outPoint: number }
   | { type: 'still-duration-set'; id: string; duration: number }
@@ -1258,6 +1269,24 @@ function reduceTimelineCollections(
       const overlays = videoOverlays.filter((overlay) => overlay.clipId !== action.clipId)
       // Same reference when nothing matched: a library removal that touches
       // no entries must not read as a timeline edit (which stops playback).
+      return entries.length === state.entries.length &&
+        tracks.length === audioTracks.length &&
+        overlays.length === videoOverlays.length
+        ? state
+        : withEffects(entries, transitions, zooms, tracks, remaps, texts, overlays)
+    }
+    case 'entries-removed-for-clips': {
+      // Same per-clip semantics as the single removal above, applied to the
+      // whole set at once. An entry with no clip of its own (a color slate,
+      // #140) carries an empty clipId, which is never in the set — slates
+      // survive a batch removal exactly as they survive a single one.
+      if (action.clipIds.length === 0) return state
+      const removed = new Set(action.clipIds)
+      const entries = state.entries.filter((entry) => !removed.has(entry.clipId))
+      const tracks = audioTracks.filter((track) => !removed.has(track.clipId))
+      const overlays = videoOverlays.filter((overlay) => !removed.has(overlay.clipId))
+      // Same reference when nothing matched, like the single case: a
+      // removal touching no timeline item must not read as a timeline edit.
       return entries.length === state.entries.length &&
         tracks.length === audioTracks.length &&
         overlays.length === videoOverlays.length

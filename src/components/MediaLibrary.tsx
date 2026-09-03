@@ -29,6 +29,12 @@ interface MediaLibraryProps {
   /** Extracts a video clip's audio into a new library clip (#154). */
   onExtractAudio: (clip: LibraryClip) => void
   onRemoveClip: (clip: LibraryClip) => void
+  /**
+   * Removes a whole selection in one step (#293): the same per-clip
+   * semantics as `onRemoveClip` — library clip, every timeline item made
+   * from it, and the object URL — for all of them as one action.
+   */
+  onRemoveClips: (clips: LibraryClip[]) => void
   /** Reorders the stored clip list (#123). */
   onSortClips: (key: ClipSortKey, direction: ClipSortDirection) => void
   /** How many timeline entries were created from the given library clip. */
@@ -60,11 +66,17 @@ export function MediaLibrary({
   onAddOverlay,
   onExtractAudio,
   onRemoveClip,
+  onRemoveClips,
   onSortClips,
   timelineUseCount,
 }: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const [pendingRemoval, setPendingRemoval] = useState<LibraryClip | null>(null)
+  // What the confirmation is about: one row's Remove, or the selection
+  // bar's batch Remove (#293). One dialog serves both; only the wording
+  // differs, since a batch has no single name to show.
+  const [pendingRemoval, setPendingRemoval] = useState<
+    { kind: 'single'; clip: LibraryClip } | { kind: 'batch'; clips: LibraryClip[] } | null
+  >(null)
   // Multi-selection (#292) lives here, not in the library model, so it can
   // never reach project files or the autosave snapshot. The effective
   // selection is the intersection with the current clips in display order:
@@ -123,7 +135,13 @@ export function MediaLibrary({
   const cancelRemoval = useCallback(() => setPendingRemoval(null), [])
 
   const confirmRemoval = () => {
-    if (pendingRemoval) onRemoveClip(pendingRemoval)
+    if (pendingRemoval?.kind === 'single') onRemoveClip(pendingRemoval.clip)
+    if (pendingRemoval?.kind === 'batch') {
+      onRemoveClips(pendingRemoval.clips)
+      // The removed ids are gone, so the effective selection would empty
+      // itself anyway; clearing also drops the anchor and the bar.
+      dispatchSelection({ type: 'cleared' })
+    }
     setPendingRemoval(null)
   }
 
@@ -220,6 +238,15 @@ export function MediaLibrary({
                 <button type="button" onClick={addSelectedToTimeline}>
                   Add to timeline
                 </button>
+                {/* Named for assistive tech: three "Remove" controls can be
+                    on screen at once (each row's, this one, the dialog's). */}
+                <button
+                  type="button"
+                  aria-label="Remove selected clips"
+                  onClick={() => setPendingRemoval({ kind: 'batch', clips: selected })}
+                >
+                  Remove
+                </button>
                 <button type="button" onClick={() => dispatchSelection({ type: 'cleared' })}>
                   Clear
                 </button>
@@ -286,7 +313,7 @@ export function MediaLibrary({
               <button
                 type="button"
                 aria-label={`Remove ${clip.name} from library`}
-                onClick={() => setPendingRemoval(clip)}
+                onClick={() => setPendingRemoval({ kind: 'single', clip })}
               >
                 Remove
               </button>
@@ -298,14 +325,30 @@ export function MediaLibrary({
 
       {pendingRemoval && (
         <ConfirmDialog
-          title={`Remove ${pendingRemoval.name}?`}
+          title={
+            pendingRemoval.kind === 'single'
+              ? `Remove ${pendingRemoval.clip.name}?`
+              : `Remove ${pendingRemoval.clips.length} ${
+                  pendingRemoval.clips.length === 1 ? 'clip' : 'clips'
+                }?`
+          }
           body={(() => {
-            const count = timelineUseCount(pendingRemoval.id)
-            return count > 0
-              ? `This also removes ${
-                  count === 1 ? 'the 1 timeline entry' : `all ${count} timeline entries`
-                } created from this clip.`
-              : 'The clip will be removed from the media library.'
+            // The body reads off the count alone, so a one-clip batch and a
+            // single row's Remove word it identically; only the title
+            // differs, because a batch has no one name to show.
+            const clips =
+              pendingRemoval.kind === 'single' ? [pendingRemoval.clip] : pendingRemoval.clips
+            // Each timeline item comes from exactly one clip, so summing the
+            // per-clip counts counts every affected item once.
+            const count = clips.reduce((total, clip) => total + timelineUseCount(clip.id), 0)
+            if (count > 0) {
+              return `This also removes ${
+                count === 1 ? 'the 1 timeline entry' : `all ${count} timeline entries`
+              } created from ${clips.length === 1 ? 'this clip' : 'them'}.`
+            }
+            return clips.length === 1
+              ? 'The clip will be removed from the media library.'
+              : 'The clips will be removed from the media library.'
           })()}
           confirmLabel="Remove"
           onCancel={cancelRemoval}

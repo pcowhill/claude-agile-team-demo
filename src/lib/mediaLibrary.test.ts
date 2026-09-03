@@ -47,6 +47,29 @@ describe('mediaLibraryReducer', () => {
     expect(next.failures).toHaveLength(1)
   })
 
+  it('removes a whole batch of clips in one action, keeping the rest in order (#293)', () => {
+    const a = clip({ name: 'a.mp4' })
+    const b = clip({ name: 'b.mp4' })
+    const c = clip({ name: 'c.mp4' })
+    const state: MediaLibraryState = { clips: [a, b, c], failures: [] }
+    const next = mediaLibraryReducer(state, { type: 'clips-removed', ids: [a.id, c.id] })
+    expect(next.clips.map((clip) => clip.name)).toEqual(['b.mp4'])
+    // Untouched clips keep their identity, so nothing downstream re-renders
+    // or re-probes because of a neighbour's removal.
+    expect(next.clips[0]).toBe(b)
+  })
+
+  it('returns the same state for a batch removal that matches nothing (#293)', () => {
+    // Reference equality is what the unsaved-changes tracking compares (#76),
+    // so a removal of ids the library no longer holds must not mark it dirty.
+    const state: MediaLibraryState = {
+      clips: [clip()],
+      failures: [{ id: 'f1', name: 'bad.txt', reason: 'not a video' }],
+    }
+    expect(mediaLibraryReducer(state, { type: 'clips-removed', ids: [] })).toBe(state)
+    expect(mediaLibraryReducer(state, { type: 'clips-removed', ids: ['nope', 'gone'] })).toBe(state)
+  })
+
   it('records import failures without touching clips', () => {
     const withClip = mediaLibraryReducer(emptyLibrary, { type: 'clip-added', clip: clip() })
     const state = mediaLibraryReducer(withClip, {

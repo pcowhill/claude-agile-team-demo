@@ -255,6 +255,20 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     URL.revokeObjectURL(clip.url)
   }, [])
 
+  // A whole library selection removed in one step (#293). One action pair
+  // for the batch, not N: the history-clearing rule (history.ts) is then
+  // evaluated once over one removal instead of N times across N
+  // intermediate states, and one confirmation covers the lot.
+  const handleRemoveClips = useCallback((clips: LibraryClip[]) => {
+    if (clips.length === 0) return
+    const ids = clips.map((clip) => clip.id)
+    dispatch({ type: 'clips-removed', ids })
+    dispatchTimeline({ type: 'entries-removed-for-clips', clipIds: ids })
+    // Same release as the single removal: the clips and everything created
+    // from them are gone from state, so no URL here can be cued again.
+    for (const clip of clips) URL.revokeObjectURL(clip.url)
+  }, [])
+
   const timelineUseCount = useCallback(
     (clipId: string) =>
       timeline.entries.filter((entry) => entry.clipId === clipId).length +
@@ -350,6 +364,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onAddOverlay={handleAddOverlay}
           onExtractAudio={handleExtractAudio}
           onRemoveClip={handleRemoveClip}
+          onRemoveClips={handleRemoveClips}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
           timelineUseCount={timelineUseCount}
         />
