@@ -40,11 +40,13 @@ interface ProjectControlsProps {
   /**
    * Replaces the whole editing state: an opened project, or the empty one
    * for New Project. The receiver owns revoking the *previous* state's
-   * object URLs and resetting the dirty baseline to the given references.
+   * object URLs and resetting the dirty baseline to the given references —
+   * except `unsaved: true` (a restored snapshot of never-saved work, #288),
+   * where the receiver must keep the state marked dirty instead.
    * Optional only so save-focused tests that predate #77 keep compiling
    * unchanged — the app always supplies it.
    */
-  onProjectReplaced?: (project: RestoredProject) => void
+  onProjectReplaced?: (project: RestoredProject, options?: { unsaved: boolean }) => void
   /** Injectable for tests (the real pickers cannot be driven by automation). */
   port?: SavePort
   /** Injectable for tests (jsdom cannot probe real media). */
@@ -137,6 +139,8 @@ export function ProjectControls({
   const [pendingRestore, setPendingRestore] = useState<{
     result: Extract<DeserializeResult, { ok: true }>
     media: Map<string, Blob>
+    /** Whether the snapshot matched the last saved project (#288). */
+    saved: boolean
   } | null>(null)
   // Discard in flight (#240): the offer stays up (buttons disabled) until
   // the snapshot clear commits, so dismissal is an honest "cleared" signal.
@@ -158,13 +162,16 @@ export function ProjectControls({
     if (autosave === null) return
     let canceled = false
     void (async () => {
-      let offer: { result: Extract<DeserializeResult, { ok: true }>; media: Map<string, Blob> } | null =
-        null
+      let offer: {
+        result: Extract<DeserializeResult, { ok: true }>
+        media: Map<string, Blob>
+        saved: boolean
+      } | null = null
       try {
         const snapshot: AutosaveSnapshot | null = await readAutosaveSnapshot(autosave)
         if (snapshot !== null) {
           const result = await deserializeProject(snapshot.structure)
-          if (result.ok) offer = { result, media: snapshot.media }
+          if (result.ok) offer = { result, media: snapshot.media, saved: snapshot.saved }
           else await autosave.clear()
         }
       } catch {
@@ -206,10 +213,13 @@ export function ProjectControls({
   }, [autosave, autosaveGate, plugins, fetchClipMedia, autosaveDebounceMs])
 
   // Feed every committed change (and the moment the gate opens, so state
-  // edited while the offer was pending is snapshotted too).
+  // edited while the offer was pending is snapshotted too). `!dirty` rides
+  // along (#288) so the snapshot records whether this state matched the
+  // last save — a save flips `dirty` without a state change, and this
+  // effect re-fires on that too, refreshing the stored marker.
   useEffect(() => {
-    autosaverRef.current?.stateChanged(library, timeline)
-  }, [library, timeline, autosaveGate])
+    autosaverRef.current?.stateChanged(library, timeline, !dirty)
+  }, [library, timeline, autosaveGate, dirty])
 
   /** Writes the project in the given mode, picking a destination if needed. */
   const performSave = async (alwaysPick: boolean, saveMode: SaveMode) => {
@@ -288,7 +298,12 @@ export function ProjectControls({
   // The save mode travels with the project: an opened file's own mode is
   // remembered (#98); a new project has none until its first save.
   const replaceProject = (restored: RestoredProject, nextMode: SaveMode | null) => {
-    onProjectReplaced?.(restored)
+    // A replacement that completes the restore flow (#288): the restore is
+    // the only path that arrives here with restoreInFlight set (opening a
+    // file or starting fresh never sets it), and a snapshot of never-saved
+    // work must keep the unsaved indicator rather than start clean.
+    const unsaved = restoreInFlight.current !== null && !restoreInFlight.current.saved
+    onProjectReplaced?.(restored, { unsaved })
     setDestination(null)
     setMode(nextMode)
     setStatus({ kind: 'idle' })

@@ -31,6 +31,7 @@ const timelineWith = (theClip: LibraryClip): TimelineState =>
 
 interface FakeStore extends AutosaveStore {
   structure: Uint8Array<ArrayBuffer> | null
+  saved: boolean | null
   media: Map<string, Blob>
   log: string[]
   failMediaWrites: boolean
@@ -40,17 +41,20 @@ interface FakeStore extends AutosaveStore {
 function fakeStore(): FakeStore {
   const store: FakeStore = {
     structure: null,
+    saved: null,
     media: new Map(),
     log: [],
     failMediaWrites: false,
     failStructureWrites: false,
-    writeStructure(bytes) {
+    writeStructure(bytes, saved) {
       if (store.failStructureWrites) return Promise.reject(new Error('quota'))
       store.log.push('structure')
       store.structure = bytes
+      store.saved = saved
       return Promise.resolve()
     },
     readStructure: () => Promise.resolve(store.structure),
+    readSaved: () => Promise.resolve(store.saved),
     writeMedia(clipId, blob) {
       if (store.failMediaWrites) return Promise.reject(new Error('quota'))
       store.log.push(`media:${clipId}`)
@@ -69,6 +73,7 @@ function fakeStore(): FakeStore {
     clear() {
       store.log.push('clear')
       store.structure = null
+      store.saved = null
       store.media.clear()
       return Promise.resolve()
     },
@@ -210,6 +215,18 @@ describe('createAutosaver (#194)', () => {
     expect(statuses).toEqual(['unavailable'])
   })
 
+  it('records whether the state matched the last save alongside the structure (#288)', async () => {
+    const store = fakeStore()
+    const autosaver = testAutosaver(store)
+    autosaver.stateChanged(libraryOf(clip('a')), emptyTimeline, true)
+    await settle()
+    expect(store.saved).toBe(true)
+    // Omitted means unsaved — the safe default.
+    autosaver.stateChanged(libraryOf(clip('a'), clip('b')), emptyTimeline)
+    await settle()
+    expect(store.saved).toBe(false)
+  })
+
   it('a disposed autosaver never writes', async () => {
     const store = fakeStore()
     const autosaver = testAutosaver(store)
@@ -232,5 +249,17 @@ describe('readAutosaveSnapshot (#194)', () => {
     const snapshot = await readAutosaveSnapshot(store)
     expect(new TextDecoder().decode(snapshot?.structure as Uint8Array)).toBe('snapshot')
     expect([...(snapshot?.media.keys() ?? [])]).toEqual(['a'])
+  })
+
+  it('carries the saved marker, and a missing marker reads as unsaved (#288)', async () => {
+    const store = fakeStore()
+    store.structure = bytesOf('snapshot')
+    store.saved = true
+    expect((await readAutosaveSnapshot(store))?.saved).toBe(true)
+    store.saved = false
+    expect((await readAutosaveSnapshot(store))?.saved).toBe(false)
+    // A pre-#288 snapshot has no marker: restore must treat it as unsaved.
+    store.saved = null
+    expect((await readAutosaveSnapshot(store))?.saved).toBe(false)
   })
 })

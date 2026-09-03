@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProjectControls } from './ProjectControls'
 import type { LibraryClip, MediaLibraryState } from '../lib/mediaLibrary'
@@ -958,16 +958,19 @@ describe('crash-safe autosave (#194)', () => {
   function fakeAutosaveStore() {
     const state = {
       structure: null as Uint8Array<ArrayBuffer> | null,
+      saved: null as boolean | null,
       media: new Map<string, Blob>(),
       failMediaWrites: false,
       cleared: 0,
     }
     const store = {
-      writeStructure: (bytes: Uint8Array<ArrayBuffer>) => {
+      writeStructure: (bytes: Uint8Array<ArrayBuffer>, saved: boolean) => {
         state.structure = bytes
+        state.saved = saved
         return Promise.resolve()
       },
       readStructure: () => Promise.resolve(state.structure),
+      readSaved: () => Promise.resolve(state.saved),
       writeMedia: (clipId: string, blob: Blob) => {
         if (state.failMediaWrites) return Promise.reject(new Error('quota'))
         state.media.set(clipId, blob)
@@ -982,6 +985,7 @@ describe('crash-safe autosave (#194)', () => {
       clear: () => {
         state.cleared += 1
         state.structure = null
+        state.saved = null
         state.media.clear()
         return Promise.resolve()
       },
@@ -1049,6 +1053,79 @@ describe('crash-safe autosave (#194)', () => {
     ])
     expect(restored.timeline.entries.map((entry: { id: string }) => entry.id)).toEqual(['e1'])
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
+  it('restoring never-saved work reports it unsaved, so the indicator survives (#288)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    state.saved = false
+    state.media.set('c1', new Blob([asciiBytes('media:c1')], { type: 'video/mp4' }))
+    const user = userEvent.setup()
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    expect(onProjectReplaced.mock.calls[0][1]).toEqual({ unsaved: true })
+  })
+
+  it('restoring a snapshot of saved work starts clean (#288)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    state.saved = true
+    state.media.set('c1', new Blob([asciiBytes('media:c1')], { type: 'video/mp4' }))
+    const user = userEvent.setup()
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    expect(onProjectReplaced.mock.calls[0][1]).toEqual({ unsaved: false })
+  })
+
+  it('a snapshot with no saved marker (pre-#288) restores as unsaved', async () => {
+    const { store, state } = fakeAutosaveStore()
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    // state.saved stays null — a snapshot written before the marker existed.
+    state.media.set('c1', new Blob([asciiBytes('media:c1')], { type: 'video/mp4' }))
+    const user = userEvent.setup()
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      library: { clips: [], failures: [] },
+      timeline: { entries: [], transitions: [], zooms: [] },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    expect(onProjectReplaced.mock.calls[0][1]).toEqual({ unsaved: true })
+  })
+
+  it('the snapshot marker mirrors the dirty prop (#288)', async () => {
+    const clean = fakeAutosaveStore()
+    renderWithAutosave(clean.store) // dirty: false
+    await waitFor(() => expect(clean.state.structure).not.toBeNull())
+    expect(clean.state.saved).toBe(true)
+
+    cleanup()
+    const edited = fakeAutosaveStore()
+    renderWithAutosave(edited.store, { dirty: true })
+    await waitFor(() => expect(edited.state.structure).not.toBeNull())
+    expect(edited.state.saved).toBe(false)
+  })
+
+  it('New Project replaces clean — never marked unsaved (#288)', async () => {
+    const { store } = fakeAutosaveStore()
+    const user = userEvent.setup()
+    const { onProjectReplaced } = renderWithAutosave(store)
+    await user.click(await screen.findByRole('button', { name: 'New Project' }))
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    expect(onProjectReplaced.mock.calls[0][1]).toEqual({ unsaved: false })
   })
 
   it('routes a structure-only snapshot through the existing re-link dialog', async () => {
