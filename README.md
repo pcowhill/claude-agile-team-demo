@@ -156,6 +156,21 @@ backdrop renders live in the preview behind the normally fitted clip,
 never reshapes the output frame, and saves with the project. Exports —
 the video formats, the GIF plugin, and frame snapshots alike — render
 the fill through the same shared rule (#260).
+The project's canvas takes a preset (#273): the output frame normally
+follows the sources (the largest source width and height, so nothing is
+downscaled), and the Canvas control beside the project actions fixes it to
+16:9, 9:16, 1:1 or 4:5 instead — a landscape screen recording can be edited
+against the vertical frame it is destined for. A fixed preset yields the
+smallest frame of exactly that aspect that still contains the sources, so
+no clip is ever downscaled; the mismatched ones letterbox into it, which is
+exactly the shape background fill treats. The preview stage reshapes live,
+overlay rectangles, text positions and zoom centres keep composing against
+the chosen frame, and the preset saves with the project. Auto is the
+default and is byte-identical to a project that never chose one. Exports
+still follow the sources for now — rendering the preset, and the export
+modal's automatic size with it, is the companion issue (#274), so a fixed
+preset currently reshapes the editing frame and the preview but not the
+exported file.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

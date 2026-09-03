@@ -40,6 +40,8 @@ import {
   subtitleStylesEqual,
   textOverlaysEqual,
 } from './textOverlay'
+import type { CanvasPreset } from './frameSize'
+import { isCanvasPreset } from './frameSize'
 import type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
 import {
   clampVideoOverlay,
@@ -340,6 +342,20 @@ export interface TimelineState {
    * verbatim (see `timelineReducer`).
    */
   subtitleStyle?: SubtitleStyle
+  /**
+   * The project's canvas preset (#273): a fixed output-frame aspect the
+   * customer chooses, instead of the source-derived frame (#176). Present
+   * exactly when one is chosen — absent means Auto, so preset-free states
+   * (and files) stay shaped exactly as before, the #192/#232/#255/#259 rule.
+   * Project-level like `subtitleStyle`, and carried across every edit for
+   * the same reason: `withEffects` rebuilds the collections, not this.
+   *
+   * Frame-fraction state — overlay rectangles (#145), text positions (#139),
+   * zoom centres (#64) — needs no migration when this changes: those are
+   * fractions of whatever frame the rule yields, so they stay proportional
+   * through a reshape. That is pinned by test rather than assumed.
+   */
+  canvasPreset?: CanvasPreset
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
@@ -510,6 +526,17 @@ export type TimelineAction =
        */
       type: 'subtitle-style-set'
       style: SubtitleStyle
+    }
+  | {
+      /**
+       * Sets the project's canvas preset (#273). `undefined` is Auto, and
+       * stores no key at all — the absent-as-default rule, which is what
+       * keeps preset-free projects byte-identical. Re-committing the current
+       * preset (Auto included) is a same-reference no-op, not an edit, so it
+       * never lands in history or stops preview playback.
+       */
+      type: 'canvas-preset-set'
+      preset: CanvasPreset | undefined
     }
   | { type: 'video-overlay-added'; overlay: VideoOverlay }
   | { type: 'video-overlay-updated'; id: string; placement: VideoOverlayPlacement }
@@ -1068,19 +1095,56 @@ export function normalizedTimelineState(
   texts: TextOverlay[] = [],
   videoOverlays: VideoOverlay[] = [],
   subtitleStyle?: SubtitleStyle,
+  canvasPreset?: CanvasPreset,
 ): TimelineState {
   const state = withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
-  // The default subtitle style (#250) is carried, not normalized — the
-  // caller (deserialization) already stores it in canonical form.
-  return subtitleStyle === undefined ? state : { ...state, subtitleStyle }
+  // The project-level fields (#250, #273) are carried, not normalized — the
+  // caller (deserialization) already stores them in canonical form.
+  return withProjectFields(state, { subtitleStyle, canvasPreset })
+}
+
+/**
+ * Adds the project-level fields — the default subtitle style (#250) and the
+ * canvas preset (#273) — to a state a collection rebuild produced.
+ *
+ * `withEffects` rebuilds the collections only, so anything stored beside them
+ * has to be carried across every edit explicitly. An absent field stays
+ * absent (never written as `undefined`), which is what keeps a state that
+ * never used one shaped exactly as it always was; with nothing to carry the
+ * given state comes back by reference, so a no-op edit stays a no-op.
+ */
+function withProjectFields(
+  next: TimelineState,
+  fields: { subtitleStyle?: SubtitleStyle; canvasPreset?: CanvasPreset },
+): TimelineState {
+  const carried = {
+    ...(fields.subtitleStyle === undefined ? {} : { subtitleStyle: fields.subtitleStyle }),
+    ...(fields.canvasPreset === undefined ? {} : { canvasPreset: fields.canvasPreset }),
+  }
+  return Object.keys(carried).length === 0 ? next : { ...next, ...carried }
 }
 
 export function timelineReducer(state: TimelineState, action: TimelineAction): TimelineState {
-  // The default subtitle style (#250) is project-level state, not a
-  // collection `withEffects` rebuilds, so it is handled here: its own
-  // action first, and after any other edit the stored style is carried onto
-  // the new state verbatim. `timeline-replaced` swaps in a whole state
-  // (opening a project) that brings its own style — nothing to carry.
+  // The default subtitle style (#250) and the canvas preset (#273) are
+  // project-level state, not collections `withEffects` rebuilds, so they are
+  // handled here: their own actions first, and after any other edit the
+  // stored values are carried onto the new state verbatim.
+  // `timeline-replaced` swaps in a whole state (opening a project) that
+  // brings its own — nothing to carry.
+  if (action.type === 'canvas-preset-set') {
+    // An unknown identifier is refused rather than stored: it would reshape
+    // the frame both renderers derive from (#176).
+    if (action.preset !== undefined && !isCanvasPreset(action.preset)) return state
+    // Re-committing the current preset — Auto over Auto included — is a
+    // same-reference no-op, so it is not an edit (edits stop playback).
+    if (state.canvasPreset === action.preset) return state
+    // The preset moves no window and invalidates no fraction, so the
+    // collections are carried verbatim rather than rebuilt: overlay
+    // rectangles, text positions and zoom centres are fractions of whatever
+    // frame the rule yields and stay proportional through a reshape.
+    const { canvasPreset: _replaced, ...rest } = state
+    return action.preset === undefined ? rest : { ...rest, canvasPreset: action.preset }
+  }
   if (action.type === 'subtitle-style-set') {
     if (!isValidSubtitleStyle(action.style)) return state
     const clamped = clampSubtitleStyle(action.style)
@@ -1106,16 +1170,19 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     // Equal to the built-in default means no key at all (#192/#232/#255
     // rule), which is what keeps never-customized files byte-identical.
     const normalized = normalizeSubtitleStyle(clamped)
-    return normalized === undefined ? next : { ...next, subtitleStyle: normalized }
+    return withProjectFields(next, {
+      subtitleStyle: normalized,
+      canvasPreset: state.canvasPreset,
+    })
   }
   const next = reduceTimelineCollections(state, action)
   if (next === state || action.type === 'timeline-replaced') return next
-  return state.subtitleStyle === undefined ? next : { ...next, subtitleStyle: state.subtitleStyle }
+  return withProjectFields(next, state)
 }
 
 function reduceTimelineCollections(
   state: TimelineState,
-  action: Exclude<TimelineAction, { type: 'subtitle-style-set' }>,
+  action: Exclude<TimelineAction, { type: 'subtitle-style-set' } | { type: 'canvas-preset-set' }>,
 ): TimelineState {
   const transitions = transitionsOf(state)
   const zooms = zoomsOf(state)

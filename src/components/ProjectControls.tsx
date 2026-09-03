@@ -10,6 +10,8 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia, DeserializeResult, Project } from '../lib/projectFile'
 import { serializeProject } from '../lib/projectFile'
+import { CANVAS_PRESETS } from '../lib/frameSize'
+import type { CanvasPreset } from '../lib/frameSize'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import {
@@ -64,6 +66,12 @@ interface ProjectControlsProps {
   autosave?: AutosaveStore | null
   /** Injectable for tests; defaults to the production debounce. */
   autosaveDebounceMs?: number
+  /**
+   * Sets the project's canvas preset (#273) — `undefined` is Auto. Optional
+   * so save-focused tests that predate it keep compiling unchanged; the
+   * control renders only when the app supplies it.
+   */
+  onSetCanvasPreset?: (preset: CanvasPreset | undefined) => void
 }
 
 type SaveStatus =
@@ -103,6 +111,7 @@ export function ProjectControls({
   plugins = appPluginRuntime,
   autosave = null,
   autosaveDebounceMs,
+  onSetCanvasPreset,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -547,6 +556,30 @@ export function ProjectControls({
       <button type="button" disabled={saving} onClick={() => void save(true)}>
         Save As…
       </button>
+      {onSetCanvasPreset !== undefined && (
+        <label className="project-canvas-preset">
+          Canvas
+          <select
+            aria-label="Canvas aspect"
+            disabled={saving}
+            // Auto is the absent preset (#273), so the empty option value is
+            // what maps to it — never an 'auto' identifier.
+            value={timeline.canvasPreset ?? ''}
+            onChange={(event) =>
+              onSetCanvasPreset(
+                event.target.value === '' ? undefined : (event.target.value as CanvasPreset),
+              )
+            }
+          >
+            <option value="">Auto (match sources)</option>
+            {CANVAS_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <ExportControl timeline={timeline} />
       <PluginManager />
       <span className="project-save-status" role="status">

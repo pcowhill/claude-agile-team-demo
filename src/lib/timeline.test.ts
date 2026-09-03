@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
-import type { TimelineState, TimelineTransition, ZoomSpec } from './timeline'
+import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec } from './timeline'
 import {
   audioTrackFromClip,
   audioTracksOf,
@@ -3510,5 +3510,141 @@ describe('clips-added (#292)', () => {
   it('an empty batch is a same-reference no-op, so it never becomes an undo step', () => {
     const start = stateOf(['x'])
     expect(timelineReducer(start, { type: 'clips-added', entries: [], audioTracks: [] })).toBe(start)
+  })
+})
+
+// The project's canvas preset (#273): project-level state like the default
+// subtitle style (#250), so the reducer must carry it across every other
+// edit, and Auto must be the absent key rather than a stored 'auto'.
+describe('canvas preset (#273)', () => {
+  const clip: LibraryClip = {
+    id: 'c1',
+    name: 'holiday.mp4',
+    duration: 10,
+    url: 'blob:c1',
+    kind: 'video',
+  }
+  const base: TimelineState = {
+    entries: [entryFromClip(clip, 'e1')],
+    videoOverlays: [
+      {
+        id: 'v1',
+        clipId: 'c1',
+        name: 'holiday.mp4',
+        duration: 10,
+        url: 'blob:c1',
+        offset: 0,
+        inPoint: 0,
+        outPoint: 10,
+        x: 0.6,
+        y: 0.62,
+        width: 0.3,
+        height: 0.35,
+      },
+    ],
+    texts: [
+      {
+        id: 't1',
+        content: 'hello',
+        offset: 0,
+        duration: 2,
+        x: 0.25,
+        y: 0.8,
+        font: 'sans',
+        size: 0.06,
+        color: '#ffffff',
+        bold: false,
+        italic: false,
+      },
+    ],
+  }
+
+  it('stores a chosen preset', () => {
+    const next = timelineReducer(base, { type: 'canvas-preset-set', preset: '9:16' })
+    expect(next.canvasPreset).toBe('9:16')
+    expect(next).not.toBe(base)
+  })
+
+  it('stores no key for Auto, so a reset removes it entirely', () => {
+    const set = timelineReducer(base, { type: 'canvas-preset-set', preset: '1:1' })
+    const auto = timelineReducer(set, { type: 'canvas-preset-set', preset: undefined })
+    // Absent, not `undefined`: the serializer's byte-identity depends on the
+    // key genuinely not being there.
+    expect(auto).not.toHaveProperty('canvasPreset')
+    expect(Object.keys(auto)).toEqual(Object.keys(base))
+  })
+
+  it('re-committing the current preset is a same-reference no-op', () => {
+    // Not an edit: it must not enter undo history or stop preview playback.
+    const set = timelineReducer(base, { type: 'canvas-preset-set', preset: '4:5' })
+    expect(timelineReducer(set, { type: 'canvas-preset-set', preset: '4:5' })).toBe(set)
+    // Auto over an already-Auto project, likewise.
+    expect(timelineReducer(base, { type: 'canvas-preset-set', preset: undefined })).toBe(base)
+  })
+
+  it('refuses an unknown preset without changing the state', () => {
+    const bogus = timelineReducer(base, {
+      type: 'canvas-preset-set',
+      preset: 'auto' as never,
+    })
+    expect(bogus).toBe(base)
+    const set = timelineReducer(base, { type: 'canvas-preset-set', preset: '16:9' })
+    expect(timelineReducer(set, { type: 'canvas-preset-set', preset: '3:2' as never })).toBe(set)
+  })
+
+  it('leaves every collection untouched, fractions included', () => {
+    // The preset reshapes the frame, and frame-fraction state is stored as
+    // fractions *of that frame* — so a reshape must migrate nothing. If this
+    // ever needed to rewrite an overlay rectangle, the fractions would no
+    // longer be frame-relative and both renderers would have to agree on a
+    // migration instead of a rule.
+    const next = timelineReducer(base, { type: 'canvas-preset-set', preset: '9:16' })
+    expect(next.entries).toEqual(base.entries)
+    expect(videoOverlaysOf(next)).toEqual(videoOverlaysOf(base))
+    expect(textsOf(next)).toEqual(textsOf(base))
+  })
+
+  it('survives every other kind of edit', () => {
+    const set = timelineReducer(base, { type: 'canvas-preset-set', preset: '9:16' })
+    const edits: TimelineAction[] = [
+      { type: 'entry-added', entry: entryFromClip(clip, 'e2') },
+      { type: 'entry-trimmed', id: 'e1', inPoint: 1, outPoint: 5 },
+      { type: 'entry-removed', id: 'e1' },
+      { type: 'video-overlay-removed', id: 'v1' },
+      { type: 'text-removed', id: 't1' },
+    ]
+    let state = set
+    for (const edit of edits) {
+      state = timelineReducer(state, edit)
+      expect(state.canvasPreset, `lost the preset across ${edit.type}`).toBe('9:16')
+    }
+  })
+
+  it('keeps the preset alongside a customized default subtitle style', () => {
+    // Both are project-level, and each action rebuilds the state — so each
+    // has to carry the other rather than drop it.
+    const styled = timelineReducer(
+      timelineReducer(base, { type: 'canvas-preset-set', preset: '1:1' }),
+      { type: 'subtitle-style-set', style: { ...DEFAULT_SUBTITLE_STYLE, size: 0.09 } },
+    )
+    expect(styled.canvasPreset).toBe('1:1')
+    expect(styled.subtitleStyle?.size).toBeCloseTo(0.09)
+    // And the other order.
+    const presetLast = timelineReducer(styled, { type: 'canvas-preset-set', preset: '4:5' })
+    expect(presetLast.canvasPreset).toBe('4:5')
+    expect(presetLast.subtitleStyle?.size).toBeCloseTo(0.09)
+  })
+
+  it('takes the opened project’s preset, never the previous one', () => {
+    // `timeline-replaced` swaps in a whole state; carrying the old preset
+    // onto it would silently reshape an opened project's frame.
+    const set = timelineReducer(base, { type: 'canvas-preset-set', preset: '9:16' })
+    const opened = timelineReducer(set, { type: 'timeline-replaced', timeline: base })
+    expect(opened).not.toHaveProperty('canvasPreset')
+    const openedWithPreset = timelineReducer(set, {
+      type: 'timeline-replaced',
+      timeline: { ...base, canvasPreset: '1:1' },
+    })
+    expect(openedWithPreset.canvasPreset).toBe('1:1')
   })
 })

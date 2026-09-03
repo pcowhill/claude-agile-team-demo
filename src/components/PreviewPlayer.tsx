@@ -49,7 +49,7 @@ import { maskClipPath } from '../lib/shapeMask'
 import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
 import { transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
-import { frameAspect, outputFrameSize } from '../lib/frameSize'
+import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
@@ -1335,9 +1335,17 @@ export function PreviewPlayer({
   }, [probeSignature])
 
   // The output frame the preview letterboxes into (#176): the shared rule
-  // over the current entries' known dimensions. Until anything is known the
-  // fallback frame (16:9) applies — the historical default.
-  const frame = outputFrameSize(
+  // over the current entries' known dimensions, composed with the project's
+  // canvas preset (#273) — Auto is that rule untouched. Until anything is
+  // known the fallback frame (16:9) applies — the historical default — and a
+  // preset reshapes that fallback the same way it reshapes a real frame.
+  //
+  // Everything frame-relative follows from this one value: the stage's
+  // aspect, and the letterboxing of each layer inside it. Overlay rectangles
+  // (#145), text positions (#139) and zoom centres (#64) are fractions of
+  // this frame, so they need no migration when the preset changes — they
+  // stay proportional, which the component tests pin rather than assume.
+  const frame = canvasFrameSize(
     timeline.entries.flatMap((entry) => {
       if (isSlateEntry(entry)) return []
       const dims = sourceDims.get(entry.url)
@@ -1348,6 +1356,7 @@ export function PreviewPlayer({
         ? []
         : [orientedDimensions(croppedDimensions(dims, entry.crop), entry.orientation)]
     }),
+    timeline.canvasPreset,
   )
   const previewAspect = frameAspect(frame)
 
