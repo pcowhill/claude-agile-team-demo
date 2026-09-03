@@ -8,15 +8,17 @@ interface ShortcutHelpDialogProps {
 
 /** Every shortcut the app answers to, in one place (#203): the transport
  * keys this dialog is opened by, and the #189 undo/redo chords the App-level
- * handler owns. Update this table when a shortcut is added or changed. */
-const SHORTCUTS: readonly { keys: string; does: string }[] = [
-  { keys: 'Space', does: 'Play / pause the preview' },
-  { keys: '← / →', does: 'Step the playhead 0.1 s back / forward' },
-  { keys: 'Shift + ← / →', does: 'Step the playhead 1 s back / forward' },
-  { keys: 'Home / End', does: 'Jump to the sequence start / end' },
-  { keys: 'Ctrl/Cmd + Z', does: 'Undo the last timeline edit' },
-  { keys: 'Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y', does: 'Redo' },
-  { keys: '?', does: 'Show this cheat sheet' },
+ * handler owns. Update this table when a shortcut is added or changed.
+ * `keys` lists alternative combos: each renders as its own <kbd> on its own
+ * line, so a combo never wraps mid-combo (#287). */
+const SHORTCUTS: readonly { keys: readonly string[]; does: string }[] = [
+  { keys: ['Space'], does: 'Play / pause the preview' },
+  { keys: ['← / →'], does: 'Step the playhead 0.1 s back / forward' },
+  { keys: ['Shift + ← / →'], does: 'Step the playhead 1 s back / forward' },
+  { keys: ['Home / End'], does: 'Jump to the sequence start / end' },
+  { keys: ['Ctrl/Cmd + Z'], does: 'Undo the last timeline edit' },
+  { keys: ['Ctrl/Cmd + Shift + Z', 'Ctrl/Cmd + Y'], does: 'Redo' },
+  { keys: ['?'], does: 'Show this cheat sheet' },
 ]
 
 /**
@@ -52,9 +54,11 @@ export function ShortcutHelpDialog({ onClose }: ShortcutHelpDialogProps) {
         <h3 id={headingId}>Keyboard shortcuts</h3>
         <dl className="shortcut-list">
           {SHORTCUTS.map(({ keys, does }) => (
-            <div className="shortcut-row" key={keys}>
+            <div className="shortcut-row" key={keys.join('|')}>
               <dt>
-                <kbd>{keys}</kbd>
+                {keys.map((combo) => (
+                  <kbd key={combo}>{combo}</kbd>
+                ))}
               </dt>
               <dd>{does}</dd>
             </div>

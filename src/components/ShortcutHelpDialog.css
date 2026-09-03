@@ -14,6 +14,11 @@
 
 .shortcut-row dt {
   flex: 0 0 45%;
+  /* Alternative combos stack, one whole combo per line (#287). */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
 }
 
 .shortcut-row dd {
@@ -22,6 +27,8 @@
 }
 
 .shortcut-row kbd {
+  /* A combo never breaks mid-combo (#287); alternatives get their own line. */
+  white-space: nowrap;
   font-family: inherit;
   background: #333;
   border: 1px solid #4a4a4a;
