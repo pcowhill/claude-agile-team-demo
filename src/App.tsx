@@ -392,6 +392,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onDuplicate={(kind, id) =>
             dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })
           }
+          onPasteSettings={(kind, id, settings) =>
+            dispatchTimeline({ type: 'settings-pasted', kind, id, settings })
+          }
           onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })

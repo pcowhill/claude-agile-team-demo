@@ -2664,3 +2664,185 @@ describe('duplicate a timeline element (#314)', () => {
     ).toHaveValue(3)
   })
 })
+
+describe('copy and paste settings (#315)', () => {
+  it('offers Copy on rows holding a group — never on a slate — and Paste only once something is copied', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    expect(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Copy settings of audio track m.mp3 at position 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Copy settings of overlay a.mp4 at position 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Copy settings of text overlay at position 1' }),
+    ).toBeInTheDocument()
+    // A slate holds no settings group: neither control renders on its row.
+    expect(
+      screen.queryByRole('button', { name: 'Copy settings of Color slate at position 2' }),
+    ).not.toBeInTheDocument()
+
+    // With nothing copied there is no Paste control anywhere.
+    expect(screen.queryByRole('button', { name: /^Paste settings onto/ })).not.toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    expect(
+      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Paste settings onto Color slate at position 2' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('clip→clip: applies the checked groups only, as one undo step', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 20)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+
+    // A distinctive grade and crop on the source.
+    const saturation = screen.getByRole('spinbutton', {
+      name: 'Saturation of a.mp4 at position 1 (percent)',
+    })
+    fireEvent.change(saturation, { target: { value: '0' } })
+    fireEvent.blur(saturation)
+    const cropTop = screen.getByRole('spinbutton', {
+      name: 'Crop top of a.mp4 at position 1 (percent)',
+    })
+    fireEvent.change(cropTop, { target: { value: '20' } })
+    fireEvent.blur(cropTop)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto b.mp4 at position 2' }),
+    )
+
+    // The checklist offers the full clip↔clip surface, everything checked.
+    const dialog = screen.getByRole('dialog')
+    expect(
+      within(dialog)
+        .getAllByRole('checkbox')
+        .map((box) => box.closest('label')?.textContent),
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Background fill', 'Audio'])
+    expect(within(dialog).getAllByRole('checkbox').every((box) => (box as HTMLInputElement).checked)).toBe(
+      true,
+    )
+
+    // Apply the color but not the crop.
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Crop' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Saturation of b.mp4 at position 2 (percent)' }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', { name: 'Crop top of b.mp4 at position 2 (percent)' }),
+    ).toHaveValue(0)
+    // The source is untouched.
+    expect(
+      screen.getByRole('spinbutton', { name: 'Crop top of a.mp4 at position 1 (percent)' }),
+    ).toHaveValue(20)
+
+    // One Undo reverts the whole paste; Redo re-applies it.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(
+      screen.getByRole('spinbutton', { name: 'Saturation of b.mp4 at position 2 (percent)' }),
+    ).toHaveValue(100)
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(
+      screen.getByRole('spinbutton', { name: 'Saturation of b.mp4 at position 2 (percent)' }),
+    ).toHaveValue(0)
+  })
+
+  it('clip→overlay: the checklist offers the shared groups, without Background fill', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto overlay a.mp4 at position 1' }),
+    )
+    expect(
+      within(screen.getByRole('dialog'))
+        .getAllByRole('checkbox')
+        .map((box) => box.closest('label')?.textContent),
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Audio'])
+  })
+
+  it('clip→text: no compatible group — the dialog says so instead of a checklist', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 1' }),
+    )
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryAllByRole('checkbox')).toHaveLength(0)
+    expect(within(dialog).getByText('None of the copied settings apply to this element.'))
+      .toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('text→text: the style carries over, the target keeps its content and window', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+
+    // Style the first title distinctively.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Bold text overlay at position 1' }))
+    const color = screen.getByLabelText('Color of text overlay at position 1')
+    fireEvent.change(color, { target: { value: '#ffcc00' } })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of text overlay at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 2' }),
+    )
+    const dialog = screen.getByRole('dialog')
+    expect(
+      within(dialog)
+        .getAllByRole('checkbox')
+        .map((box) => box.closest('label')?.textContent),
+    ).toEqual(['Text style'])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Bold text overlay at position 2' }),
+    ).toBeChecked()
+    expect(screen.getByLabelText('Color of text overlay at position 2')).toHaveValue('#ffcc00')
+    // The window is untouched: both titles still start at 0.
+    expect(
+      screen.getByRole('spinbutton', { name: 'Start time of text overlay at position 2 in seconds' }),
+    ).toHaveValue(0)
+  })
+})
