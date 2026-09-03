@@ -1968,3 +1968,206 @@ describe('overlay shape mask (#266)', () => {
     expect(card().getAttribute('style')).not.toContain('clip-path')
   })
 })
+
+describe('transition handovers (#318)', () => {
+  const slate = {
+    id: 'sl1',
+    clipId: '',
+    name: 'Color slate',
+    duration: 5,
+    url: '',
+    inPoint: 0,
+    outPoint: 5,
+    kind: 'slate' as const,
+    color: '#ff0000',
+  }
+  const still = {
+    id: 's1',
+    clipId: 'i1',
+    name: 'logo.png',
+    duration: 5,
+    url: 'blob:logo',
+    inPoint: 0,
+    outPoint: 5,
+    kind: 'image' as const,
+  }
+  /** The outgoing video of the video→video case, rotated so its looks are visible. */
+  const rotated = {
+    id: 'r1',
+    clipId: 'c0',
+    name: 'rotated.webm',
+    duration: 5,
+    url: 'blob:rotated',
+    inPoint: 0,
+    outPoint: 5,
+    orientation: { rotation: 180 as const },
+  }
+  const incoming = {
+    id: 'v1',
+    clipId: 'c1',
+    name: 'second.webm',
+    duration: 4,
+    url: 'blob:second',
+    inPoint: 0,
+    outPoint: 4,
+  }
+
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  let frames: FrameRequestCallback[]
+  let now: number
+
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const runTick = () => {
+    const tick = frames[frames.length - 1]
+    act(() => tick(0))
+  }
+
+  /**
+   * Plays a 5s-outgoing / 1s-crossfade sequence into the overlap [4, 5), then
+   * hands over with the incoming element's clock 50ms short of the geometric
+   * handover point — the drift that made #61's flash, and this one.
+   */
+  const handOverWithLaggingClock = (outgoing: TimelineState['entries'][number]) => {
+    const timeline: TimelineState = {
+      entries: [outgoing, incoming],
+      transitions: [{ beforeId: outgoing.id, afterId: 'v1', type: 'crossfade', duration: 1 }],
+    }
+    render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+
+    // Mid-overlap: the incoming clip is engaged in the secondary slot.
+    const outgoingIsStill = outgoing.kind === 'slate' || outgoing.kind === 'image'
+    if (outgoingIsStill) {
+      now = 4500
+    } else {
+      ;(screen.getByTestId('preview-video') as HTMLVideoElement).currentTime = 4.5
+    }
+    runTick()
+    const secondary = screen.getByTestId('preview-video-incoming') as HTMLVideoElement
+
+    // The overlap ends, and the promoted element's own clock lags 1.0s by 50ms.
+    secondary.currentTime = 0.95
+    if (outgoingIsStill) {
+      now = 5000
+    } else {
+      ;(screen.getByTestId('preview-video') as HTMLVideoElement).currentTime = 5
+    }
+    runTick()
+  }
+
+  it('a slate is not repainted over the incoming clip after the handover', () => {
+    handOverWithLaggingClock(slate)
+
+    // The slate's turn is over: with the transition finished it would carry
+    // no transition style at all, so painting it would cover the whole frame.
+    expect(screen.queryByTestId('preview-slate')).toBeNull()
+    expect(screen.queryByTestId('preview-slate-incoming')).toBeNull()
+    expect(screen.getByTestId('preview-video')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+      'Clip 2 of 2: second.webm',
+    )
+  })
+
+  it('an image still is not repainted over the incoming clip after the handover', () => {
+    handOverWithLaggingClock(still)
+
+    expect(screen.queryByTestId('preview-image-card')).toBeNull()
+    expect(screen.queryByTestId('preview-image-incoming-card')).toBeNull()
+    expect(screen.getByTestId('preview-video')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+      'Clip 2 of 2: second.webm',
+    )
+  })
+
+  it("the promoted element wears the incoming entry's looks, not the outgoing entry's", () => {
+    handOverWithLaggingClock(rotated)
+
+    // The incoming entry carries no orientation; before the fix the fronting
+    // layer was still resolved to the outgoing entry, so its 180° rotation
+    // was applied to the clip now playing.
+    expect(screen.getByTestId('preview-video').style.transform).toBe('')
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+      'Clip 2 of 2: second.webm',
+    )
+  })
+
+  it('an edit while mid-sequence fronts the entry the clamped position lands on', () => {
+    const timeline: TimelineState = {
+      entries: [slate, incoming],
+      transitions: [{ beforeId: 'sl1', afterId: 'v1', type: 'crossfade', duration: 1 }],
+    }
+    const { rerender } = render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    now = 6000
+    runTick()
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+      'Clip 2 of 2: second.webm',
+    )
+
+    // The timeline is replaced under the player: position 6 now falls in the
+    // *first* entry. The index the player had cued is stale, and must not
+    // drag the fronted entry forward to the second one.
+    const edited: TimelineState = {
+      entries: [
+        { ...incoming, id: 'x1', name: 'long.webm', url: 'blob:long', duration: 10, outPoint: 10 },
+        { ...incoming, id: 'y1', name: 'after.webm', url: 'blob:after' },
+      ],
+    }
+    rerender(<PreviewPlayer timeline={edited} />)
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('Clip 1 of 2: long.webm')
+  })
+
+  it('scrubbing backwards into an overlap still renders the transition', () => {
+    const timeline: TimelineState = {
+      entries: [slate, incoming],
+      transitions: [{ beforeId: 'sl1', afterId: 'v1', type: 'crossfade', duration: 1 }],
+    }
+    render(<PreviewPlayer timeline={timeline} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    now = 6000
+    runTick()
+    expect(screen.queryByTestId('preview-slate')).toBeNull()
+
+    // Seeking back into the overlap cues the outgoing entry again, so the
+    // guard must not hold the playhead forward.
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '4.5' },
+    })
+    expect(screen.getByTestId('preview-slate')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-video-incoming-card')).toHaveStyle({ opacity: '0.5' })
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
+      'Clip 1 of 2: Color slate → second.webm (crossfade)',
+    )
+  })
+})

@@ -138,6 +138,43 @@ export function sequenceTimeAt(state: TimelineState, index: number, sourceTime: 
 }
 
 /**
+ * The location the preview may front, which is never an entry playback has
+ * already left (#318).
+ *
+ * `locateInSequence` resolves the *published* sequence time, and at a
+ * handover that time comes off the incoming element's own clock, which lags
+ * by tens of milliseconds — so it can still fall inside the overlap the
+ * player has just finished. `locateInSequence` then reports the overlap's
+ * **outgoing** entry as the fronting one, and every layer keyed to the
+ * location follows it backwards: a slate or an image still is painted again,
+ * full-frame and (correctly, the transition being over) with no transition
+ * style at all, over the clip that should now be playing; a video entry's
+ * crop, orientation, and color adjustments are taken from the entry that
+ * just ended. #61 fixed this for the *incoming* overlay by keying it to
+ * actual engagement (`isTransitionOverlayActive`); this is the same rule for
+ * the fronting side, and applying it to the location itself covers every
+ * layer derived from it rather than one of them.
+ *
+ * `playedIndex` is the entry the player has advanced to — the index the
+ * transport actually cued, which a seek sets to the sought entry, so
+ * scrubbing backwards inside an overlap is unaffected (there `playedIndex`
+ * *is* the location's index). Only a played index ahead of the location's is
+ * corrected, and then to the earliest instant that entry can be at: its
+ * start plus the transition that brought it in — the geometric handover
+ * point the lagging clock is short of.
+ */
+export function frontedLocation(
+  state: TimelineState,
+  location: PlaybackLocation | null,
+  playedIndex: number,
+): PlaybackLocation | null {
+  if (location === null || playedIndex <= location.index) return location
+  if (playedIndex >= state.entries.length) return location
+  const into = boundaryTransitions(state)[playedIndex - 1]?.duration ?? 0
+  return locateInSequence(state, entryStartTime(state, playedIndex) + into)
+}
+
+/**
  * Whether the secondary <video> element genuinely renders a transition
  * overlay. The published location alone cannot decide this: element clocks
  * drift by tens of milliseconds, so right after a handover the published
