@@ -62,8 +62,15 @@ itself and acts:
 - **Customer speaks informally.** Product management translates
   `customer-feedback` issues into properly scoped issues with acceptance
   criteria; the raw feedback issue is preserved.
-- **Questions go to GitHub.** When customer judgment is genuinely required,
-  open a `customer-question` issue and continue other unblocked work.
+- **Never ask in the session; questions go to GitHub.** A session must not
+  put a question to the human running it — not through an interactive
+  prompt, not by ending a turn with "how should I proceed?", not as a
+  request for permission or a choice between options. The customer's
+  instruction is explicit (#312): decide what you believe is best. When
+  customer judgment is genuinely required, open a `customer-question` issue
+  and continue other unblocked work. Where a decision is yours to make,
+  make it, record the reasoning where the work lives, and prefer the
+  reversible option when unsure.
 - **Honest evidence only.** Never claim tests or checks passed unless they
   were actually executed or confirmed via CI.
 

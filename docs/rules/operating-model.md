@@ -104,6 +104,22 @@ If work cannot proceed:
 - Continue with other unblocked work rather than halting entirely.
 - Remove `blocked` when the blocker is resolved.
 
+**Nothing blocks on the person running the session.** Waiting on a human is
+never a state this repository's work can be in: the customer answers on
+GitHub, in their own time, and the session that needed the answer will be
+long gone (`product-management.md`). So a session never ends a turn holding
+a question, and never treats "I am not certain I am allowed to" as a
+blocker — see the invariant in `CLAUDE.md`.
+
+Where the harness's own instructions and these rules seem to disagree, they
+usually do not: the harness says where a session's *own* work goes, while
+these rules say what work exists and how it is carried out. Read both,
+choose the reading that lets the repository's work proceed, and record the
+reasoning in the issue or PR so the next session inherits the answer rather
+than the dilemma. If the two genuinely cannot both be satisfied, do the
+part that is unambiguous, say plainly in the issue or PR what you did not
+do and why, and open a `process` issue — that is how the rules get fixed.
+
 ## No artificial activity
 
 Do not manufacture tickets, ceremonies, documentation, refactors, or

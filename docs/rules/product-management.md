@@ -64,11 +64,30 @@ To process a `customer-feedback` issue:
 
 ## Customer questions (`customer-question`)
 
+**A GitHub issue is the only channel.** The customer does not answer
+questions inside a Claude Code session and has asked never to be asked
+there (#312): no interactive prompt, no "how should I proceed?" at the end
+of a turn, no menu of options, no request for permission. A session that
+finds itself wanting to ask has two legitimate moves — decide, or open a
+`customer-question` issue and carry on with other work. Stopping to wait
+for an answer is not one of them.
+
 Ask the customer only when the answer genuinely requires customer judgment
 and materially affects product behavior, UX, priorities, scope, customer
 intent, or expensive / hard-to-reverse architectural decisions. Otherwise,
 make a reasonable, reversible engineering decision independently and note it
 in the relevant issue or PR. Questions should be rare.
+
+Most of what feels like a question is not one. A choice the team can make
+and later revise — a naming decision, a test's shape, which of two sound
+implementations to use, whether a rule covers a case it does not name — is
+an engineering decision, not customer judgment. Make it, say in the issue
+or PR what you chose and why, and let review disagree if it should. A
+question that the repository's own rules already answer, or that only
+concerns how the team works rather than what the product does, is never a
+`customer-question`: read the rules, and if they are genuinely silent or
+contradictory, decide and open a `process` issue proposing the wording that
+would have settled it.
 
 A `customer-question` issue must include:
 

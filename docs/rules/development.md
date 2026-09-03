@@ -51,7 +51,16 @@ detectable:
   on the first issue's open PR, invalidating review evidence already recorded
   against it. Branch each one from `main`, not from the previous branch, so
   the PRs stay independently reviewable and mergeable in any order.
-- Never force-push a branch this session did not create.
+- **A fix for an open PR goes on that PR's own branch.** The
+  harness-assigned name governs the work a session *authors*; it does not
+  follow work that belongs somewhere else. Fixing a stalled PR
+  (`operating-model.md`, priority 3) means pushing to its head branch,
+  because that is the only place the fix reaches the PR — an ordinary
+  collaborative push, not a branch violation, and it needs nobody's
+  permission. The prohibitions below still hold, and `review.md` still
+  decides what the push does to authorship.
+- Never force-push, rebase, amend, or otherwise rewrite history on a branch
+  this session did not create.
 - Small, coherent commits with clear messages describing why, not just what.
 
 ## Scope discipline
