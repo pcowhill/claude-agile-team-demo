@@ -1523,6 +1523,18 @@ describe('transport keyboard shortcuts (#203)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('renders Redo’s alternative combos as separate <kbd> lines, never one wrapping string (#287)', () => {
+    render(<PreviewPlayer timeline={oneClip} />)
+    pressOnWindow('?', { shiftKey: true })
+    const dialog = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    // Each alternative is its own whole <kbd>; the old single "X or Y"
+    // string wrapped mid-combo at the dialog's width.
+    const combos = Array.from(dialog.querySelectorAll('kbd')).map((kbd) => kbd.textContent)
+    expect(combos).toContain('Ctrl/Cmd + Shift + Z')
+    expect(combos).toContain('Ctrl/Cmd + Y')
+    expect(combos.some((combo) => combo?.includes(' or '))).toBe(false)
+  })
+
   it('? answers on an empty timeline, where there is no transport to drive', () => {
     render(<PreviewPlayer timeline={{ entries: [] }} />)
     pressOnWindow('?', { shiftKey: true })
