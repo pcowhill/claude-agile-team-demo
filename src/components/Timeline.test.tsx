@@ -2996,6 +2996,79 @@ describe('copy and paste settings (#315)', () => {
   })
 })
 
+describe("a section's Expand all unfolds the section too (#360)", () => {
+  const trimIn = (position: string) =>
+    screen.queryByRole('spinbutton', { name: `Trim in point of ${position} in seconds` })
+  const list = (name: string) => screen.queryByRole('list', { name })
+  const fold = (title: string) => screen.getByRole('button', { name: `Collapse ${title} section` })
+  const unfold = (title: string) => screen.getByRole('button', { name: `Expand ${title} section` })
+
+  const addTwoClips = async () => {
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 6)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+  }
+
+  it('on a folded section, unfolds it and expands its elements — the click visibly acts', async () => {
+    render(<App />)
+    await addTwoClips()
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse a.mp4 at position 1' }))
+    await userEvent.click(fold('Sequence'))
+    expect(list('Sequence')).toBeNull()
+
+    // The customer's report (#354): this click used to appear to do nothing.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all Sequence elements' }))
+    expect(list('Sequence')).toBeInTheDocument()
+    expect(fold('Sequence')).toHaveAttribute('aria-expanded', 'true')
+    expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
+    expect(trimIn('b.mp4 at position 2')).toBeInTheDocument()
+  })
+
+  it('on an unfolded section, behaves exactly as before — elements expand, nothing else changes', async () => {
+    render(<App />)
+    await addTwoClips()
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse a.mp4 at position 1' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all Sequence elements' }))
+    expect(fold('Sequence')).toHaveAttribute('aria-expanded', 'true')
+    expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
+    expect(trimIn('b.mp4 at position 2')).toBeInTheDocument()
+  })
+
+  it('Collapse all keeps folding nothing — the customer asked for the asymmetry', async () => {
+    render(<App />)
+    await addTwoClips()
+
+    // Unfolded before: Collapse all collapses elements, never the section.
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all Sequence elements' }))
+    expect(fold('Sequence')).toHaveAttribute('aria-expanded', 'true')
+    expect(list('Sequence')).toBeInTheDocument()
+    expect(trimIn('a.mp4 at position 1')).toBeNull()
+
+    // Folded before: it stays folded — only the element states change.
+    await userEvent.click(fold('Sequence'))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all Sequence elements' }))
+    expect(unfold('Sequence')).toHaveAttribute('aria-expanded', 'false')
+    expect(list('Sequence')).toBeNull()
+  })
+
+  it('unfolds only its own section — a fold on another lane is untouched', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await userEvent.click(fold('Sequence'))
+    await userEvent.click(fold('Audio'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all Sequence elements' }))
+    expect(list('Sequence')).toBeInTheDocument()
+    expect(unfold('Audio')).toHaveAttribute('aria-expanded', 'false')
+    expect(list('Audio tracks')).toBeNull()
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({

@@ -1112,7 +1112,21 @@ export function Timeline({
         type="button"
         className="lane-heading-action"
         aria-label={`Expand all ${title} elements`}
-        onClick={() => setElementsCollapsed(elementIds, false)}
+        onClick={() => {
+          // Expand all unfolds the section too (#360, from feedback #354):
+          // on a folded section the heading row — this button included —
+          // still shows, so expanding only the hidden elements looked like
+          // the button did nothing. The timeline-wide Expand all already
+          // behaved this way. Collapse all deliberately keeps folding
+          // nothing: the customer's stated constraint.
+          setFolded((previous) => {
+            if (!previous.has(section)) return previous
+            const next = new Set(previous)
+            next.delete(section)
+            return next
+          })
+          setElementsCollapsed(elementIds, false)
+        }}
       >
         Expand all
       </button>
