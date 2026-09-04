@@ -20,6 +20,7 @@ import {
   remapsOf,
   textsOf,
   totalDuration,
+  isImageOverlay,
   videoOverlaysOf,
 } from './timeline'
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
@@ -303,7 +304,13 @@ export function activeVideoOverlays(
   sequenceTime: number,
 ): VideoOverlay[] {
   return videoOverlaysOf(timeline).filter(
-    (overlay) => audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
+    // Still overlays (#294) live in the same lane but are deliberately not
+    // drawn here yet: rendering them into the export is #295, filed and
+    // blocked on the model landing. Skipping them keeps the export honest —
+    // an image overlay simply does not appear in the file — rather than
+    // feeding an image URL to the video replay path, which would stall the
+    // export waiting for a <video> that can never load.
+    (overlay) => !isImageOverlay(overlay) && audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
   )
 }
 
@@ -1717,12 +1724,15 @@ export async function exportTimeline(
   // sync below. Unlike the audio tracks, overlays must play even without
   // Web Audio — the picture is the point — so they follow the base replays'
   // mute rule rather than the tracks' skip rule.
-  const overlayReplays = videoOverlaysOf(timeline).map((overlay) => {
-    const element = createVideo()
-    element.playsInline = true
-    element.preload = 'auto'
-    return { overlay, element }
-  })
+  const overlayReplays = videoOverlaysOf(timeline)
+    // Still overlays have no video to replay (#294) — see activeVideoOverlays.
+    .filter((overlay) => !isImageOverlay(overlay))
+    .map((overlay) => {
+      const element = createVideo()
+      element.playsInline = true
+      element.preload = 'auto'
+      return { overlay, element }
+    })
 
   // A sink-driven export (#198) is soundless (see ExportFrameSink): no audio
   // graph is built, which also leaves the replays muted below — the export

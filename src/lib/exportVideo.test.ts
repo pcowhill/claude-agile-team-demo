@@ -926,6 +926,19 @@ describe('activeVideoOverlays (#146)', () => {
   it('is empty for an overlay-free timeline, pre-#145 states included', () => {
     expect(activeVideoOverlays({ entries }, 4)).toEqual([])
   })
+
+  it('skips image overlays — the export does not render them yet (#294/#295)', () => {
+    // Still overlays share the lane but not the export path: rendering them
+    // into the file is #295, filed and blocked on this model. Skipping is
+    // deliberate and pinned, so a later session finds a failing test rather
+    // than a silent behaviour change when it wires them up — and so nothing
+    // feeds an image URL to the <video> replay path, which would stall the
+    // export waiting for a source that can never load.
+    const still = exportOverlay({ id: 'logo', kind: 'image', duration: 4, inPoint: 0, outPoint: 4 })
+    const video = exportOverlay({ id: 'v1' })
+    expect(activeVideoOverlays({ entries, videoOverlays: [still] }, 4)).toEqual([])
+    expect(activeVideoOverlays({ entries, videoOverlays: [still, video] }, 4)).toEqual([video])
+  })
 })
 
 describe('syncOverlayReplay (#146)', () => {

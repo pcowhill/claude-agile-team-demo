@@ -58,7 +58,7 @@ test('a webcam capture records into the library and overlays the timeline (#226)
   await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
   await page.getByRole('button', { name: 'Add Webcam recording 1.webm as overlay' }).click()
   await expect(
-    page.getByRole('list', { name: 'Overlay video layers' }).getByRole('listitem'),
+    page.getByRole('list', { name: 'Overlay layers' }).getByRole('listitem'),
   ).toHaveCount(1)
 
   // And it genuinely plays as video: the overlay's preview element decodes

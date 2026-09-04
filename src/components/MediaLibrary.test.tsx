@@ -720,7 +720,7 @@ describe('media library batch Remove (#293)', () => {
     expect(library).toHaveTextContent('keep.mp4')
     // Every lane the removed clips reached is empty; the survivor stays.
     expect(screen.queryByRole('list', { name: 'Audio tracks' })).toBeNull()
-    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).toBeNull()
     expect(
       screen.getByRole('spinbutton', { name: 'Trim in point of keep.mp4 at position 1 in seconds' }),
     ).toBeInTheDocument()

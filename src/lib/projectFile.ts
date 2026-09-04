@@ -23,11 +23,13 @@ import {
   remapsOf,
   textsOf,
   transitionsOf,
+  isImageOverlay,
   videoOverlaysOf,
   zoomsOf,
 } from './timeline'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
+import { forbiddenImageOverlayField } from './videoOverlay'
 import {
   isTextFontId,
   isValidTextColor,
@@ -232,7 +234,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 16
+export const PROJECT_SCHEMA_VERSION = 17
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -265,6 +267,8 @@ export const BACKGROUND_FILL_SCHEMA_VERSION = 14
 export const SHAPE_MASK_SCHEMA_VERSION = 15
 /** The version a set canvas preset forces, whichever the save mode (#273). */
 export const CANVAS_PRESET_SCHEMA_VERSION = 16
+/** The version any image overlay layer forces, whichever the save mode (#294). */
+export const IMAGE_OVERLAYS_SCHEMA_VERSION = 17
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -539,6 +543,7 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
@@ -570,7 +575,9 @@ export async function serializeProject(
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasCanvasPreset
+    schemaVersion: hasImageOverlays
+      ? IMAGE_OVERLAYS_SCHEMA_VERSION
+      : hasCanvasPreset
       ? CANVAS_PRESET_SCHEMA_VERSION
       : hasShapeMask
       ? SHAPE_MASK_SCHEMA_VERSION
@@ -789,8 +796,12 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask }) => ({
                 id,
+                // Still overlays (#294) carry their kind; a video overlay
+                // writes no key at all, so overlay output that existed before
+                // image overlays stays byte-identical.
+                ...(kind === undefined ? {} : { kind }),
                 clipId,
                 name,
                 duration,
@@ -1592,8 +1603,15 @@ function validateProject(document: Record<string, unknown>): Project {
     (value, index) => {
       const path = `timeline.videoOverlays[${index}]`
       const raw = asRecord(value, path)
+      // A still overlay (#294) declares its kind; a video overlay writes no
+      // key, so files from before image overlays parse exactly as before.
+      if (raw.kind !== undefined && raw.kind !== 'image') {
+        throw new Error(`${path}.kind must be "image" when present`)
+      }
+      const isImage = raw.kind === 'image'
       const overlay: ProjectVideoOverlay = {
         id: asString(raw.id, `${path}.id`),
+        ...(isImage ? { kind: 'image' as const } : {}),
         clipId: asString(raw.clipId, `${path}.clipId`),
         name: asString(raw.name, `${path}.name`),
         duration: asFinite(raw.duration, `${path}.duration`),
@@ -1610,16 +1628,33 @@ function validateProject(document: Record<string, unknown>): Project {
         throw new Error(`${path}.clipId "${overlay.clipId}" does not match any clip`)
       }
       const overlayClipKind = clipKinds.get(overlay.clipId) as MediaKind
-      if (overlayClipKind !== 'video') {
-        // Overlay layers carry video clips only (#145): audio has no
-        // picture, and a still overlay would be a different feature.
-        throw new Error(`${path}.clipId "${overlay.clipId}" references ${describeKind(overlayClipKind)} clip, but overlay layers carry video only`)
+      const expectedClipKind = isImage ? 'image' : 'video'
+      if (overlayClipKind !== expectedClipKind) {
+        // An overlay layer carries a picture — video (#145) or a still
+        // (#294) — and each kind carries its own: audio has none at all.
+        throw new Error(`${path}.clipId "${overlay.clipId}" references ${describeKind(overlayClipKind)} clip, but ${isImage ? 'image overlay layers carry images only' : 'overlay layers carry video only'}`)
       }
-      if (overlay.inPoint >= overlay.outPoint) {
-        throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
-      }
-      if (overlay.outPoint > overlay.duration) {
-        throw new Error(`${path}.outPoint must not exceed the clip duration`)
+      if (isImage) {
+        // A still is soundless (#294/#220). A file carrying an audio field on
+        // an image overlay is refused BY NAME rather than quietly dropped —
+        // it means the writer disagreed with the model, and silently loading
+        // a fraction of what the file says is how corruption hides.
+        const forbidden = forbiddenImageOverlayField(raw)
+        if (forbidden !== undefined) {
+          throw new Error(`${path}.${forbidden} is not allowed on an image overlay: a still has no audio`)
+        }
+        // Its window is offset + duration; the stored trim is the whole
+        // still, exactly as a still entry's is (#140).
+        if (overlay.inPoint !== 0 || overlay.outPoint !== overlay.duration) {
+          throw new Error(`${path} window must be the whole still (inPoint 0, outPoint equal to the duration)`)
+        }
+      } else {
+        if (overlay.inPoint >= overlay.outPoint) {
+          throw new Error(`${path} trim range is empty (inPoint must be less than outPoint)`)
+        }
+        if (overlay.outPoint > overlay.duration) {
+          throw new Error(`${path}.outPoint must not exceed the clip duration`)
+        }
       }
       for (const [field, size] of [
         ['width', overlay.width],
@@ -1635,6 +1670,8 @@ function validateProject(document: Record<string, unknown>): Project {
           throw new Error(`${path}.${field} places the rectangle beyond the frame edge`)
         }
       }
+      // Audio belongs to video overlays only — an image overlay carrying any
+      // of it was already refused by name above.
       if (raw.volume !== undefined) overlay.volume = asVolume(raw.volume, `${path}.volume`)
       if (raw.muted !== undefined) overlay.muted = asBoolean(raw.muted, `${path}.muted`)
       // Audio fades (#220): absent in files saved before them, and on every

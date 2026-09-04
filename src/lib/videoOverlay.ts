@@ -43,18 +43,38 @@ import type { LibraryClip } from './mediaLibrary'
 export interface VideoOverlay {
   /** Unique per overlay — the same library clip can appear multiple times. */
   id: string
-  /** The library clip this overlay was created from. Always a video clip. */
+  /**
+   * Present exactly when the overlay is a still image (#294); absent means a
+   * video overlay, so every pre-image state (and saved file) stays valid —
+   * the `TimelineEntry.kind` rule (#140), applied to the overlay lane.
+   *
+   * An image overlay differs from a video one in exactly two ways, and is
+   * identical in every other: it carries **no audio fields** (`volume`,
+   * `muted`, `fadeIn`, `fadeOut` — a still is soundless, #220), and its
+   * window is an explicit `offset` + `duration` rather than a trim of a
+   * source. The window is still stored as `inPoint`/`outPoint`, pinned to
+   * `[0, duration]` exactly as a still entry's is, so every shared window
+   * helper (`audioTrackPlaybackAt`, `effectiveDuration`) keeps working on it
+   * unchanged — editing the window means editing `duration`, the
+   * `still-duration-set` rule (#137/#140).
+   */
+  kind?: 'image'
+  /** The library clip this overlay was created from — video, or an image when `kind` is 'image'. */
   clipId: string
   name: string
-  /** Duration of the source video clip in seconds. */
+  /**
+   * Duration of the source video clip in seconds — for an image overlay
+   * (which has no source duration), the window length itself, always equal
+   * to `outPoint`.
+   */
   duration: number
-  /** Object URL of the source clip, usable as a <video> src. */
+  /** Object URL of the source clip, usable as a `<video>` src — or an `<img>` src for an image overlay. */
   url: string
   /** Seconds into the composed timeline where the overlay starts. ≥ 0. */
   offset: number
-  /** Trim start within the source clip, in seconds. 0 ≤ inPoint < outPoint. */
+  /** Trim start within the source clip, in seconds. 0 ≤ inPoint < outPoint; always 0 for an image overlay. */
   inPoint: number
-  /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
+  /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration; always `duration` for an image overlay. */
   outPoint: number
   /** Rectangle's left edge, as a fraction of frame width (0..1 − width). */
   x: number
@@ -64,7 +84,7 @@ export interface VideoOverlay {
   width: number
   /** Rectangle's height, as a fraction of frame height. */
   height: number
-  /** Volume of the overlay's own audio, 0..1 (#104). Absent = full volume. */
+  /** Volume of the overlay's own audio, 0..1 (#104). Absent = full volume. Never present on an image overlay. */
   volume?: number
   /** Mutes the overlay's audio; mute wins over volume (#104). */
   muted?: boolean
@@ -128,6 +148,136 @@ export interface VideoOverlayPlacement {
   muted?: boolean
   fadeIn?: number
   fadeOut?: number
+}
+
+/**
+ * The editable fields a `video-overlay-updated` action carries for an
+ * **image** overlay (#294): the placement rectangle and the explicit
+ * `offset` + `duration` window. No trim (a still has no source to trim) and
+ * no audio (a still is soundless) — the reducer refuses a placement carrying
+ * either, rather than silently ignoring it.
+ */
+export interface ImageOverlayPlacement {
+  offset: number
+  /** Window length in seconds, > 0 — the still-entry rule (#137/#140). */
+  duration: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** What `video-overlay-updated` carries, per overlay kind. */
+export type OverlayPlacement = VideoOverlayPlacement | ImageOverlayPlacement
+
+/**
+ * The audio fields an image overlay must never carry (#294) — a still is
+ * soundless (#220). `duck`/`duckLevel` are audio-track fields that no
+ * overlay of either kind has, and are listed so a foreign project file
+ * carrying one is refused by name rather than quietly dropped.
+ */
+export const IMAGE_OVERLAY_FORBIDDEN_FIELDS = [
+  'volume',
+  'muted',
+  'fadeIn',
+  'fadeOut',
+  'duck',
+  'duckLevel',
+] as const
+
+/**
+ * The first forbidden audio field this value carries, or `undefined` when it
+ * carries none — so a validator can refuse it and a parser can name it. Only
+ * meaningful for image overlays.
+ */
+export function forbiddenImageOverlayField(
+  source: Readonly<Record<string, unknown>>,
+): string | undefined {
+  return IMAGE_OVERLAY_FORBIDDEN_FIELDS.find((field) => source[field] !== undefined)
+}
+
+/** Whether this overlay is a still image (#294) rather than a video. */
+export function isImageOverlay(overlay: Pick<VideoOverlay, 'kind'>): boolean {
+  return overlay.kind === 'image'
+}
+
+/**
+ * Whether a placement is acceptable input for an **image** overlay (#294):
+ * finite geometry and a positive duration, with no trim and no audio field —
+ * those are refused by name (see `forbiddenImageOverlayField`) rather than
+ * ignored, so an action built for the wrong overlay kind cannot half-apply.
+ * Ranges are not rejected here; they clamp, exactly as for a video overlay.
+ */
+export function isValidImageOverlayPlacement(placement: ImageOverlayPlacement): boolean {
+  const source = placement as unknown as Record<string, unknown>
+  return (
+    Number.isFinite(placement.offset) &&
+    Number.isFinite(placement.duration) &&
+    placement.duration > 0 &&
+    Number.isFinite(placement.x) &&
+    Number.isFinite(placement.y) &&
+    Number.isFinite(placement.width) &&
+    Number.isFinite(placement.height) &&
+    source.inPoint === undefined &&
+    source.outPoint === undefined &&
+    forbiddenImageOverlayField(source) === undefined
+  )
+}
+
+/**
+ * Whether a whole **image** overlay is acceptable input (#294): finite
+ * geometry, a positive duration, and no audio field. The window pinning
+ * (`inPoint`/`outPoint` = `[0, duration]`) is normalization's job, not a
+ * rejection — `clampVideoOverlay` enforces it — so an overlay whose trim was
+ * built loosely still lands in a consistent state.
+ */
+export function isValidImageOverlay(overlay: VideoOverlay): boolean {
+  return (
+    Number.isFinite(overlay.offset) &&
+    Number.isFinite(overlay.duration) &&
+    overlay.duration > 0 &&
+    Number.isFinite(overlay.x) &&
+    Number.isFinite(overlay.y) &&
+    Number.isFinite(overlay.width) &&
+    Number.isFinite(overlay.height) &&
+    forbiddenImageOverlayField(overlay as unknown as Record<string, unknown>) === undefined
+  )
+}
+
+/**
+ * How long a newly placed image overlay shows by default, in seconds. Equal
+ * to `DEFAULT_STILL_DURATION` (#140) — a still is a still, whether it sits in
+ * the sequence or above it — but declared here rather than imported, because
+ * `timeline.ts` imports this module and the reverse would be a cycle. A unit
+ * test pins the two to the same value.
+ */
+export const DEFAULT_IMAGE_OVERLAY_DURATION = 5
+
+/**
+ * What "add as overlay" creates for an image clip (#294): the same
+ * picture-in-picture placement a video overlay gets, showing from the
+ * sequence start for the default still duration. The window is `[0,
+ * duration]` — a still has nothing to trim.
+ */
+export function imageOverlayFromClip(clip: LibraryClip, id: string, offset = 0): VideoOverlay {
+  // Only images become still overlay layers; video has its own constructor
+  // and audio has no picture. The UI never offers this path for other kinds —
+  // reaching here is programmer error.
+  if (clip.kind !== 'image') {
+    throw new Error(`cannot add "${clip.name}" as an image overlay: it is not an image clip`)
+  }
+  return {
+    id,
+    kind: 'image',
+    clipId: clip.id,
+    name: clip.name,
+    duration: DEFAULT_IMAGE_OVERLAY_DURATION,
+    url: clip.url,
+    offset,
+    inPoint: 0,
+    outPoint: DEFAULT_IMAGE_OVERLAY_DURATION,
+    ...DEFAULT_OVERLAY_RECT,
+  }
 }
 
 /**
@@ -198,15 +348,49 @@ export function isValidVideoOverlayPlacement(placement: VideoOverlayPlacement): 
  * rectangle fully onto the frame — size first into its bounds, then position
  * into what the size leaves. Returns the same object when nothing changes,
  * so no-op edits are cheap to detect.
+ *
+ * An **image** overlay (#294) takes the same offset and rectangle rules, but
+ * its window is its explicit duration rather than a trim — `inPoint` and
+ * `outPoint` are pinned to `[0, duration]` — and it carries no audio at all,
+ * so any audio field is dropped instead of clamped.
  */
 export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
   const offset = Math.max(0, overlay.offset)
-  const inPoint = clamp(overlay.inPoint, 0, overlay.duration)
-  const outPoint = clamp(overlay.outPoint, 0, overlay.duration)
   const width = clamp(overlay.width, MIN_OVERLAY_SIZE, MAX_OVERLAY_SIZE)
   const height = clamp(overlay.height, MIN_OVERLAY_SIZE, MAX_OVERLAY_SIZE)
   const x = clamp(overlay.x, 0, 1 - width)
   const y = clamp(overlay.y, 0, 1 - height)
+  if (isImageOverlay(overlay)) {
+    // An image overlay's window is its explicit duration (#294): the trim is
+    // pinned to the whole still, exactly as `still-duration-set` keeps a
+    // still entry's (#140), so every shared window helper reads it correctly.
+    // Audio fields are dropped rather than clamped — a still is soundless, so
+    // the invariant holds in state whatever an action or a file carried (the
+    // validator and the parser refuse them by name first; this is the
+    // backstop that keeps the model honest).
+    const stripped = IMAGE_OVERLAY_FORBIDDEN_FIELDS.some(
+      (field) => (overlay as unknown as Record<string, unknown>)[field] !== undefined,
+    )
+    if (
+      !stripped &&
+      offset === overlay.offset &&
+      overlay.inPoint === 0 &&
+      overlay.outPoint === overlay.duration &&
+      x === overlay.x &&
+      y === overlay.y &&
+      width === overlay.width &&
+      height === overlay.height
+    ) {
+      return overlay
+    }
+    const next = { ...overlay, offset, inPoint: 0, outPoint: overlay.duration, x, y, width, height }
+    for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
+      delete (next as unknown as Record<string, unknown>)[field]
+    }
+    return next
+  }
+  const inPoint = clamp(overlay.inPoint, 0, overlay.duration)
+  const outPoint = clamp(overlay.outPoint, 0, overlay.duration)
   const volume = overlay.volume === undefined ? undefined : clamp(overlay.volume, 0, 1)
   const trimmedLength = Math.max(0, outPoint - inPoint)
   const clampedFadeIn = clamp(overlay.fadeIn ?? 0, 0, trimmedLength)
@@ -238,6 +422,7 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
 export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
   return (
     a.id === b.id &&
+    a.kind === b.kind &&
     a.clipId === b.clipId &&
     a.name === b.name &&
     a.duration === b.duration &&

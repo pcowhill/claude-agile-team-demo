@@ -106,6 +106,16 @@ rendered live in the preview, and saved with the project. Exports cut the
 same silhouette (#267): the video formats, the GIF plugin, and frame
 snapshots all draw masked overlays through one shared composition path,
 so what plays is what exports.
+An **image** can be layered the same way (#294) — a logo, a watermark, a
+sticker, or a transparent title-card PNG. A still overlay takes the same
+placement rectangle and the same picture treatments (color, orientation,
+crop, shape mask) as a video one, and shows for an explicit length you set
+on its row rather than a trim, since there is no source to trim; it carries
+no audio controls, because a still has no sound. Transparent pixels show
+the layers below through, so a logo sits on the footage rather than in a
+box. The preview renders it above the base video, and it saves and reopens
+with the project; rendering it into the exported file is still to come
+(#295), so a still overlay does not yet appear in an export.
 Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all

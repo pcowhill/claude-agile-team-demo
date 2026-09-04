@@ -2457,3 +2457,105 @@ describe('overlay parity across a transition handover (#319)', () => {
     expect(screen.getByTestId('preview-overlay-0')).toHaveAttribute('src', 'blob:over')
   })
 })
+
+describe('image overlay layers in the preview (#294)', () => {
+  // A 10s base entry with a still overlay showing over sequence [2, 5).
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c1',
+    name: 'first.webm',
+    duration: 10,
+    url: 'blob:first',
+    inPoint: 0,
+    outPoint: 10,
+  }
+  const logo = {
+    id: 'i1',
+    kind: 'image' as const,
+    clipId: 'c2',
+    name: 'logo.png',
+    duration: 3,
+    url: 'blob:logo',
+    offset: 2,
+    inPoint: 0,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.55,
+    width: 0.35,
+    height: 0.4,
+  }
+  const withStill: TimelineState = { entries: [baseEntry], videoOverlays: [logo] }
+
+  const seekTo = (value: string) =>
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value },
+    })
+
+  it('renders the still as an <img> at its rectangle, only within its window', () => {
+    render(<PreviewPlayer timeline={withStill} />)
+    const media = screen.getByTestId('preview-overlay-0')
+    // An <img>, not a <video>: there is nothing to play, and a <video> would
+    // never decode a PNG.
+    expect(media.tagName).toBe('IMG')
+    expect(media).toHaveAttribute('src', 'blob:logo')
+    // The card is the fractional rectangle, exactly as a video overlay's.
+    const card = () => screen.getByTestId('preview-overlay-card-0')
+    expect(parseFloat(card().style.left)).toBeCloseTo(60, 10)
+    expect(parseFloat(card().style.top)).toBeCloseTo(55, 10)
+    expect(parseFloat(card().style.width)).toBeCloseTo(35, 10)
+    expect(parseFloat(card().style.height)).toBeCloseTo(40, 10)
+
+    // Its window is offset + duration, half-open at the end like every lane.
+    expect(card().className).toContain('preview-overlay-hidden')
+    seekTo('2')
+    expect(card().className).not.toContain('preview-overlay-hidden')
+    seekTo('4.9')
+    expect(card().className).not.toContain('preview-overlay-hidden')
+    seekTo('5')
+    expect(card().className).toContain('preview-overlay-hidden')
+  })
+
+  it('paints no background behind the still, so a transparent PNG shows the base through', () => {
+    render(<PreviewPlayer timeline={withStill} />)
+    seekTo('3')
+    // Alpha is the whole point of a logo or a sticker: the card must not
+    // introduce a backdrop, and the image must letterbox rather than
+    // stretch (object-fit lives in the shared .preview-media class).
+    const card = screen.getByTestId('preview-overlay-card-0')
+    expect(card.style.background).toBe('')
+    expect(card.style.backgroundColor).toBe('')
+    expect(screen.getByTestId('preview-overlay-0').className).toContain('preview-media')
+  })
+
+  it('carries the picture treatments into the rendered style', () => {
+    render(
+      <PreviewPlayer
+        timeline={{
+          entries: [baseEntry],
+          videoOverlays: [{ ...logo, colorAdjustments: { saturation: 0 }, crop: { top: 0.1 } }],
+        }}
+      />,
+    )
+    seekTo('3')
+    const media = screen.getByTestId('preview-overlay-0')
+    // The still goes through the same style pipeline a video overlay does:
+    // colour as a CSS filter, crop and orientation through
+    // croppedOrientedMediaStyle (whose geometry needs a decoded source
+    // aspect, so its own unit tests pin the numbers — here what matters is
+    // that a still is not routed around it).
+    expect(media.style.filter).toBe('saturate(0%)')
+  })
+
+  it('stacks with video overlays in add order, one card each', () => {
+    const pip = {
+      id: 'v1', clipId: 'c3', name: 'cam.webm', duration: 8, url: 'blob:cam',
+      offset: 0, inPoint: 0, outPoint: 8, x: 0.05, y: 0.05, width: 0.3, height: 0.3,
+    }
+    render(<PreviewPlayer timeline={{ entries: [baseEntry], videoOverlays: [pip, logo] }} />)
+    seekTo('3')
+    // One lane, one paint order: the later-added still draws over the video
+    // layer, which is what a watermark needs.
+    expect(screen.getByTestId('preview-overlay-0').tagName).toBe('VIDEO')
+    expect(screen.getByTestId('preview-overlay-1').tagName).toBe('IMG')
+  })
+})

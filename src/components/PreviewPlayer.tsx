@@ -12,6 +12,7 @@ import {
   remapsOf,
   textsOf,
   totalDuration,
+  isImageOverlay,
   videoOverlaysOf,
 } from '../lib/timeline'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
@@ -625,6 +626,9 @@ export function PreviewPlayer({
   const syncVideoOverlays = useCallback(
     (sequenceTime: number, running: boolean) => {
       for (const overlay of videoOverlays) {
+        // A still overlay (#294) has no media element to drive: it is
+        // soundless and renders declaratively from the published time.
+        if (isImageOverlay(overlay)) continue
         const element = overlayRefs.current.get(overlay.id)
         if (!element) continue
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
@@ -1287,7 +1291,9 @@ export function PreviewPlayer({
     for (const overlay of videoOverlaysOf(timeline)) {
       if (seen.has(overlay.url)) continue
       seen.add(overlay.url)
-      targets.push(`video ${overlay.url}`)
+      // A still overlay's source is decoded as an image (#294), exactly as a
+      // still entry's is — its aspect is what crop placement needs too.
+      targets.push(`${isImageOverlay(overlay) ? 'image' : 'video'} ${overlay.url}`)
     }
     return targets.join('\n')
   }, [timeline])
@@ -1609,25 +1615,47 @@ export function PreviewPlayer({
                       ...(clipPath === undefined ? {} : { clipPath }),
                     }}
                   >
-                    <video
-                      ref={(element) => {
-                        overlayRefs.current.set(overlay.id, element)
-                      }}
-                      src={overlay.url}
-                      preload="auto"
-                      playsInline
-                      className="preview-media"
-                      data-testid={`preview-overlay-${index}`}
-                      style={withColorFilter(
-                        croppedOrientedMediaStyle(
-                          overlay.crop,
-                          overlay.orientation,
-                          cardAspect,
-                          sourceAspectOf(overlay.url),
-                        ),
-                        overlay.colorAdjustments,
-                      )}
-                    />
+                    {/* A still overlay (#294) is an <img>, exactly as a
+                        still sequence entry is (#140) — no element to drive,
+                        and a transparent PNG's alpha shows the layers below
+                        it through, since the card paints no background. */}
+                    {isImageOverlay(overlay) ? (
+                      <img
+                        src={overlay.url}
+                        alt=""
+                        className="preview-media"
+                        data-testid={`preview-overlay-${index}`}
+                        style={withColorFilter(
+                          croppedOrientedMediaStyle(
+                            overlay.crop,
+                            overlay.orientation,
+                            cardAspect,
+                            sourceAspectOf(overlay.url),
+                          ),
+                          overlay.colorAdjustments,
+                        )}
+                      />
+                    ) : (
+                      <video
+                        ref={(element) => {
+                          overlayRefs.current.set(overlay.id, element)
+                        }}
+                        src={overlay.url}
+                        preload="auto"
+                        playsInline
+                        className="preview-media"
+                        data-testid={`preview-overlay-${index}`}
+                        style={withColorFilter(
+                          croppedOrientedMediaStyle(
+                            overlay.crop,
+                            overlay.orientation,
+                            cardAspect,
+                            sourceAspectOf(overlay.url),
+                          ),
+                          overlay.colorAdjustments,
+                        )}
+                      />
+                    )}
                   </div>
                 )
               })}

@@ -114,6 +114,29 @@ describe('timelineHistoryReducer (#189)', () => {
     expect(cleared.future).toEqual([])
   })
 
+  it('clears the history for a still overlay whose library clip is removed (#294)', () => {
+    // An image overlay lives in the same lane as a video one, so it is
+    // covered by the same clip-removal rule — pinned rather than assumed,
+    // because "the collection already handles it" is exactly the kind of
+    // claim that stops being true when someone splits the collection.
+    const withStill = timelineHistoryReducer(addEntry(emptyTimelineHistory, 'a'), {
+      type: 'video-overlay-added',
+      overlay: {
+        id: 'i1', kind: 'image', clipId: 'clip-logo', name: 'logo.png', duration: 5,
+        url: 'blob:logo', offset: 0, inPoint: 0, outPoint: 5,
+        x: 0.6, y: 0.6, width: 0.35, height: 0.35,
+      },
+    })
+    expect(withStill.present.videoOverlays).toHaveLength(1)
+    const cleared = timelineHistoryReducer(withStill, {
+      type: 'entries-removed-for-clip',
+      clipId: 'clip-logo',
+    })
+    expect(cleared.present.videoOverlays ?? []).toEqual([])
+    expect(cleared.past).toEqual([])
+    expect(cleared.future).toEqual([])
+  })
+
   it('keeps the history when a library clip removal touches nothing on the timeline', () => {
     const one = addEntry(emptyTimelineHistory, 'a')
     // No timeline state — past, present, or future — references this clip.

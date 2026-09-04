@@ -98,7 +98,7 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
   const undo = page.getByRole('button', { name: 'Undo last timeline edit' })
   await undo.click()
   await expect(
-    page.getByRole('list', { name: 'Overlay video layers' }).getByRole('listitem'),
+    page.getByRole('list', { name: 'Overlay layers' }).getByRole('listitem'),
   ).toHaveCount(1)
   await undo.click()
   await undo.click()

@@ -15,6 +15,7 @@ import {
   emptyTimeline,
   entryFromClip,
   slateEntry,
+  imageOverlayFromClip,
   videoOverlayFromClip,
 } from './lib/timeline'
 import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
@@ -200,11 +201,17 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     dispatchTimeline({ type: 'clips-added', entries, audioTracks })
   }, [])
 
-  // A video clip composited above the sequence (#145) — picture-in-picture.
+  // A clip composited above the sequence — picture-in-picture for video
+  // (#145), a logo/watermark/sticker layer for an image (#294). The kind
+  // decides which constructor builds it; the library offers the control for
+  // those two kinds only.
   const handleAddOverlay = useCallback((clip: LibraryClip) => {
     dispatchTimeline({
       type: 'video-overlay-added',
-      overlay: videoOverlayFromClip(clip, crypto.randomUUID()),
+      overlay:
+        clip.kind === 'image'
+          ? imageOverlayFromClip(clip, crypto.randomUUID())
+          : videoOverlayFromClip(clip, crypto.randomUUID()),
     })
   }, [])
 
