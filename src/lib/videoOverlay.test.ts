@@ -3,13 +3,22 @@ import type { LibraryClip } from './mediaLibrary'
 import type { VideoOverlay } from './videoOverlay'
 import {
   clampVideoOverlay,
+  DEFAULT_IMAGE_OVERLAY_DURATION,
   DEFAULT_OVERLAY_RECT,
+  forbiddenImageOverlayField,
+  IMAGE_OVERLAY_FORBIDDEN_FIELDS,
+  imageOverlayFromClip,
+  isImageOverlay,
+  isValidImageOverlay,
+  isValidImageOverlayPlacement,
   isValidVideoOverlayPlacement,
   MAX_OVERLAY_SIZE,
   MIN_OVERLAY_SIZE,
   videoOverlayFromClip,
   videoOverlaysEqual,
 } from './videoOverlay'
+import { DEFAULT_STILL_DURATION, effectiveDuration } from './timeline'
+import { audioTrackPlaybackAt } from './playback'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -143,5 +152,153 @@ describe('videoOverlaysEqual', () => {
     ] as Partial<VideoOverlay>[]) {
       expect(videoOverlaysEqual(base, { ...base, ...change })).toBe(false)
     }
+  })
+})
+
+describe('image overlay layers (#294)', () => {
+  const imageClip = (overrides: Partial<LibraryClip> = {}): LibraryClip =>
+    clip({ id: 'clip-logo', name: 'logo.png', kind: 'image', url: 'blob:logo', duration: 0, ...overrides })
+
+  const imageOverlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay =>
+    overlay({
+      id: 'i1',
+      kind: 'image',
+      clipId: 'clip-logo',
+      name: 'logo.png',
+      duration: DEFAULT_IMAGE_OVERLAY_DURATION,
+      url: 'blob:logo',
+      inPoint: 0,
+      outPoint: DEFAULT_IMAGE_OVERLAY_DURATION,
+      ...overrides,
+    })
+
+  it('builds a still overlay from an image clip: default rect, whole-still window', () => {
+    const built = imageOverlayFromClip(imageClip(), 'i1')
+    expect(built).toEqual({
+      id: 'i1',
+      kind: 'image',
+      clipId: 'clip-logo',
+      name: 'logo.png',
+      duration: DEFAULT_IMAGE_OVERLAY_DURATION,
+      url: 'blob:logo',
+      offset: 0,
+      inPoint: 0,
+      outPoint: DEFAULT_IMAGE_OVERLAY_DURATION,
+      ...DEFAULT_OVERLAY_RECT,
+    })
+    // No audio fields at all — not zeroed ones, absent ones.
+    for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
+      expect(Object.hasOwn(built, field)).toBe(false)
+    }
+    // The offset is the caller's, exactly as for a video overlay.
+    expect(imageOverlayFromClip(imageClip(), 'i2', 3).offset).toBe(3)
+  })
+
+  it('takes the still default duration, and refuses a clip that is not an image', () => {
+    // The issue's requirement, pinned rather than assumed: a still overlay
+    // shows for as long as a still entry does. The constant is declared in
+    // this module (timeline.ts imports it, so the reverse would be a cycle),
+    // which is exactly why the two need pinning to each other.
+    expect(DEFAULT_IMAGE_OVERLAY_DURATION).toBe(DEFAULT_STILL_DURATION)
+    expect(() => imageOverlayFromClip(clip(), 'i1')).toThrow(/not an image clip/)
+    expect(() => imageOverlayFromClip(imageClip({ kind: 'audio' }), 'i1')).toThrow(/not an image clip/)
+  })
+
+  it('isImageOverlay distinguishes the kinds', () => {
+    expect(isImageOverlay(imageOverlay())).toBe(true)
+    expect(isImageOverlay(overlay())).toBe(false)
+  })
+
+  it('refuses an image placement carrying audio or a trim, by name', () => {
+    const placement = { offset: 2, duration: 4, x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
+    expect(isValidImageOverlayPlacement(placement)).toBe(true)
+    // Every forbidden field is caught, and named — the parser reports the
+    // name; the validator only has to refuse.
+    for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
+      const carrying = { ...placement, [field]: field === 'muted' || field === 'duck' ? true : 0.5 }
+      expect(forbiddenImageOverlayField(carrying)).toBe(field)
+      expect(isValidImageOverlayPlacement(carrying)).toBe(false)
+    }
+    // A trim belongs to a source; a still has none.
+    for (const trim of ['inPoint', 'outPoint']) {
+      expect(isValidImageOverlayPlacement({ ...placement, [trim]: 0 })).toBe(false)
+    }
+    // A window with no length would make it unshowable (the still rule).
+    for (const duration of [0, -1, Number.NaN]) {
+      expect(isValidImageOverlayPlacement({ ...placement, duration })).toBe(false)
+    }
+  })
+
+  it('isValidImageOverlay refuses audio on a whole overlay, and a dead window', () => {
+    expect(isValidImageOverlay(imageOverlay())).toBe(true)
+    for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
+      expect(isValidImageOverlay(imageOverlay({ [field]: 0.5 } as Partial<VideoOverlay>))).toBe(false)
+    }
+    expect(isValidImageOverlay(imageOverlay({ duration: 0 }))).toBe(false)
+    // A loose trim is normalization's business, not a rejection.
+    expect(isValidImageOverlay(imageOverlay({ inPoint: 2, outPoint: 9 }))).toBe(true)
+  })
+
+  it('clamps a still overlay: window pinned to the whole still, audio dropped', () => {
+    const clamped = clampVideoOverlay(
+      imageOverlay({
+        duration: 4,
+        inPoint: 2,
+        outPoint: 9,
+        offset: -3,
+        x: 0.9,
+        y: 0.9,
+        width: 0.4,
+        height: 0.4,
+        volume: 0.5,
+        muted: true,
+        fadeIn: 1,
+        fadeOut: 1,
+      }),
+    )
+    // The window is the whole still — never a trim of it.
+    expect(clamped.inPoint).toBe(0)
+    expect(clamped.outPoint).toBe(4)
+    expect(clamped.duration).toBe(4)
+    expect(clamped.offset).toBe(0)
+    // The rectangle clamps exactly as a video overlay's: size first, then
+    // position into what the size leaves.
+    expect(clamped.x).toBeCloseTo(0.6)
+    expect(clamped.y).toBeCloseTo(0.6)
+    expect(clamped.width).toBeCloseTo(0.4)
+    // Audio is dropped, not zeroed — the backstop behind the validator.
+    for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
+      expect(Object.hasOwn(clamped, field)).toBe(false)
+    }
+    // Nothing to fix: same reference, so a no-op edit is cheap to detect.
+    const settled = imageOverlay({ duration: 4, inPoint: 0, outPoint: 4, offset: 1 })
+    expect(clampVideoOverlay(settled)).toBe(settled)
+  })
+
+  it('keeps the rectangle bounds it shares with a video overlay', () => {
+    const tiny = clampVideoOverlay(imageOverlay({ width: 0, height: 5 }))
+    expect(tiny.width).toBe(MIN_OVERLAY_SIZE)
+    expect(tiny.height).toBe(MAX_OVERLAY_SIZE)
+  })
+
+  it('a still overlay is never equal to a video one with the same fields', () => {
+    // The kind is part of the identity: without it, an edit that changed
+    // only the kind would read as a no-op and never reach the state.
+    const still = imageOverlay({ id: 'x', duration: 5, inPoint: 0, outPoint: 5 })
+    const { kind: _kind, ...asVideo } = still
+    expect(videoOverlaysEqual(still, asVideo as VideoOverlay)).toBe(false)
+    expect(videoOverlaysEqual(still, { ...still })).toBe(true)
+  })
+
+  it('the shared window helpers read a still overlay correctly', () => {
+    // The whole reason the window is stored as inPoint/outPoint: every
+    // helper that already works on offsets and trims keeps working.
+    const still = imageOverlay({ offset: 2, duration: 3, inPoint: 0, outPoint: 3 })
+    expect(effectiveDuration(still)).toBe(3)
+    expect(audioTrackPlaybackAt(still, 1.9).shouldPlay).toBe(false)
+    expect(audioTrackPlaybackAt(still, 2).shouldPlay).toBe(true)
+    expect(audioTrackPlaybackAt(still, 4.99).shouldPlay).toBe(true)
+    // Half-open at the end, exactly as for every other lane item.
+    expect(audioTrackPlaybackAt(still, 5).shouldPlay).toBe(false)
   })
 })

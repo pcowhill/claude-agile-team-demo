@@ -43,9 +43,17 @@ import {
 import type { CopiedSettings, SettingsElementKind } from './settingsClipboard'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
-import type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
+import type {
+  ImageOverlayPlacement,
+  OverlayPlacement,
+  VideoOverlay,
+  VideoOverlayPlacement,
+} from './videoOverlay'
 import {
   clampVideoOverlay,
+  isImageOverlay,
+  isValidImageOverlay,
+  isValidImageOverlayPlacement,
   isValidVideoOverlayPlacement,
   videoOverlaysEqual,
 } from './videoOverlay'
@@ -53,8 +61,13 @@ import {
 export type { ColorAdjustments, ColorLook } from './colorAdjustments'
 export type { PauseRemapSpec, RemapEffect, RemapSpec, SpeedRemapSpec } from './remap'
 export type { TextOverlay, TextOverlaySpec } from './textOverlay'
-export type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
-export { videoOverlayFromClip } from './videoOverlay'
+export type {
+  ImageOverlayPlacement,
+  OverlayPlacement,
+  VideoOverlay,
+  VideoOverlayPlacement,
+} from './videoOverlay'
+export { imageOverlayFromClip, isImageOverlay, videoOverlayFromClip } from './videoOverlay'
 
 export interface TimelineEntry {
   /** Unique per entry — the same library clip can appear multiple times. */
@@ -585,7 +598,21 @@ export type TimelineAction =
       preset: CanvasPreset | undefined
     }
   | { type: 'video-overlay-added'; overlay: VideoOverlay }
-  | { type: 'video-overlay-updated'; id: string; placement: VideoOverlayPlacement }
+  | {
+      /**
+       * Edits one overlay's placement. What the placement carries depends on
+       * the *stored* overlay's kind (#294): a video overlay takes its
+       * rectangle plus trim and audio, an image overlay its rectangle plus
+       * the explicit `offset` + `duration` window and no audio at all. A
+       * placement built for the wrong kind is refused whole rather than
+       * half-applied — an image placement has no trim, so it fails a video
+       * overlay's finite-trim check, and a video placement's audio fields
+       * are refused by name on an image overlay.
+       */
+      type: 'video-overlay-updated'
+      id: string
+      placement: OverlayPlacement
+    }
   | { type: 'video-overlay-removed'; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
@@ -2003,12 +2030,20 @@ function reduceTimelineCollections(
       const overlay = action.overlay
       // Ids are the handle updates and removals act on — never two alike.
       if (videoOverlays.some((existing) => existing.id === overlay.id)) return state
-      if (!isValidVideoOverlayPlacement(overlay)) return state
-      // An empty or inverted trim range would make the overlay unplayable —
-      // reject it whole (mirroring audio-track-trimmed), judged after the
-      // clamp so an out-of-range trim that clamps sane is kept.
-      const clamped = clampVideoOverlay(overlay)
-      if (clamped.inPoint >= clamped.outPoint) return state
+      if (isImageOverlay(overlay)) {
+        // A still overlay (#294) has no trim to reject — its window is its
+        // duration, and a non-positive one would make it unshowable, exactly
+        // as a still entry's would (#140). Audio fields are refused here
+        // rather than dropped, so a caller cannot half-build one.
+        if (!isValidImageOverlay(overlay)) return state
+      } else {
+        if (!isValidVideoOverlayPlacement(overlay)) return state
+        // An empty or inverted trim range would make the overlay unplayable —
+        // reject it whole (mirroring audio-track-trimmed), judged after the
+        // clamp so an out-of-range trim that clamps sane is kept.
+        const clamped = clampVideoOverlay(overlay)
+        if (clamped.inPoint >= clamped.outPoint) return state
+      }
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, [
         ...videoOverlays,
         overlay,
@@ -2017,10 +2052,39 @@ function reduceTimelineCollections(
     case 'video-overlay-updated': {
       const existing = videoOverlays.find((overlay) => overlay.id === action.id)
       if (existing === undefined) return state
-      if (!isValidVideoOverlayPlacement(action.placement)) return state
+      if (isImageOverlay(existing)) {
+        // The still overlay's window is offset + duration (#294); the trim
+        // follows it, exactly as `still-duration-set` moves a still entry's.
+        const placement = action.placement as ImageOverlayPlacement
+        if (!isValidImageOverlayPlacement(placement)) return state
+        const candidate: VideoOverlay = {
+          ...existing,
+          offset: placement.offset,
+          duration: placement.duration,
+          inPoint: 0,
+          outPoint: placement.duration,
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          height: placement.height,
+        }
+        // Normalization can clamp the edit back to what is already stored — a
+        // no-op must keep the state reference (edits stop preview playback).
+        if (videoOverlaysEqual(existing, clampVideoOverlay(candidate))) return state
+        return withEffects(
+          state.entries,
+          transitions,
+          zooms,
+          audioTracks,
+          remaps,
+          texts,
+          videoOverlays.map((overlay) => (overlay.id === action.id ? candidate : overlay)),
+        )
+      }
+      if (!isValidVideoOverlayPlacement(action.placement as VideoOverlayPlacement)) return state
       // Identity and source binding never change: only the placement fields
       // are taken from the action.
-      const candidate: VideoOverlay = { ...existing, ...action.placement }
+      const candidate: VideoOverlay = { ...existing, ...(action.placement as VideoOverlayPlacement) }
       const clamped = clampVideoOverlay(candidate)
       if (clamped.inPoint >= clamped.outPoint) return state
       // Normalization can clamp the edit back to what is already stored — a

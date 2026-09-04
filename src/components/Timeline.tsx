@@ -9,6 +9,8 @@ import type {
   TransitionSpec,
   TransitionType,
   VideoOverlay,
+  ImageOverlayPlacement,
+  OverlayPlacement,
   VideoOverlayPlacement,
   ZoomSpec,
 } from '../lib/timeline'
@@ -31,6 +33,7 @@ import {
   effectiveDuration,
   entryOutputDuration,
   isSlateEntry,
+  isImageOverlay,
   isStillEntry,
   remapsForEntry,
   remapsOf,
@@ -134,7 +137,7 @@ interface TimelineProps {
   /** Sets the default subtitle style whole (#250); committing the built-in
    * default is the reset. */
   onSetSubtitleStyle: (style: SubtitleStyle) => void
-  onUpdateVideoOverlay: (id: string, placement: VideoOverlayPlacement) => void
+  onUpdateVideoOverlay: (id: string, placement: OverlayPlacement) => void
   onRemoveVideoOverlay: (id: string) => void
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
@@ -238,7 +241,7 @@ function TextContentField({ label, value, onCommit }: TextContentFieldProps) {
   )
 }
 
-/** A stored overlay re-expressed as the placement `onUpdateVideoOverlay` takes. */
+/** A stored **video** overlay re-expressed as the placement `onUpdateVideoOverlay` takes. */
 const overlayPlacementOf = ({
   offset,
   inPoint,
@@ -264,6 +267,20 @@ const overlayPlacementOf = ({
   ...(fadeIn === undefined ? {} : { fadeIn }),
   ...(fadeOut === undefined ? {} : { fadeOut }),
 })
+
+/**
+ * A stored **image** overlay re-expressed as its placement (#294): the
+ * rectangle plus the explicit offset + duration window. No trim and no
+ * audio — the reducer refuses those on an image overlay.
+ */
+const imageOverlayPlacementOf = ({
+  offset,
+  duration,
+  x,
+  y,
+  width,
+  height,
+}: VideoOverlay): ImageOverlayPlacement => ({ offset, duration, x, y, width, height })
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
 const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: ZoomSpec): ZoomSpec => ({
@@ -1973,12 +1990,18 @@ export function Timeline({
             videoOverlays.map((overlay) => overlay.id),
           )}
           {!isFolded('overlays') && (
-          <ol className="video-overlay-list" aria-label="Overlay video layers">
+          <ol className="video-overlay-list" aria-label="Overlay layers">
             {videoOverlays.map((overlay, index) => {
               const position = `overlay ${overlay.name} at position ${index + 1}`
               const trimmedLength = effectiveDuration(overlay)
+              // A still overlay (#294) has no source to trim and no audio:
+              // its window is offset + duration, and the audio controls are
+              // absent rather than disabled — there is nothing to control.
+              const isImage = isImageOverlay(overlay)
               const set = (change: Partial<VideoOverlayPlacement>) =>
                 onUpdateVideoOverlay(overlay.id, { ...overlayPlacementOf(overlay), ...change })
+              const setImage = (change: Partial<ImageOverlayPlacement>) =>
+                onUpdateVideoOverlay(overlay.id, { ...imageOverlayPlacementOf(overlay), ...change })
               return (
                 <li key={overlay.id} className="video-overlay">
                   {/* Position/size at a glance, like the audio lane's strip;
@@ -1989,26 +2012,40 @@ export function Timeline({
                       data-testid={`video-overlay-bar-${index}`}
                       style={laneBar(overlay.offset, trimmedLength)}
                     >
-                      {/* Overlay clips are always video (#145): same audio
-                          amplitude visual as the sequence entries (#230). */}
-                      <AudioWaveform
-                        url={overlay.url}
-                        duration={overlay.duration}
-                        inPoint={overlay.inPoint}
-                        outPoint={overlay.outPoint}
-                        data-testid={`video-overlay-waveform-${index}`}
-                      />
+                      {/* A video overlay shows the same audio amplitude
+                          visual as the sequence entries (#230); a still
+                          overlay (#294) is soundless, so it shows none. */}
+                      {!isImage && (
+                        <AudioWaveform
+                          url={overlay.url}
+                          duration={overlay.duration}
+                          inPoint={overlay.inPoint}
+                          outPoint={overlay.outPoint}
+                          data-testid={`video-overlay-waveform-${index}`}
+                        />
+                      )}
                     </div>
                   </div>
                   <div className="video-overlay-main">
                     {collapseToggle(overlay.id, position)}
-                    {/* Overlay rows are always video (#145) — captured
-                        thumbnail like a sequence video entry (#193). */}
-                    <ClipThumbnail
-                      url={overlay.url}
-                      inPoint={overlay.inPoint}
-                      data-testid={`video-overlay-thumbnail-${index}`}
-                    />
+                    {/* A video overlay gets the captured first frame of its
+                        trim (#193); a still overlay shows the image itself,
+                        exactly as a still sequence entry's row does (#140). */}
+                    {isImage ? (
+                      <img
+                        className="clip-thumbnail"
+                        src={overlay.url}
+                        alt=""
+                        aria-hidden="true"
+                        data-testid={`video-overlay-thumbnail-${index}`}
+                      />
+                    ) : (
+                      <ClipThumbnail
+                        url={overlay.url}
+                        inPoint={overlay.inPoint}
+                        data-testid={`video-overlay-thumbnail-${index}`}
+                      />
+                    )}
                     <span className="clip-name" title={overlay.name}>
                       {overlay.name}
                     </span>
@@ -2046,25 +2083,45 @@ export function Timeline({
                       label={`Start time of ${position} in seconds`}
                       value={overlay.offset}
                       max={86400}
-                      onCommit={(offset) => set({ offset })}
+                      onCommit={(offset) => (isImage ? setImage({ offset }) : set({ offset }))}
                     />
-                    <span>In</span>
-                    <SecondsField
-                      label={`Trim in point of ${position} in seconds`}
-                      value={overlay.inPoint}
-                      max={overlay.duration}
-                      onCommit={(inPoint) => set({ inPoint })}
-                    />
-                    <span>Out</span>
-                    <SecondsField
-                      label={`Trim out point of ${position} in seconds`}
-                      value={overlay.outPoint}
-                      max={overlay.duration}
-                      onCommit={(outPoint) => set({ outPoint })}
-                    />
-                    <span className="timeline-entry-effective">
-                      plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
-                    </span>
+                    {isImage ? (
+                      <>
+                        {/* A still's window is its length (#294), edited
+                            directly — the still-entry control (#140), not a
+                            trim of a source that does not exist. */}
+                        <span>Length</span>
+                        <SecondsField
+                          label={`Duration of ${position} in seconds`}
+                          value={overlay.duration}
+                          max={86400}
+                          onCommit={(duration) => setImage({ duration })}
+                        />
+                        <span className="timeline-entry-effective">
+                          shows {formatSeconds(overlay.duration)}s
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>In</span>
+                        <SecondsField
+                          label={`Trim in point of ${position} in seconds`}
+                          value={overlay.inPoint}
+                          max={overlay.duration}
+                          onCommit={(inPoint) => set({ inPoint })}
+                        />
+                        <span>Out</span>
+                        <SecondsField
+                          label={`Trim out point of ${position} in seconds`}
+                          value={overlay.outPoint}
+                          max={overlay.duration}
+                          onCommit={(outPoint) => set({ outPoint })}
+                        />
+                        <span className="timeline-entry-effective">
+                          plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
+                        </span>
+                      </>
+                    )}
                   </div>
                   <div className="video-overlay-controls">
                     <span>Rect</span>
@@ -2073,14 +2130,14 @@ export function Timeline({
                       value={overlay.x}
                       max={1}
                       step={0.05}
-                      onCommit={(x) => set({ x })}
+                      onCommit={(x) => (isImage ? setImage({ x }) : set({ x }))}
                     />
                     <SecondsField
                       label={`Top edge of ${position} (fraction of frame height)`}
                       value={overlay.y}
                       max={1}
                       step={0.05}
-                      onCommit={(y) => set({ y })}
+                      onCommit={(y) => (isImage ? setImage({ y }) : set({ y }))}
                     />
                     <span>size</span>
                     <SecondsField
@@ -2089,7 +2146,7 @@ export function Timeline({
                       min={MIN_OVERLAY_SIZE}
                       max={1}
                       step={0.05}
-                      onCommit={(width) => set({ width })}
+                      onCommit={(width) => (isImage ? setImage({ width }) : set({ width }))}
                     />
                     <SecondsField
                       label={`Height of ${position} (fraction of frame height)`}
@@ -2097,41 +2154,47 @@ export function Timeline({
                       min={MIN_OVERLAY_SIZE}
                       max={1}
                       step={0.05}
-                      onCommit={(height) => set({ height })}
+                      onCommit={(height) => (isImage ? setImage({ height }) : set({ height }))}
                     />
-                    <span>Volume</span>
-                    <SecondsField
-                      label={`Volume of ${position} (0 to 1)`}
-                      value={overlay.volume ?? 1}
-                      max={1}
-                      step={0.05}
-                      onCommit={(volume) => set({ volume })}
-                    />
-                    <label className="timeline-mute">
-                      <input
-                        type="checkbox"
-                        aria-label={`Mute ${position}`}
-                        checked={overlay.muted ?? false}
-                        onChange={(event) => set({ muted: event.target.checked })}
-                      />
-                      Mute
-                    </label>
-                    {/* Audio fades (#220), in the audio-track fade-fields
-                        idiom (#104), over the overlay's trimmed window. */}
-                    <span>Fade in</span>
-                    <SecondsField
-                      label={`Audio fade-in of ${position} in seconds`}
-                      value={overlay.fadeIn ?? 0}
-                      max={trimmedLength}
-                      onCommit={(fadeIn) => set({ fadeIn })}
-                    />
-                    <span>out</span>
-                    <SecondsField
-                      label={`Audio fade-out of ${position} in seconds`}
-                      value={overlay.fadeOut ?? 0}
-                      max={trimmedLength}
-                      onCommit={(fadeOut) => set({ fadeOut })}
-                    />
+                    {/* A still overlay is soundless (#294/#220): the audio
+                        controls are absent, not disabled. */}
+                    {!isImage && (
+                      <>
+                        <span>Volume</span>
+                        <SecondsField
+                          label={`Volume of ${position} (0 to 1)`}
+                          value={overlay.volume ?? 1}
+                          max={1}
+                          step={0.05}
+                          onCommit={(volume) => set({ volume })}
+                        />
+                        <label className="timeline-mute">
+                          <input
+                            type="checkbox"
+                            aria-label={`Mute ${position}`}
+                            checked={overlay.muted ?? false}
+                            onChange={(event) => set({ muted: event.target.checked })}
+                          />
+                          Mute
+                        </label>
+                        {/* Audio fades (#220), in the audio-track fade-fields
+                            idiom (#104), over the overlay's trimmed window. */}
+                        <span>Fade in</span>
+                        <SecondsField
+                          label={`Audio fade-in of ${position} in seconds`}
+                          value={overlay.fadeIn ?? 0}
+                          max={trimmedLength}
+                          onCommit={(fadeIn) => set({ fadeIn })}
+                        />
+                        <span>out</span>
+                        <SecondsField
+                          label={`Audio fade-out of ${position} in seconds`}
+                          value={overlay.fadeOut ?? 0}
+                          max={trimmedLength}
+                          onCommit={(fadeOut) => set({ fadeOut })}
+                        />
+                      </>
+                    )}
                   </div>
                   {/* Color adjustments (#192), exactly as on a sequence entry. */}
                   <ColorAdjustmentControls

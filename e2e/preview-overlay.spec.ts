@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 type Page = import('@playwright/test').Page
 
 /**
- * Overlay video layers in the preview (#145): a real browser positions the
+ * Overlay layers in the preview (#145): a real browser positions the
  * overlay's <video> at its fractional rectangle within the frame and shows
  * it exactly for its sequence-time window — the geometry jsdom cannot
  * verify (component tests pin the style values and the sync decisions).
@@ -68,7 +68,7 @@ test('an overlay renders at its rectangle within the frame, only during its wind
   await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
 
   // The Overlays lane lists it with the default placement.
-  await expect(page.getByRole('list', { name: 'Overlay video layers' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
 
   // Inside its window (default: whole clip from sequence start) the element
   // sits at the default rectangle — 35% of the frame, inset bottom-right.

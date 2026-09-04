@@ -3834,6 +3834,189 @@ describe('element-duplicated (#314)', () => {
   })
 })
 
+describe('image overlay layers (#294)', () => {
+  const still = (id: string, overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id,
+    kind: 'image',
+    clipId: 'clip-logo',
+    name: 'logo.png',
+    duration: 5,
+    url: 'blob:logo',
+    offset: 1,
+    inPoint: 0,
+    outPoint: 5,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+    ...overrides,
+  })
+
+  const withStill = (overrides: Partial<VideoOverlay> = {}): TimelineState =>
+    timelineReducer(stateOf(['a', 20]), {
+      type: 'video-overlay-added',
+      overlay: still('i1', overrides),
+    })
+
+  const stillOf = (state: TimelineState): VideoOverlay => videoOverlaysOf(state)[0]
+
+  describe('video-overlay-added', () => {
+    it('adds a still overlay into the same lane, keeping its kind', () => {
+      const state = withStill()
+      expect(stillOf(state)).toMatchObject({ id: 'i1', kind: 'image', duration: 5, inPoint: 0, outPoint: 5 })
+      // One lane, one stacking order: a still added after a video layer
+      // draws on top of it, exactly as a second video layer would.
+      const mixed = timelineReducer(state, {
+        type: 'video-overlay-added',
+        overlay: {
+          id: 'v1', clipId: 'clip-cam', name: 'cam.webm', duration: 8, url: 'blob:cam',
+          offset: 0, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3,
+        },
+      })
+      expect(videoOverlaysOf(mixed).map((overlay) => overlay.kind)).toEqual(['image', undefined])
+    })
+
+    it('refuses a still carrying audio, or one with no window, keeping the reference', () => {
+      const base = stateOf(['a', 20])
+      // A still is soundless (#220): an audio field means the caller built
+      // the wrong shape, and half-applying it would hide the mistake.
+      for (const field of ['volume', 'muted', 'fadeIn', 'fadeOut'] as const) {
+        expect(
+          timelineReducer(base, {
+            type: 'video-overlay-added',
+            overlay: still('i1', { [field]: field === 'muted' ? true : 0.5 }),
+          }),
+        ).toBe(base)
+      }
+      for (const duration of [0, -3, Number.NaN]) {
+        expect(
+          timelineReducer(base, { type: 'video-overlay-added', overlay: still('i1', { duration }) }),
+        ).toBe(base)
+      }
+      // A duplicate id is refused for a still exactly as for a video layer.
+      expect(timelineReducer(withStill(), { type: 'video-overlay-added', overlay: still('i1') })).toEqual(
+        withStill(),
+      )
+    })
+
+    it('normalizes a loose window and rectangle to the whole still on the frame', () => {
+      const state = withStill({ offset: -4, inPoint: 2, outPoint: 99, x: 0.9, width: 0.4 })
+      expect(stillOf(state)).toMatchObject({ offset: 0, inPoint: 0, outPoint: 5 })
+      expect(stillOf(state).x).toBeCloseTo(0.6, 10)
+    })
+  })
+
+  describe('video-overlay-updated', () => {
+    it('moves the window by offset and duration, with the trim following', () => {
+      const state = timelineReducer(withStill(), {
+        type: 'video-overlay-updated',
+        id: 'i1',
+        placement: { offset: 3, duration: 8, x: 0.1, y: 0.2, width: 0.4, height: 0.5 },
+      })
+      expect(stillOf(state)).toMatchObject({
+        offset: 3, duration: 8, inPoint: 0, outPoint: 8, x: 0.1, y: 0.2, width: 0.4, height: 0.5,
+      })
+      // The source binding is never touched by a placement edit.
+      expect(stillOf(state)).toMatchObject({ id: 'i1', clipId: 'clip-logo', url: 'blob:logo', kind: 'image' })
+    })
+
+    it('refuses a placement built for the other kind, either way round', () => {
+      const state = withStill()
+      // A video overlay's placement carries a trim and audio; neither means
+      // anything on a still, so the whole edit is refused rather than
+      // half-applied.
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'i1',
+          placement: { offset: 1, inPoint: 0, outPoint: 5, x: 0.5, y: 0.5, width: 0.3, height: 0.3 },
+        }),
+      ).toBe(state)
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'i1',
+          placement: { offset: 1, duration: 5, x: 0.5, y: 0.5, width: 0.3, height: 0.3, volume: 0.5 },
+        }),
+      ).toBe(state)
+      // And a still's placement on a video overlay: no trim, so it fails the
+      // video path's finite-trim check.
+      const video = timelineReducer(stateOf(['a', 20]), {
+        type: 'video-overlay-added',
+        overlay: {
+          id: 'v1', clipId: 'clip-cam', name: 'cam.webm', duration: 8, url: 'blob:cam',
+          offset: 0, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3,
+        },
+      })
+      expect(
+        timelineReducer(video, {
+          type: 'video-overlay-updated',
+          id: 'v1',
+          placement: { offset: 1, duration: 5, x: 0.5, y: 0.5, width: 0.3, height: 0.3 },
+        }),
+      ).toBe(video)
+    })
+
+    it('an edit that changes nothing keeps the state reference', () => {
+      const state = withStill()
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'i1',
+          placement: { offset: 1, duration: 5, x: 0.62, y: 0.62, width: 0.35, height: 0.35 },
+        }),
+      ).toBe(state)
+      // An unknown id is a no-op too, never an edit.
+      expect(
+        timelineReducer(state, {
+          type: 'video-overlay-updated',
+          id: 'missing',
+          placement: { offset: 1, duration: 5, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        }),
+      ).toBe(state)
+    })
+  })
+
+  it('carries the picture treatments a still can hold', () => {
+    // Color, orientation, crop and shape mask are treatments of a picture,
+    // so they reach a still overlay through exactly the actions a video
+    // overlay uses — nothing kind-specific about any of them.
+    let state = withStill()
+    state = timelineReducer(state, { type: 'video-overlay-color-set', id: 'i1', adjustments: { saturation: 140 } })
+    state = timelineReducer(state, { type: 'video-overlay-orient-set', id: 'i1', orientation: { rotation: 90 } })
+    state = timelineReducer(state, { type: 'video-overlay-crop-set', id: 'i1', crop: { top: 0.1 } })
+    state = timelineReducer(state, { type: 'video-overlay-mask-set', id: 'i1', mask: { kind: 'ellipse' } })
+    expect(stillOf(state)).toMatchObject({
+      kind: 'image',
+      colorAdjustments: { saturation: 140 },
+      orientation: { rotation: 90 },
+      crop: { top: 0.1 },
+      shapeMask: { kind: 'ellipse' },
+    })
+    // Still no audio anywhere near it.
+    for (const field of ['volume', 'muted', 'fadeIn', 'fadeOut']) {
+      expect(Object.hasOwn(stillOf(state), field)).toBe(false)
+    }
+  })
+
+  it('duplicates as a still, and is removed with its library clip', () => {
+    const state = timelineReducer(withStill(), {
+      type: 'element-duplicated',
+      kind: 'video-overlay',
+      id: 'i1',
+      newId: 'i2',
+    })
+    const [original, copy] = videoOverlaysOf(state)
+    expect(copy).toMatchObject({ id: 'i2', kind: 'image', duration: 5 })
+    // The copy starts where the original's window ends — the lane rule.
+    expect(copy.offset).toBe(original.offset + 5)
+    // Removing the source image takes both, exactly as for a video layer:
+    // one lane, one clip-removal rule.
+    const cleared = timelineReducer(state, { type: 'entries-removed-for-clip', clipId: 'clip-logo' })
+    expect(videoOverlaysOf(cleared)).toEqual([])
+  })
+})
+
 describe('settings-pasted (#315)', () => {
   const paste = (
     state: TimelineState,

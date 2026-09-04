@@ -3,7 +3,8 @@
 - Status: accepted
 - Date: 2026-08-26
 - Links: #133 (customer feedback), #145 (implementation issue), #146 (export
-  compositing follow-up)
+  compositing follow-up), #277/#294 (still overlays — see the addendum),
+  #295 (still overlays in the export)
 
 ## Context
 
@@ -63,3 +64,45 @@ zooms, remaps, and their normalization) would have to become track-aware at
 once — a rewrite of the timeline model to serve two concrete layouts the
 simpler model already covers, and reversible later only at even greater
 cost. The overlay model is additive and leaves that door open.
+
+## Addendum (2026-09-04): still overlays, #294
+
+The customer approved logos, watermarks and stickers as overlay layers
+(#277 → #294). The choice was whether a still overlay is a **second kind
+inside this lane** or a **collection of its own**.
+
+It is a second kind inside this lane: `VideoOverlay` gains an optional
+`kind: 'image'` — absent meaning video, the `TimelineEntry.kind` rule
+(#140) — and every rule above is unchanged for it. Anchoring, placement,
+clamping, stacking, the clip-removal rule, duplication (#314) and the
+whole treatment set (colour #192, orientation #232, crop #255, shape mask
+#266) are shared code, not parallel code.
+
+Two things differ, and only two:
+
+- **No audio.** A still is soundless (#220), so an image overlay carries no
+  `volume`, `muted`, `fadeIn` or `fadeOut`. This is enforced three times
+  over, deliberately: the reducer's validator refuses an action carrying
+  one, the project-file parser refuses such a file *by field name*, and
+  `clampVideoOverlay` drops any that reach the model anyway. The row shows
+  no audio controls at all rather than disabled ones.
+- **The window is `offset` + `duration`,** not a trim of a source — a still
+  has no source duration to trim. It is still *stored* as
+  `inPoint`/`outPoint` pinned to `[0, duration]`, exactly as a still
+  sequence entry's window is, so every shared window helper
+  (`audioTrackPlaybackAt`, `effectiveDuration`) keeps working unchanged.
+
+A separate collection was rejected: it would have duplicated the lane's
+rules (stacking, anchoring, clip removal, history) and forced an eighth
+positional argument through `withEffects`'s fifty call sites — churn that
+buys nothing, since the two kinds share almost everything. The cost of the
+choice taken is that the state and file key stays `videoOverlays` while
+holding both kinds; renaming it would be a schema break with no benefit to
+the customer, so it stays, and the type's own name (`VideoOverlay`) is the
+lane's name rather than a claim about every member.
+
+**The export does not render still overlays yet.** That is #295, filed and
+blocked on this model; `activeVideoOverlays` skips them, pinned by test, so
+a still simply does not appear in an exported file until #295 lands. The
+alternative — feeding an image URL to the overlay video-replay path — would
+have stalled the export on a `<video>` that can never load.

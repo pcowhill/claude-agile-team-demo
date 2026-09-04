@@ -1290,7 +1290,7 @@ describe('overlay video layers (#145)', () => {
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
 
-    const lane = screen.getByRole('list', { name: 'Overlay video layers' })
+    const lane = screen.getByRole('list', { name: 'Overlay layers' })
     expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
     // The default: whole clip from sequence start, in the bottom-right corner.
     expect(
@@ -1318,11 +1318,21 @@ describe('overlay video layers (#145)', () => {
     ).not.toBeChecked()
   })
 
-  it('offers the overlay button for video clips only', async () => {
+  it('offers the overlay button for clips with a picture, never for audio', async () => {
+    // Video since #145, images since #294 — audio has no picture to layer.
     render(<App />)
     await importClip('cam.mp4', 8)
     await importAudioClip('song.mp3', 20)
+    probeMock.mockResolvedValueOnce({
+      duration: 0, url: 'blob:logo.png', kind: 'image', width: 640, height: 480,
+    })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], 'logo.png', { type: 'image/png' }),
+    )
+    await screen.findByText('logo.png')
     expect(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add logo.png as overlay' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add song.mp3 as overlay' })).not.toBeInTheDocument()
   })
 
@@ -1376,7 +1386,7 @@ describe('overlay video layers (#145)', () => {
     await userEvent.click(add)
     await userEvent.click(add)
     expect(
-      within(screen.getByRole('list', { name: 'Overlay video layers' })).getAllByRole('listitem'),
+      within(screen.getByRole('list', { name: 'Overlay layers' })).getAllByRole('listitem'),
     ).toHaveLength(2)
 
     await userEvent.click(
@@ -1387,7 +1397,7 @@ describe('overlay video layers (#145)', () => {
       screen.getByRole('button', { name: 'Remove overlay cam.mp4 at position 1 from timeline' }),
     )
     await confirmRemoval()
-    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
   })
 
   it('overlays are independent of the sequence: video edits never retime them', async () => {
@@ -1427,7 +1437,7 @@ describe('overlay video layers (#145)', () => {
     expect(screen.getByText(/removes the 1 timeline entry/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-    expect(screen.queryByRole('list', { name: 'Overlay video layers' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
     expect(sequenceNames()).toEqual(['base.mp4'])
   })
 })
@@ -2358,7 +2368,7 @@ describe('collapsible timeline elements (#299)', () => {
     expect(startTime(text)).toBeNull()
     // Main lines survive: the audio name, the overlay name, the text content.
     expect(screen.getByRole('list', { name: 'Audio tracks' })).toHaveTextContent('m.mp3')
-    expect(screen.getByRole('list', { name: 'Overlay video layers' })).toHaveTextContent('v.mp4')
+    expect(screen.getByRole('list', { name: 'Overlay layers' })).toHaveTextContent('v.mp4')
     // A collapsed text overlay shows its content on one line instead of the editor.
     expect(screen.queryByRole('textbox', { name: `Content of ${text}` })).toBeNull()
     expect(screen.getByRole('list', { name: 'Text overlays' })).toHaveTextContent('Title')
@@ -2498,7 +2508,7 @@ describe('section-level collapse (#300)', () => {
     await populateEveryLane()
 
     await userEvent.click(screen.getByRole('button', { name: 'Collapse all timeline elements' }))
-    for (const name of ['Sequence', 'Audio tracks', 'Overlay video layers', 'Text overlays']) {
+    for (const name of ['Sequence', 'Audio tracks', 'Overlay layers', 'Text overlays']) {
       expect(list(name)).toBeNull()
     }
     for (const title of ['Sequence', 'Audio', 'Overlays', 'Text']) {
@@ -2511,7 +2521,7 @@ describe('section-level collapse (#300)', () => {
     expect(startTime('audio track m.mp3 at position 1')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: 'Expand all timeline elements' }))
-    for (const name of ['Sequence', 'Audio tracks', 'Overlay video layers', 'Text overlays']) {
+    for (const name of ['Sequence', 'Audio tracks', 'Overlay layers', 'Text overlays']) {
       expect(list(name)).toBeInTheDocument()
     }
     expect(trimIn('a.mp4 at position 1')).toBeInTheDocument()
@@ -2662,6 +2672,145 @@ describe('duplicate a timeline element (#314)', () => {
         name: 'Start time of text overlay at position 2 in seconds',
       }),
     ).toHaveValue(3)
+  })
+})
+
+describe('image overlay layers (#294)', () => {
+  const importImage = async (name: string) => {
+    probeMock.mockResolvedValueOnce({
+      duration: 0,
+      url: `blob:${name}`,
+      kind: 'image',
+      width: 640,
+      height: 480,
+    })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], name, { type: 'image/png' }),
+    )
+    await screen.findByText(name)
+  }
+
+  const addLogoOverlay = async () => {
+    await importImage('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+  }
+
+  const position = 'overlay logo.png at position 1'
+
+  it('offers Overlay for an image clip, and adds it with the default placement', async () => {
+    render(<App />)
+    await addLogoOverlay()
+
+    const lane = screen.getByRole('list', { name: 'Overlay layers' })
+    expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
+    // The same corner rectangle a video overlay gets — a still is placed
+    // like any other layer.
+    expect(
+      screen.getByRole('spinbutton', { name: `Left edge of ${position} (fraction of frame width)` }),
+    ).toHaveValue(0.62)
+    expect(
+      screen.getByRole('spinbutton', { name: `Width of ${position} (fraction of frame width)` }),
+    ).toHaveValue(0.35)
+    // Its window is offset + length, starting at the sequence start for the
+    // still default — never a trim of a source it does not have.
+    expect(
+      screen.getByRole('spinbutton', { name: `Start time of ${position} in seconds` }),
+    ).toHaveValue(0)
+    expect(
+      screen.getByRole('spinbutton', { name: `Duration of ${position} in seconds` }),
+    ).toHaveValue(5)
+    expect(screen.getByText('shows 5s')).toBeInTheDocument()
+    // The row shows the image itself, as a still entry's row does.
+    expect(screen.getByTestId('video-overlay-thumbnail-0')).toHaveAttribute('src', 'blob:logo.png')
+  })
+
+  it('shows no trim and no audio controls — a still has neither', async () => {
+    render(<App />)
+    await addLogoOverlay()
+    for (const name of [
+      `Trim in point of ${position} in seconds`,
+      `Trim out point of ${position} in seconds`,
+      `Volume of ${position} (0 to 1)`,
+      `Audio fade-in of ${position} in seconds`,
+      `Audio fade-out of ${position} in seconds`,
+    ]) {
+      expect(screen.queryByRole('spinbutton', { name })).not.toBeInTheDocument()
+    }
+    // Absent, not disabled: there is nothing to control.
+    expect(screen.queryByRole('checkbox', { name: `Mute ${position}` })).not.toBeInTheDocument()
+    // And no amplitude visual for a silent layer.
+    expect(screen.queryByTestId('video-overlay-waveform-0')).not.toBeInTheDocument()
+  })
+
+  it('edits the window and rectangle, committing through the reducer', async () => {
+    render(<App />)
+    await addLogoOverlay()
+
+    const commit = async (name: string, value: string) => {
+      const field = screen.getByRole('spinbutton', { name })
+      await userEvent.clear(field)
+      await userEvent.type(field, value)
+      await userEvent.tab()
+    }
+    await commit(`Start time of ${position} in seconds`, '3')
+    await commit(`Duration of ${position} in seconds`, '8')
+    await commit(`Left edge of ${position} (fraction of frame width)`, '0.1')
+
+    expect(
+      screen.getByRole('spinbutton', { name: `Start time of ${position} in seconds` }),
+    ).toHaveValue(3)
+    expect(
+      screen.getByRole('spinbutton', { name: `Duration of ${position} in seconds` }),
+    ).toHaveValue(8)
+    expect(
+      screen.getByRole('spinbutton', { name: `Left edge of ${position} (fraction of frame width)` }),
+    ).toHaveValue(0.1)
+    expect(screen.getByText('shows 8s')).toBeInTheDocument()
+  })
+
+  it('carries the picture treatments, one undo step each', async () => {
+    render(<App />)
+    await addLogoOverlay()
+
+    // A treatment edit commits through the reducer exactly as on a video
+    // overlay — the controls are the shared ones.
+    const saturation = () =>
+      screen.getByRole('spinbutton', { name: `Saturation of ${position} (percent)` })
+    await userEvent.clear(saturation())
+    await userEvent.type(saturation(), '140')
+    await userEvent.tab()
+    expect(saturation()).toHaveValue(140)
+    // A crop edit too, so more than one treatment is pinned as reaching the
+    // still through the shared overlay actions.
+    const cropTop = () =>
+      screen.getByRole('spinbutton', { name: `Crop top of ${position} (percent)` })
+    await userEvent.clear(cropTop())
+    await userEvent.type(cropTop(), '10')
+    await userEvent.tab()
+    expect(cropTop()).toHaveValue(10)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(cropTop()).toHaveValue(0)
+    expect(saturation()).toHaveValue(140)
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(cropTop()).toHaveValue(10)
+  })
+
+  it('adding and removing the overlay are single history steps', async () => {
+    render(<App />)
+    await addLogoOverlay()
+    expect(screen.getByRole('list', { name: 'Overlay layers' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: `Remove ${position} from timeline` }))
+    await confirmRemoval()
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.getByRole('list', { name: 'Overlay layers' })).toBeInTheDocument()
+    // One more undo takes the add itself back.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
   })
 })
 

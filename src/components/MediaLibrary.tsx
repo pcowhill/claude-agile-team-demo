@@ -24,7 +24,7 @@ interface MediaLibraryProps {
    * the same per-kind rule as `onAddToTimeline`, applied to every clip.
    */
   onAddClipsToTimeline: (clips: LibraryClip[]) => void
-  /** Adds a video clip as an overlay layer above the sequence (#145). */
+  /** Adds a video (#145) or image (#294) clip as an overlay layer above the sequence. */
   onAddOverlay: (clip: LibraryClip) => void
   /** Extracts a video clip's audio into a new library clip (#154). */
   onExtractAudio: (clip: LibraryClip) => void
@@ -288,9 +288,10 @@ export function MediaLibrary({
               >
                 Add
               </button>
-              {/* Only a video can layer above the sequence (#145): audio has
-                  no picture, and a still overlay would be its own feature. */}
-              {clip.kind === 'video' && (
+              {/* Video (#145) and images (#294) can layer above the
+                  sequence — a picture-in-picture, or a logo, watermark or
+                  sticker. Audio cannot: it has no picture. */}
+              {clip.kind !== 'audio' && (
                 <button
                   type="button"
                   aria-label={`Add ${clip.name} as overlay`}

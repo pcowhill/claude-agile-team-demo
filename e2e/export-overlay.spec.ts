@@ -153,7 +153,7 @@ test('an exported file composites the overlay at its rectangle, during its windo
     page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
   ).toHaveCount(1)
   await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
-  await expect(page.getByRole('list', { name: 'Overlay video layers' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
 
   const exported = await exportOnce(page)
   expect(exported.byteLength).toBeGreaterThan(1000)

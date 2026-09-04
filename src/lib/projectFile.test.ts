@@ -20,6 +20,7 @@ import fixtureV13SubtitleStyleReferencesBase64 from './fixtures/project-v13-subt
 import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-background-fill-references.bvep.base64?raw'
 import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-mask-references.bvep.base64?raw'
 import fixtureV16CanvasPresetReferencesBase64 from './fixtures/project-v16-canvas-preset-references.bvep.base64?raw'
+import fixtureV17ImageOverlayReferencesBase64 from './fixtures/project-v17-image-overlay-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -32,6 +33,7 @@ import {
   SUBTITLE_STYLE_SCHEMA_VERSION,
   BACKGROUND_FILL_SCHEMA_VERSION,
   CANVAS_PRESET_SCHEMA_VERSION,
+  IMAGE_OVERLAYS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1097,8 +1099,8 @@ describe('project file versioning', () => {
     // default subtitle style and per-overlay style overrides (#250);
     // version 14 added entry background fill (#259); version 15 added
     // overlay shape masks (#266); version 16 added the project's canvas
-    // preset (#273).
-    expect(PROJECT_SCHEMA_VERSION).toBe(16)
+    // preset (#273); version 17 added image overlay layers (#294).
+    expect(PROJECT_SCHEMA_VERSION).toBe(17)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1115,6 +1117,7 @@ describe('project file versioning', () => {
     expect(BACKGROUND_FILL_SCHEMA_VERSION).toBe(14)
     expect(SHAPE_MASK_SCHEMA_VERSION).toBe(15)
     expect(CANVAS_PRESET_SCHEMA_VERSION).toBe(16)
+    expect(IMAGE_OVERLAYS_SCHEMA_VERSION).toBe(17)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3510,5 +3513,153 @@ describe('canvas preset persistence (#273)', () => {
       (await gunzipJson(await serializeProject(library, { ...masked, canvasPreset: '1:1' })))
         .schemaVersion,
     ).toBe(CANVAS_PRESET_SCHEMA_VERSION)
+  })
+})
+
+describe('image overlay layers in project files (#294, schema version 17)', () => {
+  // The library needs an image to overlay; the base one carries video only.
+  const overlayLibrary: MediaLibraryState = {
+    ...library,
+    clips: [
+      ...library.clips,
+      { id: 'i1', name: 'logo.png', duration: 0, url: 'blob:session/i1', kind: 'image', width: 64, height: 48 },
+    ],
+  }
+  const stored = {
+    id: 'io1',
+    kind: 'image' as const,
+    clipId: 'i1',
+    name: 'logo.png',
+    duration: 6,
+    offset: 2,
+    inPoint: 0,
+    outPoint: 6,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+    crop: { top: 0.1 },
+    colorAdjustments: { saturation: 140 },
+  }
+  const stillTimeline = (): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/i1' }],
+  })
+  const expectedClips = [
+    ...expectedProject.clips,
+    { id: 'i1', name: 'logo.png', duration: 0, kind: 'image' as const, width: 64, height: 48 },
+  ]
+
+  /** A valid document whose library carries the image clip. */
+  const documentWithImage = () => {
+    const document = validDocument()
+    ;(document.clips as unknown as Record<string, unknown>[]).push({
+      id: 'i1', name: 'logo.png', kind: 'image', width: 64, height: 48,
+    })
+    return document
+  }
+
+  it('round-trips a still overlay, writing version 17 and no url', async () => {
+    const bytes = await serializeProject(overlayLibrary, stillTimeline())
+    const document = await gunzipJson(bytes)
+    // Unlike remaps and texts this is NOT additive within a version: an
+    // older build would read the kind key as an unknown extra and load a
+    // still as a video overlay, so the version has to move.
+    expect(document.schemaVersion).toBe(IMAGE_OVERLAYS_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedClips,
+        timeline: { ...expectedProject.timeline, videoOverlays: [stored] },
+      },
+    })
+    const written = (document.timeline as { videoOverlays: Record<string, unknown>[] }).videoOverlays[0]
+    expect(written.kind).toBe('image')
+    expect(written).not.toHaveProperty('url')
+  })
+
+  it('leaves a video overlay byte-identical: no kind key, no version bump', async () => {
+    // The whole point of absent-as-default: adding image overlays must not
+    // change one byte of a project that has none.
+    const videoOverlay = {
+      id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+      offset: 1.5, inPoint: 0.5, outPoint: 3, x: 0.6, y: 0.6, width: 0.35, height: 0.35,
+    }
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, videoOverlays: [videoOverlay] }),
+    )
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect((document.timeline as { videoOverlays: Record<string, unknown>[] }).videoOverlays[0])
+      .not.toHaveProperty('kind')
+  })
+
+  it('refuses audio on a still overlay by field name', async () => {
+    // A still is soundless (#220). Naming the field is the point: a file
+    // that disagrees with the model is a writer's bug, and silently loading
+    // the half of it we like is how corruption hides.
+    for (const [field, value] of [
+      ['volume', 0.5], ['muted', true], ['fadeIn', 1], ['fadeOut', 1], ['duck', true], ['duckLevel', 0.2],
+    ] as const) {
+      const document = documentWithImage()
+      ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [{ ...stored, [field]: value }]
+      await expectRefusal(
+        await gzipJson(document),
+        `timeline.videoOverlays[0].${field} is not allowed on an image overlay: a still has no audio`,
+      )
+    }
+  })
+
+  it('refuses a mismatched clip kind, either way round', async () => {
+    const wrongWay = documentWithImage()
+    ;(wrongWay.timeline as { videoOverlays?: unknown }).videoOverlays = [{ ...stored, clipId: 'c2' }]
+    await expectRefusal(
+      await gzipJson(wrongWay),
+      'references a video clip, but image overlay layers carry images only',
+    )
+    const otherWay = documentWithImage()
+    ;(otherWay.timeline as { videoOverlays?: unknown }).videoOverlays = [
+      { ...stored, kind: undefined, clipId: 'i1', duration: 6, inPoint: 0, outPoint: 6 },
+    ]
+    await expectRefusal(
+      await gzipJson(otherWay),
+      'references an image clip, but overlay layers carry video only',
+    )
+  })
+
+  it('refuses an unknown overlay kind and a window that is not the whole still', async () => {
+    const unknown = documentWithImage()
+    ;(unknown.timeline as { videoOverlays?: unknown }).videoOverlays = [{ ...stored, kind: 'slate' }]
+    await expectRefusal(await gzipJson(unknown), 'timeline.videoOverlays[0].kind must be "image" when present')
+    for (const window of [{ inPoint: 1 }, { outPoint: 5 }]) {
+      const document = documentWithImage()
+      ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [{ ...stored, ...window }]
+      await expectRefusal(await gzipJson(document), 'window must be the whole still')
+    }
+  })
+
+  it('deserializes the committed v17 image-overlay fixture', async () => {
+    // The never-rewrite contract, as for every fixture before it: a file
+    // written by the build that introduced image overlays keeps opening
+    // identically forever.
+    const bytes = Uint8Array.from(atob(fixtureV17ImageOverlayReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedClips,
+        timeline: { ...expectedProject.timeline, videoOverlays: [stored] },
+      },
+    })
+  })
+
+  it('lets a lower-version feature keep its version when no still overlay exists', async () => {
+    // The version chain puts image overlays first, so this pins that they
+    // only win when one is actually present.
+    expect(
+      (await gunzipJson(await serializeProject(overlayLibrary, timeline))).schemaVersion,
+    ).toBe(IMAGES_SCHEMA_VERSION)
   })
 })

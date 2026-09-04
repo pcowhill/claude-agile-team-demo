@@ -102,7 +102,7 @@ test('an overlay layer stays in the export while its element cannot supply a fra
   await transitionDuration.fill('0.5')
   await transitionDuration.blur()
   await page.getByRole('button', { name: 'Add over.webm as overlay' }).click()
-  await expect(page.getByRole('list', { name: 'Overlay video layers' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
 
   const overlayUrl = await page
     .getByTestId('preview-overlay-0')
