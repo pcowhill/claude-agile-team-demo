@@ -250,6 +250,11 @@ export function isValidImageOverlay(overlay: VideoOverlay): boolean {
  * the sequence or above it — but declared here rather than imported, because
  * `timeline.ts` imports this module and the reverse would be a cycle. A unit
  * test pins the two to the same value.
+ *
+ * That equality is why the user's still-duration setting (#286) is passed
+ * here too: leaving this path on the constant would have a still on the
+ * sequence show for the chosen duration while a still *layer* added a moment
+ * later showed for five seconds, contradicting the rule above.
  */
 export const DEFAULT_IMAGE_OVERLAY_DURATION = 5
 
@@ -259,7 +264,12 @@ export const DEFAULT_IMAGE_OVERLAY_DURATION = 5
  * sequence start for the default still duration. The window is `[0,
  * duration]` — a still has nothing to trim.
  */
-export function imageOverlayFromClip(clip: LibraryClip, id: string, offset = 0): VideoOverlay {
+export function imageOverlayFromClip(
+  clip: LibraryClip,
+  id: string,
+  offset = 0,
+  duration = DEFAULT_IMAGE_OVERLAY_DURATION,
+): VideoOverlay {
   // Only images become still overlay layers; video has its own constructor
   // and audio has no picture. The UI never offers this path for other kinds —
   // reaching here is programmer error.
@@ -271,11 +281,11 @@ export function imageOverlayFromClip(clip: LibraryClip, id: string, offset = 0):
     kind: 'image',
     clipId: clip.id,
     name: clip.name,
-    duration: DEFAULT_IMAGE_OVERLAY_DURATION,
+    duration,
     url: clip.url,
     offset,
     inPoint: 0,
-    outPoint: DEFAULT_IMAGE_OVERLAY_DURATION,
+    outPoint: duration,
     ...DEFAULT_OVERLAY_RECT,
   }
 }

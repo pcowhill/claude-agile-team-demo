@@ -445,6 +445,54 @@ describe('audio-only export format (#245)', () => {
   })
 })
 
+describe('default export format setting (#286)', () => {
+  const formatRadio = (label: string) => screen.getByRole('radio', { name: label })
+
+  it('opens preselected on the configured format', async () => {
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} defaultFormat="mp4" isTypeSupported={recordsEverything} />,
+    )
+
+    await user.click(openButton())
+    expect(formatRadio('MP4')).toBeChecked()
+    expect(formatRadio('WebM')).not.toBeChecked()
+  })
+
+  it('falls back to WebM when the configured format is not recordable here', async () => {
+    // The setting is a preference, not a promise: which formats exist is a
+    // property of the running browser (#114) and of the enabled plugins
+    // (#197). A stored id that is not on offer must not be exported.
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} defaultFormat="mp4" isTypeSupported={recordsWebmOnly} />,
+    )
+
+    await user.click(openButton())
+    expect(formatRadio('WebM')).toBeChecked()
+    expect(screen.queryByRole('radio', { name: 'MP4' })).not.toBeInTheDocument()
+  })
+
+  it('treats the format as a one-export choice, like the other output settings', async () => {
+    // Deliberate change from before there was a setting, and the same rule
+    // #169 already set for the size fields: an override picked for one
+    // export does not quietly become the next one's format. The setting is
+    // what the modal opens on, every time.
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} defaultFormat="webm" isTypeSupported={recordsEverything} />,
+    )
+
+    await user.click(openButton())
+    await user.click(formatRadio('MP4'))
+    expect(formatRadio('MP4')).toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await user.click(openButton())
+    expect(formatRadio('WebM')).toBeChecked()
+  })
+})
+
 describe('format-note layout structure (#268)', () => {
   // jsdom computes no layout, so the geometry itself (the note below the
   // radio rows, everything inside the dialog) is evidenced by

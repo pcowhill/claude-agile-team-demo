@@ -379,7 +379,8 @@ export const DEFAULT_TRANSITION_DURATION = 1
 /**
  * How long a newly placed still shows by default, in seconds — the
  * customer's own example figure (#136/#140). Adjustable afterwards to any
- * positive duration via `still-duration-set`.
+ * positive duration via `still-duration-set`, and the default itself is a
+ * user setting whose out-of-the-box value this is (#286).
  */
 export const DEFAULT_STILL_DURATION = 5
 
@@ -421,7 +422,12 @@ export function isValidSlateColor(color: string): boolean {
  * backing media — nothing is imported, nothing lives in the library. It is a
  * still (#140) in every window-related way; only its rendering differs.
  */
-export function slateEntry(id: string, color: string = DEFAULT_SLATE_COLOR): TimelineEntry {
+export function slateEntry(
+  id: string,
+  color: string = DEFAULT_SLATE_COLOR,
+  /** How long it shows — the user's setting, defaulting to #143's figure (#286). */
+  duration: number = DEFAULT_STILL_DURATION,
+): TimelineEntry {
   if (!isValidSlateColor(color)) {
     // Callers pass picker output or the default; anything else is programmer
     // error, and a malformed color would poison saved files.
@@ -435,10 +441,10 @@ export function slateEntry(id: string, color: string = DEFAULT_SLATE_COLOR): Tim
     // against real ids only.
     clipId: '',
     name: 'Color slate',
-    duration: DEFAULT_STILL_DURATION,
+    duration,
     url: '',
     inPoint: 0,
-    outPoint: DEFAULT_STILL_DURATION,
+    outPoint: duration,
     kind: 'slate',
     color,
   }
@@ -684,7 +690,15 @@ export type TimelineAction =
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
 
-export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
+export function entryFromClip(
+  clip: LibraryClip,
+  id: string,
+  /**
+   * How long a still shows — the user's setting, defaulting to #140's figure
+   * (#286). Ignored for video, which has a source duration of its own.
+   */
+  stillDuration: number = DEFAULT_STILL_DURATION,
+): TimelineEntry {
   // The sequence carries video and stills (#140); audio placement is its own
   // model (#102). The UI never offers this path for audio — reaching here is
   // programmer error, and a silent audio entry would break preview and export.
@@ -692,16 +706,16 @@ export function entryFromClip(clip: LibraryClip, id: string): TimelineEntry {
     throw new Error(`cannot add "${clip.name}" to the sequence: it is an audio clip`)
   }
   if (clip.kind === 'image') {
-    // A still has no source duration: it shows for the default (#140),
-    // adjustable afterwards; the window [0, duration] is its whole life.
+    // A still has no source duration: it shows for the configured default
+    // (#140/#286), adjustable afterwards; [0, duration] is its whole life.
     return {
       id,
       clipId: clip.id,
       name: clip.name,
-      duration: DEFAULT_STILL_DURATION,
+      duration: stillDuration,
       url: clip.url,
       inPoint: 0,
-      outPoint: DEFAULT_STILL_DURATION,
+      outPoint: stillDuration,
       kind: 'image',
     }
   }

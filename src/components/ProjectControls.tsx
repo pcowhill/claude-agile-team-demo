@@ -25,9 +25,12 @@ import type { SaveDestination, SaveMode, SavePort } from '../lib/saveProject'
 import type { LibraryClip } from '../lib/mediaLibrary'
 import type { PluginRuntime } from '../lib/plugins'
 import { pluginRuntime as appPluginRuntime } from '../plugins/runtime'
+import type { AppSettings, SessionRestoreMode } from '../lib/settings'
+import { DEFAULT_SETTINGS } from '../lib/settings'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExportControl } from './ExportControl'
 import { PluginManager } from './PluginManager'
+import { SettingsControl } from './SettingsControl'
 import { OpenProjectDialog } from './OpenProjectDialog'
 import { SaveModeDialog } from './SaveModeDialog'
 import './ProjectControls.css'
@@ -72,6 +75,15 @@ interface ProjectControlsProps {
    * control renders only when the app supplies it.
    */
   onSetCanvasPreset?: (preset: CanvasPreset | undefined) => void
+  /**
+   * The per-device preferences (#286) and the writer for them. Two of them
+   * are consumed here: the startup restore offer's behaviour, and the format
+   * the export modal opens on. Optional as a pair — the ⚙ button renders
+   * only when the app supplies both, so tests that predate settings keep
+   * compiling and keep today's defaults.
+   */
+  settings?: AppSettings
+  onSetSettings?: (settings: AppSettings) => void
 }
 
 type SaveStatus =
@@ -79,6 +91,19 @@ type SaveStatus =
   | { kind: 'saving' }
   | { kind: 'saved'; name: string }
   | { kind: 'error'; message: string }
+
+/**
+ * A restorable autosave snapshot, as the startup read hands it on (#194):
+ * the deserialized project, its media blobs, and whether it matched the last
+ * save (#288). Named because four things now hold one — the offer state, the
+ * in-flight ref, the startup read's local, and the starter the #286 restore
+ * mode calls.
+ */
+type PendingRestore = {
+  result: Extract<DeserializeResult, { ok: true }>
+  media: Map<string, Blob>
+  saved: boolean
+}
 
 /**
  * Project lifecycle controls. Save and Save As… (#76): Save As… always asks
@@ -112,6 +137,8 @@ export function ProjectControls({
   autosave = null,
   autosaveDebounceMs,
   onSetCanvasPreset,
+  settings,
+  onSetSettings,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -145,12 +172,7 @@ export function ProjectControls({
   // or there was nothing to offer.
   const [autosaveGate, setAutosaveGate] = useState<'checking' | 'offer' | 'active'>('checking')
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('ok')
-  const [pendingRestore, setPendingRestore] = useState<{
-    result: Extract<DeserializeResult, { ok: true }>
-    media: Map<string, Blob>
-    /** Whether the snapshot matched the last saved project (#288). */
-    saved: boolean
-  } | null>(null)
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null)
   // Discard in flight (#240): the offer stays up (buttons disabled) until
   // the snapshot clear commits, so dismissal is an honest "cleared" signal.
   const [discarding, setDiscarding] = useState(false)
@@ -162,6 +184,16 @@ export function ProjectControls({
   // Set once anything replaces the project: the async startup snapshot read
   // must not surface a stale offer over a project the user already opened.
   const offerSuperseded = useRef(false)
+  // What to do with a snapshot that is found (#286). The startup effect runs
+  // once per store and resolves asynchronously, so it reads the mode and the
+  // restore starter through refs rather than taking them as dependencies:
+  // both change identity on renders that have nothing to do with autosave,
+  // and re-running the effect would re-read the snapshot. Same idiom as
+  // App's `subtitleStyleRef` and this file's own `sizeModeRef` sibling in
+  // ExportControl.
+  const sessionRestoreRef = useRef<SessionRestoreMode>(DEFAULT_SETTINGS.sessionRestore)
+  sessionRestoreRef.current = settings?.sessionRestore ?? DEFAULT_SETTINGS.sessionRestore
+  const startRestoreRef = useRef<(pending: PendingRestore) => void>(() => {})
   const autosaverRef = useRef<Autosaver | null>(null)
 
   // Startup (#194): read the snapshot once the store exists. A snapshot
@@ -171,11 +203,7 @@ export function ProjectControls({
     if (autosave === null) return
     let canceled = false
     void (async () => {
-      let offer: {
-        result: Extract<DeserializeResult, { ok: true }>
-        media: Map<string, Blob>
-        saved: boolean
-      } | null = null
+      let offer: PendingRestore | null = null
       try {
         const snapshot: AutosaveSnapshot | null = await readAutosaveSnapshot(autosave)
         if (snapshot !== null) {
@@ -188,11 +216,30 @@ export function ProjectControls({
         // will report 'unavailable' from the autosaver itself.
       }
       if (canceled || offerSuperseded.current) return
-      if (offer !== null) {
-        setPendingRestore(offer)
-        setAutosaveGate('offer')
-      } else {
+      if (offer === null) {
         setAutosaveGate('active')
+        return
+      }
+      // What the found snapshot does is the user's choice (#286).
+      switch (sessionRestoreRef.current) {
+        case 'never':
+          // No offer, and the snapshot is deliberately *not* cleared:
+          // autosave takes over and overwrites it, exactly as the setting
+          // promises ("only the offer changes").
+          setAutosaveGate('active')
+          break
+        case 'always':
+          // Straight into the same restore the Restore button runs, with no
+          // bar shown. The gate stays closed until it lands, and a path that
+          // dead-ends (a declined re-link) re-offers through the usual
+          // machinery, so the choice is never silently dropped.
+          setAutosaveGate('offer')
+          startRestoreRef.current(offer)
+          break
+        case 'ask':
+          setPendingRestore(offer)
+          setAutosaveGate('offer')
+          break
       }
     })()
     return () => {
@@ -425,10 +472,7 @@ export function ProjectControls({
    * same call lands in the existing re-link dialog — the established
    * re-attach flow — instead of failing.
    */
-  const confirmRestore = () => {
-    const pending = pendingRestore
-    setPendingRestore(null)
-    if (pending === null) return
+  const startRestore = (pending: PendingRestore) => {
     restoreInFlight.current = pending
     void (async () => {
       const project = pending.result.project
@@ -446,6 +490,17 @@ export function ProjectControls({
       }
       await openResult('the autosaved session', result)
     })()
+  }
+  // Reached by the startup effect when the restore mode is 'always' (#286);
+  // the effect cannot depend on `startRestore` without re-reading the
+  // snapshot on unrelated renders. See the ref's declaration above.
+  startRestoreRef.current = startRestore
+
+  const confirmRestore = () => {
+    const pending = pendingRestore
+    setPendingRestore(null)
+    if (pending === null) return
+    startRestore(pending)
   }
 
   /**
@@ -580,8 +635,14 @@ export function ProjectControls({
           </select>
         </label>
       )}
-      <ExportControl timeline={timeline} />
+      <ExportControl timeline={timeline} defaultFormat={settings?.exportFormat} />
       <PluginManager />
+      {/* Per-device preferences (#286). Rendered only with both halves of
+          the settings wiring supplied, so a caller that predates settings
+          gets no dead control. */}
+      {settings !== undefined && onSetSettings !== undefined && (
+        <SettingsControl settings={settings} onChange={onSetSettings} />
+      )}
       <span className="project-save-status" role="status">
         {status.kind === 'saved' && `Saved as ${status.name}`}
         {saving && 'Saving…'}

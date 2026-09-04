@@ -25,6 +25,8 @@ import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
 import { loadLibraryView, saveLibraryView } from './lib/libraryView'
 import type { LibraryView } from './lib/libraryView'
+import { loadSettings, saveSettings } from './lib/settings'
+import type { AppSettings } from './lib/settings'
 import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
@@ -33,7 +35,14 @@ interface AppProps {
   /** Injectable for tests (jsdom can probe no real media and show no picker). */
   probeMedia?: typeof probeMediaFile
   savePort?: SavePort
-  /** Injectable for tests; defaults to localStorage (#128). */
+  /**
+   * The per-browser preference store; defaults to localStorage (#128).
+   * Shared by every preference that is not project content — the preview's
+   * expanded state (#128), the media library's view (#311) and the settings
+   * dialog's values (#286) — each under its own key. One prop because the
+   * three want the same `Storage` slice, and injecting once isolates the lot
+   * in a test.
+   */
   layoutStorage?: PreviewLayoutStorage
 }
 
@@ -66,6 +75,18 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     (next: LibraryView) => {
       setLibraryView(next)
       saveLibraryView(next, layoutStorage)
+    },
+    [layoutStorage],
+  )
+  // Per-device preferences (#286, from customer feedback #281): read once at
+  // mount, written through on every change so a reload finds them, and
+  // applied from this state so a change takes effect immediately — the four
+  // consumers below read these values, not the constants they default to.
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings(layoutStorage))
+  const handleSetSettings = useCallback(
+    (next: AppSettings) => {
+      setSettings(next)
+      saveSettings(next, layoutStorage)
     },
     [layoutStorage],
   )
@@ -192,44 +213,60 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     [importSubtitles],
   )
 
-  const handleAddToTimeline = useCallback((clip: LibraryClip) => {
-    // Video joins the sequence; audio becomes a track on the audio lane (#102).
-    if (clip.kind === 'audio') {
+  const stillDuration = settings.stillDurationSeconds
+  const handleAddToTimeline = useCallback(
+    (clip: LibraryClip) => {
+      // Video joins the sequence; audio becomes a track on the audio lane (#102).
+      if (clip.kind === 'audio') {
+        dispatchTimeline({
+          type: 'audio-track-added',
+          track: audioTrackFromClip(clip, crypto.randomUUID()),
+        })
+        return
+      }
+      // Video and stills (#140) join the sequence alike; a still shows for
+      // the configured duration (#286).
       dispatchTimeline({
-        type: 'audio-track-added',
-        track: audioTrackFromClip(clip, crypto.randomUUID()),
+        type: 'entry-added',
+        entry: entryFromClip(clip, crypto.randomUUID(), stillDuration),
       })
-      return
-    }
-    // Video and stills (#140) join the sequence alike.
-    dispatchTimeline({ type: 'entry-added', entry: entryFromClip(clip, crypto.randomUUID()) })
-  }, [])
+    },
+    [stillDuration],
+  )
 
   // A library selection added in one step (#292): the same per-kind rule as
   // a single Add, in library order, as one action so one undo reverts all.
-  const handleAddClipsToTimeline = useCallback((clips: LibraryClip[]) => {
-    const entries: TimelineEntry[] = []
-    const audioTracks: AudioTrack[] = []
-    for (const clip of clips) {
-      if (clip.kind === 'audio') audioTracks.push(audioTrackFromClip(clip, crypto.randomUUID()))
-      else entries.push(entryFromClip(clip, crypto.randomUUID()))
-    }
-    dispatchTimeline({ type: 'clips-added', entries, audioTracks })
-  }, [])
+  const handleAddClipsToTimeline = useCallback(
+    (clips: LibraryClip[]) => {
+      const entries: TimelineEntry[] = []
+      const audioTracks: AudioTrack[] = []
+      for (const clip of clips) {
+        if (clip.kind === 'audio') audioTracks.push(audioTrackFromClip(clip, crypto.randomUUID()))
+        else entries.push(entryFromClip(clip, crypto.randomUUID(), stillDuration))
+      }
+      dispatchTimeline({ type: 'clips-added', entries, audioTracks })
+    },
+    [stillDuration],
+  )
 
   // A clip composited above the sequence — picture-in-picture for video
   // (#145), a logo/watermark/sticker layer for an image (#294). The kind
   // decides which constructor builds it; the library offers the control for
   // those two kinds only.
-  const handleAddOverlay = useCallback((clip: LibraryClip) => {
-    dispatchTimeline({
-      type: 'video-overlay-added',
-      overlay:
-        clip.kind === 'image'
-          ? imageOverlayFromClip(clip, crypto.randomUUID())
-          : videoOverlayFromClip(clip, crypto.randomUUID()),
-    })
-  }, [])
+  const handleAddOverlay = useCallback(
+    (clip: LibraryClip) => {
+      dispatchTimeline({
+        type: 'video-overlay-added',
+        overlay:
+          clip.kind === 'image'
+            ? // From the sequence start (offset 0), for the configured still
+              // duration — a still layer is a still (#294/#286).
+              imageOverlayFromClip(clip, crypto.randomUUID(), 0, stillDuration)
+            : videoOverlayFromClip(clip, crypto.randomUUID()),
+      })
+    },
+    [stillDuration],
+  )
 
   // Open Project / New Project (#77): the whole editing state is replaced.
   // The outgoing clips' object URLs can never be cued again, so their memory
@@ -370,6 +407,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           probeMedia={probeMedia}
           autosave={autosaveStore}
           onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
+          settings={settings}
+          onSetSettings={handleSetSettings}
         />
       </header>
       <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
@@ -398,6 +437,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           timeline={timeline}
           expanded={previewExpanded}
           onToggleExpanded={togglePreviewExpanded}
+          stepSeconds={settings.stepSeconds}
+          largeStepSeconds={settings.largeStepSeconds}
           onSplit={(id, atSourceTime) =>
             dispatchTimeline({
               type: 'entry-split',
@@ -428,7 +469,11 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'still-duration-set', id, duration })
           }
           onAddSlate={() =>
-            dispatchTimeline({ type: 'entry-added', entry: slateEntry(crypto.randomUUID()) })
+            dispatchTimeline({
+              type: 'entry-added',
+              // The default color (#143) with the configured duration (#286).
+              entry: slateEntry(crypto.randomUUID(), undefined, stillDuration),
+            })
           }
           onSetSlateColor={(id, color) => dispatchTimeline({ type: 'slate-color-set', id, color })}
           onSetTransition={(beforeId, afterId, transition) =>

@@ -7,6 +7,7 @@ import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia } from '../lib/projectFile'
 import type { SaveDestination, SavePort } from '../lib/saveProject'
 import type { TimelineState } from '../lib/timeline'
+import { DEFAULT_SETTINGS } from '../lib/settings'
 import { PluginRuntime } from '../lib/plugins'
 import type { PluginSpec } from '../lib/plugins'
 
@@ -1053,6 +1054,61 @@ describe('crash-safe autosave (#194)', () => {
     ])
     expect(restored.timeline.entries.map((entry: { id: string }) => entry.id)).toEqual(['e1'])
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
+  /**
+   * The session-restore setting (#286). The three modes share one fixture: a
+   * snapshot that deserializes, with every blob present. The 'ask' case is
+   * the test above — it renders with no settings prop at all, which is the
+   * default — so these two are read against it: same snapshot, different
+   * mode, different outcome.
+   */
+  const restorableSnapshot = async (store: ReturnType<typeof fakeAutosaveStore>['store'], state: ReturnType<typeof fakeAutosaveStore>['state']) => {
+    const { serializeProject } = await import('../lib/projectFile')
+    state.structure = await serializeProject(library, timeline)
+    state.media.set('c1', new Blob([asciiBytes('media:c1')], { type: 'video/mp4' }))
+    return store
+  }
+
+  const emptyProject = {
+    library: { clips: [], failures: [] },
+    timeline: { entries: [], transitions: [], zooms: [] },
+  }
+
+  it('restores without asking when the setting says always (#286)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    await restorableSnapshot(store, state)
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      ...emptyProject,
+      settings: { ...DEFAULT_SETTINGS, sessionRestore: 'always' },
+      onSetSettings: () => {},
+    })
+
+    // No click: the same restore the button runs, started for the user.
+    await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
+    expect(onProjectReplaced.mock.calls[0][0].timeline.entries.map((e: { id: string }) => e.id)).toEqual(['e1'])
+    // The bar never appeared, so this is not "the offer, auto-clicked".
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
+
+  it('never offers, and lets autosave take over, when the setting says never (#286)', async () => {
+    const { store, state } = fakeAutosaveStore()
+    await restorableSnapshot(store, state)
+    const stored = state.structure
+    const { onProjectReplaced } = renderWithAutosave(store, {
+      settings: { ...DEFAULT_SETTINGS, sessionRestore: 'never' },
+      onSetSettings: () => {},
+    })
+
+    // The autosave gate opens straight away: the autosaver writes this
+    // session over the old snapshot, which is what "autosave still writes,
+    // only the offer changes" means.
+    await waitFor(() => expect(state.structure).not.toBe(stored))
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+    expect(onProjectReplaced).not.toHaveBeenCalled()
+    // Declining the offer clears the snapshot (#194/#240); this is not that
+    // path, and must not clear anything.
+    expect(state.cleared).toBe(0)
   })
 
   it('restoring never-saved work reports it unsaved, so the indicator survives (#288)', async () => {

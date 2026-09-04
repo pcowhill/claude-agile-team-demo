@@ -8,9 +8,10 @@ import { targetEditsText } from './history'
  * is untouched — it requires Ctrl/Cmd, which every mapping here rejects.
  */
 
-/** Small step for a bare arrow key, in seconds. */
+/** Small step for a bare arrow key, in seconds — the default of the
+ * corresponding user setting (#286). */
 export const STEP_SECONDS = 0.1
-/** Larger step for Shift+arrow, in seconds. */
+/** Larger step for Shift+arrow, in seconds — likewise a settable default. */
 export const LARGE_STEP_SECONDS = 1
 
 export type TransportAction =
@@ -27,21 +28,31 @@ export type TransportAction =
  * so (the larger arrow step; `?` itself is typed as Shift+/ on most layouts,
  * so `key === '?'` already implies Shift).
  */
-export function transportActionForKey(event: {
-  key: string
-  shiftKey: boolean
-  ctrlKey: boolean
-  metaKey: boolean
-  altKey: boolean
-}): TransportAction | null {
+export function transportActionForKey(
+  event: {
+    key: string
+    shiftKey: boolean
+    ctrlKey: boolean
+    metaKey: boolean
+    altKey: boolean
+  },
+  /**
+   * How far the arrows move the playhead. Defaults to the constants above,
+   * which is what every caller wanted until the two became user settings
+   * (#286) — so an omitted argument still means today's behaviour, and the
+   * unit tests of the mapping itself need no new fixture.
+   */
+  steps: { step?: number; largeStep?: number } = {},
+): TransportAction | null {
+  const { step = STEP_SECONDS, largeStep = LARGE_STEP_SECONDS } = steps
   if (event.ctrlKey || event.metaKey || event.altKey) return null
   switch (event.key) {
     case ' ':
       return event.shiftKey ? null : { kind: 'toggle-play' }
     case 'ArrowLeft':
-      return { kind: 'step', delta: -(event.shiftKey ? LARGE_STEP_SECONDS : STEP_SECONDS) }
+      return { kind: 'step', delta: -(event.shiftKey ? largeStep : step) }
     case 'ArrowRight':
-      return { kind: 'step', delta: event.shiftKey ? LARGE_STEP_SECONDS : STEP_SECONDS }
+      return { kind: 'step', delta: event.shiftKey ? largeStep : step }
     case 'Home':
       return event.shiftKey ? null : { kind: 'jump', to: 'start' }
     case 'End':

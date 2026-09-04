@@ -1,0 +1,75 @@
+/* The settings modal (#286). One row per preference: its label and control
+   on a line, an optional hint under them. */
+
+.settings-dialog {
+  max-width: 30rem;
+  /* The overlay is `position: fixed`, so anything taller than the viewport
+     cannot be scrolled to — a dialog that outgrows the window would put its
+     own Close button out of reach. No other dialog in the app is long
+     enough for that to matter; this one already has five rows and is the
+     surface future preferences get added to, so it caps itself here.
+     A column flex box, so the *rows* take the overflow (below) while the
+     heading and Close stay put: at 800x420 the button was otherwise below
+     the fold, and a user who does not think to scroll inside a dialog
+     cannot dismiss it. Found by looking at a screenshot, which is what
+     #346 asks for. The browser spec asserts both the fit and the button. */
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  /* Takes the dialog's slack and scrolls when there is not enough; the
+     `min-height: 0` is what lets a flex item shrink below its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* The label takes the slack and wraps; the control keeps its own width. A
+   label that could not shrink would push its <select> past the dialog's
+   edge at a narrow viewport — the defect #268 shipped, and what the browser
+   spec's containment assertions guard here. */
+.settings-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-field select {
+  flex: 0 1 auto;
+  max-width: 55%;
+}
+
+/* More specific than `.dialog p`, which sets the dialog's prose margin. */
+.settings-dialog .settings-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* A glyph button next to text buttons: matched height, enough width that it
+   does not read as a squeezed accident. */
+.settings-button {
+  min-width: 2.25rem;
+  font-size: 1rem;
+  line-height: 1.2;
+}
