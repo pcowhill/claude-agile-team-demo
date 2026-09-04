@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectWithin } from './layout'
 
 type Locator = import('@playwright/test').Locator
 
@@ -45,18 +46,19 @@ test('the format note sits below the radios and the picker stays inside the dial
     const noteText = dialog.getByText(note)
     await expect(noteText).toBeVisible()
 
-    const dialogBox = await boxOf(dialog)
     const noteBox = await boxOf(noteText)
-    for (const option of await options.all()) {
+    for (const [index, option] of (await options.all()).entries()) {
       const optionBox = await boxOf(option)
       // Below every radio option, not beside any of them…
       expect(noteBox.y).toBeGreaterThanOrEqual(optionBox.y + optionBox.height - 1)
-      // …and every option inside the dialog's horizontal bounds.
-      expect(optionBox.x).toBeGreaterThanOrEqual(dialogBox.x - 1)
-      expect(optionBox.x + optionBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width + 1)
+      // …and every option inside the dialog's horizontal bounds. Horizontal
+      // only: the dialog scrolls vertically on purpose when the settings
+      // fieldset is long, so asserting the vertical edges would fail on
+      // correct layout.
+      await expectWithin(option, dialog, { axis: 'x', what: `format option ${index}` })
     }
-    // The note itself stays inside the dialog too.
-    expect(noteBox.x).toBeGreaterThanOrEqual(dialogBox.x - 1)
-    expect(noteBox.x + noteBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width + 1)
+    // The note itself stays inside the dialog too — the half #265's
+    // screenshot showed hanging out of it.
+    await expectWithin(noteText, dialog, { axis: 'x', what: `${radio} note` })
   }
 })

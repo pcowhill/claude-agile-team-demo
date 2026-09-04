@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectNoHorizontalScroll } from './layout'
 
 /**
  * Narrow-viewport width regression guard (#208). The app grid's `fr` tracks
@@ -78,13 +79,10 @@ test('no horizontal page scroll at an 800px viewport with a video clip in play (
   }
 
   // The guard itself: the page lays out within the viewport instead of
-  // scrolling horizontally. documentElement.scrollWidth counts every
-  // overflowing descendant, so this catches any panel's min-content floor
-  // pushing the grid wide — not just the media library's.
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }))
-  expect(scrollWidth, `page scrollWidth ${scrollWidth}px at ${innerWidth}px viewport`)
-    .toBeLessThanOrEqual(innerWidth)
+  // scrolling horizontally. The shared assertion counts every overflowing
+  // descendant, so this catches any panel's min-content floor pushing the
+  // grid wide — not just the media library's. It measures against
+  // `clientWidth` where this spec used `window.innerWidth`, which is
+  // stricter by the scrollbar's width; see ./layout for why.
+  await expectNoHorizontalScroll(page, 'video clip imported and on the timeline')
 })

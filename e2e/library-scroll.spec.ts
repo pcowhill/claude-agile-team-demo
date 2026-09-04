@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectNoHorizontalScroll } from './layout'
 import { sineWav } from './sineWav'
 
 /**
@@ -61,11 +62,7 @@ test('a large library scrolls internally and stops pushing the timeline down (#3
   await expect(selectAll).toBeInViewport()
 
   // (d) No horizontal page scroll with the scrollbar present (#208 guard).
-  const overflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }))
-  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  await expectNoHorizontalScroll(page, '30 clips, list scrolled to the bottom')
 })
 
 test('a small library does not scroll and reserves no space (#308)', async ({ page }) => {

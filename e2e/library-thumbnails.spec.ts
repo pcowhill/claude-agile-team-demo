@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectCovers, expectNoHorizontalScroll } from './layout'
 import { sineWav } from './sineWav'
 
 type Page = import('@playwright/test').Page
@@ -61,14 +62,6 @@ async function makePng(page: Page): Promise<Buffer> {
     return canvas.toDataURL('image/png').split(',')[1]
   })
   return Buffer.from(base64, 'base64')
-}
-
-/** No horizontal page scroll — the #208 guard, as its own spec words it. */
-async function pageOverflow(page: Page) {
-  return page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }))
 }
 
 test('thumbnail view grids square-ish cards showing each kind of media (#311)', async ({
@@ -144,15 +137,13 @@ test('thumbnail view grids square-ish cards showing each kind of media (#311)', 
   // card shows the media, it does not merely contain it.
   const pictureTestIds = ['clip-card-thumbnail-0', 'clip-card-image-1', 'clip-card-waveform-2']
   for (const [index, testId] of pictureTestIds.entries()) {
-    const media = (await page.getByTestId(testId).boundingBox())!
-    const box = (await page.locator('.clip-card-picture').nth(index).boundingBox())!
-    // Covers the box, allowing for its 1px bottom border: an absolutely
-    // positioned `inset: 0` fills the padding box, so the media is a pixel
-    // shorter than the border box by design.
-    expect(media.width / box.width).toBeGreaterThan(0.98)
-    expect(media.height / box.height).toBeGreaterThan(0.98)
-    expect(media.x).toBeCloseTo(box.x, 0)
-    expect(media.y).toBeCloseTo(box.y, 0)
+    // The helper's ratio is what makes this honest about the picture box's
+    // 1px border — see `expectCovers` in ./layout.
+    await expectCovers(
+      page.getByTestId(testId),
+      page.locator('.clip-card-picture').nth(index),
+      { what: testId },
+    )
   }
 
   // (d) A card's Add really adds: the same action the row offered.
@@ -182,8 +173,7 @@ test('thumbnail view does not scroll the page sideways at a narrow viewport (#20
     3,
   )
 
-  const before = await pageOverflow(page)
-  expect(before.scrollWidth).toBeLessThanOrEqual(before.clientWidth)
+  await expectNoHorizontalScroll(page, 'list view at 800px')
 
   await page.getByRole('button', { name: 'Thumbnail view' }).click()
   await expect(page.locator('.clip-item-card').first()).toBeVisible()
@@ -191,8 +181,7 @@ test('thumbnail view does not scroll the page sideways at a narrow viewport (#20
   // The grid's own min-content is what could floor the library column and
   // push the page wider than the viewport; a long filename inside a card is
   // the other candidate, so one is included above.
-  const after = await pageOverflow(page)
-  expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth)
+  await expectNoHorizontalScroll(page, 'thumbnail view at 800px')
 })
 
 test('a card\'s checkbox comes first in the DOM and still sits over the picture (#342)', async ({
@@ -289,6 +278,5 @@ test('the grid inherits the library\'s bounded height and internal scrolling (#3
   expect((await page.getByRole('region', { name: 'Timeline' }).boundingBox())!.y).toBe(timelineTop)
   expect(await page.getByRole('button', { name: 'Import clips' }).boundingBox()).toEqual(importBox)
 
-  const overflow = await pageOverflow(page)
-  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  await expectNoHorizontalScroll(page, '18 cards, grid scrolled to the bottom')
 })
