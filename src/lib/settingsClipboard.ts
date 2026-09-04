@@ -6,6 +6,7 @@ import type { TextFontId } from './textOverlay'
 import type { AudioTrack, TimelineEntry, TextOverlay } from './timeline'
 import { isSlateEntry, isStillEntry } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
+import { isImageOverlay } from './videoOverlay'
 
 /**
  * Copy settings / Paste settings between timeline elements (#315): the pure
@@ -91,9 +92,11 @@ const groupsOf = (settings: CopiedSettings): SettingsGroup[] =>
 /**
  * The groups a row can hold, judged from the element (not just its kind):
  * a slate holds none — its color is set directly (#143) and it carries no
- * adjustments, orientation, crop, fill, or audio — and a still image holds
- * no audio (soundless, #220). This is both what Copy takes and what a paste
- * checklist may offer the row as a target.
+ * adjustments, orientation, crop, fill, or audio — and nothing soundless
+ * holds audio (#220): neither a still image in the sequence nor a still
+ * overlay above it (#294/#332). This is both what Copy takes and what a
+ * paste checklist may offer the row as a target, which is why judging it
+ * from the element rather than the kind matters: both lanes carry two kinds.
  */
 export function heldSettingsGroups(
   kind: SettingsElementKind,
@@ -108,8 +111,14 @@ export function heldSettingsGroups(
     }
     case 'audio-track':
       return ['audio']
-    case 'video-overlay':
-      return ['color', 'orientation', 'crop', 'audio']
+    case 'video-overlay': {
+      // The overlay lane holds both kinds since #294, so the groups are
+      // judged from the element here too: a still overlay is soundless
+      // (#220), exactly as a still entry is above (#332).
+      const overlay = element as VideoOverlay
+      const visual: SettingsGroup[] = ['color', 'orientation', 'crop']
+      return isImageOverlay(overlay) ? visual : [...visual, 'audio']
+    }
     case 'text':
       return ['text-style']
   }
@@ -159,10 +168,18 @@ export function copyElementSettings(
     }
     case 'video-overlay': {
       const overlay = element as VideoOverlay
-      return {
+      const visual: CopiedSettings = {
         color: { adjustments: overlay.colorAdjustments },
         orientation: { orientation: overlay.orientation },
         crop: { crop: overlay.crop },
+      }
+      // A still overlay carries no audio at all (#294), so there is nothing
+      // to copy — and no audio group to hand a target. Copying identity
+      // values from its absent fields would make a paste onto a clip *reset*
+      // that clip's audio, which is the regression #332 fixes.
+      if (isImageOverlay(overlay)) return visual
+      return {
+        ...visual,
         audio: {
           volume: overlay.volume ?? 1,
           muted: overlay.muted ?? false,

@@ -2995,3 +2995,85 @@ describe('copy and paste settings (#315)', () => {
     ).toHaveValue(0)
   })
 })
+
+describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
+  const importImage = async (name: string) => {
+    probeMock.mockResolvedValueOnce({
+      duration: 0,
+      url: `blob:${name}`,
+      kind: 'image',
+      width: 640,
+      height: 480,
+    })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], name, { type: 'image/png' }),
+    )
+    await screen.findByText(name)
+  }
+
+  const groupsInDialog = () =>
+    within(screen.getByRole('dialog'))
+      .getAllByRole('checkbox')
+      .map((box) => box.closest('label')?.textContent)
+
+  it('pasting a clip onto a still overlay offers Color / Orientation / Crop only', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await importImage('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto overlay logo.png at position 1' }),
+    )
+    // A still is soundless: no Audio checkbox, and no Background fill either
+    // (no overlay of either kind holds one).
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
+  })
+
+  it('a video overlay target still offers Audio — the control for the fix', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto overlay a.mp4 at position 1' }),
+    )
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Audio'])
+  })
+
+  it("copying a still overlay and pasting onto a clip cannot touch the clip's audio", async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await importImage('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+
+    // Dial the clip's volume down, so a reset would be visible.
+    const volume = screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 1)' })
+    fireEvent.change(volume, { target: { value: '0.25' } })
+    fireEvent.blur(volume)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy settings of overlay logo.png at position 1' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Paste settings onto a.mp4 at position 1' }),
+    )
+    // The checklist a still offers a clip: no Audio to leave checked.
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 1)' }),
+    ).toHaveValue(0.25)
+  })
+})
