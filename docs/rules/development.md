@@ -96,6 +96,15 @@ does. Do not write ADRs for trivial or easily reversed choices.
   tested, and remaining risks or follow-up work.
 - Never state that tests passed unless they were actually run (locally or in
   CI). Report failures honestly.
+- Reported evidence describes the **pushed** branch, not the working tree.
+  Once the branch is pushed and before writing the evidence section, confirm
+  the two are the same tree — `git status` clean, and
+  `git diff <branch> origin/<branch>` empty. Checks run before the final
+  commit stay reportable: name the state they were measured on rather than
+  leaving the pushed one to be assumed. A working tree is invisible to
+  reviewers and to CI, so one unstaged file makes a sincere claim false —
+  #330 reported a passing suite its branch could not have run, and CI
+  failed on the file that was never committed (#335).
 - Opening the PR is the handoff: the authoring session must not review,
   approve, or merge it (`review.md`), and must not arrange to resume itself
   afterwards — no self-check-ins, PR-activity subscriptions, or other

@@ -30,7 +30,9 @@ worse than no test, because it manufactures false confidence.
 - A PR with failing required checks is never merged.
 - Flaky tests are bugs: file an issue, and fix or quarantine them
   deliberately — never by deleting coverage to get green.
-- Never claim checks passed without CI evidence or an actual local run.
+- Never claim checks passed without CI evidence or an actual local run — and
+  a local run is evidence only for the tree it ran on, which must be the
+  tree that was pushed (see "Pull Requests" in `development.md`).
 
 ## Deployment (GitHub Pages)
 
