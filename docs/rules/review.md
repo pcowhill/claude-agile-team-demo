@@ -30,6 +30,12 @@ Evaluate against:
 - the originating issue and its acceptance criteria
 - implementation correctness
 - regression risk
+- **widened kinds**: when the change adds a kind to an existing collection,
+  or a case to an existing discriminated union, look for code that still
+  assumes the narrow shape — per-kind lists, `switch` statements missing the
+  new case, predicates keyed on the collection rather than on the element.
+  Grep the collection's and the type's names across `src/`, and read what
+  turns up against the new kind.
 - architecture and fit with existing code
 - maintainability and readability
 - tests: do they exist, pass, and provide real evidence of correctness?
@@ -39,6 +45,18 @@ Evaluate against:
 
 Actually read the diff and, when checks are absent or inconclusive, run the
 tests. Do not rubber-stamp.
+
+A change can be correct in its own diff and still break a caller that was
+correct before it, which is why the widened-kinds check reads code the diff
+does not touch. #332 is the worked example: #294 put still overlays into the
+existing overlay lane, and `heldSettingsGroups` — in #315's module, untouched
+by either PR — still returned a fixed per-kind list crediting every overlay
+with an audio group, so copying a still's settings onto a clip silently reset
+that clip's volume, mute and fades. Both PRs were correct alone and both were
+independently reviewed; one grep for `'video-overlay'` across `src/lib` would
+have found it. This is a review step and nothing more: #294 and #315 passed
+the independence test in `operating-model.md` on its own terms — they neither
+conflicted nor depended on each other — and that test is unchanged.
 
 ## Review outcomes
 
