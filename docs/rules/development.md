@@ -120,6 +120,32 @@ does. Do not write ADRs for trivial or easily reversed choices.
   reviewers and to CI, so one unstaged file makes a sincere claim false —
   #330 reported a passing suite its branch could not have run, and CI
   failed on the file that was never committed (#335).
+- **A UI-affecting change carries rendered evidence, not only jsdom.** jsdom
+  has no layout, so a component test cannot see what is mis-sized,
+  mis-placed, or showing through something else. A PR that adds or changes
+  visible UI — controls, dialogs, layout, CSS — reports evidence from a
+  real browser. A **new** visible surface needs both: a screenshot the author
+  states they inspected, *and* a geometry assertion in the e2e spec for
+  anything a later change could regress. A change to an **existing** surface
+  needs the geometry assertion; whether to also look is the author's call.
+  The two are not substitutes, and #311 is the worked example — it produced
+  both, and each caught what the other could not. With every geometry
+  assertion green, a placeholder glyph still showed *through* a translucent
+  waveform and an audio card read as a grey slab: nothing was mis-sized or
+  mis-placed, so no bounding-box, overflow or alignment check could have
+  failed, and only looking found them. Conversely, a screenshot nobody
+  re-takes cannot catch what a later change breaks. Geometry assertions are
+  claims a browser can measure — a bounding box lying inside its dialog, a
+  label not wrapping (`scrollWidth <= clientWidth`), rows still aligned, the
+  page not scrolling sideways. Give a containment or coverage check an
+  explicit tolerance and say why: an absolutely positioned `inset: 0` child
+  fills the padding box, so it falls a pixel short of a bordered parent's
+  border box, and the honest fix is a ratio rather than an exact match. This
+  is not a call for pixel-diff snapshots, and a PR touching no visible UI is
+  unaffected. Two layout defects reached the customer under green CI for
+  want of this — the export modal's overflowing format note (#268, fixed in
+  #270) and the cheat sheet's mid-combo wrap (#287, fixed in #289) — both
+  reported by the customer with screenshots (#264, #282).
 - Opening the PR is the handoff: the authoring session must not review,
   approve, or merge it (`review.md`), and must not arrange to resume itself
   afterwards — no self-check-ins, PR-activity subscriptions, or other
@@ -138,6 +164,8 @@ An implementation issue is Done only when **all** of the following hold:
   customer; it must never be silently claimed as verified or silently
   dropped
 - appropriate tests exist and pass
+- for a UI-affecting change, the rendered evidence required under "Pull
+  Requests" above is present and matches the change
 - required CI passes
 - the implementation received independent review (different session)
 - blocking review feedback is resolved
