@@ -34,7 +34,16 @@ many clips and how many timeline entries go with them. The library
 itself stops growing at about half the viewport's height (#308): past that,
 the clip list scrolls on its own while the title, Import clips, Record,
 Sort by, and selection controls stay at the top, so a big import never
-pushes the timeline far down the page. Voice-overs can be recorded directly into the library
+pushes the timeline far down the page. The same clips can be shown two
+ways (#311): List view is one text row each, and Thumbnail view is a grid
+of square cards — as many per row as fit — each dominated by a picture of
+the media, with the name, kind badge, duration and the identical actions
+beneath. A video card shows the captured first frame, an image card the
+image itself, and an audio card its waveform; a clip whose picture cannot
+be decoded keeps a per-kind placeholder mark instead. The two buttons in
+the library header switch between them, and the choice is remembered per
+browser across page loads — a view preference, so it is never part of a
+project file or the autosave snapshot. Voice-overs can be recorded directly into the library
 (#224): a Record button beside Import offers a Microphone source (browsers
 ask for permission; the control hides entirely where recording is
 unsupported), and stopping the capture adds it as an ordinary audio clip —

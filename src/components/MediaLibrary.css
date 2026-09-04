@@ -34,6 +34,22 @@
   border-color: #7e8cff;
 }
 
+/* View toggle (#311): the same compact, aria-pressed idiom as the sort
+   controls, so the two control clusters in the panel read alike. */
+.library-view-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.library-view-toggle button {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+}
+
+.library-view-toggle button[aria-pressed='true'] {
+  border-color: #7e8cff;
+}
+
 .import-errors {
   border: 1px solid #a33;
   background: rgba(170, 51, 51, 0.15);
@@ -183,4 +199,137 @@
 .clip-select:checked,
 .clip-list.has-selection .clip-select {
   opacity: 1;
+}
+
+/* ---------------------------------------------------------------------
+   Thumbnail view (#311). The same ul.clip-list becomes a grid, and the
+   same li.clip-item becomes a card. Everything the list view sets on
+   .clip-list — the #308 max-height and its internal scrolling — carries
+   over untouched, because only the display and the item layout change.
+   --------------------------------------------------------------------- */
+.clip-list-thumbnails {
+  display: grid;
+  /* As many cards per row as fit. `min(9rem, 100%)` rather than a bare
+     9rem so a container narrower than one card shrinks the track instead
+     of overflowing it: the grid's own min-content is what would otherwise
+     floor the library column and scroll the page sideways (#208). */
+  grid-template-columns: repeat(auto-fill, minmax(min(9rem, 100%), 1fr));
+  gap: 0.5rem;
+  /* The column tracks own the layout; the flex properties would not apply
+     anyway, but align-content keeps a short grid from stretching its rows. */
+  align-content: start;
+}
+
+.clip-item-card {
+  /* Overrides the row's flex layout: a card stacks picture over body, and
+     positions its own checkbox over the picture's corner. */
+  display: block;
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.clip-card-picture {
+  position: relative;
+  /* Square-ish by construction, whatever the media's own aspect ratio —
+     the picture fills the box and the overflow is cropped. */
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: #191919;
+  border-bottom: 1px solid #2c2c2c;
+}
+
+/* An audio card's picture is a drawing, not a photograph, so it gets the
+   audio lane's own blue (#191's `.audio-track-bar`) as its ground — the
+   waveform is drawn in a translucent light and needs that blue to read as
+   audio rather than as a grey slab. Video and image cards keep the neutral
+   dark: their real media covers it. */
+.clip-card-picture-audio {
+  background: #2f5680;
+}
+
+/* The placeholder mark sits under the picture: visible while a capture or
+   decode is pending, and left standing when one fails, since both
+   ClipThumbnail and AudioWaveform render nothing in that case. */
+.clip-card-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  line-height: 1;
+  color: #555;
+}
+
+/* Once a picture has actually rendered, the mark beneath it goes away: a
+   waveform's fill is semi-transparent, so leaving the glyph under it showed
+   a note through the middle of the wave. `:has()` keeps this in CSS —
+   ClipThumbnail and AudioWaveform render nothing until they resolve, so
+   their mere presence is the signal, and React needs to know nothing about
+   whether a capture succeeded. A browser without `:has()` degrades to the
+   glyph showing through, which is cosmetic. */
+.clip-card-picture:has(img, svg) .clip-card-glyph {
+  display: none;
+}
+
+/* The three pictures all cover the square box. The thumbnail's own rule
+   (Timeline.css) fixes it at 64×36 for a timeline row, so the card's
+   nesting has to win — it does, on specificity, whatever the import
+   order; the waveform and the image are sized here for the same reason,
+   so a card is not styled from the timeline's stylesheet by accident. */
+.clip-card-picture .clip-thumbnail,
+.clip-card-picture .clip-card-image,
+.clip-card-picture .audio-waveform {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.clip-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.clip-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clip-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.clip-card-actions button {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+}
+
+/* A card's own name gets the full card width and ellipsizes; the row
+   view's flex-and-min-width floor does not apply in a grid track. */
+.clip-item-card .clip-name {
+  flex: none;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.clip-card-select {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  display: flex;
+  padding: 0.1rem;
+  border-radius: 4px;
+  /* A checkbox over live media needs its own ground to stay findable. */
+  background: rgba(0, 0, 0, 0.55);
 }

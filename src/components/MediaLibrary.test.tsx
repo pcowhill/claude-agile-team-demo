@@ -1,9 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
 import { extractAudioClip } from '../lib/extractAudio'
+import { LIBRARY_VIEW_KEY } from '../lib/libraryView'
+import { deserializeProject } from '../lib/projectFile'
+import type { SavePort } from '../lib/saveProject'
+import { peaksForClip } from '../lib/audioPeaks'
+import { thumbnailForTrim } from '../lib/thumbnails'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -16,8 +21,29 @@ vi.mock('../lib/extractAudio', async (importOriginal) => ({
   extractAudioClip: vi.fn(),
 }))
 
+// A thumbnail card's picture comes from the real chain in a browser (object
+// URL → decode → canvas, #193) and from Web Audio for a waveform (#191);
+// jsdom has neither, so both sources are mocked at the module — the same
+// seam Timeline.test.tsx already uses for peaks. Everything downstream of
+// them (windowing, path building, the components' pending/failed states) is
+// the real code, which is what lets a resolved value and a null one be told
+// apart below.
+vi.mock('../lib/thumbnails', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/thumbnails')>()),
+  // Default: no capture, which is exactly what jsdom yields for real — so
+  // every other suite in this file behaves as it did before these mocks.
+  thumbnailForTrim: vi.fn(() => Promise.resolve(null)),
+}))
+
+vi.mock('../lib/audioPeaks', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/audioPeaks')>()),
+  peaksForClip: vi.fn(() => Promise.resolve(null)),
+}))
+
 const probeMock = vi.mocked(probeMediaFile)
 const extractMock = vi.mocked(extractAudioClip)
+const thumbnailMock = vi.mocked(thumbnailForTrim)
+const peaksMock = vi.mocked(peaksForClip)
 
 const videoFile = (name: string) => new File(['content'], name, { type: 'video/mp4' })
 
@@ -640,6 +666,307 @@ describe('media library multi-select (#292)', () => {
       screen.getByRole('spinbutton', { name: 'Trim in point of a.mp4 at position 1 in seconds' }),
     ).toBeInTheDocument()
     expect(bar()).toHaveTextContent('1 selected')
+  })
+})
+
+describe('media library thumbnail view (#311)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+    // Pictures that resolve, so a card's media layer is distinguishable
+    // from its placeholder; the failing case sets these to null per test.
+    thumbnailMock.mockResolvedValue('data:image/jpeg;base64,VGh1bWI=')
+    peaksMock.mockResolvedValue(new Float32Array([0.2, 0.8, 0.5, 0.3]))
+  })
+  // Back to the jsdom-faithful default, so the suites after this one are
+  // unaffected by what this one needed.
+  afterEach(() => {
+    thumbnailMock.mockResolvedValue(null)
+    peaksMock.mockResolvedValue(null)
+  })
+
+  function fakeStorage(initial: Record<string, string> = {}) {
+    const values = new Map(Object.entries(initial))
+    return {
+      values,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value)
+      },
+    }
+  }
+
+  const viewButton = (label: string) => screen.getByRole('button', { name: label })
+  const clipList = () => screen.getByRole('list', { name: 'Imported clips' })
+  const items = () => within(clipList()).getAllByRole('listitem')
+  const showThumbnails = async () => userEvent.click(viewButton('Thumbnail view'))
+
+  it('offers both views with the active one pressed, and defaults to the list', async () => {
+    render(<App />)
+    await importClips([['a.mp4', 'video']])
+
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'false')
+    expect(clipList()).not.toHaveClass('clip-list-thumbnails')
+    expect(items()[0]).not.toHaveClass('clip-item-card')
+
+    await showThumbnails()
+
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'false')
+    expect(clipList()).toHaveClass('clip-list-thumbnails')
+    expect(items()[0]).toHaveClass('clip-item-card')
+  })
+
+  it('offers the toggle before anything is imported', async () => {
+    render(<App />)
+    // The preference can be set on an empty library, so the header does not
+    // reflow when the first clip lands.
+    expect(viewButton('Thumbnail view')).toBeInTheDocument()
+    await showThumbnails()
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('remembers the chosen view across mounts, per browser', async () => {
+    const storage = fakeStorage()
+    const { unmount } = render(<App layoutStorage={storage} />)
+    await importClips([['a.mp4', 'video']])
+
+    await showThumbnails()
+    expect(clipList()).toHaveClass('clip-list-thumbnails')
+
+    // A fresh mount (a page load) restores the remembered view.
+    unmount()
+    const remounted = render(<App layoutStorage={storage} />)
+    await importClips([['a.mp4', 'video']])
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    expect(clipList()).toHaveClass('clip-list-thumbnails')
+
+    // And the way back is remembered too, not just the way there.
+    await userEvent.click(viewButton('List view'))
+    remounted.unmount()
+    render(<App layoutStorage={storage} />)
+    await importClips([['a.mp4', 'video']])
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+    expect(clipList()).not.toHaveClass('clip-list-thumbnails')
+  })
+
+  it('keeps the view out of the saved project, in the browser store instead', async () => {
+    // The autosave snapshot's structure record is exactly the bytes
+    // `serializeProject` produces (lib/autosave.ts), so asserting on a saved
+    // file covers the snapshot too.
+    const writes: Uint8Array<ArrayBuffer>[] = []
+    const port: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: () =>
+        Promise.resolve({
+          kind: 'picked' as const,
+          destination: {
+            name: 'project.bvep',
+            write: (bytes: Uint8Array<ArrayBuffer>) => {
+              writes.push(bytes)
+              return Promise.resolve()
+            },
+          },
+        }),
+    }
+    const storage = fakeStorage()
+    render(<App savePort={port} layoutStorage={storage} />)
+    await importClips([['a.mp4', 'video']])
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await showThumbnails()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as project.bvep')
+
+    expect(writes).toHaveLength(1)
+    const saved = await deserializeProject(writes[0])
+    expect(saved.ok).toBe(true)
+    if (saved.ok) {
+      const serialized = JSON.stringify(saved.project)
+      expect(serialized).not.toContain('thumbnails')
+      expect(serialized).not.toContain(LIBRARY_VIEW_KEY)
+    }
+    // Discriminating: the choice was made and did persist — to the
+    // per-browser store, under its own key, and nowhere near the project.
+    expect(storage.values.get(LIBRARY_VIEW_KEY)).toBe('thumbnails')
+  })
+
+  it('gives each kind its own picture, over a placeholder, with name, badge and duration', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['c.png', 'image'],
+    ])
+    await showThumbnails()
+
+    // Video: the captured first frame, the same (url, 0) cache key an
+    // untrimmed timeline entry uses.
+    expect(await screen.findByTestId('clip-card-thumbnail-0')).toBeInTheDocument()
+    expect(thumbnailMock).toHaveBeenCalledWith('blob:a.mp4', 0)
+    // Audio: the clip's amplitude, windowed to the untrimmed source.
+    expect(await screen.findByTestId('clip-card-waveform-1')).toBeInTheDocument()
+    expect(peaksMock).toHaveBeenCalledWith('blob:b.mp3')
+    // Image: the image itself.
+    expect(screen.getByTestId('clip-card-image-2')).toHaveAttribute('src', 'blob:c.png')
+
+    const [videoCard, audioCard, imageCard] = items()
+    // Every card carries the placeholder layer beneath its picture...
+    for (const card of [videoCard, audioCard, imageCard]) {
+      expect(card.querySelector('.clip-card-glyph')).not.toBeNull()
+      expect(card.querySelector('.clip-card-picture')).not.toBeNull()
+    }
+    // ...and the same body as a row: name, kind badge, duration.
+    expect(videoCard).toHaveTextContent('a.mp4')
+    expect(videoCard.querySelector('.clip-kind')).toHaveClass('clip-kind-video')
+    expect(videoCard.querySelector('.clip-duration')).toHaveTextContent('0:07')
+    expect(audioCard.querySelector('.clip-kind')).toHaveClass('clip-kind-audio')
+    expect(audioCard.querySelector('.clip-duration')).toHaveTextContent('0:07')
+    expect(imageCard).toHaveTextContent('c.png')
+    expect(imageCard.querySelector('.clip-kind')).toHaveClass('clip-kind-image')
+    // A still has no duration here either (#137).
+    expect(imageCard.querySelector('.clip-duration')).toHaveTextContent('—')
+  })
+
+  it('leaves the placeholder standing when a picture cannot be produced', async () => {
+    // The failure the fallback exists for: an undecodable video and an
+    // undecodable audio clip both resolve to nothing.
+    thumbnailMock.mockResolvedValue(null)
+    peaksMock.mockResolvedValue(null)
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+    ])
+    await showThumbnails()
+
+    // Both sources were consulted and both gave nothing back...
+    await waitFor(() => expect(thumbnailMock).toHaveBeenCalled())
+    await waitFor(() => expect(peaksMock).toHaveBeenCalled())
+    expect(screen.queryByTestId('clip-card-thumbnail-0')).toBeNull()
+    expect(screen.queryByTestId('clip-card-waveform-1')).toBeNull()
+
+    // ...so the cards show their kind's placeholder and nothing is blank.
+    const [videoCard, audioCard] = items()
+    expect(videoCard.querySelector('.clip-card-glyph')?.textContent).toBe('▶')
+    expect(audioCard.querySelector('.clip-card-glyph')?.textContent).toBe('♪')
+    expect(videoCard).toHaveTextContent('a.mp4')
+    expect(audioCard).toHaveTextContent('b.mp3')
+  })
+
+  it('offers every action under its identical accessible name, per kind', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+      ['c.png', 'image'],
+    ])
+    await showThumbnails()
+
+    // The full set on a video.
+    for (const name of [
+      'Add a.mp4 to timeline',
+      'Add a.mp4 as overlay',
+      'Extract audio from a.mp4',
+      'Remove a.mp4 from library',
+      'Select a.mp4',
+    ]) {
+      expect(screen.getByRole(name.startsWith('Select') ? 'checkbox' : 'button', { name })).toBeInTheDocument()
+    }
+    // And the same per-kind exclusions as a row: audio has no picture to
+    // overlay, only a video has audio to pull out.
+    expect(screen.queryByRole('button', { name: 'Add b.mp3 as overlay' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add c.png as overlay' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Extract audio from b.mp3' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Extract audio from c.png' })).toBeNull()
+  })
+
+  it('the card actions do the work: Add, Overlay, Extract audio and Remove', async () => {
+    extractMock.mockResolvedValueOnce({
+      id: 'extracted-1',
+      name: 'a.mp4 (audio)',
+      duration: 7,
+      url: 'blob:extracted',
+      kind: 'audio',
+      extractedFrom: 'a.mp4',
+    })
+    render(<App />)
+    await importClips([['a.mp4', 'video']])
+    await showThumbnails()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('a.mp4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    expect(screen.getByRole('list', { name: 'Overlay layers' })).toHaveTextContent('a.mp4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from a.mp4' }))
+    expect(await screen.findByText('a.mp4 (audio)')).toBeInTheDocument()
+    // The extracted clip is a card of its own, in the same grid.
+    expect(items()).toHaveLength(2)
+    expect(items()[1]).toHaveClass('clip-item-card')
+
+    // Remove still confirms first, and the confirmation still names the
+    // timeline items it takes with it.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    const confirmation = screen.getByRole('dialog', { name: 'Remove a.mp4?' })
+    expect(confirmation).toHaveTextContent('timeline entries')
+    await userEvent.click(within(confirmation).getByRole('button', { name: 'Remove' }))
+    // The video's card is gone; the extracted clip's is not — an extracted
+    // clip is independent of its source (#154), and the card view inherits
+    // that rather than reimplementing removal.
+    expect(items()).toHaveLength(1)
+    expect(items()[0]).toHaveTextContent('a.mp4 (audio)')
+    expect(items()[0]).toHaveClass('clip-item-card')
+    expect(screen.queryByRole('button', { name: 'Remove a.mp4 from library' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+  })
+
+  it('keeps selection working: card checkboxes, Select all and the action bar', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+    ])
+    await showThumbnails()
+
+    expect(bar()).toBeNull()
+    await userEvent.click(rowBox('a.mp4'))
+    expect(rowBox('a.mp4')).toBeChecked()
+    expect(bar()).toHaveTextContent('1 selected')
+    expect(clipList()).toHaveClass('has-selection')
+
+    await userEvent.click(selectAll())
+    expect(bar()).toHaveTextContent('2 selected')
+    expect(rowBox('b.mp3')).toBeChecked()
+
+    // The bar's own work still runs from here.
+    await userEvent.click(within(bar()!).getByRole('button', { name: 'Add to timeline' }))
+    expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('a.mp4')
+    expect(bar()).toBeNull()
+  })
+
+  it('restores the row layout when toggled back to List view', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+    ])
+    await showThumbnails()
+    expect(items()[0]).toHaveClass('clip-item-card')
+
+    await userEvent.click(viewButton('List view'))
+
+    expect(clipList()).not.toHaveClass('clip-list-thumbnails')
+    for (const item of items()) expect(item).not.toHaveClass('clip-item-card')
+    // The row's own pieces are back, and the card's are gone.
+    expect(items()[0].querySelector('.clip-card-picture')).toBeNull()
+    expect(items()[0].querySelector('.clip-name')).toHaveTextContent('a.mp4')
+    expect(screen.getByRole('button', { name: 'Add a.mp4 to timeline' })).toBeInTheDocument()
+    expect(rowBox('a.mp4')).toBeInTheDocument()
   })
 })
 
