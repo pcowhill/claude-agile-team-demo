@@ -722,8 +722,16 @@ describe('media library thumbnail view (#311)', () => {
     // The preference can be set on an empty library, so the header does not
     // reflow when the first clip lands.
     expect(viewButton('Thumbnail view')).toBeInTheDocument()
+    // Asserted, not assumed: this test used to run in Thumbnail view
+    // already, left there by the test above through the shared jsdom store,
+    // so its click landed on the button that was pressed and it proved
+    // nothing about switching (#345).
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+
     await showThumbnails()
+
     expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('remembers the chosen view across mounts, per browser', async () => {
@@ -950,13 +958,15 @@ describe('media library thumbnail view (#311)', () => {
   })
 
   it('puts the selection checkbox before the actions in focus order (#342)', async () => {
-    // Its own empty storage, so the view starts as List for real. The tests
-    // above render `<App />` on the default (jsdom `localStorage`), which is
-    // shared for the whole file, so a `showThumbnails()` in any of them
-    // leaves the remembered view as Thumbnail — and the "in a row" check
-    // below would silently re-check a card. It did: with the JSX move
-    // reverted, that assertion failed reading `Add a.mp4 to timeline`, which
-    // a real row could never produce.
+    // Its own empty storage, so the view starts as List for real. This is
+    // no longer load-bearing — `src/test/setup.ts` now clears the shared
+    // jsdom store between tests (#345), which was the actual leak: a
+    // `showThumbnails()` in any earlier test left the remembered view as
+    // Thumbnail, and the "in a row" check below silently re-checked a card.
+    // Kept anyway, because the store this test wants is part of what it
+    // asserts: the row half is only evidence if the app really is in List
+    // view, and saying so here does not depend on a setup file three
+    // directories away.
     render(<App layoutStorage={fakeStorage()} />)
     await importClips([
       ['a.mp4', 'video'],
@@ -1021,6 +1031,45 @@ describe('media library thumbnail view (#311)', () => {
     expect(items()[0].querySelector('.clip-name')).toHaveTextContent('a.mp4')
     expect(screen.getByRole('button', { name: 'Add a.mp4 to timeline' })).toBeInTheDocument()
     expect(rowBox('a.mp4')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Storage isolation between tests (#345). jsdom gives a whole test *file*
+ * one `localStorage`, and `<App />` without an injected `layoutStorage` uses
+ * it (#128), so the first test to switch views used to leave
+ * `browser-video-editor.library-view` set for every later test in the file —
+ * a `render(<App />)` meant to start in List view came up in Thumbnail view
+ * and said nothing about it.
+ *
+ * This pair is ordered on purpose and only means anything run together: the
+ * first test deliberately writes the key, the second proves the next test
+ * does not inherit it. Both run after the #311 block above, which sets the
+ * key repeatedly, so the second test also stands as evidence against that
+ * whole block's residue and not merely its neighbour's.
+ */
+describe('test storage isolation (#345)', () => {
+  const viewButton = (label: string) => screen.getByRole('button', { name: label })
+
+  it('leaves a remembered Thumbnail view behind in the shared store', async () => {
+    render(<App />)
+    await userEvent.click(viewButton('Thumbnail view'))
+
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    // In the real jsdom store, not an injected one: this is the residue the
+    // next test must not see.
+    expect(localStorage.getItem(LIBRARY_VIEW_KEY)).toBe('thumbnails')
+  })
+
+  it('starts the next test in List view, with the store already empty', () => {
+    // Read before rendering. Nothing in this test has written yet, so a
+    // value here could only have come from a previous test.
+    expect(localStorage.getItem(LIBRARY_VIEW_KEY)).toBeNull()
+
+    render(<App />)
+
+    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'false')
   })
 })
 
