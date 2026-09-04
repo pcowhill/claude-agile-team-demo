@@ -303,14 +303,14 @@ export function activeVideoOverlays(
   timeline: TimelineState,
   sequenceTime: number,
 ): VideoOverlay[] {
+  // Both overlay kinds (#294/#295) are judged by the same window test: a
+  // still's window is stored as inPoint 0 / outPoint duration, so
+  // audioTrackPlaybackAt reads it correctly with no branch of its own. What
+  // differs is where the picture comes from — a replay element for a video
+  // layer, a decoded <img> for a still — which is the composer's business,
+  // not this function's.
   return videoOverlaysOf(timeline).filter(
-    // Still overlays (#294) live in the same lane but are deliberately not
-    // drawn here yet: rendering them into the export is #295, filed and
-    // blocked on the model landing. Skipping them keeps the export honest —
-    // an image overlay simply does not appear in the file — rather than
-    // feeding an image URL to the video replay path, which would stall the
-    // export waiting for a <video> that can never load.
-    (overlay) => !isImageOverlay(overlay) && audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
+    (overlay) => audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
   )
 }
 
@@ -826,6 +826,36 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   >()
 
   /**
+   * The replay element for a video overlay layer. Absent only if a caller
+   * built a replay list that disagrees with the timeline, which the draw
+   * loop treats as nothing to draw rather than an error — the same posture
+   * as an element that has never decoded a frame.
+   */
+  const replayElementFor = (layer: VideoOverlay): HTMLVideoElement | null =>
+    overlayReplays.find(({ overlay }) => overlay.id === layer.id)?.element ?? null
+
+  /**
+   * What to draw for a **still** overlay layer (#295): its decoded <img>,
+   * with the natural size to measure crop and placement against — the same
+   * source and the same intrinsic-size rule a still sequence entry uses
+   * (#140), read from the shared `stillSources` map by URL.
+   *
+   * Null when the image is missing or has not decoded, matching the video
+   * path's "nothing truthful to draw, so skip" rule. A still cannot stall
+   * mid-export the way a replay element can — it is loaded before recording
+   * starts and never seeks — so it needs no stand-in and no last-frame
+   * memory (#319 exists for elements that lose their picture; an <img>
+   * does not).
+   */
+  const overlayStillPicture = (
+    layer: VideoOverlay,
+  ): { source: CanvasImageSource; width: number; height: number } | null => {
+    const image = stillSources.get(layer.url)
+    if (image === undefined || image.naturalWidth === 0 || image.naturalHeight === 0) return null
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight }
+  }
+
+  /**
    * What to draw for an overlay layer this frame, with the intrinsic size to
    * measure its crop and placement against: the element itself while it can
    * supply a picture, otherwise the last one it did.
@@ -1127,14 +1157,27 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // above; one that supplied a frame earlier repeats it (#319).
     const activeOverlays = activeVideoOverlays(timeline, sequenceTime)
     if (activeOverlays.length > 0) {
-      for (const { overlay: layer, element } of overlayReplays) {
-        if (!activeOverlays.includes(layer)) continue
-        // An element that momentarily cannot supply a frame draws the last
-        // one it did (#319), so a seek, a re-buffer or a decode stall costs
-        // the layer a repeated frame instead of deleting it from the output.
-        // The skip this replaced is what caused #317; see `standIns` above
-        // for what is and is not true about `drawImage` here (#324).
-        const picture = overlayPicture(element)
+      // Driven by the overlays themselves rather than the replay list, so
+      // the two kinds (#294/#295) interleave in add order — the preview's
+      // stacking. For a video-only timeline this iterates exactly the
+      // replays it used to, in the same order, so those draw calls stay
+      // byte-identical.
+      for (const layer of activeOverlays) {
+        // A still overlay's picture is its decoded <img> (#295), the same
+        // source a still sequence entry draws from and keyed the same way,
+        // so one image used as both an entry and an overlay decodes once.
+        // A video layer's comes from its replay element: one that
+        // momentarily cannot supply a frame draws the last one it did
+        // (#319), so a seek, a re-buffer or a decode stall costs the layer a
+        // repeated frame instead of deleting it from the output. The skip
+        // this replaced is what caused #317; see `standIns` above for what
+        // is and is not true about `drawImage` here (#324).
+        const element = isImageOverlay(layer) ? null : replayElementFor(layer)
+        const picture = isImageOverlay(layer)
+          ? overlayStillPicture(layer)
+          : element === null
+            ? null
+            : overlayPicture(element)
         if (picture === null) continue
         // The overlay's orientation (#233): the oriented shape letterboxes
         // within the placement rectangle — the preview's swapped media box
@@ -1725,7 +1768,13 @@ export async function exportTimeline(
   // Web Audio — the picture is the point — so they follow the base replays'
   // mute rule rather than the tracks' skip rule.
   const overlayReplays = videoOverlaysOf(timeline)
-    // Still overlays have no video to replay (#294) — see activeVideoOverlays.
+    // Still overlays are drawn, but never replayed (#294/#295): an <img>
+    // has nothing to seek and no audio to mix, and handing an image URL to
+    // a <video> would stall the export on a source that can never load. So
+    // they are absent from this list on purpose — which is also what makes
+    // "a still contributes no audio source" true by construction, since
+    // every audio path below is fed from these elements. The composer
+    // reaches their pictures through `stillSources` instead.
     .filter((overlay) => !isImageOverlay(overlay))
     .map((overlay) => {
       const element = createVideo()
@@ -1885,6 +1934,21 @@ export async function exportTimeline(
       const image = await loadStill(url)
       stillSources.set(url, image)
       urlDims.set(url, { width: image.naturalWidth, height: image.naturalHeight })
+    }
+    // Still overlay layers (#295) decode the same way and share the same
+    // map, keyed by URL, so an image used as both a sequence entry and an
+    // overlay loads once. Deliberately NOT contributed to `urlDims`: the
+    // output frame is decided by the sequence's own sources (#176), and an
+    // overlay's fractional rectangle resolves against whatever frame those
+    // produce — a watermark must never reshape the output.
+    for (const url of new Set(
+      videoOverlaysOf(timeline)
+        .filter(isImageOverlay)
+        .map((overlay) => overlay.url),
+    )) {
+      throwIfAborted()
+      if (stillSources.has(url)) continue
+      stillSources.set(url, await loadStill(url))
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track

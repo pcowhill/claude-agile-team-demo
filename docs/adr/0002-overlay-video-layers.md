@@ -101,8 +101,26 @@ holding both kinds; renaming it would be a schema break with no benefit to
 the customer, so it stays, and the type's own name (`VideoOverlay`) is the
 lane's name rather than a claim about every member.
 
-**The export does not render still overlays yet.** That is #295, filed and
-blocked on this model; `activeVideoOverlays` skips them, pinned by test, so
-a still simply does not appear in an exported file until #295 lands. The
-alternative — feeding an image URL to the overlay video-replay path — would
+**The export renders still overlays as of #295.** When this addendum was
+first written it did not: `activeVideoOverlays` skipped them, pinned by
+test, because feeding an image URL to the overlay video-replay path would
 have stalled the export on a `<video>` that can never load.
+
+#295 resolved that by separating the two things the old code had
+conflated — *which layers are visible* and *where a layer's picture comes
+from*. The window test is now kind-blind, since the model pins a still's
+window to `[0, duration]` and the shared rule reads it directly; the
+composer picks the source per kind, a replay element for a video layer and
+the decoded `<img>` from the shared `stillSources` map for a still. Two
+consequences worth recording, because both are load-bearing:
+
+- **Stills stay out of `overlayReplays`.** That list exists to be seeked,
+  played and mixed, none of which an `<img>` can do — and because every
+  audio path (the Web Audio graph and the per-frame gain sync) is fed from
+  it, "a still contributes no audio source" is true by construction rather
+  than by a check someone must remember. The frame snapshot branches on the
+  kind for the same reason.
+- **Stills contribute nothing to the output frame size.** Their URLs join
+  `stillSources` but never `urlDims`: the frame is decided by the
+  sequence's own sources (#176), so a watermark cannot reshape the video
+  under it.
