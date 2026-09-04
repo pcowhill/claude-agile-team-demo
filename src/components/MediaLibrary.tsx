@@ -443,6 +443,15 @@ export function MediaLibrary({
             {library.clips.map((clip, index) =>
               view === 'thumbnails' ? (
                 <li key={clip.id} className="clip-item clip-item-card">
+                  {/* Positioned over the picture's top-left corner, so a
+                      card's own checkbox stays where the eye expects it
+                      whatever the card's height — but written first, so
+                      keyboard focus reaches it before the card's actions,
+                      matching both that visual placement and the row view's
+                      order (#342). It is absolutely positioned, so document
+                      order does not move it; it only decides paint order,
+                      which is why the CSS lifts it above the picture. */}
+                  <div className="clip-card-select">{selectCheckbox(clip)}</div>
                   {cardPicture(clip, index)}
                   <div className="clip-card-body">
                     {clipName(clip)}
@@ -452,10 +461,6 @@ export function MediaLibrary({
                     </div>
                     <div className="clip-card-actions">{clipActions(clip)}</div>
                   </div>
-                  {/* Over the picture's top-left corner, so a card's own
-                      checkbox stays where the eye expects it whatever the
-                      card's height. */}
-                  <div className="clip-card-select">{selectCheckbox(clip)}</div>
                 </li>
               ) : (
                 <li key={clip.id} className="clip-item">
