@@ -30,12 +30,16 @@ itself and acts:
 3. Inspect open Issues.
 4. Inspect open Pull Requests.
 5. Inspect relevant CI / check status.
-6. Inspect recent customer feedback and answered customer questions.
-7. Identify blocked or unfinished work.
-8. Choose the highest-priority useful action per
+6. Count the implementation PRs merged since the newest retrospective. Ten
+   or more means one is due — priority 7, not an emergency, but not
+   optional. `docs/rules/process-improvement.md` has the command and says
+   who acts.
+7. Inspect recent customer feedback and answered customer questions.
+8. Identify blocked or unfinished work.
+9. Choose the highest-priority useful action per
    `docs/rules/operating-model.md`.
-9. Do as much useful work as appropriate, respecting handoff rules.
-10. Stop when no actionable work remains, or when the handoff and
+10. Do as much useful work as appropriate, respecting handoff rules.
+11. Stop when no actionable work remains, or when the handoff and
     work-in-progress rules leave nothing further this session may do.
 
 **An idle backlog is an acceptable state. Never invent work to stay busy.**
