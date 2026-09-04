@@ -950,7 +950,14 @@ describe('media library thumbnail view (#311)', () => {
   })
 
   it('puts the selection checkbox before the actions in focus order (#342)', async () => {
-    render(<App />)
+    // Its own empty storage, so the view starts as List for real. The tests
+    // above render `<App />` on the default (jsdom `localStorage`), which is
+    // shared for the whole file, so a `showThumbnails()` in any of them
+    // leaves the remembered view as Thumbnail — and the "in a row" check
+    // below would silently re-check a card. It did: with the JSX move
+    // reverted, that assertion failed reading `Add a.mp4 to timeline`, which
+    // a real row could never produce.
+    render(<App layoutStorage={fakeStorage()} />)
     await importClips([
       ['a.mp4', 'video'],
       ['b.mp3', 'audio'],
@@ -965,10 +972,14 @@ describe('media library thumbnail view (#311)', () => {
         control.getAttribute('aria-label'),
       )
 
+    // List view first, and asserted to be List view — the row half of this
+    // test is only evidence if the app really is in it (#342 criterion 3).
+    expect(items()[0]).not.toHaveClass('clip-item-card')
     const rowControls = controlNames(items()[0])
     expect(rowControls[0]).toBe('Select a.mp4')
 
     await showThumbnails()
+    expect(items()[0]).toHaveClass('clip-item-card')
 
     for (const [index, name] of ['a.mp4', 'b.mp3'].entries()) {
       const cardControls = controlNames(items()[index])
