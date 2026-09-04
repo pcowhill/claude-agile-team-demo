@@ -1,8 +1,10 @@
 # Retrospectives
 
 Lightweight retrospective summaries live here, one file per retrospective:
-`YYYY-MM-DD.md`. When and how to hold one is defined in
-`docs/rules/process-improvement.md`.
+`YYYY-MM-DD.md`, or `YYYY-MM-DDb.md`, `…c.md` for a second or third on the
+same date. The suffix keeps the newest file the last one alphabetically,
+which is what the trigger count in `docs/rules/process-improvement.md`
+anchors on. When and how to hold one is defined there.
 
 Suggested shape (keep it short):
 
