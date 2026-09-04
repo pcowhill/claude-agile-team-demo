@@ -327,6 +327,11 @@
   position: absolute;
   top: 0.25rem;
   left: 0.25rem;
+  /* The checkbox precedes the picture in the DOM so focus reaches it first
+     (#342). Both are positioned with `z-index: auto`, which paints them in
+     document order, so without this the picture would cover the checkbox.
+     Explicit stacking is what lets the two orders differ on purpose. */
+  z-index: 1;
   display: flex;
   padding: 0.1rem;
   border-radius: 4px;

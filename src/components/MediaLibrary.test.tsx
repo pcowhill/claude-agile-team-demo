@@ -949,6 +949,49 @@ describe('media library thumbnail view (#311)', () => {
     expect(bar()).toBeNull()
   })
 
+  it('puts the selection checkbox before the actions in focus order (#342)', async () => {
+    render(<App />)
+    await importClips([
+      ['a.mp4', 'video'],
+      ['b.mp3', 'audio'],
+    ])
+
+    // In a row, the checkbox is the first child and so the first control
+    // focus reaches. The card places it visually at the picture's top-left
+    // corner, so it must come first there too — anything else makes focus
+    // jump from the card's last button back up to its first control.
+    const controlNames = (card: HTMLElement) =>
+      [...card.querySelectorAll('input, button')].map((control) =>
+        control.getAttribute('aria-label'),
+      )
+
+    const rowControls = controlNames(items()[0])
+    expect(rowControls[0]).toBe('Select a.mp4')
+
+    await showThumbnails()
+
+    for (const [index, name] of ['a.mp4', 'b.mp3'].entries()) {
+      const cardControls = controlNames(items()[index])
+      expect(cardControls[0]).toBe(`Select ${name}`)
+      // Discriminating: the card really does have actions after it, so
+      // "first" is a statement about order and not about an only child.
+      expect(cardControls.length).toBeGreaterThan(1)
+    }
+
+    // The same fact stated as the DOM relation the focus order follows from,
+    // so a refactor that keeps the query order by accident still fails.
+    const card = items()[0]
+    const checkbox = card.querySelector('.clip-select')!
+    const addButton = within(card).getByRole('button', { name: 'Add a.mp4 to timeline' })
+    expect(checkbox.compareDocumentPosition(addButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    // And the checkbox still works from its new position.
+    await userEvent.click(rowBox('a.mp4'))
+    expect(rowBox('a.mp4')).toBeChecked()
+    expect(bar()).toHaveTextContent('1 selected')
+  })
+
   it('restores the row layout when toggled back to List view', async () => {
     render(<App />)
     await importClips([

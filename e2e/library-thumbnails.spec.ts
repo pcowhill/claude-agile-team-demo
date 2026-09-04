@@ -195,6 +195,60 @@ test('thumbnail view does not scroll the page sideways at a narrow viewport (#20
   expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth)
 })
 
+test('a card\'s checkbox comes first in the DOM and still sits over the picture (#342)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('./')
+
+  // An image card, so the picture really is a rendered element covering the
+  // box — the thing the checkbox has to stay above.
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) },
+  ])
+  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await expect(page.locator('.clip-item-card').first()).toBeVisible()
+
+  const checkbox = page.getByRole('checkbox', { name: 'Select logo.png' })
+  const picture = page.locator('.clip-card-picture').first()
+
+  // The checkbox precedes the picture in document order, which is what puts
+  // it first in focus order; the row view has always had it first.
+  const precedesPicture = await page.evaluate(() => {
+    const card = document.querySelector('.clip-item-card')!
+    const box = card.querySelector('.clip-select')!
+    const pic = card.querySelector('.clip-card-picture')!
+    return box.compareDocumentPosition(pic) === Node.DOCUMENT_POSITION_FOLLOWING
+  })
+  expect(precedesPicture).toBe(true)
+
+  // ...and it is still painted over the picture rather than under it. Both
+  // are positioned with `z-index: auto` by default, which paints them in
+  // document order, so moving the checkbox first is exactly what would bury
+  // it without the explicit stacking in the CSS.
+  const boxRect = (await checkbox.boundingBox())!
+  const picRect = (await picture.boundingBox())!
+  expect(boxRect.x).toBeGreaterThanOrEqual(picRect.x)
+  expect(boxRect.y).toBeGreaterThanOrEqual(picRect.y)
+  // Top-left quadrant of the picture, where the eye looks for it.
+  expect(boxRect.x + boxRect.width).toBeLessThan(picRect.x + picRect.width / 2)
+  expect(boxRect.y + boxRect.height).toBeLessThan(picRect.y + picRect.height / 2)
+
+  // The decisive check: a real click has to reach the checkbox. If the
+  // picture covered it, Playwright's hit-test would land on the image
+  // instead and this would fail rather than silently pass.
+  await checkbox.click()
+  await expect(checkbox).toBeChecked()
+  await expect(page.getByRole('toolbar', { name: 'Selected clips' })).toContainText('1 selected')
+
+  // Keyboard reaches it before the card's actions, which is the point.
+  await page.keyboard.press('Tab')
+  const afterCheckbox = await page.evaluate(
+    () => document.activeElement?.getAttribute('aria-label') ?? null,
+  )
+  expect(afterCheckbox).toBe('Add logo.png to timeline')
+})
+
 test('the grid inherits the library\'s bounded height and internal scrolling (#308)', async ({
   page,
 }) => {
