@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, coverCrop, thumbnailForTrim } from './thumbnails'
+import {
+  THUMBNAIL_HEIGHT,
+  THUMBNAIL_JPEG_QUALITY,
+  THUMBNAIL_WIDTH,
+  coverCrop,
+  thumbnailForTrim,
+} from './thumbnails'
 
 describe('coverCrop (#193)', () => {
   it('crops the sides of a wider-than-target source, centered', () => {
-    // 1920×1080 into 64×36 is the same 16:9 shape: no crop at all.
+    // 1920×1080 into the capture size is the same 16:9 shape: no crop.
     expect(coverCrop(1920, 1080, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)).toEqual({
       sx: 0,
       sy: 0,
@@ -22,6 +28,25 @@ describe('coverCrop (#193)', () => {
     expect(wide.sw).toBeCloseTo((250 * 16) / 9)
     expect(wide.sy).toBeCloseTo(0)
     expect(wide.sx).toBeCloseTo((1000 - (250 * 16) / 9) / 2)
+  })
+})
+
+describe('capture size (#359)', () => {
+  it('captures at the timeline row\'s own aspect ratio, so the row still crops nothing', () => {
+    // The row shows the capture in a 64×36 box with `object-fit: cover`
+    // (Timeline.css). Matching that aspect exactly is what makes the bigger
+    // capture a pixel-count change and not a framing change — a square
+    // capture sized for the card's box would have cropped the source's
+    // sides before the row cropped it again.
+    expect(THUMBNAIL_WIDTH / THUMBNAIL_HEIGHT).toBeCloseTo(64 / 36, 5)
+    // Whether it is *big enough* is a fact about the rendered card, so it is
+    // asserted where a card can be measured: e2e/library-thumbnails.spec.ts.
+    expect(THUMBNAIL_HEIGHT).toBeGreaterThan(36)
+  })
+
+  it('encodes at a quality the card can survive, not just the row', () => {
+    expect(THUMBNAIL_JPEG_QUALITY).toBeGreaterThan(0.7)
+    expect(THUMBNAIL_JPEG_QUALITY).toBeLessThan(1)
   })
 })
 
