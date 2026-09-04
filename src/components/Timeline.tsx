@@ -783,12 +783,6 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
  */
 type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'text'
 
-/**
- * Which sections the timeline currently renders — a lane without elements is
- * not rendered, so it has nothing to fold. Both the fold-state pruning and
- * the timeline-wide Collapse all read this, so folding can only ever apply
- * to a section the user can actually see.
- */
 interface PasteSettingsDialogProps {
   /** The target row's accessible name (its `position` string). */
   name: string
@@ -874,6 +868,12 @@ function PasteSettingsDialog({ name, groups, onCancel, onApply }: PasteSettingsD
   )
 }
 
+/**
+ * Which sections the timeline currently renders — a lane without elements is
+ * not rendered, so it has nothing to fold. Both the fold-state pruning and
+ * the timeline-wide Collapse all read this, so folding can only ever apply
+ * to a section the user can actually see.
+ */
 function renderedSectionsOf(timeline: TimelineState): ReadonlySet<TimelineSection> {
   const rendered = new Set<TimelineSection>()
   if (timeline.entries.length > 0) rendered.add('sequence')
