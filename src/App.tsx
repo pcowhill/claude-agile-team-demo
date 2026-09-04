@@ -23,6 +23,8 @@ import { DEFAULT_TEXT } from './lib/textOverlay'
 import { parseSrt, subtitleOverlaySpec } from './lib/srt'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
 import type { PreviewLayoutStorage } from './lib/previewLayout'
+import { loadLibraryView, saveLibraryView } from './lib/libraryView'
+import type { LibraryView } from './lib/libraryView'
 import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
@@ -53,6 +55,20 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       return next
     })
   }, [layoutStorage])
+  // Which layout the media library's clip list is in (#311). A view
+  // preference, not project content: it lives here beside the preview's
+  // expanded state, persists in the same per-browser store under its own
+  // key, and never reaches a project file or the autosave snapshot.
+  const [libraryView, setLibraryView] = useState<LibraryView>(() =>
+    loadLibraryView(layoutStorage),
+  )
+  const handleSetLibraryView = useCallback(
+    (next: LibraryView) => {
+      setLibraryView(next)
+      saveLibraryView(next, layoutStorage)
+    },
+    [layoutStorage],
+  )
   // dragenter/dragleave fire for every child element crossed; only the
   // outermost balance matters.
   const dragDepth = useRef(0)
@@ -375,6 +391,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onRemoveClips={handleRemoveClips}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
           timelineUseCount={timelineUseCount}
+          view={libraryView}
+          onSetView={handleSetLibraryView}
         />
         <PreviewPlayer
           timeline={timeline}

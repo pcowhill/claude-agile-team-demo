@@ -8,6 +8,9 @@ import type {
 } from '../lib/mediaLibrary'
 import { formatDuration } from '../lib/mediaLibrary'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
+import type { LibraryView } from '../lib/libraryView'
+import { AudioWaveform } from './AudioWaveform'
+import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
 import './MediaLibrary.css'
@@ -39,6 +42,9 @@ interface MediaLibraryProps {
   onSortClips: (key: ClipSortKey, direction: ClipSortDirection) => void
   /** How many timeline entries were created from the given library clip. */
   timelineUseCount: (clipId: string) => number
+  /** Which layout the clip list is in (#311); remembered per browser by `App`. */
+  view: LibraryView
+  onSetView: (view: LibraryView) => void
 }
 
 /** Control order and labels, per the customer's wording (#121): Name
@@ -56,6 +62,24 @@ const KIND_LABELS: Record<LibraryClip['kind'], string> = {
   image: 'Image',
 }
 
+/**
+ * The thumbnail card's placeholder mark per kind (#311): what a card shows
+ * before its picture resolves, and instead of it when the media cannot be
+ * decoded or drawn. Purely decorative — the card's name and kind badge carry
+ * the identification — so it is `aria-hidden` and plain glyphs suffice.
+ */
+const KIND_GLYPHS: Record<LibraryClip['kind'], string> = {
+  video: '▶',
+  audio: '♪',
+  image: '▣',
+}
+
+/** The two view choices, in header order, with their accessible names. */
+const VIEW_CONTROLS: readonly { view: LibraryView; label: string }[] = [
+  { view: 'list', label: 'List view' },
+  { view: 'thumbnails', label: 'Thumbnail view' },
+]
+
 export function MediaLibrary({
   library,
   onImportFiles,
@@ -69,6 +93,8 @@ export function MediaLibrary({
   onRemoveClips,
   onSortClips,
   timelineUseCount,
+  view,
+  onSetView,
 }: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   // What the confirmation is about: one row's Remove, or the selection
@@ -145,6 +171,132 @@ export function MediaLibrary({
     setPendingRemoval(null)
   }
 
+  // ---------------------------------------------------------------------
+  // The pieces both views share. List rows and thumbnail cards differ only
+  // in how these are arranged, so each accessible name is written once:
+  // "identical names in both views" is then true by construction rather
+  // than by two copies of the JSX agreeing (#311).
+  // ---------------------------------------------------------------------
+
+  const selectCheckbox = (clip: LibraryClip) => (
+    // Faded while idle (CSS) so the list stays quiet; always a real,
+    // focusable checkbox for keyboard and screen readers.
+    <input
+      type="checkbox"
+      className="clip-select"
+      aria-label={`Select ${clip.name}`}
+      checked={selectedIds.has(clip.id)}
+      onChange={(event) => handleSelectClip(clip, event)}
+    />
+  )
+
+  const clipName = (clip: LibraryClip) => (
+    <span className="clip-name" title={clip.name}>
+      {clip.name}
+    </span>
+  )
+
+  const kindBadge = (clip: LibraryClip) => (
+    <span className={`clip-kind clip-kind-${clip.kind}`}>{KIND_LABELS[clip.kind]}</span>
+  )
+
+  // An image has no duration (#137); an em dash keeps the column aligned
+  // without pretending stills are zero seconds long.
+  const clipDuration = (clip: LibraryClip) => (
+    <span className="clip-duration">
+      {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
+    </span>
+  )
+
+  const clipActions = (clip: LibraryClip) => (
+    <>
+      {/* Video and images join the sequence (#102, #140); audio joins the
+          audio lane. */}
+      <button
+        type="button"
+        aria-label={`Add ${clip.name} to timeline`}
+        onClick={() => onAddToTimeline(clip)}
+      >
+        Add
+      </button>
+      {/* Video (#145) and images (#294) can layer above the sequence — a
+          picture-in-picture, or a logo, watermark or sticker. Audio cannot:
+          it has no picture. */}
+      {clip.kind !== 'audio' && (
+        <button
+          type="button"
+          aria-label={`Add ${clip.name} as overlay`}
+          onClick={() => onAddOverlay(clip)}
+        >
+          Overlay
+        </button>
+      )}
+      {/* Only a video has audio to pull out (#154): the extracted clip
+          appears in this list as ordinary audio. */}
+      {clip.kind === 'video' && (
+        <button
+          type="button"
+          aria-label={`Extract audio from ${clip.name}`}
+          onClick={() => onExtractAudio(clip)}
+        >
+          Extract audio
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label={`Remove ${clip.name} from library`}
+        onClick={() => setPendingRemoval({ kind: 'single', clip })}
+      >
+        Remove
+      </button>
+    </>
+  )
+
+  /**
+   * A card's square picture (#311): the media itself where the browser can
+   * show it, drawn over a per-kind glyph. `ClipThumbnail` (#193) and
+   * `AudioWaveform` (#191) both render nothing until they resolve and
+   * nothing at all when they fail, which is what makes the glyph beneath
+   * them the placeholder the issue asks for — no extra failure plumbing.
+   * A video reuses the capture cache at `(url, 0)`, shared with every
+   * untrimmed timeline entry made from the same clip.
+   */
+  const cardPicture = (clip: LibraryClip, index: number) => (
+    <div className={`clip-card-picture clip-card-picture-${clip.kind}`}>
+      <span className="clip-card-glyph" aria-hidden="true">
+        {KIND_GLYPHS[clip.kind]}
+      </span>
+      {clip.kind === 'video' && (
+        <ClipThumbnail
+          url={clip.url}
+          inPoint={0}
+          data-testid={`clip-card-thumbnail-${index}`}
+        />
+      )}
+      {clip.kind === 'image' && (
+        // Decorative: the card's name is the accessible identification.
+        <img
+          className="clip-card-image"
+          src={clip.url}
+          alt=""
+          aria-hidden="true"
+          data-testid={`clip-card-image-${index}`}
+        />
+      )}
+      {clip.kind === 'audio' && (
+        // The clip's whole amplitude — the customer's reference image
+        // (#309) — windowed to the untrimmed source.
+        <AudioWaveform
+          url={clip.url}
+          duration={clip.duration}
+          inPoint={0}
+          outPoint={clip.duration}
+          data-testid={`clip-card-waveform-${index}`}
+        />
+      )}
+    </div>
+  )
+
   return (
     <section className="panel" aria-label="Media library">
       <div className="library-header">
@@ -169,6 +321,25 @@ export function MediaLibrary({
           data-testid="clip-file-input"
           onChange={handleInputChange}
         />
+        {/* View toggle (#311): the customer asked to switch back and forth
+            between the row list and thumbnails, so both choices are always
+            visible with the active one pressed — not a single button whose
+            label has to be read to know the current state. Shown even with
+            an empty library, so the preference can be set before importing
+            and the header does not reflow on the first import. */}
+        <div className="library-view-toggle" role="group" aria-label="Clip view">
+          {VIEW_CONTROLS.map((control) => (
+            <button
+              key={control.view}
+              type="button"
+              aria-label={control.label}
+              aria-pressed={view === control.view}
+              onClick={() => onSetView(control.view)}
+            >
+              {control.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {library.failures.length > 0 && (
@@ -253,73 +424,49 @@ export function MediaLibrary({
               </div>
             )}
           </div>
+          {/* One list element, two layouts (#311). Keeping
+              ul.clip-list[aria-label="Imported clips"] and its li items in
+              both views means the selection header above it (#292), the
+              bounded internal scrolling (#308) and every existing query
+              keep working; only a modifier class and the arrangement of the
+              shared pieces change. */}
           <ul
-            className={`clip-list${selected.length > 0 ? ' has-selection' : ''}`}
+            className={[
+              'clip-list',
+              view === 'thumbnails' ? 'clip-list-thumbnails' : null,
+              selected.length > 0 ? 'has-selection' : null,
+            ]
+              .filter(Boolean)
+              .join(' ')}
             aria-label="Imported clips"
           >
-          {library.clips.map((clip) => (
-            <li key={clip.id} className="clip-item">
-              {/* Faded while idle (CSS) so the list stays quiet; always a
-                  real, focusable checkbox for keyboard and screen readers. */}
-              <input
-                type="checkbox"
-                className="clip-select"
-                aria-label={`Select ${clip.name}`}
-                checked={selectedIds.has(clip.id)}
-                onChange={(event) => handleSelectClip(clip, event)}
-              />
-              <span className="clip-name" title={clip.name}>
-                {clip.name}
-              </span>
-              <span className={`clip-kind clip-kind-${clip.kind}`}>
-                {KIND_LABELS[clip.kind]}
-              </span>
-              {/* An image has no duration (#137); an em dash keeps the column
-                  aligned without pretending stills are zero seconds long. */}
-              <span className="clip-duration">
-                {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
-              </span>
-              {/* Video and images join the sequence (#102, #140); audio
-                  joins the audio lane. */}
-              <button
-                type="button"
-                aria-label={`Add ${clip.name} to timeline`}
-                onClick={() => onAddToTimeline(clip)}
-              >
-                Add
-              </button>
-              {/* Video (#145) and images (#294) can layer above the
-                  sequence — a picture-in-picture, or a logo, watermark or
-                  sticker. Audio cannot: it has no picture. */}
-              {clip.kind !== 'audio' && (
-                <button
-                  type="button"
-                  aria-label={`Add ${clip.name} as overlay`}
-                  onClick={() => onAddOverlay(clip)}
-                >
-                  Overlay
-                </button>
-              )}
-              {/* Only a video has audio to pull out (#154): the extracted
-                  clip appears in this list as ordinary audio. */}
-              {clip.kind === 'video' && (
-                <button
-                  type="button"
-                  aria-label={`Extract audio from ${clip.name}`}
-                  onClick={() => onExtractAudio(clip)}
-                >
-                  Extract audio
-                </button>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove ${clip.name} from library`}
-                onClick={() => setPendingRemoval({ kind: 'single', clip })}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
+            {library.clips.map((clip, index) =>
+              view === 'thumbnails' ? (
+                <li key={clip.id} className="clip-item clip-item-card">
+                  {cardPicture(clip, index)}
+                  <div className="clip-card-body">
+                    {clipName(clip)}
+                    <div className="clip-card-meta">
+                      {kindBadge(clip)}
+                      {clipDuration(clip)}
+                    </div>
+                    <div className="clip-card-actions">{clipActions(clip)}</div>
+                  </div>
+                  {/* Over the picture's top-left corner, so a card's own
+                      checkbox stays where the eye expects it whatever the
+                      card's height. */}
+                  <div className="clip-card-select">{selectCheckbox(clip)}</div>
+                </li>
+              ) : (
+                <li key={clip.id} className="clip-item">
+                  {selectCheckbox(clip)}
+                  {clipName(clip)}
+                  {kindBadge(clip)}
+                  {clipDuration(clip)}
+                  {clipActions(clip)}
+                </li>
+              ),
+            )}
           </ul>
         </>
       )}
