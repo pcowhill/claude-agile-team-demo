@@ -927,17 +927,36 @@ describe('activeVideoOverlays (#146)', () => {
     expect(activeVideoOverlays({ entries }, 4)).toEqual([])
   })
 
-  it('skips image overlays — the export does not render them yet (#294/#295)', () => {
-    // Still overlays share the lane but not the export path: rendering them
-    // into the file is #295, filed and blocked on this model. Skipping is
-    // deliberate and pinned, so a later session finds a failing test rather
-    // than a silent behaviour change when it wires them up — and so nothing
-    // feeds an image URL to the <video> replay path, which would stall the
-    // export waiting for a source that can never load.
-    const still = exportOverlay({ id: 'logo', kind: 'image', duration: 4, inPoint: 0, outPoint: 4 })
+  it('judges an image overlay by the same window test, in add order (#295)', () => {
+    // Still overlays now render (#295), and they need no window logic of
+    // their own: #294 stores the window as inPoint 0 / outPoint duration, so
+    // the shared test reads it directly. This replaces the deliberate skip
+    // #294 pinned here — the export drew no stills until this issue.
+    const still = exportOverlay({
+      id: 'logo',
+      kind: 'image',
+      duration: 4,
+      offset: 2,
+      inPoint: 0,
+      outPoint: 4,
+    })
     const video = exportOverlay({ id: 'v1' })
-    expect(activeVideoOverlays({ entries, videoOverlays: [still] }, 4)).toEqual([])
-    expect(activeVideoOverlays({ entries, videoOverlays: [still, video] }, 4)).toEqual([video])
+    // Inside its window [2, 6): active. Its offset is respected like any
+    // other layer's, so a still is not simply "always on".
+    expect(activeVideoOverlays({ entries, videoOverlays: [still] }, 4)).toEqual([still])
+    // Before it opens and at the half-open end: absent.
+    expect(activeVideoOverlays({ entries, videoOverlays: [still] }, 1.5)).toEqual([])
+    expect(activeVideoOverlays({ entries, videoOverlays: [still] }, 6)).toEqual([])
+    // Both kinds come back together, in add order — the preview's stacking,
+    // which the composer relies on for interleaving them.
+    expect(activeVideoOverlays({ entries, videoOverlays: [still, video] }, 4)).toEqual([
+      still,
+      video,
+    ])
+    expect(activeVideoOverlays({ entries, videoOverlays: [video, still] }, 4)).toEqual([
+      video,
+      still,
+    ])
   })
 })
 
@@ -1982,5 +2001,222 @@ describe('exportOutputFrame (#274)', () => {
       presetFrame(FALLBACK_FRAME, '1:1'),
     )
     expect(exportOutputFrame({ entries: [] }, [])).toEqual(FALLBACK_FRAME)
+  })
+})
+
+describe('frame composition of still overlay layers (#295)', () => {
+  const baseEntry = {
+    id: 'e1',
+    clipId: 'c-base',
+    name: 'base.webm',
+    duration: 10,
+    url: 'blob:base',
+    inPoint: 0,
+    outPoint: 10,
+  }
+
+  /** A still overlay on the round-number rect (160, 90, 80, 45) of 320x180. */
+  const stillOverlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'logo',
+    kind: 'image',
+    clipId: 'c-logo',
+    name: 'logo.png',
+    duration: 10,
+    url: 'blob:logo',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0.5,
+    y: 0.5,
+    width: 0.25,
+    height: 0.25,
+    ...overrides,
+  })
+
+  const videoOverlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'cam',
+    clipId: 'c-cam',
+    name: 'cam.webm',
+    duration: 10,
+    url: 'blob:cam',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0,
+    y: 0,
+    width: 0.25,
+    height: 0.25,
+    ...overrides,
+  })
+
+  /** A decoded <img> stand-in: tagged, so draw ops name it. */
+  const decodedImage = (tag: string, width = 160, height = 90) =>
+    ({ tag, naturalWidth: width, naturalHeight: height }) as unknown as HTMLImageElement
+
+  const videoElement = (tag: string) =>
+    ({
+      tag,
+      readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+      videoWidth: 160,
+      videoHeight: 90,
+      currentTime: 0,
+    }) as unknown as HTMLVideoElement
+
+  const composerFor = (
+    overlays: VideoOverlay[],
+    stills: Record<string, HTMLImageElement> = { 'blob:logo': decodedImage('logo-img') },
+    replays: { overlay: VideoOverlay; element: HTMLVideoElement }[] = [],
+  ) => {
+    const main = fakeComposerContext()
+    const composer = createFrameComposer({
+      context: main.context,
+      width: 320,
+      height: 180,
+      timeline: { entries: [baseEntry], videoOverlays: overlays },
+      stillSources: new Map(Object.entries(stills)),
+      overlayReplays: replays,
+      createCanvas: () => {
+        const buffer = fakeComposerContext()
+        return {
+          tag: 'buffer',
+          width: 0,
+          height: 0,
+          getContext: () => buffer.context,
+          ops: buffer.ops,
+        } as unknown as HTMLCanvasElement
+      },
+    })
+    return { composer, main }
+  }
+
+  const baseLayer = {
+    source: { tag: 'base' } as unknown as CanvasImageSource,
+    sourceWidth: 320,
+    sourceHeight: 180,
+    time: 0,
+  }
+
+  it('draws the decoded image letterboxed inside its placement rectangle', () => {
+    const { composer, main } = composerFor([stillOverlay()])
+    composer.drawFrame(baseLayer, 0, 0)
+    // The 160x90 picture is 16:9, exactly the shape of its 80x45 card, so it
+    // fills it — the same geometry a video overlay of the same size gets.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(logo-img, [160, 90, 80, 45], none)',
+    ])
+  })
+
+  it('letterboxes a mismatched picture within the card, leaving the base visible', () => {
+    // A 4:3 picture in a 16:9 card: it keeps its aspect and spans the card's
+    // middle, and the gutters are simply not drawn — the transparent-gutter
+    // rule every overlay follows, which is what lets a logo sit on footage.
+    const { composer, main } = composerFor([stillOverlay()], {
+      'blob:logo': decodedImage('logo-img', 640, 480),
+    })
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      // 45 tall at 4:3 is 60 wide, centred in the 80-wide card: x 160+10.
+      'draw(logo-img, [170, 90, 60, 45], none)',
+    ])
+  })
+
+  it('is absent outside its window and present inside it', () => {
+    const { composer, main } = composerFor([stillOverlay({ offset: 2, duration: 4, outPoint: 4 })])
+    composer.drawFrame(baseLayer, 0, 1)
+    expect(main.ops.some((op) => op.includes('logo-img'))).toBe(false)
+    main.ops.length = 0
+    composer.drawFrame(baseLayer, 0, 3)
+    expect(main.ops).toContain('draw(logo-img, [160, 90, 80, 45], none)')
+    main.ops.length = 0
+    // Half-open at the end, like every other window in the model.
+    composer.drawFrame(baseLayer, 0, 6)
+    expect(main.ops.some((op) => op.includes('logo-img'))).toBe(false)
+  })
+
+  it('carries crop, orientation and colour adjustments exactly as a video layer does', () => {
+    const { composer, main } = composerFor([
+      stillOverlay({
+        crop: { left: 0.5 },
+        orientation: { rotation: 90 },
+        colorAdjustments: { saturation: 0 },
+      }),
+    ])
+    composer.drawFrame(baseLayer, 0, 0)
+    const drawOps = main.ops.filter((op) => op.startsWith('draw(logo-img'))
+    expect(drawOps).toHaveLength(1)
+    // The overlay's own colour filter rides the draw (#195), independent of
+    // the base layer's — the same string the preview sets as a CSS filter.
+    expect(drawOps[0]).toContain('saturate(0%)')
+    expect(main.ops).toContain('rotate(90)')
+    // Crop keeps the right half of the source, so the draw's source rect
+    // starts at x 80 and is 80 wide — the same drawLayerSource path.
+    expect(drawOps[0]).toMatch(/^draw\(logo-img, \[80, 0, 80, 90,/)
+  })
+
+  it('cuts a masked still to the same silhouette as a masked video layer', () => {
+    const { composer, main } = composerFor([stillOverlay({ shapeMask: { kind: 'ellipse' } })])
+    composer.drawFrame(baseLayer, 0, 0)
+    // The frame receives the cut scratch buffer, not the image directly.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(buffer, [0, 0], none)',
+    ])
+  })
+
+  it('interleaves both overlay kinds in add order', () => {
+    const still = stillOverlay()
+    const video = videoOverlay()
+    const replays = [{ overlay: video, element: videoElement('cam-element') }]
+    // Still added first: it draws first, so the video layer sits above it.
+    const first = composerFor([still, video], undefined, replays)
+    first.composer.drawFrame(baseLayer, 0, 0)
+    expect(first.main.ops.filter((op) => op.startsWith('draw(logo-img') || op.startsWith('draw(cam-element'))).toEqual([
+      'draw(logo-img, [160, 90, 80, 45], none)',
+      'draw(cam-element, [0, 0, 80, 45], none)',
+    ])
+    // Video added first: the reverse, from the same collection.
+    const second = composerFor([video, still], undefined, replays)
+    second.composer.drawFrame(baseLayer, 0, 0)
+    expect(second.main.ops.filter((op) => op.startsWith('draw(logo-img') || op.startsWith('draw(cam-element'))).toEqual([
+      'draw(cam-element, [0, 0, 80, 45], none)',
+      'draw(logo-img, [160, 90, 80, 45], none)',
+    ])
+  })
+
+  it('skips a still whose image is missing or has not decoded', () => {
+    // Nothing truthful to draw, so it is skipped rather than drawn as a
+    // zero-sized or empty rectangle — the video path's rule for an element
+    // that never decoded a frame.
+    const missing = composerFor([stillOverlay()], {})
+    missing.composer.drawFrame(baseLayer, 0, 0)
+    expect(missing.main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+    ])
+    const undecoded = composerFor([stillOverlay()], {
+      'blob:logo': decodedImage('logo-img', 0, 0),
+    })
+    undecoded.composer.drawFrame(baseLayer, 0, 0)
+    expect(undecoded.main.ops.some((op) => op.includes('logo-img'))).toBe(false)
+  })
+
+  it('leaves a video-only timeline byte-identical', () => {
+    // The loop now iterates overlays rather than replays; for a timeline
+    // with no stills that must be the same calls in the same order.
+    const video = videoOverlay()
+    const { composer, main } = composerFor([video], {}, [
+      { overlay: video, element: videoElement('cam-element') },
+    ])
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(cam-element, [0, 0, 80, 45], none)',
+    ])
   })
 })

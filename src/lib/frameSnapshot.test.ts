@@ -74,6 +74,33 @@ class FakeVideo {
 }
 
 /** A 2D context stand-in recording draws; `filter` behaves like a browser's. */
+/** An <img> stand-in: the load event settles on a microtask, like FakeVideo. */
+class FakeImage {
+  listeners = new Map<string, Set<() => void>>()
+  naturalWidth = 160
+  naturalHeight = 90
+  urls: string[] = []
+  private urlValue = ''
+
+  addEventListener(name: string, listener: () => void) {
+    if (!this.listeners.has(name)) this.listeners.set(name, new Set())
+    this.listeners.get(name)!.add(listener)
+  }
+  removeEventListener(name: string, listener: () => void) {
+    this.listeners.get(name)?.delete(listener)
+  }
+  get src() {
+    return this.urlValue
+  }
+  set src(url: string) {
+    this.urlValue = url
+    this.urls.push(url)
+    queueMicrotask(() => {
+      for (const listener of [...(this.listeners.get('load') ?? [])]) listener()
+    })
+  }
+}
+
 function fakeContext(filterSupported: boolean) {
   const draws: { source: unknown; args: number[] }[] = []
   const fills: { style: string; args: number[] }[] = []
@@ -132,9 +159,11 @@ function fakeCanvas(filterSupported = true) {
 
 function snapshotOptions(filterSupported = true) {
   const videos: FakeVideo[] = []
+  const images: FakeImage[] = []
   const { canvas, draws, fills } = fakeCanvas(filterSupported)
   return {
     videos,
+    images,
     draws,
     fills,
     options: {
@@ -144,6 +173,11 @@ function snapshotOptions(filterSupported = true) {
         const video = new FakeVideo()
         videos.push(video)
         return video as unknown as HTMLVideoElement
+      },
+      createImage: () => {
+        const image = new FakeImage()
+        images.push(image)
+        return image as unknown as HTMLImageElement
       },
     },
   }
@@ -354,5 +388,59 @@ describe('snapshotTimelineFrame (#237)', () => {
     await snapshotTimelineFrame(timeline, 0, options)
     // Source time 0 equals the fresh element's clock: cued without a seek.
     expect(videos[0].seeks).toEqual([])
+  })
+})
+
+describe('snapshotTimelineFrame with still overlay layers (#295)', () => {
+  const stillOverlay = {
+    id: 'logo',
+    kind: 'image' as const,
+    clipId: 'clip-logo',
+    name: 'logo.png',
+    duration: 5,
+    url: 'blob:logo',
+    offset: 2,
+    inPoint: 0,
+    outPoint: 5,
+    x: 0.6,
+    y: 0.6,
+    width: 0.3,
+    height: 0.3,
+  }
+
+  it('decodes the still and draws it above the base, creating no <video> for it', async () => {
+    const { options, videos, images, draws } = snapshotOptions()
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', outPoint: 10 })],
+      videoOverlays: [stillOverlay],
+    }
+    // Sequence 4 is inside the overlay's window [2, 7).
+    await snapshotTimelineFrame(timeline, 4, options)
+
+    // The still loaded through an <img>...
+    const logoImage = images.find((image) => image.urls.includes('blob:logo'))
+    expect(logoImage).toBeDefined()
+    // ...and never through a <video>: handing an image URL to a <video>
+    // would hang the snapshot on a source that can never load.
+    expect(videos.some((video) => video.urls.includes('blob:logo'))).toBe(false)
+
+    // Base layer first, then the still above it. Unlike a video overlay
+    // (#319) a still needs no stand-in copy, so it is drawn exactly once.
+    expect(draws).toHaveLength(2)
+    expect(draws[0].source).not.toBe(logoImage)
+    expect(draws[1].source).toBe(logoImage)
+  })
+
+  it('omits the still outside its window', async () => {
+    const { options, images, draws } = snapshotOptions()
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', outPoint: 10 })],
+      videoOverlays: [stillOverlay],
+    }
+    // Sequence 1 is before the window opens at 2.
+    await snapshotTimelineFrame(timeline, 1, options)
+    expect(draws).toHaveLength(1)
+    // Not even decoded: an inactive layer is not a source this frame needs.
+    expect(images.some((image) => image.urls.includes('blob:logo'))).toBe(false)
   })
 })

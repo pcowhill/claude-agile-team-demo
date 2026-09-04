@@ -98,7 +98,8 @@ properties keep following. Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
-same way into the exported file, overlay audio in the mix (#146).
+same way into the exported file, overlay audio in the mix (#146); an image
+overlay draws into the file the same way, with no audio to mix (#295).
 An overlay also takes a shape mask (#266): clip its placed rectangle to an
 inscribed ellipse (a circle when square — the webcam-bubble look) or a
 rounded rectangle with a chosen corner radius, edited on the overlay row,
@@ -113,9 +114,15 @@ crop, shape mask) as a video one, and shows for an explicit length you set
 on its row rather than a trim, since there is no source to trim; it carries
 no audio controls, because a still has no sound. Transparent pixels show
 the layers below through, so a logo sits on the footage rather than in a
-box. The preview renders it above the base video, and it saves and reopens
-with the project; rendering it into the exported file is still to come
-(#295), so a still overlay does not yet appear in an export.
+box. The preview renders it above the base video, it saves and reopens
+with the project, and the exported file draws it the same way (#295) —
+inside the same rectangle, for the same window, with the same treatments,
+and with its transparent pixels still transparent, so a watermark burns
+into the output exactly as the preview showed it. A still adds nothing to
+the audio mix, having no sound to add, and never changes the output frame
+size: the frame follows the sequence's own sources, so a logo cannot
+reshape the video it sits on. Saved frames (#237) include it too, through
+the same shared composition path.
 Every timeline row shows a coverage bar for where the item plays in the
 composed timeline (#180) — per-section colors (green video, amber image,
 the slate's own color, blue audio, purple overlays, magenta text), all
@@ -221,8 +228,8 @@ overlaps.
 A 📷 Save frame button on the same transport downloads the exact frame under
 the playhead as a PNG at the output resolution (#237) — composed through the
 export's own draw path, so transitions mid-overlap, zooms, color
-adjustments, orientation, video overlays, and text render exactly as an
-export of that moment would.
+adjustments, orientation, overlay layers of either kind — video and stills
+(#295) — and text render exactly as an export of that moment would.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or

@@ -8,7 +8,7 @@ import {
 import type { LayerFrame, OverlayFrame } from './exportVideo'
 import { automaticExportFrame } from './exportSettings'
 import { audioTrackPlaybackAt, locateInSequence } from './playback'
-import { isStillEntry } from './timeline'
+import { isImageOverlay, isStillEntry } from './timeline'
 import type { TimelineState } from './timeline'
 import type { SourceDimensions } from './frameSize'
 import type { VideoOverlay } from './videoOverlay'
@@ -222,11 +222,23 @@ export async function snapshotTimelineFrame(
         ? await cueEntryLayer(location.transition.entry, location.transition.sourceTime)
         : null
 
-    // Overlay video layers active now (#146), each settled on its own
+    // Overlay layers active now (#146), each settled on its own
     // sequence-anchored source time — the same mapping the export's
     // per-frame sync drives its replay elements to.
+    //
+    // A still overlay (#294/#295) has no source time and no element: it
+    // decodes into the shared `stillSources` map instead, exactly as a still
+    // entry does above. Cueing one as a <video> would hang the snapshot on a
+    // source that can never load, which is why the kind is branched here and
+    // not left to the composer.
     const overlayReplays: { overlay: VideoOverlay; element: HTMLVideoElement }[] = []
     for (const overlay of activeVideoOverlays(timeline, sequenceTime)) {
+      if (isImageOverlay(overlay)) {
+        if (!stillSources.has(overlay.url)) {
+          stillSources.set(overlay.url, await loadStill(overlay.url))
+        }
+        continue
+      }
       overlayReplays.push({
         overlay,
         element: await cueVideo(overlay.url, audioTrackPlaybackAt(overlay, sequenceTime).sourceTime),
