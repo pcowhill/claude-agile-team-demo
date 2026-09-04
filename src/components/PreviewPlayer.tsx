@@ -77,6 +77,13 @@ interface PreviewPlayerProps {
    * the player renders without editing wiring (tests, read-only embeds).
    */
   onSplit?: (entryId: string, atSourceTime: number) => void
+  /**
+   * How far ← / → and Shift + ← / → move the playhead, in seconds — user
+   * settings (#286). Optional so every existing caller and test keeps
+   * today's behaviour without passing anything.
+   */
+  stepSeconds?: number
+  largeStepSeconds?: number
 }
 
 /**
@@ -485,6 +492,8 @@ export function PreviewPlayer({
   expanded = false,
   onToggleExpanded,
   onSplit,
+  stepSeconds,
+  largeStepSeconds,
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
@@ -1192,7 +1201,10 @@ export function PreviewPlayer({
   // sheet itself.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const action = transportActionForKey(event)
+      const action = transportActionForKey(event, {
+        step: stepSeconds,
+        largeStep: largeStepSeconds,
+      })
       if (action === null) return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       event.preventDefault()
@@ -1218,7 +1230,7 @@ export function PreviewPlayer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [playing, play, pause, seek, sequenceTime, total])
+  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds])
 
   // Edits to the timeline invalidate the playback position (entries or
   // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
@@ -1774,7 +1786,13 @@ export function PreviewPlayer({
       )}
       {/* Rendered at the panel level, not inside the player block: `?`
           answers even while the timeline is empty (#203). */}
-      {helpOpen && <ShortcutHelpDialog onClose={() => setHelpOpen(false)} />}
+      {helpOpen && (
+        <ShortcutHelpDialog
+          onClose={() => setHelpOpen(false)}
+          {...(stepSeconds === undefined ? {} : { stepSeconds })}
+          {...(largeStepSeconds === undefined ? {} : { largeStepSeconds })}
+        />
+      )}
     </section>
   )
 }

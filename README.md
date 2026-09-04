@@ -224,9 +224,11 @@ and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the
 shortcut stays the browser's own text undo.
 The preview answers transport keys (#203): Space plays/pauses, ← / → step
-the playhead 0.1 s (1 s with Shift), Home/End jump to the sequence bounds,
-and ? opens a cheat sheet of every shortcut — all inert while typing in a
-field or while a dialog is open, so no control loses its own keys.
+the playhead 0.1 s (1 s with Shift) — both settable in Settings (#286) —
+Home/End jump to the sequence bounds, and ? opens a cheat sheet of every
+shortcut, which states the step sizes you have chosen — all inert while
+typing in a field or while a dialog is open, so no control loses its own
+keys.
 A ✂ Split button beside the preview's transport cuts the entry under the
 playhead into two independently trimmable, removable halves (#190) — the
 razor. An untouched split plays back and exports exactly like the original;
@@ -257,6 +259,17 @@ GIF export (#198): enabling it adds an "Animated GIF" format to the export
 dialog — the full composed timeline, encoded soundless at 10 fps and
 downscaled to at most 480 px (the limits are stated beside the format) so
 files stay manageable.
+A ⚙ button in the header opens Settings (#286, from feedback #281): the
+preferences that used to be hardcoded, stored in this browser and applied
+immediately, with no reload. The initial set is the playhead's nudge and
+jump step sizes, how long a newly added still, color slate or image
+overlay layer shows, what
+happens when a previous session's autosave is found (ask — today's
+behaviour — always restore, or never offer, with autosave still recording
+either way), and which format the export dialog opens preselected on. These
+are per-device preferences rather than project content, so they never travel
+with a saved project or its autosave snapshot, and a browser with nothing
+stored behaves exactly as the editor did before there were settings.
 Side-by-side layouts compose from the same pieces: use a color
 slate as the base entry and place two or more overlays in halves or
 quadrants. It is

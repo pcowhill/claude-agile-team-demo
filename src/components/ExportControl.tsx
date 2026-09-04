@@ -1,8 +1,13 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
-import { exportFileName, exportFormats, supportedExportFormats } from '../lib/exportFormats'
-import type { ExportEncodeOptions } from '../lib/exportFormats'
+import {
+  exportFileName,
+  exportFormats,
+  mediaRecorderSupports,
+  supportedExportFormats,
+} from '../lib/exportFormats'
+import type { ExportEncodeOptions, ExportFormatSpec } from '../lib/exportFormats'
 import {
   EXPORT_SIZE_PRESETS,
   MAX_EXPORT_DIMENSION,
@@ -30,6 +35,13 @@ const defaultDoExport: DoExport = (timeline, { format, ...options }) =>
 
 interface ExportControlProps {
   timeline: TimelineState
+  /**
+   * Which format the modal opens preselected on — the user's setting (#286),
+   * defaulting to WebM, which is what it always was (#114). Ignored when the
+   * id is not currently recordable, so a preference for a plugin's format
+   * survives the plugin being off.
+   */
+  defaultFormat?: string
   /** Injectable for tests (jsdom cannot run the real media pipeline). */
   doExport?: DoExport
   /** Injectable for tests (jsdom has no MediaRecorder). */
@@ -51,8 +63,18 @@ type ExportStatus =
   | { kind: 'exporting'; fraction: number }
   | { kind: 'error'; message: string }
 
-const defaultIsTypeSupported = (type: string) =>
-  typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)
+/**
+ * Which format to preselect: the configured default where the browser can
+ * record it, else WebM (the historical default, #114), else whatever is
+ * offered first. One function because three places need the same answer —
+ * the first render, every open of the modal, and the moment a format
+ * disappears because its plugin was disabled (#197).
+ */
+function preferredFormat(available: ExportFormatSpec[], configured: string): string {
+  if (available.some((spec) => spec.id === configured)) return configured
+  if (available.some((spec) => spec.id === 'webm')) return 'webm'
+  return available[0]?.id ?? 'webm'
+}
 
 /**
  * The toolbar's Export Project… button and its modal (#164), replacing the
@@ -64,8 +86,9 @@ const defaultIsTypeSupported = (type: string) =>
  */
 export function ExportControl({
   timeline,
+  defaultFormat = 'webm',
   doExport = defaultDoExport,
-  isTypeSupported = defaultIsTypeSupported,
+  isTypeSupported = mediaRecorderSupports,
   probeFrame = automaticExportFrame,
 }: ExportControlProps) {
   const [open, setOpen] = useState(false)
@@ -88,17 +111,14 @@ export function ExportControl({
   // (a handful of specs against a feature probe), so no memo to invalidate.
   useSyncExternalStore(exportFormats.subscribe, () => exportFormats.version)
   const formats = supportedExportFormats(isTypeSupported)
-  // WebM stays the default wherever it is recordable (#114).
-  const [format, setFormat] = useState<string>(() =>
-    formats.some((spec) => spec.id === 'webm') ? 'webm' : (formats[0]?.id ?? 'webm'),
-  )
+  const [format, setFormat] = useState<string>(() => preferredFormat(formats, defaultFormat))
   // A picked format can vanish mid-session — its plugin was disabled (#197).
-  // Fall back to the default choice rather than exporting an unknown id.
+  // Fall back to the preselection rather than exporting an unknown id.
   useEffect(() => {
     if (formats.length > 0 && !formats.some((spec) => spec.id === format)) {
-      setFormat(formats.some((spec) => spec.id === 'webm') ? 'webm' : formats[0].id)
+      setFormat(preferredFormat(formats, defaultFormat))
     }
-  }, [formats, format])
+  }, [formats, format, defaultFormat])
   // The finished export: a hidden anchor auto-clicks it into a download. It
   // outlives the (closed) dialog so the object URL stays alive until the
   // next export or unmount.
@@ -130,6 +150,11 @@ export function ExportControl({
   const openDialog = () => {
     // A previous run's error does not belong to this attempt.
     setStatus({ kind: 'idle' })
+    // The configured default format (#286), read at every open so a change
+    // in the settings dialog applies without a reload. Like the size
+    // settings below, the format is a one-export choice: an override picked
+    // last time does not quietly become this export's format.
+    setFormat(preferredFormat(formats, defaultFormat))
     // Fresh automatic settings for this export (#179): the fallback shows
     // until the probe below resolves the sources' real frame.
     setSizeMode('auto')

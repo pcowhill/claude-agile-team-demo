@@ -154,6 +154,17 @@ export class ExportFormatRegistry {
   }
 }
 
+/**
+ * Whether the running browser's MediaRecorder can encode a MIME type — the
+ * feature probe every format decision starts from (#114). Lives here rather
+ * than in one component because two surfaces now ask the same question: the
+ * export picker, and the settings dialog offering a default format (#286).
+ * Guarded because a browser without MediaRecorder has no answer to give.
+ */
+export function mediaRecorderSupports(type: string): boolean {
+  return typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)
+}
+
 /** The app's registry. Core formats are registered into it at startup. */
 export const exportFormats = new ExportFormatRegistry()
 
