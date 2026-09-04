@@ -244,10 +244,14 @@ adjustments, orientation, overlay layers of either kind — video and stills
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
-edited freely for that one export (#179). An "Audio only (WebM/Opus)"
-format (#245) saves just the project's mixed soundtrack — the same mix a
-video export records, with no video track — hiding the video-only output
-settings while it is selected.
+edited freely for that one export (#179). Two "Audio only" formats save just
+the project's mixed soundtrack — the same mix a video export records, with
+no video track — hiding the video-only output settings while selected:
+WebM/Opus (#245), recorded like the video formats, and MP3 (#269), encoded
+client-side by a lazily loaded pure-JS LAME port (see
+[`docs/adr/0004-mp3-encoder-dependency.md`](docs/adr/0004-mp3-encoder-dependency.md)),
+so it works wherever Web Audio does, whatever the browser's recorder
+supports.
 A Plugins… button opens the plugin manager (#197): optional built-in
 features ship as lazy-loaded modules that download only when enabled, keeping
 the default editor lightweight (see

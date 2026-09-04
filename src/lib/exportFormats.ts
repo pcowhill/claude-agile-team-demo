@@ -259,6 +259,31 @@ export function registerCoreExportFormats(registry: ExportFormatRegistry): void 
         container: AUDIO_WEBM_CONTAINER,
       }),
   })
+  // Audio only, as MP3 (#269, from customer feedback #264): the same mixed
+  // soundtrack, encoded client-side — no browser's MediaRecorder emits MP3,
+  // so this format brings its own encoder through the pipeline's audio-sink
+  // seam (exportMp3.ts, ADR 0004) instead of recording. Support therefore
+  // needs only Web Audio (the mix capture), not a recordable MIME type; the
+  // candidate lists are empty because there is nothing to probe.
+  registry.register({
+    id: 'audio-mp3',
+    label: 'Audio only (MP3)',
+    extension: 'mp3',
+    candidates: [],
+    candidatesWithAudio: [],
+    audioOnly: true,
+    note: 'Saves just the mixed soundtrack as an MP3 file — the file has no video track.',
+    isSupported: () => typeof AudioContext !== 'undefined',
+    encode: async (timeline, options = {}) => {
+      // Lazy so the encoder chunk loads with the first MP3 export, not the page.
+      const { createMp3AudioSink } = await import('./exportMp3')
+      return exportTimeline(timeline, {
+        ...options,
+        audioOnly: true,
+        audioSink: createMp3AudioSink(),
+      })
+    },
+  })
 }
 
 // Startup registration: this module is part of the core bundle, so the core

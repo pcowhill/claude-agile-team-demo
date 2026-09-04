@@ -179,6 +179,16 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       }
     },
     createMediaStreamDestination: () => streamDestination,
+    /** The mix bus a PCM tap inserts (#269); absent a tap, never created. */
+    createGain: () => {
+      const gain = {
+        name: 'mix bus',
+        connectedTo: [] as unknown[],
+        connect: (target: unknown) => gain.connectedTo.push(target),
+      }
+      gains.push(gain)
+      return gain
+    },
     resume: async () => {
       context.resumeCount++
       context.state = 'running'
@@ -187,7 +197,8 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       context.closed = true
     },
   }
-  return { context, track, streamDestination, connectedTo, sourcedElements }
+  const gains: { name: string; connectedTo: unknown[]; connect: (t: unknown) => void }[] = []
+  return { context, track, streamDestination, connectedTo, sourcedElements, gains }
 }
 
 const asAudioContext = (context: unknown) => context as AudioContext
@@ -277,6 +288,36 @@ describe('createAudioCapture', () => {
       createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
     ).resolves.toBeNull()
     expect(fake.context.closed).toBe(true)
+  })
+})
+
+describe('createAudioCapture with a PCM tap (#269)', () => {
+  it('routes the elements through a mix bus that fans out to the destination and the tap', async () => {
+    const fake = fakeAudioContext()
+    const tapCalls: { context: unknown; mix: unknown }[] = []
+    const tap = (context: unknown, mix: unknown) => tapCalls.push({ context, mix })
+    const elements = [document.createElement('video'), document.createElement('audio')]
+    const capture = await createAudioCapture(
+      elements,
+      () => asAudioContext(fake.context),
+      tap as (context: AudioContext, mix: AudioNode) => void,
+    )
+    // The recorded track is unchanged — the recorder path never notices the tap.
+    expect(capture?.track).toBe(fake.track)
+    // One bus: every element feeds it, and it feeds the destination, so the
+    // tap hears exactly the mix the recorder would.
+    expect(fake.gains).toHaveLength(1)
+    const bus = fake.gains[0]
+    expect(fake.connectedTo).toEqual([bus, bus])
+    expect(bus.connectedTo).toEqual([fake.streamDestination])
+    expect(tapCalls).toEqual([{ context: fake.context, mix: bus }])
+  })
+
+  it('without a tap the graph is exactly what #245 built — no bus at all', async () => {
+    const fake = fakeAudioContext()
+    await createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context))
+    expect(fake.gains).toHaveLength(0)
+    expect(fake.connectedTo).toEqual([fake.streamDestination])
   })
 })
 

@@ -1303,6 +1303,16 @@ export interface ExportOptions {
    * sink and returns `sink.finish()`. See {@link ExportFrameSink}.
    */
   sink?: ExportFrameSink
+  /**
+   * Audio sink replacing the MediaRecorder capture for an audio-only export
+   * (#269) — the audio counterpart of `sink`. When present the pipeline
+   * attaches it to the same Web Audio mix graph the recorder would have
+   * recorded (#245), runs the replay loop unchanged (the loop is what drives
+   * the mix's gains and timing), and returns `finish()`'s blob; MediaRecorder
+   * is never involved. Only meaningful together with `audioOnly` — the
+   * caller is a format that encodes the mixed soundtrack itself.
+   */
+  audioSink?: ExportAudioSink
   /** Called with overall progress in [0, 1] while the sequence records. */
   onProgress?: (fraction: number) => void
   /** Aborting rejects the export with ExportCanceledError. */
@@ -1335,6 +1345,33 @@ export interface ExportOptions {
 export interface AudioCapture {
   track: MediaStreamTrack
   dispose: () => Promise<void>
+}
+
+/**
+ * An audio sink replacing MediaRecorder for an audio-only export (#269) —
+ * the audio counterpart of {@link ExportFrameSink} (#198). A format that
+ * encodes the mixed soundtrack itself (MP3) supplies one; the pipeline wires
+ * it into the same mix graph the recorder records (#245), so the sink hears
+ * exactly the mix an audio-WebM export would have carried — same elements,
+ * same per-frame gain sync, no separate re-mix.
+ */
+export interface ExportAudioSink {
+  /**
+   * Joins the mix graph once it exists: `mix` carries every sample the
+   * recorder would have received. Called before playback starts. The sink
+   * must not route anything audible to `context.destination` — the graph is
+   * deliberately kept away from the speakers (see `createAudioCapture`).
+   */
+  attach: (context: AudioContext, mix: AudioNode) => void
+  /**
+   * Stops capturing, waiting out samples still in flight; called once the
+   * sequence has fully played, before the graph is torn down — a tap that
+   * detached only at `finish()` would find the context already closed and
+   * lose its last buffer.
+   */
+  stop: () => Promise<void>
+  /** Produces the export from the captured audio. */
+  finish: () => Promise<Blob>
 }
 
 /**
@@ -1388,14 +1425,28 @@ function defaultAudioContext(): AudioContext | null {
 export async function createAudioCapture(
   elements: readonly HTMLMediaElement[],
   createContext: () => AudioContext | null = defaultAudioContext,
+  /**
+   * A PCM tap on the mix (#269): with one, the elements feed a mix bus that
+   * fans out to the stream destination *and* to the tap, so the tap hears
+   * exactly the mix the recorder would. Without one the graph is unchanged
+   * from #245 — elements straight into the destination.
+   */
+  tap?: (context: AudioContext, mix: AudioNode) => void,
 ): Promise<AudioCapture | null> {
   let context: AudioContext | null = null
   try {
     context = createContext()
     if (context === null) return null
     const destination = context.createMediaStreamDestination()
+    let mixInto: AudioNode = destination
+    if (tap !== undefined) {
+      const bus = context.createGain()
+      bus.connect(destination)
+      tap(context, bus)
+      mixInto = bus
+    }
     for (const element of elements) {
-      context.createMediaElementSource(element).connect(destination)
+      context.createMediaElementSource(element).connect(mixInto)
     }
     // Autoplay policy starts contexts suspended; a suspended context feeds
     // the recorder nothing.
@@ -1725,9 +1776,11 @@ export async function exportTimeline(
     throw new Error('The timeline is empty — add clips before exporting.')
   }
   // A sink-driven export (#198) records nothing itself, so it does not need
-  // MediaRecorder at all — its requirement is the canvas, checked below.
+  // MediaRecorder at all — its requirement is the canvas, checked below. An
+  // audio-sink export (#269) encodes its own audio the same way.
   const sink = options.sink
-  if (sink === undefined && typeof MediaRecorder === 'undefined') {
+  const audioSink = options.audioSink
+  if (sink === undefined && audioSink === undefined && typeof MediaRecorder === 'undefined') {
     throw new ExportUnsupportedError('This browser does not support recording video (MediaRecorder).')
   }
 
@@ -1795,6 +1848,8 @@ export async function exportTimeline(
           ...trackReplays.map(({ element }) => element),
         ],
         options.createAudioContext,
+        // An audio sink (#269) taps the same graph the recorder records.
+        audioSink === undefined ? undefined : audioSink.attach,
       )
   // An audio-only export (#245) exists to carry the mix: without Web Audio
   // there is nothing to record, so it refuses rather than silently falling
@@ -1816,14 +1871,15 @@ export async function exportTimeline(
   // so the video-only fallback leaves them untouched.
   const recordedTracks = audioCapture === null ? [] : trackReplays
 
-  // The sink is its own encoder (#198): no recorder MIME type to negotiate.
-  const mimeType = sink !== undefined
+  // A sink is its own encoder (#198), and so is an audio sink (#269): no
+  // recorder MIME type to negotiate for either.
+  const mimeType = sink !== undefined || audioSink !== undefined
     ? null
     : pickExportMimeType(
         (type) => MediaRecorder.isTypeSupported(type),
         audioCapture === null ? container.candidates : container.candidatesWithAudio,
       )
-  if (sink === undefined && mimeType === null) {
+  if (sink === undefined && audioSink === undefined && mimeType === null) {
     await audioCapture?.dispose()
     throw new ExportUnsupportedError(`This browser cannot encode ${container.label} video.`)
   }
@@ -2073,12 +2129,13 @@ export async function exportTimeline(
   }
 
   const total = totalDuration(timeline)
-  // The recorder exists only without a sink (#198): a sink-driven export
-  // takes its frames straight from the shared canvas below.
+  // The recorder exists only without a sink (#198) or audio sink (#269): a
+  // sink-driven export takes its frames straight from the shared canvas
+  // below, and an audio sink already sits on the mix graph.
   let recorder: MediaRecorder | null = null
   const chunks: Blob[] = []
   let stopped: Promise<void> = Promise.resolve()
-  if (sink === undefined) {
+  if (sink === undefined && audioSink === undefined) {
     // The audio-only decision is the shared pure rule (#245): the recorder
     // gets just the mixed audio track, or the canvas stream plus audio.
     const stream = recorderStream(
@@ -2440,6 +2497,9 @@ export async function exportTimeline(
     releaseVideos()
     recorder?.stop()
     await stopped
+    // Before the graph is torn down, so the audio sink's in-flight samples
+    // land (#269) — the same reason the recorder flushes before disposal.
+    await audioSink?.stop()
     // After the recorder has flushed, so the tail of the audio survives.
     await audioCapture?.dispose()
   }
@@ -2447,6 +2507,8 @@ export async function exportTimeline(
   onProgress?.(1)
   // A sink is its own encoder (#198): the export is whatever it produces.
   if (sink !== undefined) return sink.finish()
+  // So is an audio sink (#269): the captured mix, in the sink's own format.
+  if (audioSink !== undefined) return audioSink.finish()
   // The recorder may refine the requested type (a bare `video/mp4` request
   // comes back with the codecs it actually chose), so the saved Blob carries
   // what was really encoded (#114).

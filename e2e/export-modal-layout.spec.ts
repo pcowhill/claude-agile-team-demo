@@ -38,7 +38,8 @@ test('the format note sits below the radios and the picker stays inside the dial
   // Both formats that state a note: the audio-only line (#264's screenshot)
   // and the GIF plugin's caps (#265's).
   const cases: { radio: string; note: RegExp }[] = [
-    { radio: 'Audio only (WebM/Opus)', note: /Saves just the mixed soundtrack/ },
+    { radio: 'Audio only (WebM/Opus)', note: /Saves just the mixed soundtrack —/ },
+    { radio: 'Audio only (MP3)', note: /as an MP3 file/ },
     { radio: 'Animated GIF', note: /soundless and sample at 10 fps/ },
   ]
   for (const { radio, note } of cases) {
