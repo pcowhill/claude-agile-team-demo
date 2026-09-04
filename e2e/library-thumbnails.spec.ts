@@ -127,6 +127,31 @@ test('thumbnail view grids square-ish cards showing each kind of media (#311)', 
   const thumbnail = page.getByTestId('clip-card-thumbnail-0')
   await expect(thumbnail).toBeVisible()
   expect(await thumbnail.getAttribute('src')).toMatch(/^data:image\/jpeg/)
+
+  // …and the capture has the pixels the card's box needs (#359, from
+  // feedback #353). The card reused #193's 64×36 timeline capture and
+  // upscaled it about three times across and five times down after the
+  // square crop; the customer saw the result. Asserted as a ratio of real
+  // pixels to CSS pixels, at the viewport this spec pins, rather than as a
+  // fixed capture size — what matters is that the card is not shown an
+  // upscaled frame, not which number the module picked.
+  const sharpness = await thumbnail.evaluate((image) => {
+    const { width, height } = image.getBoundingClientRect()
+    const img = image as HTMLImageElement
+    return {
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      cssWidth: width,
+      cssHeight: height,
+    }
+  })
+  const detail = `capture ${sharpness.naturalWidth}x${sharpness.naturalHeight} for a ${sharpness.cssWidth.toFixed(1)}x${sharpness.cssHeight.toFixed(1)} card picture`
+  expect(sharpness.naturalWidth, `${detail}: too few horizontal pixels`).toBeGreaterThanOrEqual(
+    sharpness.cssWidth * 2,
+  )
+  expect(sharpness.naturalHeight, `${detail}: too few vertical pixels`).toBeGreaterThanOrEqual(
+    sharpness.cssHeight * 2,
+  )
   await expect(page.getByTestId('clip-card-image-1')).toBeVisible()
   const waveform = page.getByTestId('clip-card-waveform-2')
   await expect(waveform).toBeVisible()
