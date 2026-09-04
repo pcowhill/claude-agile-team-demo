@@ -52,6 +52,13 @@ const overlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
   ...overrides,
 })
 
+/**
+ * A still overlay (#294): the same lane as `overlay` above, with a kind and
+ * no audio fields at all — the model refuses them on this kind.
+ */
+const stillOverlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay =>
+  overlay({ id: 'i1', kind: 'image', clipId: 'c-logo', name: 'logo.png', duration: 5, url: 'blob:logo', outPoint: 5, ...overrides })
+
 const text = (overrides: Partial<TextOverlay> = {}): TextOverlay => ({
   ...DEFAULT_TEXT,
   id: 'x1',
@@ -212,5 +219,72 @@ describe('filterSettings (#315)', () => {
       'audio',
       'text-style',
     ])
+  })
+})
+
+describe('still overlays hold no audio group (#332)', () => {
+  // The overlay lane holds video and stills since #294, so the audio group
+  // has to be judged from the element — the regression this pins is that a
+  // fixed per-kind list credited every overlay with audio, which made a
+  // paste FROM a still reset the target's audio.
+  it('a still overlay holds the visual groups only; a video overlay keeps audio', () => {
+    expect(heldSettingsGroups('video-overlay', stillOverlay())).toEqual([
+      'color',
+      'orientation',
+      'crop',
+    ])
+    expect(heldSettingsGroups('video-overlay', overlay())).toEqual([
+      'color',
+      'orientation',
+      'crop',
+      'audio',
+    ])
+  })
+
+  it('copying a still overlay carries no audio key at all', () => {
+    const copied = copyElementSettings('video-overlay', stillOverlay())
+    expect(copied).toEqual({
+      color: { adjustments: undefined },
+      orientation: { orientation: undefined },
+      crop: { crop: undefined },
+    })
+    // Not merely absent-valued: the key itself must not exist, or the paste
+    // would treat it as "apply the identity", which is the reset.
+    expect(Object.hasOwn(copied!, 'audio')).toBe(false)
+    // The treatments a still overlay does hold still copy through.
+    const graded = copyElementSettings(
+      'video-overlay',
+      stillOverlay({ colorAdjustments: { saturation: 140 }, crop: { top: 0.1 } }),
+    )
+    expect(graded).toMatchObject({
+      color: { adjustments: { saturation: 140 } },
+      crop: { crop: { top: 0.1 } },
+    })
+  })
+
+  it('offers no Audio group in either direction between a still overlay and a clip', () => {
+    const fromClip = copyElementSettings('entry', videoEntry())!
+    const fromStill = copyElementSettings('video-overlay', stillOverlay())!
+    // Pasting a clip's settings ONTO a still overlay: the target holds no
+    // audio, so the intersection drops it.
+    expect(compatibleSettingsGroups(fromClip, 'video-overlay', stillOverlay())).toEqual([
+      'color',
+      'orientation',
+      'crop',
+    ])
+    // Pasting a still overlay's settings onto anything: it never carried an
+    // audio group to offer — including onto an audio track, which holds
+    // nothing else, so the paste has nothing to apply at all.
+    expect(compatibleSettingsGroups(fromStill, 'entry', videoEntry())).toEqual([
+      'color',
+      'orientation',
+      'crop',
+    ])
+    expect(compatibleSettingsGroups(fromStill, 'video-overlay', overlay())).toEqual([
+      'color',
+      'orientation',
+      'crop',
+    ])
+    expect(compatibleSettingsGroups(fromStill, 'audio-track', track())).toEqual([])
   })
 })

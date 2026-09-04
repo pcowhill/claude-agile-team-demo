@@ -31,6 +31,7 @@ import {
 import type { RemapEffect, TextOverlay, VideoOverlay, ZoomEffect } from './timeline'
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import { zoomAt } from './zoom'
+import { copyElementSettings } from './settingsClipboard'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -4219,5 +4220,94 @@ describe('settings-pasted (#315)', () => {
     // Only the field the paste changed is claimed; the rest keep following
     // the project default style.
     expect(pasted.styleOverrides).toEqual(['color'])
+  })
+})
+
+describe('copying a still overlay never carries audio into a paste (#332)', () => {
+  // The user-visible regression: an image overlay (#294) lives in the same
+  // lane as a video one, and the settings clipboard (#315) credited every
+  // overlay with an audio group. Copying a still therefore produced identity
+  // audio values from its absent fields, and "make the target match the
+  // source" applied them as a reset. These tests go through
+  // copyElementSettings -> the reducer, because that composition is the
+  // actual user path and the bug lived in the seam between the two.
+  const still: VideoOverlay = {
+    id: 'i1',
+    kind: 'image',
+    clipId: 'clip-logo',
+    name: 'logo.png',
+    duration: 5,
+    url: 'blob:logo',
+    offset: 0,
+    inPoint: 0,
+    outPoint: 5,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+    colorAdjustments: { saturation: 140 },
+  }
+
+  /** A clip with audio the user has deliberately dialled in. */
+  const withDialledAudio = (): TimelineState => ({
+    entries: [
+      {
+        ...stateOf(['a', 10]).entries[0],
+        volume: 0.25,
+        muted: true,
+        fadeIn: 2,
+      },
+    ],
+    videoOverlays: [still],
+  })
+
+  it("pasting a still overlay's settings onto a clip leaves the clip's audio alone", () => {
+    const state = withDialledAudio()
+    const next = timelineReducer(state, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'a',
+      settings: copyElementSettings('video-overlay', still)!,
+    })
+    const entry = next.entries[0]
+    // The regression: these three were reset to 1 / false / absent.
+    expect(entry.volume).toBe(0.25)
+    expect(entry.muted).toBe(true)
+    expect(entry.fadeIn).toBe(2)
+    // What the still does hold still arrives, so the fix is not "copy less".
+    expect(entry.colorAdjustments).toEqual({ saturation: 140 })
+  })
+
+  it("pasting a still overlay's settings onto an audio track is a no-op", () => {
+    // A track holds audio and nothing else, so a still's copied set has
+    // nothing to apply — same reference, no dirty flag, no history entry.
+    const track = audioTrackFromClip(clip({ id: 'c-m', kind: 'audio', name: 'm.mp3' }), 't1')
+    const state: TimelineState = { ...stateOf(['a']), audioTracks: [track], videoOverlays: [still] }
+    expect(
+      timelineReducer(state, {
+        type: 'settings-pasted',
+        kind: 'audio-track',
+        id: 't1',
+        settings: copyElementSettings('video-overlay', still)!,
+      }),
+    ).toBe(state)
+  })
+
+  it("a video overlay's copied settings still carry audio onto a clip", () => {
+    // The control: the fix must not have disarmed the audio group for the
+    // kind that does hold one.
+    const video = videoOverlayFromClip(clip({ id: 'c-v', name: 'v.webm' }), 'v1')
+    const state: TimelineState = {
+      ...withDialledAudio(),
+      videoOverlays: [{ ...video, volume: 0.8 }],
+    }
+    const next = timelineReducer(state, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'a',
+      settings: copyElementSettings('video-overlay', { ...video, volume: 0.8 })!,
+    })
+    expect(next.entries[0].volume).toBe(0.8)
+    expect(next.entries[0].muted).toBe(false)
   })
 })
