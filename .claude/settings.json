@@ -2,6 +2,9 @@
   "permissions": {
     "allow": [
       "Edit(docs/rules/**)"
+    ],
+    "deny": [
+      "AskUserQuestion"
     ]
   }
 }
