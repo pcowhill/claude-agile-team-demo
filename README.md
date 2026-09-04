@@ -193,6 +193,16 @@ single undo step. A duplicated sequence entry lands right after the
 original — transitions are never copied, since they belong to a boundary —
 while a duplicated track, overlay, or text starts where the original ends,
 so the two never stack.
+Beside it sit ⎘ Copy settings and ⎗ Paste settings (#315): Copy remembers a
+row's adjustable settings — never its media, trim, or timeline position —
+and Paste applies them to any other row through a checklist of the groups
+both rows can hold (Color, Orientation, Crop, Background fill, Audio, Text
+style), everything checked by default, so a paste is never a surprise
+overwrite. Each value pastes as the source's effective one, identity
+included — pasting an ungraded clip's Color resets the target's grade. One
+paste is one undo step. The copied settings live only in the current
+session: they are never saved with the project, and a reload starts with
+nothing copied.
 Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
 and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
 edits back and forward — except while typing in a text field, where the

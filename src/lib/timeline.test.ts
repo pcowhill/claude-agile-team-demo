@@ -4016,3 +4016,208 @@ describe('image overlay layers (#294)', () => {
     expect(videoOverlaysOf(cleared)).toEqual([])
   })
 })
+
+describe('settings-pasted (#315)', () => {
+  const paste = (
+    state: TimelineState,
+    kind: 'entry' | 'audio-track' | 'video-overlay' | 'text',
+    id: string,
+    settings: Parameters<typeof timelineReducer>[1] extends infer A
+      ? A extends { type: 'settings-pasted'; settings: infer S }
+        ? S
+        : never
+      : never,
+  ) => timelineReducer(state, { type: 'settings-pasted', kind, id, settings })
+
+  it('applies only the chosen groups; trim, position, and media untouched', () => {
+    const state = stateOf(['a', 10, 1, 8], ['b', 20, 2, 15])
+    const next = paste(state, 'entry', 'b', {
+      color: { adjustments: { saturation: 0 } },
+      crop: { crop: { top: 0.2 } },
+      // Orientation deliberately not chosen: absent groups change nothing.
+    })
+    const target = next.entries[1]
+    expect(target.colorAdjustments).toEqual({ saturation: 0 })
+    expect(target.crop).toEqual({ top: 0.2 })
+    expect(target.orientation).toBeUndefined()
+    expect(target.inPoint).toBe(2)
+    expect(target.outPoint).toBe(15)
+    expect(target.url).toBe('blob:b')
+    // The source row (or any other row) is untouched.
+    expect(next.entries[0]).toBe(state.entries[0])
+  })
+
+  it('identity values reset the target — "make it match the source"', () => {
+    const graded: TimelineState = {
+      entries: [
+        {
+          ...stateOf(['a']).entries[0],
+          colorAdjustments: { brightness: 150 },
+          orientation: { rotation: 90 },
+          crop: { left: 0.1 },
+          backgroundFill: { kind: 'blur' },
+        },
+      ],
+    }
+    const next = paste(graded, 'entry', 'a', {
+      color: { adjustments: undefined },
+      orientation: { orientation: undefined },
+      crop: { crop: undefined },
+      'background-fill': { fill: undefined },
+    })
+    // Identity stores as no key at all — the byte-identity rule the
+    // individual setters follow.
+    expect(next.entries[0].colorAdjustments).toBeUndefined()
+    expect(Object.hasOwn(next.entries[0], 'colorAdjustments')).toBe(false)
+    expect(Object.hasOwn(next.entries[0], 'orientation')).toBe(false)
+    expect(Object.hasOwn(next.entries[0], 'crop')).toBe(false)
+    expect(Object.hasOwn(next.entries[0], 'backgroundFill')).toBe(false)
+  })
+
+  it('a paste that changes nothing is a same-reference no-op', () => {
+    const state = stateOf(['a'], ['b'])
+    // The whole identity set onto an untouched entry: nothing to change.
+    expect(
+      paste(state, 'entry', 'b', {
+        color: { adjustments: undefined },
+        orientation: { orientation: undefined },
+        crop: { crop: undefined },
+        'background-fill': { fill: undefined },
+        audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
+      }),
+    ).toBe(state)
+    // Re-pasting the values an entry already has.
+    const graded: TimelineState = {
+      entries: [{ ...state.entries[0], colorAdjustments: { brightness: 150 } }],
+    }
+    expect(
+      paste(graded, 'entry', 'a', { color: { adjustments: { brightness: 150 } } }),
+    ).toBe(graded)
+    // Unknown targets, a slate target, and an empty settings object.
+    expect(paste(state, 'entry', 'missing', { crop: { crop: { top: 0.2 } } })).toBe(state)
+    expect(paste(state, 'audio-track', 'missing', {})).toBe(state)
+    expect(paste(state, 'video-overlay', 'missing', {})).toBe(state)
+    expect(paste(state, 'text', 'missing', {})).toBe(state)
+    expect(paste(state, 'entry', 'a', {})).toBe(state)
+    const withSlate: TimelineState = { entries: [...state.entries, slateEntry('s1')] }
+    expect(
+      paste(withSlate, 'entry', 's1', { color: { adjustments: { brightness: 150 } } }),
+    ).toBe(withSlate)
+  })
+
+  it('audio onto an entry: volume, mute, fades — fades clamped to its output window', () => {
+    const state = stateOf(['a', 10, 0, 2])
+    const next = paste(state, 'entry', 'a', {
+      audio: { volume: 0.4, muted: true, fadeIn: 1.5, fadeOut: 1.5 },
+    })
+    const entry = next.entries[0]
+    expect(entry.volume).toBe(0.4)
+    expect(entry.muted).toBe(true)
+    // The 2-second window cannot carry 1.5 + 1.5: fadeIn keeps its value
+    // first, fadeOut absorbs the shortfall (the #104 rule).
+    expect(entry.fadeIn).toBe(1.5)
+    expect(entry.fadeOut).toBe(0.5)
+    // A still is soundless: with only the audio group, nothing changes.
+    const still: TimelineState = {
+      entries: [{ ...stateOf(['i']).entries[0], kind: 'image' }],
+    }
+    expect(
+      paste(still, 'entry', 'i', { audio: { volume: 0.4, muted: true, fadeIn: 1, fadeOut: 0 } }),
+    ).toBe(still)
+  })
+
+  it('audio onto a track applies volume and fades; muted is skipped', () => {
+    const track = audioTrackFromClip(clip({ id: 'c-m', kind: 'audio', name: 'm.mp3' }), 't1')
+    const state: TimelineState = { ...stateOf(['a']), audioTracks: [track] }
+    const next = paste(state, 'audio-track', 't1', {
+      audio: { volume: 0.6, muted: true, fadeIn: 1, fadeOut: 2 },
+    })
+    const pasted = audioTracksOf(next)[0]
+    expect(pasted.volume).toBe(0.6)
+    expect(pasted.fadeIn).toBe(1)
+    expect(pasted.fadeOut).toBe(2)
+    // A track holds no mute: the field never appears.
+    expect(Object.hasOwn(pasted, 'muted')).toBe(false)
+  })
+
+  it('visual groups and audio onto an overlay, zero fades stored as no fields', () => {
+    const overlay = videoOverlayFromClip(clip({ id: 'c-v', name: 'v.webm' }), 'v1')
+    const state: TimelineState = { ...stateOf(['a']), videoOverlays: [overlay] }
+    const next = paste(state, 'video-overlay', 'v1', {
+      color: { adjustments: { saturation: 140 } },
+      crop: { crop: { right: 0.25 } },
+      audio: { volume: 0.8, muted: false, fadeIn: 0, fadeOut: 0 },
+    })
+    const pasted = videoOverlaysOf(next)[0]
+    expect(pasted.colorAdjustments).toEqual({ saturation: 140 })
+    expect(pasted.crop).toEqual({ right: 0.25 })
+    expect(pasted.volume).toBe(0.8)
+    expect(Object.hasOwn(pasted, 'fadeIn')).toBe(false)
+    expect(Object.hasOwn(pasted, 'fadeOut')).toBe(false)
+    // Placement is not a group: the rectangle and window are untouched.
+    expect(pasted.x).toBe(overlay.x)
+    expect(pasted.offset).toBe(overlay.offset)
+  })
+
+  it('text style onto a text overlay: look and fades carried, window and content untouched', () => {
+    const target: TextOverlay = { ...DEFAULT_TEXT, id: 'x1', content: 'Keep me', offset: 4 }
+    const state: TimelineState = { ...stateOf(['a', 20]), texts: [target] }
+    const next = paste(state, 'text', 'x1', {
+      'text-style': {
+        x: 0.2,
+        y: 0.8,
+        font: 'serif',
+        size: 0.06,
+        color: '#ffcc00',
+        bold: true,
+        italic: false,
+        fadeIn: 0.5,
+        fadeOut: 0.5,
+      },
+    })
+    const pasted = textsOf(next)[0]
+    expect(pasted.content).toBe('Keep me')
+    expect(pasted.offset).toBe(4)
+    expect(pasted.duration).toBe(DEFAULT_TEXT.duration)
+    expect(pasted).toMatchObject({
+      x: 0.2,
+      y: 0.8,
+      font: 'serif',
+      size: 0.06,
+      color: '#ffcc00',
+      bold: true,
+      fadeIn: 0.5,
+      fadeOut: 0.5,
+    })
+  })
+
+  it('pasting style onto a subtitle claims the changed fields as overrides (#250)', () => {
+    const subtitle: TextOverlay = {
+      ...DEFAULT_TEXT,
+      ...DEFAULT_SUBTITLE_STYLE,
+      id: 'x1',
+      content: 'A line',
+      subtitle: true,
+    }
+    const state: TimelineState = { ...stateOf(['a', 20]), texts: [subtitle] }
+    const next = paste(state, 'text', 'x1', {
+      'text-style': {
+        x: subtitle.x,
+        y: subtitle.y,
+        font: subtitle.font,
+        size: subtitle.size,
+        color: '#ffcc00',
+        bold: subtitle.bold,
+        italic: subtitle.italic,
+        fadeIn: 0,
+        fadeOut: 0,
+      },
+    })
+    const pasted = textsOf(next)[0]
+    expect(pasted.color).toBe('#ffcc00')
+    expect(pasted.subtitle).toBe(true)
+    // Only the field the paste changed is claimed; the rest keep following
+    // the project default style.
+    expect(pasted.styleOverrides).toEqual(['color'])
+  })
+})

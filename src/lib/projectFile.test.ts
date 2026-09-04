@@ -191,6 +191,37 @@ describe('project file round-trip', () => {
     expect(result).toEqual({ ok: true, project: expectedProject })
   })
 
+  it('pasted settings survive save → open; the clipboard itself never serializes (#315)', async () => {
+    // Paste a grade, a crop, and audio onto e2 — the reducer action the
+    // Paste dialog dispatches. The copied-settings clipboard is component
+    // session state and never enters TimelineState, so the file cannot
+    // carry it; this pins that the *pasted* fields round-trip like any
+    // other settings while the bytes carry no clipboard-shaped key.
+    const pasted = timelineReducer(timeline, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'e2',
+      settings: {
+        color: { adjustments: { saturation: 0 } },
+        crop: { crop: { top: 0.2 } },
+        audio: { volume: 0.5, muted: true, fadeIn: 1, fadeOut: 0 },
+      },
+    })
+    const bytes = await serializeProject(library, pasted)
+    expect(new TextDecoder().decode(bytes)).not.toMatch(/clipboard|copiedSettings/i)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries[1]).toMatchObject({
+      id: 'e2',
+      colorAdjustments: { saturation: 0 },
+      crop: { top: 0.2 },
+      volume: 0.5,
+      muted: true,
+      fadeIn: 1,
+    })
+  })
+
   it('a duplicated entry survives save → open with its settings and cloned zoom (#314)', async () => {
     const duplicated = timelineReducer(timeline, {
       type: 'element-duplicated',

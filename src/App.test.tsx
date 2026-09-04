@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 import { deserializeProject } from './lib/projectFile'
@@ -102,6 +102,34 @@ describe('unsaved-changes tracking (#76)', () => {
     if (withDuplicate.ok) {
       expect(withDuplicate.project.timeline.entries).toHaveLength(3)
     }
+
+    // Copy settings (#315) is session state, not an edit: the project stays
+    // clean. The paste is an ordinary edit: it dirties, and the pasted
+    // settings — never the clipboard itself — are in the next save.
+    const saturation = screen.getByRole('spinbutton', {
+      name: 'Saturation of clip.webm at position 1 (percent)',
+    })
+    fireEvent.change(saturation, { target: { value: '0' } })
+    fireEvent.blur(saturation)
+    await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    await waitFor(() => expect(writes).toHaveLength(4))
+
+    await user.click(screen.getByRole('button', { name: 'Copy settings of clip.webm at position 1' }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Paste settings onto clip.webm at position 2' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    await waitFor(() => expect(writes).toHaveLength(5))
+    const withPaste = await deserializeProject(writes[4])
+    expect(withPaste.ok).toBe(true)
+    if (withPaste.ok) {
+      expect(withPaste.project.timeline.entries[1].colorAdjustments).toEqual({ saturation: 0 })
+    }
+    // The clipboard never reaches a saved file: the bytes carry no trace of
+    // the copied-settings session state.
+    expect(new TextDecoder().decode(writes[4])).not.toMatch(/clipboard|copiedSettings/i)
   })
 
   it('Ctrl+S mid-edit saves the committed state and leaves the field alone', async () => {
