@@ -17,7 +17,11 @@
 ## How it was tested
 
 <!-- What was actually executed (local runs, CI). Never claim tests passed
-     unless they were really run. State honestly if something is untested. -->
+     unless they were really run. State honestly if something is untested.
+     UI-affecting change? jsdom has no layout, so rendered evidence is
+     required too: a screenshot you inspected (say what you saw) for a new
+     surface, plus a geometry assertion for anything a later change could
+     regress. See "Pull Requests" in docs/rules/development.md. -->
 
 ## Risks and follow-up
 
