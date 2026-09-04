@@ -40,6 +40,7 @@ import {
   subtitleStylesEqual,
   textOverlaysEqual,
 } from './textOverlay'
+import type { CopiedSettings, SettingsElementKind } from './settingsClipboard'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
 import type { VideoOverlay, VideoOverlayPlacement } from './videoOverlay'
@@ -505,6 +506,30 @@ export type TimelineAction =
       id: string
       /** The copy's id, supplied by the caller like every element id. */
       newId: string
+    }
+  | {
+      /**
+       * Paste settings (#315): applies a copied set of settings to one
+       * element, every chosen group in ONE action so the history rule gives
+       * one undo step however many groups it carries. `settings` holds a key
+       * per group being pasted; a group's value may be `undefined`, meaning
+       * the source's effective value is the identity — pasting it *resets*
+       * the target, the "make the target match the source" rule that Paste
+       * Attributes means everywhere else (see `settingsClipboard.ts`).
+       *
+       * The reducer, not the dialog, is the truth: each group is applied
+       * exactly as its dedicated setter would (validated, normalized,
+       * clamped, identity stored as no key at all), a group the target
+       * cannot hold is skipped rather than refused (no audio onto a still,
+       * no mute onto an audio track, nothing at all onto a slate), and an
+       * action carrying invalid input is refused whole — the all-or-nothing
+       * strictness `texts-added` follows. Media, trim, position, and
+       * placement are never settings and never change.
+       */
+      type: 'settings-pasted'
+      kind: SettingsElementKind
+      id: string
+      settings: CopiedSettings
     }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
@@ -1051,6 +1076,87 @@ function clampEntryFades(entry: TimelineEntry, remaps: readonly RemapEffect[]): 
   return next
 }
 
+/**
+ * The fields the visual settings groups live in — the shape a sequence entry
+ * and a video overlay have in common (an overlay carries no background fill,
+ * which is why the helper takes `holdsFill`).
+ */
+interface PastedVisualSettings {
+  colorAdjustments?: ColorAdjustments
+  orientation?: Orientation
+  crop?: Crop
+  backgroundFill?: BackgroundFill
+}
+
+/**
+ * The visual half of a settings paste (#315) — Color, Orientation, Crop and
+ * Background fill — applied to a sequence entry or a video overlay alike,
+ * exactly as each group's dedicated setter does it: input validated, the
+ * normalized form stored, and identity stored as no key at all (the
+ * byte-identity rule that keeps adjustment-free saved files unchanged).
+ *
+ * Returns the SAME reference when no group changes anything, so the caller
+ * can detect a no-op paste by identity, and `undefined` when the action
+ * carries invalid input, which refuses the whole paste. `holdsFill` says
+ * whether the target can hold a background fill at all (entries can, video
+ * overlays have no such field): a group the target cannot hold is skipped,
+ * never a refusal.
+ */
+function withPastedVisualSettings<T extends PastedVisualSettings>(
+  element: T,
+  settings: CopiedSettings,
+  holdsFill: boolean,
+): T | undefined {
+  let next = element
+  // Copy on first change only, so an all-no-op paste keeps the reference.
+  const draft = (): PastedVisualSettings => {
+    if (next === element) next = { ...element }
+    return next
+  }
+  if (settings.color !== undefined) {
+    const adjustments = settings.color.adjustments
+    if (adjustments !== undefined && !isValidColorAdjustments(adjustments)) return undefined
+    const normalized =
+      adjustments === undefined ? undefined : normalizeColorAdjustments(adjustments)
+    if (!colorAdjustmentsEqual(normalized, element.colorAdjustments)) {
+      const target = draft()
+      if (normalized === undefined) delete target.colorAdjustments
+      else target.colorAdjustments = normalized
+    }
+  }
+  if (settings.orientation !== undefined) {
+    const orientation = settings.orientation.orientation
+    if (orientation !== undefined && !isValidOrientation(orientation)) return undefined
+    const normalized = orientation === undefined ? undefined : normalizeOrientation(orientation)
+    if (!orientationsEqual(normalized, element.orientation)) {
+      const target = draft()
+      if (normalized === undefined) delete target.orientation
+      else target.orientation = normalized
+    }
+  }
+  if (settings.crop !== undefined) {
+    const crop = settings.crop.crop
+    if (crop !== undefined && !isValidCrop(crop)) return undefined
+    const normalized = crop === undefined ? undefined : normalizeCrop(crop)
+    if (!cropsEqual(normalized, element.crop)) {
+      const target = draft()
+      if (normalized === undefined) delete target.crop
+      else target.crop = normalized
+    }
+  }
+  if (settings['background-fill'] !== undefined && holdsFill) {
+    const fill = settings['background-fill'].fill
+    if (fill !== undefined && !isValidBackgroundFillInput(fill)) return undefined
+    const normalized = fill === undefined ? undefined : normalizeBackgroundFill(fill)
+    if (!backgroundFillsEqual(normalized, element.backgroundFill)) {
+      const target = draft()
+      if (normalized === undefined) delete target.backgroundFill
+      else target.backgroundFill = normalized
+    }
+  }
+  return next
+}
+
 function withEffects(
   entries: TimelineEntry[],
   transitions: TimelineTransition[],
@@ -1411,6 +1517,190 @@ function reduceTimelineCollections(
           if (texts.some((existing) => existing.id === action.newId)) return state
           const copy = { ...text, id: action.newId, offset: text.offset + text.duration }
           return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, copy], videoOverlays)
+        }
+      }
+      return state
+    }
+    case 'settings-pasted': {
+      // Paste settings (#315). Everything the paste applies happens here, in
+      // one action, so one Undo reverts the whole paste; a paste that changes
+      // nothing returns the same state reference, so it never lands in undo
+      // history or marks the project dirty (#76 compares references). See the
+      // action's doc comment for what the reducer refuses versus skips.
+      const settings = action.settings
+      switch (action.kind) {
+        case 'entry': {
+          const index = state.entries.findIndex((entry) => entry.id === action.id)
+          if (index === -1) return state
+          const entry = state.entries[index]
+          // A slate holds no settings group at all — no adjustments (#192),
+          // orientation (#232), crop (#255), fill (#259), or audio (#220):
+          // its color is set directly (#143). Nothing to paste.
+          if (isSlateEntry(entry)) return state
+          const visual = withPastedVisualSettings(entry, settings, true)
+          if (visual === undefined) return state
+          let next = visual
+          // Stills (images) are soundless (#220), so the audio group is
+          // skipped for them exactly as `entry-fades-set` refuses them.
+          if (settings.audio !== undefined && !isStillEntry(entry)) {
+            const audio = settings.audio
+            if (
+              !Number.isFinite(audio.volume) ||
+              !Number.isFinite(audio.fadeIn) ||
+              !Number.isFinite(audio.fadeOut) ||
+              (audio.muted !== undefined && typeof audio.muted !== 'boolean')
+            ) {
+              return state
+            }
+            // Volume and mute compare against the *effective* value, so
+            // pasting full volume onto an untouched entry is a no-op.
+            const volume = clamp(audio.volume, 0, 1)
+            const muted = audio.muted
+            const candidate = { ...next }
+            if (volume !== (entry.volume ?? 1)) candidate.volume = volume
+            if (muted !== undefined && muted !== (entry.muted ?? false)) candidate.muted = muted
+            // Zero fades store as no fields at all (the byte-identity rule),
+            // and clamping keeps the pair inside the target's own output
+            // window — fadeIn keeps its value first (#104/#220).
+            const fadeIn = Math.max(0, audio.fadeIn)
+            const fadeOut = Math.max(0, audio.fadeOut)
+            if (fadeIn === 0) delete candidate.fadeIn
+            else candidate.fadeIn = fadeIn
+            if (fadeOut === 0) delete candidate.fadeOut
+            else candidate.fadeOut = fadeOut
+            const clamped = clampEntryFades(candidate, remaps)
+            const fadesChanged =
+              (clamped.fadeIn ?? 0) !== (entry.fadeIn ?? 0) ||
+              (clamped.fadeOut ?? 0) !== (entry.fadeOut ?? 0)
+            if (
+              fadesChanged ||
+              clamped.volume !== next.volume ||
+              clamped.muted !== next.muted
+            ) {
+              next = clamped
+            }
+          }
+          if (next === entry) return state
+          const entries = [...state.entries]
+          entries[index] = next
+          return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+        }
+        case 'audio-track': {
+          const index = audioTracks.findIndex((track) => track.id === action.id)
+          if (index === -1) return state
+          const audio = settings.audio
+          // Audio is the only group a track holds; anything else is skipped.
+          if (audio === undefined) return state
+          if (
+            !Number.isFinite(audio.volume) ||
+            !Number.isFinite(audio.fadeIn) ||
+            !Number.isFinite(audio.fadeOut)
+          ) {
+            return state
+          }
+          const track = audioTracks[index]
+          // A track holds no mute (#104): a pasted `muted` is skipped, never
+          // stored — the field must not appear on a track.
+          const candidate = clampTrackFades({
+            ...track,
+            volume: clamp(audio.volume, 0, 1),
+            fadeIn: Math.max(0, audio.fadeIn),
+            fadeOut: Math.max(0, audio.fadeOut),
+          })
+          if (
+            (candidate.volume ?? 1) === (track.volume ?? 1) &&
+            (candidate.fadeIn ?? 0) === (track.fadeIn ?? 0) &&
+            (candidate.fadeOut ?? 0) === (track.fadeOut ?? 0)
+          ) {
+            return state
+          }
+          const tracks = [...audioTracks]
+          tracks[index] = candidate
+          return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+        }
+        case 'video-overlay': {
+          const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+          if (index === -1) return state
+          const overlay = videoOverlays[index]
+          // No background fill on an overlay layer: it has no such field.
+          const visual = withPastedVisualSettings(overlay, settings, false)
+          if (visual === undefined) return state
+          let next = visual
+          if (settings.audio !== undefined) {
+            const audio = settings.audio
+            if (
+              !Number.isFinite(audio.volume) ||
+              !Number.isFinite(audio.fadeIn) ||
+              !Number.isFinite(audio.fadeOut) ||
+              (audio.muted !== undefined && typeof audio.muted !== 'boolean')
+            ) {
+              return state
+            }
+            const volume = clamp(audio.volume, 0, 1)
+            const muted = audio.muted
+            const candidate: VideoOverlay = { ...next }
+            if (volume !== (overlay.volume ?? 1)) candidate.volume = volume
+            if (muted !== undefined && muted !== (overlay.muted ?? false)) candidate.muted = muted
+            candidate.fadeIn = Math.max(0, audio.fadeIn)
+            candidate.fadeOut = Math.max(0, audio.fadeOut)
+            // clampVideoOverlay drops zero fades to absent fields and keeps
+            // the pair within the overlay's own trimmed length; placement is
+            // untouched, since it is not a settings group.
+            const clamped = clampVideoOverlay(candidate)
+            if (!videoOverlaysEqual(overlay, clamped)) next = clamped
+          }
+          if (next === overlay) return state
+          const overlays = [...videoOverlays]
+          overlays[index] = next
+          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+        }
+        case 'text': {
+          const index = texts.findIndex((text) => text.id === action.id)
+          if (index === -1) return state
+          const style = settings['text-style']
+          // Text style is the only group a text overlay holds.
+          if (style === undefined) return state
+          const existing = texts[index]
+          // The look and the visual fades (#177) only: the window (offset,
+          // duration) and the content are never settings. `x`/`y` are the
+          // block's on-frame centre — the #250 style surface — not timeline
+          // placement.
+          let candidate: TextOverlay = {
+            ...existing,
+            x: style.x,
+            y: style.y,
+            font: style.font,
+            size: style.size,
+            color: style.color,
+            bold: style.bold,
+            italic: style.italic,
+            fadeIn: style.fadeIn,
+            fadeOut: style.fadeOut,
+          }
+          if (!isValidTextOverlaySpec(candidate)) return state
+          if (existing.subtitle === true) {
+            // Pasting style onto an imported subtitle claims the fields it
+            // changes, exactly as an individual edit does (#250) — the
+            // `text-updated` rule, mirrored so the two paths cannot drift.
+            const overrides = normalizeStyleOverrides([
+              ...(existing.styleOverrides ?? []),
+              ...changedStyleFields(existing, clampTextOverlay(candidate)),
+            ])
+            delete candidate.styleOverrides
+            if (overrides !== undefined) candidate = { ...candidate, styleOverrides: overrides }
+          }
+          // Normalization can clamp the paste back to what is already stored
+          // — a no-op must keep the state reference.
+          if (textOverlaysEqual(existing, clampTextOverlay(candidate))) return state
+          return withEffects(
+            state.entries,
+            transitions,
+            zooms,
+            audioTracks,
+            remaps,
+            texts.map((text, position) => (position === index ? candidate : text)),
+            videoOverlays,
+          )
         }
       }
       return state

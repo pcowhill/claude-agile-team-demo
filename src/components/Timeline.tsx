@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type {
   ColorAdjustments,
@@ -51,11 +51,25 @@ import {
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { TextFontId } from '../lib/textOverlay'
+import {
+  SETTINGS_GROUPS,
+  compatibleSettingsGroups,
+  copyElementSettings,
+  filterSettings,
+  heldSettingsGroups,
+} from '../lib/settingsClipboard'
+import type {
+  CopiedSettings,
+  SettingsElementKind,
+  SettingsGroup,
+} from '../lib/settingsClipboard'
 import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import './Timeline.css'
+// PasteSettingsDialog below renders the shared modal idiom directly.
+import './dialog.css'
 
 interface TimelineProps {
   timeline: TimelineState
@@ -73,6 +87,16 @@ interface TimelineProps {
    * Duplicate controls render only when the app supplies it.
    */
   onDuplicate?: (kind: 'entry' | 'audio-track' | 'video-overlay' | 'text', id: string) => void
+  /**
+   * Pastes copied settings onto a timeline element (#315): the reducer's
+   * `settings-pasted` semantics — one action, one undo step, only the
+   * checklist's chosen groups. The copied settings themselves are session
+   * state owned by this component (like the collapse state, #299) and never
+   * reach the model; only this callback does. Optional so tests that
+   * predate it keep compiling; the Copy/Paste controls render only when the
+   * app supplies it.
+   */
+  onPasteSettings?: (kind: SettingsElementKind, id: string, settings: CopiedSettings) => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
   /** Sets a still entry's on-screen duration (#140); stills have no trim. */
@@ -759,6 +783,91 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
  */
 type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'text'
 
+interface PasteSettingsDialogProps {
+  /** The target row's accessible name (its `position` string). */
+  name: string
+  /** The groups both the copied set and the target hold, canonical order. */
+  groups: readonly SettingsGroup[]
+  onCancel: () => void
+  onApply: (chosen: SettingsGroup[]) => void
+}
+
+/**
+ * The paste checklist (#315): the ConfirmDialog idiom with a checkbox per
+ * compatible settings group, everything checked by default, so a paste is
+ * never a surprise overwrite — the user sees exactly what will change
+ * before applying. No compatible group means the dialog says so instead of
+ * presenting an empty checklist.
+ */
+function PasteSettingsDialog({ name, groups, onCancel, onApply }: PasteSettingsDialogProps) {
+  const [chosen, setChosen] = useState<ReadonlySet<SettingsGroup>>(() => new Set(groups))
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const headingId = useId()
+
+  useEffect(() => {
+    // Focus starts on the safe action; Escape cancels from anywhere — the
+    // ConfirmDialog rules.
+    cancelRef.current?.focus()
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
+  return (
+    <div className="dialog-overlay" onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        className="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3 id={headingId}>Paste settings onto {name}?</h3>
+        {groups.length === 0 ? (
+          <p>None of the copied settings apply to this element.</p>
+        ) : (
+          <>
+            <p>Only the checked settings are applied, as one undoable edit.</p>
+            <div className="paste-settings-groups">
+              {SETTINGS_GROUPS.filter(({ id }) => groups.includes(id)).map(({ id, label }) => (
+                <label key={id}>
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(id)}
+                    onChange={(event) => {
+                      const next = new Set(chosen)
+                      if (event.target.checked) next.add(id)
+                      else next.delete(id)
+                      setChosen(next)
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="dialog-actions">
+          <button type="button" ref={cancelRef} onClick={onCancel}>
+            Cancel
+          </button>
+          {groups.length > 0 && (
+            <button
+              type="button"
+              disabled={chosen.size === 0}
+              onClick={() => onApply(groups.filter((group) => chosen.has(group)))}
+            >
+              Apply
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Which sections the timeline currently renders — a lane without elements is
  * not rendered, so it has nothing to fold. Both the fold-state pruning and
@@ -782,6 +891,7 @@ export function Timeline({
   onRedo,
   onMoveEntry,
   onDuplicate,
+  onPasteSettings,
   onRemoveEntry,
   onTrimEntry,
   onSetStillDuration,
@@ -997,6 +1107,61 @@ export function Timeline({
     action: () => void
   } | null>(null)
 
+  // Copy settings / Paste settings (#315). The copied settings are SESSION
+  // state, owned here exactly like the collapse state above: never written
+  // to the project model, project files, or the autosave snapshot — a
+  // reload starts with nothing copied, and copying is not an edit. Only a
+  // paste reaches the model, through onPasteSettings.
+  const [copiedSettings, setCopiedSettings] = useState<CopiedSettings | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{
+    kind: SettingsElementKind
+    id: string
+    name: string
+    groups: SettingsGroup[]
+  } | null>(null)
+  /**
+   * The row's ⎘/⎗ cluster: Copy on every row holding at least one settings
+   * group (a slate holds none), Paste on those same rows once something is
+   * copied — opening the checklist of the groups both rows can hold.
+   */
+  const settingsClipboardButtons = (
+    kind: SettingsElementKind,
+    element: Parameters<typeof copyElementSettings>[1],
+    position: string,
+  ) => {
+    if (onPasteSettings === undefined) return null
+    if (heldSettingsGroups(kind, element).length === 0) return null
+    return (
+      <>
+        <button
+          type="button"
+          aria-label={`Copy settings of ${position}`}
+          title="Copy settings"
+          onClick={() => setCopiedSettings(copyElementSettings(kind, element) ?? null)}
+        >
+          ⎘
+        </button>
+        {copiedSettings !== null && (
+          <button
+            type="button"
+            aria-label={`Paste settings onto ${position}`}
+            title="Paste settings"
+            onClick={() =>
+              setPendingPaste({
+                kind,
+                id: element.id,
+                name: position,
+                groups: compatibleSettingsGroups(copiedSettings, kind, element),
+              })
+            }
+          >
+            ⎗
+          </button>
+        )}
+      </>
+    )
+  }
+
   return (
     <section className="panel panel-wide" aria-label="Timeline">
       <div className="timeline-header">
@@ -1210,6 +1375,7 @@ export function Timeline({
                         ⧉
                       </button>
                     )}
+                    {settingsClipboardButtons('entry', entry, position)}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1685,6 +1851,7 @@ export function Timeline({
                         ⧉
                       </button>
                     )}
+                    {settingsClipboardButtons('audio-track', track, position)}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1856,6 +2023,7 @@ export function Timeline({
                         ⧉
                       </button>
                     )}
+                    {settingsClipboardButtons('video-overlay', overlay, position)}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -2045,6 +2213,7 @@ export function Timeline({
                         ⧉
                       </button>
                     )}
+                    {settingsClipboardButtons('text', text, position)}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -2163,6 +2332,21 @@ export function Timeline({
         </div>
       )}
 
+      {pendingPaste && copiedSettings && (
+        <PasteSettingsDialog
+          name={pendingPaste.name}
+          groups={pendingPaste.groups}
+          onCancel={() => setPendingPaste(null)}
+          onApply={(chosen) => {
+            onPasteSettings?.(
+              pendingPaste.kind,
+              pendingPaste.id,
+              filterSettings(copiedSettings, chosen),
+            )
+            setPendingPaste(null)
+          }}
+        />
+      )}
       {pendingRemoval && (
         <ConfirmDialog
           title={`Remove ${pendingRemoval.name}?`}
