@@ -62,6 +62,21 @@ detectable:
 - Never force-push, rebase, amend, or otherwise rewrite history on a branch
   this session did not create.
 - Small, coherent commits with clear messages describing why, not just what.
+- **New test blocks go before the file's last `describe`, not at EOF.** A
+  convention that removes friction, not a correctness rule: an EOF append is
+  never a defect, and a reviewer should not treat one as something to send
+  back. Concurrent PRs append to the same test files, and the end of the file
+  is the one line they all reach for, so appending there turns an otherwise
+  clean merge into a textual conflict at every file tail. Placing the block
+  ahead of the final `describe` leaves the file's end untouched and lets those
+  merges resolve themselves. #328 worked this out and moved its own `describe`
+  mid-file for exactly this reason, in a commit message; two PRs later #330
+  and #331 conflicted at the tail of both `src/lib/timeline.test.ts` and
+  `src/components/Timeline.test.tsx` and paid it again. The reason is stated
+  so a session can tell when it does not apply — a file with one `describe`,
+  or none, has no earlier block to sit before. When relocating an existing
+  block, move it verbatim, so a reviewer can see at a glance that no test
+  changed.
 
 ## Scope discipline
 
