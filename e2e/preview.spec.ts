@@ -177,12 +177,21 @@ test('seeking jumps to the correct clip within the sequence', async ({ page }) =
   await page.getByRole('button', { name: 'Add first.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add second.webm to timeline' }).click()
 
-  // Seek near the end of the sequence: the second clip must be cued.
+  // Seek near the end of the sequence: the second clip must be cued. The
+  // slider's max is the timeline total, which keeps refining after import as
+  // the recorded clips' duration metadata settles — so a max read on one
+  // render can be stale by the time of the fill, and a range input rejects a
+  // value past its current max outright ("Malformed value" — the full-suite
+  // failure #365 recorded for this test). Reading and filling inside one
+  // retry block makes a stale read re-read rather than fatal.
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
-  const max = Number(await seek.getAttribute('max'))
-  expect(max).toBeGreaterThan(1)
-  // Range inputs only accept values on the step grid (step=0.01).
-  await seek.fill((Math.round((max - 0.2) * 100) / 100).toFixed(2))
+  let max = 0
+  await expect(async () => {
+    max = Number(await seek.getAttribute('max'))
+    expect(max).toBeGreaterThan(1)
+    // Range inputs only accept values on the step grid (step=0.01).
+    await seek.fill((Math.round((max - 0.2) * 100) / 100).toFixed(2))
+  }).toPass({ timeout: 10_000 })
   await expect(page.getByTestId('preview-now-playing')).toContainText('second.webm')
 
   // The video element is cued into the second source at the right offset:

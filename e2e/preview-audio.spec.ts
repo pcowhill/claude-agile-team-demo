@@ -85,29 +85,81 @@ test('an overlapping track plays with the video and a mid-sequence track joins i
   const track1 = page.getByTestId('preview-audio-0')
   const track2 = page.getByTestId('preview-audio-1')
 
+  // The mid-playback observations ride an in-page rAF probe (the
+  // export-base-readiness pattern) rather than poll round-trips from the
+  // test: track 2's overlap window is well under a second, a protocol poll
+  // whose backoff has grown to 1 s can straddle it entirely, and a separate
+  // re-read of track 1 can land after the sequence ended and everything
+  // re-paused — `paused` flipping back to true is exactly the full-suite
+  // failure #365 recorded for this test. The probe samples every animation
+  // frame and records each fact when it observes it, so the assertions
+  // below read stable history, not transient state.
+  await page.evaluate(() => {
+    const probe = {
+      track1Started: false,
+      // Latest currentTime sampled while track 1 was playing — never a
+      // post-pause read.
+      track1Time: -1,
+      videoPlayedWithTrack1: false,
+      overlap: false,
+      // Track 2's currentTime on the first tick that saw both tracks
+      // unpaused together.
+      track2Time: -1,
+    }
+    ;(window as unknown as { __audioProbe: typeof probe }).__audioProbe = probe
+    const element = (testId: string) =>
+      document.querySelector<HTMLMediaElement>(`[data-testid="${testId}"]`)
+    const tick = () => {
+      const track1 = element('preview-audio-0')
+      const track2 = element('preview-audio-1')
+      const video = element('preview-video')
+      if (track1 && !track1.paused) {
+        probe.track1Started = true
+        probe.track1Time = track1.currentTime
+        if (video && !video.paused) probe.videoPlayedWithTrack1 = true
+        if (track2 && !track2.paused && !probe.overlap) {
+          probe.overlap = true
+          probe.track2Time = track2.currentTime
+        }
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  const readProbe = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __audioProbe: {
+              track1Started: boolean
+              track1Time: number
+              videoPlayedWithTrack1: boolean
+              overlap: boolean
+              track2Time: number
+            }
+          }
+        ).__audioProbe,
+    )
+
   await page.getByRole('button', { name: 'Play preview' }).click()
 
-  // Track 1 plays immediately, from its in-point; the video plays with it.
-  await expect
-    .poll(async () => track1.evaluate((el: HTMLAudioElement) => el.paused))
-    .toBe(false)
-  expect(await track1.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThanOrEqual(1)
-  expect(
-    await page
-      .getByTestId('preview-video')
-      .evaluate((el: HTMLVideoElement) => el.paused),
-  ).toBe(false)
+  // Track 1 plays immediately, from its in-point; the video plays with it
+  // (the video can start a tick later than the track, so it gets its own
+  // poll rather than being read off track 1's first tick).
+  await expect.poll(async () => (await readProbe()).track1Started).toBe(true)
+  await expect.poll(async () => (await readProbe()).videoPlayedWithTrack1).toBe(true)
+  expect((await readProbe()).track1Time).toBeGreaterThanOrEqual(1)
 
   // Track 2 joins when the position crosses its 0.8s start, cued near the
-  // start of its source (position − offset).
-  await expect
-    .poll(async () => track2.evaluate((el: HTMLAudioElement) => el.paused), { timeout: 10_000 })
-    .toBe(false)
-  const track2Time = await track2.evaluate((el: HTMLAudioElement) => el.currentTime)
-  expect(track2Time).toBeGreaterThanOrEqual(0)
-  expect(track2Time).toBeLessThan(1.5)
-  // Both tracks are audible at once — overlap is the point (#100).
-  expect(await track1.evaluate((el: HTMLAudioElement) => el.paused)).toBe(false)
+  // start of its source (position − offset). Both tracks audible at once is
+  // the point (#100), and the probe's overlap flag only sets on a tick that
+  // saw both unpaused together — the simultaneity is measured in one frame,
+  // not inferred from two reads.
+  await expect.poll(async () => (await readProbe()).overlap, { timeout: 10_000 }).toBe(true)
+  const overlap = await readProbe()
+  expect(overlap.track2Time).toBeGreaterThanOrEqual(0)
+  expect(overlap.track2Time).toBeLessThan(1.5)
 
   // The sequence ends: playback stops and every track pauses with it.
   await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible({
