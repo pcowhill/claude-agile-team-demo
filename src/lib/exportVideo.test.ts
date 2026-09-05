@@ -14,10 +14,14 @@ import {
   EXPORT_MIME_CANDIDATES_WITH_AUDIO,
   EXPORT_MP4_MIME_CANDIDATES,
   EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
+  exportProgressFraction,
+  exportRangeCue,
   fitRect,
   initialRemapReplay,
+  markedExportRange,
   OUT_POINT_EPSILON,
   ExportUnsupportedError,
+  resolveExportRange,
   overlayDestRect,
   pickExportMimeType,
   recorderStream,
@@ -40,6 +44,7 @@ import {
 } from './gain'
 import type { TimelineState } from './timeline'
 import { CANVAS_PRESETS, FALLBACK_FRAME, outputFrameSize, presetFrame } from './frameSize'
+import { locateInSequence } from './playback'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
@@ -2042,6 +2047,116 @@ describe('exportOutputFrame (#274)', () => {
       presetFrame(FALLBACK_FRAME, '1:1'),
     )
     expect(exportOutputFrame({ entries: [] }, [])).toEqual(FALLBACK_FRAME)
+  })
+})
+
+describe('export range (#385)', () => {
+  const entry = (id: string, duration: number, inPoint = 0, outPoint = duration) => ({
+    id,
+    clipId: `clip-${id}`,
+    name: `${id}.webm`,
+    duration,
+    url: `blob:${id}`,
+    inPoint,
+    outPoint,
+  })
+
+  describe('markedExportRange', () => {
+    it('offers no range until both marks are set the right way round', () => {
+      expect(markedExportRange(null, null, 10)).toBeNull()
+      expect(markedExportRange(2, null, 10)).toBeNull()
+      expect(markedExportRange(null, 8, 10)).toBeNull()
+      // Inverted and empty pairs offer nothing — the stated UI rule: the
+      // marks stay set, but no range exists until they are corrected.
+      expect(markedExportRange(8, 2, 10)).toBeNull()
+      expect(markedExportRange(5, 5, 10)).toBeNull()
+      expect(markedExportRange(2, 8, 0)).toBeNull()
+    })
+
+    it('clamps the out mark to the current total, and drops a range that starts past it', () => {
+      // An edit shortened the sequence after the marks were set: what
+      // remains of the range still exports.
+      expect(markedExportRange(2, 8, 6)).toEqual({ start: 2, end: 6 })
+      // The whole range fell off the end: nothing to offer.
+      expect(markedExportRange(7, 9, 6)).toBeNull()
+      expect(markedExportRange(6, 9, 6)).toBeNull()
+    })
+
+    it('passes a range inside the sequence through unchanged', () => {
+      expect(markedExportRange(1.5, 4.25, 10)).toEqual({ start: 1.5, end: 4.25 })
+    })
+  })
+
+  describe('resolveExportRange', () => {
+    it('is null when no range was requested — the whole sequence exports', () => {
+      expect(resolveExportRange(10, undefined)).toBeNull()
+    })
+
+    it('clamps both ends into the sequence', () => {
+      expect(resolveExportRange(10, { start: -1, end: 12 })).toEqual({ start: 0, end: 10 })
+      expect(resolveExportRange(10, { start: 2, end: 8 })).toEqual({ start: 2, end: 8 })
+    })
+
+    it('refuses a range that collapses under the clamp instead of exporting an empty file', () => {
+      expect(() => resolveExportRange(5, { start: 6, end: 9 })).toThrow(/marked range/)
+      expect(() => resolveExportRange(5, { start: 3, end: 3 })).toThrow(/marked range/)
+    })
+  })
+
+  describe('exportProgressFraction', () => {
+    it('measures against the exported window, not the whole sequence', () => {
+      // Whole sequence: the old sequenceTime/total fraction.
+      expect(exportProgressFraction(5, 0, 10)).toBeCloseTo(0.5, 6)
+      // A 2 s range starting at 6: halfway through the range is 50%, however
+      // early or late in the sequence the range sits.
+      expect(exportProgressFraction(7, 6, 8)).toBeCloseTo(0.5, 6)
+      expect(exportProgressFraction(6, 6, 8)).toBe(0)
+      expect(exportProgressFraction(8, 6, 8)).toBe(1)
+    })
+  })
+
+  describe('exportRangeCue', () => {
+    it('starts mid-entry with the output seconds into that entry', () => {
+      const timeline = { entries: [entry('e1', 10), entry('e2', 10)] }
+      expect(exportRangeCue(timeline, 3.5)).toEqual({ index: 0, outputInto: 3.5 })
+      expect(exportRangeCue(timeline, 13.5)).toEqual({ index: 1, outputInto: 3.5 })
+    })
+
+    it('lands a hard-cut boundary at the later entry, like playback', () => {
+      const timeline = { entries: [entry('e1', 10), entry('e2', 10)] }
+      expect(exportRangeCue(timeline, 10)).toEqual({ index: 1, outputInto: 0 })
+    })
+
+    it('lands mid-transition in the outgoing entry, so the loop renders the blend', () => {
+      const timeline: TimelineState = {
+        entries: [entry('e1', 10), entry('e2', 10)],
+        transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 2 }],
+      }
+      // The overlap covers sequence [8, 10): e2 starts at 8, e1 plays to 10.
+      const cue = exportRangeCue(timeline, 9)
+      expect(cue).toEqual({ index: 0, outputInto: 9 })
+      // Right after the overlap the incoming entry is 2s in: 11 − 8 = 3.
+      expect(exportRangeCue(timeline, 11)).toEqual({ index: 1, outputInto: 3 })
+    })
+
+    it('maps a remapped entry through the same output currency playback uses', () => {
+      // e1's second half plays at half speed: output duration 5 + 10 = 15.
+      const timeline: TimelineState = {
+        entries: [entry('e1', 10)],
+        remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 5, end: 10, factor: 0.5 }],
+      }
+      const cue = exportRangeCue(timeline, 9)
+      expect(cue).toEqual({ index: 0, outputInto: 9 })
+      // The loop cues via initialRemapReplay(trimmed, effects, outputInto):
+      // the source instant it lands on must be exactly where playback's own
+      // locateInSequence puts the same sequence time — 9 output seconds is
+      // 5 + 4·0.5 = 7 source seconds into the entry.
+      const initial = initialRemapReplay(10, timeline.remaps ?? [], cue.outputInto)
+      expect(initial.relSource).toBeCloseTo(7, 6)
+      const location = locateInSequence(timeline, 9)
+      expect(location).not.toBeNull()
+      expect(location!.sourceTime).toBeCloseTo(initial.relSource, 6)
+    })
   })
 })
 

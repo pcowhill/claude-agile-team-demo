@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
+import type { ExportRange } from '../lib/exportVideo'
+import { formatDuration } from '../lib/mediaLibrary'
 import {
   exportFileName,
   exportFormats,
@@ -42,6 +44,13 @@ interface ExportControlProps {
    * survives the plugin being off.
    */
   defaultFormat?: string
+  /**
+   * The transport marks' current export range (#385), pre-validated by the
+   * shared rule (`markedExportRange`); null when the marks offer none. When
+   * present the modal offers "Marked range" beside "Whole project" — whole
+   * project stays the default, reset on every open like the size settings.
+   */
+  range?: ExportRange | null
   /** Injectable for tests (jsdom cannot run the real media pipeline). */
   doExport?: DoExport
   /** Injectable for tests (jsdom has no MediaRecorder). */
@@ -87,6 +96,7 @@ function preferredFormat(available: ExportFormatSpec[], configured: string): str
 export function ExportControl({
   timeline,
   defaultFormat = 'webm',
+  range = null,
   doExport = defaultDoExport,
   isTypeSupported = mediaRecorderSupports,
   probeFrame = automaticExportFrame,
@@ -97,6 +107,10 @@ export function ExportControl({
   // they apply to one export only, per the feedback (#169). Drafts are
   // strings so the user can type freely; validity gates the Export button.
   const [sizeMode, setSizeMode] = useState<SizeMode>('auto')
+  // What the export covers (#385): the whole sequence, or the transport
+  // marks' range. One-export state like the size settings — reset on open,
+  // never remembered — and offered at all only while the marks form a range.
+  const [scope, setScope] = useState<'whole' | 'range'>('whole')
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
@@ -158,6 +172,9 @@ export function ExportControl({
     // Fresh automatic settings for this export (#179): the fallback shows
     // until the probe below resolves the sources' real frame.
     setSizeMode('auto')
+    // Whole project is every export's starting point (#385): a range picked
+    // for the last export never quietly becomes this one's.
+    setScope('whole')
     setWidthDraft(String(FALLBACK_FRAME.width))
     setHeightDraft(String(FALLBACK_FRAME.height))
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
@@ -249,6 +266,10 @@ export function ExportControl({
                 : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
               frameRate: parsedSettings.frameRate,
             }),
+        // The marked range (#385), when this export is scoped to it. Read at
+        // the click: the dialog is modal, so the marks cannot change under an
+        // open dialog, and the pipeline re-validates against the timeline.
+        ...(scope === 'range' && range !== null ? { range } : {}),
         signal: controller.signal,
         onProgress: (fraction) => setStatus({ kind: 'exporting', fraction }),
       })
@@ -346,6 +367,37 @@ export function ExportControl({
                 return note !== undefined && <p className="export-format-note">{note}</p>
               })()}
             </fieldset>
+            {/* The exported span (#385): rendered only while the transport
+                marks form a valid range — with no marks the dialog reads
+                exactly as before. Applies to every format: the range narrows
+                the pipeline's replay window, not any one encoder. */}
+            {range !== null && (
+              <fieldset className="export-format-options export-range-options">
+                <legend>Range</legend>
+                <label className="export-format-option">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    data-testid="export-scope-whole"
+                    disabled={exporting}
+                    checked={scope === 'whole'}
+                    onChange={() => setScope('whole')}
+                  />
+                  Whole project
+                </label>
+                <label className="export-format-option">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    data-testid="export-scope-range"
+                    disabled={exporting}
+                    checked={scope === 'range'}
+                    onChange={() => setScope('range')}
+                  />
+                  Marked range ({formatDuration(range.start)} – {formatDuration(range.end)})
+                </label>
+              </fieldset>
+            )}
             {!audioOnly && (
             <fieldset className="export-settings">
               <legend>Output</legend>

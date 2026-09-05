@@ -535,6 +535,68 @@ describe('default export format setting (#286)', () => {
   })
 })
 
+describe('export range option (#385)', () => {
+  const range = { start: 2, end: 8.5 }
+
+  it('offers no range line while the marks form none — the dialog reads as before', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(screen.queryByTestId('export-scope-range')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('export-scope-whole')).not.toBeInTheDocument()
+  })
+
+  it('defaults to the whole project and sends no range with it', async () => {
+    const doExport = vi.fn<DoExport>(() =>
+      Promise.resolve(new Blob(['x'], { type: 'video/webm' })),
+    )
+    const user = userEvent.setup()
+    render(
+      <ExportControl
+        timeline={timeline}
+        range={range}
+        doExport={doExport}
+        isTypeSupported={recordsEverything}
+      />,
+    )
+    await user.click(openButton())
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+    // The marked range's times are visible where it is offered.
+    expect(screen.getByTestId('export-scope-range').closest('label')).toHaveTextContent(
+      'Marked range (0:02 – 0:09)',
+    )
+    await user.click(exportButton())
+    await waitFor(() => expect(doExport).toHaveBeenCalledOnce())
+    expect(doExport.mock.calls[0][1].range).toBeUndefined()
+  })
+
+  it('sends the marked range when selected, and resets to whole project on reopen', async () => {
+    const doExport = vi.fn<DoExport>(() =>
+      Promise.resolve(new Blob(['x'], { type: 'video/webm' })),
+    )
+    const user = userEvent.setup()
+    render(
+      <ExportControl
+        timeline={timeline}
+        range={range}
+        doExport={doExport}
+        isTypeSupported={recordsEverything}
+      />,
+    )
+    await user.click(openButton())
+    await user.click(screen.getByTestId('export-scope-range'))
+    await user.click(exportButton())
+    await waitFor(() => expect(doExport).toHaveBeenCalledOnce())
+    expect(doExport.mock.calls[0][1].range).toEqual(range)
+
+    // A range picked for the last export never quietly becomes this one's —
+    // the size-settings reset rule (#179) applied to scope.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await user.click(openButton())
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+  })
+})
+
 describe('format-note layout structure (#268)', () => {
   // jsdom computes no layout, so the geometry itself (the note below the
   // radio rows, everything inside the dialog) is evidenced by
