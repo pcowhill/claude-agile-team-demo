@@ -2458,6 +2458,47 @@ describe('overlay parity across a transition handover (#319)', () => {
   })
 })
 
+describe('freeze frame control (#379)', () => {
+  const oneEntry: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 4,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 4,
+      },
+    ],
+  }
+
+  it('rides the transport beside Save frame, with the placement choice', () => {
+    render(<PreviewPlayer timeline={oneEntry} onFreezeFrame={() => {}} />)
+    const button = screen.getByTestId('preview-freeze-frame')
+    expect(button).toBeEnabled()
+    expect(button).toHaveTextContent('Freeze frame')
+    // The UI copy states the snapshot semantics (#316's tradeoff): a freeze
+    // is the composition at this instant, never a live reference.
+    expect(button).toHaveAttribute('title', expect.stringContaining('not a live reference'))
+    const placement = screen.getByRole('combobox', { name: 'Freeze frame placement' })
+    // Split & hold is the default (#316); append is the other offered mode.
+    expect(placement).toHaveValue('split')
+    fireEvent.change(placement, { target: { value: 'append' } })
+    expect(placement).toHaveValue('append')
+  })
+
+  it('disables without App wiring, like Split', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    expect(screen.getByTestId('preview-freeze-frame')).toBeDisabled()
+  })
+
+  it('renders no freeze control while the timeline is empty — no frame, no transport', () => {
+    render(<PreviewPlayer timeline={{ entries: [] }} onFreezeFrame={() => {}} />)
+    expect(screen.queryByTestId('preview-freeze-frame')).not.toBeInTheDocument()
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {

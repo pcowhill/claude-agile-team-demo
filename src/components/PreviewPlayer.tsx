@@ -56,6 +56,9 @@ import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import { frameFileName, snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { automaticExportFrame } from '../lib/exportSettings'
+import { freezeTargetAt } from '../lib/freezeFrame'
+import type { FreezePlacementMode, FreezeTarget } from '../lib/freezeFrame'
 import {
   modalDialogOpen,
   stepTarget,
@@ -77,6 +80,20 @@ interface PreviewPlayerProps {
    * the player renders without editing wiring (tests, read-only embeds).
    */
   onSplit?: (entryId: string, atSourceTime: number) => void
+  /**
+   * Freeze frame (#379): the captured PNG of the playhead's composed frame,
+   * with the output frame it was composed at, the sequence time it holds,
+   * and the resolved placement. The preview owns the playhead and the
+   * capture (the same snapshot path as Save frame); turning the blob into a
+   * library clip and the one-step timeline change is App's dispatch.
+   * Optional like `onSplit` — without it the control disables.
+   */
+  onFreezeFrame?: (
+    blob: Blob,
+    frame: SourceDimensions,
+    sequenceTime: number,
+    target: FreezeTarget,
+  ) => void
   /**
    * How far ← / → and Shift + ← / → move the playhead, in seconds — user
    * settings (#286). Optional so every existing caller and test keeps
@@ -474,6 +491,7 @@ export function PreviewPlayer({
   expanded = false,
   onToggleExpanded,
   onSplit,
+  onFreezeFrame,
   stepSeconds,
   largeStepSeconds,
 }: PreviewPlayerProps) {
@@ -529,6 +547,12 @@ export function PreviewPlayer({
   // transport lives rather than failing silently.
   const [savingFrame, setSavingFrame] = useState(false)
   const [saveFrameError, setSaveFrameError] = useState<string | null>(null)
+  // Freeze frame (#379): same one-at-a-time and error discipline as Save
+  // frame; the placement choice is transport-local UI state, not project
+  // state — it configures the next freeze, it does not describe this one.
+  const [freezing, setFreezing] = useState(false)
+  const [freezeError, setFreezeError] = useState<string | null>(null)
+  const [freezePlacement, setFreezePlacement] = useState<FreezePlacementMode>('split')
   // Intrinsic dimensions per source URL, probed off-DOM as sources join the
   // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
   // shapes the preview frame. Sources still probing simply don't contribute
@@ -1158,6 +1182,37 @@ export function PreviewPlayer({
     })()
   }
 
+  /**
+   * Freeze frame (#379): capture the playhead's composed frame — the exact
+   * Save frame snapshot, at the export's own output frame — and hand it to
+   * App with the placement resolved at the moment of the click, which is
+   * when the freeze semantically happens (#316: a snapshot of the
+   * composition, never a live reference). The reducer re-validates the
+   * placement, so a timeline that changed under the capture refuses cleanly
+   * instead of freezing onto the wrong entry.
+   */
+  const freezeFrame = () => {
+    if (freezing || onFreezeFrame === undefined) return
+    const time = Math.min(sequenceTime, total)
+    const target = freezeTargetAt(timeline, time, freezePlacement)
+    if (target === null) return
+    setFreezing(true)
+    setFreezeError(null)
+    void (async () => {
+      try {
+        // The explicit frame keeps the clip's recorded dimensions and the
+        // captured pixels the same derivation (#274's automatic rule).
+        const frame = await automaticExportFrame(timeline)
+        const blob = await snapshotTimelineFrame(timeline, time, { frame })
+        onFreezeFrame(blob, frame, time, target)
+      } catch (error) {
+        setFreezeError(error instanceof Error ? error.message : 'Freezing the frame failed.')
+      } finally {
+        setFreezing(false)
+      }
+    })()
+  }
+
   const seek = useCallback(
     (time: number) => {
       const location = locateInSequence(timeline, time)
@@ -1245,6 +1300,9 @@ export function PreviewPlayer({
   // splitting is disabled. Clamped like the seek slider's value, so a
   // published time past the end reads as the end (not splittable).
   const splitTarget = splitTargetAt(timeline, Math.min(sequenceTime, total))
+  // Whether Freeze frame (#379) has anything to freeze here in the chosen
+  // placement — null exactly where the snapshot has no frame to compose.
+  const freezeTarget = freezeTargetAt(timeline, Math.min(sequenceTime, total), freezePlacement)
   // Gate the overlay on the actual engagement, not the recomputed location
   // alone: right after a handover the published time can still trail inside
   // the overlap, and then the top-layer element holds the outgoing clip (#61).
@@ -1740,6 +1798,31 @@ export function PreviewPlayer({
             >
               📷 Save frame
             </button>
+            {/* Freeze frame (#379): the same composed capture as Save frame,
+                kept in the app — a library image clip placed on the timeline
+                as a still holding this instant. Disabled with no frame to
+                compose (empty timeline) or without App's wiring, like Split.
+                The choice beside it picks the placement of the NEXT freeze:
+                split & hold (the emphasis beat) or append (the end card). */}
+            <button
+              type="button"
+              data-testid="preview-freeze-frame"
+              title="Freeze the frame at the playhead as a 2-second still on the timeline (a snapshot of the composition at this instant, not a live reference)"
+              disabled={freezeTarget === null || freezing || onFreezeFrame === undefined}
+              onClick={freezeFrame}
+            >
+              ❄ Freeze frame
+            </button>
+            <select
+              aria-label="Freeze frame placement"
+              data-testid="preview-freeze-placement"
+              title="Where the frozen still goes: cut the clip at the playhead and hold between the halves, or hold after the clip without cutting it"
+              value={freezePlacement}
+              onChange={(event) => setFreezePlacement(event.target.value as FreezePlacementMode)}
+            >
+              <option value="split">Split &amp; hold</option>
+              <option value="append">Append after clip</option>
+            </select>
             <input
               type="range"
               aria-label="Seek within sequence"
@@ -1756,6 +1839,11 @@ export function PreviewPlayer({
           {saveFrameError !== null && (
             <p className="preview-save-frame-error" role="alert">
               Could not save the frame: {saveFrameError}
+            </p>
+          )}
+          {freezeError !== null && (
+            <p className="preview-save-frame-error" role="alert">
+              Could not freeze the frame: {freezeError}
             </p>
           )}
           {location && (

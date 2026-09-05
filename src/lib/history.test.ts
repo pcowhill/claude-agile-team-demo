@@ -253,6 +253,48 @@ describe('targetEditsText (#189)', () => {
   })
 })
 
+describe('freeze frame is one undo step (#379)', () => {
+  const frozenStill: TimelineEntry = {
+    id: 'fz',
+    clipId: 'clip-fz',
+    name: 'Freeze 0:04.png',
+    duration: 2,
+    url: 'blob:fz',
+    inPoint: 0,
+    outPoint: 2,
+    kind: 'image',
+  }
+
+  it('undoing once removes the cut and the still together', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    const frozen = timelineHistoryReducer(one, {
+      type: 'frame-frozen',
+      still: frozenStill,
+      placement: { kind: 'split', entryId: 'a', atSourceTime: 4, newEntryId: 'a2' },
+    })
+    expect(frozen.present.entries.map((e) => e.id)).toEqual(['a', 'fz', 'a2'])
+    expect(frozen.past).toHaveLength(2)
+
+    const undone = timelineHistoryReducer(frozen, { type: 'edit-undone' })
+    expect(undone.present).toBe(one.present)
+
+    const redone = timelineHistoryReducer(undone, { type: 'edit-redone' })
+    expect(redone.present).toBe(frozen.present)
+  })
+
+  it('a refused freeze records no history step', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    expect(
+      timelineHistoryReducer(one, {
+        type: 'frame-frozen',
+        still: frozenStill,
+        // The trim window's edge: the razor refuses, so the freeze does.
+        placement: { kind: 'split', entryId: 'a', atSourceTime: 0, newEntryId: 'a2' },
+      }),
+    ).toBe(one)
+  })
+})
+
 describe('batch add from a library selection (#292)', () => {
   const track = {
     id: 't1',
