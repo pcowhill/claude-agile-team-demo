@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectWithin } from './layout'
 
 /**
  * Transport keyboard shortcuts (#203), exercised media-free with a slate:
@@ -69,6 +70,31 @@ test('? opens the shortcut cheat sheet; Escape closes it', async ({ page }) => {
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Play / pause the preview')
   await expect(dialog).toContainText('Undo the last timeline edit')
+
+  // The guard against #287's mid-combo wrap returning (#349), as two checks
+  // that #349's measurements showed are the discriminating pair — a naive
+  // single-line assertion passes on every reversion of the defect, because
+  // no current combo is wide enough to wrap inside its 45% column while the
+  // dialog sits at its width cap:
+  // 1. One <kbd> per alternative combo. #287's actual defect was both Redo
+  //    alternatives joined in one <kbd> ('… or …'), which wraps mid-combo;
+  //    per-combo <kbd>s are what #289 split them into. 8 = 7 rows + Redo's
+  //    second alternative — update alongside shortcutsFor when a shortcut
+  //    is added or changed.
+  const combos = dialog.locator('.shortcut-row kbd')
+  await expect(combos).toHaveCount(8)
+  // 2. Every combo's box lies inside its own row — the box that actually
+  //    breaks when a combo grows too wide. Measured before writing this: a
+  //    nowrap combo wider than the 45% column does not wrap and does not
+  //    stay put — the dt's default min-width:auto lets the column grow to
+  //    the combo (kbd-inside-dt stays true, so THAT check is vacuous), and
+  //    the grown column overflows the fixed-width row. Containment against
+  //    the row is what fails, with ~90px to spare over the tolerance.
+  for (const [rowIndex, row] of (await dialog.locator('.shortcut-row').all()).entries()) {
+    for (const [comboIndex, combo] of (await row.locator('kbd').all()).entries()) {
+      await expectWithin(combo, row, { what: `row ${rowIndex} combo ${comboIndex}` })
+    }
+  }
 
   // While the sheet is open the transport is inert like under any modal.
   await page.keyboard.press(' ')
