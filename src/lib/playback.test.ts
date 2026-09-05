@@ -7,6 +7,7 @@ import {
   isAtSequenceEnd,
   isTransitionOverlayActive,
   locateInSequence,
+  sequenceBoundaries,
   sequenceTimeAt,
   splitTargetAt,
 } from './playback'
@@ -468,6 +469,53 @@ describe('splitTargetAt and split playback equivalence (#190)', () => {
         zoomAt(after, split?.index ?? 0, split?.sourceTime ?? 0),
         `zoom at ${time}`,
       ).toEqual(zoomAt(before, original?.index ?? 0, original?.sourceTime ?? 0))
+    }
+  })
+})
+
+describe('sequenceBoundaries (#391)', () => {
+  it('is empty for an empty timeline', () => {
+    expect(sequenceBoundaries({ entries: [] })).toEqual([])
+  })
+
+  it('brackets a single entry with the sequence ends', () => {
+    expect(sequenceBoundaries({ entries: [entry({ id: 'e1', inPoint: 2, outPoint: 5 })] })).toEqual(
+      [0, 3],
+    )
+  })
+
+  it('gives each hard cut its single instant', () => {
+    // e1 [0,3) / e2 [3,13) / e3 [13,15) — the shared fixture's trims.
+    expect(sequenceBoundaries(timeline)).toEqual([0, 3, 13, 15])
+  })
+
+  it('gives a transition both overlap edges', () => {
+    // e2 starts at 2 (1 s crossfade into e1's [0,3]) and ends at 12; the
+    // 0.5 s slide pulls e3's start to 11.5; total 13.5. Each blend
+    // contributes where it begins AND where it ends.
+    expect(sequenceBoundaries(withTransitions)).toEqual([0, 2, 3, 11.5, 12, 13.5])
+  })
+
+  it('accumulates remapped output durations, agreeing with entryStartTime', () => {
+    const remapped: TimelineState = {
+      entries: [
+        entry({ id: 'e1', clipId: 'clip-a' }),
+        entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b' }),
+      ],
+      // Half speed over [2,4] (+2 s) and a 3 s pause: e1 outputs 15 s.
+      remaps: [
+        { id: 'r1', entryId: 'e1', kind: 'speed', start: 2, end: 4, factor: 0.5 },
+        { id: 'r2', entryId: 'e1', kind: 'pause', at: 6, hold: 3 },
+      ],
+    }
+    expect(sequenceBoundaries(remapped)).toEqual([0, entryStartTime(remapped, 1), 25])
+    expect(sequenceBoundaries(remapped)).toEqual([0, 15, 25])
+  })
+
+  it('agrees with totalDuration at the last boundary', () => {
+    for (const state of [timeline, withTransitions]) {
+      const boundaries = sequenceBoundaries(state)
+      expect(boundaries[boundaries.length - 1]).toBe(totalDuration(state))
     }
   })
 })

@@ -236,7 +236,11 @@ the playhead 0.1 s (1 s with Shift) — both settable in Settings (#286) —
 Home/End jump to the sequence bounds, and ? opens a cheat sheet of every
 shortcut, which states the step sizes you have chosen — all inert while
 typing in a field or while a dialog is open, so no control loses its own
-keys.
+keys. ↑ / ↓ (and two transport buttons) jump the playhead exactly onto the
+previous / next cut — entry boundaries, both edges of a transition blend,
+the sequence ends (#391) — and releasing a seek near a boundary snaps onto
+it with a brief tick on the seek bar; hold Alt while releasing to place
+freely, and the slider's own arrow keys still step 0.01 s without snapping.
 A ✂ Split button beside the preview's transport cuts the entry under the
 playhead into two independently trimmable, removable halves (#190) — the
 razor. An untouched split plays back and exports exactly like the original;

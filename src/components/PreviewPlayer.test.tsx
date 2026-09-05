@@ -2590,6 +2590,161 @@ describe('export range marks (#385)', () => {
   })
 })
 
+describe('jump to cuts and snap on committed seek (#391)', () => {
+  const entryOf = (id: string, duration: number) => ({
+    id,
+    clipId: `clip-${id}`,
+    name: `${id}.webm`,
+    duration,
+    url: `blob:${id}`,
+    inPoint: 0,
+    outPoint: duration,
+  })
+  // Two entries, hard cut: boundaries 0 / 4 / 7.
+  const twoClips: TimelineState = { entries: [entryOf('e1', 4), entryOf('e2', 3)] }
+  // The same pair under a 1 s crossfade: blend spans [3, 4], total 6 —
+  // boundaries 0 / 3 / 4 / 6, both edges of the blend included.
+  const transitioned: TimelineState = {
+    ...twoClips,
+    transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+  }
+
+  // Same media stubs as the transport-shortcut block: jsdom plays nothing.
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const pressOnWindow = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const slider = () => screen.getByRole('slider', { name: 'Seek within sequence' })
+
+  it('Up and Down jump across hard-cut boundaries, clamped at the ends', () => {
+    render(<PreviewPlayer timeline={twoClips} />)
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('4')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('7')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('7')
+    pressOnWindow('ArrowUp')
+    expect(slider()).toHaveValue('4')
+    pressOnWindow('ArrowUp')
+    expect(slider()).toHaveValue('0')
+    pressOnWindow('ArrowUp')
+    expect(slider()).toHaveValue('0')
+    // From mid-entry the jump lands on the boundary, not a step away.
+    pressOnWindow('ArrowRight')
+    expect(slider()).toHaveValue('0.1')
+    pressOnWindow('ArrowUp')
+    expect(slider()).toHaveValue('0')
+  })
+
+  it('a transition contributes both blend edges as jump targets', () => {
+    render(<PreviewPlayer timeline={transitioned} />)
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('3')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('4')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('6')
+  })
+
+  it('the transport buttons make the same jumps, and disable on an empty timeline', () => {
+    const { unmount } = render(<PreviewPlayer timeline={twoClips} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to next cut' }))
+    expect(slider()).toHaveValue('4')
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to previous cut' }))
+    expect(slider()).toHaveValue('0')
+    unmount()
+
+    render(<PreviewPlayer timeline={{ entries: [] }} />)
+    // An empty timeline renders no transport at all — the placeholder shows
+    // instead, so there is nothing to jump and no button to mis-click.
+    expect(screen.queryByRole('button', { name: 'Jump to next cut' })).not.toBeInTheDocument()
+  })
+
+  it('a committed seek near a boundary snaps onto it and flashes the tick', () => {
+    render(<PreviewPlayer timeline={twoClips} />)
+    // jsdom reports no slider width, so the component uses the fixed
+    // fallback threshold (0.2 s): 3.9 is within it of the cut at 4.
+    fireEvent.change(slider(), { target: { value: '3.9' } })
+    expect(slider()).toHaveValue('3.9')
+    fireEvent.pointerUp(slider())
+    expect(slider()).toHaveValue('4')
+    const tick = screen.getByTestId('preview-snap-tick')
+    expect(tick.style.left).toBe(`${(4 / 7) * 100}%`)
+  })
+
+  it('the tick clears itself after its flash', () => {
+    vi.useFakeTimers()
+    try {
+      render(<PreviewPlayer timeline={twoClips} />)
+      fireEvent.change(slider(), { target: { value: '3.9' } })
+      fireEvent.pointerUp(slider())
+      expect(screen.getByTestId('preview-snap-tick')).toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+      expect(screen.queryByTestId('preview-snap-tick')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('Alt held at release bypasses the snap; a far or exact commit never snaps', () => {
+    render(<PreviewPlayer timeline={twoClips} />)
+    fireEvent.change(slider(), { target: { value: '3.9' } })
+    fireEvent.pointerUp(slider(), { altKey: true })
+    expect(slider()).toHaveValue('3.9')
+    expect(screen.queryByTestId('preview-snap-tick')).not.toBeInTheDocument()
+
+    // Far from every boundary: the commit stands as dragged.
+    fireEvent.change(slider(), { target: { value: '2' } })
+    fireEvent.pointerUp(slider())
+    expect(slider()).toHaveValue('2')
+    expect(screen.queryByTestId('preview-snap-tick')).not.toBeInTheDocument()
+
+    // Exactly on a boundary: nothing to adjust, so no tick either.
+    fireEvent.change(slider(), { target: { value: '4' } })
+    fireEvent.pointerUp(slider())
+    expect(slider()).toHaveValue('4')
+    expect(screen.queryByTestId('preview-snap-tick')).not.toBeInTheDocument()
+  })
+
+  it('the cheat sheet lists the boundary jumps', () => {
+    render(<PreviewPlayer timeline={twoClips} />)
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveTextContent(
+      'Jump to the previous / next cut or transition edge',
+    )
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {

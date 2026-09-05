@@ -19,6 +19,9 @@ export type TransportAction =
   /** Move the playhead by `delta` seconds (clamped by `stepTarget`). */
   | { kind: 'step'; delta: number }
   | { kind: 'jump'; to: 'start' | 'end' }
+  /** Jump to the adjacent sequence boundary (#391) — see `previousBoundary`
+   * / `nextBoundary` for where that lands. */
+  | { kind: 'jump-boundary'; direction: 'previous' | 'next' }
   | { kind: 'shortcut-help' }
 
 /**
@@ -57,6 +60,13 @@ export function transportActionForKey(
       return event.shiftKey ? null : { kind: 'jump', to: 'start' }
     case 'End':
       return event.shiftKey ? null : { kind: 'jump', to: 'end' }
+    // Up/Down jump to edit points (#391) — the desktop editors' convention,
+    // and the two arrows the transport never claimed. Bare keys only, like
+    // Home/End: Shift keeps whatever meaning the browser gives it.
+    case 'ArrowUp':
+      return event.shiftKey ? null : { kind: 'jump-boundary', direction: 'previous' }
+    case 'ArrowDown':
+      return event.shiftKey ? null : { kind: 'jump-boundary', direction: 'next' }
     case '?':
       return { kind: 'shortcut-help' }
     default:
@@ -98,4 +108,76 @@ export function modalDialogOpen(doc: Document): boolean {
 /** Where a step lands: the current position moved by `delta`, clamped to the sequence. */
 export function stepTarget(current: number, delta: number, total: number): number {
   return Math.min(Math.max(current + delta, 0), total)
+}
+
+/**
+ * Positions closer together than this count as the same instant (#391), so a
+ * jump from exactly-on-a-boundary moves to the *adjacent* boundary instead of
+ * re-landing where it already is, float noise included. Far below the 0.01 s
+ * the seek slider can even express.
+ */
+const BOUNDARY_EPSILON = 1e-6
+
+/**
+ * The nearest boundary strictly before `current` (#391), or the first
+ * boundary (the sequence start) when none is — the jump clamps at the ends
+ * rather than refusing. `boundaries` is `sequenceBoundaries`' sorted output;
+ * an empty list (empty timeline) returns `current` unchanged.
+ */
+export function previousBoundary(boundaries: readonly number[], current: number): number {
+  for (let i = boundaries.length - 1; i >= 0; i--) {
+    if (boundaries[i] < current - BOUNDARY_EPSILON) return boundaries[i]
+  }
+  return boundaries[0] ?? current
+}
+
+/** The nearest boundary strictly after `current` (#391); clamps to the last
+ * boundary (the sequence end) when none is. */
+export function nextBoundary(boundaries: readonly number[], current: number): number {
+  for (const boundary of boundaries) {
+    if (boundary > current + BOUNDARY_EPSILON) return boundary
+  }
+  return boundaries[boundaries.length - 1] ?? current
+}
+
+/**
+ * The snap zone (#391), as slider travel rather than time: a committed seek
+ * within this many pixels of a boundary lands on it. Pixels are what snapping
+ * means to a hand on a slider — the same reach whatever the sequence length —
+ * where any fixed time threshold is either numb on a short sequence or grabby
+ * on a long one.
+ */
+export const SNAP_PIXELS = 8
+
+/** Threshold where the slider's rendered width is unknowable (jsdom, a
+ * zero-width layout): a small fixed window instead of no snapping at all. */
+export const SNAP_FALLBACK_THRESHOLD_SECONDS = 0.2
+
+/** `SNAP_PIXELS` of slider travel converted to seconds of sequence time. */
+export function snapThresholdSeconds(total: number, sliderWidthPx: number): number {
+  if (!(sliderWidthPx > 0) || !(total > 0)) return SNAP_FALLBACK_THRESHOLD_SECONDS
+  return (total * SNAP_PIXELS) / sliderWidthPx
+}
+
+/**
+ * Where a committed seek snaps (#391): the nearest boundary within
+ * `threshold`, or null when none is — or when `current` already sits on one,
+ * so an exact landing never re-seeks or flashes the tick. Ties between two
+ * boundaries equally near go to the earlier one.
+ */
+export function snapToBoundary(
+  current: number,
+  boundaries: readonly number[],
+  threshold: number,
+): number | null {
+  let best: number | null = null
+  let bestDistance = Infinity
+  for (const boundary of boundaries) {
+    const distance = Math.abs(boundary - current)
+    if (distance <= threshold && distance < bestDistance) {
+      best = boundary
+      bestDistance = distance
+    }
+  }
+  return best === null || bestDistance <= BOUNDARY_EPSILON ? null : best
 }
