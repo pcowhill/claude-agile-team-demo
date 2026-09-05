@@ -36,8 +36,41 @@ async function recordScreen(page: import('@playwright/test').Page) {
       page.getByTestId('record-preview').evaluate((el: HTMLVideoElement) => el.videoWidth),
     )
     .toBeGreaterThan(0)
-  // The elapsed readout ticks — capture at least a second.
+  // The elapsed readout ticks — the product's wall-clock counter works.
   await expect(page.getByTestId('record-elapsed')).toHaveText(/0:0[1-9]/, { timeout: 15_000 })
+  // "Captured at least a second" is anchored on media the stream actually
+  // delivered, not on that wall clock (#373): tab capture only emits frames
+  // when the captured tab repaints, so under CPU load the recorder can hold
+  // almost no media while the readout ticks past 0:01 — the saved WebM's
+  // probed duration is its last frame's timestamp, and the library card
+  // then reads 0:00. The probe below rides the live preview (which plays
+  // the capture stream itself) and records the span of presented frames'
+  // mediaTime; the recorder attached to the same stream before the preview
+  // started playing, so its recorded span is at least this. 1.2 s of span
+  // keeps the card's rounded display at 0:01 or more with margin. Load can
+  // make this wait longer, never the later assertion false; a capture that
+  // truly delivers no frames times out loudly here.
+  await page.getByTestId('record-preview').evaluate((el: HTMLVideoElement) => {
+    const probe = { first: -1, span: 0 }
+    ;(window as unknown as { __captureSpanProbe: typeof probe }).__captureSpanProbe = probe
+    const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+      if (probe.first < 0) probe.first = metadata.mediaTime
+      probe.span = metadata.mediaTime - probe.first
+      el.requestVideoFrameCallback(onFrame)
+    }
+    el.requestVideoFrameCallback(onFrame)
+  })
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __captureSpanProbe: { span: number } }).__captureSpanProbe
+              .span,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(1.2)
   await page.getByRole('button', { name: 'Stop recording' }).click()
 }
 
