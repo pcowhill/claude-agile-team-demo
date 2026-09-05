@@ -119,9 +119,30 @@ extension point is built until a concrete plugin needs it**.
   composed frame; composition coordinates stay at the requested
   resolution), and a per-frame 256-color palette; the numbers and the why
   live in `gifSink.ts`, and the format's `note` states them in the UI.
-- **Transitions registry**: deliberately *not* built yet; it comes with the
-  transitions pack plugin (phase 4 #199), after the core transitions (#181)
-  landed in core (they were an unconditional customer ask).
+- **Transition registry** (`src/lib/transitionRender.ts`, built in phase 4
+  #199 because the Shaped wipes pack needs it — the deferral this list
+  recorded): a definition carries an id (what timeline state and project
+  files record), a picker name, and the pure `layerSpec(progress)` rule both
+  renderers already consumed — so preview/export parity is inherited, not
+  re-proven per plugin. Core transitions (#42, #181) register at startup in
+  their established order; `unregister`/`subscribe`/`version` mirror the
+  export-format registry for the same phase-2 reasons. Two consequences of
+  transitions being *project state* (unlike export formats): an unregistered
+  type renders as a crossfade fallback instead of throwing — disabling a
+  plugin tears down contributions, never user edits, so a pack transition
+  can outlive its plugin on the timeline (the picker shows it as
+  "(unavailable)") — and `PluginRuntime.projectPlugins` now asks every
+  catalog plugin, enabled or not, so a save after a disable still records
+  the dependency (the pack's id list lives in top-level catalog wiring,
+  `src/plugins/shapedWipesIds.ts`, so the predicate loads no chunk).
+  Parse-time transition-type validation (#75) moved with it: `projectFile`
+  checks structure only, and the open flow enforces known-types after the
+  plugin gate, when plugin types are knowable.
+- **Shaped wipes plugin** (`src/plugins/shapedWipes/`, phase 4 #199): the
+  transitions pack — box open, barn doors, letterbox, four corner wipes —
+  every definition the base spec plus a single reveal rectangle, the same
+  vocabulary the core wipes use, so the pack ships zero rendering code and
+  no dependencies.
 
 ### Projects that use plugin features: prompt-and-enable
 

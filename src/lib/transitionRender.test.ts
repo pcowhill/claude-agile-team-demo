@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { CROSS_ZOOM_PEAK, IRIS_COVER_RADIUS, transitionLayerSpec } from './transitionRender'
-import type { TransitionLayerSpec } from './transitionRender'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  CROSS_ZOOM_PEAK,
+  IRIS_COVER_RADIUS,
+  TransitionRegistry,
+  registerCoreTransitions,
+  transitionLabel,
+  transitionLayerSpec,
+  transitionRegistry,
+  unregisteredTransitionTypes,
+} from './transitionRender'
+import type { TransitionDefinition, TransitionLayerSpec } from './transitionRender'
+import { TRANSITION_TYPES } from './timeline'
 
 /** The fields every type shares unless it says otherwise (see BASE_SPEC). */
 const base: TransitionLayerSpec = {
@@ -18,6 +28,109 @@ const base: TransitionLayerSpec = {
   veil: null,
   incomingEllipse: null,
 }
+
+/** A minimal fixture definition for registry tests. */
+const fixtureDefinition = (id: string, name = id): TransitionDefinition => ({
+  id,
+  name,
+  layerSpec: () => ({ ...base }),
+})
+
+describe('TransitionRegistry (#199)', () => {
+  it('registers, finds, lists in order, and unregisters', () => {
+    const registry = new TransitionRegistry()
+    registry.register(fixtureDefinition('one', 'One'))
+    registry.register(fixtureDefinition('two', 'Two'))
+    expect(registry.has('one')).toBe(true)
+    expect(registry.find('one')?.name).toBe('One')
+    expect(registry.list().map((definition) => definition.id)).toEqual(['one', 'two'])
+    registry.unregister('one')
+    expect(registry.has('one')).toBe(false)
+    expect(registry.find('one')).toBeUndefined()
+    // Unregistering an absent id is a no-op — teardown order safety.
+    expect(() => registry.unregister('one')).not.toThrow()
+  })
+
+  it('throws on a duplicate id — silent replacement would hide a collision', () => {
+    const registry = new TransitionRegistry()
+    registry.register(fixtureDefinition('dup'))
+    expect(() => registry.register(fixtureDefinition('dup'))).toThrow(/already registered/)
+  })
+
+  it('notifies subscribers and bumps version on register and unregister', () => {
+    const registry = new TransitionRegistry()
+    const listener = vi.fn()
+    const unsubscribe = registry.subscribe(listener)
+    const before = registry.version
+    registry.register(fixtureDefinition('a'))
+    registry.unregister('a')
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(registry.version).toBe(before + 2)
+    unsubscribe()
+    registry.register(fixtureDefinition('b'))
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('registerCoreTransitions covers exactly TRANSITION_TYPES, in order', () => {
+    const registry = new TransitionRegistry()
+    registerCoreTransitions(registry)
+    expect(registry.list().map((definition) => definition.id)).toEqual([...TRANSITION_TYPES])
+    // Every core definition carries a picker name distinct from its id form.
+    for (const definition of registry.list()) {
+      expect(definition.name).not.toHaveLength(0)
+      expect(definition.name[0]).toBe(definition.name[0].toUpperCase())
+    }
+  })
+
+  it('the app singleton has the core set registered at startup', () => {
+    expect(unregisteredTransitionTypes(TRANSITION_TYPES, transitionRegistry)).toEqual([])
+  })
+})
+
+describe('registry resolution: fallback, labels, unknown types (#199)', () => {
+  it('an unregistered type renders as a crossfade rather than throwing', () => {
+    const registry = new TransitionRegistry()
+    registerCoreTransitions(registry)
+    // A pack transition left on the timeline after its plugin was disabled:
+    // the render loop must keep drawing something reasonable.
+    expect(transitionLayerSpec('gone-pack-type', 0.25, registry)).toEqual(
+      transitionLayerSpec('crossfade', 0.25, registry),
+    )
+  })
+
+  it('a registered definition resolves through its own layer rule', () => {
+    const registry = new TransitionRegistry()
+    registerCoreTransitions(registry)
+    registry.register({
+      id: 'custom',
+      name: 'Custom',
+      layerSpec: (progress) => ({ ...base, outgoingAlpha: 1 - progress }),
+    })
+    expect(transitionLayerSpec('custom', 0.75, registry)).toEqual({
+      ...base,
+      outgoingAlpha: 0.25,
+    })
+  })
+
+  it('labels are the lowercased registered name; unknown types show their id', () => {
+    const registry = new TransitionRegistry()
+    registerCoreTransitions(registry)
+    expect(transitionLabel('wipe-from-left', registry)).toBe('wipe from left')
+    expect(transitionLabel('cross-zoom', registry)).toBe('cross-zoom')
+    expect(transitionLabel('gone-pack-type', registry)).toBe('gone-pack-type')
+  })
+
+  it('unregisteredTransitionTypes reports unknown ids once each, known ones never', () => {
+    const registry = new TransitionRegistry()
+    registerCoreTransitions(registry)
+    expect(
+      unregisteredTransitionTypes(
+        ['crossfade', 'star-wipe', 'star-wipe', 'iris-open', 'other'],
+        registry,
+      ),
+    ).toEqual(['star-wipe', 'other'])
+  })
+})
 
 describe('transitionLayerSpec', () => {
   it('crossfade dissolves: outgoing at 1 − progress, incoming added at progress', () => {

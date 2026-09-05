@@ -6,7 +6,6 @@ import {
   normalizeColorAdjustments,
 } from './colorAdjustments'
 import type { MediaKind, MediaLibraryState } from './mediaLibrary'
-import { TRANSITION_TYPES } from './timeline'
 import type {
   AudioTrack,
   RemapEffect,
@@ -1315,14 +1314,19 @@ function validateProject(document: Record<string, unknown>): Project {
     entryIds.add(entry.id)
   }
 
-  const validTypes: readonly string[] = TRANSITION_TYPES
+  // A transition type is validated structurally here; whether the id is a
+  // *known* transition is a registry question that can only be answered once
+  // the file's plugin dependencies are settled — a pack transition's type is
+  // registered by a plugin this parse may be about to prompt for. The open
+  // flow enforces it after the plugin gate (`unregisteredTransitionTypes`,
+  // #199), keeping #75's corrupt-type protection at the one point plugin
+  // types are knowable.
   const boundaries = new Set<string>()
   const transitions = asArray(timelineRaw.transitions ?? [], 'timeline.transitions').map(
     (value, index) => {
       const path = `timeline.transitions[${index}]`
       const raw = asRecord(value, path)
       const type = asString(raw.type, `${path}.type`)
-      if (!validTypes.includes(type)) throw new Error(`${path}.type "${type}" is unknown`)
       const transition: TimelineTransition = {
         beforeId: asString(raw.beforeId, `${path}.beforeId`),
         afterId: asString(raw.afterId, `${path}.afterId`),

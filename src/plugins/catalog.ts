@@ -1,4 +1,6 @@
 import type { PluginSpec } from '../lib/plugins'
+import { transitionsOf } from '../lib/timeline'
+import { isShapedWipeTransition } from './shapedWipesIds'
 
 /**
  * The built-in plugin catalog (#197, ADR 0003): every plugin this build
@@ -24,5 +26,19 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./gif/index'),
     // The plugin contributes only an export format, which projects do not
     // store — no project ever depends on it (`usedByProject` omitted).
+  },
+  {
+    id: 'shaped-wipes',
+    name: 'Shaped wipes',
+    description:
+      'Adds seven transitions with richer reveal shapes than the core edge wipes: ' +
+      'box open, barn doors, letterbox, and four corner wipes.',
+    version: '1.0.0',
+    load: () => import('./shapedWipes/index'),
+    // Pack transitions live in the timeline, so a project that carries one
+    // depends on this plugin (#199). The predicate reads only the id list
+    // (top-level wiring), never the plugin's lazy chunk.
+    usedByProject: (_library, timeline) =>
+      transitionsOf(timeline).some((transition) => isShapedWipeTransition(transition.type)),
   },
 ]

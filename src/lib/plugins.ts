@@ -268,14 +268,19 @@ export class PluginRuntime {
   }
 
   /**
-   * The ids of enabled plugins whose features the given project state uses —
-   * what `serializeProject` records so the file can prompt-and-enable when
-   * reopened (#197, ADR 0003). Only enabled plugins are asked: a disabled
-   * plugin's features cannot be in the project.
+   * The ids of plugins whose features the given project state uses — what
+   * `serializeProject` records so the file can prompt-and-enable when
+   * reopened (#197, ADR 0003). Every catalog plugin is asked, enabled or
+   * not (#199): disabling tears down a plugin's *contributions*, never the
+   * user's edits, so a pack transition stays on the timeline after its
+   * plugin is disabled — and a save right then must still record the
+   * dependency or the file would reopen without prompting and silently
+   * render fallbacks. The predicate is pure over the state and lives in the
+   * entry-bundle catalog, so asking a disabled plugin loads nothing.
    */
   projectPlugins(library: MediaLibraryState, timeline: TimelineState): string[] {
     return this.catalog
-      .filter((spec) => this.active.has(spec.id) && spec.usedByProject?.(library, timeline) === true)
+      .filter((spec) => spec.usedByProject?.(library, timeline) === true)
       .map((spec) => spec.id)
   }
 }
