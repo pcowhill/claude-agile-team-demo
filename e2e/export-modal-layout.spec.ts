@@ -32,7 +32,11 @@ test('the format note sits below the radios and the picker stays inside the dial
   await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Export project' })
-  const options = dialog.locator('.export-format-option')
+  // The format fieldset's own options: the Range fieldset below it (#385,
+  // #400) shares the option class and lies below the note by design.
+  const options = dialog.locator(
+    'fieldset.export-format-options:not(.export-range-options) .export-format-option',
+  )
   expect(await options.count()).toBeGreaterThanOrEqual(3)
 
   // Both formats that state a note: the audio-only line (#264's screenshot)
@@ -62,4 +66,47 @@ test('the format note sits below the radios and the picker stays inside the dial
     // screenshot showed hanging out of it.
     await expectWithin(noteText, dialog, { axis: 'x', what: `${radio} note` })
   }
+})
+
+test('the Range fieldset keeps its typed fields and error line inside the dialog (#400)', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Export project' })
+  const custom = dialog.locator('.export-range-custom')
+  await expect(custom).toBeVisible()
+
+  // The custom option — radio label and both fields — lies within the
+  // dialog's horizontal bounds (vertical scrolling is the dialog's own).
+  await expectWithin(custom, dialog, { axis: 'x', what: 'custom range option' })
+  for (const testId of ['export-range-start', 'export-range-end']) {
+    await expectWithin(page.getByTestId(testId), dialog, { axis: 'x', what: testId })
+  }
+  // Fields do not overflow their own boxes (a typed value never clips).
+  for (const testId of ['export-range-start', 'export-range-end']) {
+    const overflow = await page.getByTestId(testId).evaluate((node) => ({
+      scrollWidth: node.scrollWidth,
+      clientWidth: node.clientWidth,
+    }))
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  }
+
+  // Provoke the longest message and check it sits on its own line below the
+  // options, inside the dialog — the #268 shape of defect, on this fieldset.
+  await page.getByTestId('export-range-end').fill('99:00')
+  const error = page.getByTestId('export-range-error')
+  await expect(error).toBeVisible()
+  await expectWithin(error, dialog, { axis: 'x', what: 'range error line' })
+  const customBox = await boxOf(custom)
+  const errorBox = await boxOf(error)
+  expect(errorBox.y).toBeGreaterThanOrEqual(customBox.y + customBox.height - 1)
+  const overflow = await error.evaluate((node) => ({
+    scrollWidth: node.scrollWidth,
+    clientWidth: node.clientWidth,
+  }))
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  // The human check for the PR's rendered evidence, re-taken every run.
+  await dialog.screenshot({ path: testInfo.outputPath('export-range-fieldset.png') })
 })
