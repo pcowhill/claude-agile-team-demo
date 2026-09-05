@@ -2565,8 +2565,30 @@ describe('export range marks (#385)', () => {
     render(<PreviewPlayer timeline={oneEntry} />)
     expect(screen.getByTestId('preview-mark-in')).toBeDisabled()
     expect(screen.getByTestId('preview-mark-out')).toBeDisabled()
-    // No marks set: nothing to clear, so no clear button either.
+    // No marks set: nothing to clear, so no clear button either — and no
+    // marker on the bar.
     expect(screen.queryByTestId('preview-clear-marks')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-mark-in-marker')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-mark-out-marker')).not.toBeInTheDocument()
+  })
+
+  it('shows a lone mark as a marker at its position, in and out told apart (#399)', () => {
+    const { rerender } = render(<PreviewPlayer timeline={oneEntry} markIn={2} />)
+    const inMarker = screen.getByTestId('preview-mark-in-marker')
+    expect(inMarker.style.left).toBe('20%')
+    expect(inMarker).toHaveAttribute('title', 'Mark in: 0:02')
+    expect(inMarker).toHaveClass('preview-mark-in')
+    // One mark is no span: no band, no out marker.
+    expect(screen.queryByTestId('preview-marked-range')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-mark-out-marker')).not.toBeInTheDocument()
+
+    rerender(<PreviewPlayer timeline={oneEntry} markOut={8} />)
+    const outMarker = screen.getByTestId('preview-mark-out-marker')
+    expect(outMarker.style.left).toBe('80%')
+    expect(outMarker).toHaveAttribute('title', 'Mark out: 0:08')
+    expect(outMarker).toHaveClass('preview-mark-out')
+    expect(screen.queryByTestId('preview-marked-range')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-mark-in-marker')).not.toBeInTheDocument()
   })
 
   it('highlights a valid marked span on the seek bar, and only a valid one', () => {
@@ -2575,11 +2597,17 @@ describe('export range marks (#385)', () => {
     // Fractions of the 10 s sequence: [2, 8] spans 20% → 80%.
     expect(highlight.style.left).toBe('20%')
     expect(highlight.style.width).toBe('60%')
+    // Both brackets frame the band at its ends (#399).
+    expect(screen.getByTestId('preview-mark-in-marker').style.left).toBe('20%')
+    expect(screen.getByTestId('preview-mark-out-marker').style.left).toBe('80%')
     // An inverted pair is kept as marks (clear button shows) but offers no
-    // range, so no highlight claims one exists.
+    // range, so no highlight claims one exists — while both markers stay
+    // where they are, so what needs fixing is visible (#399).
     rerender(<PreviewPlayer timeline={oneEntry} markIn={8} markOut={2} onClearMarks={() => {}} />)
     expect(screen.queryByTestId('preview-marked-range')).not.toBeInTheDocument()
     expect(screen.getByTestId('preview-clear-marks')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-mark-in-marker').style.left).toBe('80%')
+    expect(screen.getByTestId('preview-mark-out-marker').style.left).toBe('20%')
   })
 
   it('clears both marks through one callback', () => {

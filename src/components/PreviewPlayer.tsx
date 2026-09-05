@@ -2000,6 +2000,27 @@ export function PreviewPlayer({
                   }}
                 />
               )}
+              {/* Each mark shows on its own the moment it is set (#399): a
+                  bracket at its position, opening right for in and left for
+                  out, so a lone mark — or an inverted pair, which offers no
+                  span — is still somewhere the eye can find it. The band
+                  above needs both marks; these need one. */}
+              {markIn !== null && total > 0 && (
+                <span
+                  className="preview-mark preview-mark-in"
+                  data-testid="preview-mark-in-marker"
+                  title={`Mark in: ${formatDuration(Math.min(markIn, total))}`}
+                  style={{ left: `${(Math.min(markIn, total) / total) * 100}%` }}
+                />
+              )}
+              {markOut !== null && total > 0 && (
+                <span
+                  className="preview-mark preview-mark-out"
+                  data-testid="preview-mark-out-marker"
+                  title={`Mark out: ${formatDuration(Math.min(markOut, total))}`}
+                  style={{ left: `${(Math.min(markOut, total) / total) * 100}%` }}
+                />
+              )}
               {/* The snap tick (#391): a brief flash where the committed
                   seek just landed by snapping, so the adjustment is visible
                   rather than mysterious. */}
