@@ -108,20 +108,45 @@ test('a pause freezes the frame while the sequence clock advances', async ({ pag
 
   // Mid-hold: the element is paused on the frozen instant while playback is
   // still running (the pause button is showing) — the sequence clock, not
-  // the element clock, is advancing.
+  // the element clock, is advancing. `paused` alone cannot identify that
+  // state: under parallel load the first poll sample can precede Play taking
+  // effect, and a not-yet-started element is also paused — at ~0 s (#362).
+  // So the poll only accepts a paused sample that carries the hold's
+  // progress, and the range assertions run on the sample the poll accepted
+  // rather than a later re-read the resume could sneak past.
+  let frozenAt = -1
   await expect
-    .poll(async () => video.evaluate((el: HTMLVideoElement) => el.paused), { timeout: 10_000 })
-    .toBe(true)
+    .poll(
+      async () => {
+        const sample = await video.evaluate((el: HTMLVideoElement) => ({
+          paused: el.paused,
+          currentTime: el.currentTime,
+        }))
+        if (!sample.paused || sample.currentTime < 0.4) return null
+        frozenAt = sample.currentTime
+        return frozenAt
+      },
+      { timeout: 10_000 },
+    )
+    .not.toBeNull()
   await expect(page.getByRole('button', { name: 'Pause preview' })).toBeVisible()
-  const frozenAt = await video.evaluate((el: HTMLVideoElement) => el.currentTime)
   expect(frozenAt).toBeGreaterThanOrEqual(0.4)
   expect(frozenAt).toBeLessThanOrEqual(0.6)
 
   // The hold ends: the element resumes and the sequence completes at the
-  // remapped 2s total.
+  // remapped 2s total. Resume is asserted from the element's clock, not
+  // from catching `paused === false`: the post-hold playing window is only
+  // half a second (0.5 s of clip between the hold's end and the trim out),
+  // the element is paused both during the hold and after the sequence ends,
+  // and under parallel load a poll whose interval has grown to 1 s can miss
+  // the window entirely (#362 — this run's own repeat validation caught it).
+  // The clock passing the frozen instant is something only a resume can do,
+  // and it stays true however late the sample lands.
   await expect
-    .poll(async () => video.evaluate((el: HTMLVideoElement) => el.paused), { timeout: 10_000 })
-    .toBe(false)
+    .poll(async () => video.evaluate((el: HTMLVideoElement) => el.currentTime), {
+      timeout: 10_000,
+    })
+    .toBeGreaterThan(0.6)
   await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible({
     timeout: 10_000,
   })
