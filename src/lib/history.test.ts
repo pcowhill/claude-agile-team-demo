@@ -295,6 +295,65 @@ describe('freeze frame is one undo step (#379)', () => {
   })
 })
 
+describe('a placed screen + camera take is one undo step (#388)', () => {
+  it('undoing once removes the entry and the overlay together', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    const placed = timelineHistoryReducer(one, {
+      type: 'recording-pair-placed',
+      entry: entry('scr'),
+      overlay: {
+        id: 'cam',
+        clipId: 'clip-cam',
+        name: 'Webcam recording 1.webm',
+        duration: 6,
+        url: 'blob:cam',
+        offset: 0,
+        inPoint: 0,
+        outPoint: 6,
+        x: 0.62,
+        y: 0.62,
+        width: 0.35,
+        height: 0.35,
+      },
+    })
+    expect(placed.present.entries.map((e) => e.id)).toEqual(['a', 'scr'])
+    expect(placed.present.videoOverlays).toHaveLength(1)
+    expect(placed.past).toHaveLength(2)
+
+    const undone = timelineHistoryReducer(placed, { type: 'edit-undone' })
+    expect(undone.present).toBe(one.present)
+    expect(undone.present.videoOverlays ?? []).toHaveLength(0)
+
+    const redone = timelineHistoryReducer(undone, { type: 'edit-redone' })
+    expect(redone.present).toBe(placed.present)
+  })
+
+  it('a refused placement records no history step', () => {
+    const one = addEntry(emptyTimelineHistory, 'a')
+    expect(
+      timelineHistoryReducer(one, {
+        type: 'recording-pair-placed',
+        // The taken id refuses the whole action — no half-arrival to undo.
+        entry: entry('a'),
+        overlay: {
+          id: 'cam',
+          clipId: 'clip-cam',
+          name: 'Webcam recording 1.webm',
+          duration: 6,
+          url: 'blob:cam',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 6,
+          x: 0.62,
+          y: 0.62,
+          width: 0.35,
+          height: 0.35,
+        },
+      }),
+    ).toBe(one)
+  })
+})
+
 describe('batch add from a library selection (#292)', () => {
   const track = {
     id: 't1',

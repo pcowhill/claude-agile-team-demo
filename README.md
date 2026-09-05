@@ -58,7 +58,15 @@ ready to trim, overlay, transition, and export; the source hides where
 video plus microphone audio the same way — a live self-view in the dialog,
 the clip landing as `Webcam recording 1`, ready to layer as a
 picture-in-picture commentary bubble; a camera without a microphone still
-records, video-only. A references-only project file
+records, video-only. A Screen + camera source (#388) records both at once
+from one gesture — the screen picker, then the camera, with either denial
+canceling the whole start — showing both live in the dialog, and stopping
+places the take: the screen clip lands on the timeline with the camera clip
+as a corner overlay bubble starting alongside it, both ordinary editable
+clips (reposition, resize, mask, mute — never a baked composite), the
+arrival undoable as one step while both captures stay in the library. The
+microphone records with the camera clip; tab/system audio, when granted,
+stays with the screen clip. A references-only project file
 cannot re-link a recording (it never existed on disk); save with embedded
 media to carry recordings across machines. The preview plays them mixed with the videos' own audio
 (#103), honoring each track's volume and optional fade-in/fade-out and each

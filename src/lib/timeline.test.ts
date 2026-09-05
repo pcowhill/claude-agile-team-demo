@@ -28,7 +28,7 @@ import {
   zoomsForEntry,
   zoomsOf,
 } from './timeline'
-import type { RemapEffect, TextOverlay, VideoOverlay, ZoomEffect } from './timeline'
+import type { RemapEffect, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import { zoomAt } from './zoom'
 import { copyElementSettings } from './settingsClipboard'
@@ -4349,6 +4349,111 @@ describe('frame-frozen (#379)', () => {
     expect(freeze(state, split, still('n'))).toBe(state)
     // Unknown target for an insert placement.
     expect(freeze(state, { kind: 'after', entryId: 'ghost' })).toBe(state)
+  })
+})
+
+describe('recording-pair-placed (#388)', () => {
+  const screenEntry = (id = 'scr', duration = 6): TimelineEntry => ({
+    id,
+    clipId: `clip-${id}`,
+    name: 'Screen recording 1.webm',
+    duration,
+    url: `blob:${id}`,
+    inPoint: 0,
+    outPoint: duration,
+  })
+  const cameraOverlay = (id = 'cam', duration = 6): VideoOverlay => ({
+    id,
+    clipId: `clip-${id}`,
+    name: 'Webcam recording 1.webm',
+    duration,
+    url: `blob:${id}`,
+    offset: 0,
+    inPoint: 0,
+    outPoint: duration,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+  })
+  const place = (
+    state: TimelineState,
+    entry = screenEntry(),
+    overlay = cameraOverlay(),
+  ): TimelineState => timelineReducer(state, { type: 'recording-pair-placed', entry, overlay })
+
+  it('appends the entry and pins the overlay to its start, in one action', () => {
+    const state = stateOf(['e1', 10])
+    const next = place(state)
+    expect(order(next)).toEqual(['e1', 'scr'])
+    expect(next.videoOverlays).toHaveLength(1)
+    // Whatever offset the caller built (0 here), the overlay starts exactly
+    // where the appended entry does — the reducer pins it.
+    expect(next.videoOverlays?.[0]).toMatchObject({ id: 'cam', offset: 10 })
+    expect(totalDuration(next)).toBe(16)
+  })
+
+  it('pins the overlay to the overlap-aware start when a transition shortens the sequence', () => {
+    let state = stateOf(['e1', 10], ['e2', 10])
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'e1',
+      afterId: 'e2',
+      transition: { type: 'crossfade', duration: 2 },
+    })
+    expect(totalDuration(state)).toBe(18)
+    const next = place(state)
+    expect(next.videoOverlays?.[0].offset).toBe(18)
+  })
+
+  it('places into an empty sequence at zero', () => {
+    const next = place({ entries: [] })
+    expect(order(next)).toEqual(['scr'])
+    expect(next.videoOverlays?.[0].offset).toBe(0)
+  })
+
+  it('refuses the whole action when any piece is invalid', () => {
+    const state = stateOf(['e1', 10])
+    // A still where the screen capture belongs (programmer error upstream).
+    expect(
+      place(state, { ...screenEntry(), kind: 'image' as const, inPoint: 0, outPoint: 6 }),
+    ).toBe(state)
+    // An empty entry trim.
+    expect(place(state, { ...screenEntry(), inPoint: 3, outPoint: 3 })).toBe(state)
+    // An overlay with an empty trim window.
+    expect(place(state, screenEntry(), { ...cameraOverlay(), inPoint: 6, outPoint: 6 })).toBe(
+      state,
+    )
+    // Taken ids on either side.
+    expect(place(state, screenEntry('e1'))).toBe(state)
+    const withOverlay = place(state)
+    expect(place(withOverlay, screenEntry('scr2'), cameraOverlay('cam'))).toBe(withOverlay)
+  })
+
+  it('leaves both halves ordinary editable elements afterwards', () => {
+    const next = place(stateOf(['e1', 10]))
+    // The overlay takes an ordinary placement edit (move/resize)…
+    const moved = timelineReducer(next, {
+      type: 'video-overlay-updated',
+      id: 'cam',
+      placement: {
+        offset: 10,
+        inPoint: 0,
+        outPoint: 6,
+        x: 0.05,
+        y: 0.05,
+        width: 0.2,
+        height: 0.2,
+        volume: 1,
+        muted: true,
+      },
+    })
+    expect(moved.videoOverlays?.[0]).toMatchObject({ x: 0.05, muted: true })
+    // …and removing the entry never drags the overlay with it: two clips,
+    // not a baked composite.
+    const removed = timelineReducer(moved, { type: 'entry-removed', id: 'scr' })
+    expect(order(removed)).toEqual(['e1'])
+    expect(removed.videoOverlays).toHaveLength(1)
   })
 })
 

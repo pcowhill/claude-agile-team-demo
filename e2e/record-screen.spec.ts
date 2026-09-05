@@ -27,7 +27,7 @@ test.use({
 /** Runs one screen capture through the Record menu, ~1s long, and stops it. */
 async function recordScreen(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Record' }).click()
-  await page.getByRole('menuitem', { name: 'Screen' }).click()
+  await page.getByRole('menuitem', { name: 'Screen', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Recording screen' })).toBeVisible()
   // The dialog's live preview plays the capture itself: a decodable video
   // frame from the stream is what a nonzero intrinsic width proves.
@@ -110,7 +110,7 @@ test('cancel discards the screen capture without touching the library (#225)', a
 }) => {
   await page.goto('./')
   await page.getByRole('button', { name: 'Record' }).click()
-  await page.getByRole('menuitem', { name: 'Screen' }).click()
+  await page.getByRole('menuitem', { name: 'Screen', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Recording screen' })).toBeVisible()
   await page.getByRole('button', { name: 'Cancel' }).click()
 
@@ -122,7 +122,7 @@ test("the browser's own stop-sharing ends the capture like Stop (#225)", async (
   test.setTimeout(120_000)
   await page.goto('./')
   await page.getByRole('button', { name: 'Record' }).click()
-  await page.getByRole('menuitem', { name: 'Screen' }).click()
+  await page.getByRole('menuitem', { name: 'Screen', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Recording screen' })).toBeVisible()
   await expect(page.getByTestId('record-elapsed')).toHaveText(/0:0[1-9]/, { timeout: 15_000 })
 

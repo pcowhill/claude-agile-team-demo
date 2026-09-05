@@ -6,12 +6,14 @@ import { RecordControl } from './RecordControl'
 import { probeMediaFile } from '../lib/probeMedia'
 import {
   isRecordingSupported,
+  isScreenCameraRecordingSupported,
   isScreenRecordingSupported,
   startMicrophoneRecording,
+  startScreenCameraRecording,
   startScreenRecording,
   startWebcamRecording,
 } from '../lib/recording'
-import type { RecordingSession } from '../lib/recording'
+import type { RecordingSession, ScreenCameraRecordingSession } from '../lib/recording'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -29,6 +31,8 @@ vi.mock('../lib/recording', async (importOriginal) => ({
   isScreenRecordingSupported: vi.fn(() => true),
   startScreenRecording: vi.fn(),
   startWebcamRecording: vi.fn(),
+  isScreenCameraRecordingSupported: vi.fn(() => true),
+  startScreenCameraRecording: vi.fn(),
 }))
 
 const probeMock = vi.mocked(probeMediaFile)
@@ -37,6 +41,8 @@ const supportedMock = vi.mocked(isRecordingSupported)
 const startScreenMock = vi.mocked(startScreenRecording)
 const screenSupportedMock = vi.mocked(isScreenRecordingSupported)
 const startWebcamMock = vi.mocked(startWebcamRecording)
+const startScreenCameraMock = vi.mocked(startScreenCameraRecording)
+const screenCameraSupportedMock = vi.mocked(isScreenCameraRecordingSupported)
 
 const fakeSession = (
   mimeType = 'audio/webm;codecs=opus',
@@ -52,6 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   supportedMock.mockReturnValue(true)
   screenSupportedMock.mockReturnValue(true)
+  screenCameraSupportedMock.mockReturnValue(true)
 })
 
 describe('voice-over recording (#224)', () => {
@@ -269,6 +276,182 @@ describe('screen recording (#225)', () => {
     await screen.findByRole('dialog', { name: 'Recording screen' })
     await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
     expect(session.stop).toHaveBeenCalledWith('Screen recording 3.webm')
+  })
+})
+
+describe('screen + camera recording (#388)', () => {
+  const screenStream = { screen: true } as unknown as MediaStream
+  const cameraStream = { camera: true } as unknown as MediaStream
+  const pairSession = (): ScreenCameraRecordingSession => ({
+    screenMimeType: 'video/webm;codecs=vp9,opus',
+    cameraMimeType: 'video/webm;codecs=vp9,opus',
+    screenStream,
+    cameraStream,
+    stop: vi.fn(async (screenFileName: string, cameraFileName: string) => ({
+      screen: new File(['scr'], screenFileName, { type: 'video/webm' }),
+      camera: new File(['cam'], cameraFileName, { type: 'video/webm' }),
+    })),
+    cancel: vi.fn(),
+  })
+  /** Probes each recorded file as a video clip of the given duration. */
+  const probeAsVideo = (durations: Record<string, number> = {}) =>
+    probeMock.mockImplementation(async (file: File) => ({
+      duration: durations[file.name] ?? 2,
+      url: `blob:${file.name}`,
+      kind: 'video' as const,
+    }))
+
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  })
+
+  it('records both, shows both previews with the routing note, and places the arrival', async () => {
+    const session = pairSession()
+    startScreenCameraMock.mockResolvedValue(session)
+    probeAsVideo()
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+    // Both live previews, wired to their own streams, muted (no feedback).
+    const screenPreview = screen.getByTestId('record-preview') as HTMLVideoElement
+    const cameraPreview = screen.getByTestId('record-preview-camera') as HTMLVideoElement
+    expect(screenPreview.srcObject).toBe(screenStream)
+    expect(cameraPreview.srcObject).toBe(cameraStream)
+    expect(screenPreview.muted).toBe(true)
+    expect(cameraPreview.muted).toBe(true)
+    // The fixed audio routing is stated, not configurable (#388).
+    expect(dialog).toHaveTextContent('The microphone records with the camera clip')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(session.stop).toHaveBeenCalledWith('Screen recording 1.webm', 'Webcam recording 1.webm')
+
+    // Both captures are ordinary library clips…
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('Screen recording 1.webm')
+    expect(list).toHaveTextContent('Webcam recording 1.webm')
+    // …and they arrived placed: the screen on the sequence, the camera as an
+    // overlay layer (#388).
+    expect(
+      await screen.findByRole('spinbutton', {
+        name: 'Trim out point of Screen recording 1.webm at position 1 in seconds',
+      }),
+    ).toBeInTheDocument()
+    const overlays = screen.getByRole('list', { name: 'Overlay layers' })
+    expect(overlays).toHaveTextContent('Webcam recording 1.webm')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('one undo removes the placed pair together and keeps both clips in the library', async () => {
+    const session = pairSession()
+    startScreenCameraMock.mockResolvedValue(session)
+    probeAsVideo()
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await screen.findByRole('list', { name: 'Overlay layers' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+    // The arrival was one action (#388): entry and overlay gone together…
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('spinbutton', {
+        name: 'Trim out point of Screen recording 1.webm at position 1 in seconds',
+      }),
+    ).not.toBeInTheDocument()
+    // …while the library keeps both captures — the take is a deliverable of
+    // its own, like every recording.
+    const list = screen.getByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('Screen recording 1.webm')
+    expect(list).toHaveTextContent('Webcam recording 1.webm')
+  })
+
+  it("the browser's own stop-sharing concludes the paired take exactly like Stop", async () => {
+    const session = pairSession()
+    let shareEnded: () => void = () => {}
+    startScreenCameraMock.mockImplementation(async (onShareEnded) => {
+      shareEnded = onShareEnded
+      return session
+    })
+    probeAsVideo()
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+
+    shareEnded()
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(session.stop).toHaveBeenCalledWith('Screen recording 1.webm', 'Webcam recording 1.webm')
+    expect(list).toHaveTextContent('Webcam recording 1.webm')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('cancel discards both captures without touching the library', async () => {
+    const session = pairSession()
+    startScreenCameraMock.mockResolvedValue(session)
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(session.cancel).toHaveBeenCalled()
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(probeMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('list', { name: 'Imported clips' })).not.toBeInTheDocument()
+  })
+
+  it('a denied prompt lands in the failure list, with nothing recorded', async () => {
+    startScreenCameraMock.mockRejectedValue(new Error('Permission denied'))
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Screen + camera recording failed: Permission denied')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('a capture whose probe fails costs only itself: the other clip lands, nothing is placed', async () => {
+    const session = pairSession()
+    startScreenCameraMock.mockResolvedValue(session)
+    probeMock.mockImplementation(async (file: File) => {
+      if (file.name.startsWith('Webcam')) throw new Error('Could not read this file as media.')
+      return { duration: 2, url: `blob:${file.name}`, kind: 'video' as const }
+    })
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+
+    // The screen take is not discarded over its partner's import failure…
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('Screen recording 1.webm')
+    expect(list).not.toHaveTextContent('Webcam recording 1.webm')
+    // …the camera's failure lists like any failed import, and no half-pair
+    // reaches the timeline.
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Could not read this file as media.')
+    expect(screen.queryByRole('list', { name: 'Overlay layers' })).not.toBeInTheDocument()
+  })
+
+  it('is offered only where both underlying sources are supported', async () => {
+    screenCameraSupportedMock.mockReturnValue(false)
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    expect(screen.getByRole('menuitem', { name: 'Screen' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Screen + camera' })).not.toBeInTheDocument()
   })
 })
 

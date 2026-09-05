@@ -18,6 +18,11 @@ import './MediaLibrary.css'
 interface MediaLibraryProps {
   library: MediaLibraryState
   onImportFiles: (files: File[]) => void
+  /** Receives a finished screen + camera take (#388) — both files together,
+   * so the app can import and place them as one arrival. Optional so tests
+   * predating the paired source keep compiling; without it the source is
+   * simply not offered. */
+  onRecordedPair?: (files: { screen: File; camera: File }) => void
   /** Routes a recording failure into the library's failure list (#224). */
   onRecordingFailed: (reason: string) => void
   onDismissFailures: () => void
@@ -83,6 +88,7 @@ const VIEW_CONTROLS: readonly { view: LibraryView; label: string }[] = [
 export function MediaLibrary({
   library,
   onImportFiles,
+  onRecordedPair,
   onRecordingFailed,
   onDismissFailures,
   onAddToTimeline,
@@ -310,6 +316,7 @@ export function MediaLibrary({
         <RecordControl
           existingNames={library.clips.map((clip) => clip.name)}
           onRecorded={(file) => onImportFiles([file])}
+          onRecordedPair={onRecordedPair}
           onFailed={onRecordingFailed}
         />
         <input

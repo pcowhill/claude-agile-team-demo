@@ -35,6 +35,22 @@
   margin-bottom: 0.5rem;
 }
 
+/* The paired take's camera self-view (#388): a smaller tile under the
+   screen preview — the bubble-to-be, not the main capture. */
+.record-preview-camera {
+  max-width: 12rem;
+  max-height: 7rem;
+}
+
+/* The paired take's fixed audio-routing note (#388): stated, not
+   configurable, so the dialog says where each sound lands. */
+.record-note {
+  max-width: 24rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
 .record-status {
   display: flex;
   align-items: center;

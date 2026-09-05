@@ -321,6 +321,157 @@ export async function startScreenRecording(
 }
 
 /**
+ * Both halves of a screen + camera take (#388): one gesture acquired both
+ * streams and started both recorders, one Stop / Cancel concludes both. The
+ * streams and MIME types are exposed for the dialog's two live previews and
+ * the two file names; the paired stop resolves both captures as ordinary
+ * `File`s for the import path.
+ */
+export interface ScreenCameraRecordingSession {
+  readonly screenMimeType: string
+  readonly cameraMimeType: string
+  readonly screenStream: MediaStream
+  readonly cameraStream: MediaStream
+  /** Concludes both captures; both conclude even if one recorder failed
+   * (the failure then surfaces after the other resolved). */
+  stop(screenFileName: string, cameraFileName: string): Promise<{ screen: File; camera: File }>
+  /** Discards both captures — every device/surface released, no files. */
+  cancel(): void
+}
+
+/** The dependency slice a paired capture needs: both acquisition paths. */
+export interface ScreenCameraRecordingDependencies {
+  getDisplayMedia: ScreenRecordingDependencies['getDisplayMedia']
+  getUserMedia: RecordingDependencies['getUserMedia']
+  createRecorder: RecordingDependencies['createRecorder']
+  isTypeSupported: RecordingDependencies['isTypeSupported']
+}
+
+function defaultScreenCameraDependencies(): ScreenCameraRecordingDependencies | null {
+  const screen = defaultScreenDependencies()
+  const camera = defaultDependencies()
+  if (screen === null || camera === null) return null
+  return {
+    getDisplayMedia: screen.getDisplayMedia,
+    getUserMedia: camera.getUserMedia,
+    createRecorder: camera.createRecorder,
+    isTypeSupported: camera.isTypeSupported,
+  }
+}
+
+/**
+ * Whether this context can record screen and camera together (#388): exactly
+ * the conjunction of the two single-source detections. Where false the
+ * "Screen + camera" source is simply not offered — never a crash.
+ */
+export function isScreenCameraRecordingSupported(): boolean {
+  return defaultScreenCameraDependencies() !== null
+}
+
+/**
+ * Starts a screen + camera capture (#388): the browser's screen picker
+ * first (the user chooses the surface, exactly as the Screen source does),
+ * then the camera — with #226's fallback, so a camera without a microphone
+ * still records video-only. **Either denial cancels the whole start**:
+ * every already-granted track is stopped and one rejection surfaces, so a
+ * dismissed picker or a camera refusal never leaves a half-recording or a
+ * live capture nobody sees. Both recorders start back-to-back from this one
+ * call — the same gesture — which is what keeps the two captures aligned;
+ * the delivered clips' probed durations agree to within recorder startup
+ * skew (asserted in e2e, not assumed).
+ *
+ * Audio routing is fixed, not configurable: the microphone travels with the
+ * camera stream (the narrator's track), and whatever tab/system audio the
+ * browser grants stays with the screen stream — two microphones are never
+ * captured.
+ *
+ * `onShareEnded` fires when the capture surface itself ends the share (the
+ * browser's "stop sharing" UI), exactly as in `startScreenRecording` — the
+ * caller concludes the whole take as its Stop button would.
+ */
+export async function startScreenCameraRecording(
+  onShareEnded: () => void,
+  dependencies: ScreenCameraRecordingDependencies | null = defaultScreenCameraDependencies(),
+): Promise<ScreenCameraRecordingSession> {
+  if (dependencies === null) {
+    throw new Error('Screen + camera recording is not supported in this browser or context.')
+  }
+  const screenStream = await dependencies.getDisplayMedia({ video: true, audio: true })
+  const releaseScreen = () => {
+    for (const track of screenStream.getTracks()) track.stop()
+  }
+  let cameraStream: MediaStream
+  try {
+    try {
+      cameraStream = await dependencies.getUserMedia({ video: true, audio: true })
+    } catch {
+      // #226's rule: a missing microphone costs the sound, never the
+      // recording; a genuine camera denial fails both attempts and the
+      // second failure is the one that surfaces.
+      cameraStream = await dependencies.getUserMedia({ video: true })
+    }
+  } catch (error) {
+    releaseScreen()
+    throw error
+  }
+
+  const screenSession = recordStream(
+    screenStream,
+    dependencies,
+    VIDEO_MIME_CANDIDATES,
+    'video/webm',
+    'The screen recorder could not start.',
+  )
+  let cameraSession: RecordingSession
+  try {
+    cameraSession = recordStream(
+      cameraStream,
+      dependencies,
+      VIDEO_MIME_CANDIDATES,
+      'video/webm',
+      'The camera recorder could not start.',
+    )
+  } catch (error) {
+    // recordStream released the camera stream before throwing; the started
+    // screen half must not keep recording into a take that no longer exists.
+    screenSession.cancel()
+    throw error
+  }
+
+  for (const track of screenStream.getVideoTracks()) {
+    track.addEventListener('ended', onShareEnded)
+  }
+
+  let concluded = false
+  return {
+    screenMimeType: screenSession.mimeType,
+    cameraMimeType: cameraSession.mimeType,
+    screenStream,
+    cameraStream,
+    async stop(screenFileName: string, cameraFileName: string) {
+      if (concluded) throw new Error('The recording is already concluded.')
+      concluded = true
+      // Settled, not raced: both halves must conclude (devices released)
+      // before any failure surfaces, or one recorder's error would leave
+      // the other capturing forever.
+      const [screen, camera] = await Promise.allSettled([
+        screenSession.stop(screenFileName),
+        cameraSession.stop(cameraFileName),
+      ])
+      if (screen.status === 'rejected') throw screen.reason
+      if (camera.status === 'rejected') throw camera.reason
+      return { screen: screen.value, camera: camera.value }
+    },
+    cancel(): void {
+      if (concluded) return
+      concluded = true
+      screenSession.cancel()
+      cameraSession.cancel()
+    },
+  }
+}
+
+/**
  * Starts a webcam capture (#226): camera video plus microphone audio via
  * `getUserMedia`, recorded until `stop` or `cancel` — the third one-line
  * caller of the shared session logic, exactly as #225 anticipated. A camera
