@@ -15,6 +15,7 @@ import type { CanvasPreset } from '../lib/frameSize'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { unregisteredTransitionTypes } from '../lib/transitionRender'
+import type { ExportRange } from '../lib/exportVideo'
 import {
   DEFAULT_PROJECT_FILE_NAME,
   PROJECT_FILE_EXTENSION,
@@ -85,6 +86,13 @@ interface ProjectControlsProps {
    */
   settings?: AppSettings
   onSetSettings?: (settings: AppSettings) => void
+  /**
+   * The transport marks' current export range (#385), already validated by
+   * the shared rule (`markedExportRange`); null when the marks offer none.
+   * Passed through to the export modal, which offers it beside "whole
+   * project". Optional so tests that predate ranges keep compiling.
+   */
+  exportRange?: ExportRange | null
 }
 
 type SaveStatus =
@@ -140,6 +148,7 @@ export function ProjectControls({
   onSetCanvasPreset,
   settings,
   onSetSettings,
+  exportRange = null,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -653,7 +662,7 @@ export function ProjectControls({
           </select>
         </label>
       )}
-      <ExportControl timeline={timeline} defaultFormat={settings?.exportFormat} />
+      <ExportControl timeline={timeline} defaultFormat={settings?.exportFormat} range={exportRange} />
       <PluginManager />
       {/* Per-device preferences (#286). Rendered only with both halves of
           the settings wiring supplied, so a caller that predates settings

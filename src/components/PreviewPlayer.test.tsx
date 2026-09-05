@@ -2530,6 +2530,66 @@ describe('freeze frame control (#379)', () => {
   })
 })
 
+describe('export range marks (#385)', () => {
+  const oneEntry: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 10,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 10,
+      },
+    ],
+  }
+
+  it('marks the playhead position through the App callbacks', () => {
+    const onMarkIn = vi.fn()
+    const onMarkOut = vi.fn()
+    render(<PreviewPlayer timeline={oneEntry} onMarkIn={onMarkIn} onMarkOut={onMarkOut} />)
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '3.5' },
+    })
+    fireEvent.click(screen.getByTestId('preview-mark-in'))
+    expect(onMarkIn).toHaveBeenCalledWith(3.5)
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '7' },
+    })
+    fireEvent.click(screen.getByTestId('preview-mark-out'))
+    expect(onMarkOut).toHaveBeenCalledWith(7)
+  })
+
+  it('disables the mark buttons without wiring or content, like Split', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    expect(screen.getByTestId('preview-mark-in')).toBeDisabled()
+    expect(screen.getByTestId('preview-mark-out')).toBeDisabled()
+    // No marks set: nothing to clear, so no clear button either.
+    expect(screen.queryByTestId('preview-clear-marks')).not.toBeInTheDocument()
+  })
+
+  it('highlights a valid marked span on the seek bar, and only a valid one', () => {
+    const { rerender } = render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} />)
+    const highlight = screen.getByTestId('preview-marked-range')
+    // Fractions of the 10 s sequence: [2, 8] spans 20% → 80%.
+    expect(highlight.style.left).toBe('20%')
+    expect(highlight.style.width).toBe('60%')
+    // An inverted pair is kept as marks (clear button shows) but offers no
+    // range, so no highlight claims one exists.
+    rerender(<PreviewPlayer timeline={oneEntry} markIn={8} markOut={2} onClearMarks={() => {}} />)
+    expect(screen.queryByTestId('preview-marked-range')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-clear-marks')).toBeInTheDocument()
+  })
+
+  it('clears both marks through one callback', () => {
+    const onClearMarks = vi.fn()
+    render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} onClearMarks={onClearMarks} />)
+    fireEvent.click(screen.getByTestId('preview-clear-marks'))
+    expect(onClearMarks).toHaveBeenCalledOnce()
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {

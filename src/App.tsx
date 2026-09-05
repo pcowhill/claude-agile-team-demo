@@ -8,6 +8,7 @@ import { openAutosaveStore } from './lib/autosave'
 import type { AutosaveStore } from './lib/autosave'
 import { extractAudioClip } from './lib/extractAudio'
 import { FREEZE_STILL_DURATION, freezeFrameClip } from './lib/freezeFrame'
+import { markedExportRange } from './lib/exportVideo'
 import type { FreezeTarget } from './lib/freezeFrame'
 import type { SourceDimensions } from './lib/frameSize'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
@@ -19,6 +20,7 @@ import {
   entryFromClip,
   slateEntry,
   imageOverlayFromClip,
+  totalDuration,
   videoOverlayFromClip,
 } from './lib/timeline'
 import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
@@ -330,6 +332,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     [],
   )
 
+  // Export-range marks (#385): session-only state, deliberately not project
+  // content — never serialized, gone on reload (the approved recommendation
+  // in #381). The transport sets them at the playhead; the export modal
+  // offers the validated range they currently form (markedExportRange, the
+  // one shared rule).
+  const [markIn, setMarkIn] = useState<number | null>(null)
+  const [markOut, setMarkOut] = useState<number | null>(null)
+  const exportRange = markedExportRange(markIn, markOut, totalDuration(timeline))
+  const handleClearMarks = useCallback(() => {
+    setMarkIn(null)
+    setMarkOut(null)
+  }, [])
+
   const handleRemoveClip = useCallback((clip: LibraryClip) => {
     dispatch({ type: 'clip-removed', id: clip.id })
     dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
@@ -432,6 +447,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
           settings={settings}
           onSetSettings={handleSetSettings}
+          exportRange={exportRange}
         />
       </header>
       <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
@@ -471,6 +487,11 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             })
           }
           onFreezeFrame={handleFreezeFrame}
+          markIn={markIn}
+          markOut={markOut}
+          onMarkIn={setMarkIn}
+          onMarkOut={setMarkOut}
+          onClearMarks={handleClearMarks}
         />
         <Timeline
           timeline={timeline}

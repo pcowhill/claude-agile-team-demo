@@ -25,7 +25,7 @@ import {
 } from './timeline'
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
-import { audioTrackPlaybackAt, entryStartTime } from './playback'
+import { audioTrackPlaybackAt, entryStartTime, locateInSequence } from './playback'
 import {
   audioTrackGainAt,
   duckFactorAt,
@@ -1285,6 +1285,87 @@ export interface ExportFrameSink {
   finish: () => Promise<Blob>
 }
 
+/**
+ * A span of the sequence to export (#385): output seconds from the start of
+ * the whole edit, the currency of `locateInSequence`. The export renders only
+ * `[start, end)` — everything else about the pipeline (formats, settings,
+ * sinks, audio mix) applies unchanged to the narrowed window.
+ */
+export interface ExportRange {
+  start: number
+  end: number
+}
+
+/**
+ * Clamps a requested range into the sequence, or null when no range was
+ * requested (export everything). The marks were set against some earlier
+ * timeline state, so both ends clamp into [0, total]; a range that collapses
+ * under the clamp (it lies entirely past the current sequence) refuses the
+ * export honestly rather than producing an empty file.
+ */
+export function resolveExportRange(total: number, range: ExportRange | undefined): ExportRange | null {
+  if (range === undefined) return null
+  const start = Math.min(Math.max(range.start, 0), total)
+  const end = Math.min(Math.max(range.end, 0), total)
+  if (end - start <= 0) {
+    throw new Error('The marked range lies outside the current sequence — clear or re-set the marks.')
+  }
+  return { start, end }
+}
+
+/**
+ * The export range a pair of transport marks (#385) currently offers, or null
+ * when they offer none: both marks set, the in mark strictly before the out
+ * mark, and the in mark inside the sequence; the out mark clamps to the
+ * current total so marks set before a shortening edit still export what
+ * remains. One rule shared by the seek bar's highlight, the export modal's
+ * range option, and the export itself, so they can never disagree.
+ */
+export function markedExportRange(
+  markIn: number | null,
+  markOut: number | null,
+  total: number,
+): ExportRange | null {
+  if (markIn === null || markOut === null || total <= 0) return null
+  if (markIn >= markOut || markIn >= total) return null
+  return { start: markIn, end: Math.min(markOut, total) }
+}
+
+/**
+ * Overall export progress for a frame at `sequenceTime`, measured against
+ * the exported window (#385) — for a whole-sequence export the window is
+ * [0, total] and this is the old sequenceTime/total fraction. Pure so the
+ * normalization is testable outside the real-time loop.
+ */
+export function exportProgressFraction(
+  sequenceTime: number,
+  windowStart: number,
+  windowEnd: number,
+): number {
+  return (sequenceTime - windowStart) / (windowEnd - windowStart)
+}
+
+/**
+ * Where a range export starts playing: the entry under the range's start and
+ * the output seconds into it — `locateInSequence`'s own resolution (#385), so
+ * a start mid-transition lands in the *outgoing* entry (the loop's overlap
+ * compositing then renders the blend, exactly what the preview shows there)
+ * and a start on a hard-cut boundary lands at the later entry's first
+ * instant. The output-seconds currency means remaps resolve through the same
+ * `initialRemapReplay` call every transition handover already uses.
+ */
+export function exportRangeCue(
+  timeline: TimelineState,
+  rangeStart: number,
+): { index: number; outputInto: number } {
+  const location = locateInSequence(timeline, rangeStart)
+  if (location === null) return { index: 0, outputInto: 0 }
+  return {
+    index: location.index,
+    outputInto: Math.max(0, rangeStart - entryStartTime(timeline, location.index)),
+  }
+}
+
 export interface ExportOptions {
   /** Target container; MIME candidates are picked within it only (#114). */
   container?: ExportContainer
@@ -1331,6 +1412,13 @@ export interface ExportOptions {
    * unchanged.
    */
   frame?: SourceDimensions
+  /**
+   * Export only this span of the sequence (#385), in output seconds — see
+   * {@link ExportRange}. Ends clamp into the sequence; boundary semantics are
+   * playback's (a start mid-transition exports the blend). Absent means the
+   * whole sequence, exactly as before.
+   */
+  range?: ExportRange
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
@@ -2129,6 +2217,15 @@ export async function exportTimeline(
   }
 
   const total = totalDuration(timeline)
+  // The exported window (#385): the whole sequence, or the requested range
+  // clamped into it. Everything below keeps publishing *absolute* sequence
+  // time — overlays, audio tracks, ducking, and sinks are sequence-anchored —
+  // so a range changes only where playback starts, where it stops, and what
+  // progress is measured against.
+  const range = resolveExportRange(total, options.range)
+  const windowStart = range?.start ?? 0
+  const windowEnd = range?.end ?? total
+  const startCue = range === null ? { index: 0, outputInto: 0 } : exportRangeCue(timeline, windowStart)
   // The recorder exists only without a sink (#198) or audio sink (#269): a
   // sink-driven export takes its frames straight from the shared canvas
   // below, and an audio sink already sits on the mix graph.
@@ -2184,7 +2281,11 @@ export async function exportTimeline(
     // entry (#144): where the incoming element landed in the mapping, and
     // any pause plateau it landed inside of.
     let carriedState: RemapReplayState = { hold: null, lastRelSource: 0 }
-    for (let index = 0; index < entries.length; index++) {
+    // Set inside the tick when the window's end is reached (#385): the entry
+    // loop then stops before any handover work for a boundary the export
+    // never plays through.
+    let reachedWindowEnd = false
+    for (let index = startCue.index; index < entries.length; index++) {
       const entry = entries[index]
       const still = isStillEntry(entry)
       const overlap = boundaries[index]
@@ -2202,24 +2303,32 @@ export async function exportTimeline(
       // into it the previous overlap already showed it). The recording is
       // real-time either way — the canvas stream captures as time passes —
       // so wall time is exactly the rate the still must advance at.
+      // A range's first entry starts however far into it the window begins
+      // (#385) — 0 for a whole-sequence export and for every later entry.
+      const startInto = index === startCue.index ? startCue.outputInto : 0
       const stillStartedAt = performance.now()
-      const stillBase = entry.inPoint + (continuing ? stillCarryover : 0)
+      const stillBase = entry.inPoint + (continuing ? stillCarryover : startInto)
       const sourceTimeNow = () =>
         still ? stillBase + (performance.now() - stillStartedAt) / 1000 : primary.currentTime
       let replayState: RemapReplayState = continuing ? carriedState : { hold: null, lastRelSource: 0 }
       if (!continuing && !still) {
-        const initial = initialRemapReplay(trimmed, effects, 0)
+        // `startInto` is nonzero only for a range's first entry (#385): the
+        // cue then resolves through the same initialRemapReplay call a
+        // transition handover uses, so remaps map exactly as playback does.
+        const initial = initialRemapReplay(trimmed, effects, startInto)
         replayState = initial.state
         await cueTo(primary, entry.url, entry.inPoint + initial.relSource)
         throwIfAborted()
         // The entry's gain at its start (#104/#220): volume × mute × fade
-        // envelope at output 0, no ramp outside a transition. The draw loop
-        // below re-applies it every frame, which is what records a fade-in
-        // as a continuous ramp.
-        primary.volume = videoEntryGainAt(entry, 0, outDuration) * duckFactorAt(ducking, startTime)
-        // The cue point is output 0 into the entry: sequence time startTime.
-        drawFrame(videoFrame(primary), index, startTime)
-        sink?.frame(canvas, startTime)
+        // envelope at the cue point, no ramp outside a transition. The draw
+        // loop below re-applies it every frame, which is what records a
+        // fade-in as a continuous ramp.
+        primary.volume =
+          videoEntryGainAt(entry, startInto, outDuration) *
+          duckFactorAt(ducking, startTime + startInto)
+        // The cue point is `startInto` output seconds into the entry.
+        drawFrame(videoFrame(primary), index, startTime + startInto)
+        sink?.frame(canvas, startTime + startInto)
         if (replayState.hold === null) {
           // The rate at the cue point (#144): 1 for an unremapped entry,
           // the segment's factor when the entry starts inside one.
@@ -2433,7 +2542,21 @@ export async function exportTimeline(
               trackDuckFactorAt(recorded.track, ducking, sequenceTime),
             )
           }
-          reportProgress(sequenceTime / total)
+          // Progress is measured against the exported window (#385) — for a
+          // whole-sequence export that is [0, total], the old fraction.
+          reportProgress(exportProgressFraction(sequenceTime, windowStart, windowEnd))
+          if (sequenceTime >= windowEnd) {
+            // The window ends here (#385): this frame — drawn and handed to
+            // the sink above — is the last one. Checked before `finished` so
+            // a range ending exactly on a cut stops here instead of playing
+            // into the next entry. The recorder stops when the loop unwinds,
+            // so the file's tail is this instant. (For a whole-sequence
+            // export this fires at most on the final entry's last frame,
+            // where stopping is what would happen anyway.)
+            reachedWindowEnd = true
+            resolve()
+            return
+          }
           if (finished) {
             resolve()
             return
@@ -2442,6 +2565,7 @@ export async function exportTimeline(
         }
         requestAnimationFrame(tick)
       })
+      if (reachedWindowEnd) break
       if (overlap !== undefined && next !== undefined && isStillEntry(next)) {
         // Handover into a still (#140): nothing plays the incoming entry —
         // its wall clock simply starts however far the overlap carried it.
