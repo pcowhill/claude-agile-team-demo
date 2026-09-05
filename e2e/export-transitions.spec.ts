@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { sampleExportedFrame } from './decodedFrame'
-import type { SampleRect } from './decodedFrame'
+import { firstFrame, frameAt, lastFrame, scanExportedFrames } from './decodedFrame'
+import type { ExportScan, SampleRect } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -151,12 +151,17 @@ async function exportOnce(page: Page): Promise<Buffer> {
 }
 
 /**
- * Named bands of the decoded frame, sampled through the shared
- * presented-frame decoder (#276). Sample times anchor to the END of the
- * file because export overhead (the initial cue before real-time
- * recording) pads the front: the final entry always occupies the file's
- * last second, so the overlap is exactly [end - 1.0, end - 0.5] regardless
- * of how large the front padding was. The margin bands are left-margin
+ * Named bands of the decoded frame, sampled by scanning every grid frame of
+ * the exported file (#370). Sample positions are measured from the file's
+ * own phases rather than computed from the nominal timeline: the export is
+ * a real-time recording whose phases stretch and shift under CPU load, so
+ * the old fixed offsets from the file's end landed in the wrong phase on a
+ * loaded machine (this spec's margin ladders were two of #370's recorded
+ * failures). Each test locates the overlap by the transition's own color
+ * signature and asserts at positions measured within it, expressing anchor
+ * thresholds against the solo levels the scan itself measures ("half the
+ * solo level"), so they hold whatever the codec made of the fixture's
+ * colors. The margin bands are left-margin
  * sub-bands for the slide card ladder (#74): x is the fifth of the frame a
  * pillarboxed square incoming clip never reaches; y picks a strip the
  * card's edge passes at a known progress (upper: 10%-30%, covered once
@@ -173,12 +178,12 @@ const BANDS = {
   'margin-lower': { x: 0, y: 0.6, width: 0.2, height: 0.15 },
 } satisfies Record<string, SampleRect>
 
-const sampleExportedBand = (
-  page: Page,
-  webm: Buffer,
-  fromEndSeconds: number,
-  band: keyof typeof BANDS,
-) => sampleExportedFrame(page, webm, fromEndSeconds, BANDS[band])
+type BandName = keyof typeof BANDS
+
+/** The largest value a channel reaches in a band anywhere in the scan —
+ * the measured solo level that phase anchors are expressed against. */
+const maxOf = (scan: ExportScan, band: BandName, channel: 'r' | 'g' | 'b') =>
+  Math.max(...scan.frames.map((frame) => frame.bands[band][channel]))
 
 /** Peak amplitude of the exported file's audio within a time window. */
 async function measureAudioPeak(
@@ -231,38 +236,66 @@ test('a crossfade exports as a blended overlap with mixed, gapless audio', async
   const exported = await exportOnce(page)
   expect(exported.byteLength).toBeGreaterThan(1000)
 
+  const scan = await scanExportedFrames(page, exported, BANDS)
   // Duration honors the overlap-aware total (1.5 s), with the same relative
   // slack the plain export test uses for real-time recording overhead.
-  const mid = await sampleExportedBand(page, exported, 0.75, 'full')
-  expect(mid.duration).toBeGreaterThan(1.5 * 0.6)
-  expect(mid.duration).toBeLessThan(1.5 + 1)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // Locate the overlap in the file itself (#370): the incoming blue first
+  // appearing and the outgoing red last surviving bound the crossfade. The
+  // appearance threshold (above chroma bleed, far below any real presence)
+  // crosses a little way into the true window, so the measured window sits
+  // inside it — every position sampled below moves toward the overlap's
+  // middle, where each claim holds with the widest margin.
+  const APPEAR = 40
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands.full.r > DOMINANT,
+    'the red clip starting',
+  ).time
+  const overlapStart = firstFrame(
+    scan,
+    (frame) => frame.time >= contentStart && frame.bands.full.b > APPEAR,
+    'the incoming blue appearing',
+  ).time
+  const overlapEnd = lastFrame(
+    scan,
+    (frame) => frame.bands.full.r > APPEAR,
+    'the outgoing red surviving',
+  ).time
 
   // Mid-overlap the frame is a blend: substantially red AND substantially
   // blue — neither pure clip A, nor pure clip B, nor a black gap.
+  const mid = frameAt(scan, (overlapStart + overlapEnd) / 2).bands.full
   expect(mid.r).toBeGreaterThan(BLENDED)
   expect(mid.b).toBeGreaterThan(BLENDED)
 
   // Control samples either side of the overlap prove the encode separates
   // the clips cleanly (so the blend above cannot be a decoding artifact) and
   // that the boundary region is where the mixing happens.
-  const soloRed = await sampleExportedBand(page, exported, 1.25, 'full')
+  const soloRed = frameAt(scan, (contentStart + overlapStart) / 2).bands.full
   expect(soloRed.r).toBeGreaterThan(DOMINANT)
   expect(soloRed.b).toBeLessThan(ABSENT)
-  const soloBlue = await sampleExportedBand(page, exported, 0.25, 'full')
+  const soloBlue = frameAt(scan, (overlapEnd + scan.duration) / 2).bands.full
   expect(soloBlue.b).toBeGreaterThan(DOMINANT)
   expect(soloBlue.r).toBeLessThan(ABSENT)
 
-  // Audio keeps sounding through the whole overlap — no dropout. Checked in
-  // sub-windows so a brief gap cannot hide behind one loud peak.
-  const overlapStart = mid.duration - 1.0
+  // Audio keeps sounding through the measured overlap — no dropout. Checked
+  // in three abutting sub-windows so a brief gap cannot hide behind one
+  // loud peak. The measured window sits inside the true overlap, so this
+  // covers the overlap's middle — the region where both tones must mix —
+  // exactly as the old nominal sub-windows covered [0.05, 0.45] of the
+  // nominal 0.5 s overlap rather than its outermost edges.
+  const overlapSpan = overlapEnd - overlapStart
   for (const [from, to] of [
-    [0.05, 0.2],
-    [0.2, 0.35],
-    [0.35, 0.45],
+    [0, 1 / 3],
+    [1 / 3, 2 / 3],
+    [2 / 3, 1],
   ] as const) {
     const peak = await measureAudioPeak(page, exported, {
-      fromSeconds: overlapStart + from,
-      toSeconds: overlapStart + to,
+      fromSeconds: overlapStart + from * overlapSpan,
+      toSeconds: overlapStart + to * overlapSpan,
     })
     expect(peak).toBeGreaterThan(AUDIBLE_PEAK)
   }
@@ -291,13 +324,51 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   const exported = await exportOnce(page)
   expect(exported.byteLength).toBeGreaterThan(1000)
 
-  // The overlap occupies [end − 1.0, end − 0.5]. Margin ladder: solo red,
-  // progress 0.2, 0.5, 0.9, then past the handover (solo blue).
-  const solo = (await sampleExportedBand(page, exported, 1.25, 'left-fifth')).r
-  const early = (await sampleExportedBand(page, exported, 0.9, 'left-fifth')).r
-  const mid = (await sampleExportedBand(page, exported, 0.75, 'left-fifth')).r
-  const late = (await sampleExportedBand(page, exported, 0.55, 'left-fifth')).r
-  const after = (await sampleExportedBand(page, exported, 0.25, 'left-fifth')).r
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // Locate the overlap in the file itself (#370), on the center fifth
+  // (which both clips cover). The ladder below asserts tight brightness
+  // bands at specific progress values, so the threshold anchors are
+  // extrapolated back to the true window: a linear dissolve's channel
+  // crosses a threshold at fraction (threshold / solo level) of the window,
+  // which is exactly the inward bias of each measured edge. Solving both
+  // edges out again recovers the true window within a frame — exact for
+  // the linear dissolve under test; were the dissolve not linear, the
+  // ladder's own monotonicity assertions are what would catch it.
+  const APPEAR = 40
+  const soloRedCenter = maxOf(scan, 'center-fifth', 'r')
+  const soloBlueCenter = maxOf(scan, 'center-fifth', 'b')
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['center-fifth'].r > soloRedCenter * 0.6,
+    'the red clip starting',
+  ).time
+  const measuredStart = firstFrame(
+    scan,
+    (frame) => frame.time >= contentStart && frame.bands['center-fifth'].b > APPEAR,
+    'the incoming blue appearing in the center',
+  ).time
+  const measuredEnd = lastFrame(
+    scan,
+    (frame) => frame.bands['center-fifth'].r > APPEAR,
+    'the outgoing red surviving in the center',
+  ).time
+  const startBias = APPEAR / soloBlueCenter
+  const endBias = APPEAR / soloRedCenter
+  const trueSpan = (measuredEnd - measuredStart) / (1 - startBias - endBias)
+  const overlapStart = measuredStart - startBias * trueSpan
+  const atProgress = (progress: number) =>
+    frameAt(scan, overlapStart + progress * trueSpan).bands['left-fifth'].r
+
+  // Margin ladder: solo red, progress 0.2, 0.5, 0.9, then past the handover
+  // (solo blue).
+  const solo = frameAt(scan, (contentStart + overlapStart) / 2).bands['left-fifth'].r
+  const early = atProgress(0.2)
+  const mid = atProgress(0.5)
+  const late = atProgress(0.9)
+  const after = frameAt(scan, (overlapStart + trueSpan + scan.duration) / 2).bands['left-fifth'].r
 
   // Mid-overlap the margin is the outgoing clip blended toward black in
   // proportion to progress — not the outgoing clip at full brightness.
@@ -315,7 +386,7 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   expect(after).toBeLessThan(ABSENT)
 
   // Where the clips do overlap, mid-crossfade still carries both families.
-  const centerMid = await sampleExportedBand(page, exported, 0.75, 'center-fifth')
+  const centerMid = frameAt(scan, overlapStart + 0.5 * trueSpan).bands['center-fifth']
   expect(centerMid.r).toBeGreaterThan(BLENDED)
   expect(centerMid.b).toBeGreaterThan(BLENDED)
 })
@@ -346,36 +417,66 @@ test('a slide between different aspect ratios exports a black card sliding over 
   const exported = await exportOnce(page)
   expect(exported.byteLength).toBeGreaterThan(1000)
 
-  // The overlap occupies [end − 1.0, end − 0.5]; the card's leading edge is
-  // at y = progress·height. Ladder: solo, then progress 0.5 (upper margin
-  // band passed at 0.3 → black; lower band, reached at 0.75, still ahead of
-  // the edge → undimmed red), then progress 0.9 (lower band passed → black),
-  // then past the handover.
-  const soloUpper = (await sampleExportedBand(page, exported, 1.25, 'margin-upper')).r
-  const soloLower = (await sampleExportedBand(page, exported, 1.25, 'margin-lower')).r
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // Locate the overlap in the file itself (#370). The card's leading edge
+  // is at y = progress·height, so its black backing eats the top quarter's
+  // red over progress [0, 0.25] and the bottom quarter's over [0.75, 1]:
+  // the top quarter's red falling under 80% of its solo level marks
+  // progress ≈ 0.05, and the bottom quarter's red last holding 20% of its
+  // solo level marks progress ≈ 0.95. The window is measured a few percent
+  // inside the true overlap; each assertion below carries at least 0.1 of
+  // progress in margin beyond that.
+  const soloTop = maxOf(scan, 'top-quarter', 'r')
+  const soloBottom = maxOf(scan, 'bottom-quarter', 'r')
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['top-quarter'].r > soloTop * 0.8,
+    'the red clip starting',
+  ).time
+  const overlapStart = firstFrame(
+    scan,
+    (frame) => frame.time > contentStart && frame.bands['top-quarter'].r < soloTop * 0.8,
+    "the card's edge entering the top quarter",
+  ).time
+  const overlapEnd = lastFrame(
+    scan,
+    (frame) => frame.bands['bottom-quarter'].r > soloBottom * 0.2,
+    'the outgoing red surviving in the bottom quarter',
+  ).time
+  const atProgress = (progress: number) =>
+    frameAt(scan, overlapStart + progress * (overlapEnd - overlapStart)).bands
+
+  // Ladder: solo, then progress 0.5 (upper margin band passed at 0.3 →
+  // black; lower band, reached at 0.75, still ahead of the edge → undimmed
+  // red), then progress 0.95 (lower band passed → black), then past the
+  // handover.
+  const soloFrame = frameAt(scan, (contentStart + overlapStart) / 2).bands
+  const soloUpper = soloFrame['margin-upper'].r
+  const soloLower = soloFrame['margin-lower'].r
   expect(soloUpper).toBeGreaterThan(120)
   expect(soloLower).toBeGreaterThan(120)
 
-  const midUpper = await sampleExportedBand(page, exported, 0.75, 'margin-upper')
-  const midLower = await sampleExportedBand(page, exported, 0.75, 'margin-lower')
+  const mid = atProgress(0.5)
   // Behind the card's edge: the card's black backing, not the outgoing clip
   // dimmed or still bright.
-  expect(midUpper.r).toBeLessThan(ABSENT)
-  expect(midUpper.b).toBeLessThan(ABSENT)
+  expect(mid['margin-upper'].r).toBeLessThan(ABSENT)
+  expect(mid['margin-upper'].b).toBeLessThan(ABSENT)
   // Ahead of the card's edge: the outgoing clip at full, undimmed brightness.
-  expect(midLower.r).toBeGreaterThan(soloLower * 0.85)
+  expect(mid['margin-lower'].r).toBeGreaterThan(soloLower * 0.85)
 
-  const lateLower = (await sampleExportedBand(page, exported, 0.55, 'margin-lower')).r
+  const lateLower = atProgress(0.95)['margin-lower'].r
   expect(lateLower).toBeLessThan(ABSENT)
 
-  const afterUpper = (await sampleExportedBand(page, exported, 0.25, 'margin-upper')).r
-  const afterLower = (await sampleExportedBand(page, exported, 0.25, 'margin-lower')).r
-  expect(afterUpper).toBeLessThan(ABSENT)
-  expect(afterLower).toBeLessThan(ABSENT)
+  const after = frameAt(scan, (overlapEnd + scan.duration) / 2).bands
+  expect(after['margin-upper'].r).toBeLessThan(ABSENT)
+  expect(after['margin-lower'].r).toBeLessThan(ABSENT)
 
   // Where the card has arrived, its clip shows: mid-slide the center-fifth
   // carries the incoming blue (top half) and the outgoing red (bottom half).
-  const centerMid = await sampleExportedBand(page, exported, 0.75, 'center-fifth')
+  const centerMid = mid['center-fifth']
   expect(centerMid.b).toBeGreaterThan(BLENDED)
   expect(centerMid.r).toBeGreaterThan(BLENDED)
 })
@@ -395,17 +496,37 @@ test('a slide-from-above exports with the incoming clip covering from the top', 
 
   const exported = await exportOnce(page)
 
-  const top = await sampleExportedBand(page, exported, 0.75, 'top-quarter')
-  const bottom = await sampleExportedBand(page, exported, 0.75, 'bottom-quarter')
-  expect(top.duration).toBeGreaterThan(1.5 * 0.6)
-  expect(top.duration).toBeLessThan(1.5 + 1)
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // Locate the overlap in the file itself (#370): the incoming card enters
+  // from above, so its blue first appears in the top quarter, and the
+  // outgoing red last survives in the bottom quarter.
+  const APPEAR = 40
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['top-quarter'].r > DOMINANT,
+    'the red clip starting',
+  ).time
+  const overlapStart = firstFrame(
+    scan,
+    (frame) => frame.time >= contentStart && frame.bands['top-quarter'].b > APPEAR,
+    'the incoming blue entering the top quarter',
+  ).time
+  const overlapEnd = lastFrame(
+    scan,
+    (frame) => frame.bands['bottom-quarter'].r > APPEAR,
+    'the outgoing red surviving in the bottom quarter',
+  ).time
 
   // Mid-slide the incoming (blue) clip covers the top of the frame while the
   // outgoing (red) clip still shows underneath at the bottom.
-  expect(top.b).toBeGreaterThan(DOMINANT)
-  expect(top.r).toBeLessThan(ABSENT)
-  expect(bottom.r).toBeGreaterThan(DOMINANT)
-  expect(bottom.b).toBeLessThan(ABSENT)
+  const mid = frameAt(scan, (overlapStart + overlapEnd) / 2).bands
+  expect(mid['top-quarter'].b).toBeGreaterThan(DOMINANT)
+  expect(mid['top-quarter'].r).toBeLessThan(ABSENT)
+  expect(mid['bottom-quarter'].r).toBeGreaterThan(DOMINANT)
+  expect(mid['bottom-quarter'].b).toBeLessThan(ABSENT)
 })
 
 test('a slide-from-left exports with the incoming clip covering from the left (#62)', async ({
@@ -423,16 +544,36 @@ test('a slide-from-left exports with the incoming clip covering from the left (#
 
   const exported = await exportOnce(page)
 
-  const left = await sampleExportedBand(page, exported, 0.75, 'left-fifth')
-  const right = await sampleExportedBand(page, exported, 0.75, 'right-fifth')
-  expect(left.duration).toBeGreaterThan(1.5 * 0.6)
-  expect(left.duration).toBeLessThan(1.5 + 1)
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // Locate the overlap in the file itself (#370): the incoming card enters
+  // from the left, so its blue first appears in the left fifth, and the
+  // outgoing red last survives in the right fifth.
+  const APPEAR = 40
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['left-fifth'].r > DOMINANT,
+    'the red clip starting',
+  ).time
+  const overlapStart = firstFrame(
+    scan,
+    (frame) => frame.time >= contentStart && frame.bands['left-fifth'].b > APPEAR,
+    'the incoming blue entering the left fifth',
+  ).time
+  const overlapEnd = lastFrame(
+    scan,
+    (frame) => frame.bands['right-fifth'].r > APPEAR,
+    'the outgoing red surviving in the right fifth',
+  ).time
 
   // Mid-slide the incoming (blue) clip covers the left of the frame while
   // the outgoing (red) clip still shows on the right — the horizontal twin
   // of the slide-from-above evidence above.
-  expect(left.b).toBeGreaterThan(DOMINANT)
-  expect(left.r).toBeLessThan(ABSENT)
-  expect(right.r).toBeGreaterThan(DOMINANT)
-  expect(right.b).toBeLessThan(ABSENT)
+  const mid = frameAt(scan, (overlapStart + overlapEnd) / 2).bands
+  expect(mid['left-fifth'].b).toBeGreaterThan(DOMINANT)
+  expect(mid['left-fifth'].r).toBeLessThan(ABSENT)
+  expect(mid['right-fifth'].r).toBeGreaterThan(DOMINANT)
+  expect(mid['right-fifth'].b).toBeLessThan(ABSENT)
 })
