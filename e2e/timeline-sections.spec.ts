@@ -110,3 +110,32 @@ test('folding a lane keeps its heading; Collapse all leaves only headings; Expan
   const restoredHeight = (await timeline.boundingBox())!.height
   expect(restoredHeight).toBeGreaterThan(foldedHeight)
 })
+
+test("a folded section's own Expand all unfolds it and shows its rows (#360)", async ({
+  page,
+}) => {
+  await page.goto('./')
+
+  const webm = await recordWebm(page)
+  const input = page.getByTestId('clip-file-input')
+  await input.setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+
+  // Fold the Sequence section: its rows are hidden, its heading row (with
+  // the Expand all button) remains — the state the customer clicked in (#354).
+  await page.getByRole('button', { name: 'Collapse Sequence section' }).click()
+  const sequence = page.getByRole('list', { name: 'Sequence' })
+  await expect(sequence).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Expand all Sequence elements' }).click()
+  // The observable a jsdom test cannot see: the rows are visible on screen.
+  await expect(sequence).toBeVisible()
+  await expect(sequence.getByRole('listitem')).toBeVisible()
+  await expect(
+    page.getByRole('spinbutton', { name: 'Trim in point of clip.webm at position 1 in seconds' }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse Sequence section' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+})
