@@ -34,6 +34,27 @@ export interface SampleRect {
   height: number
 }
 
+/** Per-channel averages of one sampled band of one scanned frame. */
+export interface BandAverage {
+  r: number
+  g: number
+  b: number
+}
+
+export interface ScannedFrame {
+  /** The grid time (seconds into the file) this frame was sought at. */
+  time: number
+  bands: Record<string, BandAverage>
+}
+
+export interface ExportScan {
+  duration: number
+  width: number
+  height: number
+  /** One entry per grid step, in time order. */
+  frames: ScannedFrame[]
+}
+
 export interface FrameSample {
   r: number
   g: number
@@ -154,4 +175,197 @@ export async function sampleExportedFrame(
     },
     { base64: webm.toString('base64'), fromEndSeconds, rect },
   )
+}
+
+/**
+ * Decodes the exported WebM once and walks it end to end with paused seeks
+ * on a fixed grid, sampling the given bands of every visited frame (#370).
+ *
+ * Why a scan exists: the phase-sampling export specs used to compute sample
+ * times from the NOMINAL timeline (fixed offsets from the file's end), but
+ * the export is a real-time recording whose phases stretch and shift under
+ * CPU load — a stall mid-export stretches one phase, not all of them
+ * proportionally, so no fixed offset (and no uniform rescaling) is safe.
+ * The scan lets a spec locate each phase by its own color signature in the
+ * exported file and assert at positions measured within it.
+ *
+ * Presentation discipline is #276's: a persistent
+ * `requestVideoFrameCallback` chain is registered before any seeking, and
+ * each step waits for a presentation that arrives after its seek. A step
+ * whose grid time falls inside the same encoded frame as the previous step
+ * presents nothing new — the settle-plus-grace fallback then proceeds,
+ * which is sound because the previously presented frame is still the right
+ * one for this grid time.
+ */
+export async function scanExportedFrames(
+  page: Page,
+  webm: Buffer,
+  bands: Record<string, SampleRect>,
+  stepSeconds = 1 / 30,
+): Promise<ExportScan> {
+  return await page.evaluate(
+    async ({ base64, bands, stepSeconds }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
+      const video = document.createElement('video')
+      video.muted = true
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const settleIfKnown = () => {
+            if (Number.isFinite(video.duration) && video.duration > 0) {
+              resolve()
+              return true
+            }
+            return false
+          }
+          video.onerror = () => reject(new Error('exported file failed to decode'))
+          video.onloadedmetadata = () => {
+            if (settleIfKnown()) return
+            // MediaRecorder WebMs may report Infinity until forced to scan.
+            video.ondurationchange = () => settleIfKnown()
+            video.currentTime = Number.MAX_SAFE_INTEGER
+          }
+          video.src = url
+        })
+        const duration = video.duration
+
+        // The presentation counter (#276: registered before any seek below).
+        let presentations = 0
+        const onFrame = () => {
+          presentations += 1
+          video.requestVideoFrameCallback(onFrame)
+        }
+        video.requestVideoFrameCallback(onFrame)
+
+        // Drain the duration dance: its own end-seek may still present a
+        // frame after the counter registers, and that stray bump must not
+        // pass for the first grid step's presentation.
+        await new Promise<void>((resolve, reject) => {
+          const started = performance.now()
+          let settledAt: number | null = null
+          const check = () => {
+            if (!video.seeking && video.readyState >= 2) {
+              settledAt ??= performance.now()
+              if (performance.now() - settledAt > 200) {
+                resolve()
+                return
+              }
+            }
+            if (performance.now() - started > 10_000) {
+              reject(new Error('the exported file never settled after decoding'))
+            } else {
+              requestAnimationFrame(check)
+            }
+          }
+          check()
+        })
+
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        const ctx = canvas.getContext('2d')!
+        const sampleBand = (rect: { x: number; y: number; width: number; height: number }) => {
+          const x = Math.floor(rect.x * canvas.width)
+          const y = Math.floor(rect.y * canvas.height)
+          const w = Math.max(1, Math.floor(rect.width * canvas.width))
+          const h = Math.max(1, Math.floor(rect.height * canvas.height))
+          const data = ctx.getImageData(x, y, w, h).data
+          let r = 0
+          let g = 0
+          let b = 0
+          const pixels = data.length / 4
+          for (let index = 0; index < data.length; index += 4) {
+            r += data[index]
+            g += data[index + 1]
+            b += data[index + 2]
+          }
+          return { r: r / pixels, g: g / pixels, b: b / pixels }
+        }
+
+        const frames: {
+          time: number
+          bands: Record<string, { r: number; g: number; b: number }>
+        }[] = []
+        for (let time = 0; time < duration - stepSeconds / 2; time += stepSeconds) {
+          const before = presentations
+          await new Promise<void>((resolve, reject) => {
+            const started = performance.now()
+            let settledAt: number | null = null
+            video.currentTime = time
+            const check = () => {
+              if (presentations > before) {
+                resolve()
+                return
+              }
+              if (
+                !video.seeking &&
+                Math.abs(video.currentTime - time) < 0.1 &&
+                video.readyState >= 2
+              ) {
+                // Settled without a new presentation: the grid time lies in
+                // the frame already presented by the previous step. A short
+                // grace covers a presentation still in flight.
+                settledAt ??= performance.now()
+                if (performance.now() - settledAt > 150) {
+                  resolve()
+                  return
+                }
+              }
+              if (performance.now() - started > 10_000) {
+                reject(new Error(`scanning the exported file stalled at ${time.toFixed(2)}s`))
+              } else {
+                requestAnimationFrame(check)
+              }
+            }
+            check()
+          })
+          ctx.drawImage(video, 0, 0)
+          const sampled: Record<string, { r: number; g: number; b: number }> = {}
+          for (const [name, rect] of Object.entries(bands)) sampled[name] = sampleBand(rect)
+          frames.push({ time, bands: sampled })
+        }
+        return { duration, width: video.videoWidth, height: video.videoHeight, frames }
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    },
+    { base64: webm.toString('base64'), bands, stepSeconds },
+  )
+}
+
+/**
+ * The first scanned frame matching the predicate. Throws with the given
+ * description when none does — a phase whose signature never appears is a
+ * real failure and should say which signature.
+ */
+export function firstFrame(
+  scan: ExportScan,
+  predicate: (frame: ScannedFrame) => boolean,
+  what: string,
+): ScannedFrame {
+  const frame = scan.frames.find(predicate)
+  if (frame === undefined) throw new Error(`no scanned frame matches: ${what}`)
+  return frame
+}
+
+/** The last scanned frame matching the predicate; throws like `firstFrame`. */
+export function lastFrame(
+  scan: ExportScan,
+  predicate: (frame: ScannedFrame) => boolean,
+  what: string,
+): ScannedFrame {
+  for (let index = scan.frames.length - 1; index >= 0; index--) {
+    if (predicate(scan.frames[index])) return scan.frames[index]
+  }
+  throw new Error(`no scanned frame matches: ${what}`)
+}
+
+/** The scanned frame nearest to the given time. */
+export function frameAt(scan: ExportScan, time: number): ScannedFrame {
+  if (scan.frames.length === 0) throw new Error('the scan holds no frames')
+  let nearest = scan.frames[0]
+  for (const frame of scan.frames) {
+    if (Math.abs(frame.time - time) < Math.abs(nearest.time - time)) nearest = frame
+  }
+  return nearest
 }

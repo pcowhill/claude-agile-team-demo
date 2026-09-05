@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { sampleExportedFrame } from './decodedFrame'
+import { firstFrame, frameAt, lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
@@ -99,7 +99,13 @@ async function exportOnce(page: Page): Promise<Buffer> {
 
 /**
  * Named bands of the decoded frame (see export-transitions.spec), sampled
- * through the shared presented-frame decoder (#276).
+ * by scanning every grid frame of the exported file (#370). Sample
+ * positions are measured from the file's own content rather than computed
+ * from the nominal timeline: the export is a real-time recording whose
+ * phases stretch and shift under CPU load, and the old fixed offsets from
+ * the file's end could land in the black front pad before the entry's first
+ * real frame (this spec's "before the window" sample was one of #370's
+ * recorded failures, received 0.014 of an expected > 80).
  */
 const BANDS: Record<'full' | 'left-fifth' | 'right-fifth', SampleRect> = {
   full: { x: 0, y: 0, width: 1, height: 1 },
@@ -107,17 +113,16 @@ const BANDS: Record<'full' | 'left-fifth' | 'right-fifth', SampleRect> = {
   'right-fifth': { x: 0.8, y: 0, width: 0.2, height: 1 },
 }
 
-const sampleExportedBand = (
-  page: Page,
-  webm: Buffer,
-  fromEndSeconds: number,
-  band: keyof typeof BANDS,
-) => sampleExportedFrame(page, webm, fromEndSeconds, BANDS[band])
-
 /** Strong presence of a clip's own colour channel in a frame average. */
 const DOMINANT = 80
 /** Channel level attributable to codec noise/chroma bleed alone. */
 const ABSENT = 25
+/**
+ * A channel has clearly appeared in a band — above codec bleed, below real
+ * presence. Used only to LOCATE phase boundaries; content assertions keep
+ * the thresholds above.
+ */
+const APPEAR = 40
 
 /** Sets one zoom parameter through its labelled field. */
 async function fillZoomField(page: Page, label: string, value: string) {
@@ -156,20 +161,32 @@ test('an export renders the zoom: the held region fills the frame (#65)', async 
 
   const exported = await exportOnce(page)
 
-  // The file's last 1.5 s are the entry; entry time t samples at 1.5 − t.
-  const before = {
-    left: await sampleExportedBand(page, exported, 1.3, 'left-fifth'),
-    right: await sampleExportedBand(page, exported, 1.3, 'right-fifth'),
-  }
-  const hold = await sampleExportedBand(page, exported, 0.5, 'full')
-  expect(hold.duration).toBeGreaterThan(1.5 * 0.6)
-  expect(hold.duration).toBeLessThan(1.5 + 1)
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
+
+  // The zoom's phases live inside a single entry, so there is no cross-clip
+  // signature to anchor on; instead the entry's own first real frame (the
+  // banding appearing after the black front pad) anchors a measured entry
+  // span, and entry times scale onto it (#370). Both sampled phases are
+  // wide — the pre-window phase spans entry [0, 0.5) and the full-zoom hold
+  // [0.7, 1.3] — and each is sampled at its middle, so the position
+  // tolerates a fifth of the phase width in residual timing skew.
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['right-fifth'].b > APPEAR,
+    'the banded clip starting',
+  ).time
+  const atEntryTime = (seconds: number) =>
+    contentStart + (seconds / 1.5) * (scan.duration - contentStart)
+  const before = frameAt(scan, atEntryTime(0.25)).bands
+  const hold = frameAt(scan, atEntryTime(1.0)).bands.full
 
   // Before the window the frame still shows the full banding …
-  expect(before.left.g).toBeGreaterThan(DOMINANT)
-  expect(before.left.b).toBeLessThan(ABSENT)
-  expect(before.right.b).toBeGreaterThan(DOMINANT)
-  expect(before.right.g).toBeLessThan(ABSENT)
+  expect(before['left-fifth'].g).toBeGreaterThan(DOMINANT)
+  expect(before['left-fifth'].b).toBeLessThan(ABSENT)
+  expect(before['right-fifth'].b).toBeGreaterThan(DOMINANT)
+  expect(before['right-fifth'].g).toBeLessThan(ABSENT)
 
   // … and inside the hold the magnified green region fills the whole frame:
   // no blue band, no letterbox black (the region never leaves the frame).
@@ -230,20 +247,38 @@ test('a zoomed clip on the incoming side of a slide exports both effects (#65)',
 
   const exported = await exportOnce(page)
 
-  // Mid-overlap (sequence 0.75 = 0.75 s from the end) the slide card covers
-  // the left half of the frame. Its content is the ZOOMED incoming clip —
-  // all green — where an unzoomed card would show the banded clip's right
-  // (blue) half in that slice. The outgoing red clip still owns the right of
-  // the frame: the zoomed card was clipped to its own slice, exactly as the
-  // preview clips it (#64).
-  const left = await sampleExportedBand(page, exported, 0.75, 'left-fifth')
-  const right = await sampleExportedBand(page, exported, 0.75, 'right-fifth')
-  expect(left.duration).toBeGreaterThan(1.5 * 0.6)
-  expect(left.duration).toBeLessThan(1.5 + 1)
+  const scan = await scanExportedFrames(page, exported, BANDS)
+  expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
+  expect(scan.duration).toBeLessThan(1.5 + 1)
 
-  expect(left.g).toBeGreaterThan(DOMINANT)
-  expect(left.b).toBeLessThan(ABSENT)
-  expect(left.r).toBeLessThan(ABSENT)
-  expect(right.r).toBeGreaterThan(DOMINANT)
-  expect(right.g).toBeLessThan(ABSENT)
+  // Locate the overlap in the file itself (#370): the slide enters from the
+  // left, so the incoming card's zoomed green first appears in the left
+  // fifth, and the outgoing red last survives in the right fifth.
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands['left-fifth'].r > DOMINANT,
+    'the red clip starting',
+  ).time
+  const overlapStart = firstFrame(
+    scan,
+    (frame) => frame.time >= contentStart && frame.bands['left-fifth'].g > APPEAR,
+    'the zoomed card entering the left fifth',
+  ).time
+  const overlapEnd = lastFrame(
+    scan,
+    (frame) => frame.bands['right-fifth'].r > APPEAR,
+    'the outgoing red surviving in the right fifth',
+  ).time
+
+  // Mid-overlap the slide card covers the left half of the frame. Its
+  // content is the ZOOMED incoming clip — all green — where an unzoomed
+  // card would show the banded clip's right (blue) half in that slice. The
+  // outgoing red clip still owns the right of the frame: the zoomed card
+  // was clipped to its own slice, exactly as the preview clips it (#64).
+  const mid = frameAt(scan, (overlapStart + overlapEnd) / 2).bands
+  expect(mid['left-fifth'].g).toBeGreaterThan(DOMINANT)
+  expect(mid['left-fifth'].b).toBeLessThan(ABSENT)
+  expect(mid['left-fifth'].r).toBeLessThan(ABSENT)
+  expect(mid['right-fifth'].r).toBeGreaterThan(DOMINANT)
+  expect(mid['right-fifth'].g).toBeLessThan(ABSENT)
 })

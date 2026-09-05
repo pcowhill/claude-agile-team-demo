@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { firstFrame, scanExportedFrames } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -158,14 +159,30 @@ test('an exported file composites the overlay at its rectangle, during its windo
   const exported = await exportOnce(page)
   expect(exported.byteLength).toBeGreaterThan(1000)
 
-  // Inside the overlay's window: 0.5 s from the file start (export overhead
-  // only ever pads the front, so this instant is at or before sequence time
-  // 0.5 s — well inside the ~1.5 s window). The green picture covers about
-  // 0.35² ≈ 12% of the frame, confined to the bottom-right rectangle.
-  const late = await scanGreenPixels(page, exported, 0.5)
-  expect(late.duration).toBeGreaterThan(3 * 0.6)
-  expect(late.duration).toBeLessThan(3 + 2)
-  const early = await scanGreenPixels(page, exported, late.duration - 0.5)
+  // Sample times are measured from the file's own content, not nominal
+  // offsets from its ends (#370): the export's front pad is black and the
+  // real-time recording stretches under CPU load, so "0.5 s from the end"
+  // once landed while the stretched overlay window was still showing. The
+  // red slate runs the whole 3 s sequence, so its first frame anchors the
+  // content span and sequence times scale onto it; both sampled instants
+  // sit around a second of nominal slack from the window's edge.
+  const scan = await scanExportedFrames(page, exported, {
+    full: { x: 0, y: 0, width: 1, height: 1 },
+  })
+  expect(scan.duration).toBeGreaterThan(3 * 0.6)
+  expect(scan.duration).toBeLessThan(3 + 2)
+  const contentStart = firstFrame(
+    scan,
+    (frame) => frame.bands.full.r > 100,
+    'the red slate starting',
+  ).time
+  const atSequenceTime = (seconds: number) =>
+    contentStart + (seconds / 3) * (scan.duration - contentStart)
+
+  // Inside the overlay's window (sequence time 0.5 s — well inside the
+  // ~1.5 s clip): the green picture covers about 0.35² ≈ 12% of the frame,
+  // confined to the bottom-right rectangle.
+  const early = await scanGreenPixels(page, exported, scan.duration - atSequenceTime(0.5))
   expect(early.green).toBeGreaterThan(early.total * 0.05)
   expect(early.green).toBeLessThan(early.total * 0.25)
   // Nothing green left or above the placement rectangle (0.62 of the frame;
@@ -173,7 +190,8 @@ test('an exported file composites the overlay at its rectangle, during its windo
   expect(early.minX).toBeGreaterThan(0.55)
   expect(early.minY).toBeGreaterThan(0.55)
 
-  // After the window (0.5 s from the end — sequence time ≈ 2.5 s, past the
-  // ~1.5 s clip): the overlay is gone; the frame is pure slate/padding.
+  // After the window (sequence time ≈ 2.5 s, past the ~1.5 s clip): the
+  // overlay is gone; the frame is pure slate/padding.
+  const late = await scanGreenPixels(page, exported, scan.duration - atSequenceTime(2.5))
   expect(late.green).toBe(0)
 })
