@@ -7,6 +7,9 @@ import { Timeline } from './components/Timeline'
 import { openAutosaveStore } from './lib/autosave'
 import type { AutosaveStore } from './lib/autosave'
 import { extractAudioClip } from './lib/extractAudio'
+import { FREEZE_STILL_DURATION, freezeFrameClip } from './lib/freezeFrame'
+import type { FreezeTarget } from './lib/freezeFrame'
+import type { SourceDimensions } from './lib/frameSize'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip } from './lib/mediaLibrary'
 import type { AudioTrack, TimelineEntry } from './lib/timeline'
@@ -307,6 +310,26 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     })()
   }, [])
 
+  // Freeze frame (#379): the captured PNG becomes an ordinary library image
+  // clip (the #154 derive-a-clip pattern), and ONE timeline action places
+  // its still — split-and-hold or append — so a single undo removes the
+  // whole freeze from the timeline. The clip stays in the library across
+  // that undo, like a recording or an extracted track: the library is not
+  // under timeline history, and the capture is a deliverable of its own.
+  const handleFreezeFrame = useCallback(
+    (blob: Blob, frame: SourceDimensions, sequenceTime: number, target: FreezeTarget) => {
+      const clip = freezeFrameClip(blob, sequenceTime, crypto.randomUUID(), frame)
+      dispatch({ type: 'clip-added', clip })
+      dispatchTimeline({
+        type: 'frame-frozen',
+        still: entryFromClip(clip, crypto.randomUUID(), FREEZE_STILL_DURATION),
+        placement:
+          target.kind === 'split' ? { ...target, newEntryId: crypto.randomUUID() } : target,
+      })
+    },
+    [],
+  )
+
   const handleRemoveClip = useCallback((clip: LibraryClip) => {
     dispatch({ type: 'clip-removed', id: clip.id })
     dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
@@ -447,6 +470,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               newEntryId: crypto.randomUUID(),
             })
           }
+          onFreezeFrame={handleFreezeFrame}
         />
         <Timeline
           timeline={timeline}

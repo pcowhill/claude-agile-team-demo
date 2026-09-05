@@ -516,6 +516,35 @@ export type TimelineAction =
     }
   | {
       /**
+       * Freeze frame (#379): insert the captured frame's still entry at the
+       * playhead's placement, splitting the entry under it when the razor
+       * can cut there — capture, cut, and insert as ONE action so the
+       * history rule (history.ts) gives one undo step for the whole freeze.
+       * `still` is the entry the captured library clip became
+       * (`entryFromClip` on a freeze clip — kind 'image', positive
+       * duration); the reducer validates it like any inserted entry and
+       * refuses the whole action otherwise, the `texts-added` strictness.
+       *
+       * 'split' delegates to `entry-split` exactly (same guards, same
+       * effect re-keying) and puts the still between the halves — that
+       * boundary is a fresh hard cut, so no transition moves or drops. A
+       * refused split refuses the whole action: a still landing anywhere
+       * but between the halves would misplace the hold. 'before'/'after'
+       * insert without cutting (the placement resolver in freezeFrame.ts
+       * says when each applies); inserting between two entries separates
+       * them, so a transition on that boundary is dropped by
+       * normalization — the rule every insert path follows (see
+       * `element-duplicated`).
+       */
+      type: 'frame-frozen'
+      still: TimelineEntry
+      placement:
+        | { kind: 'split'; entryId: string; atSourceTime: number; newEntryId: string }
+        | { kind: 'before'; entryId: string }
+        | { kind: 'after'; entryId: string }
+    }
+  | {
+      /**
        * Duplicate one timeline element with every adjustable setting (#314):
        * an exact copy of the identified row under `newId`, as one action so
        * the history rule gives one undo step. A sequence entry's copy is
@@ -1494,6 +1523,53 @@ function reduceTimelineCollections(
         ]
       })
       return withEffects(entries, splitTransitions, splitZooms, audioTracks, splitRemaps, texts, videoOverlays)
+    }
+    case 'frame-frozen': {
+      // Freeze frame (#379): validate the still whole, then place it — see
+      // the action's doc comment. All-or-nothing: any invalid piece refuses
+      // the action with the state unchanged, so one undo step never has to
+      // unpick a partial freeze.
+      const { still, placement } = action
+      if (still.kind !== 'image') return state
+      if (!Number.isFinite(still.duration) || still.duration <= 0) return state
+      // A still's window is always [0, duration] (see TimelineEntry).
+      if (still.inPoint !== 0 || still.outPoint !== still.duration) return state
+      if (state.entries.some((entry) => entry.id === still.id)) return state
+      if (placement.kind === 'split') {
+        if (placement.newEntryId === still.id) return state
+        // The cut is exactly the razor's: same guards, same effect
+        // re-keying, by delegating to the entry-split case above.
+        const split = reduceTimelineCollections(state, {
+          type: 'entry-split',
+          id: placement.entryId,
+          atSourceTime: placement.atSourceTime,
+          newEntryId: placement.newEntryId,
+        })
+        if (split === state) return state
+        // The first half kept the original id (the entry-split rule), so the
+        // still slots in right after it — between the halves, on a boundary
+        // that is a fresh hard cut carrying no transition to disturb.
+        const halfIndex = split.entries.findIndex((entry) => entry.id === placement.entryId)
+        const entries = [
+          ...split.entries.slice(0, halfIndex + 1),
+          still,
+          ...split.entries.slice(halfIndex + 1),
+        ]
+        return withEffects(
+          entries,
+          transitionsOf(split),
+          zoomsOf(split),
+          audioTracksOf(split),
+          remapsOf(split),
+          textsOf(split),
+          videoOverlaysOf(split),
+        )
+      }
+      const index = state.entries.findIndex((entry) => entry.id === placement.entryId)
+      if (index === -1) return state
+      const at = placement.kind === 'before' ? index : index + 1
+      const entries = [...state.entries.slice(0, at), still, ...state.entries.slice(at)]
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
     }
     case 'element-duplicated': {
       // Duplicate (#314): the copy is the original spread under a fresh id —

@@ -4223,6 +4223,135 @@ describe('settings-pasted (#315)', () => {
   })
 })
 
+describe('frame-frozen (#379)', () => {
+  const still = (id = 'fz', duration = 2) => ({
+    id,
+    clipId: `clip-${id}`,
+    name: 'Freeze 0:03.png',
+    duration,
+    url: `blob:${id}`,
+    inPoint: 0,
+    outPoint: duration,
+    kind: 'image' as const,
+  })
+  const freeze = (
+    state: TimelineState,
+    placement: Extract<TimelineAction, { type: 'frame-frozen' }>['placement'],
+    frozen = still(),
+  ): TimelineState => timelineReducer(state, { type: 'frame-frozen', still: frozen, placement })
+
+  it('split placement cuts exactly like the razor and holds between the halves', () => {
+    const state = stateOf(['e1', 10, 2, 8])
+    const next = freeze(state, { kind: 'split', entryId: 'e1', atSourceTime: 5, newEntryId: 'e-new' })
+    expect(order(next)).toEqual(['e1', 'fz', 'e-new'])
+    const [first, frozen, second] = next.entries
+    // The halves are the entry-split halves (#190): same source range, so
+    // with the still removed they play back as the unsplit original did.
+    expect(first).toMatchObject({ id: 'e1', inPoint: 2, outPoint: 5, duration: 10 })
+    expect(second).toMatchObject({ id: 'e-new', inPoint: 5, outPoint: 8, duration: 10 })
+    expect(frozen).toMatchObject({ id: 'fz', kind: 'image', duration: 2 })
+    // The sequence gains exactly the hold.
+    expect(totalDuration(next)).toBe(totalDuration(state) + 2)
+  })
+
+  it('removing the frozen still restores the halves the razor alone would have left', () => {
+    const state = stateOf(['e1', 10, 2, 8])
+    const frozen = freeze(state, {
+      kind: 'split',
+      entryId: 'e1',
+      atSourceTime: 5,
+      newEntryId: 'e-new',
+    })
+    const removed = timelineReducer(frozen, { type: 'entry-removed', id: 'fz' })
+    const razorOnly = timelineReducer(state, {
+      type: 'entry-split',
+      id: 'e1',
+      atSourceTime: 5,
+      newEntryId: 'e-new',
+    })
+    expect(removed.entries).toEqual(razorOnly.entries)
+    expect(totalDuration(removed)).toBe(totalDuration(state))
+  })
+
+  it('keeps a transition into the entry and hands the outgoing one to the second half', () => {
+    let state = stateOf(['e1'], ['e2'], ['e3'])
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'e1',
+      afterId: 'e2',
+      transition: { type: 'crossfade', duration: 1 },
+    })
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'e2',
+      afterId: 'e3',
+      transition: { type: 'wipe-from-left', duration: 1 },
+    })
+    const next = freeze(state, { kind: 'split', entryId: 'e2', atSourceTime: 5, newEntryId: 'e-new' })
+    expect(order(next)).toEqual(['e1', 'e2', 'fz', 'e-new', 'e3'])
+    // The still sits on the halves' own fresh hard cut, so both transitions
+    // survive: into the first half, and out of the second (the #190 rule).
+    expect(transitionsOf(next)).toMatchObject([
+      { beforeId: 'e1', type: 'crossfade' },
+      { beforeId: 'e-new', type: 'wipe-from-left' },
+    ])
+  })
+
+  it('before and after placements insert without cutting anything', () => {
+    const state = stateOf(['e1'], ['e2'])
+    const before = freeze(state, { kind: 'before', entryId: 'e2' })
+    expect(order(before)).toEqual(['e1', 'fz', 'e2'])
+    const after = freeze(state, { kind: 'after', entryId: 'e2' })
+    expect(order(after)).toEqual(['e1', 'e2', 'fz'])
+    // Neither half of the sequence was touched — same entries, still added.
+    expect(before.entries[0]).toBe(state.entries[0])
+    expect(before.entries[2]).toBe(state.entries[1])
+  })
+
+  it('inserting after separates a transitioned boundary, dropping the transition (the insert-path rule)', () => {
+    let state = stateOf(['e1'], ['e2'])
+    state = timelineReducer(state, {
+      type: 'transition-set',
+      beforeId: 'e1',
+      afterId: 'e2',
+      transition: { type: 'crossfade', duration: 1 },
+    })
+    const next = freeze(state, { kind: 'after', entryId: 'e1' })
+    expect(order(next)).toEqual(['e1', 'fz', 'e2'])
+    expect(transitionsOf(next)).toEqual([])
+  })
+
+  it('is refused whole when the razor could not cut there', () => {
+    const state = stateOf(['e1', 10, 2, 8])
+    // The trim window's edges — exactly where isSplittablePoint refuses.
+    expect(freeze(state, { kind: 'split', entryId: 'e1', atSourceTime: 2, newEntryId: 'n' })).toBe(
+      state,
+    )
+    expect(freeze(state, { kind: 'split', entryId: 'e1', atSourceTime: 8, newEntryId: 'n' })).toBe(
+      state,
+    )
+    expect(freeze(state, { kind: 'split', entryId: 'ghost', atSourceTime: 5, newEntryId: 'n' })).toBe(
+      state,
+    )
+  })
+
+  it('refuses an invalid still or a colliding id, leaving the state untouched', () => {
+    const state = stateOf(['e1'])
+    const split = { kind: 'split', entryId: 'e1', atSourceTime: 5, newEntryId: 'n' } as const
+    // Not an image still (a video entry has no kind).
+    expect(freeze(state, split, { ...still(), kind: 'video' as never })).toBe(state)
+    // No positive hold.
+    expect(freeze(state, split, still('fz', 0))).toBe(state)
+    // A still's window is always [0, duration].
+    expect(freeze(state, split, { ...still(), outPoint: 1 })).toBe(state)
+    // Id collisions: with an existing entry, and with the split's own half.
+    expect(freeze(state, split, still('e1'))).toBe(state)
+    expect(freeze(state, split, still('n'))).toBe(state)
+    // Unknown target for an insert placement.
+    expect(freeze(state, { kind: 'after', entryId: 'ghost' })).toBe(state)
+  })
+})
+
 describe('copying a still overlay never carries audio into a paste (#332)', () => {
   // The user-visible regression: an image overlay (#294) lives in the same
   // lane as a video one, and the settings clipboard (#315) credited every
