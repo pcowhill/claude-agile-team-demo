@@ -64,6 +64,34 @@ export function entryStartTime(state: TimelineState, index: number): number {
 }
 
 /**
+ * Every boundary of the sequence in output (sequence) time, sorted and
+ * deduplicated (#391): the sequence start and end, plus each interior entry
+ * boundary — a hard cut contributes its single cut instant, a transition
+ * contributes **both** overlap edges (where the blend begins and where it
+ * ends; at a hard cut the two coincide and deduplicate). Remap-aware through
+ * the same `entryOutputDuration` arithmetic `entryStartTime` uses, so the
+ * values agree exactly with where split, freeze and range marks act. Overlay
+ * and audio-track edges are deliberately not boundaries (#391 scoped them
+ * out). Empty timeline: no boundaries at all.
+ */
+export function sequenceBoundaries(state: TimelineState): number[] {
+  if (state.entries.length === 0) return []
+  const overlaps = boundaryTransitions(state)
+  const remaps = remapsOf(state)
+  const boundaries = [0]
+  let start = 0
+  for (let index = 0; index < state.entries.length; index++) {
+    const end = start + entryOutputDuration(state.entries[index], remaps)
+    const nextStart = end - (overlaps[index]?.duration ?? 0)
+    if (index < state.entries.length - 1) boundaries.push(nextStart)
+    boundaries.push(end)
+    start = nextStart
+  }
+  boundaries.sort((a, b) => a - b)
+  return boundaries.filter((value, i) => i === 0 || value !== boundaries[i - 1])
+}
+
+/**
  * Maps a sequence time to the entry playing at that moment and the
  * corresponding source-clip time. Returns null for an empty timeline.
  *

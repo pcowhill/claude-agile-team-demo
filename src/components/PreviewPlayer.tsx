@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, RefObject } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { TimelineEntry, TimelineState } from '../lib/timeline'
 import {
   audioTracksOf,
@@ -23,6 +23,7 @@ import {
   frontedLocation,
   isTransitionOverlayActive,
   locateInSequence,
+  sequenceBoundaries,
   sequenceTimeAt,
   splitTargetAt,
 } from '../lib/playback'
@@ -62,6 +63,10 @@ import { freezeTargetAt } from '../lib/freezeFrame'
 import type { FreezePlacementMode, FreezeTarget } from '../lib/freezeFrame'
 import {
   modalDialogOpen,
+  nextBoundary,
+  previousBoundary,
+  snapThresholdSeconds,
+  snapToBoundary,
   stepTarget,
   targetClaimsKeys,
   transportActionForKey,
@@ -571,6 +576,11 @@ export function PreviewPlayer({
   const [freezing, setFreezing] = useState(false)
   const [freezeError, setFreezeError] = useState<string | null>(null)
   const [freezePlacement, setFreezePlacement] = useState<FreezePlacementMode>('split')
+  // The snap tick (#391): where a committed seek just snapped onto a
+  // boundary, or null while nothing recent snapped. Transient by a timeout —
+  // a flash that says "the landing was adjusted", not a persistent marker.
+  const [snapTick, setSnapTick] = useState<number | null>(null)
+  const snapTickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Intrinsic dimensions per source URL, probed off-DOM as sources join the
   // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
   // shapes the preview frame. Sources still probing simply don't contribute
@@ -1246,6 +1256,35 @@ export function PreviewPlayer({
     [timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, playing],
   )
 
+  // Snap on committed seek (#391): only when the pointer releases the slider
+  // — never on intermediate drag positions (scrubbing stays live and free)
+  // and never on the focused slider's own arrow keys, which must keep their
+  // native stepping or a 0.01 s step near a cut could never escape the snap
+  // zone. Alt held at release bypasses the snap for deliberate near-boundary
+  // positions. The threshold is SNAP_PIXELS of this slider's rendered travel
+  // (with a small fixed fallback where layout reports no width — jsdom).
+  const commitSeekWithSnap = (event: ReactPointerEvent<HTMLInputElement>) => {
+    if (event.altKey) return
+    const committed = Number(event.currentTarget.value)
+    const snapped = snapToBoundary(
+      committed,
+      sequenceBoundaries(timeline),
+      snapThresholdSeconds(total, event.currentTarget.getBoundingClientRect().width),
+    )
+    if (snapped === null) return
+    seek(snapped)
+    if (snapTickTimer.current !== null) clearTimeout(snapTickTimer.current)
+    setSnapTick(snapped)
+    snapTickTimer.current = setTimeout(() => setSnapTick(null), 800)
+  }
+  // The tick never outlives the component.
+  useEffect(
+    () => () => {
+      if (snapTickTimer.current !== null) clearTimeout(snapTickTimer.current)
+    },
+    [],
+  )
+
   // Transport keyboard shortcuts (#203): Space play/pause, arrow stepping,
   // Home/End jumps, and ? for the cheat sheet. Window-level like the #189
   // undo/redo handler in App (which requires Ctrl/Cmd, so the two never
@@ -1278,6 +1317,20 @@ export function PreviewPlayer({
         case 'jump':
           seek(action.to === 'start' ? 0 : total)
           break
+        case 'jump-boundary': {
+          // Up/Down land on edit points (#391): the adjacent boundary from
+          // the clamped position, exact by construction — the same numbers
+          // entryStartTime produces, so split/freeze/marks at the landing
+          // act precisely on the cut.
+          const boundaries = sequenceBoundaries(timeline)
+          const position = Math.min(sequenceTime, total)
+          seek(
+            action.direction === 'previous'
+              ? previousBoundary(boundaries, position)
+              : nextBoundary(boundaries, position),
+          )
+          break
+        }
         case 'shortcut-help':
           setHelpOpen(true)
           break
@@ -1285,7 +1338,7 @@ export function PreviewPlayer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds])
+  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds, timeline])
 
   // Edits to the timeline invalidate the playback position (entries or
   // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
@@ -1821,6 +1874,35 @@ export function PreviewPlayer({
             >
               {playing ? '⏸' : '▶'}
             </button>
+            {/* Jump to cuts (#391): the playhead lands exactly on the
+                adjacent boundary — entry cuts, both edges of a transition
+                blend, the sequence ends — the same instants split, freeze
+                and range marks act on. Keyboard: ↑ / ↓. The transport only
+                renders with a sequence to jump in (the empty placeholder
+                replaces it), and at an extreme the jump clamps there — so
+                the buttons never need a disabled state. */}
+            <button
+              type="button"
+              data-testid="preview-jump-previous"
+              aria-label="Jump to previous cut"
+              title="Jump the playhead to the previous cut or transition edge (↑)"
+              onClick={() =>
+                seek(previousBoundary(sequenceBoundaries(timeline), Math.min(sequenceTime, total)))
+              }
+            >
+              ⏮
+            </button>
+            <button
+              type="button"
+              data-testid="preview-jump-next"
+              aria-label="Jump to next cut"
+              title="Jump the playhead to the next cut or transition edge (↓)"
+              onClick={() =>
+                seek(nextBoundary(sequenceBoundaries(timeline), Math.min(sequenceTime, total)))
+              }
+            >
+              ⏭
+            </button>
             {/* The razor (#190): split the entry under the playhead. Disabled
                 where there is nothing to split — a boundary, a transition
                 overlap, or an empty timeline (see splitTargetAt). Undoable
@@ -1918,14 +2000,26 @@ export function PreviewPlayer({
                   }}
                 />
               )}
+              {/* The snap tick (#391): a brief flash where the committed
+                  seek just landed by snapping, so the adjustment is visible
+                  rather than mysterious. */}
+              {snapTick !== null && total > 0 && (
+                <span
+                  className="preview-snap-tick"
+                  data-testid="preview-snap-tick"
+                  style={{ left: `${(Math.min(snapTick, total) / total) * 100}%` }}
+                />
+              )}
               <input
                 type="range"
                 aria-label="Seek within sequence"
+                title="Releasing near a cut snaps onto it; hold Alt while releasing to place freely"
                 min={0}
                 max={total}
                 step={0.01}
                 value={Math.min(sequenceTime, total)}
                 onChange={(event) => seek(Number(event.target.value))}
+                onPointerUp={commitSeekWithSnap}
               />
             </div>
             <span className="preview-position" data-testid="preview-position">

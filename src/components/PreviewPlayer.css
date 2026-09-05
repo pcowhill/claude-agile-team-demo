@@ -226,6 +226,35 @@
   pointer-events: none;
 }
 
+/* The snap tick (#391): a brief vertical flash where a committed seek just
+   snapped onto a boundary. A readout like the marked range above — it never
+   intercepts the slider's pointer — and it removes itself (the component
+   clears it on a timeout; the animation only fades what is already going). */
+.preview-snap-tick {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  /* Taller than the thumb, and painted above the input: the snap lands the
+     thumb exactly on the boundary, so a track-height tick would sit entirely
+     behind it and never be seen. */
+  height: 1.75rem;
+  z-index: 1;
+  background: rgba(255, 210, 90, 0.95);
+  border-radius: 1px;
+  pointer-events: none;
+  animation: preview-snap-tick-fade 0.8s ease-out forwards;
+}
+
+@keyframes preview-snap-tick-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .preview-controls button {
   min-width: 2.25rem;
 }
