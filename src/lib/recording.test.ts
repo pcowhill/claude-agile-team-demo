@@ -4,6 +4,7 @@ import {
   recordingFileExtension,
   screenRecordingName,
   startMicrophoneRecording,
+  startScreenCameraRecording,
   startScreenRecording,
   startWebcamRecording,
   videoRecordingFileExtension,
@@ -289,6 +290,186 @@ describe('startScreenRecording (#225)', () => {
 
   it('refuses to record where the platform has no display capture', async () => {
     await expect(startScreenRecording(() => {}, null)).rejects.toThrow('not supported')
+  })
+})
+
+/**
+ * A controllable paired capture standing in for the browser (#388): distinct
+ * screen and camera streams with their own tracks, recorders handed out in
+ * creation order (screen first — the order `startScreenCameraRecording`
+ * documents), and injectable denials at every prompt.
+ */
+function fakeScreenCameraWorld(options?: {
+  denyScreen?: Error
+  denyCombinedCamera?: Error
+  denyVideoOnlyCamera?: Error
+  failCameraRecorder?: Error
+}) {
+  const stopScreenTrack = vi.fn()
+  const stopCameraTrack = vi.fn()
+  const endedListeners: (() => void)[] = []
+  const screenVideoTrack = {
+    stop: stopScreenTrack,
+    addEventListener: (name: string, listener: () => void) => {
+      expect(name).toBe('ended')
+      endedListeners.push(listener)
+    },
+  }
+  const screenStream = {
+    getTracks: () => [screenVideoTrack, { stop: stopScreenTrack }],
+    getVideoTracks: () => [screenVideoTrack],
+  } as unknown as MediaStream
+  const cameraStream = {
+    getTracks: () => [{ stop: stopCameraTrack }, { stop: stopCameraTrack }],
+  } as unknown as MediaStream
+  const cameraRequests: MediaStreamConstraints[] = []
+  const recorders: (RecorderLike & { started: boolean; forStream: MediaStream })[] = []
+  const dependencies = {
+    getDisplayMedia: vi.fn((constraints: MediaStreamConstraints) => {
+      expect(constraints).toEqual({ video: true, audio: true })
+      return options?.denyScreen
+        ? Promise.reject(options.denyScreen)
+        : Promise.resolve(screenStream)
+    }),
+    getUserMedia: vi.fn((constraints: MediaStreamConstraints) => {
+      cameraRequests.push(constraints)
+      if (constraints.audio === true) {
+        return options?.denyCombinedCamera
+          ? Promise.reject(options.denyCombinedCamera)
+          : Promise.resolve(cameraStream)
+      }
+      return options?.denyVideoOnlyCamera
+        ? Promise.reject(options.denyVideoOnlyCamera)
+        : Promise.resolve(cameraStream)
+    }),
+    createRecorder: (stream: MediaStream, recorderOptions: { mimeType?: string }) => {
+      if (stream === cameraStream && options?.failCameraRecorder) throw options.failCameraRecorder
+      const recorder = {
+        started: false,
+        forStream: stream,
+        mimeType: recorderOptions.mimeType ?? 'video/webm',
+        ondataavailable: null as ((event: { data: Blob }) => void) | null,
+        onstop: null as (() => void) | null,
+        onerror: null,
+        start() {
+          this.started = true
+        },
+        stop() {
+          queueMicrotask(() => this.onstop?.())
+        },
+      }
+      recorders.push(recorder)
+      return recorder
+    },
+    isTypeSupported: (mimeType: string) => mimeType === 'video/webm;codecs=vp9,opus',
+  }
+  return {
+    dependencies,
+    stopScreenTrack,
+    stopCameraTrack,
+    cameraRequests,
+    screenStream,
+    cameraStream,
+    recorders,
+    endShare: () => {
+      for (const listener of endedListeners) listener()
+    },
+  }
+}
+
+describe('startScreenCameraRecording (#388)', () => {
+  it('one call starts both recorders and stop delivers both named files', async () => {
+    const world = fakeScreenCameraWorld()
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(world.recorders).toHaveLength(2)
+    // Screen first, camera second — the documented acquisition order.
+    expect(world.recorders[0].forStream).toBe(world.screenStream)
+    expect(world.recorders[1].forStream).toBe(world.cameraStream)
+    expect(world.recorders.every((recorder) => recorder.started)).toBe(true)
+    expect(session.screenMimeType).toBe('video/webm;codecs=vp9,opus')
+    expect(session.cameraMimeType).toBe('video/webm;codecs=vp9,opus')
+    expect(session.screenStream).toBe(world.screenStream)
+    expect(session.cameraStream).toBe(world.cameraStream)
+
+    world.recorders[0].ondataavailable?.({ data: new Blob(['screen'], { type: 'video/webm' }) })
+    world.recorders[1].ondataavailable?.({ data: new Blob(['camera'], { type: 'video/webm' }) })
+
+    const files = await session.stop('Screen recording 1.webm', 'Webcam recording 1.webm')
+    expect(files.screen.name).toBe('Screen recording 1.webm')
+    expect(await files.screen.text()).toBe('screen')
+    expect(files.camera.name).toBe('Webcam recording 1.webm')
+    expect(await files.camera.text()).toBe('camera')
+    expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
+    expect(world.stopCameraTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('a camera denial releases the already-granted screen capture and surfaces once', async () => {
+    const world = fakeScreenCameraWorld({
+      denyCombinedCamera: new Error('Permission denied'),
+      denyVideoOnlyCamera: new Error('Permission denied again'),
+    })
+    await expect(startScreenCameraRecording(() => {}, world.dependencies)).rejects.toThrow(
+      'Permission denied again',
+    )
+    // Every screen track stopped; no recorder ever constructed, so nothing
+    // records into a take that never started.
+    expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
+    expect(world.recorders).toHaveLength(0)
+  })
+
+  it('a dismissed screen picker rejects before the camera is ever requested', async () => {
+    const world = fakeScreenCameraWorld({ denyScreen: new Error('Permission denied') })
+    await expect(startScreenCameraRecording(() => {}, world.dependencies)).rejects.toThrow(
+      'Permission denied',
+    )
+    expect(world.dependencies.getUserMedia).not.toHaveBeenCalled()
+    expect(world.stopScreenTrack).not.toHaveBeenCalled()
+  })
+
+  it("a camera without a microphone still records, via #226's video-only fallback", async () => {
+    const world = fakeScreenCameraWorld({ denyCombinedCamera: new Error('no microphone') })
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(world.cameraRequests).toEqual([
+      { video: true, audio: true },
+      { video: true },
+    ])
+    expect(session.cameraMimeType).toBe('video/webm;codecs=vp9,opus')
+    expect(world.recorders).toHaveLength(2)
+  })
+
+  it('cancel discards both captures and a later stop refuses', async () => {
+    const world = fakeScreenCameraWorld()
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    session.cancel()
+    await Promise.resolve()
+    expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
+    expect(world.stopCameraTrack).toHaveBeenCalledTimes(2)
+    await expect(session.stop('a.webm', 'b.webm')).rejects.toThrow('already concluded')
+  })
+
+  it("the browser's own stop-sharing UI reaches onShareEnded", async () => {
+    const world = fakeScreenCameraWorld()
+    const onShareEnded = vi.fn()
+    await startScreenCameraRecording(onShareEnded, world.dependencies)
+    expect(onShareEnded).not.toHaveBeenCalled()
+    world.endShare()
+    expect(onShareEnded).toHaveBeenCalledTimes(1)
+  })
+
+  it('a camera recorder that cannot start cancels the started screen half', async () => {
+    const world = fakeScreenCameraWorld({ failCameraRecorder: new Error('NotSupportedError') })
+    await expect(startScreenCameraRecording(() => {}, world.dependencies)).rejects.toThrow(
+      'NotSupportedError',
+    )
+    await Promise.resolve()
+    // recordStream released the camera stream on construction failure; the
+    // screen session's cancel releases the screen tracks.
+    expect(world.stopCameraTrack).toHaveBeenCalledTimes(2)
+    expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to record where the platform lacks either capture API', async () => {
+    await expect(startScreenCameraRecording(() => {}, null)).rejects.toThrow('not supported')
   })
 })
 

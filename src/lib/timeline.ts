@@ -545,6 +545,26 @@ export type TimelineAction =
     }
   | {
       /**
+       * A screen + camera take arrives placed (#388): the screen capture's
+       * entry appended to the sequence, and the camera capture's overlay
+       * starting exactly at that entry's start — whatever `offset` the
+       * caller built, the reducer pins it to the appended entry's start
+       * time, so the two can never disagree. ONE action so the history rule
+       * (history.ts) gives one undo step for the arrival; the library keeps
+       * both captured clips across that undo, like every recording — the
+       * capture is a deliverable of its own (#224, #379). All-or-nothing:
+       * any invalid piece refuses the whole action with the state
+       * unchanged, so an undo never has to unpick half an arrival. The
+       * appended boundary is a fresh hard cut, so no transition moves.
+       */
+      type: 'recording-pair-placed'
+      /** The screen capture as a sequence entry (`entryFromClip`, video kind). */
+      entry: TimelineEntry
+      /** The camera capture as a video overlay (`videoOverlayFromClip`). */
+      overlay: VideoOverlay
+    }
+  | {
+      /**
        * Duplicate one timeline element with every adjustable setting (#314):
        * an exact copy of the identified row under `newId`, as one action so
        * the history rule gives one undo step. A sequence entry's copy is
@@ -1570,6 +1590,48 @@ function reduceTimelineCollections(
       const at = placement.kind === 'before' ? index : index + 1
       const entries = [...state.entries.slice(0, at), still, ...state.entries.slice(at)]
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'recording-pair-placed': {
+      // Screen + camera in one take (#388): validate both pieces whole, then
+      // append the entry and start the overlay exactly at its start — the
+      // frame-frozen all-or-nothing rule, so one undo step never has to
+      // unpick a partial arrival.
+      const { entry, overlay } = action
+      if (state.entries.some((existing) => existing.id === entry.id)) return state
+      if (videoOverlays.some((existing) => existing.id === overlay.id)) return state
+      // The screen capture is a video entry: a still here is a programmer
+      // error upstream (entryFromClip on the wrong clip kind), refused whole.
+      if (isStillEntry(entry)) return state
+      if (
+        !Number.isFinite(entry.duration) ||
+        entry.duration <= 0 ||
+        !Number.isFinite(entry.inPoint) ||
+        !Number.isFinite(entry.outPoint) ||
+        entry.inPoint < 0 ||
+        entry.inPoint >= entry.outPoint ||
+        entry.outPoint > entry.duration
+      ) {
+        return state
+      }
+      // The camera capture is a video overlay — the video-overlay-added
+      // checks, with an image overlay refused outright.
+      if (isImageOverlay(overlay)) return state
+      if (!isValidVideoOverlayPlacement(overlay)) return state
+      const clampedOverlay = clampVideoOverlay(overlay)
+      if (clampedOverlay.inPoint >= clampedOverlay.outPoint) return state
+      // The appended entry starts where today's sequence ends; the overlay
+      // is pinned to that instant regardless of what the caller built, so
+      // the bubble and the screen take begin together by construction.
+      const start = totalDuration(state)
+      return withEffects(
+        [...state.entries, entry],
+        transitions,
+        zooms,
+        audioTracks,
+        remaps,
+        texts,
+        [...videoOverlays, { ...overlay, offset: start }],
+      )
     }
     case 'element-duplicated': {
       // Duplicate (#314): the copy is the original spread under a fresh id —

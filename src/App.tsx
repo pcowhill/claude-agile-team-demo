@@ -165,6 +165,64 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     [importFiles],
   )
 
+  // A screen + camera take (#388): both captures land as ordinary library
+  // clips, and when both probe as video they arrive placed — the screen
+  // appended to the sequence, the camera as an overlay starting with it —
+  // through one timeline action, so the arrival is one undo step. A capture
+  // whose probe fails costs only itself: the other clip still lands (a
+  // recorded take is never discarded over its partner's import), the
+  // failure lists like any failed import, and the placement is skipped.
+  const importRecordedPair = useCallback(
+    async ({ screen, camera }: { screen: File; camera: File }) => {
+      const probed = await Promise.allSettled([probeMedia(screen), probeMedia(camera)])
+      const clips = probed.map((result, index) => {
+        const file = index === 0 ? screen : camera
+        if (result.status === 'rejected') {
+          dispatch({
+            type: 'import-failed',
+            failure: {
+              id: crypto.randomUUID(),
+              name: file.name,
+              reason:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : `Could not import "${file.name}".`,
+            },
+          })
+          return null
+        }
+        const { duration, url, kind } = result.value
+        const clip: LibraryClip = { id: crypto.randomUUID(), name: file.name, duration, url, kind }
+        dispatch({ type: 'clip-added', clip })
+        return clip
+      })
+      const [screenClip, cameraClip] = clips
+      if (
+        screenClip === null ||
+        cameraClip === null ||
+        screenClip.kind !== 'video' ||
+        cameraClip.kind !== 'video'
+      ) {
+        return
+      }
+      dispatchTimeline({
+        type: 'recording-pair-placed',
+        entry: entryFromClip(screenClip, crypto.randomUUID()),
+        // The reducer pins the overlay's offset to the appended entry's
+        // start; the constructor's default rect is the corner bubble.
+        overlay: videoOverlayFromClip(cameraClip, crypto.randomUUID()),
+      })
+    },
+    [probeMedia],
+  )
+
+  const handleRecordedPair = useCallback(
+    (files: { screen: File; camera: File }) => {
+      void importRecordedPair(files)
+    },
+    [importRecordedPair],
+  )
+
   // Subtitle import (#249): parse the .srt, land every cue as one batched
   // timeline action (a single undo step), and report skipped blocks — or a
   // file with no usable cues at all — in the library's dismissible failure
@@ -454,6 +512,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
+          onRecordedPair={handleRecordedPair}
           onRecordingFailed={(reason) =>
             dispatch({
               type: 'import-failed',
