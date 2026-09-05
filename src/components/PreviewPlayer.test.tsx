@@ -2458,6 +2458,37 @@ describe('overlay parity across a transition handover (#319)', () => {
   })
 })
 
+describe('idle frame cue (#382)', () => {
+  const entryOf = (id: string, url: string): TimelineState['entries'][number] => ({
+    id,
+    clipId: `clip-${id}`,
+    name: `${id}.webm`,
+    duration: 4,
+    url,
+    inPoint: 0,
+    outPoint: 4,
+  })
+
+  it('cues the primary element to the entry under the playhead on mount, without playing', () => {
+    render(<PreviewPlayer timeline={{ entries: [entryOf('e1', 'blob:first')] }} />)
+    // The element got a source while idle — the #380 black box was an
+    // element never cued at all. jsdom fires no media events, so the src
+    // attachment is the observable half of the cue; the presented frame and
+    // seek position are e2e/idle-preview.spec.ts territory.
+    expect(screen.getByTestId('preview-video')).toHaveAttribute('src', 'blob:first')
+    // Cued paused: the transport still offers Play, nothing started.
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+  })
+
+  it('re-cues when the timeline content changes while idle', () => {
+    const { rerender } = render(
+      <PreviewPlayer timeline={{ entries: [entryOf('e1', 'blob:first')] }} />,
+    )
+    rerender(<PreviewPlayer timeline={{ entries: [entryOf('e2', 'blob:second')] }} />)
+    expect(screen.getByTestId('preview-video')).toHaveAttribute('src', 'blob:second')
+  })
+})
+
 describe('freeze frame control (#379)', () => {
   const oneEntry: TimelineState = {
     entries: [

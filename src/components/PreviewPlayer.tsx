@@ -1292,6 +1292,34 @@ export function PreviewPlayer({
 
   useEffect(() => stopLoop, [stopLoop])
 
+  // The published position, readable outside the reactive graph: the
+  // idle-cue effect below must not re-run on every published frame (that is
+  // just playback), only when the content or idleness changes.
+  const sequenceTimeRef = useRef(0)
+  useEffect(() => {
+    sequenceTimeRef.current = sequenceTime
+  }, [sequenceTime])
+
+  // Idle frame (#382): the video elements have no declarative src — cueing
+  // is imperative, and before this effect it only happened on play, seek,
+  // and the rAF tick. A player never yet played or seeked (the first clip
+  // added, a restored session) therefore held an element with no media at
+  // all, rendering black. Whenever the timeline changes while the player is
+  // idle — mount with restored content, the first add, any edit — cue the
+  // primary element to the frame under the playhead, paused: exactly the
+  // frame a slider seek to this position would show, trim and remaps
+  // included (cuePrimary resolves both). While playing this does nothing —
+  // the rAF loop owns the elements — and on pause the re-cue lands on the
+  // published position the pause itself just left, within the drift
+  // tolerances, so it never fights the #318/#61 handover discipline.
+  useEffect(() => {
+    if (playing) return
+    const time = Math.min(sequenceTimeRef.current, totalDuration(timeline))
+    const location = locateInSequence(timeline, time)
+    if (location === null) return
+    cuePrimary(location, time - entryStartTime(timeline, location.index), false)
+  }, [playing, timeline, cuePrimary])
+
   // Never front an entry the player has already left (#318): at a handover
   // the published time comes off the incoming element's lagging clock, so the
   // raw location can still name the entry whose transition just ended.
