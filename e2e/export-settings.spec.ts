@@ -69,7 +69,14 @@ async function probeExport(
   }, exported.toString('base64'))
 }
 
-/** Counts near-white pixels at a decoded instant — the text-overlay signal. */
+/**
+ * Counts near-white pixels at a decoded instant — the text-overlay signal.
+ * The seek waits for the sought frame to be PRESENTED (#276's discipline,
+ * mirrored from the shared decoder): drawing straight after `onseeked`
+ * intermittently rasterizes a not-yet-presented frame as all black under
+ * parallel load — a stress run recorded exactly that here (a whitish count
+ * of zero on a frame that provably carries the text; #374).
+ */
 async function countWhitishPixels(
   page: import('@playwright/test').Page,
   exported: Buffer,
@@ -80,14 +87,37 @@ async function countWhitishPixels(
       const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
       const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
       const video = document.createElement('video')
+      video.muted = true
       await new Promise<void>((resolve, reject) => {
         video.onerror = () => reject(new Error('exported file failed to decode'))
         video.onloadedmetadata = () => resolve()
         video.src = url
       })
-      video.currentTime = at
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve()
+      await new Promise<void>((resolve, reject) => {
+        const started = performance.now()
+        let presented = false
+        const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+          if (Math.abs(metadata.mediaTime - at) < 0.25) presented = true
+          else video.requestVideoFrameCallback(onFrame)
+        }
+        video.requestVideoFrameCallback(onFrame)
+        video.currentTime = at
+        let settledAt: number | null = null
+        const check = () => {
+          if (!video.seeking && Math.abs(video.currentTime - at) < 0.25 && video.readyState >= 2) {
+            settledAt ??= performance.now()
+            if (presented || performance.now() - settledAt > 1500) {
+              resolve()
+              return
+            }
+          }
+          if (performance.now() - started > 10_000) {
+            reject(new Error('seeking the exported file timed out'))
+          } else {
+            requestAnimationFrame(check)
+          }
+        }
+        check()
       })
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { sampleExportedFrame } from './decodedFrame'
 
 /**
  * Still images on the timeline (#140): placement with an adjustable
@@ -140,16 +141,29 @@ test('a transition into a still previews with the incoming image layer', async (
   await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
 
   // clip.webm runs ~1.5s; the 1s crossfade overlap starts ~0.5s in. Seek
-  // into the overlap: both layers render, the incoming one the image.
-  const max = Number(
-    await page.getByRole('slider', { name: 'Seek within sequence' }).getAttribute('max'),
-  )
-  const overlapMidpoint = max - 5 + 0.5 // still contributes its last 4s alone
-  // The range input's step is 0.01: snap the value to it or fill() refuses.
-  await page
-    .getByRole('slider', { name: 'Seek within sequence' })
-    .fill((Math.round(overlapMidpoint * 100) / 100).toFixed(2))
-  await expect(page.getByTestId('preview-image-incoming')).toBeVisible()
+  // into the overlap: both layers render, the incoming one the image. The
+  // slider's max is the timeline total, which keeps refining after import
+  // as the recorded clip's duration metadata settles — a max read on one
+  // render can be stale by the fill, and a range input rejects a value past
+  // its current max outright ("Malformed value", #374's recorded failure).
+  // Reading, filling, and checking the seek landed inside one retry block
+  // makes a stale read re-read rather than fatal (the #365 preview.spec
+  // pattern).
+  const slider = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect(async () => {
+    const max = Number(await slider.getAttribute('max'))
+    // A settled total is the still's 5s plus the recorded clip's duration
+    // minus the 1s overlap; at or below 4.5 the clip's metadata has not
+    // landed yet.
+    expect(max).toBeGreaterThan(4.5)
+    const overlapMidpoint = max - 5 + 0.5 // still contributes its last 4s alone
+    // The range input's step is 0.01: snap the value to it or fill() refuses.
+    await slider.fill((Math.round(overlapMidpoint * 100) / 100).toFixed(2))
+    // A max that settled between the read and the fill lands the seek
+    // outside the overlap; the incoming layer's visibility is the check
+    // that the coordinates were the settled ones.
+    await expect(page.getByTestId('preview-image-incoming')).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 10_000 })
   await expect(page.getByTestId('preview-now-playing')).toContainText(
     'clip.webm → logo.png (crossfade)',
   )
@@ -202,43 +216,17 @@ test('export renders the still into the file (video + still, with a transition)'
   // that stalled on the still (which has no media element to play) would
   // never reach this length. The still's frames dominate the tail, so decode
   // a frame from inside its window and check it carries the PNG's color.
-  const probed = await page.evaluate(async (base64) => {
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-    const video = document.createElement('video')
-    video.muted = true
-    await new Promise<void>((resolve, reject) => {
-      video.onerror = () => reject(new Error('exported file failed to decode'))
-      video.onloadedmetadata = () => {
-        if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-        else {
-          video.ondurationchange = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-          }
-          video.currentTime = Number.MAX_SAFE_INTEGER
-        }
-      }
-      video.src = url
-    })
-    const duration = video.duration
-    // Seek into the still's solo window (the last second of the export).
-    await new Promise<void>((resolve) => {
-      video.onseeked = () => resolve()
-      video.currentTime = Math.max(0, duration - 0.4)
-    })
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    const ctx = canvas.getContext('2d')!
-    ctx.drawImage(video, 0, 0)
-    const centre = ctx.getImageData(
-      Math.floor(canvas.width / 2),
-      Math.floor(canvas.height / 2),
-      1,
-      1,
-    ).data
-    return { duration, centre: [centre[0], centre[1], centre[2]] }
-  }, exported.toString('base64'))
+  // Sampling goes through the shared presented-frame decoder (#276): this
+  // test's original inline probe drew immediately after a bare `onseeked`,
+  // and under parallel load that rasterized a not-yet-presented frame as
+  // all black — the exact defect #276 fixed, and #374's recorded failure
+  // here (centre green sampled 0, expected > 150).
+  const probed = await sampleExportedFrame(page, exported, 0.4, {
+    x: 0.5,
+    y: 0.5,
+    width: 0.01,
+    height: 0.01,
+  })
 
   // Real-time recording: allow overhead above and epsilon below.
   expect(probed.duration).toBeGreaterThan(1.6)
@@ -246,7 +234,6 @@ test('export renders the still into the file (video + still, with a transition)'
   // The sampled frame sits in the still's solo window ([1.0, 2.0] of the
   // sequence), so it must carry the PNG's solid #0c6 — green dominant, red
   // low — not black (a still that never drew) or the video's frames.
-  const [red, green] = probed.centre
-  expect(green).toBeGreaterThan(150)
-  expect(red).toBeLessThan(100)
+  expect(probed.g).toBeGreaterThan(150)
+  expect(probed.r).toBeLessThan(100)
 })
