@@ -165,12 +165,23 @@ test('marked range exports only the span between the marks, and the transport sh
   // clip. The marks are the proof the export is scoped — a whole-sequence
   // file would open green.
   await markAt(page, 1.4, 'preview-mark-in')
+  // A lone mark is already visible on the bar (#399): the in bracket at its
+  // time, no out bracket, and no span yet.
+  const inMarker = page.getByTestId('preview-mark-in-marker')
+  const outMarker = page.getByTestId('preview-mark-out-marker')
+  await expect(inMarker).toBeVisible()
+  await expect(inMarker).toHaveAttribute('title', /Mark in: 0:01/)
+  await expect(outMarker).toHaveCount(0)
+  await expect(page.getByTestId('preview-marked-range')).toHaveCount(0)
   await markAt(page, 1.9, 'preview-mark-out')
 
-  // The marked span highlights on the seek bar, named with its times.
+  // The marked span highlights on the seek bar, named with its times, with
+  // both brackets framing it.
   const highlight = page.getByTestId('preview-marked-range')
   await expect(highlight).toBeVisible()
   await expect(highlight).toHaveAttribute('title', /Marked range: 0:01 – 0:02/)
+  await expect(outMarker).toBeVisible()
+  await expect(outMarker).toHaveAttribute('title', /Mark out: 0:02/)
 
   // Geometry (new visible surface): the mark controls and the highlight sit
   // inside the transport row, nothing wraps, and the page gained no sideways
@@ -197,13 +208,30 @@ test('marked range exports only the span between the marks, and the transport sh
   const highlightBox = (await highlight.boundingBox())!
   expect(highlightBox.x).toBeGreaterThanOrEqual(seekBox.x - 1)
   expect(highlightBox.x + highlightBox.width).toBeLessThanOrEqual(seekBox.x + seekBox.width + 1)
+  // The brackets sit on the bar too, at the band's two ends (#399). Each
+  // bracket is 3 px wide and centred on its time, so its centre lies within
+  // 2 px of the band's edge; the tolerance says only that.
+  const inBox = (await inMarker.boundingBox())!
+  const outBox = (await outMarker.boundingBox())!
+  for (const box of [inBox, outBox]) {
+    expect(box.x).toBeGreaterThanOrEqual(seekBox.x - 4)
+    expect(box.x + box.width).toBeLessThanOrEqual(seekBox.x + seekBox.width + 4)
+  }
+  expect(Math.abs(inBox.x + inBox.width / 2 - highlightBox.x)).toBeLessThanOrEqual(2)
+  expect(
+    Math.abs(outBox.x + outBox.width / 2 - (highlightBox.x + highlightBox.width)),
+  ).toBeLessThanOrEqual(2)
   const pageScroll = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
   }))
   expect(pageScroll.scrollWidth).toBeLessThanOrEqual(pageScroll.clientWidth)
-  // The human check for the PR's rendered evidence, re-taken every run.
+  // The human check for the PR's rendered evidence, re-taken every run. The
+  // thumb is parked on the out mark here (markAt leaves it at 1.9), which is
+  // exactly the case #394 reported as invisible — the close-up shows the
+  // band and both brackets against the thumb.
   await page.screenshot({ path: testInfo.outputPath('export-range-transport.png') })
+  await controls.screenshot({ path: testInfo.outputPath('export-range-marks-closeup.png') })
 
   // Export the marked range and decode what actually landed in the file.
   const exported = await exportMarkedRange(page)

@@ -213,17 +213,66 @@
   min-width: 14rem;
 }
 
+/* Amber, not blue (#399): the page runs color-scheme: dark, so the native
+   slider's thumb and filled track are the browser's blue, and a blue band
+   with blue edges vanished against them (customer report #394). Amber reads
+   against the grey track, the blue thumb, and the yellow snap tick below
+   (#391) — a warmer, darker hue than the tick, and persistent where the tick
+   is a flash. The band's edges are the mark brackets beneath, which also
+   stand alone when only one mark is set. */
 .preview-marked-range {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   height: 0.6rem;
-  background: rgba(100, 160, 255, 0.3);
-  border-left: 2px solid rgba(120, 175, 255, 0.9);
-  border-right: 2px solid rgba(120, 175, 255, 0.9);
+  background: rgba(255, 140, 26, 0.35);
   border-radius: 2px;
   /* Purely a readout: the slider underneath stays draggable everywhere. */
   pointer-events: none;
+}
+
+/* A single mark (#399): a bracket taller than the thumb and painted above
+   the input, so it stays visible with the thumb parked on it — the same
+   reasoning as the snap tick's height and z-index. The tabs point the way
+   the range extends: right from an in mark, left from an out mark. */
+.preview-mark {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 1.5rem;
+  z-index: 1;
+  background: #ff8c1a;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.preview-mark::before,
+.preview-mark::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 3px;
+  background: inherit;
+  border-radius: 1px;
+}
+
+.preview-mark::before {
+  top: 0;
+}
+
+.preview-mark::after {
+  bottom: 0;
+}
+
+.preview-mark-in::before,
+.preview-mark-in::after {
+  left: 0;
+}
+
+.preview-mark-out::before,
+.preview-mark-out::after {
+  right: 0;
 }
 
 /* The snap tick (#391): a brief vertical flash where a committed seek just

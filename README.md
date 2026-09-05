@@ -265,7 +265,9 @@ client-side by a lazily loaded pure-JS LAME port (see
 so it works wherever Web Audio does, whatever the browser's recorder
 supports.
 Mark in / Mark out buttons on the transport mark a span of the sequence at
-the playhead — highlighted on the seek bar, cleared with one click — and the
+the playhead — highlighted in amber on the seek bar, each mark showing as a
+bracket at its position from the moment it is set, so a lone in or out mark
+is visible too (#399); cleared with one click — and the
 export modal then offers exporting just that marked range instead of the
 whole project (#385), in every format, GIF and MP3 included. A range
 boundary inside a transition or effect exports exactly what the preview
