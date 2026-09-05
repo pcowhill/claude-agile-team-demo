@@ -56,6 +56,7 @@ import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import { frameFileName, snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { markedExportRange } from '../lib/exportVideo'
 import { automaticExportFrame } from '../lib/exportSettings'
 import { freezeTargetAt } from '../lib/freezeFrame'
 import type { FreezePlacementMode, FreezeTarget } from '../lib/freezeFrame'
@@ -101,6 +102,18 @@ interface PreviewPlayerProps {
    */
   stepSeconds?: number
   largeStepSeconds?: number
+  /**
+   * Export-range marks (#385): App owns them (the export modal needs the
+   * range too), the transport sets them at the playhead and shows the span
+   * on the seek bar. Session-only by design — never project state. Optional
+   * like `onSplit`: without the callbacks the mark buttons disable and no
+   * highlight renders.
+   */
+  markIn?: number | null
+  markOut?: number | null
+  onMarkIn?: (time: number) => void
+  onMarkOut?: (time: number) => void
+  onClearMarks?: () => void
 }
 
 /**
@@ -494,6 +507,11 @@ export function PreviewPlayer({
   onFreezeFrame,
   stepSeconds,
   largeStepSeconds,
+  markIn = null,
+  markOut = null,
+  onMarkIn,
+  onMarkOut,
+  onClearMarks,
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
@@ -1331,6 +1349,10 @@ export function PreviewPlayer({
   // Whether Freeze frame (#379) has anything to freeze here in the chosen
   // placement — null exactly where the snapshot has no frame to compose.
   const freezeTarget = freezeTargetAt(timeline, Math.min(sequenceTime, total), freezePlacement)
+  // The marked export range's visible span (#385): the shared rule
+  // (markedExportRange) that also decides what the export modal offers, so
+  // the highlight and the offered range can never disagree.
+  const markedSpan = markedExportRange(markIn, markOut, total)
   // Gate the overlay on the actual engagement, not the recomputed location
   // alone: right after a handover the published time can still trail inside
   // the overlap, and then the top-layer element holds the outgoing clip (#61).
@@ -1851,15 +1873,61 @@ export function PreviewPlayer({
               <option value="split">Split &amp; hold</option>
               <option value="append">Append after clip</option>
             </select>
-            <input
-              type="range"
-              aria-label="Seek within sequence"
-              min={0}
-              max={total}
-              step={0.01}
-              value={Math.min(sequenceTime, total)}
-              onChange={(event) => seek(Number(event.target.value))}
-            />
+            {/* Export-range marks (#385): each button records the playhead's
+                position as the range's start or end; the export modal offers
+                the span when both are set the right way round. Session-only
+                state — marks live in App component state, never in the
+                project file, so they are gone on reload by design. */}
+            <button
+              type="button"
+              data-testid="preview-mark-in"
+              title="Mark the start of the export range at the playhead (marks last for this session only)"
+              disabled={timeline.entries.length === 0 || onMarkIn === undefined}
+              onClick={() => onMarkIn?.(Math.min(sequenceTime, total))}
+            >
+              ⇥ Mark in
+            </button>
+            <button
+              type="button"
+              data-testid="preview-mark-out"
+              title="Mark the end of the export range at the playhead (marks last for this session only)"
+              disabled={timeline.entries.length === 0 || onMarkOut === undefined}
+              onClick={() => onMarkOut?.(Math.min(sequenceTime, total))}
+            >
+              ⇤ Mark out
+            </button>
+            {(markIn !== null || markOut !== null) && (
+              <button
+                type="button"
+                data-testid="preview-clear-marks"
+                title="Clear the export range marks"
+                onClick={() => onClearMarks?.()}
+              >
+                ✕ Marks
+              </button>
+            )}
+            <div className="preview-seek">
+              {markedSpan !== null && (
+                <span
+                  className="preview-marked-range"
+                  data-testid="preview-marked-range"
+                  title={`Marked range: ${formatDuration(markedSpan.start)} – ${formatDuration(markedSpan.end)}`}
+                  style={{
+                    left: `${(markedSpan.start / total) * 100}%`,
+                    width: `${((markedSpan.end - markedSpan.start) / total) * 100}%`,
+                  }}
+                />
+              )}
+              <input
+                type="range"
+                aria-label="Seek within sequence"
+                min={0}
+                max={total}
+                step={0.01}
+                value={Math.min(sequenceTime, total)}
+                onChange={(event) => seek(Number(event.target.value))}
+              />
+            </div>
             <span className="preview-position" data-testid="preview-position">
               {formatDuration(Math.min(sequenceTime, total))} / {formatDuration(total)}
             </span>

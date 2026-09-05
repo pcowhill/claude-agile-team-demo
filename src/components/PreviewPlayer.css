@@ -194,6 +194,38 @@
   min-width: 0;
 }
 
+/* Export-range marks (#385): the seek slider sits inside this wrapper so the
+   marked span can paint behind it. The wrapper takes over the slider's flex
+   role in the controls row (the descendant rule above still gives the input
+   flex: 1, now within the wrapper). */
+.preview-seek {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  /* Never a nub: with the mark controls (#385) the row's buttons can crowd
+     the slider down to a sliver at ordinary widths while everything still
+     "fits" — the screenshot for #385 caught exactly that. A real minimum
+     makes the row's flex-wrap (the #190 rule above) kick in instead: when
+     space runs out the seek bar wraps onto its own full-width line, where
+     the marked-range highlight stays legible. This floor is still narrower
+     than the pre-#385 slider ever rendered, so wide layouts are unchanged. */
+  min-width: 14rem;
+}
+
+.preview-marked-range {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 0.6rem;
+  background: rgba(100, 160, 255, 0.3);
+  border-left: 2px solid rgba(120, 175, 255, 0.9);
+  border-right: 2px solid rgba(120, 175, 255, 0.9);
+  border-radius: 2px;
+  /* Purely a readout: the slider underneath stays draggable everywhere. */
+  pointer-events: none;
+}
+
 .preview-controls button {
   min-width: 2.25rem;
 }
