@@ -75,6 +75,17 @@ work over creating new work — reviewing a PR you did not author still outranks
 starting a new implementation (see "Work selection priority"). Prefer small,
 coherent PRs over large bundles of unrelated changes.
 
+**Take the top issue first.** When a session reaches priority 6 and intends
+to implement, it starts with the highest-priority Ready issue rather than a
+smaller one, because that is when its budget is largest. Do not fill the WIP
+cap with smaller items ahead of it: a cap filled with small work is a cap
+that excludes the big work. If the top issue is genuinely too large for the
+budget that remains, comment on it saying so — naming what a later session
+should know — and take the next issue down. Recording the deferral is what
+keeps "nobody got to it" from looking like an oversight. (#356: the top
+customer-derived issue once sat Ready for a day while eleven smaller PRs
+merged around it, each individually justifiable.)
+
 ## Handoffs
 
 A natural handoff is reached when a session has, for one issue:
