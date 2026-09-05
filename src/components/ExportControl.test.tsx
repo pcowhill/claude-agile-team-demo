@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportControl } from './ExportControl'
 import type { DoExport } from './ExportControl'
@@ -124,7 +124,10 @@ describe('ExportControl', () => {
     const user = userEvent.setup()
     render(<ExportControl timeline={timeline} isTypeSupported={recordsEverything} />)
     await user.click(openButton())
-    const radios = screen.getAllByRole('radio')
+    // The format fieldset's radios only: the Range fieldset (#385, #400)
+    // carries radios of its own.
+    const formatFieldset = screen.getByRole('radio', { name: 'WebM' }).closest('fieldset')!
+    const radios = within(formatFieldset).getAllByRole('radio')
     expect(radios.map((radio) => radio.closest('label')?.textContent)).toEqual(['WebM', 'MP4'])
     // No behavior change for existing users: WebM stays the default.
     expect(screen.getByRole('radio', { name: 'WebM' })).toBeChecked()
@@ -538,12 +541,92 @@ describe('default export format setting (#286)', () => {
 describe('export range option (#385)', () => {
   const range = { start: 2, end: 8.5 }
 
-  it('offers no range line while the marks form none — the dialog reads as before', async () => {
+  it('offers whole project and a custom range without marks, and the marked range only with them (#400)', async () => {
     const user = userEvent.setup()
     render(<ExportControl timeline={timeline} isTypeSupported={recordsEverything} />)
     await user.click(openButton())
     expect(screen.queryByTestId('export-scope-range')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('export-scope-whole')).not.toBeInTheDocument()
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+    expect(screen.getByTestId('export-scope-custom')).not.toBeChecked()
+    // Pre-filled from the whole 10 s sequence when no marks form a range.
+    expect(screen.getByTestId('export-range-start')).toHaveValue('0:00')
+    expect(screen.getByTestId('export-range-end')).toHaveValue('0:10')
+    // Whole project is what a default export gets: no error shown for the
+    // custom fields while they are not the chosen scope.
+    expect(screen.queryByTestId('export-range-error')).not.toBeInTheDocument()
+  })
+
+  it('pre-fills the custom range from the marks when they form one (#400)', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} range={range} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(screen.getByTestId('export-range-start')).toHaveValue('0:02')
+    expect(screen.getByTestId('export-range-end')).toHaveValue('0:08.5')
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+  })
+
+  it('sends the typed range, and typing into a field selects Custom (#400)', async () => {
+    const doExport = vi.fn<DoExport>(() =>
+      Promise.resolve(new Blob(['x'], { type: 'video/webm' })),
+    )
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    const start = screen.getByTestId('export-range-start')
+    const end = screen.getByTestId('export-range-end')
+    await user.clear(start)
+    await user.type(start, '1.5')
+    expect(screen.getByTestId('export-scope-custom')).toBeChecked()
+    await user.clear(end)
+    await user.type(end, '0:03')
+    expect(screen.queryByTestId('export-range-error')).not.toBeInTheDocument()
+    expect(exportButton()).toBeEnabled()
+    await user.click(exportButton())
+    await waitFor(() => expect(doExport).toHaveBeenCalledOnce())
+    expect(doExport.mock.calls[0][1].range).toEqual({ start: 1.5, end: 3 })
+
+    // Reopening resets to the whole project and re-fills the fields (#179's
+    // reset rule applied to the range).
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await user.click(openButton())
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+    expect(screen.getByTestId('export-range-start')).toHaveValue('0:00')
+    expect(screen.getByTestId('export-range-end')).toHaveValue('0:10')
+  })
+
+  it('an invalid custom range disables Export and says why; Whole project is unaffected (#400)', async () => {
+    const doExport = vi.fn<DoExport>()
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    const end = screen.getByTestId('export-range-end')
+    await user.clear(end)
+    await user.type(end, '12')
+    expect(screen.getByTestId('export-range-error')).toHaveTextContent(
+      'The end cannot be past the end of the sequence (0:10).',
+    )
+    expect(exportButton()).toBeDisabled()
+    await user.clear(end)
+    await user.type(end, '0:00')
+    expect(screen.getByTestId('export-range-error')).toHaveTextContent(
+      'The end must come after the start.',
+    )
+    expect(exportButton()).toBeDisabled()
+    await user.clear(end)
+    await user.type(end, 'soon')
+    expect(screen.getByTestId('export-range-error')).toHaveTextContent(
+      'Enter the end as m:ss or in seconds.',
+    )
+    expect(exportButton()).toBeDisabled()
+    // Back to Whole project: the broken fields no longer gate anything.
+    await user.click(screen.getByTestId('export-scope-whole'))
+    expect(screen.queryByTestId('export-range-error')).not.toBeInTheDocument()
+    expect(exportButton()).toBeEnabled()
+    expect(doExport).not.toHaveBeenCalled()
   })
 
   it('defaults to the whole project and sends no range with it', async () => {
@@ -619,7 +702,9 @@ describe('format-note layout structure (#268)', () => {
     const fieldset = note.closest('fieldset')
     expect(fieldset).not.toBeNull()
     expect(fieldset!.lastElementChild).toBe(note)
-    const radios = screen.getAllByRole('radio')
+    // The format fieldset's own radios: the Range fieldset (#385, #400)
+    // follows the note by design, so its radios are not this rule's.
+    const radios = within(fieldset!).getAllByRole('radio')
     expect(radios.length).toBeGreaterThan(1)
     for (const radio of radios) {
       expect(note.compareDocumentPosition(radio) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()

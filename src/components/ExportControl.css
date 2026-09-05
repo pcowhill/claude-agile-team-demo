@@ -25,6 +25,25 @@
   font-size: 0.9rem;
 }
 
+/* The typed range (#400): the radio's own label, then two short time
+   fields. Narrow fields keep the option's row within the dialog at its
+   width cap (#268); an unfittable row wraps as a whole, like any option. */
+.export-range-custom > label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.export-range-custom input[type='text'] {
+  width: 4.5rem;
+}
+
+/* The one message for a range that cannot export — the format-note's
+   full-width line (own row below the options), in the error color. */
+.export-range-error {
+  color: #ff7a7a;
+}
+
 .export-progress-row {
   display: flex;
   align-items: center;

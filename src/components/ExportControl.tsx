@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
 import type { ExportRange } from '../lib/exportVideo'
 import { formatDuration } from '../lib/mediaLibrary'
+import { customExportRange, formatTimeInput } from '../lib/exportRangeInput'
 import {
   exportFileName,
   exportFormats,
@@ -107,10 +109,15 @@ export function ExportControl({
   // they apply to one export only, per the feedback (#169). Drafts are
   // strings so the user can type freely; validity gates the Export button.
   const [sizeMode, setSizeMode] = useState<SizeMode>('auto')
-  // What the export covers (#385): the whole sequence, or the transport
-  // marks' range. One-export state like the size settings — reset on open,
-  // never remembered — and offered at all only while the marks form a range.
-  const [scope, setScope] = useState<'whole' | 'range'>('whole')
+  // What the export covers (#385, #400): the whole sequence, the transport
+  // marks' range, or a range typed into the two fields. One-export state
+  // like the size settings — reset on open, never remembered. The marked
+  // option is offered only while the marks form a range; Custom always is,
+  // pre-filled from the marks when they form one and from the whole
+  // sequence otherwise, so a span can be exported with no marks set at all.
+  const [scope, setScope] = useState<'whole' | 'range' | 'custom'>('whole')
+  const [rangeStartDraft, setRangeStartDraft] = useState('0:00')
+  const [rangeEndDraft, setRangeEndDraft] = useState('0:00')
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
@@ -173,8 +180,12 @@ export function ExportControl({
     // until the probe below resolves the sources' real frame.
     setSizeMode('auto')
     // Whole project is every export's starting point (#385): a range picked
-    // for the last export never quietly becomes this one's.
+    // for the last export never quietly becomes this one's. The custom
+    // fields start from the marks when they form a range, else the whole
+    // sequence (#400), so the typed range begins as something exportable.
     setScope('whole')
+    setRangeStartDraft(formatTimeInput(range?.start ?? 0))
+    setRangeEndDraft(formatTimeInput(range?.end ?? totalDuration(timeline)))
     setWidthDraft(String(FALLBACK_FRAME.width))
     setHeightDraft(String(FALLBACK_FRAME.height))
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
@@ -204,6 +215,12 @@ export function ExportControl({
     frameRate: Number(frameRateDraft),
   }
   const settingsValid = isValidExportSettings(parsedSettings)
+  // The typed range (#400), validated against the sequence's length on every
+  // render: null range with a message while the fields do not form one.
+  const customRange = customExportRange(
+    { start: rangeStartDraft, end: rangeEndDraft },
+    totalDuration(timeline),
+  )
   // An audio-only format (#245) records no video track, so the video-only
   // output settings are hidden while it is selected — and their drafts,
   // valid or not, neither gate nor parameterize the export.
@@ -213,6 +230,13 @@ export function ExportControl({
   const editField = (set: (value: string) => void) => (value: string) => {
     set(value)
     setSizeMode('custom')
+  }
+
+  /** Typing into a range field selects the Custom range (#400), the same
+   * way editing a size field selects the Custom size. */
+  const editRangeField = (set: (value: string) => void) => (value: string) => {
+    set(value)
+    setScope('custom')
   }
 
   const selectSizeMode = (mode: SizeMode) => {
@@ -266,10 +290,12 @@ export function ExportControl({
                 : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
               frameRate: parsedSettings.frameRate,
             }),
-        // The marked range (#385), when this export is scoped to it. Read at
-        // the click: the dialog is modal, so the marks cannot change under an
-        // open dialog, and the pipeline re-validates against the timeline.
+        // The marked range (#385) or the typed one (#400), when this export
+        // is scoped to either. Read at the click: the dialog is modal, so the
+        // marks cannot change under an open dialog, and the pipeline
+        // re-validates against the timeline.
         ...(scope === 'range' && range !== null ? { range } : {}),
+        ...(scope === 'custom' && customRange.range !== null ? { range: customRange.range } : {}),
         signal: controller.signal,
         onProgress: (fraction) => setStatus({ kind: 'exporting', fraction }),
       })
@@ -367,24 +393,24 @@ export function ExportControl({
                 return note !== undefined && <p className="export-format-note">{note}</p>
               })()}
             </fieldset>
-            {/* The exported span (#385): rendered only while the transport
-                marks form a valid range — with no marks the dialog reads
-                exactly as before. Applies to every format: the range narrows
-                the pipeline's replay window, not any one encoder. */}
-            {range !== null && (
-              <fieldset className="export-format-options export-range-options">
-                <legend>Range</legend>
-                <label className="export-format-option">
-                  <input
-                    type="radio"
-                    name="export-scope"
-                    data-testid="export-scope-whole"
-                    disabled={exporting}
-                    checked={scope === 'whole'}
-                    onChange={() => setScope('whole')}
-                  />
-                  Whole project
-                </label>
+            {/* The exported span (#385, #400): the whole project, the
+                transport marks' range while they form one, or a range typed
+                here. Applies to every format: the range narrows the
+                pipeline's replay window, not any one encoder. */}
+            <fieldset className="export-format-options export-range-options">
+              <legend>Range</legend>
+              <label className="export-format-option">
+                <input
+                  type="radio"
+                  name="export-scope"
+                  data-testid="export-scope-whole"
+                  disabled={exporting}
+                  checked={scope === 'whole'}
+                  onChange={() => setScope('whole')}
+                />
+                Whole project
+              </label>
+              {range !== null && (
                 <label className="export-format-option">
                   <input
                     type="radio"
@@ -396,8 +422,49 @@ export function ExportControl({
                   />
                   Marked range ({formatDuration(range.start)} – {formatDuration(range.end)})
                 </label>
-              </fieldset>
-            )}
+              )}
+              {/* The fields sit beside the radio's label, not inside it: a
+                  label wrapping several controls would name the radio after
+                  the fields' contents too, and clicking a field would not
+                  read as choosing the option — typing does that instead. */}
+              <div className="export-format-option export-range-custom">
+                <label>
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    data-testid="export-scope-custom"
+                    disabled={exporting}
+                    checked={scope === 'custom'}
+                    onChange={() => setScope('custom')}
+                  />
+                  Custom range
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Custom range start"
+                  data-testid="export-range-start"
+                  disabled={exporting}
+                  value={rangeStartDraft}
+                  onChange={(event) => editRangeField(setRangeStartDraft)(event.target.value)}
+                />
+                <span aria-hidden="true">–</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Custom range end"
+                  data-testid="export-range-end"
+                  disabled={exporting}
+                  value={rangeEndDraft}
+                  onChange={(event) => editRangeField(setRangeEndDraft)(event.target.value)}
+                />
+              </div>
+              {scope === 'custom' && customRange.error !== null && (
+                <p className="export-format-note export-range-error" data-testid="export-range-error">
+                  {customRange.error} Times are m:ss or seconds.
+                </p>
+              )}
+            </fieldset>
             {!audioOnly && (
             <fieldset className="export-settings">
               <legend>Output</legend>
@@ -501,7 +568,11 @@ export function ExportControl({
               <button
                 type="button"
                 ref={exportRef}
-                disabled={exporting || (!audioOnly && !settingsValid)}
+                disabled={
+                  exporting ||
+                  (!audioOnly && !settingsValid) ||
+                  (scope === 'custom' && customRange.range === null)
+                }
                 onClick={() => void startExport()}
               >
                 Export

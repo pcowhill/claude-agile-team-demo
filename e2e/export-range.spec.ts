@@ -420,7 +420,11 @@ test('GIF and MP3 exports honor the range, and marks are session-only (#385)', a
   await page.getByRole('button', { name: 'Export Project…' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByTestId('export-scope-range')).not.toBeAttached()
-  await expect(page.getByTestId('export-scope-whole')).not.toBeAttached()
+  // The Range fieldset itself stays (#400 offers a typed range without
+  // marks): Whole project is the default and the fields pre-fill from the
+  // whole sequence, not from the marks that did not survive.
+  await expect(page.getByTestId('export-scope-whole')).toBeChecked()
+  await expect(page.getByTestId('export-range-start')).toHaveValue('0:00')
 })
 
 /**

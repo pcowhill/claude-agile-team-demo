@@ -256,7 +256,10 @@ adjustments, orientation, overlay layers of either kind — video and stills
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
-edited freely for that one export (#179). Two "Audio only" formats save just
+edited freely for that one export (#179). Its Range line exports the whole
+project, the marked range while marks are set, or a custom range typed as a
+start and an end (m:ss or seconds, pre-filled from the marks or the whole
+sequence) — no marks needed (#400). Two "Audio only" formats save just
 the project's mixed soundtrack — the same mix a video export records, with
 no video track — hiding the video-only output settings while selected:
 WebM/Opus (#245), recorded like the video formats, and MP3 (#269), encoded
