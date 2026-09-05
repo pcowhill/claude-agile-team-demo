@@ -63,6 +63,15 @@ one goes is unchanged.
 3. For each change worth making, open a `process` issue describing the
    problem, evidence, and the proposed change.
 
+A retrospective or `process` issue that proposes an executable check — a
+command, a script, a grep — must have **run** it and say what it returned.
+Proposing an unexecuted command is how a broken check reaches every session
+at once: #302 proposed a `git log --since=<date>` count that silently
+returns zero on the day a retrospective is written, and only the
+implementing session's measurement caught it (#357). The same applies to
+citations in an issue, a retrospective or a PR body: a PR number, file path
+or commit that a later session will rely on gets looked up, not recalled.
+
 ## Changing the process
 
 Meaningful changes to `CLAUDE.md`, `docs/rules/`, CI configuration,
