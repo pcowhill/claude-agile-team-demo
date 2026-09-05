@@ -219,9 +219,13 @@ export interface AudioTrack {
 }
 
 /**
- * Every transition the timeline can carry, as a runtime list so other layers
- * (UI selects, serialization validation — #75) derive their set from this
- * single source of truth instead of enumerating privately.
+ * The core transitions, as a runtime list. Since #199 the source of truth
+ * for what exists at runtime is the transition registry
+ * (`transitionRender.ts`) — plugins can contribute more — and this list is
+ * what registers the core set there at startup. UI selects and labels read
+ * the registry; serialization accepts any registered type (the open flow
+ * enforces it after plugin dependencies settle — #75's protection, moved to
+ * where plugin types are knowable).
  */
 export const TRANSITION_TYPES = [
   'crossfade',
@@ -244,7 +248,12 @@ export const TRANSITION_TYPES = [
   'cross-zoom',
 ] as const
 
-export type TransitionType = (typeof TRANSITION_TYPES)[number]
+/**
+ * A transition type id. A plain string since #199: plugins register
+ * transitions at runtime, so the compile-time universe is open — validity is
+ * a registry question (`transitionRender.ts`), not a type-level one.
+ */
+export type TransitionType = string
 
 export interface TransitionSpec {
   type: TransitionType

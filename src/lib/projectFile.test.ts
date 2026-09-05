@@ -1338,7 +1338,10 @@ describe('project file corruption', () => {
     ['an entry with an empty trim range', (d) => (d.timeline.entries[0].inPoint = 9), 'inPoint must be less than outPoint'],
     ['an entry trimmed past its duration', (d) => (d.timeline.entries[0].outPoint = 100), 'must not exceed the clip duration'],
     ['an entry referencing a missing clip', (d) => (d.timeline.entries[0].clipId = 'nope'), 'does not match any clip'],
-    ['an unknown transition type', (d) => ((d.timeline.transitions[0] as { type: string }).type = 'star-wipe'), '"star-wipe" is unknown'],
+    // Whether a transition type is *known* is a registry question the open
+    // flow answers after plugin dependencies settle (#199); parse enforces
+    // structure only, so an empty id is still refused here (by asString).
+    ['an empty transition type', (d) => ((d.timeline.transitions[0] as { type: string }).type = ''), 'transitions[0].type must be a non-empty string'],
     ['a transition referencing a missing entry', (d) => (d.timeline.transitions[0].afterId = 'nope'), 'does not match any timeline entry'],
     ['duplicate transitions on one boundary', (d) => d.timeline.transitions.push({ ...d.timeline.transitions[0] }), 'duplicates the transition'],
     ['a zoom that does not magnify', (d) => (d.timeline.zooms[0].scale = 1), 'scale must be greater than 1'],

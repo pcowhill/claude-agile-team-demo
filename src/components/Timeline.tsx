@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent } from 'react'
 import type {
   ColorAdjustments,
@@ -43,6 +43,7 @@ import {
   zoomsForEntry,
 } from '../lib/timeline'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
+import { transitionRegistry } from '../lib/transitionRender'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -293,26 +294,8 @@ const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: Z
   centerY,
 })
 
-const TRANSITION_TYPE_NAMES: Record<TransitionType, string> = {
-  crossfade: 'Crossfade',
-  'slide-from-above': 'Slide from above',
-  'slide-from-below': 'Slide from below',
-  'slide-from-left': 'Slide from left',
-  'slide-from-right': 'Slide from right',
-  'wipe-from-left': 'Wipe from left',
-  'wipe-from-right': 'Wipe from right',
-  'wipe-from-above': 'Wipe from above',
-  'wipe-from-below': 'Wipe from below',
-  'push-from-left': 'Push from left',
-  'push-from-right': 'Push from right',
-  'push-from-above': 'Push from above',
-  'push-from-below': 'Push from below',
-  'fade-through-black': 'Fade through black',
-  'fade-through-white': 'Fade through white',
-  'iris-open': 'Iris open',
-  'iris-close': 'Iris close',
-  'cross-zoom': 'Cross-zoom',
-}
+// Transition names come from the registry (#199): core plus whatever enabled
+// plugins contribute, in registration order. See the select's options below.
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */
 const formatSeconds = (seconds: number) => String(Math.round(seconds * 100) / 100)
@@ -949,6 +932,10 @@ export function Timeline({
   onSetAudioTrackDuck,
 }: TimelineProps) {
   const { entries } = timeline
+  // The transition picker's options live in the registry (#199), which an
+  // enabled plugin changes at runtime — subscribe so the select re-renders.
+  useSyncExternalStore(transitionRegistry.subscribe, () => transitionRegistry.version)
+  const transitionOptions = transitionRegistry.list()
   const transitions = boundaryTransitions(timeline)
   const audioTracks = audioTracksOf(timeline)
   const texts = textsOf(timeline)
@@ -1801,11 +1788,19 @@ export function Timeline({
                             })
                           }
                         >
-                          {Object.entries(TRANSITION_TYPE_NAMES).map(([value, name]) => (
-                            <option key={value} value={value}>
-                              {name}
+                          {transitionOptions.map((definition) => (
+                            <option key={definition.id} value={definition.id}>
+                              {definition.name}
                             </option>
                           ))}
+                          {!transitionRegistry.has(transition.type) && (
+                            // A type whose plugin is disabled (#199): keep the
+                            // stored value selectable and name it, instead of
+                            // the select silently showing the first option.
+                            <option value={transition.type}>
+                              {transition.type} (unavailable)
+                            </option>
+                          )}
                         </select>
                         <SecondsField
                           label={`Transition duration ${boundary} in seconds`}

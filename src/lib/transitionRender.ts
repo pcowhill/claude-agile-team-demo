@@ -1,10 +1,19 @@
 import type { TransitionType } from './timeline'
+import { TRANSITION_TYPES } from './timeline'
 
 /**
  * How the two clips of a transition overlap are layered onto the black
  * stage at a given progress. One pure rule drives both renderers — the
  * preview (CSS, in PreviewPlayer) and the export (canvas, in exportVideo) —
  * so the two cannot drift apart (#66).
+ *
+ * Transitions live in a registry (#199) — the second plugin extension point,
+ * shaped like the export-format registry (#196, ADR 0003). The timeline's
+ * type picker and the now-playing label consult the registry for what
+ * exists, and both renderers resolve a type through `transitionLayerSpec`
+ * below; nothing outside this module hard-codes the list. Core transitions
+ * (#42, #181) register at startup; a plugin contributes more by calling
+ * `transitionRegistry.register` when it is enabled.
  */
 
 /**
@@ -167,8 +176,13 @@ const ENTRY_VECTOR: Record<'above' | 'below' | 'left' | 'right', { x: number; y:
 
 type Edge = keyof typeof ENTRY_VECTOR
 
-/** The spec every type starts from: both layers full, static, uncut. */
-const BASE_SPEC: TransitionLayerSpec = {
+/**
+ * The spec every type starts from: both layers full, static, uncut.
+ * Exported as part of the registry contract (#199): a plugin definition
+ * composes its `layerSpec` from this base exactly as the core types below
+ * do, so a new transition only states what it changes.
+ */
+export const BASE_TRANSITION_SPEC: TransitionLayerSpec = {
   outgoingAlpha: 1,
   incomingAlpha: 1,
   additive: false,
@@ -188,10 +202,11 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
 const edgeOf = (type: string): Edge => type.slice(type.lastIndexOf('-') + 1) as Edge
 
-export function transitionLayerSpec(type: TransitionType, progress: number): TransitionLayerSpec {
+/** The core per-type rule — registered below; see the block comment above. */
+function coreLayerSpec(type: string, progress: number): TransitionLayerSpec {
   if (type === 'crossfade') {
     return {
-      ...BASE_SPEC,
+      ...BASE_TRANSITION_SPEC,
       outgoingAlpha: 1 - progress,
       incomingAlpha: progress,
       additive: true,
@@ -206,9 +221,9 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
     // at progress 0 and 1 the veil's alpha is exactly 0.
     const color = type === 'fade-through-black' ? '#000000' : '#ffffff'
     if (progress <= 0.5) {
-      return { ...BASE_SPEC, incomingAlpha: 0, veil: { color, alpha: progress * 2 } }
+      return { ...BASE_TRANSITION_SPEC, incomingAlpha: 0, veil: { color, alpha: progress * 2 } }
     }
-    return { ...BASE_SPEC, veil: { color, alpha: (1 - progress) * 2 } }
+    return { ...BASE_TRANSITION_SPEC, veil: { color, alpha: (1 - progress) * 2 } }
   }
   if (type === 'iris-open' || type === 'iris-close') {
     // Iris (#181): open reveals the incoming card inside a growing ellipse
@@ -216,9 +231,9 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
     // it outside a shrinking one — the outgoing clip's final moments live
     // in the contracting hole. Both hit exact cover/reveal at the ends.
     return type === 'iris-open'
-      ? { ...BASE_SPEC, incomingEllipse: { radiusFraction: progress * IRIS_COVER_RADIUS, invert: false } }
+      ? { ...BASE_TRANSITION_SPEC, incomingEllipse: { radiusFraction: progress * IRIS_COVER_RADIUS, invert: false } }
       : {
-          ...BASE_SPEC,
+          ...BASE_TRANSITION_SPEC,
           incomingEllipse: { radiusFraction: (1 - progress) * IRIS_COVER_RADIUS, invert: true },
         }
   }
@@ -231,7 +246,7 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
     const outgoingTravel = Math.min(2 * progress, 1)
     const incomingTravel = Math.min(2 * (1 - progress), 1)
     return {
-      ...BASE_SPEC,
+      ...BASE_TRANSITION_SPEC,
       incomingAlpha: clamp01((progress - 0.4) / 0.2),
       outgoingScale: 1 + (CROSS_ZOOM_PEAK - 1) * outgoingTravel * outgoingTravel,
       incomingScale: 1 + (CROSS_ZOOM_PEAK - 1) * incomingTravel * incomingTravel,
@@ -242,7 +257,7 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
     // `+ 0` turns the -0 of a negative entry vector times zero travel into
     // plain 0, so progress 1 yields exact-cover offsets of (0, 0).
     return {
-      ...BASE_SPEC,
+      ...BASE_TRANSITION_SPEC,
       incomingOffsetXFraction: entry.x * (1 - progress) + 0,
       incomingOffsetYFraction: entry.y * (1 - progress) + 0,
     }
@@ -252,7 +267,7 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
     // lockstep — the two edges meet at the frame line entry·(1 − progress)
     // from cover, so no gap opens and nothing pops at either end.
     return {
-      ...BASE_SPEC,
+      ...BASE_TRANSITION_SPEC,
       incomingOffsetXFraction: entry.x * (1 - progress) + 0,
       incomingOffsetYFraction: entry.y * (1 - progress) + 0,
       outgoingOffsetXFraction: -entry.x * progress + 0,
@@ -264,7 +279,7 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
   // hugs the entry edge: from-left reveals [0, progress], from-right
   // [1 − progress, 1], and the vertical wipes the same on y.
   return {
-    ...BASE_SPEC,
+    ...BASE_TRANSITION_SPEC,
     incomingClip: {
       x: entry.x === 1 ? 1 - progress : 0,
       y: entry.y === 1 ? 1 - progress : 0,
@@ -272,4 +287,181 @@ export function transitionLayerSpec(type: TransitionType, progress: number): Tra
       height: entry.y === 0 ? 1 : progress,
     },
   }
+}
+
+/**
+ * One registered transition (#199). **This interface is a contract plugins
+ * depend on** (#183's API-stability concern, ADR 0003): change it
+ * deliberately, with every registration and ADR 0003 updated in the same PR.
+ * Per the approved scope-creep guard it carries only what a registered
+ * transition demonstrably needs today — an id, a picker name, and the pure
+ * layer rule both renderers already consume — and grows when a concrete
+ * plugin needs more, not in anticipation.
+ */
+export interface TransitionDefinition {
+  /**
+   * Stable identifier — what timeline state and project files record
+   * (e.g. 'crossfade'). Must never be reused for a different effect: a
+   * saved project resolves its transitions by this id.
+   */
+  id: string
+  /**
+   * Human-readable name, sentence case, shown in the timeline's type picker
+   * (e.g. 'Wipe from left'). The preview's now-playing line shows it
+   * lowercased.
+   */
+  name: string
+  /**
+   * The pure layer rule at a progress in [0, 1] — the same
+   * `TransitionLayerSpec` vocabulary core transitions use, driving the
+   * preview's CSS and the export's canvas identically by construction.
+   */
+  layerSpec: (progress: number) => TransitionLayerSpec
+}
+
+/**
+ * Registry of transitions, in registration order (which is picker order).
+ * The app uses the `transitionRegistry` singleton; tests construct their
+ * own. Mirrors the export-format registry (#196): `register`/`unregister`
+ * are how a plugin's contributions arrive and leave, and `subscribe` +
+ * `version` pair with React's `useSyncExternalStore` so the picker re-reads
+ * the registry when plugins change it at runtime.
+ */
+export class TransitionRegistry {
+  private readonly definitions = new Map<string, TransitionDefinition>()
+  private readonly listeners = new Set<() => void>()
+  /** Monotonic change counter — the snapshot for `useSyncExternalStore`. */
+  version = 0
+
+  /** Adds a transition. A duplicate id is a programming error and throws. */
+  register(definition: TransitionDefinition): void {
+    if (this.definitions.has(definition.id)) {
+      throw new Error(`Transition '${definition.id}' is already registered.`)
+    }
+    this.definitions.set(definition.id, definition)
+    this.notify()
+  }
+
+  /**
+   * Removes a transition — how a disabled plugin's contributions leave the
+   * picker. Removing an id that is not registered is a no-op: a plugin's
+   * deactivate must stay safe whatever order teardown runs in.
+   */
+  unregister(id: string): void {
+    if (this.definitions.delete(id)) this.notify()
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private notify(): void {
+    this.version++
+    for (const listener of this.listeners) listener()
+  }
+
+  has(id: string): boolean {
+    return this.definitions.has(id)
+  }
+
+  /** The definition for `id`, or undefined for an unregistered id — the
+   * render paths fall back rather than throw (see `transitionLayerSpec`). */
+  find(id: string): TransitionDefinition | undefined {
+    return this.definitions.get(id)
+  }
+
+  /** All registered definitions, in registration order. */
+  list(): TransitionDefinition[] {
+    return [...this.definitions.values()]
+  }
+}
+
+/** Picker names of the core transitions, in `TRANSITION_TYPES` order. */
+const CORE_TRANSITION_NAMES: Record<(typeof TRANSITION_TYPES)[number], string> = {
+  crossfade: 'Crossfade',
+  'slide-from-above': 'Slide from above',
+  'slide-from-below': 'Slide from below',
+  'slide-from-left': 'Slide from left',
+  'slide-from-right': 'Slide from right',
+  'wipe-from-left': 'Wipe from left',
+  'wipe-from-right': 'Wipe from right',
+  'wipe-from-above': 'Wipe from above',
+  'wipe-from-below': 'Wipe from below',
+  'push-from-left': 'Push from left',
+  'push-from-right': 'Push from right',
+  'push-from-above': 'Push from above',
+  'push-from-below': 'Push from below',
+  'fade-through-black': 'Fade through black',
+  'fade-through-white': 'Fade through white',
+  'iris-open': 'Iris open',
+  'iris-close': 'Iris close',
+  'cross-zoom': 'Cross-zoom',
+}
+
+/**
+ * Registers the core transitions (#42, #181) in `TRANSITION_TYPES` order, so
+ * the picker lists them exactly as it always has. Exported so registry tests
+ * can populate fresh instances; the app uses the singleton registration
+ * below.
+ */
+export function registerCoreTransitions(registry: TransitionRegistry): void {
+  for (const type of TRANSITION_TYPES) {
+    registry.register({
+      id: type,
+      name: CORE_TRANSITION_NAMES[type],
+      layerSpec: (progress) => coreLayerSpec(type, progress),
+    })
+  }
+}
+
+/** The app's registry. Core transitions register into it at startup. */
+export const transitionRegistry = new TransitionRegistry()
+registerCoreTransitions(transitionRegistry)
+
+/**
+ * The layer spec for a transition type at a progress — the one resolution
+ * point both renderers go through. An *unregistered* type falls back to the
+ * crossfade rule rather than throwing: timeline state can outlive a plugin
+ * (a pack transition stays on the timeline after its plugin is disabled —
+ * the #197 disable semantics tear down contributions, not user edits), and
+ * a render loop must keep drawing something reasonable. A crossfade is the
+ * gentlest stand-in — a plain dissolve, never a black frame — and the type
+ * picker shows the raw id as unavailable, so the state is visible rather
+ * than silently rewritten.
+ */
+export function transitionLayerSpec(
+  type: TransitionType,
+  progress: number,
+  registry: TransitionRegistry = transitionRegistry,
+): TransitionLayerSpec {
+  const definition = registry.find(type)
+  if (definition !== undefined) return definition.layerSpec(progress)
+  return coreLayerSpec('crossfade', progress)
+}
+
+/**
+ * The now-playing label for a transition type: the registered name,
+ * lowercased ('Wipe from left' → 'wipe from left', matching the label the
+ * preview always showed). An unregistered type shows its raw id, so a
+ * timeline carrying a disabled plugin's transition says which one.
+ */
+export function transitionLabel(
+  type: TransitionType,
+  registry: TransitionRegistry = transitionRegistry,
+): string {
+  return registry.find(type)?.name.toLowerCase() ?? type
+}
+
+/**
+ * The transition types in `types` that no registered definition covers —
+ * what the project-open flow checks *after* plugin dependencies are settled
+ * (#199): a type still unknown then is either a corrupt file or one saved by
+ * a newer build, and opening it would silently render fallbacks.
+ */
+export function unregisteredTransitionTypes(
+  types: Iterable<string>,
+  registry: TransitionRegistry = transitionRegistry,
+): string[] {
+  return [...new Set(types)].filter((type) => !registry.has(type))
 }

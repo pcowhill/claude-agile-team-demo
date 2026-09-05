@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event'
 import { ProjectControls } from './ProjectControls'
 import type { LibraryClip, MediaLibraryState } from '../lib/mediaLibrary'
-import { deserializeProject } from '../lib/projectFile'
+import { deserializeProject, serializeProject } from '../lib/projectFile'
 import type { ClipMedia } from '../lib/projectFile'
 import type { SaveDestination, SavePort } from '../lib/saveProject'
 import type { TimelineState } from '../lib/timeline'
@@ -793,8 +793,34 @@ describe('New Project and Open Project (#77)', () => {
       if (saved.ok) expect(saved.project.plugins).toEqual(['dep-plugin'])
     })
 
-    it('saving with the plugin disabled records no dependency', async () => {
+    it('saving with the plugin disabled still records the dependency (#199)', async () => {
+      // Disabling tears down contributions, not user edits: state the
+      // predicate recognizes (a pack transition on the timeline) survives a
+      // disable, and a save right then must still name the dependency or the
+      // file would reopen without prompting and silently render fallbacks.
       const { runtime } = fixtureRuntime()
+      const { port, writes } = stubPort()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty
+          onSaved={vi.fn()}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: /^Save(?! As)/ }))
+      await confirmSaveDialog(user, 'references')
+      await waitFor(() => expect(writes).toHaveLength(1))
+      const saved = await deserializeProject(writes[0])
+      expect(saved.ok).toBe(true)
+      if (saved.ok) expect(saved.project.plugins).toEqual(['dep-plugin'])
+    })
+
+    it('saving records no dependency when the project does not use the plugin', async () => {
+      const { runtime } = fixtureRuntime({ usedByProject: () => false })
       const { port, writes } = stubPort()
       const user = userEvent.setup()
       render(
@@ -891,6 +917,41 @@ describe('New Project and Open Project (#77)', () => {
       await uploadProjectFile(user, await pluginDependentFile())
       await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('refuses a file whose transition type is unknown after the plugin gate (#199)', async () => {
+      // Parse validates transition types structurally; whether an id is a
+      // *known* transition is enforced here, once plugin dependencies are
+      // settled (a pack type is registered by a plugin the open may prompt
+      // for). A type still unknown then is a corrupt file or a newer build's.
+      const badTransitionTimeline: TimelineState = {
+        entries: [
+          { id: 'e1', clipId: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', inPoint: 1, outPoint: 8 },
+          { id: 'e2', clipId: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', inPoint: 0, outPoint: 5 },
+        ],
+        transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'star-wipe', duration: 1 }],
+        zooms: [],
+      }
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await serializeProject(library, badTransitionTimeline))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('unknown transition')
+      expect(alert).toHaveTextContent('"star-wipe"')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
     })
 
     it('refuses a file needing a plugin this build does not have, by name', async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, RefObject } from 'react'
-import type { TimelineEntry, TimelineState, TransitionType } from '../lib/timeline'
+import type { TimelineEntry, TimelineState } from '../lib/timeline'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -48,7 +48,7 @@ import {
 } from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
 import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
-import { transitionLayerSpec } from '../lib/transitionRender'
+import { transitionLabel, transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
@@ -110,26 +110,8 @@ const AUDIO_DRIFT_EPSILON = 0.25
  */
 const VIDEO_DRIFT_EPSILON = 0.25
 
-const TRANSITION_LABEL: Record<TransitionType, string> = {
-  crossfade: 'crossfade',
-  'slide-from-above': 'slide from above',
-  'slide-from-below': 'slide from below',
-  'slide-from-left': 'slide from left',
-  'slide-from-right': 'slide from right',
-  'wipe-from-left': 'wipe from left',
-  'wipe-from-right': 'wipe from right',
-  'wipe-from-above': 'wipe from above',
-  'wipe-from-below': 'wipe from below',
-  'push-from-left': 'push from left',
-  'push-from-right': 'push from right',
-  'push-from-above': 'push from above',
-  'push-from-below': 'push from below',
-  'fade-through-black': 'fade through black',
-  'fade-through-white': 'fade through white',
-  'iris-open': 'iris open',
-  'iris-close': 'iris close',
-  'cross-zoom': 'cross-zoom',
-}
+// The now-playing transition label comes from the registry (#199) via
+// `transitionLabel` — core plus whatever enabled plugins contribute.
 
 /**
  * Styles for the two stacked video elements mid-transition, mapped from the
@@ -1779,7 +1761,7 @@ export function PreviewPlayer({
           {location && (
             <p className="preview-now-playing" data-testid="preview-now-playing">
               Clip {location.index + 1} of {timeline.entries.length}: {location.entry.name}
-              {overlap ? ` → ${overlap.entry.name} (${TRANSITION_LABEL[overlap.type]})` : ''}
+              {overlap ? ` → ${overlap.entry.name} (${transitionLabel(overlap.type)})` : ''}
             </p>
           )}
         </div>

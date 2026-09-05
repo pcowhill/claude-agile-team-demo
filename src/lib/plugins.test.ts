@@ -246,8 +246,8 @@ describe('loadEnabledPluginIds (#197)', () => {
   })
 })
 
-describe('projectPlugins (#197)', () => {
-  it('names enabled plugins whose predicate says the project uses them', async () => {
+describe('projectPlugins (#197, #199)', () => {
+  it('names every plugin whose predicate says the project uses it, enabled or not', async () => {
     const used = fixturePlugin('used', { usedByProject: () => true })
     const unused = fixturePlugin('unused', { usedByProject: () => false })
     const noPredicate = fixturePlugin('formats-only')
@@ -261,6 +261,13 @@ describe('projectPlugins (#197)', () => {
       runtime.enable('unused'),
       runtime.enable('formats-only'),
     ])
-    expect(runtime.projectPlugins(emptyLibrary, emptyTimeline)).toEqual(['used'])
+    // 'disabled-but-used' is recorded despite being disabled (#199):
+    // disabling tears down contributions, not user edits, so a plugin's
+    // features (a pack transition on the timeline) can outlive its enabled
+    // state — the saved file must still name the dependency.
+    expect(runtime.projectPlugins(emptyLibrary, emptyTimeline)).toEqual([
+      'used',
+      'disabled-but-used',
+    ])
   })
 })

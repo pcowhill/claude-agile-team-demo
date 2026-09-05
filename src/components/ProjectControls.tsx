@@ -14,6 +14,7 @@ import { CANVAS_PRESETS } from '../lib/frameSize'
 import type { CanvasPreset } from '../lib/frameSize'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
+import { unregisteredTransitionTypes } from '../lib/transitionRender'
 import {
   DEFAULT_PROJECT_FILE_NAME,
   PROJECT_FILE_EXTENSION,
@@ -399,6 +400,23 @@ export function ProjectControls({
 
   /** The open path once plugin dependencies are settled (#197). */
   const openDeserialized = (fileName: string, result: Extract<DeserializeResult, { ok: true }>) => {
+    // Transition types are enforced here rather than at parse (#199): only
+    // now, with the file's plugins enabled, does the registry hold every
+    // type this build can know. A type still unknown is a corrupt file or
+    // one saved by a newer build; opening it would silently render
+    // fallbacks, so refuse with the same posture as the plugin gate.
+    const unknownTransitions = unregisteredTransitionTypes(
+      result.project.timeline.transitions.map((transition) => transition.type),
+    )
+    if (unknownTransitions.length > 0) {
+      setOpenError(
+        `this project uses the unknown transition${
+          unknownTransitions.length === 1 ? '' : 's'
+        } ${unknownTransitions.map((type) => `"${type}"`).join(', ')} — the file is damaged, or was saved by a newer version of the editor`,
+      )
+      reofferRestore()
+      return
+    }
     if (result.media !== undefined) {
       // An embedded file (#98) carries its media: it opens fully linked with
       // no re-link step, and re-saves embedded by default.
