@@ -83,16 +83,27 @@ describe('core export formats (#114, #196)', () => {
   it('registers WebM first (the picker default), then MP4 and audio-only, at startup', () => {
     // The singleton is populated by the module itself — this is the state
     // the export UI sees without any further wiring.
-    expect(exportFormats.list().map((entry) => entry.id)).toEqual(['webm', 'mp4', 'audio-webm'])
+    expect(exportFormats.list().map((entry) => entry.id)).toEqual([
+      'webm',
+      'mp4',
+      'audio-webm',
+      'audio-mp3',
+    ])
   })
 
   it('registerCoreExportFormats populates a fresh registry identically', () => {
     const registry = new ExportFormatRegistry()
     registerCoreExportFormats(registry)
-    expect(registry.list().map((entry) => entry.id)).toEqual(['webm', 'mp4', 'audio-webm'])
+    expect(registry.list().map((entry) => entry.id)).toEqual([
+      'webm',
+      'mp4',
+      'audio-webm',
+      'audio-mp3',
+    ])
     expect(registry.get('webm').label).toBe('WebM')
     expect(registry.get('mp4').extension).toBe('mp4')
     expect(registry.get('audio-webm').label).toBe('Audio only (WebM/Opus)')
+    expect(registry.get('audio-mp3').label).toBe('Audio only (MP3)')
   })
 
   it('every candidate stays inside its format container — the picked format is a promise', () => {
@@ -108,10 +119,12 @@ describe('core export formats (#114, #196)', () => {
     }
   })
 
-  it('the audio-only format is marked audioOnly and states so in its note (#245)', () => {
-    const audio = exportFormats.get('audio-webm')
-    expect(audio.audioOnly).toBe(true)
-    expect(audio.note).toContain('no video track')
+  it('the audio-only formats are marked audioOnly and state so in their notes (#245, #269)', () => {
+    for (const id of ['audio-webm', 'audio-mp3']) {
+      const audio = exportFormats.get(id)
+      expect(audio.audioOnly).toBe(true)
+      expect(audio.note).toContain('no video track')
+    }
     // The video formats carry no marker — the modal treats absent as video.
     expect(exportFormats.get('webm').audioOnly).toBeUndefined()
     expect(exportFormats.get('mp4').audioOnly).toBeUndefined()
@@ -158,7 +171,7 @@ describe('supportedExportFormats (#114)', () => {
     it('is offered where Web Audio exists and an audio MIME is recordable', () => {
       vi.stubGlobal('AudioContext', class {})
       expect(ids((type) => type.startsWith('video/webm') || type.startsWith('audio/webm'))).toEqual(
-        ['webm', 'audio-webm'],
+        ['webm', 'audio-webm', 'audio-mp3'],
       )
     })
 
@@ -169,9 +182,12 @@ describe('supportedExportFormats (#114)', () => {
       expect(ids(() => true)).toEqual(['webm', 'mp4'])
     })
 
-    it('is withheld where no audio MIME is recordable', () => {
+    it('is withheld where no audio MIME is recordable — but MP3 stays, since it never records (#269)', () => {
+      // The WebM audio format needs a recordable audio MIME; the MP3 format
+      // encodes its own audio, so Web Audio alone carries it. This is the
+      // browser where the two genuinely differ.
       vi.stubGlobal('AudioContext', class {})
-      expect(ids((type) => type.startsWith('video/'))).toEqual(['webm', 'mp4'])
+      expect(ids((type) => type.startsWith('video/'))).toEqual(['webm', 'mp4', 'audio-mp3'])
     })
   })
 
@@ -197,5 +213,6 @@ describe('exportFileName (#114)', () => {
     expect(exportFileName('mp4')).toBe('sequence-export.mp4')
     // The audio-only export is still a WebM file, container-wise (#245).
     expect(exportFileName('audio-webm')).toBe('sequence-export.webm')
+    expect(exportFileName('audio-mp3')).toBe('sequence-export.mp3')
   })
 })

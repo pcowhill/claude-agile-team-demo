@@ -372,6 +372,8 @@ describe('audio-only export format (#245)', () => {
     render(<ExportControl timeline={timeline} isTypeSupported={() => true} />)
     await user.click(openButton())
     expect(screen.queryByRole('radio', { name: 'Audio only (WebM/Opus)' })).not.toBeInTheDocument()
+    // MP3 (#269) needs the same mix capture, so it is withheld alike.
+    expect(screen.queryByRole('radio', { name: 'Audio only (MP3)' })).not.toBeInTheDocument()
   })
 
   it('hides the video-only output settings while selected, and restores them after', async () => {
@@ -442,6 +444,46 @@ describe('audio-only export format (#245)', () => {
     expect(exportButton()).toBeEnabled()
     await user.click(exportButton())
     await waitFor(() => expect(calls).toEqual(['audio-webm']))
+  })
+})
+
+describe('MP3 export format (#269)', () => {
+  const withWebAudio = () => vi.stubGlobal('AudioContext', class {})
+
+  it('is offered wherever Web Audio exists, even when no audio MIME is recordable', async () => {
+    // The picker-visible difference from the WebM audio format: MP3 encodes
+    // its own audio, so MediaRecorder's audio support is irrelevant to it.
+    withWebAudio()
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={timeline} isTypeSupported={(type) => type.startsWith('video/')} />,
+    )
+    await user.click(openButton())
+    expect(screen.queryByRole('radio', { name: 'Audio only (WebM/Opus)' })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Audio only (MP3)' })).toBeInTheDocument()
+  })
+
+  it('exports through the registry as audio-mp3, with no video overrides', async () => {
+    withWebAudio()
+    const calls: { format: string; frame?: unknown; frameRate?: unknown }[] = []
+    const doExport: DoExport = (_timeline, options) => {
+      calls.push({ format: options.format, frame: options.frame, frameRate: options.frameRate })
+      return Promise.resolve(new Blob(['x']))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} doExport={doExport} isTypeSupported={() => true} />)
+    await user.click(openButton())
+    await user.click(screen.getByRole('radio', { name: 'Audio only (MP3)' }))
+    // The audioOnly contract (#245) applies to this format too.
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Export width in pixels' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Saves just the mixed soundtrack as an MP3 file — the file has no video track.'),
+    ).toBeInTheDocument()
+    await user.click(exportButton())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(calls).toEqual([{ format: 'audio-mp3', frame: undefined, frameRate: undefined }])
   })
 })
 
