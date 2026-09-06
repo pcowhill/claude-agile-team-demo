@@ -139,6 +139,13 @@ export function OpenProjectDialog({
               <span className="clip-name" title={clip.name}>
                 {clip.name}
               </span>
+              {/* A renamed clip (#404) names the file it wants, since the
+                  display name is not what is on disk. */}
+              {clip.fileName !== undefined && clip.fileName !== clip.name && (
+                <span className="relink-file-name" title={`File: ${clip.fileName}`}>
+                  ({clip.fileName})
+                </span>
+              )}
               {clip.kind !== 'video' && (
                 <span className="clip-kind">{clip.kind === 'audio' ? 'Audio' : 'Image'}</span>
               )}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip, MediaLibraryState } from './mediaLibrary'
-import { emptyLibrary, formatDuration, mediaLibraryReducer, sortClips } from './mediaLibrary'
+import { clipFileName, emptyLibrary, formatDuration, mediaLibraryReducer, sortClips } from './mediaLibrary'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: crypto.randomUUID(),
@@ -94,6 +94,64 @@ describe('mediaLibraryReducer', () => {
     const state = mediaLibraryReducer(emptyLibrary, { type: 'clip-added', clip: clip() })
     expect(emptyLibrary.clips).toHaveLength(0)
     expect(state).not.toBe(emptyLibrary)
+  })
+})
+
+describe('clip-renamed (#404)', () => {
+  const clip = (id: string, name: string): LibraryClip => ({
+    id,
+    name,
+    duration: 5,
+    url: `blob:${id}`,
+    kind: 'video',
+  })
+  const state: MediaLibraryState = {
+    clips: [clip('a', 'holiday.mp4'), clip('b', 'city.webm')],
+    failures: [{ id: 'f1', name: 'broken.avi', reason: 'not decodable' }],
+  }
+  const rename = (from: MediaLibraryState, id: string, name: string) =>
+    mediaLibraryReducer(from, { type: 'clip-renamed', id, name })
+
+  it('replaces the display name and keeps the original filename underneath', () => {
+    const next = rename(state, 'b', '  City walk ')
+    expect(next.clips[1]).toEqual({ ...clip('b', 'City walk'), fileName: 'city.webm' })
+    expect(clipFileName(next.clips[1])).toBe('city.webm')
+    // The other clip, the order and the failures are untouched.
+    expect(next.clips[0]).toBe(state.clips[0])
+    expect(next.failures).toBe(state.failures)
+    expect(state.clips[1].name).toBe('city.webm')
+  })
+
+  it('a second rename keeps the filename from the first', () => {
+    const twice = rename(rename(state, 'b', 'City walk'), 'b', 'Final')
+    expect(twice.clips[1]).toEqual({ ...clip('b', 'Final'), fileName: 'city.webm' })
+  })
+
+  it('renaming back to the filename drops fileName, restoring the unrenamed shape', () => {
+    const back = rename(rename(state, 'b', 'City walk'), 'b', 'city.webm')
+    expect(back.clips[1]).toEqual(clip('b', 'city.webm'))
+    expect(back.clips[1]).not.toHaveProperty('fileName')
+  })
+
+  it('is a same-reference no-op for an empty name, an unknown id, or the name already held', () => {
+    expect(rename(state, 'a', '')).toBe(state)
+    expect(rename(state, 'a', '   ')).toBe(state)
+    expect(rename(state, 'missing', 'Anything')).toBe(state)
+    expect(rename(state, 'a', 'holiday.mp4')).toBe(state)
+    expect(rename(state, 'a', '  holiday.mp4  ')).toBe(state)
+  })
+
+  it('clipFileName reads the display name until a rename set a filename', () => {
+    expect(clipFileName(clip('a', 'holiday.mp4'))).toBe('holiday.mp4')
+    expect(clipFileName({ name: 'Intro', fileName: 'holiday.mp4' })).toBe('holiday.mp4')
+  })
+
+  it('sorting by name sorts on the display name', () => {
+    const renamed = rename(state, 'b', 'Aardvark')
+    expect(sortClips(renamed.clips, 'name', 'asc').map((item) => item.name)).toEqual([
+      'Aardvark',
+      'holiday.mp4',
+    ])
   })
 })
 

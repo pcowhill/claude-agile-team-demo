@@ -117,6 +117,26 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The name and its ✎ Rename (#404) share one flex slot, so the pair takes
+   the room the name alone did; while editing, the field takes the slot.
+   The floor is the name's 5rem plus the button: below it the row wraps
+   (as .clip-item allows) rather than the pair overflowing its slot under
+   the badge beside it — which is exactly what the first browser run did. */
+.clip-name-wrap {
+  flex: 1;
+  min-width: 7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.clip-rename {
+  min-width: 1.75rem;
+  flex-shrink: 0;
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+}
+
 /* The Preview action (#403): a compact icon button, so the row's action
    cluster grows by a glyph's width rather than another word's. */
 .clip-preview {
@@ -325,8 +345,12 @@
 
 /* A card's own name gets the full card width and ellipsizes; the row
    view's flex-and-min-width floor does not apply in a grid track. */
-.clip-item-card .clip-name {
+.clip-item-card .clip-name-wrap {
   flex: none;
+}
+
+.clip-item-card .clip-name {
+  flex: 1;
   min-width: 0;
   font-size: 0.85rem;
 }

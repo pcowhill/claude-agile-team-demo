@@ -44,3 +44,11 @@
   font-size: 0.85rem;
   color: #ff7b72;
 }
+
+/* A renamed clip's filename (#404), shown beside its display name so the
+   customer knows which file to pick. */
+.relink-file-name {
+  color: #999;
+  font-size: 0.85em;
+  white-space: nowrap;
+}

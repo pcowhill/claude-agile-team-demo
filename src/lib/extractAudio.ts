@@ -1,3 +1,4 @@
+import { clipFileName } from './mediaLibrary'
 import type { LibraryClip } from './mediaLibrary'
 
 /** Display name for the audio clip extracted from `sourceName` (#154). */
@@ -37,6 +38,8 @@ export async function extractAudioClip(
     duration: source.duration,
     url: URL.createObjectURL(blob),
     kind: 'audio',
-    extractedFrom: source.name,
+    // The *filename*, not the display name: a renamed source (#404) still
+    // re-links from the file it came from.
+    extractedFrom: clipFileName(source),
   }
 }

@@ -53,6 +53,19 @@ describe('extractAudioClip (#154)', () => {
     expect(clip.url).not.toBe(source.url)
   })
 
+  it('a renamed source (#404) names the extract after its display name but re-links from its file', async () => {
+    const fetchBlob = vi.fn().mockResolvedValue(new Blob(['bytes'], { type: 'video/mp4' }))
+    const clip = await extractAudioClip(
+      { ...source, name: 'Intro take', fileName: 'holiday.mp4' },
+      'a2',
+      fetchBlob,
+    )
+    expect(clip.name).toBe('Intro take (audio)')
+    expect(clip.extractedFrom).toBe('holiday.mp4')
+    // The extract has no filename of its own — it is not a renamed clip.
+    expect(clip).not.toHaveProperty('fileName')
+  })
+
   it('propagates a failure to read the media', async () => {
     const fetchBlob = vi.fn().mockRejectedValue(new Error('gone'))
     await expect(extractAudioClip(source, 'a1', fetchBlob)).rejects.toThrow('gone')

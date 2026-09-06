@@ -74,9 +74,13 @@ const clockOf = (media: Locator) =>
 /**
  * The Preview action fits its row (#403's rendered evidence): inside its
  * list item, one line tall like the Add button beside it, and its glyph not
- * clipped. In the list view the two also share a line — the row did not
- * wrap to make room. Cards wrap their action cluster by design (#311), so
- * that last check is the list view's alone.
+ * clipped. In the list view it also shares the clip name's line — the
+ * action stayed beside what it previews rather than being pushed onto a
+ * wrapped line. (It used to be checked against Add's line; since the ✎
+ * Rename joined the name, #404, the row's actions wrap after Preview at the
+ * default width, so the name is the anchor that says what this check means.)
+ * Cards wrap their action cluster by design (#311), so that last check is
+ * the list view's alone.
  */
 async function expectActionFits(page: Page, name: string, view: 'list' | 'thumbnails') {
   const row = page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem').first()
@@ -94,7 +98,11 @@ async function expectActionFits(page: Page, name: string, view: 'list' | 'thumbn
   }))
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
   if (view === 'list') {
-    expect(Math.abs(previewBox.y - addBox.y), 'list: Preview shares Add’s line').toBeLessThan(1)
+    const nameBox = (await row.locator('.clip-name').boundingBox())!
+    expect(
+      Math.abs(previewBox.y + previewBox.height / 2 - (nameBox.y + nameBox.height / 2)),
+      'list: Preview shares the name’s line',
+    ).toBeLessThan(previewBox.height / 2)
   }
 }
 

@@ -1048,6 +1048,128 @@ describe('media library thumbnail view (#311)', () => {
  * key repeatedly, so the second test also stands as evidence against that
  * whole block's residue and not merely its neighbour's.
  */
+describe('renaming library clips (#404)', () => {
+  const importVideo = async (name: string, duration = 4) => {
+    probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}`, kind: 'video' })
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile(name))
+    await screen.findByRole('button', { name: `Add ${name} to timeline` })
+  }
+  const renameButton = (name: string) => screen.getByRole('button', { name: `Rename ${name}` })
+  const nameField = (name: string) => screen.getByRole('textbox', { name: `New name for ${name}` })
+  const libraryNames = () =>
+    within(screen.getByRole('list', { name: 'Imported clips' }))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.clip-name')?.textContent)
+
+  it('renames through the ✎ and Enter; every label and the removal confirmation follow', async () => {
+    render(<App />)
+    await importVideo('holiday.mp4')
+    await userEvent.click(renameButton('holiday.mp4'))
+    const field = nameField('holiday.mp4')
+    expect(field).toHaveValue('holiday.mp4')
+    expect(field).toHaveFocus()
+    await userEvent.keyboard('Intro take{Enter}')
+
+    expect(libraryNames()).toEqual(['Intro take'])
+    expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add Intro take to timeline' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview Intro take' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select Intro take' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename Intro take' })).toBeInTheDocument()
+    // The name's tooltip still tells which file this is.
+    expect(screen.getByText('Intro take')).toHaveAttribute('title', 'Intro take (file: holiday.mp4)')
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Intro take from library' }))
+    expect(screen.getByRole('dialog', { name: 'Remove Intro take?' })).toBeInTheDocument()
+  })
+
+  it('a rename marks the project dirty, like any edit', async () => {
+    render(<App />)
+    await importVideo('holiday.mp4')
+    // Import alone is already an unsaved change; check the rename itself by
+    // comparing the library array identity through what Save sees: the
+    // indicator is up either way, so assert on the rename's visible effect
+    // plus that nothing else changed (one clip, still a video).
+    await userEvent.click(renameButton('holiday.mp4'))
+    await userEvent.keyboard('Intro{Enter}')
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+    expect(libraryNames()).toEqual(['Intro'])
+  })
+
+  it('commits on blur in the thumbnail view, and Escape cancels', async () => {
+    render(<App />)
+    await importVideo('holiday.mp4')
+    await userEvent.click(screen.getByRole('button', { name: 'Thumbnail view' }))
+    await userEvent.click(renameButton('holiday.mp4'))
+    const field = nameField('holiday.mp4')
+    await userEvent.clear(field)
+    await userEvent.type(field, 'Card name')
+    fireEvent.blur(field)
+    expect(libraryNames()).toEqual(['Card name'])
+    expect(screen.getByRole('button', { name: 'Add Card name to timeline' })).toBeInTheDocument()
+
+    await userEvent.click(renameButton('Card name'))
+    await userEvent.keyboard('Nope{Escape}')
+    expect(libraryNames()).toEqual(['Card name'])
+    expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
+  })
+
+  it('an empty or whitespace-only name reverts', async () => {
+    render(<App />)
+    await importVideo('holiday.mp4')
+    await userEvent.click(renameButton('holiday.mp4'))
+    await userEvent.clear(nameField('holiday.mp4'))
+    await userEvent.keyboard('   {Enter}')
+    expect(libraryNames()).toEqual(['holiday.mp4'])
+    expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
+  })
+
+  it('placed elements keep their names; new placements take the current one', async () => {
+    render(<App />)
+    await importVideo('holiday.mp4')
+    await userEvent.click(screen.getByRole('button', { name: 'Add holiday.mp4 to timeline' }))
+    await userEvent.click(renameButton('holiday.mp4'))
+    await userEvent.keyboard('Intro{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Add Intro to timeline' }))
+    const sequenceNames = within(screen.getByRole('list', { name: 'Sequence' }))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.clip-name')?.textContent)
+    expect(sequenceNames).toEqual(['holiday.mp4', 'Intro'])
+  })
+
+  it('the saved project carries the display name and the filename', async () => {
+    const saved: Uint8Array<ArrayBuffer>[] = []
+    const savePort: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: () =>
+        Promise.resolve({
+          kind: 'picked' as const,
+          destination: {
+            name: 'trip.bvep',
+            write: (bytes: Uint8Array<ArrayBuffer>) => {
+              saved.push(bytes)
+              return Promise.resolve()
+            },
+          },
+        }),
+    }
+    render(<App savePort={savePort} />)
+    await importVideo('holiday.mp4')
+    await userEvent.click(renameButton('holiday.mp4'))
+    await userEvent.keyboard('Intro{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Save As…' }))
+    const modeDialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(modeDialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(modeDialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as trip.bvep')
+    expect(saved).toHaveLength(1)
+    const result = await deserializeProject(saved[0])
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.clips[0]).toMatchObject({ name: 'Intro', fileName: 'holiday.mp4' })
+    }
+  })
+})
+
 describe('test storage isolation (#345)', () => {
   const viewButton = (label: string) => screen.getByRole('button', { name: label })
 

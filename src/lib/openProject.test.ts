@@ -96,6 +96,57 @@ describe('matchFileToClip', () => {
   })
 })
 
+describe('matchFileToClip for renamed clips (#404)', () => {
+  const clips = [
+    { id: 'a', name: 'Intro take', fileName: 'holiday.mp4', duration: 10, kind: 'video' },
+    { id: 'c', name: 'city.webm', duration: 5, kind: 'video' },
+  ] as const
+
+  it('accepts the original file for a renamed clip', () => {
+    expect(matchFileToClip(clips, new Set(), 'holiday.mp4', 10, 'video')).toEqual({
+      kind: 'matched',
+      clipId: 'a',
+    })
+  })
+
+  it('refuses a file that matches only the display name', () => {
+    const result = matchFileToClip(clips, new Set(), 'Intro take', 10, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') expect(result.reason).toContain('not one of this project')
+  })
+
+  it('still checks the content: a different holiday.mp4 is refused', () => {
+    const result = matchFileToClip(clips, new Set(), 'holiday.mp4', 4, 'video')
+    expect(result.kind).toBe('no-match')
+    if (result.kind === 'no-match') expect(result.reason).toContain('duration')
+  })
+
+  it('restoreProject carries the filename alongside the display name', () => {
+    const restored = restoreProject(
+      {
+        clips: [
+          { id: 'a', name: 'Intro take', fileName: 'holiday.mp4', duration: 10, kind: 'video' },
+          { id: 'c', name: 'city.webm', duration: 5, kind: 'video' },
+        ],
+        timeline: { entries: [], transitions: [], zooms: [], audioTracks: [] },
+      },
+      new Map([
+        ['a', 'blob:a'],
+        ['c', 'blob:c'],
+      ]),
+    )
+    expect(restored.clips[0]).toEqual({
+      id: 'a',
+      name: 'Intro take',
+      fileName: 'holiday.mp4',
+      duration: 10,
+      kind: 'video',
+      url: 'blob:a',
+    })
+    expect(restored.clips[1]).not.toHaveProperty('fileName')
+  })
+})
+
 describe('matchFileToClip for extracted audio clips (#154)', () => {
   // An extracted clip has no file of its own on disk: its media is the
   // source video file, recorded by filename in extractedFrom.

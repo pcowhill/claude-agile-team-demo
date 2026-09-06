@@ -542,6 +542,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onAddOverlay={handleAddOverlay}
           onExtractAudio={handleExtractAudio}
           onPreviewClip={handlePreviewClip}
+          onRenameClip={(clip, name) => dispatch({ type: 'clip-renamed', id: clip.id, name })}
           onRemoveClip={handleRemoveClip}
           onRemoveClips={handleRemoveClips}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
