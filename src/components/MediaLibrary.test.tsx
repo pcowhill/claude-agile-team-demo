@@ -9,6 +9,7 @@ import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { peaksForClip } from '../lib/audioPeaks'
 import { thumbnailForTrim } from '../lib/thumbnails'
+import { chooseFromFileMenu } from '../test/fileMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -1156,7 +1157,7 @@ describe('renaming library clips (#404)', () => {
     await importVideo('holiday.mp4')
     await userEvent.click(renameButton('holiday.mp4'))
     await userEvent.keyboard('Intro{Enter}')
-    await userEvent.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…')
     const modeDialog = await screen.findByRole('dialog', { name: 'Save project' })
     await userEvent.click(within(modeDialog).getByRole('radio', { name: 'Store references only' }))
     await userEvent.click(within(modeDialog).getByRole('button', { name: 'Save…' }))

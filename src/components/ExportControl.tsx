@@ -59,6 +59,14 @@ interface ExportControlProps {
   isTypeSupported?: (type: string) => boolean
   /** Injectable for tests (jsdom never fires media metadata events). */
   probeFrame?: typeof automaticExportFrame
+  /**
+   * A request from outside to open the modal (#415: File ▾ → Export ▸ picks
+   * a format). Each distinct object opens it once, preselecting `format`
+   * where given — so choosing the same format twice reopens, because the
+   * caller passes a new object each time. The Export Project… button stays
+   * and is unaffected; null or omitted means nothing was requested.
+   */
+  openRequest?: { format?: string } | null
 }
 
 /**
@@ -102,6 +110,7 @@ export function ExportControl({
   doExport = defaultDoExport,
   isTypeSupported = mediaRecorderSupports,
   probeFrame = automaticExportFrame,
+  openRequest = null,
 }: ExportControlProps) {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' })
@@ -168,14 +177,17 @@ export function ExportControl({
 
   const exporting = status.kind === 'exporting'
 
-  const openDialog = () => {
+  const openDialog = (formatOverride?: string) => {
     // A previous run's error does not belong to this attempt.
     setStatus({ kind: 'idle' })
     // The configured default format (#286), read at every open so a change
     // in the settings dialog applies without a reload. Like the size
     // settings below, the format is a one-export choice: an override picked
     // last time does not quietly become this export's format.
-    setFormat(preferredFormat(formats, defaultFormat))
+    // An explicit choice from File ▾ → Export ▸ (#415) wins over the
+    // configured default for this one export; the picker still shows every
+    // format, so the choice is a starting point rather than a lock.
+    setFormat(preferredFormat(formats, formatOverride ?? defaultFormat))
     // Fresh automatic settings for this export (#179): the fallback shows
     // until the probe below resolves the sources' real frame.
     setSizeMode('auto')
@@ -191,6 +203,16 @@ export function ExportControl({
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
     setOpen(true)
   }
+
+  // An outside request to open (#415). Keyed on the request's identity, so
+  // each menu selection opens once and picking the same format again — a new
+  // object — opens again.
+  useEffect(() => {
+    if (openRequest != null) openDialog(openRequest.format)
+    // openDialog reads this render's props deliberately: the request carries
+    // only the format, and everything else it resets is current by then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
 
   // Pre-fill the fields with the values the automatic behavior would use
   // (#179): the same canvasFrameSize rule the export applies (#176/#274) —
@@ -344,7 +366,7 @@ export function ExportControl({
             ? 'Add clips to the timeline to export your edit.'
             : undefined
         }
-        onClick={openDialog}
+        onClick={() => openDialog()}
       >
         Export Project…
       </button>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChangeEvent } from 'react'
 import { createAutosaver, readAutosaveSnapshot } from '../lib/autosave'
 import type { AutosaveSnapshot, AutosaveStatus, AutosaveStore, Autosaver } from '../lib/autosave'
@@ -10,8 +10,6 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia, DeserializeResult, Project } from '../lib/projectFile'
 import { serializeProject } from '../lib/projectFile'
-import { CANVAS_PRESETS } from '../lib/frameSize'
-import type { CanvasPreset } from '../lib/frameSize'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { unregisteredTransitionTypes } from '../lib/transitionRender'
@@ -29,7 +27,10 @@ import type { PluginRuntime } from '../lib/plugins'
 import { pluginRuntime as appPluginRuntime } from '../plugins/runtime'
 import type { AppSettings, SessionRestoreMode } from '../lib/settings'
 import { DEFAULT_SETTINGS } from '../lib/settings'
+import { exportFormats, mediaRecorderSupports, supportedExportFormats } from '../lib/exportFormats'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Menu } from './Menu'
+import type { MenuItem } from './Menu'
 import { ExportControl } from './ExportControl'
 import { PluginManager } from './PluginManager'
 import { SettingsControl } from './SettingsControl'
@@ -72,12 +73,6 @@ interface ProjectControlsProps {
   /** Injectable for tests; defaults to the production debounce. */
   autosaveDebounceMs?: number
   /**
-   * Sets the project's canvas preset (#273) — `undefined` is Auto. Optional
-   * so save-focused tests that predate it keep compiling unchanged; the
-   * control renders only when the app supplies it.
-   */
-  onSetCanvasPreset?: (preset: CanvasPreset | undefined) => void
-  /**
    * The per-device preferences (#286) and the writer for them. Two of them
    * are consumed here: the startup restore offer's behaviour, and the format
    * the export modal opens on. Optional as a pair — the ⚙ button renders
@@ -93,6 +88,12 @@ interface ProjectControlsProps {
    * project". Optional so tests that predate ranges keep compiling.
    */
   exportRange?: ExportRange | null
+  /**
+   * Injectable for tests (jsdom has no MediaRecorder). Decides which export
+   * formats File ▾ → Export ▸ lists, and is passed to the export modal so
+   * the menu and the modal can never disagree about what is recordable.
+   */
+  isTypeSupported?: (type: string) => boolean
 }
 
 type SaveStatus =
@@ -145,10 +146,10 @@ export function ProjectControls({
   plugins = appPluginRuntime,
   autosave = null,
   autosaveDebounceMs,
-  onSetCanvasPreset,
   settings,
   onSetSettings,
   exportRange = null,
+  isTypeSupported = mediaRecorderSupports,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -159,6 +160,14 @@ export function ProjectControls({
   // project (a new project), so the next save must surface the choice.
   const [mode, setMode] = useState<SaveMode | null>(null)
   const [modeDialogOpen, setModeDialogOpen] = useState(false)
+  // Which File ▾ dialog is showing (#415). The dialogs still live in their
+  // own components; the menu owns only whether they are up, since their
+  // buttons moved into it.
+  const [pluginsOpen, setPluginsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // A request to open the export modal on a chosen format (#415). A fresh
+  // object each time, so picking the same format twice opens it twice.
+  const [exportRequest, setExportRequest] = useState<{ format?: string } | null>(null)
   // Open/New flow (#77): the pending unsaved-changes guard, the picked
   // project awaiting media re-linking, and the last failed open's reason.
   const [pendingDiscard, setPendingDiscard] = useState<'open' | 'new' | null>(null)
@@ -605,14 +614,62 @@ export function ProjectControls({
 
   const saving = status.kind === 'saving'
 
+  // Which formats Export ▸ lists (#415). Subscribed like the export picker
+  // and the settings dialog, so a plugin's format joins the submenu the
+  // moment it is enabled rather than after a reload (#197).
+  useSyncExternalStore(exportFormats.subscribe, () => exportFormats.version)
+  const nothingToExport = timeline.entries.length === 0
+  const exportItems: MenuItem[] = supportedExportFormats(isTypeSupported).map((spec) => ({
+    kind: 'action',
+    label: spec.label,
+    // Opens the same modal the Export Project… button does, with this format
+    // preselected; every other option there is untouched.
+    onSelect: () => setExportRequest({ format: spec.id }),
+  }))
+
+  /**
+   * The header's File ▾ (#415, from the approved redesign #401 / feedback
+   * #395): every item does exactly what its former button did — same
+   * dialogs, same unsaved-changes guards, same disabled rules — so this is a
+   * presentation change and nothing more. Settings… appears only with both
+   * halves of the settings wiring, exactly as the ⚙ button did.
+   */
+  const fileItems: MenuItem[] = [
+    { kind: 'action', label: 'New Project', onSelect: requestNewProject, disabled: saving },
+    { kind: 'action', label: 'Open Project…', onSelect: requestOpenProject, disabled: saving },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Save',
+      shortcut: 'Ctrl+S',
+      onSelect: () => void save(false),
+      disabled: saving,
+    },
+    { kind: 'action', label: 'Save As…', onSelect: () => void save(true), disabled: saving },
+    { kind: 'separator' },
+    {
+      kind: 'submenu',
+      label: 'Export',
+      items: exportItems,
+      // Nothing to export is the Export Project… button's own rule.
+      disabled: nothingToExport || exportItems.length === 0,
+    },
+    { kind: 'separator' },
+    { kind: 'action', label: 'Plugins…', onSelect: () => setPluginsOpen(true) },
+    ...(settings !== undefined && onSetSettings !== undefined
+      ? [{ kind: 'action' as const, label: 'Settings…', onSelect: () => setSettingsOpen(true) }]
+      : []),
+  ]
+
   return (
     <div className="project-controls">
-      <button type="button" disabled={saving} onClick={requestNewProject}>
-        New Project
-      </button>
-      <button type="button" disabled={saving} onClick={requestOpenProject}>
-        Open Project…
-      </button>
+      <Menu
+        label="File"
+        menuLabel="File menu"
+        items={fileItems}
+        disabled={saving}
+        className="project-file-menu"
+      />
       <input
         ref={openInputRef}
         type="file"
@@ -621,54 +678,46 @@ export function ProjectControls({
         data-testid="project-file-input"
         onChange={handleOpenInputChange}
       />
+      {/* Save stays out of the menu as a compact icon (#415): it is the one
+          frequent action here, and the ● dot has to stay visible to mean
+          anything. The glyph has no accessible name of its own, so the label
+          carries both the action and the unsaved state, as it did before. */}
       <button
         type="button"
+        className="project-save-button"
         disabled={saving}
-        // The dot alone would be color-only; the label carries its meaning.
-        aria-label={dirty ? 'Save (unsaved changes)' : undefined}
+        aria-label={dirty ? 'Save (unsaved changes)' : 'Save'}
+        title="Save (Ctrl+S)"
         onClick={() => void save(false)}
       >
-        Save
+        <span aria-hidden="true">💾</span>
         {dirty && (
           <span className="project-dirty" title="Unsaved changes" aria-hidden="true">
             ●
           </span>
         )}
       </button>
-      <button type="button" disabled={saving} onClick={() => void save(true)}>
-        Save As…
-      </button>
-      {onSetCanvasPreset !== undefined && (
-        <label className="project-canvas-preset">
-          Canvas
-          <select
-            aria-label="Canvas aspect"
-            disabled={saving}
-            // Auto is the absent preset (#273), so the empty option value is
-            // what maps to it — never an 'auto' identifier.
-            value={timeline.canvasPreset ?? ''}
-            onChange={(event) =>
-              onSetCanvasPreset(
-                event.target.value === '' ? undefined : (event.target.value as CanvasPreset),
-              )
-            }
-          >
-            <option value="">Auto (match sources)</option>
-            {CANVAS_PRESETS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <ExportControl timeline={timeline} defaultFormat={settings?.exportFormat} range={exportRange} />
-      <PluginManager />
+      <ExportControl
+        timeline={timeline}
+        defaultFormat={settings?.exportFormat}
+        range={exportRange}
+        isTypeSupported={isTypeSupported}
+        openRequest={exportRequest}
+      />
+      {/* Both dialogs are opened from File ▾ now (#415), so each is told
+          whether it is showing and renders no trigger of its own. */}
+      <PluginManager open={pluginsOpen} onOpenChange={setPluginsOpen} />
       {/* Per-device preferences (#286). Rendered only with both halves of
           the settings wiring supplied, so a caller that predates settings
-          gets no dead control. */}
+          gets no dead control — and, with none, File ▾ offers no Settings…. */}
       {settings !== undefined && onSetSettings !== undefined && (
-        <SettingsControl settings={settings} onChange={onSetSettings} />
+        <SettingsControl
+          settings={settings}
+          onChange={onSetSettings}
+          isTypeSupported={isTypeSupported}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+        />
       )}
       <span className="project-save-status" role="status">
         {status.kind === 'saved' && `Saved as ${status.name}`}

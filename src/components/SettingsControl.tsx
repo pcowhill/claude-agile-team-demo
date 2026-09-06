@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { exportFormats, mediaRecorderSupports, supportedExportFormats } from '../lib/exportFormats'
 import {
@@ -19,6 +19,14 @@ interface SettingsControlProps {
   onChange: (settings: AppSettings) => void
   /** Injectable for tests (jsdom has no MediaRecorder). */
   isTypeSupported?: (type: string) => boolean
+  /**
+   * Controlled mode (#415): the File ▾ menu owns whether the dialog is open
+   * and supplies the menu item that opens it, so this renders no ⚙ trigger
+   * of its own. Omitting both keeps the standalone gear, so callers and
+   * tests that predate the menu are unchanged.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 interface SettingRowProps {
@@ -66,8 +74,19 @@ export function SettingsControl({
   settings,
   onChange,
   isTypeSupported = mediaRecorderSupports,
+  open: controlledOpen,
+  onOpenChange,
 }: SettingsControlProps) {
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const controlled = controlledOpen !== undefined
+  const open = controlled ? controlledOpen : ownOpen
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (controlled) onOpenChange?.(next)
+      else setOwnOpen(next)
+    },
+    [controlled, onOpenChange],
+  )
   const closeRef = useRef<HTMLButtonElement>(null)
   const headingId = useId()
   // Which formats exist is a runtime property of the browser (#114) and of
@@ -84,7 +103,7 @@ export function SettingsControl({
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  }, [open, setOpen])
 
   /**
    * The format choices, always including the stored one. A preference for a
@@ -129,17 +148,19 @@ export function SettingsControl({
 
   return (
     <>
-      <button
-        type="button"
-        className="settings-button"
-        // A glyph alone has no accessible name, and the tooltip serves the
-        // sighted mouse user the same text.
-        aria-label="Settings"
-        title="Settings"
-        onClick={() => setOpen(true)}
-      >
-        ⚙
-      </button>
+      {!controlled && (
+        <button
+          type="button"
+          className="settings-button"
+          // A glyph alone has no accessible name, and the tooltip serves the
+          // sighted mouse user the same text.
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => setOpen(true)}
+        >
+          ⚙
+        </button>
+      )}
       {open && (
         <div className="dialog-overlay" onClick={() => setOpen(false)}>
           <div
