@@ -1,27 +1,6 @@
-/* The Record control (#224): the source menu anchors to the button; the
-   recording dialog reuses the shared dialog styles. */
-.record-control {
-  position: relative;
-}
-
-.record-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 10;
-  margin-top: 0.25rem;
-  display: flex;
-  flex-direction: column;
-  min-width: 9rem;
-  background: #222;
-  border: 1px solid #444;
-  border-radius: 6px;
-  padding: 0.25rem;
-}
-
-.record-menu button {
-  text-align: left;
-}
+/* The Record control (#224): its source menu is the shared Menu component
+   (#412), which brings its own styles; the recording dialog reuses the
+   shared dialog styles. */
 
 /* The live capture preview (#225): what the screen recording is capturing,
    sized to the dialog and muted (no feedback loop). */

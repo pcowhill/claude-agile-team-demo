@@ -1,0 +1,118 @@
+/* The shared menu (#412): the panel anchors to its trigger, like the Record
+   menu it grew out of (#224); a submenu anchors to its item. The panel
+   flips to the other side of its anchor when it would leave the viewport
+   (.menu-panel-end / .menu-panel-up, set after measuring). */
+.menu {
+  position: relative;
+  display: inline-block;
+}
+
+.menu-caret {
+  margin-left: 0.3em;
+  font-size: 0.8em;
+}
+
+.menu-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 9rem;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.25rem;
+}
+
+.menu-panel:focus {
+  outline: none;
+}
+
+.menu-panel-end {
+  left: auto;
+  right: 0;
+}
+
+.menu-panel-up {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 0.25rem;
+}
+
+/* A submenu opens beside its item, top-aligned with it. */
+.menu-submenu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-panel-submenu {
+  top: -0.25rem;
+  left: 100%;
+  margin-top: 0;
+  margin-left: 0.15rem;
+}
+
+.menu-panel-submenu.menu-panel-end {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 0.15rem;
+}
+
+/* Items are ordinary buttons laid out as a row: label, then the shortcut
+   hint or submenu arrow pushed to the right. Nowrap keeps a label from
+   breaking mid-phrase, the same rule as the cheat sheet's combos (#287). */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menu-item-label {
+  flex: 1;
+}
+
+.menu-shortcut {
+  font-family: inherit;
+  background: #333;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.85em;
+}
+
+.menu-submenu-arrow {
+  font-size: 0.85em;
+}
+
+.menu-separator {
+  border-top: 1px solid #444;
+  margin: 0.25rem 0;
+}
+
+.menu-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-group-label {
+  font-size: 0.75rem;
+  color: #999;
+  padding: 0.15rem 0.5rem;
+}
+
+/* The check mark keeps its column whether or not an option is chosen, so
+   the labels of a radio group line up. */
+.menu-check {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+}
