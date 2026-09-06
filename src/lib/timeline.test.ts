@@ -4457,6 +4457,97 @@ describe('recording-pair-placed (#388)', () => {
   })
 })
 
+describe('element-renamed (#405)', () => {
+  const rename = (state: TimelineState, id: string, name: string) =>
+    timelineReducer(state, { type: 'element-renamed', id, name })
+
+  const withLanes = (): TimelineState => ({
+    ...stateOf(['a'], ['b']),
+    entries: [...stateOf(['a']).entries, slateEntry('s1')],
+    audioTracks: [audioTrackFromClip(clip({ id: 'ac', name: 'music.mp3', kind: 'audio' }), 't1')],
+    videoOverlays: [
+      videoOverlayFromClip(clip({ id: 'vc', name: 'cam.mp4' }), 'o1'),
+      {
+        ...videoOverlayFromClip(clip({ id: 'ic', name: 'logo.png' }), 'o2'),
+        kind: 'image' as const,
+        duration: 5,
+        inPoint: 0,
+        outPoint: 5,
+      },
+    ],
+  })
+
+  it('renames a sequence entry, a slate, an audio track, a video overlay and an image overlay by id', () => {
+    const state = withLanes()
+    const renamed = rename(
+      rename(rename(rename(rename(state, 'a', 'Intro'), 's1', 'Title card'), 't1', 'Bed'), 'o1', 'Face'),
+      'o2',
+      'Logo',
+    )
+    expect(renamed.entries.map((entry) => entry.name)).toEqual(['Intro', 'Title card'])
+    expect(audioTracksOf(renamed).map((track) => track.name)).toEqual(['Bed'])
+    expect(videoOverlaysOf(renamed).map((overlay) => overlay.name)).toEqual(['Face', 'Logo'])
+    // Only the name moved: every other field of each element is intact, and
+    // the slate is still a slate, the image overlay still an image.
+    expect({ ...renamed.entries[0], name: 'a.mp4' }).toEqual(state.entries[0])
+    expect(isSlateEntry(renamed.entries[1])).toBe(true)
+    expect({ ...audioTracksOf(renamed)[0], name: 'music.mp3' }).toEqual(state.audioTracks![0])
+    expect(videoOverlaysOf(renamed)[1].kind).toBe('image')
+  })
+
+  it('trims whitespace, and rejects an empty or whitespace-only name as a same-reference no-op', () => {
+    const state = withLanes()
+    expect(rename(state, 'a', '  Intro  ').entries[0].name).toBe('Intro')
+    expect(rename(state, 'a', '')).toBe(state)
+    expect(rename(state, 'a', '   ')).toBe(state)
+    expect(rename(state, 't1', '\t')).toBe(state)
+  })
+
+  it('is a same-reference no-op for an unknown id, for the name already held, and for a text overlay', () => {
+    const state: TimelineState = { ...withLanes(), texts: [{ ...DEFAULT_TEXT, id: 'x1' }] }
+    expect(rename(state, 'nope', 'Anything')).toBe(state)
+    expect(rename(state, 'a', 'a.mp4')).toBe(state)
+    expect(rename(state, 'a', '  a.mp4 ')).toBe(state)
+    // Text overlays are identified by their content, not a name: out of scope.
+    expect(rename(state, 'x1', 'Caption')).toBe(state)
+  })
+
+  it('leaves the other collections, transitions and effects untouched', () => {
+    const base = withLanes()
+    const state: TimelineState = {
+      ...base,
+      transitions: [{ beforeId: 'a', afterId: 's1', type: 'crossfade', duration: 0.5 }],
+      zooms: [{ id: 'z1', entryId: 'a', ...DEFAULT_ZOOM }],
+    }
+    const renamed = rename(state, 't1', 'Bed')
+    expect(renamed.entries).toEqual(state.entries)
+    expect(videoOverlaysOf(renamed)).toEqual(videoOverlaysOf(state))
+    expect(transitionsOf(renamed)).toEqual(transitionsOf(state))
+    expect(zoomsOf(renamed)).toEqual(zoomsOf(state))
+  })
+
+  it('a split or duplicate made after a rename carries the new name; the library clip is never involved', () => {
+    const state = rename(withLanes(), 'a', 'Intro')
+    const duplicated = timelineReducer(state, {
+      type: 'element-duplicated',
+      kind: 'entry',
+      id: 'a',
+      newId: 'a2',
+    })
+    expect(duplicated.entries.map((entry) => entry.name)).toEqual(['Intro', 'Intro', 'Color slate'])
+    const split = timelineReducer(state, {
+      type: 'entry-split',
+      id: 'a',
+      atSourceTime: 4,
+      newEntryId: 'a-tail',
+    })
+    expect(split.entries.slice(0, 2).map((entry) => entry.name)).toEqual(['Intro', 'Intro'])
+    // The entry's clipId still names the library clip; the clip's own name
+    // (mediaLibrary state) is not part of the timeline and cannot change here.
+    expect(state.entries[0].clipId).toBe('clip-a')
+  })
+})
+
 describe('copying a still overlay never carries audio into a paste (#332)', () => {
   // The user-visible regression: an image overlay (#294) lives in the same
   // lane as a video one, and the settings clipboard (#315) credited every

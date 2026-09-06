@@ -70,6 +70,27 @@
   gap: 0.25rem;
 }
 
+/* Inline rename (#405): the ✎ sits right after the name it edits, in every
+   row kind, and the field takes the name's flex slot so the row's width
+   does not change while editing. The audio and overlay rows push their
+   buttons right (margin-left: auto below); the rename button opts out so
+   it stays beside the name. */
+.timeline-rename {
+  min-width: 2rem;
+  flex-shrink: 0;
+}
+
+.audio-track-main .timeline-rename,
+.video-overlay-main .timeline-rename {
+  margin-left: 0;
+}
+
+.clip-name-field {
+  flex: 1;
+  min-width: 5rem;
+  font: inherit;
+}
+
 .timeline-entry-actions button {
   min-width: 2rem;
 }

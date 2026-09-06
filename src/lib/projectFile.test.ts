@@ -253,6 +253,23 @@ describe('project file round-trip', () => {
     ).toEqual(['e1→e2'])
   })
 
+  it('a renamed entry survives save → open under its new name (#405)', async () => {
+    const renamed = timelineReducer(timeline, {
+      type: 'element-renamed',
+      id: 'e2',
+      name: 'Intro take',
+    })
+    const result = await deserializeProject(await serializeProject(library, renamed))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries.map(({ name }) => name)).toEqual(
+      renamed.entries.map(({ name }) => name),
+    )
+    expect(result.project.timeline.entries[1].name).toBe('Intro take')
+    // The library clip keeps its own name: the two are independent by design.
+    expect(result.project.clips.map(({ name }) => name)).toEqual(library.clips.map(({ name }) => name))
+  })
+
   it('round-trips two zooms on one entry without collapsing them (#129)', async () => {
     const zoomSpec = { rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 }
     const twoZooms: TimelineState = {

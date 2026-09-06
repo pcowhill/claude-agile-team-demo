@@ -92,6 +92,12 @@ interface TimelineProps {
    */
   onDuplicate?: (kind: 'entry' | 'audio-track' | 'video-overlay' | 'text', id: string) => void
   /**
+   * Renames a sequence entry, slate, audio track or overlay (#405) — the
+   * reducer's `element-renamed`, one undo step. Optional so tests that
+   * predate it keep compiling; without it no rename control is offered.
+   */
+  onRenameElement?: (id: string, name: string) => void
+  /**
    * Pastes copied settings onto a timeline element (#315): the reducer's
    * `settings-pasted` semantics — one action, one undo step, only the
    * checklist's chosen groups. The copied settings themselves are session
@@ -204,6 +210,61 @@ const textSpecOf = ({
   ...(subtitle === undefined ? {} : { subtitle }),
   ...(styleOverrides === undefined ? {} : { styleOverrides }),
 })
+
+interface NameFieldProps {
+  label: string
+  value: string
+  onCommit: (value: string) => void
+  onCancel: () => void
+}
+
+/**
+ * The inline rename field (#405): takes the name's place in its row, opens
+ * with the current name selected, and commits on Enter or blur — once, so
+ * an Enter that unmounts it cannot commit again through the blur that
+ * follows. Escape cancels; an empty or whitespace-only name is a cancel
+ * too, so the row keeps its name rather than round-tripping a rejection
+ * through the reducer.
+ */
+function NameField({ label, value, onCommit, onCancel }: NameFieldProps) {
+  const [draft, setDraft] = useState(value)
+  const settled = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const settle = (commit: boolean) => {
+    if (settled.current) return
+    settled.current = true
+    const trimmed = draft.trim()
+    if (commit && trimmed !== '') onCommit(trimmed)
+    else onCancel()
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      className="clip-name-field"
+      aria-label={label}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => settle(true)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          settle(true)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          settle(false)
+        }
+      }}
+    />
+  )
+}
 
 interface TextContentFieldProps {
   label: string
@@ -891,6 +952,7 @@ export function Timeline({
   onRedo,
   onMoveEntry,
   onDuplicate,
+  onRenameElement,
   onPasteSettings,
   onRemoveEntry,
   onTrimEntry,
@@ -1119,6 +1181,44 @@ export function Timeline({
       </button>
     </div>
   )
+  // Inline rename (#405): which element's name is being edited, if any —
+  // one at a time, since the field takes the name's place in its row. View
+  // state only; the committed name is the reducer's.
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const nameCell = (id: string, name: string, position: string) =>
+    renaming === id ? (
+      <NameField
+        label={`New name for ${position}`}
+        value={name}
+        onCommit={(next) => {
+          setRenaming(null)
+          if (next !== name) onRenameElement?.(id, next)
+        }}
+        onCancel={() => setRenaming(null)}
+      />
+    ) : (
+      <>
+        {/* Double-clicking the name edits it, like the ✎ beside it. */}
+        <span
+          className="clip-name"
+          title={name}
+          onDoubleClick={onRenameElement === undefined ? undefined : () => setRenaming(id)}
+        >
+          {name}
+        </span>
+        {onRenameElement !== undefined && (
+          <button
+            type="button"
+            className="timeline-rename"
+            aria-label={`Rename ${position}`}
+            title="Rename"
+            onClick={() => setRenaming(id)}
+          >
+            ✎
+          </button>
+        )}
+      </>
+    )
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -1362,9 +1462,7 @@ export function Timeline({
                       data-testid={`timeline-entry-thumbnail-${index}`}
                     />
                   )}
-                  <span className="clip-name" title={entry.name}>
-                    {entry.name}
-                  </span>
+                  {nameCell(entry.id, entry.name, position)}
                   <span className="clip-duration">{formatDuration(effectiveDuration(entry))}</span>
                   <span className="timeline-entry-actions">
                     <button
@@ -1863,9 +1961,7 @@ export function Timeline({
                   </div>
                   <div className="audio-track-main">
                     {collapseToggle(track.id, position)}
-                    <span className="clip-name" title={track.name}>
-                      {track.name}
-                    </span>
+                    {nameCell(track.id, track.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
                     {onDuplicate !== undefined && (
                       <button
@@ -2055,9 +2151,7 @@ export function Timeline({
                         data-testid={`video-overlay-thumbnail-${index}`}
                       />
                     )}
-                    <span className="clip-name" title={overlay.name}>
-                      {overlay.name}
-                    </span>
+                    {nameCell(overlay.id, overlay.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
                     {onDuplicate !== undefined && (
                       <button

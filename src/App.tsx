@@ -562,6 +562,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onDuplicate={(kind, id) =>
             dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })
           }
+          onRenameElement={(id, name) => dispatchTimeline({ type: 'element-renamed', id, name })}
           onPasteSettings={(kind, id, settings) =>
             dispatchTimeline({ type: 'settings-pasted', kind, id, settings })
           }
