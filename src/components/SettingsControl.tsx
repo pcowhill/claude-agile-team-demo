@@ -197,6 +197,23 @@ export function SettingsControl({
                 )}
               </SettingRow>
               <SettingRow
+                label="Visual editors"
+                hint="Adjust visually… buttons beside a zoom's fields open a still of the frame to drag the zoom on. Off hides them and never renders that frame."
+              >
+                {(describedBy) => (
+                  <select
+                    value={settings.visualEditors ? 'on' : 'off'}
+                    aria-describedby={describedBy}
+                    onChange={(event) =>
+                      onChange({ ...settings, visualEditors: event.target.value === 'on' })
+                    }
+                  >
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                )}
+              </SettingRow>
+              <SettingRow
                 label="Default export format"
                 hint="Which format the export dialog opens on; every export can still be changed there."
               >
