@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-import { boundsOf, placementFor } from '../lib/menuPlacement'
+import { placementFor } from '../lib/menuPlacement'
 import type { Placement } from '../lib/menuPlacement'
 import './Menu.css'
 
@@ -30,7 +30,10 @@ import './Menu.css'
  * - only one menu is open at a time, whichever component owns it;
  * - the panel stays inside the viewport: it opens to the left of its right
  *   edge when it would overflow the window (the header menus sit at the
- *   page's right), and above the trigger when it would overflow the bottom.
+ *   page's right), and above the trigger when it would overflow the bottom;
+ * - a panel whose trigger sits inside a scrolling box (a media library
+ *   row's ⋯) is lifted out of that box rather than clipped by it, and
+ *   closes if the box scrolls under it (#416).
  *
  * Disabled items render as disabled buttons: the arrows skip them and they
  * cannot be selected, but they stay visible so the menu's shape is stable.
@@ -115,17 +118,21 @@ let closeOpenMenu: (() => void) | null = null
  * between the panel and the document does (#416).
  *
  * A panel is absolutely positioned inside its trigger's row, so a scrolling
- * panel above it — the media library's clip list, the timeline's — is what
- * cuts the panel off, not the window. `overflow` on either axis counts: a
- * non-`visible` value on one axis makes the other clip too, which is why
- * `overflow-y: auto` alone still cuts a panel off sideways. The document's
- * own scrolling elements are not clippers; the viewport already bounds them.
+ * box above it — the media library's clip list, a timeline row's panel — is
+ * what cuts the panel off, not the window. `overflow` on either axis counts:
+ * a non-`visible` value on one axis makes the other clip too, which is why
+ * `overflow-y: auto` alone still cuts a panel off sideways. The walk stops
+ * at a `position: fixed` ancestor, because a fixed box has already left its
+ * scrolling ancestors behind — a lifted root panel is exactly that, so a
+ * submenu inside one finds no clipper. The document's own scrolling
+ * elements are not clippers; the viewport already bounds them.
  */
 function clippingAncestorOf(panel: HTMLElement): HTMLElement | null {
   const root = panel.ownerDocument.documentElement
   for (let node = panel.parentElement; node !== null && node !== root; node = node.parentElement) {
     if (node === panel.ownerDocument.body) continue
     const style = getComputedStyle(node)
+    if (style.position === 'fixed') return null
     if (style.overflowX !== 'visible' || style.overflowY !== 'visible') return node
   }
   return null
@@ -164,6 +171,10 @@ function MenuPanel({
 }: MenuPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [placement, setPlacement] = useState<Placement>({ end: false, up: false })
+  // A root panel lifted out of a scrolling box (#416): where it sits, as
+  // `position: fixed` offsets. Null for every panel that is not inside one,
+  // which leaves the CSS placement alone.
+  const [lifted, setLifted] = useState<{ top: number; left: number } | null>(null)
   // Which submenu (by item index) is open — the panel owns it, so focusing
   // or hovering any other item closes it.
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null)
@@ -176,23 +187,66 @@ function MenuPanel({
   useLayoutEffect(() => {
     const panel = ref.current
     if (panel === null) return
+    // Measure from the natural position. This effect can run more than once
+    // for one panel — React's StrictMode double-invokes effects in
+    // development — and a second run that measured a panel the first had
+    // already lifted would read its lifted place as the natural one and
+    // put it at the viewport's corner. Clearing the inline style first makes
+    // every run start from the same place.
+    panel.style.position = ''
+    panel.style.margin = ''
+    panel.style.top = ''
+    panel.style.left = ''
     const rect = panel.getBoundingClientRect()
     if (rect.width === 0 && rect.height === 0) return
+    const anchor = panel.parentElement?.getBoundingClientRect()
+    const viewport = { width: document.documentElement.clientWidth, height: window.innerHeight }
     // Flip only when the other side actually has the room; otherwise the
     // natural side is the lesser evil. The arithmetic is `placementFor`,
-    // which knows a submenu flips against a different anchor edge (#430)
-    // and stays inside whatever actually clips the panel — a scrolling
-    // ancestor where there is one, the viewport otherwise (#416).
-    const next = placementFor(
-      rect,
-      panel.parentElement?.getBoundingClientRect(),
-      boundsOf(clippingAncestorOf(panel)?.getBoundingClientRect(), {
-        width: document.documentElement.clientWidth,
-        height: window.innerHeight,
-      }),
-      submenu,
-    )
-    if (next.end || next.up) setPlacement(next)
+    // which knows a submenu flips against a different anchor edge (#430).
+    const next = placementFor(rect, anchor, viewport, submenu)
+    if (submenu || anchor === undefined || clippingAncestorOf(panel) === null) {
+      if (next.end || next.up) setPlacement(next)
+      return
+    }
+    // The panel is a descendant of a box that clips its overflow — the
+    // media library's clip list is `max-height: 50vh; overflow-y: auto`
+    // (#308). Absolutely positioned inside it, the panel is both cut off at
+    // the box's edge and counted as the box's scrollable content: the list
+    // grows a scrollbar, and the items past the edge cannot be hit (#416).
+    // Flipping inside the box only helps where the box has room on the
+    // other side, which a list one, two or three rows tall never has. So the
+    // panel leaves the box instead: `position: fixed`, at the spot the
+    // natural or flipped layout would have given it, in viewport
+    // coordinates. A fixed box is not its scrolling ancestors' overflow and
+    // is not clipped by them, while staying where it is in the DOM — so the
+    // keyboard handling, the outside-press close and the one-open-menu slot
+    // are untouched. The flip itself is still against the viewport, as for
+    // every other panel.
+    //
+    // Fixed offsets resolve against the viewport unless an ancestor has a
+    // transform, filter or containment, when they resolve against that
+    // ancestor instead. Rather than assume, measure: put the panel at fixed
+    // (0, 0), read where that lands, and offset from there. The result goes
+    // onto the element directly as well as into state: the state is what
+    // React renders from here on, but React diffs the style prop against
+    // its previous *props*, not the DOM, so a re-run that computed the same
+    // offsets after clearing them above would otherwise never write them
+    // back.
+    const gap = rect.top - anchor.bottom
+    const target = {
+      left: next.end ? anchor.right - rect.width : rect.left,
+      top: next.up ? anchor.top - gap - rect.height : rect.top,
+    }
+    panel.style.position = 'fixed'
+    panel.style.margin = '0'
+    panel.style.top = '0px'
+    panel.style.left = '0px'
+    const origin = panel.getBoundingClientRect()
+    const offsets = { top: target.top - origin.top, left: target.left - origin.left }
+    panel.style.top = `${offsets.top}px`
+    panel.style.left = `${offsets.left}px`
+    setLifted(offsets)
     // `submenu` never changes for a panel instance; named so the rule is satisfied.
   }, [submenu])
 
@@ -201,17 +255,30 @@ function MenuPanel({
     if (panel === null) return
     const focusable = focusableItemsOf(panel)
     const target = initialFocus === 'last' ? focusable[focusable.length - 1] : focusable[0]
-    // `preventScroll`, because the flip above has already put the panel
-    // where it is visible and letting the browser scroll to it undoes that
-    // (#416). The placement runs in a layout effect and this one runs after
-    // paint, but React flushes a pending passive effect before the sync
-    // re-render the layout effect schedules — so without this the focus
-    // lands while the panel is still in its unflipped position and the
-    // nearest scrolling ancestor jumps to reveal it. Measured on the media
-    // library at 1280×720 with eight clips: the list scrolled 198px, taking
-    // the row out from under the pointer that had just opened the menu.
+    // `preventScroll`: the placement above has already put the panel where
+    // it is visible, and a focus that scrolled an ancestor to "reveal" it
+    // would move the page, or a list, under the pointer that just opened
+    // the menu (#416: measured at 198px of list scroll before the panel was
+    // lifted out of the list).
     ;(target ?? panel).focus({ preventScroll: true })
   }, [initialFocus])
+
+  // A lifted panel cannot follow its trigger: the box the trigger sits in
+  // scrolls, the panel does not. So a scroll of anything containing the
+  // trigger — that box, or the document — closes the menu, as a native
+  // popup does, rather than leaving the panel afloat over a row that has
+  // moved out from under it (#416). Focus is not restored: the wheel or
+  // scrollbar the user is on is what they are doing now.
+  useEffect(() => {
+    if (lifted === null) return
+    const anchor = ref.current?.parentElement
+    if (anchor === undefined || anchor === null) return
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(anchor)) onCloseAll(false)
+    }
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
+  }, [lifted, onCloseAll])
 
   const moveFocus = (to: 'next' | 'previous' | 'first' | 'last') => {
     const panel = ref.current
@@ -293,6 +360,11 @@ function MenuPanel({
       role="menu"
       aria-label={label}
       className={className}
+      style={
+        lifted === null
+          ? undefined
+          : { position: 'fixed', margin: 0, top: lifted.top, left: lifted.left }
+      }
       tabIndex={-1}
       onKeyDown={handleKeyDown}
     >

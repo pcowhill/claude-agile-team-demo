@@ -26,50 +26,6 @@ export interface PlacementBox {
 }
 
 /**
- * The edges a panel must stay inside, in viewport coordinates. Usually the
- * viewport itself; smaller wherever an ancestor with a non-visible
- * `overflow` clips the panel before the window does (#416).
- */
-export interface PlacementBounds {
-  left: number
-  right: number
-  top: number
-  bottom: number
-}
-
-/**
- * Where a panel is actually free to be drawn: the viewport, narrowed by the
- * nearest ancestor that clips its overflow (#416).
- *
- * A panel is positioned inside its trigger's row, so an ancestor scrolling
- * box cuts it off long before the window does — and the browser's answer to
- * a clipped panel is to scroll that box when focus lands in it, which yanks
- * the list out from under the pointer that just opened the menu. The media
- * library's clip list is such a box (`max-height: 50vh; overflow-y: auto`,
- * #308), and a row in its lower half opened a panel that hung past the
- * bottom edge: measured at 1280×720 with eight clips, opening the fifth
- * row's ⋯ scrolled the list by 198 px.
- *
- * Flipping against these bounds instead puts the panel above its trigger
- * where the room below has run out, so it lies inside the visible box and
- * nothing scrolls. With no clipping ancestor the bounds *are* the viewport,
- * so every menu outside a scrolling panel is decided exactly as before.
- */
-export function boundsOf(
-  clipper: PlacementBox | undefined,
-  viewport: { width: number; height: number },
-): PlacementBounds {
-  const bounds = { left: 0, top: 0, right: viewport.width, bottom: viewport.height }
-  if (clipper === undefined) return bounds
-  return {
-    left: Math.max(bounds.left, clipper.left),
-    top: Math.max(bounds.top, clipper.top),
-    right: Math.min(bounds.right, clipper.right),
-    bottom: Math.min(bounds.bottom, clipper.bottom),
-  }
-}
-
-/**
  * A flip is offered only when the other side genuinely has the room — and
  * "the other side" is not the same edge for the two kinds of panel, which is
  * the defect this replaces. Each formula comes from where `Menu.css`
@@ -92,23 +48,17 @@ export function boundsOf(
  * the overflow alone decides on both axes. Preserved from the original rule
  * rather than reconsidered: nothing renders such a panel, and changing it
  * here would be a silent behaviour change riding along with #430's fix.
- *
- * `bounds` is where the panel may be drawn — the viewport, or the tighter
- * box a clipping ancestor leaves (`boundsOf`, #416). Passing the viewport's
- * own bounds reproduces the original rule exactly.
  */
 export function placementFor(
   panel: PlacementBox,
   anchor: PlacementBox | undefined,
-  bounds: PlacementBounds,
+  viewport: { width: number; height: number },
   submenu: boolean,
 ): Placement {
   const flippedLeft =
-    anchor === undefined ? bounds.left : (submenu ? anchor.left : anchor.right) - panel.width
+    anchor === undefined ? 0 : (submenu ? anchor.left : anchor.right) - panel.width
   return {
-    end: panel.right > bounds.right && flippedLeft >= bounds.left,
-    up:
-      panel.bottom > bounds.bottom &&
-      (anchor === undefined || anchor.top - panel.height >= bounds.top),
+    end: panel.right > viewport.width && flippedLeft >= 0,
+    up: panel.bottom > viewport.height && (anchor === undefined || anchor.top - panel.height >= 0),
   }
 }

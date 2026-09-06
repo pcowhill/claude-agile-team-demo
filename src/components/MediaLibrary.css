@@ -15,8 +15,10 @@
    aria-pressed on the active button). */
 /* View ▾ (#416) holds what the sort cluster (#123) and the view toggle
    (#311) used to spend five header controls on; the menu's own styling
-   (Menu.css) does the rest. */
-.library-view-menu button {
+   (Menu.css) does the rest. The trigger only: the panel is inside this
+   wrapper too, and its items keep Menu.css's size like File ▾'s and
+   Frame ▾'s. */
+.library-view-menu > .menu-trigger {
   font-size: 0.8rem;
   padding: 0.1rem 0.5rem;
 }

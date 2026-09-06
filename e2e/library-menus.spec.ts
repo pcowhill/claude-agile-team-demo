@@ -13,6 +13,7 @@ import {
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 
 type Page = import('@playwright/test').Page
+type Locator = import('@playwright/test').Locator
 
 /**
  * The media library after #416 (from the approved redesign #401 option L1 /
@@ -20,11 +21,16 @@ type Page = import('@playwright/test').Page
  * and each row's ⋯, driven by keyboard, and the rendered evidence jsdom
  * cannot give — the row keeping its three actions together on one line and
  * itself to two, the card's cluster inside its card, and, the reason this
- * spec exists at all, **the open panels not being clipped by the library
+ * spec exists at all, **the open ⋯ panels not being clipped by the library
  * list's own scrolling box**. `.clip-list` is `max-height: 50vh; overflow-y: auto`
- * (#308), and a menu panel inside a row is a descendant of that box, so a
- * row far enough down the list would have its panel cut off with every
- * containment assertion against the viewport still passing.
+ * (#308), and a menu panel inside a row is a descendant of that box. Left
+ * there, a short list — one only as tall as its rows — cut the panel off
+ * below its last row and grew a scrollbar to hold it, and a long list did
+ * the same to any row near its bottom edge, with every containment
+ * assertion against the viewport still passing. `Menu.tsx` lifts such a
+ * panel out of the box, and what is asserted here is the property that
+ * matters to the customer: the list's scroll box unchanged by opening a
+ * menu, and every item hittable where it is drawn (`expectMenuUsable`).
  *
  * Media-free apart from one recorded WebM, which the Extract audio item
  * needs a real video for.
@@ -81,15 +87,95 @@ async function importClips(page: Page, count: number): Promise<void> {
   }
 }
 
+/** The list's scroll box, for reading before and after a menu opens. */
+const scrollBox = (list: Locator) =>
+  list.evaluate((node) => ({ scrollHeight: node.scrollHeight, scrollTop: node.scrollTop }))
+
+/**
+ * The open panel is usable where it is drawn: anchored to its trigger;
+ * inside the viewport; every item hit-testable at its own centre
+ * (`elementFromPoint` resolves to the item, not to what a clipped panel
+ * would leave showing through), with its label on one line; and the list's
+ * scroll box exactly as it was before the menu opened — no scrollbar grown
+ * to hold the panel, no jump to reveal it. Measured on the first cut of this
+ * PR with two clips at 1280×720: the panel ran 17px past the list's box, the
+ * list's `scrollHeight` went 77 → 94, and the centre of Remove hit the
+ * section behind the menu.
+ *
+ * "Anchored" is not decoration: the panel is lifted out of the list with
+ * `position: fixed` and placed by measurement, and a mis-measured panel
+ * lands at the viewport's corner — inside the viewport, every item hittable,
+ * nowhere near the row that opened it. It caught exactly that once.
+ */
+async function expectMenuUsable(
+  page: Page,
+  list: Locator,
+  trigger: Locator,
+  menu: Locator,
+  before: { scrollHeight: number; scrollTop: number },
+  label: string,
+): Promise<void> {
+  expect(await scrollBox(list), `opening ⋯ changed the list's scroll box (${label})`).toEqual(
+    before,
+  )
+  const view = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    height: window.innerHeight,
+  }))
+  const box = (await menu.boundingBox())!
+  expect(box.x, `panel left (${label})`).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width, `panel right (${label})`).toBeLessThanOrEqual(view.width)
+  expect(box.y, `panel top (${label})`).toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height, `panel bottom (${label})`).toBeLessThanOrEqual(view.height)
+  // Anchored: the panel opens directly below its trigger, or directly above
+  // it when flipped, and shares the trigger's left edge, or its right edge
+  // when flipped. The panel's own 0.25rem gap plus a pixel of rounding is
+  // the tolerance, so 8px.
+  const anchor = (await trigger.boundingBox())!
+  const belowGap = box.y - (anchor.y + anchor.height)
+  const aboveGap = anchor.y - (box.y + box.height)
+  expect(
+    Math.min(Math.abs(belowGap), Math.abs(aboveGap)),
+    `panel is not against its trigger: panel y ${box.y}–${box.y + box.height}, ` +
+      `trigger y ${anchor.y}–${anchor.y + anchor.height} (${label})`,
+  ).toBeLessThanOrEqual(8)
+  expect(
+    Math.min(Math.abs(box.x - anchor.x), Math.abs(box.x + box.width - (anchor.x + anchor.width))),
+    `panel shares neither edge with its trigger: panel x ${box.x}–${box.x + box.width}, ` +
+      `trigger x ${anchor.x}–${anchor.x + anchor.width} (${label})`,
+  ).toBeLessThanOrEqual(1)
+  for (const item of await menu.getByRole('menuitem').all()) {
+    const text = await item.textContent()
+    const hit = await item.evaluate((node) => {
+      const rect = node.getBoundingClientRect()
+      const at = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return {
+        ok: at !== null && node.contains(at),
+        found: at === null ? 'nothing' : `${at.tagName.toLowerCase()}.${at.className}`,
+        oneLine: node.scrollWidth <= node.clientWidth,
+      }
+    })
+    expect(hit.ok, `"${text}" is not hittable at its centre — found ${hit.found} (${label})`).toBe(
+      true,
+    )
+    expect(hit.oneLine, `"${text}" overflows its item (${label})`).toBe(true)
+  }
+}
+
 test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard alone (#416)', async ({
   page,
 }) => {
   await page.goto('./')
   await importClips(page, 1)
-  const rows = page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')
+  const list = page.getByRole('list', { name: 'Imported clips' })
+  const rows = list.getByRole('listitem')
 
   // A video's ⋯ carries all four; an audio clip's carries only the two that
   // apply — the per-kind exclusions the buttons expressed by not rendering.
+  // And each is usable in a **two-clip** list, the common state of a library
+  // and the one a panel kept inside the list's box can never fit: two rows
+  // have room for a four-item panel neither below nor above.
+  const shortList = await scrollBox(list)
   const video = await openClipMenu(page, 'clip.webm')
   await expect(video.getByRole('menuitem')).toHaveText([
     'Add as overlay',
@@ -97,9 +183,25 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
     'Rename…',
     'Remove',
   ])
+  await expectMenuUsable(
+    page,
+    list,
+    clipMenuTrigger(page, 'clip.webm'),
+    video,
+    shortList,
+    'a video in a two-clip list',
+  )
   await page.keyboard.press('Escape')
   const audio = await openClipMenu(page, 'tone-0.wav')
   await expect(audio.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await expectMenuUsable(
+    page,
+    list,
+    clipMenuTrigger(page, 'tone-0.wav'),
+    audio,
+    shortList,
+    'an audio clip in a two-clip list',
+  )
   await page.keyboard.press('Escape')
   await expect(clipMenu(page, 'tone-0.wav')).toHaveCount(0)
   await expect(clipMenuTrigger(page, 'tone-0.wav')).toBeFocused()
@@ -241,9 +343,9 @@ test('the row keeps its actions together, and neither panel is clipped by the li
 
     // (b) The open ⋯ is inside the viewport AND not cut off by the list's
     // own scrolling box — the second being the one that matters. Opened on
-    // the last row that is *fully visible* without scrolling, which is the
-    // case that regressed: the panel's natural place is past the box's
-    // bottom edge, so it must flip above its trigger instead.
+    // the last row that is *fully visible* without scrolling: the panel's
+    // natural place is past the box's bottom edge, the case a viewport-only
+    // containment check passes while the box clips the panel.
     await list.evaluate((node) => {
       node.scrollTop = 0
     })
@@ -260,47 +362,50 @@ test('the row keeps its actions together, and neither panel is clipped by the li
         lastVisible = name
       }
     }
-    const scrollBefore = await list.evaluate((node) => node.scrollTop)
+    const scrollBefore = await scrollBox(list)
     const menu = await openClipMenu(page, lastVisible)
-    // Opening a menu must not move the list under the pointer that opened
-    // it. Before the panel was bounded by the box it lies in, the browser
-    // scrolled the list to reveal a panel hanging past the bottom edge —
-    // 198px at 1280×720, taking the clicked row with it.
-    expect(
-      await list.evaluate((node) => node.scrollTop),
-      `opening ⋯ on ${lastVisible} scrolled the clip list at ${label}`,
-    ).toBe(scrollBefore)
+    // Opening a menu must neither move the list under the pointer that
+    // opened it nor grow the list to hold the panel, and every item must be
+    // hittable where it is drawn. Before the panel was lifted out of the
+    // box, the browser scrolled the list to reveal a panel hanging past the
+    // bottom edge — 198px at 1280×720, taking the clicked row with it — or,
+    // once that scroll was prevented, simply clipped the panel there.
+    await expectMenuUsable(
+      page,
+      list,
+      clipMenuTrigger(page, lastVisible),
+      menu,
+      scrollBefore,
+      `⋯ on ${lastVisible} at ${label}`,
+    )
     const view = await page.evaluate(() => ({
       width: document.documentElement.clientWidth,
       height: window.innerHeight,
     }))
-    const menuBox = (await menu.boundingBox())!
-    expect(menuBox.x, `⋯ panel left at ${label}`).toBeGreaterThanOrEqual(0)
-    expect(menuBox.x + menuBox.width, `⋯ panel right at ${label}`).toBeLessThanOrEqual(view.width)
-    expect(menuBox.y, `⋯ panel top at ${label}`).toBeGreaterThanOrEqual(0)
-    expect(menuBox.y + menuBox.height, `⋯ panel bottom at ${label}`).toBeLessThanOrEqual(
-      view.height,
-    )
-    const listBox = (await list.boundingBox())!
-    expect(
-      menuBox.y + menuBox.height,
-      `⋯ panel bottom ${menuBox.y + menuBox.height} clipped by the list's box ` +
-        `ending at ${listBox.y + listBox.height} at ${label}`,
-    ).toBeLessThanOrEqual(listBox.y + listBox.height + 1)
-    expect(
-      menuBox.y,
-      `⋯ panel top ${menuBox.y} above the list's box starting at ${listBox.y} at ${label}`,
-    ).toBeGreaterThanOrEqual(listBox.y - 1)
-    for (const item of await menu.getByRole('menuitem').all()) {
-      const overflow = await item.evaluate((node) => ({
-        scrollWidth: node.scrollWidth,
-        clientWidth: node.clientWidth,
-      }))
-      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+    if (viewport.width === 1280) {
+      // The row's ⋯ open, for the PR's rendered evidence: the library plus
+      // whatever of the panel hangs past it — over the timeline, since the
+      // panel is lifted out of the list rather than kept inside its box.
+      const libraryBox = (await library.boundingBox())!
+      const menuBox = (await menu.boundingBox())!
+      const bottom = Math.min(
+        Math.max(libraryBox.y + libraryBox.height, menuBox.y + menuBox.height) + 8,
+        view.height,
+      )
+      const right = Math.min(
+        Math.max(libraryBox.x + libraryBox.width, menuBox.x + menuBox.width) + 8,
+        view.width,
+      )
+      await page.screenshot({
+        path: testInfo.outputPath('library-row-menu-1280.png'),
+        clip: {
+          x: libraryBox.x,
+          y: libraryBox.y,
+          width: right - libraryBox.x,
+          height: bottom - libraryBox.y,
+        },
+      })
     }
-    // Every item is actually hittable where it is drawn — the property the
-    // box arithmetic above stands in for, asserted directly on the last one.
-    await expect(menu.getByRole('menuitem', { name: 'Remove', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
 
@@ -346,13 +451,31 @@ test('the row keeps its actions together, and neither panel is clipped by the li
   await expect(card).toHaveClass(/clip-item-card/)
   await expectWithin(card.locator('.clip-card-actions'), card, { what: 'card action cluster' })
   await expectWithin(clipMenuTrigger(page, lastClip), card, { what: "the card's ⋯" })
+  // Scrolled into view first, so the scroll box read here is the one the
+  // menu opens in — Playwright would otherwise scroll on the click itself.
+  await clipMenuTrigger(page, lastClip).scrollIntoViewIfNeeded()
+  const cardScroll = await scrollBox(list)
   const cardMenu = await openClipMenu(page, lastClip)
   await expect(cardMenu.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await expectMenuUsable(
+    page,
+    list,
+    clipMenuTrigger(page, lastClip),
+    cardMenu,
+    cardScroll,
+    "the card's ⋯",
+  )
   const cardLibraryBox = (await library.boundingBox())!
   const cardMenuBox = (await cardMenu.boundingBox())!
   const cardRight = Math.min(
     Math.max(cardLibraryBox.x + cardLibraryBox.width, cardMenuBox.x + cardMenuBox.width) + 8,
     1280,
+  )
+  // The panel may now hang below the library, over the timeline — that is
+  // the lift working — so the frame follows it down too.
+  const cardBottom = Math.min(
+    Math.max(cardLibraryBox.y + cardLibraryBox.height, cardMenuBox.y + cardMenuBox.height) + 8,
+    720,
   )
   await page.screenshot({
     path: testInfo.outputPath('library-card-menu-1280.png'),
@@ -360,7 +483,7 @@ test('the row keeps its actions together, and neither panel is clipped by the li
       x: cardLibraryBox.x,
       y: cardLibraryBox.y,
       width: cardRight - cardLibraryBox.x,
-      height: Math.min(cardLibraryBox.height, 720 - cardLibraryBox.y),
+      height: cardBottom - cardLibraryBox.y,
     },
   })
   await page.keyboard.press('Escape')
