@@ -63,6 +63,19 @@ describe('transportActionForKey (#203)', () => {
     })
   })
 
+  it('maps I and O to the export-range marks, in either letter case (#417)', () => {
+    expect(transportActionForKey(key('i'))).toEqual({ kind: 'mark', which: 'in' })
+    expect(transportActionForKey(key('o'))).toEqual({ kind: 'mark', which: 'out' })
+    // Caps Lock reports the uppercase letter with no Shift; Shift reports it
+    // with Shift. Both are the same intent — a key that only works in one
+    // case is a key the user thinks is broken.
+    expect(transportActionForKey(key('I'))).toEqual({ kind: 'mark', which: 'in' })
+    expect(transportActionForKey(key('O', { shiftKey: true }))).toEqual({
+      kind: 'mark',
+      which: 'out',
+    })
+  })
+
   it('maps ? to the cheat sheet — Shift included, as layouts type it', () => {
     expect(transportActionForKey(key('?', { shiftKey: true }))).toEqual({ kind: 'shortcut-help' })
     expect(transportActionForKey(key('?'))).toEqual({ kind: 'shortcut-help' })
@@ -70,7 +83,18 @@ describe('transportActionForKey (#203)', () => {
 
   it('never claims Ctrl/Cmd/Alt chords — those belong to the browser and #189 undo/redo', () => {
     for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
-      for (const k of [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', '?']) {
+      for (const k of [
+        ' ',
+        'ArrowLeft',
+        'ArrowRight',
+        'ArrowUp',
+        'ArrowDown',
+        'Home',
+        'End',
+        'i',
+        'o',
+        '?',
+      ]) {
         expect(transportActionForKey(key(k, modifiers))).toBeNull()
       }
     }

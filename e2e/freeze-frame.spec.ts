@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { chooseFromFrameMenu, expectFrameItemEnabled, frameMenu, frameMenuTrigger, openFrameMenu } from './frameMenu'
+import { expectNoHorizontalScroll, expectWithin } from './layout'
 
 type Page = import('@playwright/test').Page
 
@@ -133,19 +135,17 @@ test('freeze frame captures the composed frame and splits & holds at the playhea
   // recording's probed duration, so read-and-fill retries as one unit
   // (the #371 idiom) rather than trusting a stale max.
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
-  const freeze = page.getByTestId('preview-freeze-frame')
   await expect(async () => {
     const max = Number(await seek.getAttribute('max'))
     expect(max).toBeGreaterThan(0.5)
     // The slider's step is 0.01, and fill refuses off-step values.
     await seek.fill((Math.round((max / 2) * 100) / 100).toFixed(2))
-    await expect(freeze).toBeEnabled()
   }).toPass()
 
-  // Split & hold is the default placement. One click: the capture joins the
-  // library as an image clip and the timeline as a 2 s still between the
-  // razor's halves.
-  await freeze.click()
+  // Frame ▾ → split & hold (#417 made the placement the item you pick). One
+  // selection: the capture joins the library as an image clip and the
+  // timeline as a 2 s still between the razor's halves.
+  await chooseFromFrameMenu(page, 'preview-freeze-frame')
   await expect(sequence.getByRole('listitem')).toHaveCount(3)
   const frozenDuration = page.getByRole('spinbutton', {
     name: /Duration of Freeze 0:0\d\.png at position 2 in seconds/,
@@ -183,25 +183,22 @@ test('freeze frame boundary fallback, append placement, and transport geometry (
   await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
 
   const sequence = page.getByRole('list', { name: 'Sequence' })
-  const freeze = page.getByTestId('preview-freeze-frame')
-  const placement = page.getByTestId('preview-freeze-placement')
 
   // At the sequence start the razor has nothing to cut (split.spec), but the
   // freeze still works: the still holds BEFORE the entry — hold, then play.
-  await expect(page.getByTestId('preview-split')).toBeDisabled()
-  await expect(freeze).toBeEnabled()
-  await freeze.click()
+  await expectFrameItemEnabled(page, 'preview-split', false)
+  await expectFrameItemEnabled(page, 'preview-freeze-frame', true)
+  await chooseFromFrameMenu(page, 'preview-freeze-frame')
   await expect(sequence.getByRole('listitem')).toHaveCount(2)
   await expect(sequence.getByRole('listitem').nth(0)).toContainText('Freeze 0:00.png')
   await expect(sequence.getByRole('listitem').nth(1)).toContainText('Color slate')
   await expect(page.getByTestId('timeline-total')).toHaveText('0:07')
 
-  // Append mode: the still goes AFTER the entry under the playhead, without
-  // cutting it — the end-card placement.
-  await placement.selectOption('append')
+  // Append: the still goes AFTER the entry under the playhead, without
+  // cutting it — the end-card placement, its own Frame ▾ item since #417.
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
   await seek.fill('4')
-  await freeze.click()
+  await chooseFromFrameMenu(page, 'preview-freeze-frame-append')
   await expect(sequence.getByRole('listitem')).toHaveCount(3)
   await expect(sequence.getByRole('listitem').nth(1)).toContainText('Color slate')
   await expect(sequence.getByRole('listitem').nth(2)).toContainText('Freeze 0:04.png')
@@ -211,19 +208,14 @@ test('freeze frame boundary fallback, append placement, and transport geometry (
     page.getByRole('spinbutton', { name: 'Duration of Color slate at position 2 in seconds' }),
   ).toHaveValue('5')
 
-  // Geometry (#379 is a new visible surface): the control and its placement
-  // choice sit inside the transport row, the button's label does not wrap or
-  // overflow, and the page gained no sideways scroll.
+  // Geometry (#379 was a new visible surface; #417 moved it into Frame ▾):
+  // the menu's trigger sits inside the transport row without wrapping or
+  // overflowing, the open panel's freeze items lie inside the viewport, and
+  // the page gained no sideways scroll. Containment carries the shared 1 px
+  // border tolerance (layout.ts).
   const controls = page.locator('.preview-controls')
-  const controlsBox = (await controls.boundingBox())!
-  for (const element of [freeze, placement]) {
-    const box = (await element.boundingBox())!
-    expect(box.x).toBeGreaterThanOrEqual(controlsBox.x - 1)
-    expect(box.x + box.width).toBeLessThanOrEqual(controlsBox.x + controlsBox.width + 1)
-    expect(box.y).toBeGreaterThanOrEqual(controlsBox.y - 1)
-    expect(box.y + box.height).toBeLessThanOrEqual(controlsBox.y + controlsBox.height + 1)
-  }
-  const overflow = await freeze.evaluate((element) => ({
+  await expectWithin(frameMenuTrigger(page), controls, { what: 'Frame ▾ trigger' })
+  const overflow = await frameMenuTrigger(page).evaluate((element) => ({
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
     scrollHeight: element.scrollHeight,
@@ -231,14 +223,24 @@ test('freeze frame boundary fallback, append placement, and transport geometry (
   }))
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
   expect(overflow.scrollHeight).toBeLessThanOrEqual(overflow.clientHeight)
-  const pageScroll = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
+  await openFrameMenu(page)
+  const view = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    height: window.innerHeight,
   }))
-  expect(pageScroll.scrollWidth).toBeLessThanOrEqual(pageScroll.clientWidth)
+  for (const testId of ['preview-freeze-frame', 'preview-freeze-frame-append']) {
+    const box = (await page.getByTestId(testId).boundingBox())!
+    expect(box.x, `${testId} left`).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, `${testId} right`).toBeLessThanOrEqual(view.width)
+    expect(box.y, `${testId} top`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${testId} bottom`).toBeLessThanOrEqual(view.height)
+  }
+  await expectNoHorizontalScroll(page, 'Frame menu open after two freezes')
 
-  // A rendered look at the new surface for the PR's evidence (#379's
+  // A rendered look at the surface for the PR's evidence (#379's
   // rendered-evidence requirement) — the assertions above are the durable
   // guard; the screenshot is the human check.
   await page.screenshot({ path: testInfo.outputPath('freeze-transport.png') })
+  await page.keyboard.press('Escape')
+  await expect(frameMenu(page)).toHaveCount(0)
 })

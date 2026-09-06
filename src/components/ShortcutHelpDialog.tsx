@@ -29,6 +29,7 @@ const shortcutsFor = (
   { keys: ['Shift + ← / →'], does: `Step the playhead ${largeStepSeconds} s back / forward` },
   { keys: ['Home / End'], does: 'Jump to the sequence start / end' },
   { keys: ['↑ / ↓'], does: 'Jump to the previous / next cut or transition edge' },
+  { keys: ['I / O'], does: 'Mark the export range in / out at the playhead' },
   { keys: ['Esc'], does: 'Leave the source preview, back to the sequence' },
   { keys: ['Ctrl/Cmd + Z'], does: 'Undo the last timeline edit' },
   { keys: ['Ctrl/Cmd + Shift + Z', 'Ctrl/Cmd + Y'], does: 'Redo' },

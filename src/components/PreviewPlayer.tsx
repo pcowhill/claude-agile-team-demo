@@ -72,6 +72,8 @@ import {
   targetClaimsKeys,
   transportActionForKey,
 } from '../lib/transport'
+import { Menu } from './Menu'
+import type { MenuItem } from './Menu'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
 import { SourcePreview } from './SourcePreview'
 import './PreviewPlayer.css'
@@ -594,11 +596,10 @@ export function PreviewPlayer({
   const [savingFrame, setSavingFrame] = useState(false)
   const [saveFrameError, setSaveFrameError] = useState<string | null>(null)
   // Freeze frame (#379): same one-at-a-time and error discipline as Save
-  // frame; the placement choice is transport-local UI state, not project
-  // state — it configures the next freeze, it does not describe this one.
+  // frame. The placement is no longer state (#417): Frame ▾ offers one item
+  // per placement, so the item picked *is* the choice for that freeze.
   const [freezing, setFreezing] = useState(false)
   const [freezeError, setFreezeError] = useState<string | null>(null)
-  const [freezePlacement, setFreezePlacement] = useState<FreezePlacementMode>('split')
   // The snap tick (#391): where a committed seek just snapped onto a
   // boundary, or null while nothing recent snapped. Transient by a timeout —
   // a flash that says "the landing was adjusted", not a persistent marker.
@@ -1250,12 +1251,13 @@ export function PreviewPlayer({
    * when the freeze semantically happens (#316: a snapshot of the
    * composition, never a live reference). The reducer re-validates the
    * placement, so a timeline that changed under the capture refuses cleanly
-   * instead of freezing onto the wrong entry.
+   * instead of freezing onto the wrong entry. The mode comes from which of
+   * the two Frame ▾ items was picked (#417).
    */
-  const freezeFrame = () => {
+  const freezeFrame = (mode: FreezePlacementMode) => {
     if (freezing || onFreezeFrame === undefined) return
     const time = Math.min(sequenceTime, total)
-    const target = freezeTargetAt(timeline, time, freezePlacement)
+    const target = freezeTargetAt(timeline, time, mode)
     if (target === null) return
     setFreezing(true)
     setFreezeError(null)
@@ -1368,6 +1370,18 @@ export function PreviewPlayer({
           )
           break
         }
+        case 'mark': {
+          // I / O (#417) record exactly what the ⇥ / ⇤ buttons record: the
+          // clamped playhead, through the same App callbacks — so a key and
+          // a click can never mark different instants. Inert under the same
+          // conditions the buttons disable: nothing on the timeline, or no
+          // wiring.
+          if (timeline.entries.length === 0) break
+          const at = Math.min(sequenceTime, total)
+          if (action.which === 'in') onMarkIn?.(at)
+          else onMarkOut?.(at)
+          break
+        }
         case 'shortcut-help':
           setHelpOpen(true)
           break
@@ -1375,7 +1389,20 @@ export function PreviewPlayer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds, timeline, sourceMode])
+  }, [
+    playing,
+    play,
+    pause,
+    seek,
+    sequenceTime,
+    total,
+    stepSeconds,
+    largeStepSeconds,
+    timeline,
+    sourceMode,
+    onMarkIn,
+    onMarkOut,
+  ])
 
   // Edits to the timeline invalidate the playback position (entries or
   // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
@@ -1436,13 +1463,56 @@ export function PreviewPlayer({
   // splitting is disabled. Clamped like the seek slider's value, so a
   // published time past the end reads as the end (not splittable).
   const splitTarget = splitTargetAt(timeline, Math.min(sequenceTime, total))
-  // Whether Freeze frame (#379) has anything to freeze here in the chosen
-  // placement — null exactly where the snapshot has no frame to compose.
-  const freezeTarget = freezeTargetAt(timeline, Math.min(sequenceTime, total), freezePlacement)
+  // Whether Freeze frame (#379) has anything to freeze here — null exactly
+  // where the snapshot has no frame to compose. `freezeTargetAt` is null for
+  // one placement mode precisely when it is for the other (both need only a
+  // frame under the playhead), so one probe decides both Frame ▾ items (#417).
+  const freezeTarget = freezeTargetAt(timeline, Math.min(sequenceTime, total), 'split')
+  const canFreeze = freezeTarget !== null && !freezing && onFreezeFrame !== undefined
   // The marked export range's visible span (#385): the shared rule
   // (markedExportRange) that also decides what the export modal offers, so
   // the highlight and the offered range can never disagree.
   const markedSpan = markedExportRange(markIn, markOut, total)
+  /** The Frame ▾ items (#417); see the menu's comment in the transport. */
+  const frameItems: MenuItem[] = [
+    {
+      kind: 'action',
+      label: 'Split at playhead',
+      title: 'Split the clip at the playhead (disabled at boundaries and inside transitions)',
+      testId: 'preview-split',
+      disabled: splitTarget === null || onSplit === undefined,
+      onSelect: () => {
+        if (splitTarget !== null) onSplit?.(splitTarget.entryId, splitTarget.atSourceTime)
+      },
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Save frame as PNG…',
+      title: 'Save the current frame as a PNG image at the output resolution',
+      testId: 'preview-save-frame',
+      disabled: timeline.entries.length === 0 || savingFrame,
+      onSelect: saveFrame,
+    },
+    {
+      kind: 'action',
+      label: 'Freeze frame — split & hold',
+      title:
+        'Freeze the frame at the playhead as a 2-second still on the timeline, cutting the clip here and holding between the halves (a snapshot of the composition at this instant, not a live reference)',
+      testId: 'preview-freeze-frame',
+      disabled: !canFreeze,
+      onSelect: () => freezeFrame('split'),
+    },
+    {
+      kind: 'action',
+      label: 'Freeze frame — append after clip',
+      title:
+        'Freeze the frame at the playhead as a 2-second still after the clip, without cutting it (a snapshot of the composition at this instant, not a live reference)',
+      testId: 'preview-freeze-frame-append',
+      disabled: !canFreeze,
+      onSelect: () => freezeFrame('append'),
+    },
+  ]
   // Gate the overlay on the actual engagement, not the recomputed location
   // alone: right after a handover the published time can still trail inside
   // the overlap, and then the top-layer element holds the outgoing clip (#61).
@@ -1958,81 +2028,50 @@ export function PreviewPlayer({
             >
               ⏭
             </button>
-            {/* The razor (#190): split the entry under the playhead. Disabled
-                where there is nothing to split — a boundary, a transition
-                overlap, or an empty timeline (see splitTargetAt). Undoable
-                like any timeline edit (#189). */}
-            <button
-              type="button"
-              data-testid="preview-split"
-              title="Split the clip at the playhead (disabled at boundaries and inside transitions)"
-              disabled={splitTarget === null || onSplit === undefined}
-              onClick={() => {
-                if (splitTarget !== null) onSplit?.(splitTarget.entryId, splitTarget.atSourceTime)
-              }}
-            >
-              ✂ Split
-            </button>
-            {/* Save frame (#237): the playhead's frame as a PNG at the output
-                resolution, composed through the export's draw path. Disabled
-                with nothing on the timeline, matching the export control. */}
-            <button
-              type="button"
-              data-testid="preview-save-frame"
-              title="Save the current frame as a PNG image at the output resolution"
-              disabled={timeline.entries.length === 0 || savingFrame}
-              onClick={saveFrame}
-            >
-              📷 Save frame
-            </button>
-            {/* Freeze frame (#379): the same composed capture as Save frame,
-                kept in the app — a library image clip placed on the timeline
-                as a still holding this instant. Disabled with no frame to
-                compose (empty timeline) or without App's wiring, like Split.
-                The choice beside it picks the placement of the NEXT freeze:
-                split & hold (the emphasis beat) or append (the end card). */}
-            <button
-              type="button"
-              data-testid="preview-freeze-frame"
-              title="Freeze the frame at the playhead as a 2-second still on the timeline (a snapshot of the composition at this instant, not a live reference)"
-              disabled={freezeTarget === null || freezing || onFreezeFrame === undefined}
-              onClick={freezeFrame}
-            >
-              ❄ Freeze frame
-            </button>
-            <select
-              aria-label="Freeze frame placement"
-              data-testid="preview-freeze-placement"
-              title="Where the frozen still goes: cut the clip at the playhead and hold between the halves, or hold after the clip without cutting it"
-              value={freezePlacement}
-              onChange={(event) => setFreezePlacement(event.target.value as FreezePlacementMode)}
-            >
-              <option value="split">Split &amp; hold</option>
-              <option value="append">Append after clip</option>
-            </select>
             {/* Export-range marks (#385): each button records the playhead's
                 position as the range's start or end; the export modal offers
                 the span when both are set the right way round. Session-only
                 state — marks live in App component state, never in the
-                project file, so they are gone on reload by design. */}
+                project file, so they are gone on reload by design. Compact
+                glyphs since #417, with I / O as their keys; the name carries
+                the meaning the glyph alone lacks. */}
             <button
               type="button"
               data-testid="preview-mark-in"
-              title="Mark the start of the export range at the playhead (marks last for this session only)"
+              aria-label="Mark in"
+              title="Mark the start of the export range at the playhead (I) — marks last for this session only"
               disabled={timeline.entries.length === 0 || onMarkIn === undefined}
               onClick={() => onMarkIn?.(Math.min(sequenceTime, total))}
             >
-              ⇥ Mark in
+              ⇥
             </button>
             <button
               type="button"
               data-testid="preview-mark-out"
-              title="Mark the end of the export range at the playhead (marks last for this session only)"
+              aria-label="Mark out"
+              title="Mark the end of the export range at the playhead (O) — marks last for this session only"
               disabled={timeline.entries.length === 0 || onMarkOut === undefined}
               onClick={() => onMarkOut?.(Math.min(sequenceTime, total))}
             >
-              ⇤ Mark out
+              ⇤
             </button>
+            {/* Frame ▾ (#417, from the approved redesign #401 / feedback
+                #395 — the customer named the preview as the busiest region
+                and asked for Split to live here too): the frame-level
+                actions behind one labelled menu. Each item calls exactly
+                what its former button called, with the same disabled rule —
+                the razor (#190) where there is nothing to split (a boundary,
+                a transition overlap; see splitTargetAt); Save frame (#237)
+                and both Freeze frame placements (#379) where there is no
+                frame to compose or no App wiring. The placement `<select>`
+                is gone: the freeze item you pick is the placement. */}
+            <Menu
+              label="Frame"
+              menuLabel="Frame menu"
+              className="preview-frame-menu"
+              testId="preview-frame-menu"
+              items={frameItems}
+            />
             {(markIn !== null || markOut !== null) && (
               <button
                 type="button"

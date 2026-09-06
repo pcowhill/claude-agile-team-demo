@@ -263,19 +263,24 @@ the playhead 0.1 s (1 s with Shift) — both settable in Settings (#286) —
 Home/End jump to the sequence bounds, and ? opens a cheat sheet of every
 shortcut, which states the step sizes you have chosen — all inert while
 typing in a field or while a dialog is open, so no control loses its own
-keys. ↑ / ↓ (and two transport buttons) jump the playhead exactly onto the
+keys. I / O set the export range's in / out marks at the playhead (#417),
+the same marks the ⇥ / ⇤ transport buttons set.
+↑ / ↓ (and two transport buttons) jump the playhead exactly onto the
 previous / next cut — entry boundaries, both edges of a transition blend,
 the sequence ends (#391) — and releasing a seek near a boundary snaps onto
 it with a brief tick on the seek bar; hold Alt while releasing to place
 freely, and the slider's own arrow keys still step 0.01 s without snapping.
-A ✂ Split button beside the preview's transport cuts the entry under the
+The preview's frame-level actions live in its **Frame ▾** menu (#417, from
+feedback #395): Split at playhead, Save frame as PNG…, and Freeze frame as
+two items — split & hold, or append after clip — so the placement is the
+item you pick. Split at playhead cuts the entry under the
 playhead into two independently trimmable, removable halves (#190) — the
 razor. An untouched split plays back and exports exactly like the original;
 per-entry effects follow the cut (speed segments and pauses split exactly,
-zooms move to or split with the half that shows them), and the button
+zooms move to or split with the half that shows them), and the item
 disables where there is nothing to split — entry boundaries and transition
 overlaps.
-A 📷 Save frame button on the same transport downloads the exact frame under
+Frame ▾ → Save frame as PNG… downloads the exact frame under
 the playhead as a PNG at the output resolution (#237) — composed through the
 export's own draw path, so transitions mid-overlap, zooms, color
 adjustments, orientation, overlay layers of either kind — video and stills
@@ -304,7 +309,8 @@ client-side by a lazily loaded pure-JS LAME port (see
 [`docs/adr/0004-mp3-encoder-dependency.md`](docs/adr/0004-mp3-encoder-dependency.md)),
 so it works wherever Web Audio does, whatever the browser's recorder
 supports.
-Mark in / Mark out buttons on the transport mark a span of the sequence at
+The ⇥ / ⇤ buttons on the transport — or the I / O keys — mark a span of the
+sequence at
 the playhead — highlighted in amber on the seek bar, each mark showing as a
 bracket at its position from the moment it is set, so a lone in or out mark
 is visible too (#399); cleared with one click — and the

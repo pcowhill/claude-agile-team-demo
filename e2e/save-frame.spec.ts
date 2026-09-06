@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseFromFrameMenu } from './frameMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -105,10 +106,10 @@ async function samplePng(
   )
 }
 
-/** Clicks Save frame and returns the downloaded PNG bytes and filename. */
+/** Picks Frame ▾ → Save frame and returns the downloaded PNG bytes and filename. */
 async function saveFrameOnce(page: Page): Promise<{ png: Buffer; fileName: string }> {
   const downloadPromise = page.waitForEvent('download')
-  await page.getByTestId('preview-save-frame').click()
+  await chooseFromFrameMenu(page, 'preview-save-frame')
   const download = await downloadPromise
   return { png: await readFile(await download.path()), fileName: download.suggestedFilename() }
 }

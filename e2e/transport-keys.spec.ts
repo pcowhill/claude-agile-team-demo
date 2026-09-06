@@ -70,6 +70,7 @@ test('? opens the shortcut cheat sheet; Escape closes it', async ({ page }) => {
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Play / pause the preview')
   await expect(dialog).toContainText('Undo the last timeline edit')
+  await expect(dialog).toContainText('Mark the export range in / out at the playhead')
 
   // The guard against #287's mid-combo wrap returning (#349), as two checks
   // that #349's measurements showed are the discriminating pair — a naive
@@ -78,11 +79,11 @@ test('? opens the shortcut cheat sheet; Escape closes it', async ({ page }) => {
   // dialog sits at its width cap:
   // 1. One <kbd> per alternative combo. #287's actual defect was both Redo
   //    alternatives joined in one <kbd> ('… or …'), which wraps mid-combo;
-  //    per-combo <kbd>s are what #289 split them into. 10 = 9 rows + Redo's
-  //    second alternative — update alongside shortcutsFor when a shortcut
-  //    is added or changed.
+  //    per-combo <kbd>s are what #289 split them into. 11 = 10 rows + Redo's
+  //    second alternative (the I / O row joined in #417) — update alongside
+  //    shortcutsFor when a shortcut is added or changed.
   const combos = dialog.locator('.shortcut-row kbd')
-  await expect(combos).toHaveCount(10)
+  await expect(combos).toHaveCount(11)
   // 2. Every combo's box lies inside its own row — the box that actually
   //    breaks when a combo grows too wide. Measured before writing this: a
   //    nowrap combo wider than the 45% column does not wrap and does not

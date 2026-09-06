@@ -1,7 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PreviewPlayer } from './PreviewPlayer'
 import type { TimelineState } from '../lib/timeline'
+import type { LibraryClip } from '../lib/mediaLibrary'
+import { snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { automaticExportFrame } from '../lib/exportSettings'
+import { chooseFromFrameMenu, frameMenuItem, openFrameMenu } from '../test/frameMenu'
+
+// The frame capture behind Save frame and Freeze frame (#237/#379) draws on
+// a canvas jsdom does not have. Both entry points are stubbed so the freeze
+// items' placement resolution (#417) can be observed through onFreezeFrame;
+// every other export of the two modules stays real.
+vi.mock('../lib/frameSnapshot', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/frameSnapshot')>()),
+  snapshotTimelineFrame: vi.fn(),
+}))
+vi.mock('../lib/exportSettings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/exportSettings')>()),
+  automaticExportFrame: vi.fn(),
+}))
+const snapshotMock = vi.mocked(snapshotTimelineFrame)
+const exportFrameMock = vi.mocked(automaticExportFrame)
 
 // Media playback does not run in jsdom; these tests cover the rendered
 // structure. Play/pause/seek behavior is covered by e2e/preview.spec.ts,
@@ -47,10 +66,11 @@ describe('PreviewPlayer', () => {
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent(
       'Clip 1 of 2: first.webm',
     )
-    // Save frame (#237) rides the transport: offered exactly when there is
-    // a frame to save. (The empty-timeline case renders no transport at
-    // all — the placeholder test above — matching the export's idiom.)
-    expect(screen.getByTestId('preview-save-frame')).toBeEnabled()
+    // Save frame (#237) rides the transport's Frame ▾ (#417): offered
+    // exactly when there is a frame to save. (The empty-timeline case
+    // renders no transport at all — the placeholder test above — matching
+    // the export's idiom.)
+    expect(frameMenuItem('preview-save-frame')).toBeEnabled()
   })
 
   describe('expand toggle (#128)', () => {
@@ -1510,25 +1530,28 @@ describe('Split at playhead (#190)', () => {
   it('enables exactly where a split is possible and reports the source instant', () => {
     const onSplit = vi.fn()
     render(<PreviewPlayer timeline={twoClips} onSplit={onSplit} />)
-    const button = screen.getByTestId('preview-split')
     const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
 
     // At the sequence start there is nothing before the playhead to split.
-    expect(button).toBeDisabled()
+    // The razor lives in Frame ▾ since #417; the open menu re-renders with
+    // the playhead, so the item's state is read live.
+    expect(frameMenuItem('preview-split')).toBeDisabled()
 
     // Mid-first-entry: 1.5s into e1's trimmed range → source 1 + 1.5.
     fireEvent.change(slider, { target: { value: '1.5' } })
-    expect(button).toBeEnabled()
-    fireEvent.click(button)
+    expect(frameMenuItem('preview-split')).toBeEnabled()
+    fireEvent.click(frameMenuItem('preview-split'))
     expect(onSplit).toHaveBeenCalledWith('e1', 2.5)
+    // Selecting closes the menu, as every menu action does (#412).
+    expect(screen.queryByRole('menu', { name: 'Frame menu' })).not.toBeInTheDocument()
 
     // The e1→e2 hard-cut boundary resolves to e2's very start: disabled.
     fireEvent.change(slider, { target: { value: '3' } })
-    expect(button).toBeDisabled()
+    expect(frameMenuItem('preview-split')).toBeDisabled()
 
     // The sequence end: disabled.
     fireEvent.change(slider, { target: { value: '7' } })
-    expect(button).toBeDisabled()
+    expect(frameMenuItem('preview-split')).toBeDisabled()
   })
 
   it('disables inside a transition overlap', () => {
@@ -1540,9 +1563,9 @@ describe('Split at playhead (#190)', () => {
     const slider = screen.getByRole('slider', { name: 'Seek within sequence' })
     // The overlap covers sequence [2, 3): both clips are playing.
     fireEvent.change(slider, { target: { value: '2.5' } })
-    expect(screen.getByTestId('preview-split')).toBeDisabled()
+    expect(frameMenuItem('preview-split')).toBeDisabled()
     fireEvent.change(slider, { target: { value: '1.5' } })
-    expect(screen.getByTestId('preview-split')).toBeEnabled()
+    expect(frameMenuItem('preview-split')).toBeEnabled()
   })
 
   it('stays disabled without an onSplit wiring', () => {
@@ -1550,7 +1573,29 @@ describe('Split at playhead (#190)', () => {
     fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
       target: { value: '1.5' },
     })
-    expect(screen.getByTestId('preview-split')).toBeDisabled()
+    expect(frameMenuItem('preview-split')).toBeDisabled()
+  })
+
+  it('keeps the same title text as the button it replaced, and the approved item order (#417)', () => {
+    render(<PreviewPlayer timeline={twoClips} onSplit={vi.fn()} onFreezeFrame={vi.fn()} />)
+    const menu = openFrameMenu()
+    expect(frameMenuItem('preview-split')).toHaveAttribute(
+      'title',
+      'Split the clip at the playhead (disabled at boundaries and inside transitions)',
+    )
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
+    ).toEqual([
+      'Split at playhead',
+      'Save frame as PNG…',
+      'Freeze frame — split & hold',
+      'Freeze frame — append after clip',
+    ])
+    // The buttons those items replaced are gone from the transport.
+    for (const name of [/Split/, /Save frame/, /Freeze frame/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+    expect(screen.queryByRole('combobox', { name: 'Freeze frame placement' })).toBeNull()
   })
 })
 
@@ -1692,6 +1737,85 @@ describe('transport keyboard shortcuts (#203)', () => {
     // The transport keys stay harmless no-ops.
     pressOnWindow(' ')
     pressOnWindow('ArrowRight')
+    pressOnWindow('i')
+  })
+
+  it('I and O mark the export range at the playhead, through the same callbacks as the buttons (#417)', () => {
+    const onMarkIn = vi.fn()
+    const onMarkOut = vi.fn()
+    render(<PreviewPlayer timeline={oneClip} onMarkIn={onMarkIn} onMarkOut={onMarkOut} />)
+    fireEvent.change(slider(), { target: { value: '1.5' } })
+    pressOnWindow('i')
+    expect(onMarkIn).toHaveBeenCalledWith(1.5)
+    fireEvent.change(slider(), { target: { value: '3' } })
+    // Uppercase — Shift held, or Caps Lock on — is the same intent.
+    pressOnWindow('O', { shiftKey: true })
+    expect(onMarkOut).toHaveBeenCalledWith(3)
+    expect(onMarkIn).toHaveBeenCalledTimes(1)
+    expect(onMarkOut).toHaveBeenCalledTimes(1)
+    // The cheat sheet lists the pair.
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveTextContent(
+      'Mark the export range in / out at the playhead',
+    )
+  })
+
+  it('I and O respect the transport guards: a field, a modal, a source preview, no wiring', () => {
+    const onMarkIn = vi.fn()
+    const onMarkOut = vi.fn()
+    const clip: LibraryClip = {
+      id: 'c9',
+      name: 'audition.webm',
+      duration: 3,
+      url: 'blob:audition',
+      kind: 'video',
+    }
+    const { rerender } = render(
+      <PreviewPlayer timeline={oneClip} onMarkIn={onMarkIn} onMarkOut={onMarkOut} />,
+    )
+
+    // Typed into a field: the field keeps its letter.
+    const input = document.createElement('input')
+    input.type = 'text'
+    document.body.appendChild(input)
+    try {
+      input.focus()
+      fireEvent.keyDown(input, { key: 'i' })
+      fireEvent.keyDown(input, { key: 'o' })
+    } finally {
+      input.remove()
+    }
+    expect(onMarkIn).not.toHaveBeenCalled()
+    expect(onMarkOut).not.toHaveBeenCalled()
+
+    // Under a modal (the cheat sheet itself): inert like every transport key.
+    pressOnWindow('?', { shiftKey: true })
+    pressOnWindow('i')
+    pressOnWindow('o')
+    expect(onMarkIn).not.toHaveBeenCalled()
+    expect(onMarkOut).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    // While a library clip is previewed (#403) the sequence transport stands
+    // down: marks belong to the sequence, and there is no playhead to mark.
+    rerender(
+      <PreviewPlayer
+        timeline={oneClip}
+        onMarkIn={onMarkIn}
+        onMarkOut={onMarkOut}
+        sourceClip={clip}
+        onExitSourcePreview={() => {}}
+      />,
+    )
+    pressOnWindow('i')
+    pressOnWindow('o')
+    expect(onMarkIn).not.toHaveBeenCalled()
+    expect(onMarkOut).not.toHaveBeenCalled()
+
+    // Without wiring the keys are harmless no-ops, like the disabled buttons.
+    rerender(<PreviewPlayer timeline={oneClip} />)
+    pressOnWindow('i')
+    pressOnWindow('o')
   })
 })
 
@@ -2504,29 +2628,59 @@ describe('freeze frame control (#379)', () => {
     ],
   }
 
-  it('rides the transport beside Save frame, with the placement choice', () => {
+  it('rides the transport in Frame ▾, one item per placement (#417)', () => {
     render(<PreviewPlayer timeline={oneEntry} onFreezeFrame={() => {}} />)
-    const button = screen.getByTestId('preview-freeze-frame')
-    expect(button).toBeEnabled()
-    expect(button).toHaveTextContent('Freeze frame')
+    const split = frameMenuItem('preview-freeze-frame')
+    const append = frameMenuItem('preview-freeze-frame-append')
+    expect(split).toBeEnabled()
+    expect(append).toBeEnabled()
+    expect(split).toHaveTextContent('Freeze frame — split & hold')
+    expect(append).toHaveTextContent('Freeze frame — append after clip')
     // The UI copy states the snapshot semantics (#316's tradeoff): a freeze
     // is the composition at this instant, never a live reference.
-    expect(button).toHaveAttribute('title', expect.stringContaining('not a live reference'))
-    const placement = screen.getByRole('combobox', { name: 'Freeze frame placement' })
-    // Split & hold is the default (#316); append is the other offered mode.
-    expect(placement).toHaveValue('split')
-    fireEvent.change(placement, { target: { value: 'append' } })
-    expect(placement).toHaveValue('append')
+    expect(split).toHaveAttribute('title', expect.stringContaining('not a live reference'))
+    expect(append).toHaveAttribute('title', expect.stringContaining('not a live reference'))
+    // The placement choice is the item, so there is no select any more.
+    expect(screen.queryByRole('combobox', { name: 'Freeze frame placement' })).toBeNull()
   })
 
-  it('disables without App wiring, like Split', () => {
+  it('the item picked is the placement: split & hold cuts, append holds after (#417)', async () => {
+    const onFreezeFrame = vi.fn()
+    snapshotMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    exportFrameMock.mockResolvedValue({ width: 320, height: 180 })
+    render(<PreviewPlayer timeline={oneEntry} onFreezeFrame={onFreezeFrame} />)
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '1.5' },
+    })
+
+    chooseFromFrameMenu('preview-freeze-frame')
+    await waitFor(() => expect(onFreezeFrame).toHaveBeenCalledTimes(1))
+    expect(onFreezeFrame.mock.calls[0][2]).toBe(1.5)
+    expect(onFreezeFrame.mock.calls[0][3]).toEqual({
+      kind: 'split',
+      entryId: 'e1',
+      atSourceTime: 1.5,
+    })
+
+    chooseFromFrameMenu('preview-freeze-frame-append')
+    await waitFor(() => expect(onFreezeFrame).toHaveBeenCalledTimes(2))
+    expect(onFreezeFrame.mock.calls[1][3]).toEqual({ kind: 'after', entryId: 'e1' })
+    // Both went through the export's own composition at the automatic frame.
+    expect(snapshotMock).toHaveBeenCalledTimes(2)
+    expect(snapshotMock).toHaveBeenLastCalledWith(oneEntry, 1.5, {
+      frame: { width: 320, height: 180 },
+    })
+  })
+
+  it('disables both items without App wiring, like Split', () => {
     render(<PreviewPlayer timeline={oneEntry} />)
-    expect(screen.getByTestId('preview-freeze-frame')).toBeDisabled()
+    expect(frameMenuItem('preview-freeze-frame')).toBeDisabled()
+    expect(frameMenuItem('preview-freeze-frame-append')).toBeDisabled()
   })
 
-  it('renders no freeze control while the timeline is empty — no frame, no transport', () => {
+  it('renders no Frame menu while the timeline is empty — no frame, no transport', () => {
     render(<PreviewPlayer timeline={{ entries: [] }} onFreezeFrame={() => {}} />)
-    expect(screen.queryByTestId('preview-freeze-frame')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Frame' })).not.toBeInTheDocument()
   })
 })
 
@@ -2549,6 +2703,18 @@ describe('export range marks (#385)', () => {
     const onMarkIn = vi.fn()
     const onMarkOut = vi.fn()
     render(<PreviewPlayer timeline={oneEntry} onMarkIn={onMarkIn} onMarkOut={onMarkOut} />)
+    // Compact glyph buttons since #417: the accessible name carries the
+    // meaning, and the tooltip names the key.
+    expect(screen.getByRole('button', { name: 'Mark in' })).toBe(
+      screen.getByTestId('preview-mark-in'),
+    )
+    expect(screen.getByRole('button', { name: 'Mark out' })).toBe(
+      screen.getByTestId('preview-mark-out'),
+    )
+    expect(screen.getByTestId('preview-mark-in')).toHaveAttribute(
+      'title',
+      expect.stringContaining('(I)'),
+    )
     fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
       target: { value: '3.5' },
     })
