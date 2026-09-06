@@ -25,6 +25,15 @@
   min-height: 0;
 }
 
+/* While a library clip is previewed (#403) the sequence player and the
+   empty-timeline placeholder are hidden, not unmounted. An author display
+   rule beats the UA's [hidden] rule whatever its specificity, so the
+   attribute needs this to mean what it says here. */
+.preview-player[hidden],
+.preview-panel .placeholder[hidden] {
+  display: none;
+}
+
 /* The stage takes exactly the panel height left over after the controls and
    now-playing line. The zero flex basis matters: the stage must never make
    the panel taller than the row the app grid gave it — the guaranteed row

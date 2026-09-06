@@ -403,6 +403,23 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     setMarkOut(null)
   }, [])
 
+  // Source preview (#403): which library clip is being auditioned alone in
+  // the preview panel, or null for the sequence. Resolved against the
+  // library on every render, so removing the previewed clip — or replacing
+  // the project — leaves the mode nothing to show, and the effect below
+  // then drops the stale id. Session-only UI state like the marks: never
+  // project content, never autosaved.
+  const [sourcePreviewId, setSourcePreviewId] = useState<string | null>(null)
+  const sourceClip =
+    sourcePreviewId === null
+      ? null
+      : (library.clips.find((clip) => clip.id === sourcePreviewId) ?? null)
+  useEffect(() => {
+    if (sourcePreviewId !== null && sourceClip === null) setSourcePreviewId(null)
+  }, [sourcePreviewId, sourceClip])
+  const handlePreviewClip = useCallback((clip: LibraryClip) => setSourcePreviewId(clip.id), [])
+  const handleExitSourcePreview = useCallback(() => setSourcePreviewId(null), [])
+
   const handleRemoveClip = useCallback((clip: LibraryClip) => {
     dispatch({ type: 'clip-removed', id: clip.id })
     dispatchTimeline({ type: 'entries-removed-for-clip', clipId: clip.id })
@@ -524,6 +541,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onAddClipsToTimeline={handleAddClipsToTimeline}
           onAddOverlay={handleAddOverlay}
           onExtractAudio={handleExtractAudio}
+          onPreviewClip={handlePreviewClip}
           onRemoveClip={handleRemoveClip}
           onRemoveClips={handleRemoveClips}
           onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
@@ -551,6 +569,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onMarkIn={setMarkIn}
           onMarkOut={setMarkOut}
           onClearMarks={handleClearMarks}
+          sourceClip={sourceClip}
+          onExitSourcePreview={handleExitSourcePreview}
+          onAddSourceToTimeline={handleAddToTimeline}
+          onAddSourceAsOverlay={handleAddOverlay}
         />
         <Timeline
           timeline={timeline}

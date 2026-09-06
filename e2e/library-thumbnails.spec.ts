@@ -255,12 +255,13 @@ test('a card\'s checkbox comes first in the DOM and still sits over the picture 
   await expect(checkbox).toBeChecked()
   await expect(page.getByRole('toolbar', { name: 'Selected clips' })).toContainText('1 selected')
 
-  // Keyboard reaches it before the card's actions, which is the point.
+  // Keyboard reaches it before the card's actions, which is the point. The
+  // first action is Preview (#403), which leads the cluster.
   await page.keyboard.press('Tab')
   const afterCheckbox = await page.evaluate(
     () => document.activeElement?.getAttribute('aria-label') ?? null,
   )
-  expect(afterCheckbox).toBe('Add logo.png to timeline')
+  expect(afterCheckbox).toBe('Preview logo.png')
 })
 
 test('the grid inherits the library\'s bounded height and internal scrolling (#308)', async ({

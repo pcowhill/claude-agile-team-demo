@@ -117,6 +117,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The Preview action (#403): a compact icon button, so the row's action
+   cluster grows by a glyph's width rather than another word's. */
+.clip-preview {
+  min-width: 2rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
 /* The kind badge (#101, #120) carries its meaning as text ("Audio"/"Video"),
    never by color alone; the per-kind colors only set the kinds apart at a
    glance. */

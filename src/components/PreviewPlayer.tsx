@@ -56,6 +56,7 @@ import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
+import type { LibraryClip } from '../lib/mediaLibrary'
 import { frameFileName, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { markedExportRange } from '../lib/exportVideo'
 import { automaticExportFrame } from '../lib/exportSettings'
@@ -72,6 +73,7 @@ import {
   transportActionForKey,
 } from '../lib/transport'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
+import { SourcePreview } from './SourcePreview'
 import './PreviewPlayer.css'
 
 interface PreviewPlayerProps {
@@ -119,7 +121,24 @@ interface PreviewPlayerProps {
   onMarkIn?: (time: number) => void
   onMarkOut?: (time: number) => void
   onClearMarks?: () => void
+  /**
+   * Source preview (#403): a library clip to show alone in the panel instead
+   * of the sequence, or null for the sequence. App owns it (the library's
+   * Preview action sets it, removing the clip clears it); this component
+   * renders the source in place of its stage and transport, which stay
+   * mounted — only hidden — so the sequence comes back exactly as left.
+   * Optional like the rest: without it the panel is the sequence preview.
+   */
+  sourceClip?: LibraryClip | null
+  onExitSourcePreview?: () => void
+  /** The library row's Add / Overlay actions, offered in the source header. */
+  onAddSourceToTimeline?: (clip: LibraryClip) => void
+  onAddSourceAsOverlay?: (clip: LibraryClip) => void
 }
+
+/** For the source preview's Back without App wiring: a stable no-op, so the
+ * source's key handler is not re-subscribed on every render (#403). */
+const noop = () => {}
 
 /**
  * Tolerance (seconds) when comparing a <video>'s clock against an entry's
@@ -517,6 +536,10 @@ export function PreviewPlayer({
   onMarkIn,
   onMarkOut,
   onClearMarks,
+  sourceClip = null,
+  onExitSourcePreview,
+  onAddSourceToTimeline,
+  onAddSourceAsOverlay,
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
@@ -592,6 +615,8 @@ export function PreviewPlayer({
 
   const total = totalDuration(timeline)
   const empty = timeline.entries.length === 0
+  // Whether a library clip is being auditioned in place of the sequence (#403).
+  const sourceMode = sourceClip !== null
   const audioTracks = audioTracksOf(timeline)
   // One <audio> element per track, keyed by track id (#103). A ref map, not
   // state: the rAF loop reads it every frame.
@@ -1182,6 +1207,14 @@ export function PreviewPlayer({
     setPlaying(false)
   }, [stopLoop, pauseAudioTracks, pauseVideoOverlays])
 
+  // Entering the source preview (#403) pauses the sequence and leaves it
+  // there: the sequence's elements stay mounted but hidden, and nothing else
+  // about them changes — playhead, marks and the idle-cued frame are exactly
+  // what Back returns to. While a source is up the sequence never plays.
+  useEffect(() => {
+    if (sourceMode && playing) pause()
+  }, [sourceMode, playing, pause])
+
   /**
    * Save frame (#237): compose the playhead's frame through the export's own
    * draw path (frameSnapshot.ts) at the output resolution and download it as
@@ -1300,6 +1333,10 @@ export function PreviewPlayer({
         largeStep: largeStepSeconds,
       })
       if (action === null) return
+      // While a library clip is previewed (#403) the transport keys drive the
+      // source — SourcePreview owns that handler — and the sequence stands
+      // down for every key but `?`, which opens the cheat sheet in either mode.
+      if (sourceMode && action.kind !== 'shortcut-help') return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       event.preventDefault()
       switch (action.kind) {
@@ -1338,7 +1375,7 @@ export function PreviewPlayer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds, timeline])
+  }, [playing, play, pause, seek, sequenceTime, total, stepSeconds, largeStepSeconds, timeline, sourceMode])
 
   // Edits to the timeline invalidate the playback position (entries or
   // tracks may be gone, reordered, or retrimmed): stop and re-clamp rather
@@ -1621,10 +1658,28 @@ export function PreviewPlayer({
           </button>
         )}
       </div>
+      {/* Source preview (#403): one library clip alone, in place of the
+          sequence. The sequence's stage and transport below are hidden, not
+          unmounted — their elements keep their cued frames and state, so
+          Back shows exactly what was there. */}
+      {sourceClip !== null && (
+        <SourcePreview
+          clip={sourceClip}
+          aspect={previewAspect}
+          expanded={expanded}
+          onBack={onExitSourcePreview ?? noop}
+          onAddToTimeline={onAddSourceToTimeline}
+          onAddOverlay={onAddSourceAsOverlay}
+          {...(stepSeconds === undefined ? {} : { stepSeconds })}
+          {...(largeStepSeconds === undefined ? {} : { largeStepSeconds })}
+        />
+      )}
       {empty ? (
-        <p className="placeholder">Add clips to the timeline to preview your edit.</p>
+        <p className="placeholder" hidden={sourceMode}>
+          Add clips to the timeline to preview your edit.
+        </p>
       ) : (
-        <div className="preview-player">
+        <div className="preview-player" hidden={sourceMode}>
           {/* Sized by CSS; sequence audio plays. Controls are the app's own.
               The stage is the layout box; the frame inside it (#176) renders
               at exactly the export frame's aspect ratio — the CSS variable
