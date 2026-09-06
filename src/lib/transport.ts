@@ -22,6 +22,9 @@ export type TransportAction =
   /** Jump to the adjacent sequence boundary (#391) — see `previousBoundary`
    * / `nextBoundary` for where that lands. */
   | { kind: 'jump-boundary'; direction: 'previous' | 'next' }
+  /** Set the export range's in or out mark at the playhead (#417) — the
+   * keyboard form of the ⇥ / ⇤ transport buttons (#385). */
+  | { kind: 'mark'; which: 'in' | 'out' }
   | { kind: 'shortcut-help' }
 
 /**
@@ -67,6 +70,17 @@ export function transportActionForKey(
       return event.shiftKey ? null : { kind: 'jump-boundary', direction: 'previous' }
     case 'ArrowDown':
       return event.shiftKey ? null : { kind: 'jump-boundary', direction: 'next' }
+    // I / O mark the export range at the playhead (#417, from the approved
+    // redesign #401): the desktop editors' letters. Either case, because a
+    // key that stops working under Caps Lock is a key the user thinks is
+    // broken — and Shift+I is how a letter key reports uppercase, so unlike
+    // Home/End the Shift variant is the same intent, not a different one.
+    case 'i':
+    case 'I':
+      return { kind: 'mark', which: 'in' }
+    case 'o':
+    case 'O':
+      return { kind: 'mark', which: 'out' }
     case '?':
       return { kind: 'shortcut-help' }
     default:
