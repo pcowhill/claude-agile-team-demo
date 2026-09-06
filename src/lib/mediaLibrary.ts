@@ -8,8 +8,19 @@ export type MediaKind = 'video' | 'audio' | 'image'
 
 export interface LibraryClip {
   id: string
-  /** Original filename, e.g. "holiday.mp4". */
+  /**
+   * Display name — the original filename until the clip is renamed (#404),
+   * e.g. "holiday.mp4". Shown everywhere the clip is named; sorted on.
+   */
   name: string
+  /**
+   * The original filename, kept when a rename (#404) made `name` differ
+   * from it, because references-only re-linking matches picked files by
+   * filename (openProject.ts). Absent while the two are equal — the state
+   * every clip starts in — so unrenamed clips are unchanged, in memory and
+   * in project files. Read it through `clipFileName`.
+   */
+  fileName?: string
   /**
    * Duration in seconds. Finite and > 0 for video and audio; exactly 0 for
    * still images (#137), which have no intrinsic duration — how long an
@@ -31,6 +42,14 @@ export interface LibraryClip {
    * since an extracted clip has no file of its own on disk.
    */
   extractedFrom?: string
+}
+
+/**
+ * The filename a clip's media came from: `fileName` when a rename set one,
+ * else the display name, which is the filename until then (#404).
+ */
+export function clipFileName(clip: Pick<LibraryClip, 'name' | 'fileName'>): string {
+  return clip.fileName ?? clip.name
 }
 
 export interface ImportFailure {
@@ -119,6 +138,21 @@ export type MediaLibraryAction =
       key: ClipSortKey
       direction: ClipSortDirection
     }
+  | {
+      /**
+       * Renames one clip (#404, from feedback #398): the whitespace-trimmed
+       * display name replaces `name`, and the original filename moves into
+       * `fileName` so re-linking still finds the file. Renaming back to the
+       * filename drops `fileName` again, so the clip returns to its
+       * unrenamed shape byte for byte. An empty result, an unknown id or
+       * the name already held is a same-reference no-op (#76 compares
+       * references to decide "unsaved changes"). Placed timeline elements
+       * keep their own names — each copied at placement — by design.
+       */
+      type: 'clip-renamed'
+      id: string
+      name: string
+    }
   | { type: 'import-failed'; failure: ImportFailure }
   | { type: 'failures-dismissed' }
 
@@ -149,6 +183,19 @@ export function mediaLibraryReducer(
       return sorted.every((clip, index) => clip === state.clips[index])
         ? state
         : { ...state, clips: sorted }
+    }
+    case 'clip-renamed': {
+      const name = action.name.trim()
+      if (name === '') return state
+      const index = state.clips.findIndex((clip) => clip.id === action.id)
+      if (index === -1 || state.clips[index].name === name) return state
+      const clip = state.clips[index]
+      const fileName = clipFileName(clip)
+      const { fileName: _previous, ...rest } = clip
+      const renamed: LibraryClip = name === fileName ? { ...rest, name } : { ...rest, name, fileName }
+      const clips = [...state.clips]
+      clips[index] = renamed
+      return { ...state, clips }
     }
     case 'import-failed':
       return { ...state, failures: [...state.failures, action.failure] }

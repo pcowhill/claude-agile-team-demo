@@ -57,7 +57,7 @@ import { isCanvasPreset } from './frameSize'
  *     "format": PROJECT_FORMAT,          // magic — rejects arbitrary gzips
  *     "schemaVersion": 1 | .. | 13,      // integer; bumped on breaking change
  *     "plugins": ["gif-export"],         // version 6: plugin dependencies (#197)
- *     "clips": [{ id, name, duration?, kind?, width?, height?,
+ *     "clips": [{ id, name, fileName?, duration?, kind?, width?, height?,
  *                 mimeType?, byteSize?, extractedFrom? }],
  *     "media": {                         // version 2 always; version 3 when
  *       [clipId]: { byteLength, crc32, mimeType?, data }   // embedding (#97)
@@ -163,6 +163,18 @@ import { isCanvasPreset } from './frameSize'
  * unfaded. The media section's presence keeps distinguishing the save
  * modes.
  *
+ * Schema version 18 (#404) marks that a library clip was renamed: an
+ * optional `fileName` on a clip carries the original filename while `name`
+ * carries the display name the customer chose. Re-linking matches picked
+ * files on `fileName` (openProject.ts), so the rename never breaks a
+ * references-only open; a file without the key has `name` as its filename,
+ * which is what every clip started as. Written exactly when any clip's two
+ * names differ, so projects with no renamed clip stay byte-identical to
+ * earlier output and older builds route renamed files to the "saved by a
+ * newer version" refusal instead of re-linking on the display name and
+ * failing to find the file. The media section's presence keeps
+ * distinguishing the save modes.
+ *
  * Schema version 15 (#266) marks that a video overlay carries a shape
  * mask: an optional `shapeMask` object — `{ kind: 'ellipse' }` (the ellipse
  * inscribed in the placed rectangle) or `{ kind: 'rounded', radius }` (a
@@ -233,7 +245,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 17
+export const PROJECT_SCHEMA_VERSION = 18
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -268,6 +280,8 @@ export const SHAPE_MASK_SCHEMA_VERSION = 15
 export const CANVAS_PRESET_SCHEMA_VERSION = 16
 /** The version any image overlay layer forces, whichever the save mode (#294). */
 export const IMAGE_OVERLAYS_SCHEMA_VERSION = 17
+/** The version any renamed library clip forces, whichever the save mode (#404). */
+export const RENAMED_CLIPS_SCHEMA_VERSION = 18
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -280,7 +294,13 @@ export const IMAGE_OVERLAYS_SCHEMA_VERSION = 17
  */
 export interface ProjectClip {
   id: string
+  /** Display name; the filename too, unless `fileName` says otherwise (#404). */
   name: string
+  /**
+   * The original filename, present only when a rename (#404) made it differ
+   * from `name`. Re-linking matches picked files on it (openProject.ts).
+   */
+  fileName?: string
   /**
    * Duration in seconds. Always 0 for images (#137) — the file omits their
    * `duration` key entirely, because a still has no duration to store — and
@@ -572,9 +592,16 @@ export async function serializeProject(
     (entry) => clipKindById.get(entry.clipId) === 'image',
   )
   const hasImages = library.clips.some((clip) => clip.kind === 'image')
+  // A rename (#404) is written only where the two names differ, so the key
+  // and the version move together.
+  const hasRenamedClips = library.clips.some(
+    (clip) => clip.fileName !== undefined && clip.fileName !== clip.name,
+  )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasImageOverlays
+    schemaVersion: hasRenamedClips
+      ? RENAMED_CLIPS_SCHEMA_VERSION
+      : hasImageOverlays
       ? IMAGE_OVERLAYS_SCHEMA_VERSION
       : hasCanvasPreset
       ? CANVAS_PRESET_SCHEMA_VERSION
@@ -610,9 +637,10 @@ export async function serializeProject(
     // Plugin dependencies (#197) are written only while any exist, so
     // plugin-free projects stay byte-identical to earlier output.
     ...(plugins.length === 0 ? {} : { plugins: [...plugins] }),
-    clips: library.clips.map(({ id, name, duration, kind, width, height, extractedFrom }) => ({
+    clips: library.clips.map(({ id, name, fileName, duration, kind, width, height, extractedFrom }) => ({
       id,
       name,
+      ...(fileName === undefined || fileName === name ? {} : { fileName }),
       // Images store dimensions instead of a duration (#137); other kinds
       // keep the exact key order files always had, staying byte-identical.
       ...(kind === 'image' ? {} : { duration }),
@@ -1157,6 +1185,11 @@ function validateProject(document: Record<string, unknown>): Project {
     }
     if (kind !== 'image' && clip.duration <= 0) {
       throw new Error(`clips[${index}].duration must be greater than 0`)
+    }
+    if (raw.fileName !== undefined) {
+      const fileName = asString(raw.fileName, `clips[${index}].fileName`)
+      // Equal names carry no information; keep the model's absent-as-equal shape.
+      if (fileName !== clip.name) clip.fileName = fileName
     }
     if (raw.width !== undefined) clip.width = asPositiveInteger(raw.width, `clips[${index}].width`)
     if (raw.height !== undefined) {

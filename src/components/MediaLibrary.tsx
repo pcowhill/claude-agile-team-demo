@@ -6,13 +6,14 @@ import type {
   LibraryClip,
   MediaLibraryState,
 } from '../lib/mediaLibrary'
-import { formatDuration } from '../lib/mediaLibrary'
+import { clipFileName, formatDuration } from '../lib/mediaLibrary'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
+import { NameField } from './NameField'
 import './MediaLibrary.css'
 
 interface MediaLibraryProps {
@@ -42,6 +43,12 @@ interface MediaLibraryProps {
    * compiling; without it the action is not offered.
    */
   onPreviewClip?: (clip: LibraryClip) => void
+  /**
+   * Renames a clip's display name (#404) — the reducer's `clip-renamed`,
+   * which keeps the original filename for re-linking. Optional so tests
+   * predating it keep compiling; without it no rename control is offered.
+   */
+  onRenameClip?: (clip: LibraryClip, name: string) => void
   onRemoveClip: (clip: LibraryClip) => void
   /**
    * Removes a whole selection in one step (#293): the same per-clip
@@ -102,6 +109,7 @@ export function MediaLibrary({
   onAddOverlay,
   onExtractAudio,
   onPreviewClip,
+  onRenameClip,
   onRemoveClip,
   onRemoveClips,
   onSortClips,
@@ -203,15 +211,48 @@ export function MediaLibrary({
     />
   )
 
+  // Inline rename (#404): which clip's name is being edited, if any — one
+  // at a time, since the field takes the name's place in its row.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+
   // Double-clicking the name previews the clip (#403), like the ▶ action
-  // below — the way a source monitor opens a clip in desktop editors.
+  // below — the way a source monitor opens a clip in desktop editors. The
+  // ✎ beside it renames (#404); the field takes the name's slot, so the
+  // row's width does not change while editing.
   const clipName = (clip: LibraryClip) => (
-    <span
-      className="clip-name"
-      title={clip.name}
-      onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
-    >
-      {clip.name}
+    <span className="clip-name-wrap">
+      {renamingId === clip.id ? (
+        <NameField
+          label={`New name for ${clip.name}`}
+          value={clip.name}
+          onCommit={(next) => {
+            setRenamingId(null)
+            if (next !== clip.name) onRenameClip?.(clip, next)
+          }}
+          onCancel={() => setRenamingId(null)}
+        />
+      ) : (
+        <>
+          <span
+            className="clip-name"
+            title={clipFileName(clip) === clip.name ? clip.name : `${clip.name} (file: ${clipFileName(clip)})`}
+            onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
+          >
+            {clip.name}
+          </span>
+          {onRenameClip !== undefined && (
+            <button
+              type="button"
+              className="clip-rename"
+              aria-label={`Rename ${clip.name}`}
+              title="Rename this clip (the original filename is kept for re-linking)"
+              onClick={() => setRenamingId(clip.id)}
+            >
+              ✎
+            </button>
+          )}
+        </>
+      )}
     </span>
   )
 

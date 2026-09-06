@@ -29,7 +29,14 @@ timeline (#403): the ▶ Preview action on its row — or a double-click on its
 name or thumbnail — shows the clip alone in the preview panel, a video or
 audio clip with its own play/pause and seek, an image as it is; Back to
 sequence or Escape returns to the sequence exactly where it was, and Space
-and the arrow keys drive the source while it is up. Library rows are multi-selectable (#292): each row has a
+and the arrow keys drive the source while it is up. A clip can be renamed
+(#404): the ✎ beside its name turns it into a field (Enter or clicking away
+commits, Escape cancels, an empty name reverts); the new name shows
+everywhere the clip is named, sorts and saves with the project, while the
+original filename is kept underneath so a references-only project still
+re-links from the file on disk — the re-link dialog shows both. Elements
+already placed on the timeline keep the names they were placed with; new
+placements take the current one. Library rows are multi-selectable (#292): each row has a
 checkbox (faded until you hover or start selecting) with Shift+click range
 selection and a Select-all box in the header, and a selection bar adds every
 selected clip to the timeline in library order — videos and images as

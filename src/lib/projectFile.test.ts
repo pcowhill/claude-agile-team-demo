@@ -21,6 +21,7 @@ import fixtureV14BackgroundFillReferencesBase64 from './fixtures/project-v14-bac
 import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-mask-references.bvep.base64?raw'
 import fixtureV16CanvasPresetReferencesBase64 from './fixtures/project-v16-canvas-preset-references.bvep.base64?raw'
 import fixtureV17ImageOverlayReferencesBase64 from './fixtures/project-v17-image-overlay-references.bvep.base64?raw'
+import fixtureV18RenamedClipReferencesBase64 from './fixtures/project-v18-renamed-clip-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -34,6 +35,7 @@ import {
   BACKGROUND_FILL_SCHEMA_VERSION,
   CANVAS_PRESET_SCHEMA_VERSION,
   IMAGE_OVERLAYS_SCHEMA_VERSION,
+  RENAMED_CLIPS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1116,8 +1118,9 @@ describe('project file versioning', () => {
     // default subtitle style and per-overlay style overrides (#250);
     // version 14 added entry background fill (#259); version 15 added
     // overlay shape masks (#266); version 16 added the project's canvas
-    // preset (#273); version 17 added image overlay layers (#294).
-    expect(PROJECT_SCHEMA_VERSION).toBe(17)
+    // preset (#273); version 17 added image overlay layers (#294); version
+    // 18 added renamed library clips with their original filename (#404).
+    expect(PROJECT_SCHEMA_VERSION).toBe(18)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1135,6 +1138,7 @@ describe('project file versioning', () => {
     expect(SHAPE_MASK_SCHEMA_VERSION).toBe(15)
     expect(CANVAS_PRESET_SCHEMA_VERSION).toBe(16)
     expect(IMAGE_OVERLAYS_SCHEMA_VERSION).toBe(17)
+    expect(RENAMED_CLIPS_SCHEMA_VERSION).toBe(18)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3533,6 +3537,97 @@ describe('canvas preset persistence (#273)', () => {
       (await gunzipJson(await serializeProject(library, { ...masked, canvasPreset: '1:1' })))
         .schemaVersion,
     ).toBe(CANVAS_PRESET_SCHEMA_VERSION)
+  })
+})
+
+describe('renamed library clips in project files (#404, schema version 18)', () => {
+  // c2 renamed to "City walk"; its file on disk is still city.webm.
+  const renamedLibrary: MediaLibraryState = {
+    ...library,
+    clips: [
+      library.clips[0],
+      { ...library.clips[1], name: 'City walk', fileName: 'city.webm' },
+    ],
+  }
+  const expectedRenamedClips = [
+    expectedProject.clips[0],
+    { id: 'c2', name: 'City walk', fileName: 'city.webm', duration: 4, kind: 'video' as const },
+  ]
+
+  it('round-trips the display name and the filename, writing version 18', async () => {
+    const bytes = await serializeProject(renamedLibrary, timeline)
+    const document = await gunzipJson(bytes)
+    // Not additive within a version: an older build would re-link on the
+    // display name and never find the file, so the version has to move.
+    expect(document.schemaVersion).toBe(RENAMED_CLIPS_SCHEMA_VERSION)
+    const written = (document.clips as Record<string, unknown>[])[1]
+    expect(written).toMatchObject({ name: 'City walk', fileName: 'city.webm' })
+    // The unrenamed clip carries no fileName key.
+    expect((document.clips as Record<string, unknown>[])[0]).not.toHaveProperty('fileName')
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: { clips: expectedRenamedClips, timeline: expectedProject.timeline },
+    })
+  })
+
+  it('leaves a project with no renamed clip byte-identical: no key, no version bump', async () => {
+    const plain = await gunzipJson(await serializeProject(library, timeline))
+    expect(plain.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    for (const clip of plain.clips as Record<string, unknown>[]) {
+      expect(clip).not.toHaveProperty('fileName')
+    }
+    // A fileName equal to the name (a model that did not normalize) is not
+    // written either — equal names carry no information.
+    const equal: MediaLibraryState = {
+      ...library,
+      clips: [{ ...library.clips[0], fileName: 'holiday.mp4' }, library.clips[1]],
+    }
+    const document = await gunzipJson(await serializeProject(equal, timeline))
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect((document.clips as Record<string, unknown>[])[0]).not.toHaveProperty('fileName')
+  })
+
+  it('a renamed clip in an embedded-media file also moves the version', async () => {
+    const document = await gunzipJson(
+      await serializeProject(renamedLibrary, timeline, fixtureMedia()),
+    )
+    expect(document.schemaVersion).toBe(RENAMED_CLIPS_SCHEMA_VERSION)
+    expect(document).toHaveProperty('media')
+  })
+
+  it('opening a pre-rename file yields clips whose name is their filename', async () => {
+    // Version 1 has no fileName key: the display name is the filename, and
+    // the model shape is the absent-as-equal one.
+    const result = await deserializeProject(await gzipJson(validDocument()))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      for (const clip of result.project.clips) expect(clip).not.toHaveProperty('fileName')
+    }
+    // A foreign writer that wrote the key equal to the name is normalized.
+    const equal = validDocument()
+    ;(equal.clips as unknown as Record<string, unknown>[])[0].fileName = 'holiday.mp4'
+    const normalized = await deserializeProject(await gzipJson(equal))
+    expect(normalized.ok).toBe(true)
+    if (normalized.ok) expect(normalized.project.clips[0]).not.toHaveProperty('fileName')
+  })
+
+  it('refuses a non-string fileName', async () => {
+    const bad = { ...validDocument(), schemaVersion: RENAMED_CLIPS_SCHEMA_VERSION }
+    ;(bad.clips as unknown as Record<string, unknown>[])[1].fileName = 7
+    await expectRefusal(await gzipJson(bad), 'clips[1].fileName')
+  })
+
+  it('deserializes the committed v18 renamed-clip fixture', async () => {
+    // The never-rewrite contract, as for every fixture before it.
+    const bytes = Uint8Array.from(atob(fixtureV18RenamedClipReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: { clips: expectedRenamedClips, timeline: expectedProject.timeline },
+    })
   })
 })
 

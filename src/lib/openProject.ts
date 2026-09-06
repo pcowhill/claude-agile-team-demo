@@ -1,3 +1,4 @@
+import { clipFileName } from './mediaLibrary'
 import type { LibraryClip, MediaKind } from './mediaLibrary'
 import type { ClipMedia, Project, ProjectClip } from './projectFile'
 import { normalizedTimelineState } from './timeline'
@@ -70,8 +71,11 @@ export function matchFileToClip(
   // disk: its media *is* the source video file, recorded by filename in
   // `extractedFrom`. The video file re-links it — same reason extraction
   // needs no transcoding: a media element plays a video container's audio.
+  // Matching is on the clip's *filename* (#404): a renamed clip's display
+  // name is not what is on disk, and a file that merely matches a display
+  // name is not this clip's media.
   const claimsFile = (clip: ProjectClip): boolean =>
-    clip.name === fileName || (clip.kind === 'audio' && clip.extractedFrom === fileName)
+    clipFileName(clip) === fileName || (clip.kind === 'audio' && clip.extractedFrom === fileName)
   const sameName = clips.filter(claimsFile)
   if (sameName.length === 0) {
     return { kind: 'no-match', reason: `"${fileName}" is not one of this project's media files.` }
@@ -149,9 +153,10 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
     return url
   }
   return {
-    clips: project.clips.map(({ id, name, duration, kind, width, height, extractedFrom }) => ({
+    clips: project.clips.map(({ id, name, fileName, duration, kind, width, height, extractedFrom }) => ({
       id,
       name,
+      ...(fileName === undefined ? {} : { fileName }),
       duration,
       kind,
       url: urlOf(id),
