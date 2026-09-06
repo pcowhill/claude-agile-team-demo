@@ -13,6 +13,14 @@ re-linking. Choosing "references only" at first save (revisitable via Save
 As…) writes a small file with edits and clip metadata instead; opening one
 asks you to re-select the original media files and matches them back up by
 filename and duration.
+The header keeps only what is used often (#415, from feedback #395 "So Many
+Buttons"): a **File ▾** menu, a compact 💾 Save carrying the unsaved-changes
+dot, and Export Project…. File ▾ holds New Project, Open Project…, Save
+(with its Ctrl+S shortcut shown), Save As…, an **Export ▸** submenu listing
+every format this browser can record — picking one opens the export dialog
+on it — plus Plugins… and Settings…. Nothing changed about what any of them
+does. The menu is a normal menu-button: it opens on click or ArrowDown, the
+arrows move and wrap, Escape closes it and returns focus to File ▾.
 The session is also autosaved continuously (#194): the project structure and
 the imported media are snapshotted into the browser's own storage shortly
 after every edit, and reopening the page after a crash or refresh offers
@@ -206,7 +214,7 @@ the video formats, the GIF plugin, and frame snapshots alike — render
 the fill through the same shared rule (#260).
 The project's canvas takes a preset (#273): the output frame normally
 follows the sources (the largest source width and height, so nothing is
-downscaled), and the Canvas control beside the project actions fixes it to
+downscaled), and the Canvas control on the timeline's header fixes it to
 16:9, 9:16, 1:1 or 4:5 instead — a landscape screen recording can be edited
 against the vertical frame it is destined for. A fixed preset yields the
 smallest frame of exactly that aspect that still contains the sources, so
@@ -306,7 +314,7 @@ boundary inside a transition or effect exports exactly what the preview
 shows at that instant — mid-blend if that is where the mark sits, no
 snapping. Marks are session-only: they are never saved into the project
 file and are gone after a reload.
-A Plugins… button opens the plugin manager (#197): optional built-in
+File ▾ → Plugins… opens the plugin manager (#197): optional built-in
 features ship as lazy-loaded modules that download only when enabled, keeping
 the default editor lightweight (see
 [`docs/adr/0003-plugin-architecture.md`](docs/adr/0003-plugin-architecture.md)).
@@ -317,7 +325,7 @@ GIF export (#198): enabling it adds an "Animated GIF" format to the export
 dialog — the full composed timeline, encoded soundless at 10 fps and
 downscaled to at most 480 px (the limits are stated beside the format) so
 files stay manageable.
-A ⚙ button in the header opens Settings (#286, from feedback #281): the
+File ▾ → Settings… opens Settings (#286, from feedback #281): the
 preferences that used to be hardcoded, stored in this browser and applied
 immediately, with no reload. The initial set is the playhead's nudge and
 jump step sizes, how long a newly added still, color slate or image

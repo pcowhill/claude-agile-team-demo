@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import App from './App'
 import { deserializeProject } from './lib/projectFile'
 import type { SaveDestination, SavePort } from './lib/saveProject'
+import { chooseFromFileMenu } from './test/fileMenu'
 
 /** Confirms the first-save mode dialog (#98), choosing references-only —
  * these tests exercise dirty tracking and open/re-link, not embedding, and
@@ -207,7 +208,7 @@ describe('Open and New Project (#77)', () => {
     await user.click(await screen.findByRole('button', { name: 'Add clip.webm to timeline' }))
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
 
     // Library and timeline are back to the empty startup state, dirty is
@@ -244,10 +245,10 @@ describe('Open and New Project (#77)', () => {
     await user.tab()
 
     // Save, then wipe with New Project (clean after saving → no guard).
-    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…', user)
     await saveAsReferences(user)
     await waitFor(() => expect(writes).toHaveLength(1))
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     expect(screen.getByText(/No clips yet/)).toBeInTheDocument()
 
     // Open the saved bytes and re-link the media file.

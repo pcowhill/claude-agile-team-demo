@@ -519,7 +519,6 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           port={savePort}
           probeMedia={probeMedia}
           autosave={autosaveStore}
-          onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
           settings={settings}
           onSetSettings={handleSetSettings}
           exportRange={exportRange}
@@ -587,6 +586,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onRenameElement={(id, name) => dispatchTimeline({ type: 'element-renamed', id, name })}
           visualEditors={settings.visualEditors}
+          onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
           onPasteSettings={(kind, id, settings) =>
             dispatchTimeline({ type: 'settings-pasted', kind, id, settings })
           }

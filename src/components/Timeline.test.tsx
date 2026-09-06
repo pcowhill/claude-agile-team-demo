@@ -3182,6 +3182,44 @@ describe('rename timeline elements (#405)', () => {
   })
 })
 
+// The canvas aspect (#273) moved here from the page header in #415: it
+// describes the sequence, so it belongs beside it. These replace the two
+// ProjectControls tests that owned the control before, asserting the same
+// properties through <App/> — where the select is controlled by
+// timeline.canvasPreset, so a value that sticks is the reducer's answer and
+// not the DOM's.
+describe('the canvas aspect sits in the timeline header (#415)', () => {
+  const canvas = () => screen.getByRole('combobox', { name: 'Canvas aspect' }) as HTMLSelectElement
+
+  it('offers Auto and every preset, and each choice reaches the project state', async () => {
+    render(<App />)
+    expect(canvas().value).toBe('')
+    expect(Array.from(canvas().options).map((option) => option.value)).toEqual([
+      '',
+      '16:9',
+      '9:16',
+      '1:1',
+      '4:5',
+    ])
+
+    await userEvent.selectOptions(canvas(), '9:16')
+    expect(canvas().value).toBe('9:16')
+
+    // Auto is the absent preset (#273): choosing it clears the key rather
+    // than storing an 'auto' identifier, and the control shows it as ''.
+    await userEvent.selectOptions(canvas(), '')
+    expect(canvas().value).toBe('')
+  })
+
+  it('is inside the timeline panel, and there is exactly one of it', async () => {
+    render(<App />)
+    const timeline = screen.getByRole('region', { name: 'Timeline' })
+    expect(within(timeline).getByRole('combobox', { name: 'Canvas aspect' })).toBe(canvas())
+    // The page header no longer carries its own copy (#415).
+    expect(screen.getAllByRole('combobox', { name: 'Canvas aspect' })).toHaveLength(1)
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({

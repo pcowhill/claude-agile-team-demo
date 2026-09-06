@@ -67,6 +67,8 @@ import type {
   SettingsElementKind,
   SettingsGroup,
 } from '../lib/settingsClipboard'
+import { CANVAS_PRESETS } from '../lib/frameSize'
+import type { CanvasPreset } from '../lib/frameSize'
 import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
@@ -106,6 +108,14 @@ interface TimelineProps {
    * switch (`visualEditors`), whose Off never renders a frame.
    */
   visualEditors?: boolean
+  /**
+   * Sets the project's canvas preset (#273) — `undefined` is Auto. It sits
+   * in this header rather than the page header since #415 (the approved
+   * redesign #401 put it beside the timeline it describes). Optional so
+   * tests that predate the move keep compiling; without it no control
+   * renders, exactly as in ProjectControls before.
+   */
+  onSetCanvasPreset?: (preset: CanvasPreset | undefined) => void
   /**
    * Pastes copied settings onto a timeline element (#315): the reducer's
    * `settings-pasted` semantics — one action, one undo step, only the
@@ -908,6 +918,7 @@ export function Timeline({
   onDuplicate,
   onRenameElement,
   visualEditors = false,
+  onSetCanvasPreset,
   onPasteSettings,
   onRemoveEntry,
   onTrimEntry,
@@ -1328,6 +1339,32 @@ export function Timeline({
         <span className="timeline-total">
           Total: <span data-testid="timeline-total">{formatDuration(totalDuration(timeline))}</span>
         </span>
+        {/* The canvas aspect (#273) describes this sequence, so #415 moved
+            it here from the page header, unchanged: same label, same Auto
+            semantics, same reducer action. */}
+        {onSetCanvasPreset !== undefined && (
+          <label className="project-canvas-preset">
+            Canvas
+            <select
+              aria-label="Canvas aspect"
+              // Auto is the absent preset (#273), so the empty option value is
+              // what maps to it — never an 'auto' identifier.
+              value={timeline.canvasPreset ?? ''}
+              onChange={(event) =>
+                onSetCanvasPreset(
+                  event.target.value === '' ? undefined : (event.target.value as CanvasPreset),
+                )
+              }
+            >
+              <option value="">Auto (match sources)</option>
+              {CANVAS_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* The default subtitle style (#250) lives beside the import it

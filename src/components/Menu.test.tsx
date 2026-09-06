@@ -255,6 +255,17 @@ describe('Menu (#412)', () => {
     expect(trigger()).toHaveFocus()
   })
 
+  it('clicking a submenu item opens it rather than toggling it shut (#415)', async () => {
+    // A pointer click is always preceded by the hover that already opened
+    // the submenu, so a toggle would close the thing being clicked. #415's
+    // Export ▸ is the first shipped submenu and hit exactly that.
+    render(<Harness />)
+    await userEvent.click(trigger())
+    await userEvent.click(item('Export'))
+    expect(screen.getByRole('menu', { name: 'Export' })).toBeInTheDocument()
+    expect(item('Export')).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('only one menu is open at a time, across unrelated components', async () => {
     render(
       <>

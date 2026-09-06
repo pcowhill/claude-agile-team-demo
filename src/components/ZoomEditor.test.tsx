@@ -7,6 +7,7 @@ import { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { SETTINGS_KEY } from '../lib/settings'
 import { zoomsOf } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
+import { chooseFromFileMenu } from '../test/fileMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -243,7 +244,7 @@ describe('the Visual editors setting (#413)', () => {
     await placeImageWithZoom()
     expect(adjustButton()).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await chooseFromFileMenu('Settings…')
     const dialog = screen.getByRole('dialog', { name: 'Settings' })
     const select = within(dialog).getByLabelText('Visual editors')
     expect(select).toHaveValue('on')
@@ -268,7 +269,7 @@ describe('the Visual editors setting (#413)', () => {
     await placeImageWithZoom()
     await userEvent.click(adjustButton())
     expect(editor()).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await chooseFromFileMenu('Settings…')
     await userEvent.selectOptions(
       within(screen.getByRole('dialog', { name: 'Settings' })).getByLabelText('Visual editors'),
       'off',
@@ -282,7 +283,7 @@ describe('the Visual editors setting (#413)', () => {
     render(<App />)
     // The parse rule itself is pinned in settings.test.ts; here the dialog
     // shows what a returning visitor sees.
-    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await chooseFromFileMenu('Settings…')
     expect(
       within(screen.getByRole('dialog', { name: 'Settings' })).getByLabelText('Visual editors'),
     ).toHaveValue('on')

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 /**
  * Opening a saved project (#77): the full round trip — build a sequence with
@@ -77,7 +78,7 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
 
   // Save references-only (#98) — this spec exercises the re-link open path —
   // then dirty the project again so New Project must ask.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
   const downloadPromise = page.waitForEvent('download')
@@ -90,7 +91,7 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
   await retrim.blur()
 
   // New Project: guard appears (dirty), confirming wipes the editor.
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   const guard = page.getByRole('dialog', { name: 'Discard unsaved changes?' })
   await expect(guard).toBeVisible()
   await guard.getByRole('button', { name: 'Discard and start new' }).click()
@@ -206,7 +207,7 @@ test('cancelling the guard and the re-link dialog leaves the project untouched',
   await page.getByRole('button', { name: 'Add first.webm to timeline' }).click()
 
   // Cancel the New Project guard: everything stays, still dirty.
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await page
     .getByRole('dialog', { name: 'Discard unsaved changes?' })
     .getByRole('button', { name: 'Cancel' })
@@ -216,7 +217,7 @@ test('cancelling the guard and the re-link dialog leaves the project untouched',
 
   // Save references-only (clears dirty), then open a saved file but cancel
   // the re-link dialog: the current project stays.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
   const downloadPromise = page.waitForEvent('download')

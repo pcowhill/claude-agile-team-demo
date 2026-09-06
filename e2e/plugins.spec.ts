@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 /**
  * The plugin manager (#197, ADR 0003): toggling a plugin through the real
@@ -12,7 +13,7 @@ import { expect, test } from '@playwright/test'
 
 /** Opens the manager and toggles the GIF plugin to the wanted state. */
 async function setGifPlugin(page: import('@playwright/test').Page, enabled: boolean) {
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   const dialog = page.getByRole('dialog', { name: 'Plugins' })
   await expect(dialog).toBeVisible()
   await page
@@ -37,7 +38,7 @@ test('enabling the GIF plugin adds its export format; disabling removes it', asy
   await page.goto('./')
 
   // The manager lists the GIF plugin, disabled by default.
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await expect(page.getByText('GIF export v1.0.0')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Enable GIF export' })).toBeVisible()
   await page.getByRole('button', { name: 'Close' }).click()
@@ -73,6 +74,6 @@ test('the enabled set persists and re-activates on startup after a reload', asyn
   await openExportModal(page)
   await expect(page.getByRole('radio', { name: 'Animated GIF' })).toBeVisible()
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
 })

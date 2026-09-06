@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { PluginRuntime } from '../lib/plugins'
 import { pluginRuntime } from '../plugins/runtime'
 import './dialog.css'
@@ -7,6 +7,14 @@ import './PluginManager.css'
 interface PluginManagerProps {
   /** Injectable for tests; the app uses its plugin runtime singleton. */
   runtime?: PluginRuntime
+  /**
+   * Controlled mode (#415): the File ▾ menu owns whether the dialog is open
+   * and supplies the menu item that opens it, so this renders no trigger of
+   * its own. Omitting both keeps the standalone Plugins… button, so callers
+   * and tests that predate the menu are unchanged.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -19,8 +27,21 @@ interface PluginManagerProps {
  * `lib/plugins.ts`. A failed load reports its reason on the row and the
  * toggle retries. Same hand-rolled modal idiom as ConfirmDialog.
  */
-export function PluginManager({ runtime = pluginRuntime }: PluginManagerProps) {
-  const [open, setOpen] = useState(false)
+export function PluginManager({
+  runtime = pluginRuntime,
+  open: controlledOpen,
+  onOpenChange,
+}: PluginManagerProps) {
+  const [ownOpen, setOwnOpen] = useState(false)
+  const controlled = controlledOpen !== undefined
+  const open = controlled ? controlledOpen : ownOpen
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (controlled) onOpenChange?.(next)
+      else setOwnOpen(next)
+    },
+    [controlled, onOpenChange],
+  )
   const closeRef = useRef<HTMLButtonElement>(null)
   const headingId = useId()
   // Re-render on every runtime change: loading → enabled/failed, restores.
@@ -34,15 +55,17 @@ export function PluginManager({ runtime = pluginRuntime }: PluginManagerProps) {
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  }, [open, setOpen])
 
   const plugins = runtime.list()
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
-        Plugins…
-      </button>
+      {!controlled && (
+        <button type="button" onClick={() => setOpen(true)}>
+          Plugins…
+        </button>
+      )}
       {open && (
         <div className="dialog-overlay" onClick={() => setOpen(false)}>
           <div

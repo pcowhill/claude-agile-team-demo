@@ -2,6 +2,7 @@ import { gunzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 /**
  * Saving a project (#76): Save As… / Save / Ctrl+S write a file that #75's
@@ -84,7 +85,7 @@ test('saving downloads a project file that round-trips, and the dirty indicator 
   // Save As… asks what the file carries (#98) — references-only here keeps
   // this spec on the small-file path (the embedded twin lives in
   // open-embedded.spec.ts) — then downloads the project file.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
   const firstDownload = page.waitForEvent('download')

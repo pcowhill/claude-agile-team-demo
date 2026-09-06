@@ -7,6 +7,7 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { DEFAULT_SETTINGS, SETTINGS_KEY, loadSettings } from '../lib/settings'
 import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
+import { chooseFromFileMenu } from '../test/fileMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -26,11 +27,19 @@ function fakeStorage(initial: Record<string, string> = {}) {
   }
 }
 
-const settingsButton = () => screen.getByRole('button', { name: 'Settings' })
 const settingsDialog = () => screen.getByRole('dialog', { name: 'Settings' })
 
+// The ⚙ button became File ▾ → Settings… in #415 — for the app. Rendered on
+// its own the component keeps its gear (that is what "uncontrolled" means),
+// so the two paths are separate helpers rather than one that guesses.
 const openSettings = async () => {
-  await userEvent.click(settingsButton())
+  await chooseFromFileMenu('Settings…')
+  return settingsDialog()
+}
+
+/** For the tests that render <SettingsControl/> directly. */
+const openSettingsDirectly = async () => {
+  await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
   return settingsDialog()
 }
 
@@ -113,7 +122,7 @@ describe('settings dialog (#286)', () => {
         isTypeSupported={() => true}
       />,
     )
-    await userEvent.click(settingsButton())
+    await openSettingsDirectly()
     const formatSelect = within(settingsDialog()).getByLabelText('Default export format')
     // The core video formats (#114). Audio-only needs Web Audio, which jsdom
     // does not have, so it is legitimately absent here.
@@ -136,7 +145,7 @@ describe('settings dialog (#286)', () => {
         isTypeSupported={() => false}
       />,
     )
-    await userEvent.click(settingsButton())
+    await openSettingsDirectly()
     const offline = within(settingsDialog()).getByLabelText('Default export format')
     expect(offline).toHaveValue('gif')
     expect(offline).toHaveTextContent('gif (not available in this browser)')

@@ -10,6 +10,7 @@ import type { TimelineState } from '../lib/timeline'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import { PluginRuntime } from '../lib/plugins'
 import type { PluginSpec } from '../lib/plugins'
+import { chooseFromFileMenu } from '../test/fileMenu'
 
 const library: MediaLibraryState = {
   clips: [{ id: 'c1', name: 'holiday.mp4', duration: 10, url: 'blob:c1', kind: 'video' }],
@@ -146,12 +147,12 @@ describe('ProjectControls saving', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…', user)
     await confirmSaveDialog(user, 'references')
     await waitFor(() => expect(writes).toHaveLength(1))
 
     // The second Save As… preselects the remembered mode; switch to embed.
-    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…', user)
     const dialog = await screen.findByRole('dialog', { name: 'Save project' })
     expect(within(dialog).getByRole('radio', { name: 'Store references only' })).toBeChecked()
     await user.click(
@@ -176,7 +177,7 @@ describe('ProjectControls saving', () => {
     render(
       <ProjectControls library={library} timeline={timeline} dirty onSaved={vi.fn()} port={port} />,
     )
-    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…', user)
     const dialog = await screen.findByRole('dialog', { name: 'Save project' })
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -358,7 +359,7 @@ describe('New Project and Open Project (#77)', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
     expect(dialog).toHaveTextContent('Starting a new project will discard your unsaved changes.')
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -381,7 +382,7 @@ describe('New Project and Open Project (#77)', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
     expect(onProjectReplaced).toHaveBeenCalledOnce()
     const replaced = onProjectReplaced.mock.calls[0][0]
@@ -403,7 +404,7 @@ describe('New Project and Open Project (#77)', () => {
         port={port}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(onProjectReplaced).toHaveBeenCalledOnce()
   })
@@ -422,7 +423,7 @@ describe('New Project and Open Project (#77)', () => {
         port={port}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'Open Project…' }))
+    await chooseFromFileMenu('Open Project…', user)
     const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
     expect(dialog).toHaveTextContent('Opening a project will discard your unsaved changes.')
     expect(screen.getByRole('button', { name: 'Discard and open' })).toBeInTheDocument()
@@ -617,10 +618,10 @@ describe('New Project and Open Project (#77)', () => {
     )
 
     // Establish a destination and a mode, then start a new project.
-    await user.click(screen.getByRole('button', { name: 'Save As…' }))
+    await chooseFromFileMenu('Save As…', user)
     await confirmSaveDialog(user, 'references')
     await screen.findByText('Saved as picked.bvep')
-    await user.click(screen.getByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     await user.click(screen.getByRole('button', { name: 'Discard and start new' }))
 
     // The old project's status is gone, and the next Save is a first save
@@ -1015,6 +1016,131 @@ describe('New Project and Open Project (#77)', () => {
   })
 })
 
+/**
+ * The header's File ▾ (#415, from the approved redesign #401 / feedback
+ * #395). What each item *does* is covered by the tests above, which now
+ * reach it through the menu; these cover the menu itself — that it offers
+ * the right items, that Export ▸ is built from the format registry, and that
+ * the buttons it replaced are gone.
+ */
+describe('the header File menu (#415)', () => {
+  const openFileMenu = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'File' }))
+    return screen.getByRole('menu', { name: 'File menu' })
+  }
+
+  it('offers every former header action, in the approved order, with Save’s shortcut shown', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        settings={DEFAULT_SETTINGS}
+        onSetSettings={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    const menu = await openFileMenu()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'New Project',
+      'Open Project…',
+      'SaveCtrl+S',
+      'Save As…',
+      'Export▸',
+      'Plugins…',
+      'Settings…',
+    ])
+    // The shortcut is visual only: the item is still found by its label.
+    expect(within(menu).getByRole('menuitem', { name: 'Save' })).toBeInTheDocument()
+  })
+
+  it('no longer renders the buttons those items replaced, and keeps Save and Export as buttons', () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        settings={DEFAULT_SETTINGS}
+        onSetSettings={vi.fn()}
+      />,
+    )
+    for (const gone of ['New Project', 'Open Project…', 'Save As…', 'Plugins…', 'Settings']) {
+      expect(screen.queryByRole('button', { name: gone })).toBeNull()
+    }
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export Project…' })).toBeInTheDocument()
+  })
+
+  it('shows the unsaved dot on the compact Save, in its accessible name', () => {
+    const { rerender } = render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    rerender(
+      <ProjectControls library={library} timeline={timeline} dirty onSaved={vi.fn()} />,
+    )
+    // The ● alone would be colour-only, so the state lives in the name.
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+  })
+
+  it('offers Settings… only with both halves of the settings wiring, as the gear did', async () => {
+    render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    const menu = await openFileMenu()
+    expect(within(menu).queryByRole('menuitem', { name: 'Settings…' })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: 'Plugins…' })).toBeInTheDocument()
+  })
+
+  it('builds Export ▸ from the recordable formats, and a pick opens the modal on it', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'File' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
+    const submenu = screen.getByRole('menu', { name: 'Export' })
+    const formats = within(submenu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    expect(formats).toContain('MP4')
+    expect(formats).toContain('WebM')
+
+    await userEvent.click(within(submenu).getByRole('menuitem', { name: 'MP4' }))
+    // The same modal the Export Project… button opens, with that format
+    // preselected — every other option there is untouched.
+    const dialog = await screen.findByRole('dialog', { name: /export/i })
+    expect(within(dialog).getByRole('radio', { name: 'MP4' })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: 'WebM' })).not.toBeChecked()
+  })
+
+  it('disables Export ▸ when there is nothing to export, like the Export button', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={{ entries: [], transitions: [], zooms: [] }}
+        dirty={false}
+        onSaved={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    const menu = await openFileMenu()
+    expect(within(menu).getByRole('menuitem', { name: 'Export' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Export Project…' })).toBeDisabled()
+  })
+})
+
 describe('crash-safe autosave (#194)', () => {
   /** In-memory AutosaveStore; the IndexedDB one runs only in e2e. */
   function fakeAutosaveStore() {
@@ -1240,7 +1366,7 @@ describe('crash-safe autosave (#194)', () => {
     const { store } = fakeAutosaveStore()
     const user = userEvent.setup()
     const { onProjectReplaced } = renderWithAutosave(store)
-    await user.click(await screen.findByRole('button', { name: 'New Project' }))
+    await chooseFromFileMenu('New Project', user)
     await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledTimes(1))
     expect(onProjectReplaced.mock.calls[0][1]).toEqual({ unsaved: false })
   })
@@ -1366,57 +1492,3 @@ describe('crash-safe autosave (#194)', () => {
   })
 })
 
-// The project's canvas preset control (#273). Auto is the absent preset, so
-// the control's empty value is what maps to it — a stored 'auto' identifier
-// would break the byte-identity the model and serializer depend on.
-describe('ProjectControls canvas preset (#273)', () => {
-  it('shows Auto for a preset-free project and reports each choice', async () => {
-    const onSetCanvasPreset = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <ProjectControls
-        library={library}
-        timeline={timeline}
-        dirty={false}
-        onSaved={vi.fn()}
-        onSetCanvasPreset={onSetCanvasPreset}
-      />,
-    )
-    const select = screen.getByRole('combobox', { name: 'Canvas aspect' })
-    expect((select as HTMLSelectElement).value).toBe('')
-    expect(
-      Array.from((select as HTMLSelectElement).options).map((option) => option.value),
-    ).toEqual(['', '16:9', '9:16', '1:1', '4:5'])
-
-    await user.selectOptions(select, '9:16')
-    expect(onSetCanvasPreset).toHaveBeenLastCalledWith('9:16')
-    expect(onSetCanvasPreset).not.toHaveBeenCalledWith('auto')
-  })
-
-  it('reflects the project’s preset, and reports Auto as undefined', async () => {
-    const onSetCanvasPreset = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <ProjectControls
-        library={library}
-        timeline={{ ...timeline, canvasPreset: '4:5' }}
-        dirty={false}
-        onSaved={vi.fn()}
-        onSetCanvasPreset={onSetCanvasPreset}
-      />,
-    )
-    const select = screen.getByRole('combobox', { name: 'Canvas aspect' })
-    expect((select as HTMLSelectElement).value).toBe('4:5')
-
-    // Choosing Auto must report `undefined`, which is what deletes the key.
-    await user.selectOptions(select, '')
-    expect(onSetCanvasPreset).toHaveBeenLastCalledWith(undefined)
-  })
-
-  it('renders no control when the app supplies no handler', () => {
-    render(
-      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
-    )
-    expect(screen.queryByRole('combobox', { name: 'Canvas aspect' })).toBeNull()
-  })
-})

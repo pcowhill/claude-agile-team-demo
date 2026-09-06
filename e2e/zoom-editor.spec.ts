@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -170,7 +171,7 @@ test('the editor fits the timeline panel at the narrow width too, and the settin
   await expectNoHorizontalScroll(page, 'zoom editor open at 800px')
 
   // Visual editors Off: the button is gone, the open editor with it.
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await chooseFromFileMenu(page, 'Settings…')
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await settings.getByLabel('Visual editors').selectOption('off')
   await settings.getByRole('button', { name: 'Close' }).click()
