@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseFromFrameMenu, expectFrameItemEnabled } from './frameMenu'
 
 /**
  * Split at playhead (#190), exercised media-free with a slate: position the
@@ -14,18 +15,18 @@ test('splitting a slate at the playhead yields two halves; either half removes i
   await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
   await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
 
-  const split = page.getByTestId('preview-split')
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
 
   // At the sequence start the playhead sits on the entry's edge — there is
-  // nothing to split, so the razor disables.
-  await expect(split).toBeDisabled()
+  // nothing to split, so the razor disables. It is a Frame ▾ item since
+  // #417, under the same test id.
+  await expectFrameItemEnabled(page, 'preview-split', false)
 
   // Strictly inside the slate it enables; splitting at 2s cuts the 5s slate
   // into a 2s and a 3s half without changing the total.
   await seek.fill('2')
-  await expect(split).toBeEnabled()
-  await split.click()
+  await expectFrameItemEnabled(page, 'preview-split', true)
+  await chooseFromFrameMenu(page, 'preview-split')
   const sequence = page.getByRole('list', { name: 'Sequence' })
   await expect(sequence.getByRole('listitem')).toHaveCount(2)
   await expect(

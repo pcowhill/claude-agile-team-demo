@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectFrameItemEnabled } from './frameMenu'
 import { expectWithin } from './layout'
 
 /**
@@ -32,11 +33,12 @@ test('↑ / ↓ and the transport buttons land exactly on cuts and blend edges',
   await expect(seek).toHaveValue('5')
   // The landing is exact: the razor has nothing to split exactly on a cut,
   // so Split disabled here is the discriminating "precisely on the boundary"
-  // check — one 0.1 s step away it re-enables.
-  await expect(page.getByTestId('preview-split')).toBeDisabled()
+  // check — one 0.1 s step away it re-enables. Split is a Frame ▾ item since
+  // #417; the helper reads it and hands the keys back to the transport.
+  await expectFrameItemEnabled(page, 'preview-split', false)
   await page.keyboard.press('ArrowRight')
   await expect(seek).toHaveValue('5.1')
-  await expect(page.getByTestId('preview-split')).toBeEnabled()
+  await expectFrameItemEnabled(page, 'preview-split', true)
   await page.keyboard.press('ArrowUp')
   await expect(seek).toHaveValue('5')
   await page.keyboard.press('ArrowDown')
