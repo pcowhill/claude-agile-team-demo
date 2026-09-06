@@ -217,6 +217,13 @@ single undo step. A duplicated sequence entry lands right after the
 original — transitions are never copied, since they belong to a boundary —
 while a duplicated track, overlay, or text starts where the original ends,
 so the two never stack.
+Sequence entries, slates, audio tracks and overlays can be renamed on the
+timeline (#405): the ✎ Rename button after the name — or a double-click on
+it — turns it into a field; Enter or clicking away commits, Escape cancels,
+and an empty name reverts. The new name shows everywhere the row is named
+(its header, its controls' labels, the preview's now-playing line), is one
+undo step, saves with the project, and never touches the library clip the
+row came from — clip and placed element each keep their own name.
 Beside it sit ⎘ Copy settings and ⎗ Paste settings (#315): Copy remembers a
 row's adjustable settings — never its media, trim, or timeline position —
 and Paste applies them to any other row through a checklist of the groups

@@ -608,6 +608,23 @@ export type TimelineAction =
       id: string
       settings: CopiedSettings
     }
+  | {
+      /**
+       * Rename one timeline element (#405): a sequence entry (slates
+       * included), an audio track, or a video/image overlay, by id — one
+       * action across the kinds, since each kind's list is searched for the
+       * id. Text overlays are identified by their content and are not
+       * renamed here. The name is whitespace-trimmed; an empty result, an
+       * unknown id, or the name already held is a same-reference no-op, so
+       * none of them records a history step. Renaming never touches the
+       * library clip the element came from — each carries its own name,
+       * copied at placement — and derived rows (splits, duplicates, freezes)
+       * copy whatever name the source carries at that moment.
+       */
+      type: 'element-renamed'
+      id: string
+      name: string
+    }
   | { type: 'entry-removed'; id: string }
   | { type: 'entries-removed-for-clip'; clipId: string }
   | {
@@ -1890,6 +1907,36 @@ function reduceTimelineCollections(
             videoOverlays,
           )
         }
+      }
+      return state
+    }
+    case 'element-renamed': {
+      // Rename (#405): the one collection holding the id gets the trimmed
+      // name; everything else is carried verbatim. Same-reference on an
+      // empty name, an unknown id, or no change — not an edit, so nothing
+      // to undo and preview playback is not stopped.
+      const name = action.name.trim()
+      if (name === '') return state
+      const entryIndex = state.entries.findIndex((entry) => entry.id === action.id)
+      if (entryIndex !== -1) {
+        if (state.entries[entryIndex].name === name) return state
+        const entries = [...state.entries]
+        entries[entryIndex] = { ...entries[entryIndex], name }
+        return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      }
+      const trackIndex = audioTracks.findIndex((track) => track.id === action.id)
+      if (trackIndex !== -1) {
+        if (audioTracks[trackIndex].name === name) return state
+        const tracks = [...audioTracks]
+        tracks[trackIndex] = { ...tracks[trackIndex], name }
+        return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      }
+      const overlayIndex = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (overlayIndex !== -1) {
+        if (videoOverlays[overlayIndex].name === name) return state
+        const overlays = [...videoOverlays]
+        overlays[overlayIndex] = { ...overlays[overlayIndex], name }
+        return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
       }
       return state
     }

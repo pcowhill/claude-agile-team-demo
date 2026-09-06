@@ -354,6 +354,34 @@ describe('a placed screen + camera take is one undo step (#388)', () => {
   })
 })
 
+describe('rename is one undo step (#405)', () => {
+  it('records the rename, undoes to the old name, and redoes back', () => {
+    const withEntry = addEntry(emptyTimelineHistory, 'a')
+    const renamed = timelineHistoryReducer(withEntry, {
+      type: 'element-renamed',
+      id: 'a',
+      name: 'Intro',
+    })
+    expect(renamed.present.entries[0].name).toBe('Intro')
+    expect(renamed.past).toHaveLength(2)
+    const undone = timelineHistoryReducer(renamed, { type: 'edit-undone' })
+    expect(undone.present.entries[0].name).toBe('a.mp4')
+    const redone = timelineHistoryReducer(undone, { type: 'edit-redone' })
+    expect(redone.present.entries[0].name).toBe('Intro')
+  })
+
+  it('a rejected rename (empty, unchanged, unknown id) records no history step', () => {
+    const withEntry = addEntry(emptyTimelineHistory, 'a')
+    for (const action of [
+      { type: 'element-renamed', id: 'a', name: '   ' },
+      { type: 'element-renamed', id: 'a', name: 'a.mp4' },
+      { type: 'element-renamed', id: 'missing', name: 'Intro' },
+    ] as const) {
+      expect(timelineHistoryReducer(withEntry, action)).toBe(withEntry)
+    }
+  })
+})
+
 describe('batch add from a library selection (#292)', () => {
   const track = {
     id: 't1',

@@ -3069,6 +3069,119 @@ describe("a section's Expand all unfolds the section too (#360)", () => {
   })
 })
 
+describe('rename timeline elements (#405)', () => {
+  const importImage = async (name: string) => {
+    probeMock.mockResolvedValueOnce({ duration: 0, url: `blob:${name}`, kind: 'image', width: 64, height: 32 })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], name, { type: 'image/png' }),
+      { applyAccept: false },
+    )
+    await screen.findByText(name)
+  }
+  const field = (position: string) =>
+    screen.getByRole('textbox', { name: `New name for ${position}` })
+
+  it('renames a sequence entry through the ✎ button and Enter; every label and the preview readout follow, as one undo step', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('Clip 1 of 1: a.mp4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename a.mp4 at position 1' }))
+    const input = field('a.mp4 at position 1')
+    // Opens with the current name, selected, so typing replaces it.
+    expect(input).toHaveValue('a.mp4')
+    expect(input).toHaveFocus()
+    await userEvent.keyboard('Intro{Enter}')
+
+    expect(sequenceNames()).toEqual(['Intro'])
+    expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename Intro at position 1' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', { name: 'Trim out point of Intro at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove Intro at position 1 from timeline' })).toBeInTheDocument()
+    expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('Clip 1 of 1: Intro')
+    // The library clip keeps its own name.
+    expect(screen.getByRole('button', { name: 'Add a.mp4 to timeline' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(sequenceNames()).toEqual(['a.mp4'])
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(sequenceNames()).toEqual(['Intro'])
+  })
+
+  it('renames a slate by double-clicking its name and clicking away', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    fireEvent.doubleClick(within(sequence()).getByText('Color slate'))
+    const input = field('Color slate at position 1')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Title card')
+    fireEvent.blur(input)
+    expect(sequenceNames()).toEqual(['Title card'])
+    expect(
+      screen.getByRole('button', { name: 'Collapse Title card at position 1' }),
+    ).toBeInTheDocument()
+  })
+
+  it('Escape cancels a rename of an audio track; an empty name reverts', async () => {
+    render(<App />)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    const trackName = () =>
+      within(screen.getByRole('list', { name: 'Audio tracks' }))
+        .getAllByRole('listitem')
+        .map((item) => item.querySelector('.clip-name')?.textContent)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename audio track m.mp3 at position 1' }))
+    await userEvent.keyboard('Bed{Escape}')
+    expect(trackName()).toEqual(['m.mp3'])
+    expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename audio track m.mp3 at position 1' }))
+    await userEvent.keyboard('   {Enter}')
+    expect(trackName()).toEqual(['m.mp3'])
+    // Neither attempt was an edit: nothing to undo beyond the add itself.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('list', { name: 'Audio tracks' })).not.toBeInTheDocument()
+  })
+
+  it('renames a video overlay and an image overlay', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 6)
+    await importImage('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename overlay cam.mp4 at position 1' }))
+    await userEvent.keyboard('Face{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Rename overlay logo.png at position 2' }))
+    await userEvent.keyboard('Logo{Enter}')
+
+    const overlayNames = within(screen.getByRole('list', { name: 'Overlay layers' }))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.clip-name')?.textContent)
+    expect(overlayNames).toEqual(['Face', 'Logo'])
+    expect(
+      screen.getByRole('spinbutton', { name: 'Start time of overlay Face at position 1 in seconds' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', { name: 'Start time of overlay Logo at position 2 in seconds' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no rename control on a text overlay', async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    expect(screen.queryByRole('button', { name: /Rename text overlay/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename a.mp4 at position 1' })).toBeInTheDocument()
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({
