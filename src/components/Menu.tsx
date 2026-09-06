@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import { placementFor } from '../lib/menuPlacement'
+import type { Placement } from '../lib/menuPlacement'
 import './Menu.css'
 
 /**
@@ -101,8 +103,6 @@ interface MenuProps {
  */
 let closeOpenMenu: (() => void) | null = null
 
-type Placement = { end: boolean; up: boolean }
-
 /** Which of a panel's own items (not a nested submenu's) can take focus. */
 function focusableItemsOf(panel: HTMLElement): HTMLElement[] {
   return Array.from(panel.querySelectorAll<HTMLElement>('[role^="menuitem"]')).filter(
@@ -150,15 +150,18 @@ function MenuPanel({
     if (panel === null) return
     const rect = panel.getBoundingClientRect()
     if (rect.width === 0 && rect.height === 0) return
-    const viewportWidth = document.documentElement.clientWidth
-    const viewportHeight = window.innerHeight
     // Flip only when the other side actually has the room; otherwise the
-    // natural side is the lesser evil.
-    const anchor = panel.parentElement?.getBoundingClientRect()
-    const end = rect.right > viewportWidth && (anchor === undefined || anchor.right - rect.width >= 0)
-    const up = rect.bottom > viewportHeight && (anchor === undefined || anchor.top - rect.height >= 0)
-    if (end || up) setPlacement({ end, up })
-  }, [])
+    // natural side is the lesser evil. The arithmetic is `placementFor`,
+    // which knows a submenu flips against a different anchor edge (#430).
+    const next = placementFor(
+      rect,
+      panel.parentElement?.getBoundingClientRect(),
+      { width: document.documentElement.clientWidth, height: window.innerHeight },
+      submenu,
+    )
+    if (next.end || next.up) setPlacement(next)
+    // `submenu` never changes for a panel instance; named so the rule is satisfied.
+  }, [submenu])
 
   useEffect(() => {
     const panel = ref.current
