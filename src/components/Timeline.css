@@ -1,7 +1,13 @@
+/* Wraps because #415 moved the canvas preset onto this row: at the 800 px
+   guard width the row no longer fits on one line, and an unwrapped flex row
+   does not shrink its way out — it pushed the select past the viewport's
+   right edge (the same shape as #268 and #407). Wrapping moves whatever no
+   longer fits onto the next line whole. */
 .timeline-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
@@ -14,6 +20,17 @@
   color: #aaa;
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* The project's canvas preset (#273): a compact labelled select, in the same
+   idiom as the export modal's size preset. It sat beside the project actions
+   in the page header until #415 moved it here, beside the sequence it
+   describes; the rule moved with it, unchanged. */
+.project-canvas-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
 }
 
 .timeline-list {

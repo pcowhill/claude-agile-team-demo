@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -92,7 +93,7 @@ async function waitForSnapshot(page: Page, blobs: number) {
 }
 
 async function saveProject(page: Page, mode: 'references' | 'embedded'): Promise<Buffer> {
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await modeDialog
     .getByRole('radio', {
@@ -170,7 +171,7 @@ test('a renamed clip re-links from its original file, and keeps its name through
   // References-only save → New Project → Open: the re-link dialog names the
   // clip with its file, and the ORIGINAL file is what links it.
   const references = await saveProject(page, 'references')
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await expect(page.getByText('No clips yet', { exact: false })).toBeVisible()
   await page
     .getByTestId('project-file-input')
@@ -196,7 +197,7 @@ test('a renamed clip re-links from its original file, and keeps its name through
 
   // Embedded save → New Project → Open: the name persists, no re-linking.
   const embedded = await saveProject(page, 'embedded')
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await expect(page.getByText('No clips yet', { exact: false })).toBeVisible()
   await page
     .getByTestId('project-file-input')
@@ -222,7 +223,7 @@ test('a file that matches only the display name does not re-link a renamed clip 
   await field.fill('Intro.webm')
   await field.press('Enter')
   const references = await saveProject(page, 'references')
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await page
     .getByTestId('project-file-input')
     .setInputFiles([{ name: 'renamed.bvep', mimeType: 'application/gzip', buffer: references }])

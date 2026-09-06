@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 /**
  * The self-contained round trip (#98) — the embedded twin of open.spec.ts:
@@ -79,7 +80,7 @@ test('an embedded save reopens with no re-link step, then plays and exports', as
 
   // Save with the DEFAULT mode: the first-save dialog preselects embedding
   // (#98) and confirming it as-is writes the self-contained file.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await expect(
     modeDialog.getByRole('radio', { name: 'Embed media in the project file' }),
@@ -89,7 +90,7 @@ test('an embedded save reopens with no re-link step, then plays and exports', as
   const projectBytes = await readFile((await (await downloadPromise).path())!)
 
   // Wipe the editor (clean after saving → no guard).
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await expect(page.getByText('No clips yet', { exact: false })).toBeVisible()
 
   // Open the saved file: the project comes back immediately — no re-link

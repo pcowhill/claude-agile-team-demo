@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -116,7 +117,7 @@ test('marks pre-fill the typed range, and a GIF honors a typed range (#400)', as
 
   // The GIF plugin samples at 10 fps: a typed 2 s range is about 20 frames,
   // where the whole 10 s sequence would be about 100.
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await page.getByRole('button', { name: 'Enable GIF export' }).click()
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()

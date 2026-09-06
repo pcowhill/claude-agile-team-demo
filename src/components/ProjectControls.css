@@ -4,6 +4,15 @@
   gap: 0.5rem;
 }
 
+/* Save is the one frequent header action, so #415 kept it out of File ▾ as
+   a compact icon. Its glyph and the ● dot sit on one line; the accessible
+   name carries the meaning, since neither mark has one. */
+.project-save-button {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .project-dirty {
   margin-left: 0.4rem;
   color: #ffb454;
@@ -38,11 +47,3 @@
   font-size: 0.85rem;
 }
 
-/* The project's canvas preset (#273): a compact labelled select beside the
-   project actions, in the same idiom as the export modal's size preset. */
-.project-canvas-preset {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}

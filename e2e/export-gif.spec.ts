@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 /**
  * The GIF export plugin, end to end (#198): enable the plugin through the
@@ -73,7 +74,7 @@ test('the enabled GIF plugin exports a slate timeline as a plausible animated GI
   await page.goto('./')
 
   // Enable the plugin: the manager fetches the real chunk and activates it.
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await page.getByRole('button', { name: 'Enable GIF export' }).click()
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()

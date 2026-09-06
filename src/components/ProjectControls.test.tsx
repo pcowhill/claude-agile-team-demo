@@ -1016,6 +1016,131 @@ describe('New Project and Open Project (#77)', () => {
   })
 })
 
+/**
+ * The header's File ▾ (#415, from the approved redesign #401 / feedback
+ * #395). What each item *does* is covered by the tests above, which now
+ * reach it through the menu; these cover the menu itself — that it offers
+ * the right items, that Export ▸ is built from the format registry, and that
+ * the buttons it replaced are gone.
+ */
+describe('the header File menu (#415)', () => {
+  const openFileMenu = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'File' }))
+    return screen.getByRole('menu', { name: 'File menu' })
+  }
+
+  it('offers every former header action, in the approved order, with Save’s shortcut shown', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        settings={DEFAULT_SETTINGS}
+        onSetSettings={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    const menu = await openFileMenu()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'New Project',
+      'Open Project…',
+      'SaveCtrl+S',
+      'Save As…',
+      'Export▸',
+      'Plugins…',
+      'Settings…',
+    ])
+    // The shortcut is visual only: the item is still found by its label.
+    expect(within(menu).getByRole('menuitem', { name: 'Save' })).toBeInTheDocument()
+  })
+
+  it('no longer renders the buttons those items replaced, and keeps Save and Export as buttons', () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        settings={DEFAULT_SETTINGS}
+        onSetSettings={vi.fn()}
+      />,
+    )
+    for (const gone of ['New Project', 'Open Project…', 'Save As…', 'Plugins…', 'Settings']) {
+      expect(screen.queryByRole('button', { name: gone })).toBeNull()
+    }
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export Project…' })).toBeInTheDocument()
+  })
+
+  it('shows the unsaved dot on the compact Save, in its accessible name', () => {
+    const { rerender } = render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    rerender(
+      <ProjectControls library={library} timeline={timeline} dirty onSaved={vi.fn()} />,
+    )
+    // The ● alone would be colour-only, so the state lives in the name.
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+  })
+
+  it('offers Settings… only with both halves of the settings wiring, as the gear did', async () => {
+    render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    const menu = await openFileMenu()
+    expect(within(menu).queryByRole('menuitem', { name: 'Settings…' })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: 'Plugins…' })).toBeInTheDocument()
+  })
+
+  it('builds Export ▸ from the recordable formats, and a pick opens the modal on it', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'File' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
+    const submenu = screen.getByRole('menu', { name: 'Export' })
+    const formats = within(submenu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    expect(formats).toContain('MP4')
+    expect(formats).toContain('WebM')
+
+    await userEvent.click(within(submenu).getByRole('menuitem', { name: 'MP4' }))
+    // The same modal the Export Project… button opens, with that format
+    // preselected — every other option there is untouched.
+    const dialog = await screen.findByRole('dialog', { name: /export/i })
+    expect(within(dialog).getByRole('radio', { name: 'MP4' })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: 'WebM' })).not.toBeChecked()
+  })
+
+  it('disables Export ▸ when there is nothing to export, like the Export button', async () => {
+    render(
+      <ProjectControls
+        library={library}
+        timeline={{ entries: [], transitions: [], zooms: [] }}
+        dirty={false}
+        onSaved={vi.fn()}
+        isTypeSupported={() => true}
+      />,
+    )
+    const menu = await openFileMenu()
+    expect(within(menu).getByRole('menuitem', { name: 'Export' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Export Project…' })).toBeDisabled()
+  })
+})
+
 describe('crash-safe autosave (#194)', () => {
   /** In-memory AutosaveStore; the IndexedDB one runs only in e2e. */
   function fakeAutosaveStore() {

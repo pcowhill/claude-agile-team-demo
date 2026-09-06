@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -35,7 +36,7 @@ async function makePng(page: Page): Promise<Buffer> {
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Settings' })
 const openSettings = async (page: Page) => {
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await chooseFromFileMenu(page, 'Settings…')
   await expect(dialog(page)).toBeVisible()
 }
 const row = (page: Page, label: string) =>

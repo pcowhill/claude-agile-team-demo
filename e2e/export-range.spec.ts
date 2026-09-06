@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -344,7 +345,7 @@ test('GIF and MP3 exports honor the range, and marks are session-only (#385)', a
   await page.getByRole('button', { name: 'Add phases.webm to timeline' }).click()
 
   // Enable the GIF plugin (the #198 flow), then mark a 0.5 s range.
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await page.getByRole('button', { name: 'Enable GIF export' }).click()
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()

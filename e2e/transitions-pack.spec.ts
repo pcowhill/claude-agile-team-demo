@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -87,7 +88,7 @@ async function buildOverlapSequence(page: Page) {
 
 /** Opens the manager and toggles the Shaped wipes plugin to the wanted state. */
 async function setShapedWipes(page: Page, enabled: boolean) {
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   const dialog = page.getByRole('dialog', { name: 'Plugins' })
   await expect(dialog).toBeVisible()
   await page
@@ -286,7 +287,7 @@ test('a saved project records the pack dependency; opening prompt-and-enables (#
     .selectOption('box-open')
 
   // Save references-only and keep the bytes.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
   const downloadPromise = page.waitForEvent('download')

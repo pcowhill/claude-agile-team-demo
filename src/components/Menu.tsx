@@ -345,7 +345,12 @@ function MenuPanel({
                   disabled={item.disabled}
                   aria-disabled={item.disabled ? true : undefined}
                   data-testid={item.testId}
-                  onClick={() => (isOpen ? setOpenSubmenu(null) : openWith('first'))}
+                  // Opens, never toggles: a pointer click is always preceded
+                  // by the hover that already opened this submenu, so a
+                  // toggle would make clicking the item you are pointing at
+                  // close it. ArrowLeft, Escape or moving to a sibling close
+                  // it; Enter from the keyboard lands here and opens.
+                  onClick={() => openWith('first')}
                   onMouseEnter={(event) => {
                     event.currentTarget.focus()
                     if (!isOpen) openWith('first')

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectWithin } from './layout'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Locator = import('@playwright/test').Locator
 
@@ -24,7 +25,7 @@ test('the format note sits below the radios and the picker stays inside the dial
   await page.goto('./')
 
   // Enable the GIF plugin: the fullest picker the product can show.
-  await page.getByRole('button', { name: 'Plugins…' }).click()
+  await chooseFromFileMenu(page, 'Plugins…')
   await page.getByRole('button', { name: 'Enable GIF export' }).click()
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()

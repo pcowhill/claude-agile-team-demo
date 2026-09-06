@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
+import { chooseFromFileMenu } from './fileMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -135,12 +136,12 @@ test('renaming an entry and an audio track relabels the rows and the preview; Ct
   await expect(trackRow.locator('.clip-name')).toHaveText('Bed')
 
   // Save (embedded, the default) and reopen: both names persist.
-  await page.getByRole('button', { name: 'Save As…' }).click()
+  await chooseFromFileMenu(page, 'Save As…')
   const modeDialog = page.getByRole('dialog', { name: 'Save project' })
   const downloadPromise = page.waitForEvent('download')
   await modeDialog.getByRole('button', { name: 'Save…' }).click()
   const projectBytes = await readFile((await (await downloadPromise).path())!)
-  await page.getByRole('button', { name: 'New Project' }).click()
+  await chooseFromFileMenu(page, 'New Project')
   await expect(page.getByText('No clips yet', { exact: false })).toBeVisible()
   await page
     .getByTestId('project-file-input')
