@@ -48,6 +48,13 @@ export interface AppSettings {
    * plugin being off.
    */
   exportFormat: string
+  /**
+   * Whether the visual editors are offered (#413, from #402): the Adjust
+   * visually… buttons beside a zoom's fields, which render a still of the
+   * frame to drag on. Off hides the buttons and so never renders a frame —
+   * the customer asked for the switch because of that render cost.
+   */
+  visualEditors: boolean
 }
 
 /**
@@ -75,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   stillDurationSeconds: DEFAULT_STILL_DURATION,
   sessionRestore: 'ask',
   exportFormat: 'webm',
+  visualEditors: true,
 }
 
 /** The slice of Storage this needs; injectable so tests stay deterministic. */
@@ -125,6 +133,9 @@ export function parseSettings(stored: unknown): AppSettings {
       typeof raw.exportFormat === 'string' && raw.exportFormat !== ''
         ? raw.exportFormat
         : DEFAULT_SETTINGS.exportFormat,
+    // A store written before the switch existed has no key: on, as before.
+    visualEditors:
+      typeof raw.visualEditors === 'boolean' ? raw.visualEditors : DEFAULT_SETTINGS.visualEditors,
   }
 }
 
