@@ -68,6 +68,65 @@ test('the format note sits below the radios and the picker stays inside the dial
   }
 })
 
+test('the Output row keeps Width, Height and Frame rate inside the dialog at both viewports (#407)', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Export project' })
+  const output = dialog.locator('fieldset.export-settings')
+  await expect(output).toBeVisible()
+  const fields = [
+    'Export width in pixels',
+    'Export height in pixels',
+    'Export frame rate in frames per second',
+  ]
+
+  // The default viewport, where #407 was measured (the frame-rate input sat
+  // entirely past the dialog's right edge), and the narrow viewport the
+  // layout-width guard (#208) uses. The dialog is capped at 24rem at both,
+  // so the row has the same width to fit into either way — measured at both
+  // because the criterion names both.
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 800, height: 1100 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(dialog).toBeVisible()
+    for (const name of fields) {
+      const input = dialog.getByRole('spinbutton', { name })
+      await expect(input).toBeVisible()
+      // Horizontal only: the dialog scrolls vertically on purpose when its
+      // fieldsets are tall, so the vertical edges would fail on correct
+      // layout.
+      await expectWithin(input, dialog, { axis: 'x', what: `${name} at ${viewport.width}px` })
+      // The label's text did not break onto a second line to make room:
+      // a field that no longer fits wraps whole, label and input together.
+      const label = input.locator('..')
+      const labelBox = await boxOf(label)
+      const inputBox = await boxOf(input)
+      expect(labelBox.height, `${name} label at ${viewport.width}px`).toBeLessThanOrEqual(
+        inputBox.height + 2,
+      )
+    }
+    // Nothing in the dialog scrolls sideways — the measurement #407 reported
+    // as 461px of scrollWidth against 382px of clientWidth.
+    const overflow = await dialog.evaluate((node) => ({
+      scrollWidth: node.scrollWidth,
+      clientWidth: node.clientWidth,
+    }))
+    expect(
+      overflow.scrollWidth,
+      `dialog scrollWidth at ${viewport.width}px`,
+    ).toBeLessThanOrEqual(overflow.clientWidth)
+    // The human check for the PR's rendered evidence, re-taken every run.
+    await output.screenshot({
+      path: testInfo.outputPath(`export-output-fieldset-${viewport.width}.png`),
+    })
+  }
+})
+
 test('the Range fieldset keeps its typed fields and error line inside the dialog (#400)', async ({
   page,
 }, testInfo) => {
