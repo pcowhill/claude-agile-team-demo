@@ -36,6 +36,12 @@ interface MediaLibraryProps {
   onAddOverlay: (clip: LibraryClip) => void
   /** Extracts a video clip's audio into a new library clip (#154). */
   onExtractAudio: (clip: LibraryClip) => void
+  /**
+   * Shows a clip alone in the preview panel without adding it to the
+   * timeline (#403). Optional so tests predating the source preview keep
+   * compiling; without it the action is not offered.
+   */
+  onPreviewClip?: (clip: LibraryClip) => void
   onRemoveClip: (clip: LibraryClip) => void
   /**
    * Removes a whole selection in one step (#293): the same per-clip
@@ -95,6 +101,7 @@ export function MediaLibrary({
   onAddClipsToTimeline,
   onAddOverlay,
   onExtractAudio,
+  onPreviewClip,
   onRemoveClip,
   onRemoveClips,
   onSortClips,
@@ -196,8 +203,14 @@ export function MediaLibrary({
     />
   )
 
+  // Double-clicking the name previews the clip (#403), like the ▶ action
+  // below — the way a source monitor opens a clip in desktop editors.
   const clipName = (clip: LibraryClip) => (
-    <span className="clip-name" title={clip.name}>
+    <span
+      className="clip-name"
+      title={clip.name}
+      onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
+    >
       {clip.name}
     </span>
   )
@@ -216,6 +229,20 @@ export function MediaLibrary({
 
   const clipActions = (clip: LibraryClip) => (
     <>
+      {/* Preview (#403): the clip alone in the preview panel, nothing added
+          to the timeline. A compact icon button, pending the button
+          redesign the customer is deciding on (#401). */}
+      {onPreviewClip && (
+        <button
+          type="button"
+          className="clip-preview"
+          aria-label={`Preview ${clip.name}`}
+          title="Preview this clip in the preview panel without adding it to the timeline"
+          onClick={() => onPreviewClip(clip)}
+        >
+          ▶
+        </button>
+      )}
       {/* Video and images join the sequence (#102, #140); audio joins the
           audio lane. */}
       <button
@@ -268,7 +295,11 @@ export function MediaLibrary({
    * untrimmed timeline entry made from the same clip.
    */
   const cardPicture = (clip: LibraryClip, index: number) => (
-    <div className={`clip-card-picture clip-card-picture-${clip.kind}`}>
+    <div
+      className={`clip-card-picture clip-card-picture-${clip.kind}`}
+      // Double-clicking the picture previews the clip (#403), like the name.
+      onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
+    >
       <span className="clip-card-glyph" aria-hidden="true">
         {KIND_GLYPHS[clip.kind]}
       </span>

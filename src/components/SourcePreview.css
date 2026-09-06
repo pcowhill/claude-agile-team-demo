@@ -1,0 +1,61 @@
+/* Source preview (#403): one library clip alone in the preview panel. The
+   root shares .preview-player, and the stage and frame share the sequence
+   player's classes, so the stage sizing (#39, #128, #176) is the same rule
+   in both modes and the panel does not jump when switching. */
+
+.source-preview-header {
+  display: flex;
+  /* Wrapping caps the row's min-content at its widest single item (the
+     #190 / #208 rule every busy row in the app follows), so a long name and
+     three buttons never widen the panel or the page. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.source-preview-name {
+  flex: 1;
+  min-width: 5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.source-preview-actions button {
+  font-size: 0.8rem;
+}
+
+/* The frame centres whatever it holds: a video or audio element fills it
+   (.preview-media), an image sits inside at its natural aspect. */
+.source-preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.source-preview-image {
+  display: block;
+}
+
+/* An audio clip's picture is its waveform on the audio lane's blue (the
+   thumbnail card's ground, #311), filling the frame like a video would. */
+.source-preview-waveform {
+  position: absolute;
+  inset: 0;
+  background: #2f5680;
+}
+
+.source-preview-waveform .audio-waveform {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}

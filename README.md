@@ -24,7 +24,12 @@ be imported into the media library alongside videos (#100) and placed on the
 timeline as audio tracks — each with a start time and trim, overlapping
 freely (#102). A video clip's audio can also be extracted into a standalone
 audio clip in the library (#154), which keeps working even after the video
-itself is removed. Library rows are multi-selectable (#292): each row has a
+itself is removed. Any library clip can be auditioned without touching the
+timeline (#403): the ▶ Preview action on its row — or a double-click on its
+name or thumbnail — shows the clip alone in the preview panel, a video or
+audio clip with its own play/pause and seek, an image as it is; Back to
+sequence or Escape returns to the sequence exactly where it was, and Space
+and the arrow keys drive the source while it is up. Library rows are multi-selectable (#292): each row has a
 checkbox (faded until you hover or start selecting) with Shift+click range
 selection and a Select-all box in the header, and a selection bar adds every
 selected clip to the timeline in library order — videos and images as
