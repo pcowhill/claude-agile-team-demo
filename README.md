@@ -272,6 +272,16 @@ the playhead as a PNG at the output resolution (#237) — composed through the
 export's own draw path, so transitions mid-overlap, zooms, color
 adjustments, orientation, overlay layers of either kind — video and stills
 (#295) — and text render exactly as an export of that moment would.
+The same composed still is what the visual zoom editor shows (#413, from
+feedback #396): an Adjust visually… button beside a zoom's number fields
+opens, under that row, a picture of the frame at the middle of the zoom's
+hold with the zoom itself left out, and the region the zoom will fill drawn
+on it. Drag inside the region to move the centre, drag a corner to change
+the magnification (the region keeps the frame's aspect and never leaves
+it), and the numbers beneath follow live; releasing commits one edit — one
+undo step — through the same fields, which keep working alongside. Timing
+stays numeric. The still renders once when the editor opens, never during a
+drag.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
@@ -314,7 +324,9 @@ jump step sizes, how long a newly added still, color slate or image
 overlay layer shows, what
 happens when a previous session's autosave is found (ask — today's
 behaviour — always restore, or never offer, with autosave still recording
-either way), and which format the export dialog opens preselected on. These
+either way), which format the export dialog opens preselected on, and
+whether the visual editors are offered at all (#413; Off hides their buttons
+and so never renders a frame). These
 are per-device preferences rather than project content, so they never travel
 with a saved project or its autosave snapshot, and a browser with nothing
 stored behaves exactly as the editor did before there were settings.

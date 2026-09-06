@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { Menu } from './Menu'
+import type { MenuItem } from './Menu'
 import {
   isRecordingSupported,
   isScreenCameraRecordingSupported,
@@ -126,7 +128,6 @@ export function RecordControl({
   startScreenCameraCapture = startScreenCameraRecording,
   screenCameraSupported = isScreenCameraRecordingSupported(),
 }: RecordControlProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const [capture, setCapture] = useState<ActiveCapture | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [stopping, setStopping] = useState(false)
@@ -185,7 +186,6 @@ export function RecordControl({
   if (!supported && !screenSupported) return null
 
   const begin = async (start: () => Promise<ActiveCapture>, failure: string) => {
-    setMenuOpen(false)
     try {
       const next = await start()
       captureRef.current = next
@@ -260,96 +260,76 @@ export function RecordControl({
       ? PAIR_LABELS.heading
       : SOURCE_LABELS[capture?.source ?? 'microphone'].heading
 
+  // The source menu (#224), on the shared Menu component (#412): each item
+  // starts its capture; the menu closes itself on selection and on Escape,
+  // and each source is offered only where the platform supports it.
+  const sources: MenuItem[] = []
+  if (supported) {
+    sources.push({
+      kind: 'action',
+      label: 'Microphone',
+      onSelect: () =>
+        void begin(
+          async () => ({
+            kind: 'single',
+            source: 'microphone',
+            session: await startRecording(),
+          }),
+          SOURCE_LABELS.microphone.failure,
+        ),
+    })
+  }
+  if (screenSupported) {
+    sources.push({
+      kind: 'action',
+      label: 'Screen',
+      onSelect: () =>
+        // The share-ended hook routes through stopRef so the browser's
+        // "stop sharing" concludes the then-current capture exactly as the
+        // Stop button would.
+        void begin(
+          async () => ({
+            kind: 'single',
+            source: 'screen',
+            session: await startScreenCapture(() => stopRef.current()),
+          }),
+          SOURCE_LABELS.screen.failure,
+        ),
+    })
+  }
+  if (supported) {
+    sources.push({
+      kind: 'action',
+      label: 'Webcam',
+      onSelect: () =>
+        void begin(
+          async () => ({
+            kind: 'single',
+            source: 'webcam',
+            session: await startWebcamCapture(),
+          }),
+          SOURCE_LABELS.webcam.failure,
+        ),
+    })
+  }
+  if (screenCameraSupported && onRecordedPair !== undefined) {
+    sources.push({
+      kind: 'action',
+      label: 'Screen + camera',
+      onSelect: () =>
+        void begin(
+          async () => ({
+            kind: 'pair',
+            session: await startScreenCameraCapture(() => stopRef.current()),
+          }),
+          PAIR_LABELS.failure,
+        ),
+    })
+  }
+
   return (
     <>
-      <div className="record-control">
-        <button
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          Record
-        </button>
-        {menuOpen && (
-          <div className="record-menu" role="menu" aria-label="Recording sources">
-            {supported && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  void begin(
-                    async () => ({
-                      kind: 'single',
-                      source: 'microphone',
-                      session: await startRecording(),
-                    }),
-                    SOURCE_LABELS.microphone.failure,
-                  )
-                }
-              >
-                Microphone
-              </button>
-            )}
-            {screenSupported && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  // The share-ended hook routes through stopRef so the
-                  // browser's "stop sharing" concludes the then-current
-                  // capture exactly as the Stop button would.
-                  void begin(
-                    async () => ({
-                      kind: 'single',
-                      source: 'screen',
-                      session: await startScreenCapture(() => stopRef.current()),
-                    }),
-                    SOURCE_LABELS.screen.failure,
-                  )
-                }
-              >
-                Screen
-              </button>
-            )}
-            {supported && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  void begin(
-                    async () => ({
-                      kind: 'single',
-                      source: 'webcam',
-                      session: await startWebcamCapture(),
-                    }),
-                    SOURCE_LABELS.webcam.failure,
-                  )
-                }
-              >
-                Webcam
-              </button>
-            )}
-            {screenCameraSupported && onRecordedPair !== undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  void begin(
-                    async () => ({
-                      kind: 'pair',
-                      session: await startScreenCameraCapture(() => stopRef.current()),
-                    }),
-                    PAIR_LABELS.failure,
-                  )
-                }
-              >
-                Screen + camera
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      <Menu label="Record" menuLabel="Recording sources" items={sources} className="record-control" />
       {capture !== null && (
         <div className="dialog-overlay">
           <div role="dialog" aria-modal="true" aria-labelledby={headingId} className="dialog">

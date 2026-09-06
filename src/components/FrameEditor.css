@@ -1,0 +1,141 @@
+/* The frame editor (#413): a still of the frame at the output aspect with an
+   SVG handle layer over it, and the zoom editor panel that hosts it. */
+
+.frame-editor {
+  width: 100%;
+  max-width: 28rem;
+}
+
+/* The frame's box is what pointer fractions are measured against, so the
+   image fills it exactly and the handle layer covers it exactly. */
+.frame-editor-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--frame-editor-aspect, 16 / 9);
+  background: #000;
+  /* A shadow, not a border: the frame's border box is then its padding
+     box, so a pointer fraction measured against getBoundingClientRect()
+     maps exactly onto the image and the handle layer beneath it. */
+  box-shadow: 0 0 0 1px #444;
+  border-radius: 4px;
+  overflow: hidden;
+  /* Dragging must never scroll the panel or select text under the pointer. */
+  touch-action: none;
+  user-select: none;
+}
+
+.frame-editor-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.frame-editor-pending,
+.frame-editor-error {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.frame-editor-error {
+  color: #f0a0a0;
+}
+
+.frame-editor-handles {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+}
+
+.frame-editor-shade {
+  fill: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.frame-editor-rect {
+  fill: rgba(255, 255, 255, 0.04);
+  stroke: #ffd166;
+  stroke-width: 2;
+  cursor: move;
+}
+
+.frame-editor-corner {
+  fill: #ffd166;
+  stroke: #222;
+  stroke-width: 1;
+}
+
+.frame-editor-corner-nw,
+.frame-editor-corner-se {
+  cursor: nwse-resize;
+}
+
+.frame-editor-corner-ne,
+.frame-editor-corner-sw {
+  cursor: nesw-resize;
+}
+
+.frame-editor-dragging,
+.frame-editor-dragging .frame-editor-rect,
+.frame-editor-dragging .frame-editor-corner {
+  cursor: grabbing;
+}
+
+/* The zoom editor: an inline panel under its zoom's row of fields, so it is
+   anchored to the row it edits, never overlaps a neighbour, and needs no
+   viewport arithmetic inside a scrolling panel. */
+.zoom-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.5rem;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  max-width: 30rem;
+}
+
+.zoom-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.zoom-editor-header button {
+  min-width: 2rem;
+}
+
+/* The live readout mirrors the row's numbers while a drag is in progress. */
+.zoom-editor-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-editor-readout output {
+  color: #eee;
+}
+
+.zoom-editor-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #888;
+}

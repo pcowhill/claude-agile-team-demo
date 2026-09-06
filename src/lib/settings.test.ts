@@ -50,6 +50,7 @@ describe('settings defaults (#286)', () => {
       stillDurationSeconds: DEFAULT_STILL_DURATION,
       sessionRestore: 'ask',
       exportFormat: 'webm',
+      visualEditors: true,
     })
   })
 
@@ -80,6 +81,7 @@ describe('settings validation (#286)', () => {
     stillDurationSeconds: 10,
     sessionRestore: 'never',
     exportFormat: 'mp4',
+    visualEditors: false,
   }
 
   it('keeps every recognized stored value', () => {
@@ -112,7 +114,16 @@ describe('settings validation (#286)', () => {
       stillDurationSeconds: DEFAULT_SETTINGS.stillDurationSeconds,
       sessionRestore: DEFAULT_SETTINGS.sessionRestore,
       exportFormat: 'mp4',
+      visualEditors: DEFAULT_SETTINGS.visualEditors,
     })
+  })
+
+  it('reads the visual-editors switch, and a store from before it existed means on (#413)', () => {
+    expect(parseSettings({ ...stored, visualEditors: false }).visualEditors).toBe(false)
+    expect(parseSettings({ ...stored, visualEditors: true }).visualEditors).toBe(true)
+    const { visualEditors: _dropped, ...older } = stored
+    expect(parseSettings(older).visualEditors).toBe(true)
+    expect(parseSettings({ ...stored, visualEditors: 'off' }).visualEditors).toBe(true)
   })
 
   it('keeps an export format this browser cannot currently offer', () => {
