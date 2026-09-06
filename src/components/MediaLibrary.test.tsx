@@ -10,6 +10,19 @@ import type { SavePort } from '../lib/saveProject'
 import { peaksForClip } from '../lib/audioPeaks'
 import { thumbnailForTrim } from '../lib/thumbnails'
 import { chooseFromFileMenu } from '../test/fileMenu'
+import {
+  chooseClipAction,
+  chooseView,
+  closeClipMenu,
+  openClipMenu,
+  clipMenuItem,
+  closeViewMenu,
+  queryClipMenuItem,
+  querySortGroup,
+  sortClipsBy,
+  sortMenuItem,
+  viewMenuItem,
+} from '../test/clipMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -175,9 +188,7 @@ describe('audio import (#101)', () => {
     )
     await screen.findByText('voiceover.wav')
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Remove voiceover.wav from library' }),
-    )
+    await chooseClipAction('voiceover.wav', 'Remove')
     await userEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }),
     )
@@ -215,13 +226,13 @@ describe('audio extraction (#154)', () => {
     await screen.findByText('logo.png')
 
     expect(
-      screen.getByRole('button', { name: 'Extract audio from clip.mp4' }),
+      await clipMenuItem('clip.mp4', 'Extract audio'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Extract audio from music.mp3' }),
+      await queryClipMenuItem('music.mp3', 'Extract audio'),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Extract audio from logo.png' }),
+      await queryClipMenuItem('logo.png', 'Extract audio'),
     ).not.toBeInTheDocument()
   })
 
@@ -240,7 +251,7 @@ describe('audio extraction (#154)', () => {
     await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('clip.mp4'))
     await screen.findByText('clip.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from clip.mp4' }))
+    await chooseClipAction('clip.mp4', 'Extract audio')
 
     // The new clip lists as ordinary audio: badge, duration, source name.
     const list = screen.getByRole('list', { name: 'Imported clips' })
@@ -250,12 +261,12 @@ describe('audio extraction (#154)', () => {
     expect(extracted.querySelector('.clip-kind')).toHaveClass('clip-kind-audio')
     // Being audio, it has no extract button of its own.
     expect(
-      screen.queryByRole('button', { name: 'Extract audio from clip.mp4 (audio)' }),
+      await queryClipMenuItem('clip.mp4 (audio)', 'Extract audio'),
     ).not.toBeInTheDocument()
 
     // Removing the source video leaves the extracted clip playable: it stays
     // listed and only the video's own URL is revoked.
-    await userEvent.click(screen.getByRole('button', { name: 'Remove clip.mp4 from library' }))
+    await chooseClipAction('clip.mp4', 'Remove')
     await userEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }),
     )
@@ -279,7 +290,7 @@ describe('audio extraction (#154)', () => {
     await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('clip.mp4'))
     await screen.findByText('clip.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from clip.mp4' }))
+    await chooseClipAction('clip.mp4', 'Extract audio')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Could not extract the audio from "clip.mp4".',
@@ -340,7 +351,7 @@ describe('image import (#137)', () => {
     ).toHaveValue(5)
     // Images can still be removed like any clip.
     expect(
-      screen.getByRole('button', { name: 'Remove logo.png from library' }),
+      await clipMenuItem('logo.png', 'Remove'),
     ).toBeInTheDocument()
   })
 
@@ -374,7 +385,7 @@ describe('media library clip removal', () => {
     render(<App />)
     await importClip('keepsake.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove keepsake.mp4 from library' }))
+    await chooseClipAction('keepsake.mp4', 'Remove')
 
     const dialog = screen.getByRole('dialog', { name: 'Remove keepsake.mp4?' })
     // Focus moved into the dialog, onto the safe action.
@@ -392,7 +403,7 @@ describe('media library clip removal', () => {
   it('cancel button and Escape both close the dialog without removing anything', async () => {
     render(<App />)
     await importClip('safe.mp4')
-    const removeButton = screen.getByRole('button', { name: 'Remove safe.mp4 from library' })
+    const removeButton = await clipMenuItem('safe.mp4', 'Remove')
 
     await userEvent.click(removeButton)
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -418,7 +429,7 @@ describe('media library clip removal', () => {
     const sequence = screen.getByRole('list', { name: 'Sequence' })
     expect(within(sequence).getAllByRole('listitem')).toHaveLength(3)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove used.mp4 from library' }))
+    await chooseClipAction('used.mp4', 'Remove')
     const dialog = screen.getByRole('dialog', { name: 'Remove used.mp4?' })
     expect(dialog).toHaveTextContent('This also removes all 2 timeline entries')
 
@@ -432,7 +443,7 @@ describe('media library clip removal', () => {
     render(<App />)
     await importClip('unused.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove unused.mp4 from library' }))
+    await chooseClipAction('unused.mp4', 'Remove')
     const dialog = screen.getByRole('dialog', { name: 'Remove unused.mp4?' })
     expect(dialog).not.toHaveTextContent('timeline')
     expect(dialog).toHaveTextContent('The clip will be removed from the media library.')
@@ -452,13 +463,15 @@ describe('sorting (#123)', () => {
       .getAllByRole('listitem')
       .map((item) => item.querySelector('.clip-name')!.textContent)
 
-  it('shows the controls only once there are at least two clips', async () => {
+  it('offers the keys only once there are at least two clips', async () => {
+    // The sort keys live in View ▾ since #416, under the same condition the
+    // standalone cluster rendered under: more than one clip.
     render(<App />)
-    expect(screen.queryByRole('group', { name: 'Sort clips' })).not.toBeInTheDocument()
+    expect(await querySortGroup()).toBeNull()
     await importAs('one.mp4', 'video', 5)
-    expect(screen.queryByRole('group', { name: 'Sort clips' })).not.toBeInTheDocument()
+    expect(await querySortGroup()).toBeNull()
     await importAs('two.mp4', 'video', 5)
-    expect(screen.getByRole('group', { name: 'Sort clips' })).toBeInTheDocument()
+    expect(await querySortGroup()).not.toBeNull()
   })
 
   it('sorts by each key, marks the active key and direction, and reverses on repeat', async () => {
@@ -467,26 +480,30 @@ describe('sorting (#123)', () => {
     await importAs('mango.mp3', 'audio', 90)
     await importAs('apple.mp4', 'video', 3)
 
-    const nameButton = screen.getByRole('button', { name: 'Sort by name' })
-    await userEvent.click(nameButton)
+    // The keys are View ▾ items since #416, so each read re-opens the menu
+    // rather than holding an element across renders; the active key is
+    // `aria-checked` where it was `aria-pressed`, and carries the same arrow.
+    await sortClipsBy('Name')
     expect(listedNames()).toEqual(['apple.mp4', 'mango.mp3', 'zebra.mp4'])
-    expect(nameButton).toHaveAttribute('aria-pressed', 'true')
-    expect(nameButton).toHaveTextContent('Name ↑')
+    expect(await sortMenuItem('Name')).toHaveAttribute('aria-checked', 'true')
+    expect(await sortMenuItem('Name')).toHaveTextContent('Name ↑')
+    await closeViewMenu()
 
     // The same key again reverses; the indicator follows.
-    await userEvent.click(nameButton)
+    await sortClipsBy('Name')
     expect(listedNames()).toEqual(['zebra.mp4', 'mango.mp3', 'apple.mp4'])
-    expect(nameButton).toHaveTextContent('Name ↓')
+    expect(await sortMenuItem('Name')).toHaveTextContent('Name ↓')
+    await closeViewMenu()
 
     // Length sorts numerically and takes the active marker over.
-    const lengthButton = screen.getByRole('button', { name: 'Sort by length' })
-    await userEvent.click(lengthButton)
+    await sortClipsBy('Length')
     expect(listedNames()).toEqual(['apple.mp4', 'zebra.mp4', 'mango.mp3'])
-    expect(lengthButton).toHaveAttribute('aria-pressed', 'true')
-    expect(lengthButton).toHaveTextContent('Length ↑')
-    expect(nameButton).toHaveAttribute('aria-pressed', 'false')
-    expect(nameButton).toHaveTextContent('Name')
-    expect(nameButton).not.toHaveTextContent('↓')
+    expect(await sortMenuItem('Length')).toHaveAttribute('aria-checked', 'true')
+    expect(await sortMenuItem('Length')).toHaveTextContent('Length ↑')
+    expect(await sortMenuItem('Name')).toHaveAttribute('aria-checked', 'false')
+    expect(await sortMenuItem('Name')).toHaveTextContent('Name')
+    expect(await sortMenuItem('Name')).not.toHaveTextContent('↓')
+    await closeViewMenu()
   })
 
   it("carries the previous sort over as tie order (the customer's example)", async () => {
@@ -496,11 +513,11 @@ describe('sorting (#123)', () => {
     await importAs('apple.mp4', 'video', 10)
     await importAs('banana.mp3', 'audio', 10)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by name' }))
+    await sortClipsBy('Name')
     expect(listedNames()).toEqual(['apple.mp4', 'banana.mp3', 'mango.mp3', 'zebra.mp4'])
 
     // By type: videos grouped first, each group still alphabetical.
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by type' }))
+    await sortClipsBy('Type')
     expect(listedNames()).toEqual(['apple.mp4', 'zebra.mp4', 'banana.mp3', 'mango.mp3'])
   })
 })
@@ -590,7 +607,7 @@ describe('media library multi-select (#292)', () => {
       ['kiwi.mp4', 'video'],
     ])
     // Display order becomes apple, kiwi, mango, zebra.
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by name' }))
+    await sortClipsBy('Name')
 
     await userEvent.click(rowBox('kiwi.mp4'))
     fireEvent.click(rowBox('zebra.mp4'), { shiftKey: true })
@@ -648,7 +665,7 @@ describe('media library multi-select (#292)', () => {
     await userEvent.click(selectAll())
     expect(bar()).toHaveTextContent('2 selected')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await chooseClipAction('a.mp4', 'Remove')
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
 
     expect(bar()).toHaveTextContent('1 selected')
@@ -696,43 +713,42 @@ describe('media library thumbnail view (#311)', () => {
     }
   }
 
-  const viewButton = (label: string) => screen.getByRole('button', { name: label })
   const clipList = () => screen.getByRole('list', { name: 'Imported clips' })
   const items = () => within(clipList()).getAllByRole('listitem')
-  const showThumbnails = async () => userEvent.click(viewButton('Thumbnail view'))
+  const showThumbnails = async () => chooseView('Thumbnails')
 
-  it('offers both views with the active one pressed, and defaults to the list', async () => {
+  it('offers both views with the active one checked, and defaults to the list', async () => {
     render(<App />)
     await importClips([['a.mp4', 'video']])
 
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'false')
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'true')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'false')
     expect(clipList()).not.toHaveClass('clip-list-thumbnails')
     expect(items()[0]).not.toHaveClass('clip-item-card')
 
     await showThumbnails()
 
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'false')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'true')
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'false')
     expect(clipList()).toHaveClass('clip-list-thumbnails')
     expect(items()[0]).toHaveClass('clip-item-card')
   })
 
-  it('offers the toggle before anything is imported', async () => {
+  it('offers the choice before anything is imported', async () => {
     render(<App />)
     // The preference can be set on an empty library, so the header does not
     // reflow when the first clip lands.
-    expect(viewButton('Thumbnail view')).toBeInTheDocument()
+    expect(await viewMenuItem('Thumbnails')).toBeInTheDocument()
     // Asserted, not assumed: this test used to run in Thumbnail view
     // already, left there by the test above through the shared jsdom store,
-    // so its click landed on the button that was pressed and it proved
-    // nothing about switching (#345).
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+    // so its click landed on the choice that was already active and it
+    // proved nothing about switching (#345).
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'true')
 
     await showThumbnails()
 
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'false')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'true')
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'false')
   })
 
   it('remembers the chosen view across mounts, per browser', async () => {
@@ -747,15 +763,15 @@ describe('media library thumbnail view (#311)', () => {
     unmount()
     const remounted = render(<App layoutStorage={storage} />)
     await importClips([['a.mp4', 'video']])
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'true')
     expect(clipList()).toHaveClass('clip-list-thumbnails')
 
     // And the way back is remembered too, not just the way there.
-    await userEvent.click(viewButton('List view'))
+    await chooseView('List')
     remounted.unmount()
     render(<App layoutStorage={storage} />)
     await importClips([['a.mp4', 'video']])
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'true')
     expect(clipList()).not.toHaveClass('clip-list-thumbnails')
   })
 
@@ -875,22 +891,23 @@ describe('media library thumbnail view (#311)', () => {
     ])
     await showThumbnails()
 
-    // The full set on a video.
-    for (const name of [
-      'Add a.mp4 to timeline',
-      'Add a.mp4 as overlay',
-      'Extract audio from a.mp4',
-      'Remove a.mp4 from library',
-      'Select a.mp4',
-    ]) {
-      expect(screen.getByRole(name.startsWith('Select') ? 'checkbox' : 'button', { name })).toBeInTheDocument()
+    // The full set on a video: the inline controls under their per-clip
+    // names, and the rest under the row's ⋯ (#416) — which is itself named
+    // for the clip, so a card and a row still offer identical names.
+    expect(screen.getByRole('button', { name: 'Add a.mp4 to timeline' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview a.mp4' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select a.mp4' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions for a.mp4' })).toBeInTheDocument()
+    for (const item of ['Add as overlay', 'Extract audio', 'Rename…', 'Remove']) {
+      expect(await clipMenuItem('a.mp4', item)).toBeInTheDocument()
     }
+    await closeClipMenu('a.mp4')
     // And the same per-kind exclusions as a row: audio has no picture to
     // overlay, only a video has audio to pull out.
-    expect(screen.queryByRole('button', { name: 'Add b.mp3 as overlay' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Add c.png as overlay' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Extract audio from b.mp3' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Extract audio from c.png' })).toBeNull()
+    expect(await queryClipMenuItem('b.mp3', 'Add as overlay')).toBeNull()
+    expect(await clipMenuItem('c.png', 'Add as overlay')).toBeInTheDocument()
+    expect(await queryClipMenuItem('b.mp3', 'Extract audio')).toBeNull()
+    expect(await queryClipMenuItem('c.png', 'Extract audio')).toBeNull()
   })
 
   it('the card actions do the work: Add, Overlay, Extract audio and Remove', async () => {
@@ -909,10 +926,10 @@ describe('media library thumbnail view (#311)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('a.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
     expect(screen.getByRole('list', { name: 'Overlay layers' })).toHaveTextContent('a.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Extract audio from a.mp4' }))
+    await chooseClipAction('a.mp4', 'Extract audio')
     expect(await screen.findByText('a.mp4 (audio)')).toBeInTheDocument()
     // The extracted clip is a card of its own, in the same grid.
     expect(items()).toHaveLength(2)
@@ -920,7 +937,7 @@ describe('media library thumbnail view (#311)', () => {
 
     // Remove still confirms first, and the confirmation still names the
     // timeline items it takes with it.
-    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await chooseClipAction('a.mp4', 'Remove')
     const confirmation = screen.getByRole('dialog', { name: 'Remove a.mp4?' })
     expect(confirmation).toHaveTextContent('timeline entries')
     await userEvent.click(within(confirmation).getByRole('button', { name: 'Remove' }))
@@ -930,7 +947,8 @@ describe('media library thumbnail view (#311)', () => {
     expect(items()).toHaveLength(1)
     expect(items()[0]).toHaveTextContent('a.mp4 (audio)')
     expect(items()[0]).toHaveClass('clip-item-card')
-    expect(screen.queryByRole('button', { name: 'Remove a.mp4 from library' })).toBeNull()
+    // The removed clip has no row at all, so not even its ⋯ is there.
+    expect(screen.queryByRole('button', { name: 'More actions for a.mp4' })).toBeNull()
     expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
   })
 
@@ -986,18 +1004,28 @@ describe('media library thumbnail view (#311)', () => {
     // List view first, and asserted to be List view — the row half of this
     // test is only evidence if the app really is in it (#342 criterion 3).
     expect(items()[0]).not.toHaveClass('clip-item-card')
-    const rowControls = controlNames(items()[0])
-    expect(rowControls[0]).toBe('Select a.mp4')
+    // The whole order since #416, not just its first element: checkbox,
+    // then the two inline actions, then ⋯ last. A closed menu renders only
+    // its trigger, so the row's controls are exactly these four.
+    expect(controlNames(items()[0])).toEqual([
+      'Select a.mp4',
+      'Preview a.mp4',
+      'Add a.mp4 to timeline',
+      'More actions for a.mp4',
+    ])
 
     await showThumbnails()
     expect(items()[0]).toHaveClass('clip-item-card')
 
     for (const [index, name] of ['a.mp4', 'b.mp3'].entries()) {
-      const cardControls = controlNames(items()[index])
-      expect(cardControls[0]).toBe(`Select ${name}`)
-      // Discriminating: the card really does have actions after it, so
-      // "first" is a statement about order and not about an only child.
-      expect(cardControls.length).toBeGreaterThan(1)
+      // Identical order in the card, which is what "identical names in both
+      // views" (#311) means for the keyboard.
+      expect(controlNames(items()[index])).toEqual([
+        `Select ${name}`,
+        `Preview ${name}`,
+        `Add ${name} to timeline`,
+        `More actions for ${name}`,
+      ])
     }
 
     // The same fact stated as the DOM relation the focus order follows from,
@@ -1005,7 +1033,11 @@ describe('media library thumbnail view (#311)', () => {
     const card = items()[0]
     const checkbox = card.querySelector('.clip-select')!
     const addButton = within(card).getByRole('button', { name: 'Add a.mp4 to timeline' })
+    const moreButton = within(card).getByRole('button', { name: 'More actions for a.mp4' })
     expect(checkbox.compareDocumentPosition(addButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(addButton.compareDocumentPosition(moreButton)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
     // And the checkbox still works from its new position.
@@ -1023,7 +1055,7 @@ describe('media library thumbnail view (#311)', () => {
     await showThumbnails()
     expect(items()[0]).toHaveClass('clip-item-card')
 
-    await userEvent.click(viewButton('List view'))
+    await chooseView('List')
 
     expect(clipList()).not.toHaveClass('clip-list-thumbnails')
     for (const item of items()) expect(item).not.toHaveClass('clip-item-card')
@@ -1055,17 +1087,18 @@ describe('renaming library clips (#404)', () => {
     await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile(name))
     await screen.findByRole('button', { name: `Add ${name} to timeline` })
   }
-  const renameButton = (name: string) => screen.getByRole('button', { name: `Rename ${name}` })
+  // Renaming is ⋯ → Rename… since #416; what it opens is unchanged.
+  const startRename = (name: string) => chooseClipAction(name, 'Rename…')
   const nameField = (name: string) => screen.getByRole('textbox', { name: `New name for ${name}` })
   const libraryNames = () =>
     within(screen.getByRole('list', { name: 'Imported clips' }))
       .getAllByRole('listitem')
       .map((item) => item.querySelector('.clip-name')?.textContent)
 
-  it('renames through the ✎ and Enter; every label and the removal confirmation follow', async () => {
+  it('renames through ⋯ → Rename… and Enter; every label and the removal confirmation follow', async () => {
     render(<App />)
     await importVideo('holiday.mp4')
-    await userEvent.click(renameButton('holiday.mp4'))
+    await startRename('holiday.mp4')
     const field = nameField('holiday.mp4')
     expect(field).toHaveValue('holiday.mp4')
     expect(field).toHaveFocus()
@@ -1076,10 +1109,10 @@ describe('renaming library clips (#404)', () => {
     expect(screen.getByRole('button', { name: 'Add Intro take to timeline' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Preview Intro take' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Select Intro take' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Rename Intro take' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions for Intro take' })).toBeInTheDocument()
     // The name's tooltip still tells which file this is.
     expect(screen.getByText('Intro take')).toHaveAttribute('title', 'Intro take (file: holiday.mp4)')
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Intro take from library' }))
+    await chooseClipAction('Intro take', 'Remove')
     expect(screen.getByRole('dialog', { name: 'Remove Intro take?' })).toBeInTheDocument()
   })
 
@@ -1090,7 +1123,7 @@ describe('renaming library clips (#404)', () => {
     // comparing the library array identity through what Save sees: the
     // indicator is up either way, so assert on the rename's visible effect
     // plus that nothing else changed (one clip, still a video).
-    await userEvent.click(renameButton('holiday.mp4'))
+    await startRename('holiday.mp4')
     await userEvent.keyboard('Intro{Enter}')
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
     expect(libraryNames()).toEqual(['Intro'])
@@ -1099,8 +1132,8 @@ describe('renaming library clips (#404)', () => {
   it('commits on blur in the thumbnail view, and Escape cancels', async () => {
     render(<App />)
     await importVideo('holiday.mp4')
-    await userEvent.click(screen.getByRole('button', { name: 'Thumbnail view' }))
-    await userEvent.click(renameButton('holiday.mp4'))
+    await chooseView('Thumbnails')
+    await startRename('holiday.mp4')
     const field = nameField('holiday.mp4')
     await userEvent.clear(field)
     await userEvent.type(field, 'Card name')
@@ -1108,7 +1141,7 @@ describe('renaming library clips (#404)', () => {
     expect(libraryNames()).toEqual(['Card name'])
     expect(screen.getByRole('button', { name: 'Add Card name to timeline' })).toBeInTheDocument()
 
-    await userEvent.click(renameButton('Card name'))
+    await startRename('Card name')
     await userEvent.keyboard('Nope{Escape}')
     expect(libraryNames()).toEqual(['Card name'])
     expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
@@ -1117,7 +1150,7 @@ describe('renaming library clips (#404)', () => {
   it('an empty or whitespace-only name reverts', async () => {
     render(<App />)
     await importVideo('holiday.mp4')
-    await userEvent.click(renameButton('holiday.mp4'))
+    await startRename('holiday.mp4')
     await userEvent.clear(nameField('holiday.mp4'))
     await userEvent.keyboard('   {Enter}')
     expect(libraryNames()).toEqual(['holiday.mp4'])
@@ -1128,7 +1161,7 @@ describe('renaming library clips (#404)', () => {
     render(<App />)
     await importVideo('holiday.mp4')
     await userEvent.click(screen.getByRole('button', { name: 'Add holiday.mp4 to timeline' }))
-    await userEvent.click(renameButton('holiday.mp4'))
+    await startRename('holiday.mp4')
     await userEvent.keyboard('Intro{Enter}')
     await userEvent.click(screen.getByRole('button', { name: 'Add Intro to timeline' }))
     const sequenceNames = within(screen.getByRole('list', { name: 'Sequence' }))
@@ -1155,7 +1188,7 @@ describe('renaming library clips (#404)', () => {
     }
     render(<App savePort={savePort} />)
     await importVideo('holiday.mp4')
-    await userEvent.click(renameButton('holiday.mp4'))
+    await startRename('holiday.mp4')
     await userEvent.keyboard('Intro{Enter}')
     await chooseFromFileMenu('Save As…')
     const modeDialog = await screen.findByRole('dialog', { name: 'Save project' })
@@ -1172,27 +1205,93 @@ describe('renaming library clips (#404)', () => {
 })
 
 describe('test storage isolation (#345)', () => {
-  const viewButton = (label: string) => screen.getByRole('button', { name: label })
-
   it('leaves a remembered Thumbnail view behind in the shared store', async () => {
     render(<App />)
-    await userEvent.click(viewButton('Thumbnail view'))
+    await chooseView('Thumbnails')
 
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'true')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'true')
     // In the real jsdom store, not an injected one: this is the residue the
     // next test must not see.
     expect(localStorage.getItem(LIBRARY_VIEW_KEY)).toBe('thumbnails')
   })
 
-  it('starts the next test in List view, with the store already empty', () => {
+  it('starts the next test in List view, with the store already empty', async () => {
     // Read before rendering. Nothing in this test has written yet, so a
     // value here could only have come from a previous test.
     expect(localStorage.getItem(LIBRARY_VIEW_KEY)).toBeNull()
 
     render(<App />)
 
-    expect(viewButton('List view')).toHaveAttribute('aria-pressed', 'true')
-    expect(viewButton('Thumbnail view')).toHaveAttribute('aria-pressed', 'false')
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'true')
+    expect(await viewMenuItem('Thumbnails')).toHaveAttribute('aria-checked', 'false')
+  })
+})
+
+describe('the row menu and View ▾ (#416)', () => {
+  const importAs = async (name: string, kind: Kind) => {
+    probeMock.mockResolvedValueOnce(
+      kind === 'image'
+        ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
+        : { duration: 5, url: `blob:${name}`, kind },
+    )
+    await userEvent.upload(screen.getByTestId('clip-file-input'), fileOf(name, kind))
+    await screen.findByRole('button', { name: `Add ${name} to timeline` })
+  }
+
+  /** A panel's children in order, as either an item's label or a rule. */
+  const shapeOf = (menu: HTMLElement) =>
+    [...menu.children].map((child) =>
+      child.getAttribute('role') === 'separator' ? '—' : child.textContent,
+    )
+
+  it('groups the items and joins the groups only where both sides exist', async () => {
+    render(<App />)
+    await importAs('a.mp4', 'video')
+    await importAs('b.mp3', 'audio')
+    await importAs('c.png', 'image')
+
+    // A video has all three groups, so both rules appear.
+    expect(shapeOf(await openClipMenu('a.mp4'))).toEqual([
+      'Add as overlay',
+      'Extract audio',
+      '—',
+      'Rename…',
+      '—',
+      'Remove',
+    ])
+    // An image can be an overlay but has no audio to pull out.
+    expect(shapeOf(await openClipMenu('c.png'))).toEqual([
+      'Add as overlay',
+      '—',
+      'Rename…',
+      '—',
+      'Remove',
+    ])
+    // Audio has neither, so the menu opens on Rename… rather than on a
+    // separator with nothing above it — the reason the groups are joined
+    // rather than written out with fixed rules between them.
+    expect(shapeOf(await openClipMenu('b.mp3'))).toEqual(['Rename…', '—', 'Remove'])
+    await closeClipMenu('b.mp3')
+  })
+
+  it('offers the sort keys only inside View ▾, and the layout always', async () => {
+    render(<App />)
+    // With nothing imported the layout is still choosable — the preference
+    // could be set before the first import when it was a pair of buttons.
+    expect(await viewMenuItem('List')).toHaveAttribute('aria-checked', 'true')
+    expect(await viewMenuItem('Thumbnails')).toBeInTheDocument()
+    await closeViewMenu()
+    expect(await querySortGroup()).toBeNull()
+
+    await importAs('a.mp4', 'video')
+    await importAs('b.mp3', 'audio')
+    const sort = await querySortGroup()
+    expect(sort).not.toBeNull()
+    expect(within(sort!).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'Name',
+      'Type',
+      'Length',
+    ])
   })
 })
 
@@ -1218,7 +1317,7 @@ describe('media library batch Remove (#293)', () => {
     // Two of the three selected clips are on the timeline: the video twice
     // (a sequence entry and an overlay) and the audio once.
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
     await userEvent.click(screen.getByRole('button', { name: 'Add b.mp3 to timeline' }))
 
     await userEvent.click(selectAll())
@@ -1257,7 +1356,7 @@ describe('media library batch Remove (#293)', () => {
       ['keep.mp4', 'video'],
     ])
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
     await userEvent.click(screen.getByRole('button', { name: 'Add b.mp3 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add keep.mp4 to timeline' }))
 
@@ -1321,7 +1420,7 @@ describe('media library batch Remove (#293)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(selectAll())
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await chooseClipAction('a.mp4', 'Remove')
     expect(within(dialog()).getByRole('heading')).toHaveTextContent('Remove a.mp4?')
     expect(dialog()).toHaveTextContent('created from this clip.')
     await userEvent.click(confirm())

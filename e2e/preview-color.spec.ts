@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Per-clip color adjustments (#192): the preview element carries the
@@ -76,7 +77,7 @@ test('adjusting a clip sets the preview element filter; reset clears it', async 
   )
 
   // A video overlay filters its own element, independent of the base.
-  await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
   const saturation = page.getByRole('spinbutton', {
     name: 'Saturation of overlay cam.webm at position 1 (percent)',
   })

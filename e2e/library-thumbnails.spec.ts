@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectCovers, expectNoHorizontalScroll } from './layout'
 import { sineWav } from './sineWav'
+import { chooseView, expectViewChecked } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -81,15 +82,9 @@ test('thumbnail view grids square-ish cards showing each kind of media (#311)', 
   await expect(cards).toHaveCount(3)
 
   // The list is rows until the view is switched.
-  await expect(page.getByRole('button', { name: 'List view' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
-  await expect(page.getByRole('button', { name: 'Thumbnail view' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expectViewChecked(page, 'List')
+  await chooseView(page, 'Thumbnails')
+  await expectViewChecked(page, 'Thumbnails')
 
   // (a) Several cards per row: at least two share a row's top edge. This is
   // the claim a grid makes and a column list cannot.
@@ -177,10 +172,7 @@ test('thumbnail view grids square-ish cards showing each kind of media (#311)', 
 
   // The choice survives a reload — a per-browser preference (#128's idiom).
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Thumbnail view' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expectViewChecked(page, 'Thumbnails')
 })
 
 test('thumbnail view does not scroll the page sideways at a narrow viewport (#208)', async ({
@@ -200,7 +192,7 @@ test('thumbnail view does not scroll the page sideways at a narrow viewport (#20
 
   await expectNoHorizontalScroll(page, 'list view at 800px')
 
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   await expect(page.locator('.clip-item-card').first()).toBeVisible()
 
   // The grid's own min-content is what could floor the library column and
@@ -220,7 +212,7 @@ test('a card\'s checkbox comes first in the DOM and still sits over the picture 
   await page.getByTestId('clip-file-input').setInputFiles([
     { name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) },
   ])
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   await expect(page.locator('.clip-item-card').first()).toBeVisible()
 
   const checkbox = page.getByRole('checkbox', { name: 'Select logo.png' })
@@ -256,13 +248,21 @@ test('a card\'s checkbox comes first in the DOM and still sits over the picture 
   await expect(page.getByRole('toolbar', { name: 'Selected clips' })).toContainText('1 selected')
 
   // Keyboard reaches it before the card's actions, which is the point. The
-  // first action is the ✎ Rename beside the name (#404), ahead of the
-  // action cluster that Preview (#403) leads.
-  await page.keyboard.press('Tab')
-  const afterCheckbox = await page.evaluate(
-    () => document.activeElement?.getAttribute('aria-label') ?? null,
-  )
-  expect(afterCheckbox).toBe('Rename logo.png')
+  // first action is Preview (#403) — since #416 the name carries no button
+  // of its own, and the cluster is ▶ Preview, Add, then the ⋯ the rest
+  // moved into. Tabbed through in full, so this says "before the actions"
+  // about all of them rather than about whichever happens to be first.
+  for (const expected of [
+    'Preview logo.png',
+    'Add logo.png to timeline',
+    'More actions for logo.png',
+  ]) {
+    await page.keyboard.press('Tab')
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute('aria-label') ?? null,
+    )
+    expect(focused).toBe(expected)
+  }
 })
 
 test('the grid inherits the library\'s bounded height and internal scrolling (#308)', async ({
@@ -283,7 +283,7 @@ test('the grid inherits the library\'s bounded height and internal scrolling (#3
   const list = page.getByRole('list', { name: 'Imported clips' })
   await expect(list.getByRole('listitem')).toHaveCount(18)
 
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   await expect(page.locator('.clip-item-card').first()).toBeVisible()
 
   const metrics = await list.evaluate((element) => ({

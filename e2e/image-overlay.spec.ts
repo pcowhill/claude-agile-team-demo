@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -69,7 +70,7 @@ test('a still overlay renders above the base at its rectangle, with its alpha in
   await expect(
     page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
   ).toHaveCount(1)
-  await page.getByRole('button', { name: 'Add logo.png as overlay' }).click()
+  await chooseClipAction(page, 'logo.png', 'Add as overlay')
 
   // The Overlays lane lists it, with the still's own window control and no
   // audio controls at all.

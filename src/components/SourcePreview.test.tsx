@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
+import { chooseClipAction, chooseView } from '../test/clipMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -87,7 +88,7 @@ describe('source preview (#403)', () => {
     for (const name of ['holiday.mp4', 'tone.wav', 'logo.png']) {
       expect(previewButton(name)).toHaveTextContent('▶')
     }
-    await userEvent.click(screen.getByRole('button', { name: 'Thumbnail view' }))
+    await chooseView('Thumbnails')
     for (const name of ['holiday.mp4', 'tone.wav', 'logo.png']) {
       expect(previewButton(name)).toBeInTheDocument()
     }
@@ -173,7 +174,7 @@ describe('source preview (#403)', () => {
     await userEvent.click(previewButton('holiday.mp4'))
     expect(screen.getByTestId('source-preview')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove holiday.mp4 from library' }))
+    await chooseClipAction('holiday.mp4', 'Remove')
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
 
     expect(screen.queryByTestId('source-preview')).not.toBeInTheDocument()
@@ -213,7 +214,7 @@ describe('source preview (#403)', () => {
     expect(screen.getByTestId('source-preview')).toBeInTheDocument()
     await userEvent.click(screen.getByTestId('source-back'))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Thumbnail view' }))
+    await chooseView('Thumbnails')
     fireEvent.doubleClick(container.querySelector('.clip-card-picture')!)
     expect(screen.getByTestId('source-preview')).toBeInTheDocument()
   })

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
+import { chooseView } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -121,9 +122,9 @@ test('a video previews alone with its own transport, and the sequence comes back
 
   // The row action, in both views (new visible surface, both layouts).
   await expectActionFits(page, 'clip.webm', 'list')
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   await expectActionFits(page, 'clip.webm', 'thumbnails')
-  await page.getByRole('button', { name: 'List view' }).click()
+  await chooseView(page, 'List')
 
   await page.getByRole('button', { name: 'Preview clip.webm' }).click()
   await blurActive(page)

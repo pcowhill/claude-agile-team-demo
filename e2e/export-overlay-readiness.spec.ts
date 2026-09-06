@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -101,7 +102,7 @@ test('an overlay layer stays in the export while its element cannot supply a fra
   })
   await transitionDuration.fill('0.5')
   await transitionDuration.blur()
-  await page.getByRole('button', { name: 'Add over.webm as overlay' }).click()
+  await chooseClipAction(page, 'over.webm', 'Add as overlay')
   await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
 
   const overlayUrl = await page

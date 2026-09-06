@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -91,7 +92,7 @@ test('an ellipse mask cuts the overlay corners to the base; Rectangle restores t
   await page
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'cam.webm', mimeType: 'video/webm', buffer: webm }])
-  await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
 
   // A paused seek inside the overlay's window; wait for a decodable frame.
   await page.getByRole('slider', { name: 'Seek within sequence' }).fill('0.5')

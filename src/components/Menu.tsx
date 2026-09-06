@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-import { placementFor } from '../lib/menuPlacement'
+import { boundsOf, placementFor } from '../lib/menuPlacement'
 import type { Placement } from '../lib/menuPlacement'
 import './Menu.css'
 
@@ -87,6 +87,13 @@ interface MenuProps {
   items: readonly MenuItem[]
   /** Overrides the trigger's accessible name (a compact icon trigger, say). */
   ariaLabel?: string
+  /**
+   * Whether the trigger shows the ▾ caret. On by default — a labelled
+   * trigger ("File", "Frame") needs the affordance. An icon trigger whose
+   * glyph already reads as "there is more here" (⋯) sets this false: "⋯ ▾"
+   * is two marks for one meaning.
+   */
+  caret?: boolean
   title?: string
   disabled?: boolean
   /** On the root wrapper — for positioning the whole control in its row. */
@@ -102,6 +109,27 @@ interface MenuProps {
  * about each other.
  */
 let closeOpenMenu: (() => void) | null = null
+
+/**
+ * The nearest ancestor that clips what overflows it, or null where nothing
+ * between the panel and the document does (#416).
+ *
+ * A panel is absolutely positioned inside its trigger's row, so a scrolling
+ * panel above it — the media library's clip list, the timeline's — is what
+ * cuts the panel off, not the window. `overflow` on either axis counts: a
+ * non-`visible` value on one axis makes the other clip too, which is why
+ * `overflow-y: auto` alone still cuts a panel off sideways. The document's
+ * own scrolling elements are not clippers; the viewport already bounds them.
+ */
+function clippingAncestorOf(panel: HTMLElement): HTMLElement | null {
+  const root = panel.ownerDocument.documentElement
+  for (let node = panel.parentElement; node !== null && node !== root; node = node.parentElement) {
+    if (node === panel.ownerDocument.body) continue
+    const style = getComputedStyle(node)
+    if (style.overflowX !== 'visible' || style.overflowY !== 'visible') return node
+  }
+  return null
+}
 
 /** Which of a panel's own items (not a nested submenu's) can take focus. */
 function focusableItemsOf(panel: HTMLElement): HTMLElement[] {
@@ -152,11 +180,16 @@ function MenuPanel({
     if (rect.width === 0 && rect.height === 0) return
     // Flip only when the other side actually has the room; otherwise the
     // natural side is the lesser evil. The arithmetic is `placementFor`,
-    // which knows a submenu flips against a different anchor edge (#430).
+    // which knows a submenu flips against a different anchor edge (#430)
+    // and stays inside whatever actually clips the panel — a scrolling
+    // ancestor where there is one, the viewport otherwise (#416).
     const next = placementFor(
       rect,
       panel.parentElement?.getBoundingClientRect(),
-      { width: document.documentElement.clientWidth, height: window.innerHeight },
+      boundsOf(clippingAncestorOf(panel)?.getBoundingClientRect(), {
+        width: document.documentElement.clientWidth,
+        height: window.innerHeight,
+      }),
       submenu,
     )
     if (next.end || next.up) setPlacement(next)
@@ -168,7 +201,16 @@ function MenuPanel({
     if (panel === null) return
     const focusable = focusableItemsOf(panel)
     const target = initialFocus === 'last' ? focusable[focusable.length - 1] : focusable[0]
-    ;(target ?? panel).focus()
+    // `preventScroll`, because the flip above has already put the panel
+    // where it is visible and letting the browser scroll to it undoes that
+    // (#416). The placement runs in a layout effect and this one runs after
+    // paint, but React flushes a pending passive effect before the sync
+    // re-render the layout effect schedules — so without this the focus
+    // lands while the panel is still in its unflipped position and the
+    // nearest scrolling ancestor jumps to reveal it. Measured on the media
+    // library at 1280×720 with eight clips: the list scrolled 198px, taking
+    // the row out from under the pointer that had just opened the menu.
+    ;(target ?? panel).focus({ preventScroll: true })
   }, [initialFocus])
 
   const moveFocus = (to: 'next' | 'previous' | 'first' | 'last') => {
@@ -398,6 +440,7 @@ export function Menu({
   items,
   ariaLabel,
   title,
+  caret = true,
   disabled = false,
   className,
   triggerClassName,
@@ -466,9 +509,11 @@ export function Menu({
         }}
       >
         {label}
-        <span className="menu-caret" aria-hidden="true">
-          ▾
-        </span>
+        {caret && (
+          <span className="menu-caret" aria-hidden="true">
+            ▾
+          </span>
+        )}
       </button>
       {open && (
         <MenuPanel

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll } from './layout'
+import { openClipMenu } from './clipMenu'
 
 /**
  * Narrow-viewport width regression guard (#208). The app grid's `fr` tracks
@@ -68,15 +69,18 @@ test('no horizontal page scroll at an 800px viewport with a video clip in play (
   await expect(page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')).toHaveCount(1)
 
   // Every clip-row control is present and usable — shrinking must not cost
-  // any of them (#208 acceptance criteria).
-  for (const name of [
-    'Add my-vacation-video-part-1.webm to timeline',
-    'Add my-vacation-video-part-1.webm as overlay',
-    'Extract audio from my-vacation-video-part-1.webm',
-    'Remove my-vacation-video-part-1.webm from library',
-  ]) {
+  // any of them (#208 acceptance criteria). Since #416 that is the two
+  // inline actions plus the ⋯ the rest moved into, and the items inside it.
+  const clip = 'my-vacation-video-part-1.webm'
+  for (const name of [`Add ${clip} to timeline`, `Preview ${clip}`, `More actions for ${clip}`]) {
     await expect(page.getByRole('button', { name })).toBeVisible()
   }
+  const menu = await openClipMenu(page, clip)
+  for (const item of ['Add as overlay', 'Extract audio', 'Rename…', 'Remove']) {
+    await expect(menu.getByRole('menuitem', { name: item, exact: true })).toBeVisible()
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
 
   // The guard itself: the page lays out within the viewport instead of
   // scrolling horizontally. The shared assertion counts every overflowing

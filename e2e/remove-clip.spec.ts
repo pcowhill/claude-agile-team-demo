@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Records a real WebM in-browser (as in import.spec.ts / preview.spec.ts)
@@ -62,7 +63,7 @@ test('removing a clip asks for confirmation, cascades to its timeline entries, a
   await expect(sequence.getByRole('listitem')).toHaveCount(3)
 
   // Cancel path: Escape leaves everything untouched.
-  await page.getByRole('button', { name: 'Remove doomed.webm from library' }).click()
+  await chooseClipAction(page, 'doomed.webm', 'Remove')
   const dialog = page.getByRole('dialog', { name: 'Remove doomed.webm?' })
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('all 2 timeline entries')
@@ -72,7 +73,7 @@ test('removing a clip asks for confirmation, cascades to its timeline entries, a
   await expect(sequence.getByRole('listitem')).toHaveCount(3)
 
   // Cancel path: the Cancel button, likewise.
-  await page.getByRole('button', { name: 'Remove doomed.webm from library' }).click()
+  await chooseClipAction(page, 'doomed.webm', 'Remove')
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(library.getByRole('listitem')).toHaveCount(2)
@@ -81,7 +82,7 @@ test('removing a clip asks for confirmation, cascades to its timeline entries, a
   // and playback fails gracefully (the player pauses; no crash, no stuck UI).
   await page.getByRole('button', { name: 'Play preview' }).click()
   await expect(page.getByTestId('preview-now-playing')).toContainText('doomed.webm')
-  await page.getByRole('button', { name: 'Remove doomed.webm from library' }).click()
+  await chooseClipAction(page, 'doomed.webm', 'Remove')
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
 
   await expect(library.getByRole('listitem')).toHaveCount(1)

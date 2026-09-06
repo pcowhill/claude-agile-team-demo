@@ -13,41 +13,12 @@
 /* Sort controls (#123): compact toggles above the clip list; the active
    key shows its direction as an arrow (decorative — the accessible state is
    aria-pressed on the active button). */
-.clip-sort {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.clip-sort-label {
-  color: #999;
-}
-
-.clip-sort button {
+/* View ▾ (#416) holds what the sort cluster (#123) and the view toggle
+   (#311) used to spend five header controls on; the menu's own styling
+   (Menu.css) does the rest. */
+.library-view-menu button {
   font-size: 0.8rem;
   padding: 0.1rem 0.5rem;
-}
-
-.clip-sort button[aria-pressed='true'] {
-  border-color: #7e8cff;
-}
-
-/* View toggle (#311): the same compact, aria-pressed idiom as the sort
-   controls, so the two control clusters in the panel read alike. */
-.library-view-toggle {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.library-view-toggle button {
-  font-size: 0.8rem;
-  padding: 0.1rem 0.5rem;
-}
-
-.library-view-toggle button[aria-pressed='true'] {
-  border-color: #7e8cff;
 }
 
 .import-errors {
@@ -74,7 +45,7 @@
   /* A bounded library (#308): past about half the viewport the list stops
      growing and scrolls on its own instead of pushing the timeline down the
      page. Only a max-height — a short list stays exactly as tall as its
-     rows. Everything above the list (title, Import/Record, Sort by, the
+     rows. Everything above the list (title, Import/Record, View ▾, the
      selection header, import errors) is a sibling of the list, so it stays
      put while the list scrolls with no sticky positioning. */
   max-height: 50vh;
@@ -122,24 +93,38 @@
    The floor is the name's 5rem plus the button: below it the row wraps
    (as .clip-item allows) rather than the pair overflowing its slot under
    the badge beside it — which is exactly what the first browser run did. */
+/* The name's slot. Its floor was 7rem while the slot held the name *and*
+   the ✎ Rename beside it (#404); #416 moved rename into the row's ⋯, so the
+   floor is the name's own 5rem again. Those 2rem are what decides whether a
+   row fits on one line at the default width: measured at 1280px the row's
+   content has ~352px and wants ~320px with a 5rem floor, ~352px with a 7rem
+   one — exactly at the boundary, so the greedy floor tipped every row onto
+   a second line. */
 .clip-name-wrap {
   flex: 1;
-  min-width: 7rem;
+  min-width: 5rem;
   display: flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-.clip-rename {
-  min-width: 1.75rem;
-  flex-shrink: 0;
-  padding-left: 0.3rem;
-  padding-right: 0.3rem;
+/* A row's actions stay together when the row wraps (#416) — ▶ Preview, Add
+   and ⋯ read as one cluster, and a lone ⋯ on its own line reads as a
+   mistake. The card view has its own cluster (.clip-card-actions), which
+   wraps internally because a card is narrow on purpose. */
+.clip-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
 }
 
 /* The Preview action (#403): a compact icon button, so the row's action
-   cluster grows by a glyph's width rather than another word's. */
-.clip-preview {
+   cluster grows by a glyph's width rather than another word's. The row's
+   ⋯ trigger (#416) matches it — the two glyphs and the one word between
+   them are the whole cluster now. */
+.clip-preview,
+.clip-more > .menu-trigger {
   min-width: 2rem;
   padding-left: 0.45rem;
   padding-right: 0.45rem;

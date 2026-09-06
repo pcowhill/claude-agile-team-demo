@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -91,7 +92,7 @@ test('an ellipse mask cuts the exported overlay corners to the base (#267)', asy
   await page
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'cam.webm', mimeType: 'video/webm', buffer: webm }])
-  await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
 
   // The unmasked control: the card corner decodes as the overlay's own
   // green — the pixels the mask must cut away really are in the file.

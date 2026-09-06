@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -94,7 +95,7 @@ test('an exported still overlay shows its picture and its alpha (#295)', async (
   await page.getByTestId('clip-file-input').setInputFiles([
     { name: 'logo.png', mimeType: 'image/png', buffer: await makeHalfTransparentPng(page) },
   ])
-  await page.getByRole('button', { name: 'Add logo.png as overlay' }).click()
+  await chooseClipAction(page, 'logo.png', 'Add as overlay')
 
   // Inside the still's window (its default 5s length covers the whole
   // sequence), the card decodes as the picture over the base: green where

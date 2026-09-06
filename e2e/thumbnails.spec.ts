@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Clip thumbnails in the timeline (#193): a video entry gains a captured
@@ -120,7 +121,7 @@ test('an overlay row gains a captured thumbnail too', async ({ page }) => {
     buffer: await recordWebm(page),
   })
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+  await chooseClipAction(page, 'clip.webm', 'Add as overlay')
 
   const thumbnail = page.getByTestId('video-overlay-thumbnail-0')
   await expect(thumbnail).toBeVisible()
