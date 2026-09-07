@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -65,7 +66,7 @@ test('an overlay renders at its rectangle within the frame, only during its wind
   await expect(
     page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
   ).toHaveCount(1)
-  await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
 
   // The Overlays lane lists it with the default placement.
   await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
@@ -113,7 +114,7 @@ test('the frame takes the export aspect from the base sources, pinning overlays 
     page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
   ).toHaveCount(1)
   await page.getByRole('button', { name: 'Add base.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add base.webm as overlay' }).click()
+  await chooseClipAction(page, 'base.webm', 'Add as overlay')
 
   // The frame settles on the base video's own aspect (the export rule:
   // largest source dimensions — here the single 320×320 source), visibly

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseClipAction, chooseView, clipMenuTrigger } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -122,16 +123,13 @@ test('a renamed clip re-links from its original file, and keeps its name through
   // An element placed before the rename keeps the name it was placed with.
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
 
-  // Geometry (changed visible surface): the ✎ shares the name's line inside
-  // the row, and the field takes the name's place while editing.
-  const rename = page.getByRole('button', { name: 'Rename clip.webm', exact: true })
-  await expectWithin(rename, row, { what: 'rename button (list)' })
-  const nameBox = (await row.locator('.clip-name').boundingBox())!
-  const renameBox = (await rename.boundingBox())!
-  expect(Math.abs(renameBox.y + renameBox.height / 2 - (nameBox.y + nameBox.height / 2))).toBeLessThan(
-    renameBox.height / 2,
-  )
-  await rename.click()
+  // Geometry (changed visible surface): the ⋯ that rename moved into (#416)
+  // lies inside the row, and the field takes the name's place while
+  // editing. The old check here asserted the ✎ shared the *name's* line;
+  // that button is gone, and the row's actions now wrap as their own line
+  // by design — `library-menus.spec.ts` owns the row's line structure.
+  await expectWithin(clipMenuTrigger(page, 'clip.webm'), row, { what: 'row ⋯ (list)' })
+  await chooseClipAction(page, 'clip.webm', 'Rename…')
   const field = page.getByRole('textbox', { name: 'New name for clip.webm', exact: true })
   await expect(field).toBeFocused()
   await expectWithin(field, row, { what: 'rename field (list)' })
@@ -148,18 +146,18 @@ test('a renamed clip re-links from its original file, and keeps its name through
   ).toHaveText('clip.webm')
 
   // The card view: the same control fits the card.
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   const card = page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem').first()
-  await expectWithin(page.getByRole('button', { name: 'Rename Intro', exact: true }), card, {
-    what: 'rename button (card)',
+  await expectWithin(clipMenuTrigger(page, 'Intro'), card, {
+    what: 'card ⋯ (thumbnails)',
   })
-  await page.getByRole('button', { name: 'Rename Intro', exact: true }).click()
+  await chooseClipAction(page, 'Intro', 'Rename…')
   const cardField = page.getByRole('textbox', { name: 'New name for Intro', exact: true })
   await expectWithin(cardField, card, { what: 'rename field (card)' })
   await expectNoHorizontalScroll(page, 'mid-rename, thumbnail view')
   await cardField.press('Escape')
   await expect(card.locator('.clip-name')).toHaveText('Intro')
-  await page.getByRole('button', { name: 'List view' }).click()
+  await chooseView(page, 'List')
 
   // Autosave restore keeps the name: the snapshot lands, the page "crashes".
   await waitForSnapshot(page, 1)
@@ -218,7 +216,7 @@ test('a file that matches only the display name does not re-link a renamed clip 
   await page
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
-  await page.getByRole('button', { name: 'Rename clip.webm', exact: true }).click()
+  await chooseClipAction(page, 'clip.webm', 'Rename…')
   const field = page.getByRole('textbox', { name: 'New name for clip.webm', exact: true })
   await field.fill('Intro.webm')
   await field.press('Enter')

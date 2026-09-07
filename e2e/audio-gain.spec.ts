@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { sineWav } from './sineWav'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Volume, mute, and fades (#104): element-level volume is the executable
@@ -126,7 +127,7 @@ test('a video entry\'s audio fades drive its element volume, scrubbed and playin
 })
 
 test('an overlay video\'s audio fades drive its element volume (#220)', async ({ page }) => {
-  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+  await chooseClipAction(page, 'clip.webm', 'Add as overlay')
   const position = 'overlay clip.webm at position 1'
   await setField(page, `Audio fade-in of ${position} in seconds`, '1')
 

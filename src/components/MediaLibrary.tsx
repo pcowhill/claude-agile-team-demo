@@ -13,6 +13,8 @@ import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
+import { Menu } from './Menu'
+import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import './MediaLibrary.css'
 
@@ -92,10 +94,12 @@ const KIND_GLYPHS: Record<LibraryClip['kind'], string> = {
   image: '▣',
 }
 
-/** The two view choices, in header order, with their accessible names. */
+/** The two view choices, in menu order (#416). Named for their place in
+ * View ▾'s "View" group — the group's own label supplies the "view" the
+ * standalone buttons used to carry in their names. */
 const VIEW_CONTROLS: readonly { view: LibraryView; label: string }[] = [
-  { view: 'list', label: 'List view' },
-  { view: 'thumbnails', label: 'Thumbnail view' },
+  { view: 'list', label: 'List' },
+  { view: 'thumbnails', label: 'Thumbnails' },
 ]
 
 export function MediaLibrary({
@@ -172,6 +176,47 @@ export function MediaLibrary({
     onSortClips(key, direction)
   }
 
+  /**
+   * View ▾'s items (#416). Two radio groups: the layout, always offered,
+   * and the sort keys, offered only with more than one clip — the exact
+   * condition the standalone cluster rendered under. The sort group's
+   * checked option carries the direction arrow the pressed button used to
+   * show, `aria-hidden` as it was there, so the item's accessible name
+   * stays the bare key. With nothing sorted yet no option is checked, which
+   * is what no button being pressed meant.
+   */
+  const viewItems: MenuItem[] = [
+    {
+      kind: 'radio-group',
+      label: 'View',
+      value: view,
+      options: VIEW_CONTROLS.map((control) => ({ value: control.view, label: control.label })),
+      onChange: (value) => onSetView(value as LibraryView),
+    },
+    ...(library.clips.length > 1
+      ? ([
+          { kind: 'separator' },
+          {
+            kind: 'radio-group',
+            label: 'Sort by',
+            value: lastSort?.key ?? '',
+            options: SORT_CONTROLS.map(({ key, label }) => ({
+              value: key,
+              label: (
+                <>
+                  {label}
+                  {lastSort?.key === key && (
+                    <span aria-hidden="true"> {lastSort.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </>
+              ),
+            })),
+            onChange: (value) => handleSort(value as ClipSortKey),
+          },
+        ] satisfies MenuItem[])
+      : []),
+  ]
+
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     if (files.length > 0) onImportFiles(files)
@@ -216,9 +261,9 @@ export function MediaLibrary({
   const [renamingId, setRenamingId] = useState<string | null>(null)
 
   // Double-clicking the name previews the clip (#403), like the ▶ action
-  // below — the way a source monitor opens a clip in desktop editors. The
-  // ✎ beside it renames (#404); the field takes the name's slot, so the
-  // row's width does not change while editing.
+  // below — the way a source monitor opens a clip in desktop editors.
+  // Renaming (#404) is ⋯ → Rename… since #416; the field still takes the
+  // name's slot, so the row's width does not change while editing.
   const clipName = (clip: LibraryClip) => (
     <span className="clip-name-wrap">
       {renamingId === clip.id ? (
@@ -232,26 +277,13 @@ export function MediaLibrary({
           onCancel={() => setRenamingId(null)}
         />
       ) : (
-        <>
-          <span
-            className="clip-name"
-            title={clipFileName(clip) === clip.name ? clip.name : `${clip.name} (file: ${clipFileName(clip)})`}
-            onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
-          >
-            {clip.name}
-          </span>
-          {onRenameClip !== undefined && (
-            <button
-              type="button"
-              className="clip-rename"
-              aria-label={`Rename ${clip.name}`}
-              title="Rename this clip (the original filename is kept for re-linking)"
-              onClick={() => setRenamingId(clip.id)}
-            >
-              ✎
-            </button>
-          )}
-        </>
+        <span
+          className="clip-name"
+          title={clipFileName(clip) === clip.name ? clip.name : `${clip.name} (file: ${clipFileName(clip)})`}
+          onDoubleClick={onPreviewClip === undefined ? undefined : () => onPreviewClip(clip)}
+        >
+          {clip.name}
+        </span>
       )}
     </span>
   )
@@ -268,11 +300,64 @@ export function MediaLibrary({
     </span>
   )
 
+  /**
+   * A row's ⋯ items (#416, from the approved redesign #401 option L1 /
+   * feedback #395): everything that is not the primary action, grouped
+   * place-in-project · edit-identity · destructive. Each item is present
+   * exactly where its button was — no overlay for audio (it has no
+   * picture), no extract for anything but video (#154), no rename without
+   * App's wiring — and the groups are joined only where both sides exist,
+   * so an audio clip's menu opens on Rename… rather than on a separator.
+   */
+  const clipMenuItems = (clip: LibraryClip): MenuItem[] => {
+    // Video (#145) and images (#294) can layer above the sequence — a
+    // picture-in-picture, or a logo, watermark or sticker.
+    const place: MenuItem[] = []
+    if (clip.kind !== 'audio') {
+      place.push({
+        kind: 'action',
+        label: 'Add as overlay',
+        onSelect: () => onAddOverlay(clip),
+      })
+    }
+    if (clip.kind === 'video') {
+      place.push({
+        kind: 'action',
+        label: 'Extract audio',
+        onSelect: () => onExtractAudio(clip),
+      })
+    }
+    const identity: MenuItem[] =
+      onRenameClip === undefined
+        ? []
+        : [
+            {
+              kind: 'action',
+              label: 'Rename…',
+              title: 'Rename this clip (the original filename is kept for re-linking)',
+              onSelect: () => setRenamingId(clip.id),
+            },
+          ]
+    const destructive: MenuItem[] = [
+      {
+        kind: 'action',
+        label: 'Remove',
+        onSelect: () => setPendingRemoval({ kind: 'single', clip }),
+      },
+    ]
+    return [place, identity, destructive]
+      .filter((group) => group.length > 0)
+      .flatMap((group, index) =>
+        index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
+      )
+  }
+
   const clipActions = (clip: LibraryClip) => (
     <>
       {/* Preview (#403): the clip alone in the preview panel, nothing added
-          to the timeline. A compact icon button, pending the button
-          redesign the customer is deciding on (#401). */}
+          to the timeline. Stays inline through the redesign (#416):
+          auditioning is the frequent action the customer asked for, and
+          the plan's rule is frequent → visible. */}
       {onPreviewClip && (
         <button
           type="button"
@@ -284,8 +369,8 @@ export function MediaLibrary({
           ▶
         </button>
       )}
-      {/* Video and images join the sequence (#102, #140); audio joins the
-          audio lane. */}
+      {/* The primary action, and the only word left in the row: video and
+          images join the sequence (#102, #140), audio joins the audio lane. */}
       <button
         type="button"
         aria-label={`Add ${clip.name} to timeline`}
@@ -293,36 +378,19 @@ export function MediaLibrary({
       >
         Add
       </button>
-      {/* Video (#145) and images (#294) can layer above the sequence — a
-          picture-in-picture, or a logo, watermark or sticker. Audio cannot:
-          it has no picture. */}
-      {clip.kind !== 'audio' && (
-        <button
-          type="button"
-          aria-label={`Add ${clip.name} as overlay`}
-          onClick={() => onAddOverlay(clip)}
-        >
-          Overlay
-        </button>
-      )}
-      {/* Only a video has audio to pull out (#154): the extracted clip
-          appears in this list as ordinary audio. */}
-      {clip.kind === 'video' && (
-        <button
-          type="button"
-          aria-label={`Extract audio from ${clip.name}`}
-          onClick={() => onExtractAudio(clip)}
-        >
-          Extract audio
-        </button>
-      )}
-      <button
-        type="button"
-        aria-label={`Remove ${clip.name} from library`}
-        onClick={() => setPendingRemoval({ kind: 'single', clip })}
-      >
-        Remove
-      </button>
+      {/* Everything else behind one ⋯ (#416). The panel is named for the
+          clip, so its items need only say what they do: an item labelled
+          for the row as well ("Add a.mp4 as overlay" over a visible "Add as
+          overlay") would be an accessible name that does not contain its
+          own visible label. */}
+      <Menu
+        label="⋯"
+        caret={false}
+        ariaLabel={`More actions for ${clip.name}`}
+        menuLabel={`More actions for ${clip.name}`}
+        className="clip-more"
+        items={clipMenuItems(clip)}
+      />
     </>
   )
 
@@ -400,25 +468,15 @@ export function MediaLibrary({
           data-testid="clip-file-input"
           onChange={handleInputChange}
         />
-        {/* View toggle (#311): the customer asked to switch back and forth
-            between the row list and thumbnails, so both choices are always
-            visible with the active one pressed — not a single button whose
-            label has to be read to know the current state. Shown even with
-            an empty library, so the preference can be set before importing
-            and the header does not reflow on the first import. */}
-        <div className="library-view-toggle" role="group" aria-label="Clip view">
-          {VIEW_CONTROLS.map((control) => (
-            <button
-              key={control.view}
-              type="button"
-              aria-label={control.label}
-              aria-pressed={view === control.view}
-              onClick={() => onSetView(control.view)}
-            >
-              {control.label}
-            </button>
-          ))}
-        </div>
+        {/* View ▾ (#416): the layout choice (#311) and the sort keys (#123)
+            in one menu, as radio groups — the current choice keeps the ✓ the
+            two aria-pressed button clusters used to carry, and the header
+            goes from five controls to three. Shown even with an empty
+            library, as the toggle was, so the preference can be set before
+            importing and the header does not reflow on the first import;
+            the Sort group inside appears only with more than one clip, also
+            as today. */}
+        <Menu label="View" menuLabel="View menu" className="library-view-menu" items={viewItems} />
       </div>
 
       {library.failures.length > 0 && (
@@ -441,28 +499,6 @@ export function MediaLibrary({
         </p>
       ) : (
         <>
-          {library.clips.length > 1 && (
-            <div className="clip-sort" role="group" aria-label="Sort clips">
-              <span className="clip-sort-label">Sort by</span>
-              {SORT_CONTROLS.map(({ key, label }) => {
-                const active = lastSort?.key === key
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-label={`Sort by ${label.toLowerCase()}`}
-                    aria-pressed={active}
-                    onClick={() => handleSort(key)}
-                  >
-                    {label}
-                    {active && (
-                      <span aria-hidden="true"> {lastSort.direction === 'asc' ? '↑' : '↓'}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
           {/* Selection header (#292): Select-all plus, while anything is
               selected, the action bar. The bar is what turns the selection
               into work; it disappears with the selection. */}
@@ -547,7 +583,15 @@ export function MediaLibrary({
                   {clipName(clip)}
                   {kindBadge(clip)}
                   {clipDuration(clip)}
-                  {clipActions(clip)}
+                  {/* The three actions wrap as one cluster, not as three
+                      loose buttons (#416): with the row's own flex-wrap
+                      (#208) they used to break wherever the width ran out,
+                      which at 1280px left the ⋯ alone on a second line under
+                      ▶ and Add. Their combined min-content is ~125px, well
+                      under the ~540px floor #208 removed, so the row's
+                      min-content — and the library column with it — is
+                      unaffected. */}
+                  <div className="clip-actions">{clipActions(clip)}</div>
                 </li>
               ),
             )}

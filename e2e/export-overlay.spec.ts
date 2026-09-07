@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, scanExportedFrames } from './decodedFrame'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -153,7 +154,7 @@ test('an exported file composites the overlay at its rectangle, during its windo
   await expect(
     page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
   ).toHaveCount(1)
-  await page.getByRole('button', { name: 'Add cam.webm as overlay' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
   await expect(page.getByRole('list', { name: 'Overlay layers' })).toBeVisible()
 
   const exported = await exportOnce(page)

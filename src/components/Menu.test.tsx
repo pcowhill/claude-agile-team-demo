@@ -281,6 +281,28 @@ describe('Menu (#412)', () => {
     expect(screen.getByRole('button', { name: 'First' })).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('shows the ▾ caret by default and drops it for an icon trigger (#416)', async () => {
+    const items: MenuItem[] = [{ kind: 'action', label: 'Remove', onSelect: () => {} }]
+    const { unmount } = render(<Menu label="File" menuLabel="File menu" items={items} />)
+    expect(screen.getByRole('button', { name: 'File' })).toHaveTextContent('File▾')
+    unmount()
+
+    // A ⋯ trigger already reads as "there is more here"; "⋯ ▾" is two marks
+    // for one meaning. The accessible name comes from `ariaLabel` either way.
+    render(
+      <Menu
+        label="⋯"
+        caret={false}
+        ariaLabel="More actions for a.mp4"
+        menuLabel="More actions for a.mp4"
+        items={items}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: 'More actions for a.mp4' })
+    expect(trigger).toHaveTextContent('⋯')
+    expect(trigger).not.toHaveTextContent('▾')
+  })
+
   it('a disabled trigger does not open', async () => {
     render(<Menu label="File" menuLabel="File menu" items={[]} disabled />)
     await userEvent.click(trigger())

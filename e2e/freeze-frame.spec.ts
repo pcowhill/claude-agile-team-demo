@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { chooseFromFrameMenu, expectFrameItemEnabled, frameMenu, frameMenuTrigger, openFrameMenu } from './frameMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { chooseView } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -159,7 +160,7 @@ test('freeze frame captures the composed frame and splits & holds at the playhea
   // after the 90° turn (180×320), left band carried to the top — evidence
   // the freeze went through the export's composition, not the raw source.
   // The card's <img> renders in thumbnail view (#123's list view shows rows).
-  await page.getByRole('button', { name: 'Thumbnail view' }).click()
+  await chooseView(page, 'Thumbnails')
   const samples = await sampleFrozenPng(page, 'clip-card-image-1')
   expect(samples.width).toBe(180)
   expect(samples.height).toBe(320)

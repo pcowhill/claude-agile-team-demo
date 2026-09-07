@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { sineWav } from './sineWav'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Audio tracks on the timeline (#102): a real WAV imports, is placed on the
@@ -78,7 +79,7 @@ test('a track can be removed; removing the library clip removes its tracks', asy
   const lane = page.getByRole('list', { name: 'Audio tracks' })
   await expect(lane.getByRole('listitem')).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'Remove tone.wav from library' }).click()
+  await chooseClipAction(page, 'tone.wav', 'Remove')
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('the 1 timeline entry')
   await dialog.getByRole('button', { name: 'Remove' }).click()
@@ -168,7 +169,7 @@ test('video entries and overlays draw their audio amplitude in the coverage bars
     .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+  await chooseClipAction(page, 'clip.webm', 'Add as overlay')
 
   // The video entry's bar carries a real waveform path decoded from the
   // clip's own audio track; a tone is loud, so the path spans amplitude.

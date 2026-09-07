@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseClipAction, openClipMenu } from './clipMenu'
 
 /**
  * Extracting a video clip's audio into a standalone library clip (#154):
@@ -102,19 +103,21 @@ test('extracted audio lists as audio, survives removing the video, and exports a
   await expect(list.getByRole('listitem')).toHaveCount(1)
 
   // Extract: a second clip appears, badged Audio, same duration column.
-  await page.getByRole('button', { name: 'Extract audio from tone.webm' }).click()
+  await chooseClipAction(page, 'tone.webm', 'Extract audio')
   const items = list.getByRole('listitem')
   await expect(items).toHaveCount(2)
   const extracted = items.filter({ hasText: 'tone.webm (audio)' })
   await expect(extracted).toHaveCount(1)
   await expect(extracted.locator('.clip-kind')).toHaveText('Audio')
-  // Audio clips offer no extraction of their own.
-  await expect(
-    page.getByRole('button', { name: 'Extract audio from tone.webm (audio)' }),
-  ).toHaveCount(0)
+  // Audio clips offer no extraction of their own — the item is absent from
+  // the row's ⋯ (#416), where the button used to be absent from the row.
+  const extractedMenu = await openClipMenu(page, 'tone.webm (audio)')
+  await expect(extractedMenu.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await page.keyboard.press('Escape')
+  await expect(extractedMenu).toHaveCount(0)
 
   // Remove the source video: the extracted clip stays.
-  await page.getByRole('button', { name: 'Remove tone.webm from library' }).click()
+  await chooseClipAction(page, 'tone.webm', 'Remove')
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
   await expect(list.getByRole('listitem')).toHaveCount(1)
   await expect(list.getByRole('listitem')).toContainText('tone.webm (audio)')

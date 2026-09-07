@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -79,7 +80,7 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
   ).toBeVisible()
 
   // An overlay's copy starts where the original's trimmed window ends.
-  await page.getByRole('button', { name: 'Add clip.webm as overlay' }).click()
+  await chooseClipAction(page, 'clip.webm', 'Add as overlay')
   const overlayOut = page.getByRole('spinbutton', {
     name: 'Trim out point of overlay clip.webm at position 1 in seconds',
   })

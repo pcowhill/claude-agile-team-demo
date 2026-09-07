@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { sineWav } from './sineWav'
+import { clipMenuTrigger } from './clipMenu'
 
 /**
  * Records a short real WebM video in the browser (canvas + MediaRecorder)
@@ -106,7 +107,7 @@ test('importing an audio file lists it with duration, marked audio', async ({ pa
   await expect(page.getByRole('button', { name: 'Add tone.wav to timeline' })).toBeVisible()
   // And it can be removed like any clip.
   await expect(
-    page.getByRole('button', { name: 'Remove tone.wav from library' }),
+    clipMenuTrigger(page, 'tone.wav'),
   ).toBeVisible()
 })
 
@@ -140,7 +141,7 @@ test('importing an image lists it with an Image badge and no duration (#137)', a
   // Images join the timeline like any clip (#140); Remove works too.
   await expect(page.getByRole('button', { name: 'Add logo.png to timeline' })).toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Remove logo.png from library' }),
+    clipMenuTrigger(page, 'logo.png'),
   ).toBeVisible()
 })
 

@@ -6,6 +6,7 @@ import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
+import { chooseClipAction, clipMenuItem, queryClipMenuItem } from '../test/clipMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -1026,7 +1027,7 @@ describe('audio lane (#102)', () => {
     await userEvent.click(add)
     await userEvent.click(add)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove music.mp3 from library' }))
+    await chooseClipAction('music.mp3', 'Remove')
     const dialog = screen.getByRole('dialog')
     // Both audio tracks count as timeline uses in the warning.
     expect(dialog).toHaveTextContent('all 2 timeline entries')
@@ -1288,7 +1289,7 @@ describe('overlay video layers (#145)', () => {
   it('adds a video clip as an overlay via the library, listing it in the Overlays lane', async () => {
     render(<App />)
     await importClip('cam.mp4', 8)
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const lane = screen.getByRole('list', { name: 'Overlay layers' })
     expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
@@ -1331,15 +1332,15 @@ describe('overlay video layers (#145)', () => {
       new File(['content'], 'logo.png', { type: 'image/png' }),
     )
     await screen.findByText('logo.png')
-    expect(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add logo.png as overlay' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add song.mp3 as overlay' })).not.toBeInTheDocument()
+    expect(await clipMenuItem('cam.mp4', 'Add as overlay')).toBeInTheDocument()
+    expect(await clipMenuItem('logo.png', 'Add as overlay')).toBeInTheDocument()
+    expect(await queryClipMenuItem('song.mp3', 'Add as overlay')).not.toBeInTheDocument()
   })
 
   it('edits window, trim, rectangle, and gain — clamping visibly like other fields', async () => {
     render(<App />)
     await importClip('cam.mp4', 8)
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const offset = screen.getByRole('spinbutton', {
       name: 'Start time of overlay cam.mp4 at position 1 in seconds',
@@ -1382,9 +1383,10 @@ describe('overlay video layers (#145)', () => {
   it('removes an overlay; the lane disappears with the last one', async () => {
     render(<App />)
     await importClip('cam.mp4', 8)
-    const add = screen.getByRole('button', { name: 'Add cam.mp4 as overlay' })
-    await userEvent.click(add)
-    await userEvent.click(add)
+    // Twice, each through its own opening of ⋯: selecting closes the panel
+    // and unmounts the item, so one element cannot be clicked twice (#416).
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    await chooseClipAction('cam.mp4', 'Add as overlay')
     expect(
       within(screen.getByRole('list', { name: 'Overlay layers' })).getAllByRole('listitem'),
     ).toHaveLength(2)
@@ -1405,7 +1407,7 @@ describe('overlay video layers (#145)', () => {
     await importClip('base.mp4', 10)
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const offset = screen.getByRole('spinbutton', {
       name: 'Start time of overlay cam.mp4 at position 1 in seconds',
@@ -1430,9 +1432,9 @@ describe('overlay video layers (#145)', () => {
     await importClip('base.mp4', 10)
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove cam.mp4 from library' }))
+    await chooseClipAction('cam.mp4', 'Remove')
     // The confirm dialog counts the overlay as timeline use of the clip.
     expect(screen.getByText(/removes the 1 timeline entry/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
@@ -1523,7 +1525,7 @@ describe('undo/redo (#189)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     expect(undoButton()).toBeEnabled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove a.mp4 from library' }))
+    await chooseClipAction('a.mp4', 'Remove')
     await confirmRemoval()
     expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
     // The removed clip's states are unreachable — its object URL is revoked.
@@ -1750,7 +1752,7 @@ describe('color adjustments (#192)', () => {
     await importClip('base.mp4', 10)
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add base.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const position = 'overlay cam.mp4 at position 1'
     const saturation = screen.getByRole('spinbutton', { name: `Saturation of ${position} (percent)` })
@@ -1812,7 +1814,7 @@ describe('entry and overlay waveforms (#230)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
 
     const waveform = await screen.findByTestId('video-overlay-waveform-0')
     expect(screen.getByTestId('video-overlay-bar-0')).toContainElement(waveform)
@@ -1891,7 +1893,7 @@ describe('orientation (#232)', () => {
     await importClip('a.mp4', 10)
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const position = 'overlay cam.mp4 at position 1'
     await userEvent.click(rotateButton(position, 0))
@@ -2091,7 +2093,7 @@ describe('crop (#255)', () => {
     await importClip('a.mp4', 10)
     await importClip('cam.mp4', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const overlayPosition = 'overlay cam.mp4 at position 1'
     await commitField(cropField('top', overlayPosition), '15')
@@ -2238,7 +2240,7 @@ describe('overlay shape mask (#266)', () => {
   const addOverlay = async () => {
     render(<App />)
     await importClip('cam.mp4', 8)
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
     return 'overlay cam.mp4 at position 1'
   }
 
@@ -2350,7 +2352,7 @@ describe('collapsible timeline elements (#299)', () => {
     await importClip('v.mp4', 10)
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add v.mp4 as overlay' }))
+    await chooseClipAction('v.mp4', 'Add as overlay')
     await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
 
     const audio = 'audio track m.mp3 at position 1'
@@ -2435,7 +2437,7 @@ describe('section-level collapse (#300)', () => {
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
     await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
   }
 
@@ -2572,7 +2574,7 @@ describe('section-level collapse (#300)', () => {
 
     // The folded row's own Remove is not rendered; removing the clip from
     // the library cascades to the track and empties the lane.
-    await userEvent.click(screen.getByRole('button', { name: 'Remove m.mp3 from library' }))
+    await chooseClipAction('m.mp3', 'Remove')
     await confirmRemoval()
     expect(screen.queryByRole('heading', { level: 3, name: 'Audio' })).toBeNull()
 
@@ -2641,7 +2643,7 @@ describe('duplicate a timeline element (#314)', () => {
   it('duplicates a video overlay onto the lane starting where the original ends', async () => {
     render(<App />)
     await importClip('cam.mp4', 6)
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Duplicate overlay cam.mp4 at position 1' }),
@@ -2693,7 +2695,7 @@ describe('image overlay layers (#294)', () => {
 
   const addLogoOverlay = async () => {
     await importImage('logo.png')
-    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+    await chooseClipAction('logo.png', 'Add as overlay')
   }
 
   const position = 'overlay logo.png at position 1'
@@ -2822,7 +2824,7 @@ describe('copy and paste settings (#315)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
     await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
 
     expect(
@@ -2923,7 +2925,7 @@ describe('copy and paste settings (#315)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
@@ -3152,8 +3154,8 @@ describe('rename timeline elements (#405)', () => {
     render(<App />)
     await importClip('cam.mp4', 6)
     await importImage('logo.png')
-    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 as overlay' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    await chooseClipAction('logo.png', 'Add as overlay')
 
     await userEvent.click(screen.getByRole('button', { name: 'Rename overlay cam.mp4 at position 1' }))
     await userEvent.keyboard('Face{Enter}')
@@ -3246,7 +3248,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await importImage('logo.png')
-    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+    await chooseClipAction('logo.png', 'Add as overlay')
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
@@ -3263,7 +3265,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 as overlay' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
@@ -3279,7 +3281,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await importImage('logo.png')
-    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png as overlay' }))
+    await chooseClipAction('logo.png', 'Add as overlay')
 
     // Dial the clip's volume down, so a reset would be visible.
     const volume = screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 1)' })

@@ -1,5 +1,6 @@
 import { chromium, expect, test } from '@playwright/test'
 import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { chooseClipAction } from './clipMenu'
 
 /**
  * Webcam recording (#226), against Chromium's fake capture devices: the
@@ -56,7 +57,7 @@ test('a webcam capture records into the library and overlays the timeline (#226)
   // recording layers above it as a picture-in-picture video overlay — the
   // whole clip path, no special-casing downstream.
   await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add Webcam recording 1.webm as overlay' }).click()
+  await chooseClipAction(page, 'Webcam recording 1.webm', 'Add as overlay')
   await expect(
     page.getByRole('list', { name: 'Overlay layers' }).getByRole('listitem'),
   ).toHaveCount(1)

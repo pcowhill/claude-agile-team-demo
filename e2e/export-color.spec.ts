@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -117,7 +118,7 @@ test('an adjusted overlay exports adjusted while the base stays untouched (#195)
   await duration.blur()
   await page.getByLabel('Color of Color slate at position 1').fill('#00cd00')
 
-  await page.getByRole('button', { name: 'Add red.webm as overlay' }).click()
+  await chooseClipAction(page, 'red.webm', 'Add as overlay')
   await page
     .getByRole('combobox', { name: 'Look of overlay red.webm at position 1' })
     .selectOption('grayscale')

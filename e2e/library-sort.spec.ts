@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { sineWav } from './sineWav'
+import { sortClipsBy } from './clipMenu'
 
 /**
  * Media library sorting (#123): sort controls reorder the real clip list,
@@ -68,30 +69,30 @@ test('sorting by name then type carries the name order into each kind group (#12
   expect(await names()).toEqual(['zebra.webm', 'mango.wav', 'apple.webm', 'banana.wav'])
 
   // Alphabetical.
-  await page.getByRole('button', { name: 'Sort by name' }).click()
+  await sortClipsBy(page, 'Name')
   await expect
     .poll(names)
     .toEqual(['apple.webm', 'banana.wav', 'mango.wav', 'zebra.webm'])
 
   // The same key again reverses that sort.
-  await page.getByRole('button', { name: 'Sort by name' }).click()
+  await sortClipsBy(page, 'Name')
   await expect
     .poll(names)
     .toEqual(['zebra.webm', 'mango.wav', 'banana.wav', 'apple.webm'])
-  await page.getByRole('button', { name: 'Sort by name' }).click()
+  await sortClipsBy(page, 'Name')
   await expect
     .poll(names)
     .toEqual(['apple.webm', 'banana.wav', 'mango.wav', 'zebra.webm'])
 
   // By type: videos grouped first, audios after — and inside each group the
   // alphabetical order from the previous sort survives as tie order.
-  await page.getByRole('button', { name: 'Sort by type' }).click()
+  await sortClipsBy(page, 'Type')
   await expect
     .poll(names)
     .toEqual(['apple.webm', 'zebra.webm', 'banana.wav', 'mango.wav'])
 
   // Reversing the type sort flips the groups, not the order inside them.
-  await page.getByRole('button', { name: 'Sort by type' }).click()
+  await sortClipsBy(page, 'Type')
   await expect
     .poll(names)
     .toEqual(['banana.wav', 'mango.wav', 'apple.webm', 'zebra.webm'])

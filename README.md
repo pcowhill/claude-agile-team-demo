@@ -38,7 +38,7 @@ name or thumbnail — shows the clip alone in the preview panel, a video or
 audio clip with its own play/pause and seek, an image as it is; Back to
 sequence or Escape returns to the sequence exactly where it was, and Space
 and the arrow keys drive the source while it is up. A clip can be renamed
-(#404): the ✎ beside its name turns it into a field (Enter or clicking away
+(#404): ⋯ → Rename… turns its name into a field (Enter or clicking away
 commits, Escape cancels, an empty name reverts); the new name shows
 everywhere the clip is named, sorts and saves with the project, while the
 original filename is kept underneath so a references-only project still
@@ -50,20 +50,27 @@ selection and a Select-all box in the header, and a selection bar adds every
 selected clip to the timeline in library order — videos and images as
 sequence entries, audio as tracks — as a single undoable step, or removes
 the whole selection at once (#293) behind one confirmation that names how
-many clips and how many timeline entries go with them. The library
+many clips and how many timeline entries go with them. Each row keeps only its two frequent actions inline — ▶ Preview and Add —
+with everything else behind a **⋯ menu** named for the clip (#416): Add as
+overlay, Extract audio, Rename… and Remove, each offered exactly where its
+button used to be, so an audio clip's menu holds only the two that apply to
+it. The library
 itself stops growing at about half the viewport's height (#308): past that,
 the clip list scrolls on its own while the title, Import clips, Record,
-Sort by, and selection controls stay at the top, so a big import never
+View ▾, and selection controls stay at the top, so a big import never
 pushes the timeline far down the page. The same clips can be shown two
 ways (#311): List view is one text row each, and Thumbnail view is a grid
 of square cards — as many per row as fit — each dominated by a picture of
 the media, with the name, kind badge, duration and the identical actions
 beneath. A video card shows the captured first frame, an image card the
 image itself, and an audio card its waveform; a clip whose picture cannot
-be decoded keeps a per-kind placeholder mark instead. The two buttons in
-the library header switch between them, and the choice is remembered per
-browser across page loads — a view preference, so it is never part of a
-project file or the autosave snapshot. Voice-overs can be recorded directly into the library
+be decoded keeps a per-kind placeholder mark instead. The library header's
+**View ▾** menu (#416) switches between them and holds the sort keys with
+them — Name, Type and Length (#123), each showing the direction it last ran
+in, and picking the current key again reverses it. The layout choice is
+remembered per browser across page loads — a view preference, so it is
+never part of a project file or the autosave snapshot; sorting stays what it
+always was, an action on the stored clip order rather than a saved setting. Voice-overs can be recorded directly into the library
 (#224): a Record button beside Import offers a Microphone source (browsers
 ask for permission; the control hides entirely where recording is
 unsupported), and stopping the capture adds it as an ordinary audio clip —

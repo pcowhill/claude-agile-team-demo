@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, SETTINGS_KEY, loadSettings } from '../lib/settings'
 import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { chooseFromFileMenu } from '../test/fileMenu'
+import { chooseClipAction } from '../test/clipMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -198,7 +199,7 @@ describe('settings take effect without a reload (#286)', () => {
     // default to the sequence still's, so the setting has to reach it — a
     // still showing for 10 s beside a still *layer* showing for 5 would
     // contradict that rule.
-    await userEvent.click(screen.getByRole('button', { name: 'Add c.png as overlay' }))
+    await chooseClipAction('c.png', 'Add as overlay')
 
     // The new still, the new slate and the new overlay all take the chosen
     // duration…
