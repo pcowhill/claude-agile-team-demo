@@ -73,6 +73,8 @@ import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Menu } from './Menu'
+import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { ZoomEditor } from './ZoomEditor'
 import './Timeline.css'
@@ -730,7 +732,9 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
   const commit = (change: Partial<SubtitleStyle>) => onCommit({ ...effective, ...change })
   return (
     <div className="timeline-entry-color">
-      <span>Subtitle style</span>
+      {/* No "Subtitle style" caption here: since #418 the disclosure button
+          that reveals these controls carries that name, and repeating it
+          inside would read the heading twice. */}
       <select
         aria-label="Default subtitle font"
         value={effective.font}
@@ -1008,9 +1012,31 @@ export function Timeline({
   // remap, a transition) stays immediate, since re-adding one is cheap.
   // `name` heads the dialog; `consequence` says what goes with the item;
   // `action` fires the removal callback on confirm.
-  // The subtitle import's hidden picker (#249), clicked by its toolbar
-  // button — the same idiom as the media library's clip input.
+  // The subtitle import's hidden picker (#249), clicked by Add ▾'s
+  // subtitle item (#418) — the same idiom as the media library's clip input.
   const subtitleInputRef = useRef<HTMLInputElement | null>(null)
+  // Whether the "Subtitle style ▸" disclosure is open (#418). Session UI
+  // state, like `collapsed` below: it is a view of the project's default
+  // style, not part of it. Closed to begin with, because the style is
+  // something you adjust after seeing imported cues, not before — and an
+  // import opens it, which is where the state is set.
+  const [subtitleStyleOpen, setSubtitleStyleOpen] = useState(false)
+  /**
+   * Add ▾'s items (#418). Each says only what it adds: the menu is named
+   * for adding, so an item that repeated the word ("Add color slate") would
+   * read "Add · Add color slate" — the same reasoning #416 applied to a
+   * row's ⋯. None carries a disabled rule, because none of the three
+   * buttons had one: all three add something that needs no imported media.
+   */
+  const addItems: MenuItem[] = [
+    { kind: 'action', label: 'Color slate', onSelect: onAddSlate },
+    { kind: 'action', label: 'Text overlay', onSelect: onAddText },
+    {
+      kind: 'action',
+      label: 'Subtitles from .srt file…',
+      onSelect: () => subtitleInputRef.current?.click(),
+    },
+  ]
   // Collapsed rows (#299): session UI state only — a set of element ids,
   // never part of the project model, the autosave snapshot, or the undo
   // history (collapsing is not an edit). A collapsed row keeps its coverage
@@ -1278,51 +1304,54 @@ export function Timeline({
         {/* Collapse/expand every element on the timeline at once (#299) and,
             since #300, fold/unfold every section with it; the per-row and
             per-section toggles sit on the rows and the section headings. */}
-        <button
-          type="button"
-          aria-label="Collapse all timeline elements"
-          onClick={() => {
-            setCollapsed(new Set(allElementIds()))
-            // Only the sections on the timeline now — like the element set
-            // above, which names existing ids only. Folding a section that
-            // is not rendered yet would outlive this click: the pruning
-            // effect keeps a fold whose section is rendered by the time the
-            // timeline next changes, so the lane that change creates would
-            // arrive folded and hide the element the user just added.
-            setFolded(new Set(renderedSectionsOf(timeline)))
-          }}
-        >
-          Collapse all
-        </button>
-        <button
-          type="button"
-          aria-label="Expand all timeline elements"
-          onClick={() => {
-            setCollapsed(new Set<string>())
-            setFolded(new Set<TimelineSection>())
-          }}
-        >
-          Expand all
-        </button>
-        {/* A slate needs no imported media (#143), so it is added right
-            here rather than from the library. */}
-        <button type="button" aria-label="Add color slate to timeline" onClick={onAddSlate}>
-          + Color slate
-        </button>
-        {/* A text overlay is anchored to sequence time, not to any clip
-            (#139), so it too is added here rather than per entry. */}
-        <button type="button" aria-label="Add text overlay to timeline" onClick={onAddText}>
-          + Text
-        </button>
-        {/* Subtitles are sequence-anchored text overlays (#249), so their
-            import lives beside "+ Text" rather than in the media library. */}
-        <button
-          type="button"
-          aria-label="Import subtitles from an SRT file"
-          onClick={() => subtitleInputRef.current?.click()}
-        >
-          Import subtitles…
-        </button>
+        {/* The pair stays a pair (#418 asks for "one compact pair"): the
+            header is `justify-content: space-between`, so two bare glyph
+            buttons were spread to opposite ends of it — measured 119px
+            apart at 1280, reading as two unrelated controls rather than one
+            collapse/expand control. Grouping them is what #416 did for the
+            library row's actions, for the same reason. */}
+        <div className="timeline-fold-group">
+          <button
+            type="button"
+            className="timeline-fold-all"
+            aria-label="Collapse all timeline elements"
+            title="Collapse all timeline elements"
+            onClick={() => {
+              setCollapsed(new Set(allElementIds()))
+              // Only the sections on the timeline now — like the element
+              // set above, which names existing ids only. Folding a section
+              // that is not rendered yet would outlive this click: the
+              // pruning effect keeps a fold whose section is rendered by the
+              // time the timeline next changes, so the lane that change
+              // creates would arrive folded and hide the element the user
+              // just added.
+              setFolded(new Set(renderedSectionsOf(timeline)))
+            }}
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            className="timeline-fold-all"
+            aria-label="Expand all timeline elements"
+            title="Expand all timeline elements"
+            onClick={() => {
+              setCollapsed(new Set<string>())
+              setFolded(new Set<TimelineSection>())
+            }}
+          >
+            ▼
+          </button>
+        </div>
+        {/* Add ▾ (#418, from the approved redesign #401 option T1 / feedback
+            #395): the three things that can join the timeline without any
+            imported media, behind one labelled menu. Each item calls exactly
+            what its button called — a slate needs no media (#143), a text
+            overlay is anchored to sequence time rather than to a clip
+            (#139), and subtitles are sequence-anchored text overlays (#249),
+            which is why all three were here rather than in the library. The
+            third still opens the same hidden input below. */}
+        <Menu label="Add" menuLabel="Add menu" className="timeline-add-menu" items={addItems} />
         <input
           ref={subtitleInputRef}
           type="file"
@@ -1331,7 +1360,21 @@ export function Timeline({
           data-testid="subtitle-file-input"
           onChange={(event) => {
             const file = event.target.files?.[0]
-            if (file !== undefined) onImportSubtitles(file)
+            if (file !== undefined) {
+              onImportSubtitles(file)
+              // The import opens the style disclosure (#418): the cues that
+              // just arrived are the reason to look at their style, and the
+              // disclosure is not rendered at all until they exist. The
+              // rule is the simpler of the two the issue allows — every
+              // import opens it, rather than only the first, or only when
+              // the user has not closed it before. That needs no memory of
+              // what the user did earlier, and re-opening after an import
+              // the user asked for is not a surprise; a "they closed it
+              // deliberately" flag could be added if it turns out to be.
+              // A failed import leaves no cues, so the disclosure stays
+              // unrendered and this open state is simply not visible.
+              setSubtitleStyleOpen(true)
+            }
             // Allow re-importing the same file (e.g. after fixing it).
             event.target.value = ''
           }}
@@ -1368,9 +1411,34 @@ export function Timeline({
       </div>
 
       {/* The default subtitle style (#250) lives beside the import it
-          governs — editable before the first import (new cues take it) and
-          any time after (all imported subtitles restyle at once). */}
-      <SubtitleStyleControls style={subtitleStyle} onCommit={onSetSubtitleStyle} />
+          governs — all imported subtitles restyle at once. Since #418 it is
+          a collapsed disclosure rather than an always-visible row: eight
+          controls that most sessions never touch cost the header's whole
+          second line, which is what feedback #395 was about. It renders
+          only where it can do something — with no text overlays there is
+          nothing to restyle — so the "editable before the first import"
+          part of #250 is what this trades away, deliberately: an import
+          opens the disclosure, and every cue it brings in takes the default
+          style anyway, so adjusting it immediately after is the same edit
+          one keystroke later. */}
+      {texts.length > 0 && (
+        <div className="timeline-subtitle-style">
+          <button
+            type="button"
+            className="timeline-disclosure"
+            aria-expanded={subtitleStyleOpen}
+            onClick={() => setSubtitleStyleOpen((open) => !open)}
+          >
+            {/* The marker is decorative: `aria-expanded` above is the state
+                assistive tech reads, so a screen reader is not told "right
+                pointing triangle". */}
+            <span aria-hidden="true">{subtitleStyleOpen ? '▾' : '▸'}</span> Subtitle style
+          </button>
+          {subtitleStyleOpen && (
+            <SubtitleStyleControls style={subtitleStyle} onCommit={onSetSubtitleStyle} />
+          )}
+        </div>
+      )}
 
       {entries.length === 0 ? (
         <p className="placeholder">

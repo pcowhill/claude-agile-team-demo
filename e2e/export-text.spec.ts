@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -85,14 +86,14 @@ test('an exported file shows the text overlay during its window only', async ({ 
   await page.goto('./')
 
   // A 3 s red slate; a large white overlay covering [1.5, end) of it.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })
   await slateDuration.fill('3')
   await slateDuration.blur()
 
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_TEXT)
   const offset = page.getByRole('spinbutton', {
     name: 'Start time of text overlay at position 1 in seconds',
   })
@@ -137,14 +138,14 @@ test('an exported fade renders: bright text early in the window, dimmed past the
   // and fades out across all of it, so brightness falls monotonically: near
   // the start the white text is (almost) full-strength; near the end its
   // alpha is a small fraction and no pixel clears the whitish threshold.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })
   await slateDuration.fill('3')
   await slateDuration.blur()
 
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_TEXT)
   const size = page.getByRole('spinbutton', {
     name: 'Size of text overlay at position 1 (fraction of frame height)',
   })

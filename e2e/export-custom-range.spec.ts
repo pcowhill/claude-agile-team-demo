@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -23,8 +24,8 @@ const ABSENT = 30
 
 /** Two 5 s slates: green [0, 5), red [5, 10). */
 async function seedGreenThenRed(page: Page) {
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByLabel('Color of Color slate at position 1').fill('#00cd00')
   await expect(page.getByTestId('timeline-total')).toHaveText('0:10')
 }

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Wipes and pushes in the preview (#181), exercised media-free with two
@@ -10,7 +11,7 @@ import { expect, test } from '@playwright/test'
 /** Two 1 s slates with a 0.5 s transition: overlap [0.5, 1.0) of 1.5 s. */
 async function buildSlateSequence(page: import('@playwright/test').Page) {
   for (const position of [1, 2] as const) {
-    await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+    await chooseFromAddMenu(page, ADD_SLATE)
     const duration = page.getByRole('spinbutton', {
       name: `Duration of Color slate at position ${position} in seconds`,
     })

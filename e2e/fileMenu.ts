@@ -14,7 +14,9 @@ type Page = import('@playwright/test').Page
  * Save (💾) and Export Project… are still buttons and need nothing from here.
  */
 export async function chooseFromFileMenu(page: Page, name: string): Promise<void> {
-  // Exact: "File" is a substring of "Import subtitles from an SRT file".
+  // Exact: "File" is a substring of Add ▾'s "Subtitles from .srt file…"
+  // (#418), which is where the SRT import went — and accessible-name
+  // matching is case-insensitive, so the lowercase "file" matches too.
   await page.getByRole('button', { name: 'File', exact: true }).click()
   const menu = page.getByRole('menu', { name: 'File menu' })
   await expect(menu).toBeVisible()

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -86,7 +87,7 @@ test('an ellipse mask cuts the overlay corners to the base; Rectangle restores t
   await page.goto('./')
 
   // The base: the default red slate (#143) — a flat, deterministic ground.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   const webm = await recordGreenWebm(page)
   await page

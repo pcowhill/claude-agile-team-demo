@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Text overlays in the preview (#139): a real browser renders the overlay
@@ -14,8 +15,8 @@ test('a text overlay renders over the frame, sized by the frame height', async (
 
   // A slate keeps the fixture media-free: the preview stage exists as soon
   // as the sequence has an entry (#143).
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_TEXT)
 
   // The default overlay (offset 0) is visible at the initial position.
   const text = page.getByTestId('preview-text-0')
@@ -47,8 +48,8 @@ test('a text overlay fades: opacity follows the shared envelope while scrubbing 
   await page.goto('./')
 
   // Same media-free fixture: a 5s slate, the default 3s overlay from 0.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_TEXT)
 
   // A 2s fade-in: one second in, the envelope sits at exactly 0.5.
   const fadeIn = page.getByRole('spinbutton', {

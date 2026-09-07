@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { sineWav } from './sineWav'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Audio tracks on the timeline (#102): a real WAV imports, is placed on the
@@ -36,7 +37,7 @@ test('placing an audio clip creates a track on the audio lane', async ({ page })
 test('start time and trim are edited from the lane', async ({ page }) => {
   // A 5s slate gives the video sequence a duration: the lane scale is the
   // sequence span (#180), and with no entries every bar renders empty.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
 
   const startField = page.getByRole('spinbutton', {
@@ -92,7 +93,7 @@ test("an added track draws its clip's waveform inside the coverage bar (#191)", 
   page,
 }) => {
   // The slate gives the lane a sequence span, so the bar has real width.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
 
   // The real chain: blob fetch → Web Audio decode of the WAV → peaks → SVG.
@@ -168,7 +169,7 @@ test('video entries and overlays draw their audio amplitude in the coverage bars
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await chooseClipAction(page, 'clip.webm', 'Add as overlay')
 
   // The video entry's bar carries a real waveform path decoded from the

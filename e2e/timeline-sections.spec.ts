@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { sineWav } from './sineWav'
+import { ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Section-level collapse (#300): fold a lane to its heading, and the
@@ -54,7 +55,7 @@ test('folding a lane keeps its heading; Collapse all leaves only headings; Expan
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await input.setInputFiles([{ name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(2) }])
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_TEXT)
 
   const timeline = page.getByRole('region', { name: 'Timeline' })
   const sequence = page.getByRole('list', { name: 'Sequence' })

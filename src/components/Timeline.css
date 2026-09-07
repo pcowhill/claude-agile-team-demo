@@ -22,6 +22,59 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Collapse all / Expand all, as one compact ▲ ▼ pair (#418, option T1 — the
+   customer kept them visible rather than moving them into a menu, so the
+   saving has to come from their width).
+
+   The wrapper is load-bearing, not tidiness: this header is
+   `justify-content: space-between`, which spreads its children across the
+   whole row, so the two bare glyphs came out 119px apart at 1280px and read
+   as two unrelated controls. Grouped, they read as the one control they
+   are — the same fix, for the same reason, as #416's `.clip-actions`. */
+.timeline-fold-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* The glyph buttons themselves take the library row's ▶ and ⋯ measurements
+   (MediaLibrary.css): the same kind of control, a glyph whose meaning lives
+   in its aria-label and title rather than in its width. */
+.timeline-fold-all {
+  min-width: 2rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+/* The subtitle style disclosure (#418). Its own row below the header, so
+   opening it pushes the lanes down by exactly the controls' height and
+   moves nothing sideways; closed, it costs one short line. */
+.timeline-subtitle-style {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* A disclosure reads as a heading you can open, not as an action: no
+   button chrome, and the marker sits tight against the label. */
+.timeline-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0.1rem 0;
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.timeline-disclosure:hover {
+  color: #7e8cff;
+}
+
 /* The project's canvas preset (#273): a compact labelled select, in the same
    idiom as the export modal's size preset. It sat beside the project actions
    in the page header until #415 moved it here, beside the sequence it

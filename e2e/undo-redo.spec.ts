@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Undo/redo over timeline edits (#189): toolbar buttons and keyboard
@@ -14,7 +15,7 @@ test('toolbar undo/redo walk real edits back and forward', async ({ page }) => {
   await expect(redo).toBeDisabled()
 
   // Two edits: add a slate, then lengthen it to 8 s.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })
@@ -40,7 +41,7 @@ test('toolbar undo/redo walk real edits back and forward', async ({ page }) => {
 test('keyboard shortcuts undo a confirmed removal and redo it', async ({ page }) => {
   await page.goto('./')
 
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByRole('list', { name: 'Sequence' })).toBeAttached()
 
   // Remove the slate through the confirmation dialog (#178).

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, scanExportedFrames } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -140,7 +141,7 @@ test('an exported file composites the overlay at its rectangle, during its windo
 
   // A 3 s red slate as the base; the green clip (~1.5 s) as the default
   // corner overlay — whole clip from sequence start, rect 0.62/0.62/0.35².
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

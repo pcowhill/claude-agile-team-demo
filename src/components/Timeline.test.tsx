@@ -7,6 +7,17 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { chooseClipAction, clipMenuItem, queryClipMenuItem } from '../test/clipMenu'
+import {
+  ADD_SLATE,
+  ADD_TEXT,
+  IMPORT_SUBTITLES,
+  chooseFromAddMenu,
+  closeAddMenu,
+  openAddMenu,
+  openSubtitleStyle,
+  querySubtitleStyleToggle,
+  subtitleStyleToggle,
+} from '../test/timelineMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -241,7 +252,7 @@ describe('timeline', () => {
   describe('color slates (#143)', () => {
     it('adds a red 5-second slate from the timeline itself — no import involved', async () => {
       render(<App />)
-      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      await chooseFromAddMenu(ADD_SLATE)
 
       expect(sequenceNames()).toEqual(['Color slate'])
       expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:05')
@@ -270,7 +281,7 @@ describe('timeline', () => {
 
     it('edits the color through the picker', async () => {
       render(<App />)
-      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      await chooseFromAddMenu(ADD_SLATE)
 
       const color = screen.getByLabelText('Color of Color slate at position 1')
       // userEvent has no color-picker interaction; fireEvent's change is what
@@ -282,7 +293,7 @@ describe('timeline', () => {
     it('edits the duration and carries transitions like any still', async () => {
       render(<App />)
       await importClip('a.mp4', 10)
-      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      await chooseFromAddMenu(ADD_SLATE)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
       const duration = screen.getByRole('spinbutton', {
@@ -829,7 +840,7 @@ describe('timeline', () => {
 
     it('offers no remap controls on stills', async () => {
       render(<App />)
-      await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+      await chooseFromAddMenu(ADD_SLATE)
       expect(
         screen.queryByRole('button', { name: /Add speed segment to/ }),
       ).not.toBeInTheDocument()
@@ -1148,7 +1159,7 @@ describe('gain controls (#104)', () => {
 describe('text overlays (#139)', () => {
   it('adds a default overlay, lists it in the text lane, and shows its controls', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     const lane = screen.getByRole('list', { name: 'Text overlays' })
     expect(within(lane).getAllByRole('listitem')).toHaveLength(1)
@@ -1170,7 +1181,7 @@ describe('text overlays (#139)', () => {
 
   it('edits content on blur, rejecting an empty commit visibly', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
     const content = screen.getByRole('textbox', { name: 'Content of text overlay at position 1' })
 
     await userEvent.clear(content)
@@ -1187,7 +1198,7 @@ describe('text overlays (#139)', () => {
 
   it('edits timing, position, styling — and clamps visibly like other fields', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     const offset = screen.getByRole('spinbutton', {
       name: 'Start time of text overlay at position 1 in seconds',
@@ -1219,7 +1230,7 @@ describe('text overlays (#139)', () => {
 
   it('edits fades, clamping the pair into the duration visibly (#177)', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     // Default duration 3s: a 1s fade-in commits as typed.
     const fadeIn = screen.getByRole('spinbutton', {
@@ -1243,9 +1254,8 @@ describe('text overlays (#139)', () => {
 
   it('removes an overlay; the lane disappears with the last one', async () => {
     render(<App />)
-    const add = screen.getByRole('button', { name: 'Add text overlay to timeline' })
-    await userEvent.click(add)
-    await userEvent.click(add)
+    await chooseFromAddMenu(ADD_TEXT)
+    await chooseFromAddMenu(ADD_TEXT)
     expect(within(screen.getByRole('list', { name: 'Text overlays' })).getAllByRole('listitem')).toHaveLength(2)
 
     await userEvent.click(
@@ -1264,7 +1274,7 @@ describe('text overlays (#139)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     const offset = screen.getByRole('spinbutton', {
       name: 'Start time of text overlay at position 1 in seconds',
@@ -1453,7 +1463,7 @@ describe('undo/redo (#189)', () => {
     expect(undoButton()).toBeDisabled()
     expect(redoButton()).toBeDisabled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     expect(sequenceNames()).toEqual(['Color slate'])
     expect(undoButton()).toBeEnabled()
     expect(redoButton()).toBeDisabled()
@@ -1470,7 +1480,7 @@ describe('undo/redo (#189)', () => {
 
   it('treats one committed field edit as one undo step, and a new edit clears redo', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     const duration = screen.getByRole('spinbutton', {
       name: 'Duration of Color slate at position 1 in seconds',
     })
@@ -1488,13 +1498,13 @@ describe('undo/redo (#189)', () => {
     expect(redoButton()).toBeEnabled()
 
     // Diverging after the undo abandons the redo line.
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
     expect(redoButton()).toBeDisabled()
   })
 
   it('undoes with Ctrl+Z and redoes with Ctrl+Shift+Z and Ctrl+Y', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
 
     await userEvent.keyboard('{Control>}z{/Control}')
     expect(screen.queryByRole('list', { name: 'Sequence' })).not.toBeInTheDocument()
@@ -1509,7 +1519,7 @@ describe('undo/redo (#189)', () => {
 
   it('leaves Ctrl+Z to the browser while a text-editing field has focus', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     const duration = screen.getByRole('spinbutton', {
       name: 'Duration of Color slate at position 1 in seconds',
     })
@@ -1566,7 +1576,7 @@ describe('coverage bars and the sequence-scaled lane (#180)', () => {
 
   it("a slate's bar uses the slate's own color as its swatch", async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     const bar = screen.getByTestId('timeline-entry-bar-0')
     expect(bar.className).toContain('timeline-entry-bar-slate')
     // The default slate color (#143).
@@ -1593,7 +1603,7 @@ describe('coverage bars and the sequence-scaled lane (#180)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     const start = screen.getByRole('spinbutton', {
       name: 'Start time of text overlay at position 1 in seconds',
@@ -1741,7 +1751,7 @@ describe('color adjustments (#192)', () => {
 
   it('offers no color row for a slate — its color is set directly (#143)', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     expect(
       screen.queryByRole('spinbutton', { name: /Brightness of Color slate/ }),
     ).not.toBeInTheDocument()
@@ -1785,7 +1795,7 @@ describe('entry and overlay waveforms (#230)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
 
     const waveform = await screen.findByTestId('timeline-entry-waveform-0')
     expect(screen.getByTestId('timeline-entry-bar-0')).toContainElement(waveform)
@@ -1882,7 +1892,7 @@ describe('orientation (#232)', () => {
 
   it('offers no orientation row for a slate', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     expect(
       screen.queryByRole('button', { name: /Rotate Color slate at position 1/ }),
     ).not.toBeInTheDocument()
@@ -2082,7 +2092,7 @@ describe('crop (#255)', () => {
 
   it('offers no crop row for a slate', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     expect(
       screen.queryByRole('spinbutton', { name: /Crop left of Color slate/ }),
     ).not.toBeInTheDocument()
@@ -2114,10 +2124,13 @@ describe('default subtitle style (#250)', () => {
 
   it('editing the default restyles every imported subtitle at once, not hand-made text, undoably', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
     await importSrt(TWO_CUES)
     await screen.findByRole('textbox', { name: 'Content of text overlay at position 3' })
 
+    // The style fields sit behind the disclosure since #418; the import
+    // above opened it, and this says so rather than relying on it.
+    await openSubtitleStyle()
     fireEvent.change(screen.getByLabelText('Default subtitle color'), {
       target: { value: '#ffff00' },
     })
@@ -2142,7 +2155,8 @@ describe('default subtitle style (#250)', () => {
     fireEvent.change(screen.getByLabelText('Color of text overlay at position 1'), {
       target: { value: '#ff0000' },
     })
-    // …then restyles the default font and color.
+    // …then restyles the default font and color, behind the #418 disclosure.
+    await openSubtitleStyle()
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Default subtitle font' }), 'serif')
     fireEvent.change(screen.getByLabelText('Default subtitle color'), {
       target: { value: '#ffff00' },
@@ -2158,21 +2172,82 @@ describe('default subtitle style (#250)', () => {
 
   it('a customized default styles later imports, and Reset returns everything to the standard', async () => {
     render(<App />)
+    // Customizing *before* any subtitles exist is no longer reachable: #418
+    // renders the style disclosure only where it has cues to restyle, which
+    // is the one thing #250's surface traded away for the header line. The
+    // claim this test is named for is untouched — a customized default
+    // styles later imports — and is now made across two imports, so it also
+    // covers the cues already on the timeline, which the old shape did not.
+    await importSrt('1\n00:00:01,000 --> 00:00:02,000\nStyled on arrival\n')
+    await screen.findByRole('textbox', { name: 'Content of text overlay at position 1' })
+    await openSubtitleStyle()
     const reset = screen.getByRole('button', { name: 'Reset default subtitle style' })
     expect(reset).toBeDisabled()
 
-    // Customize before any subtitles exist — the next import takes it.
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Default subtitle font' }), 'serif')
     expect(reset).toBeEnabled()
-    await importSrt('1\n00:00:01,000 --> 00:00:02,000\nStyled on arrival\n')
+    // The cue already imported follows the new default…
+    expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })).toHaveValue('serif')
+
+    // …and so does one imported after it.
+    await importSrt('1\n00:00:05,000 --> 00:00:06,000\nStyled on arrival too\n', 'more.srt')
     expect(
-      await screen.findByRole('combobox', { name: 'Font of text overlay at position 1' }),
+      await screen.findByRole('combobox', { name: 'Font of text overlay at position 2' }),
     ).toHaveValue('serif')
 
     await userEvent.click(reset)
     expect(reset).toBeDisabled()
     expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })).toHaveValue('sans')
+    expect(screen.getByRole('combobox', { name: 'Font of text overlay at position 2' })).toHaveValue('sans')
     expect(screen.getByRole('combobox', { name: 'Default subtitle font' })).toHaveValue('sans')
+  })
+
+  it('the style disclosure appears only with cues, opens on import, and toggles (#418)', async () => {
+    render(<App />)
+    // Nothing to restyle: the disclosure is not rendered at all, so neither
+    // is the eight-control row it used to keep permanently on screen.
+    expect(querySubtitleStyleToggle()).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Default subtitle font' })).toBeNull()
+
+    // A hand-made text overlay is a cue to restyle, so the disclosure
+    // appears — collapsed, because nothing has been imported yet.
+    await chooseFromAddMenu(ADD_TEXT)
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('combobox', { name: 'Default subtitle font' })).toBeNull()
+
+    // Clicking opens it and clicking again closes it.
+    await userEvent.click(subtitleStyleToggle())
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('combobox', { name: 'Default subtitle font' })).toBeInTheDocument()
+    await userEvent.click(subtitleStyleToggle())
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'false')
+
+    // An import opens it: the cues that just arrived are the reason to look.
+    await importSrt(TWO_CUES)
+    await screen.findByRole('textbox', { name: 'Content of text overlay at position 3' })
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'true')
+
+    // Every import opens it, including one after the user closed it — the
+    // simpler of the two rules #418 allows, chosen deliberately: it needs no
+    // memory of what the user did earlier, and re-opening after an import
+    // the user asked for is not a surprise.
+    await userEvent.click(subtitleStyleToggle())
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'false')
+    await importSrt('1\n00:00:07,000 --> 00:00:08,000\nThird import\n', 'again.srt')
+    await screen.findByRole('textbox', { name: 'Content of text overlay at position 4' })
+    expect(subtitleStyleToggle()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('a failed import leaves no disclosure to open (#418)', async () => {
+    render(<App />)
+    // The open state is set by the picker, but the disclosure renders on
+    // cues existing — so a file with none leaves nothing on screen rather
+    // than an empty style row.
+    await importSrt('this is prose, not subtitles')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No subtitle cues found in "captions.srt".',
+    )
+    expect(querySubtitleStyleToggle()).toBeNull()
   })
 })
 
@@ -2213,7 +2288,7 @@ describe('background fill (#259)', () => {
 
   it('offers no background-fill row for a slate', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     expect(
       screen.queryByRole('combobox', { name: /Background fill of Color slate/ }),
     ).not.toBeInTheDocument()
@@ -2353,7 +2428,7 @@ describe('collapsible timeline elements (#299)', () => {
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
     await chooseClipAction('v.mp4', 'Add as overlay')
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     const audio = 'audio track m.mp3 at position 1'
     const overlay = 'overlay v.mp4 at position 1'
@@ -2388,7 +2463,7 @@ describe('collapsible timeline elements (#299)', () => {
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     await userEvent.click(screen.getByRole('button', { name: 'Collapse all timeline elements' }))
     expect(trimIn('a.mp4 at position 1')).toBeNull()
@@ -2438,7 +2513,7 @@ describe('section-level collapse (#300)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
     await chooseClipAction('a.mp4', 'Add as overlay')
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
   }
 
   it('every rendered section heading offers fold/unfold and its own Collapse all / Expand all', async () => {
@@ -2660,9 +2735,7 @@ describe('duplicate a timeline element (#314)', () => {
     render(<App />)
     await importClip('a.mp4', 30)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Add text overlay to timeline' }),
-    )
+    await chooseFromAddMenu(ADD_TEXT)
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Duplicate text overlay at position 1' }),
@@ -2822,10 +2895,10 @@ describe('copy and paste settings (#315)', () => {
     await importClip('a.mp4', 10)
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
     await chooseClipAction('a.mp4', 'Add as overlay')
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     expect(
       screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
@@ -2944,7 +3017,7 @@ describe('copy and paste settings (#315)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
@@ -2965,8 +3038,8 @@ describe('copy and paste settings (#315)', () => {
     render(<App />)
     await importClip('a.mp4', 30)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
+    await chooseFromAddMenu(ADD_TEXT)
 
     // Style the first title distinctively.
     await userEvent.click(screen.getByRole('checkbox', { name: 'Bold text overlay at position 1' }))
@@ -3116,7 +3189,7 @@ describe('rename timeline elements (#405)', () => {
 
   it('renames a slate by double-clicking its name and clicking away', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
     fireEvent.doubleClick(within(sequence()).getByText('Color slate'))
     const input = field('Color slate at position 1')
     await userEvent.clear(input)
@@ -3178,7 +3251,7 @@ describe('rename timeline elements (#405)', () => {
     render(<App />)
     await importClip('a.mp4', 30)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add text overlay to timeline' }))
+    await chooseFromAddMenu(ADD_TEXT)
     expect(screen.queryByRole('button', { name: /Rename text overlay/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rename a.mp4 at position 1' })).toBeInTheDocument()
   })
@@ -3219,6 +3292,113 @@ describe('the canvas aspect sits in the timeline header (#415)', () => {
     expect(within(timeline).getByRole('combobox', { name: 'Canvas aspect' })).toBe(canvas())
     // The page header no longer carries its own copy (#415).
     expect(screen.getAllByRole('combobox', { name: 'Canvas aspect' })).toHaveLength(1)
+  })
+})
+
+/**
+ * The header's Add ▾ menu (#418, from the approved redesign #401 option T1 /
+ * feedback #395). What each item does is covered by the suites that used to
+ * click the buttons and now go through `chooseFromAddMenu` — the slate tests
+ * above, the text-overlay tests, the subtitle-import tests. What is left to
+ * assert here is the menu itself: its shape, that the three items are the
+ * only way in, that the fold-all pair survived losing its words, and that
+ * the whole thing works from the keyboard.
+ *
+ * Placed before the file's last `describe` per `development.md`, so
+ * concurrent PRs do not all conflict at the file's tail.
+ */
+describe("the timeline header's Add ▾ menu (#418)", () => {
+  it('offers exactly the three former buttons, which are gone from the header', async () => {
+    render(<App />)
+
+    // The buttons the menu replaced are not in the header any more — the
+    // point of the change, and the thing a regression would quietly undo.
+    for (const name of [
+      'Add color slate to timeline',
+      'Add text overlay to timeline',
+      'Import subtitles from an SRT file',
+    ]) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+
+    const menu = await openAddMenu()
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      ADD_SLATE,
+      ADD_TEXT,
+      IMPORT_SUBTITLES,
+    ])
+    // No separators: all three add something, and none is destructive.
+    expect(within(menu).queryAllByRole('separator')).toHaveLength(0)
+    await closeAddMenu()
+  })
+
+  it('keeps Undo, Redo and the fold-all pair out of the menu, with their names intact', async () => {
+    render(<App />)
+    // ▲ ▼ lost their words to option T1's compactness, not their meaning:
+    // the accessible names are what every existing collapse test uses, so
+    // those tests were not touched by this PR at all.
+    const collapse = screen.getByRole('button', { name: 'Collapse all timeline elements' })
+    const expand = screen.getByRole('button', { name: 'Expand all timeline elements' })
+    expect(collapse).toHaveTextContent('▲')
+    expect(expand).toHaveTextContent('▼')
+    // A glyph-only control needs its meaning on hover too (#417's ⇥ ⇤ rule).
+    expect(collapse).toHaveAttribute('title', 'Collapse all timeline elements')
+    expect(expand).toHaveAttribute('title', 'Expand all timeline elements')
+
+    const menu = await openAddMenu()
+    for (const name of ['Undo', 'Redo', 'Collapse', 'Expand']) {
+      expect(within(menu).queryByRole('menuitem', { name: new RegExp(name) })).toBeNull()
+    }
+    await closeAddMenu()
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Redo timeline edit' })).toBeInTheDocument()
+  })
+
+  it('adds a slate by keyboard alone, from the trigger', async () => {
+    render(<App />)
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+
+    // ArrowDown opens on the first item, Enter selects it — the menu-button
+    // contract #412 implements, exercised without the mouse.
+    screen.getByRole('button', { name: 'Add' }).focus()
+    await userEvent.keyboard('{ArrowDown}')
+    const menu = screen.getByRole('menu', { name: 'Add menu' })
+    expect(within(menu).getByRole('menuitem', { name: ADD_SLATE })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(
+      within(screen.getByRole('list', { name: 'Sequence' })).getAllByRole('listitem'),
+    ).toHaveLength(1)
+    // Selection closes the panel and hands focus back to the trigger.
+    expect(screen.queryByRole('menu', { name: 'Add menu' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add' })).toHaveFocus()
+  })
+
+  it('reaches the text overlay item by arrowing past the first', async () => {
+    render(<App />)
+    screen.getByRole('button', { name: 'Add' }).focus()
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+
+    expect(
+      within(screen.getByRole('list', { name: 'Text overlays' })).getAllByRole('listitem'),
+    ).toHaveLength(1)
+    // And nothing landed in the sequence — the item that ran is the one the
+    // arrow was on, not the one the menu opened on.
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+  })
+
+  it('opens the subtitle picker rather than importing anything itself', async () => {
+    render(<App />)
+    const input = screen.getByTestId('subtitle-file-input') as HTMLInputElement
+    const clicked = vi.fn()
+    input.addEventListener('click', clicked)
+
+    await chooseFromAddMenu(IMPORT_SUBTITLES)
+
+    // The item's whole job is clicking the hidden input the button clicked;
+    // the import itself is the input's change handler, covered above.
+    expect(clicked).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('list', { name: 'Text overlays' })).toBeNull()
   })
 })
 

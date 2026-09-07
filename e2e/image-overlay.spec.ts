@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -62,7 +63,7 @@ test('a still overlay renders above the base at its rectangle, with its alpha in
 
   // A red slate keeps the base media-free and gives a colour the overlay's
   // transparent half must show through (#143).
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   await page.getByTestId('clip-file-input').setInputFiles([
     { name: 'logo.png', mimeType: 'image/png', buffer: await makeHalfTransparentPng(page) },

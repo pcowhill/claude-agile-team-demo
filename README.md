@@ -112,9 +112,10 @@ identical rule, and the setting persists with the project. Still images import i
 with their pixel dimensions probed and shown with an Image badge, and can
 be placed on the timeline as stills with an adjustable duration (5 s by
 default, #140) — participating in transitions, zooms, preview, export, and
-project files like any clip. Solid-color slates (#143) can be added to the
-timeline directly — no import, any 24-bit color, same adjustable duration —
-so a video can e.g. open on a red screen that crossfades into a clip.
+project files like any clip. Solid-color slates (#143) can be added from the
+timeline header's **Add ▾** menu (#418) — no import, any 24-bit color, same
+adjustable duration — so a video can e.g. open on a red screen that
+crossfades into a clip.
 Transitions between adjacent entries offer a crossfade, four slide
 directions, four wipes, four pushes, fades through black and white, an
 opening and a closing iris, and a cross-zoom (#181), rendered identically by
@@ -124,21 +125,25 @@ entries can be time-remapped (#138, #141, #144): any number of speed segments
 (freeze one frame for a chosen time), edited on the timeline and honored by
 the preview's playback, scrubbing, and sequence timing — and by the exported
 file, which plays the same remapped timing. Text overlays (#139) — titles,
-subtitles, labels — can be added to the timeline with editable content
+subtitles, labels — are added from the same **Add ▾** menu, with editable content
 (multi-line), timing, position, font (curated system stacks), size relative
 to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
 durations (#177), rendering in the preview above the composed frame for
 their window — and in the exported file, which draws the same overlays with
 the same relative size, position, and fade envelope (#142). Subtitles can be
-imported from a standard .srt file (#249): every cue lands as an ordinary
-text overlay timed to the cue, bottom-center at a readable caption default,
-individually editable like any other, with skipped/malformed cue blocks
-reported in the library's failure list. A per-project default subtitle
-style (#250) — font, size, color, bold/italic, position, edited beside the
-import control — restyles every imported subtitle at once, at import time
-or any time after; a property edited on an individual cue is pinned and
-keeps its value through later default changes, while the cue's other
-properties keep following. Video clips can
+imported from a standard .srt file through **Add ▾ → Subtitles from .srt
+file…** (#249): every cue lands as an ordinary text overlay timed to the
+cue, bottom-center at a readable caption default, individually editable like
+any other, with skipped/malformed cue blocks reported in the library's
+failure list. A per-project default subtitle style (#250) — font, size,
+color, bold/italic, position — restyles every imported subtitle at once; a
+property edited on an individual cue is pinned and keeps its value through
+later default changes, while the cue's other properties keep following. Its
+controls sit behind a **Subtitle style** disclosure below the timeline
+header (#418), which appears once the timeline has any text overlay to
+restyle and opens itself whenever subtitles are imported — so the eight
+fields are one click away when they are wanted and cost nothing when they
+are not. Video clips can
 also be layered above the sequence as overlays (#145) — picture-in-picture —
 each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
@@ -177,11 +182,12 @@ and video overlays alike — soundless items (stills, slates, clips whose
 audio cannot be decoded) keep the plain bar. Every section is titled —
 Sequence, Audio, Overlays, Text — and every row can be collapsed to a thin
 wedge of just its coverage bar and main line (#299), individually or all at
-once from the timeline header's Collapse all / Expand all. Each section
+once from the timeline header's compact ▲ / ▼ pair (#418, named for what
+they do rather than lettered). Each section
 heading carries its own controls too (#300): fold the whole section down to
 its heading (unfolding brings every row back exactly as it was), or
-collapse / expand just that section's rows; the header's Collapse all also
-folds every section and Expand all unfolds and expands everything.
+collapse / expand just that section's rows; the header's ▲ also
+folds every section and ▼ unfolds and expands everything.
 Collapsing and folding are view choices, never edits, so they are not
 undoable and not saved with the project.
 Video entries and overlay rows also carry a small thumbnail (#193) — the

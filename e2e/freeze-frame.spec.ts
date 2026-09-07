@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { chooseFromFrameMenu, expectFrameItemEnabled, frameMenu, frameMenuTrigger, openFrameMenu } from './frameMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseView } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -180,7 +181,7 @@ test('freeze frame boundary fallback, append placement, and transport geometry (
 }, testInfo) => {
   await page.goto('./')
 
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
 
   const sequence = page.getByRole('list', { name: 'Sequence' })

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Collapsible timeline elements (#299): a collapsed row keeps its coverage
@@ -52,7 +53,7 @@ test('collapsing rows hides their controls, keeps the bars, and shortens the tim
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_TEXT)
 
   const timeline = page.getByRole('region', { name: 'Timeline' })
   await expect(page.getByRole('heading', { name: 'Sequence' })).toBeVisible()

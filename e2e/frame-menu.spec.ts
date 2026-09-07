@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { closeFrameMenu, expectFrameItemEnabled, frameMenu, frameMenuTrigger } from './frameMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -25,8 +26,8 @@ test('I and O mark the range at the playhead; Frame ▾ opens by keyboard and En
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:10')
   await blurActive(page)
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
@@ -96,7 +97,7 @@ test('the transport fits one line at the default width, stays inside the panel a
   page,
 }, testInfo) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
   await blurActive(page)
   // Marks set, so ✕ Marks is showing: the row at its widest.

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Clip thumbnails in the timeline (#193): a video entry gains a captured
@@ -101,7 +102,7 @@ test('image entries show the image itself; slates show their color swatch', asyn
     buffer: await makePng(page),
   })
   await page.getByRole('button', { name: 'Add logo.png to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   // The image thumbnail is the imported image, scaled — no capture step.
   const imageThumb = page.getByTestId('timeline-entry-thumbnail-0')
