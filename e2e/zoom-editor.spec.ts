@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseEffect } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -67,7 +68,7 @@ test('the zoom editor shows the real frame at the output aspect, and drags commi
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) }])
   await page.getByRole('button', { name: 'Add logo.png to timeline' }).click()
-  await page.getByRole('button', { name: `Add zoom to ${position}` }).click()
+  await chooseEffect(page, position, 'Zoom')
   await fillField(page, `Zoom 1 scale of ${position}`, '2')
   await fillField(page, `Zoom 1 centre X of ${position} (0 to 1)`, '0.5')
   await fillField(page, `Zoom 1 centre Y of ${position} (0 to 1)`, '0.5')
@@ -159,7 +160,7 @@ test('the editor fits the timeline panel at the narrow width too, and the settin
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) }])
   await page.getByRole('button', { name: 'Add logo.png to timeline' }).click()
-  await page.getByRole('button', { name: `Add zoom to ${position}` }).click()
+  await chooseEffect(page, position, 'Zoom')
   const adjust = page.getByRole('button', { name: `Adjust Zoom 1 of ${position} visually` })
   await adjust.click()
   const editor = page.getByRole('dialog', { name: `Adjust Zoom 1 of ${position}` })

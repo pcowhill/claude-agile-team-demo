@@ -71,9 +71,14 @@ test('no horizontal page scroll at an 800px viewport with a video clip in play (
   // Every clip-row control is present and usable — shrinking must not cost
   // any of them (#208 acceptance criteria). Since #416 that is the two
   // inline actions plus the ⋯ the rest moved into, and the items inside it.
+  // `exact`, because #419 gave the timeline's rows a ⋯ of their own, named
+  // "More actions for <clip> at position 1" — the library's name with a
+  // suffix. Playwright matches a name by substring, so the loose match
+  // resolves to both rows' triggers and fails strict mode; `clipMenu.ts`
+  // already spells `exact` for the same reason between two library rows.
   const clip = 'my-vacation-video-part-1.webm'
   for (const name of [`Add ${clip} to timeline`, `Preview ${clip}`, `More actions for ${clip}`]) {
-    await expect(page.getByRole('button', { name })).toBeVisible()
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
   }
   const menu = await openClipMenu(page, clip)
   for (const item of ['Add as overlay', 'Extract audio', 'Rename…', 'Remove']) {

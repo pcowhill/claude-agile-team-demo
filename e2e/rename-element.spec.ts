@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseRowAction, rowMenuTrigger } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -10,8 +11,10 @@ type Page = import('@playwright/test').Page
  * Rename timeline elements (#405, from feedback #398), in real Chromium: a
  * sequence entry and an audio track renamed from their row headers, every
  * label and the preview's now-playing line following, Ctrl+Z undoing the
- * rename, and the names surviving save → open. Plus the geometry of the new
- * control: the ✎ and the edit field stay on the row header's line inside
+ * rename, and the names surviving save → open. Since #419 the entry is
+ * renamed through the row's ⋯ menu and the audio track by double-clicking
+ * its name, so both paths the redesign left are exercised here. Plus the
+ * geometry: the ⋯ and the edit field stay on the row header's line inside
  * the row, and the page never scrolls sideways.
  */
 
@@ -74,20 +77,26 @@ test('renaming an entry and an audio track relabels the rows and the preview; Ct
   const nowPlaying = page.getByTestId('preview-now-playing')
   await expect(nowPlaying).toContainText('Clip 1 of 1: clip.webm')
 
-  // Geometry (new visible surface): the ✎ shares the name's line inside the
-  // row before editing…
-  const renameEntry = page.getByRole('button', { name: 'Rename clip.webm at position 1' })
+  // Geometry (changed visible surface): the ⋯ that carries Rename… since
+  // #419 shares the name's line inside the row, and sits after the name
+  // rather than beside it — the ✎ that used to follow the name is gone,
+  // and the row's actions are one cluster at its right edge.
+  const entryMenu = rowMenuTrigger(page, 'clip.webm at position 1')
   const entryName = entryRow.locator('.clip-name').first()
-  await expectWithin(renameEntry, entryRow, { what: 'entry rename button' })
-  const renameBox = (await renameEntry.boundingBox())!
+  await expectWithin(entryMenu, entryRow, { what: "the entry's ⋯" })
+  const menuBox = (await entryMenu.boundingBox())!
   const nameBox = (await entryName.boundingBox())!
-  expect(Math.abs(renameBox.y + renameBox.height / 2 - (nameBox.y + nameBox.height / 2))).toBeLessThan(
-    renameBox.height / 2,
+  expect(Math.abs(menuBox.y + menuBox.height / 2 - (nameBox.y + nameBox.height / 2))).toBeLessThan(
+    menuBox.height / 2,
   )
+  expect(
+    menuBox.x,
+    'the ⋯ sits after the name, in the row\'s actions cluster',
+  ).toBeGreaterThan(nameBox.x + nameBox.width)
 
   // …and the field takes the name's place on that same line while editing,
   // inside the row, without the page scrolling sideways.
-  await renameEntry.click()
+  await chooseRowAction(page, 'clip.webm at position 1', 'Rename…')
   const entryField = page.getByRole('textbox', { name: 'New name for clip.webm at position 1' })
   await expect(entryField).toBeFocused()
   await expect(entryField).toHaveValue('clip.webm')
@@ -106,7 +115,8 @@ test('renaming an entry and an audio track relabels the rows and the preview; Ct
   await entryField.fill('Intro')
   await entryField.press('Enter')
   await expect(entryRow.locator('.clip-name')).toHaveText('Intro')
-  await expect(page.getByRole('button', { name: 'Rename Intro at position 1' })).toBeVisible()
+  // The ⋯ is named for the row, so its own name follows the rename too.
+  await expect(rowMenuTrigger(page, 'Intro at position 1')).toBeVisible()
   await expect(
     page.getByRole('spinbutton', { name: 'Trim out point of Intro at position 1 in seconds' }),
   ).toBeVisible()

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseRowAction } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -70,8 +71,8 @@ test('pasting with Color checked and Crop unchecked applies only the color (#315
   await cropTop.fill('20')
   await cropTop.blur()
 
-  await page.getByRole('button', { name: 'Copy settings of clip.webm at position 1' }).click()
-  await page.getByRole('button', { name: 'Paste settings onto clip.webm at position 2' }).click()
+  await chooseRowAction(page, 'clip.webm at position 1', 'Copy settings')
+  await chooseRowAction(page, 'clip.webm at position 2', 'Paste settings')
 
   // The checklist opens with every compatible group checked; uncheck Crop.
   const dialog = page.getByRole('dialog')

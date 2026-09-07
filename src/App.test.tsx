@@ -5,6 +5,12 @@ import App from './App'
 import { deserializeProject } from './lib/projectFile'
 import type { SaveDestination, SavePort } from './lib/saveProject'
 import { chooseFromFileMenu } from './test/fileMenu'
+import {
+  COPY_SETTINGS,
+  DUPLICATE,
+  PASTE_SETTINGS,
+  chooseRowAction,
+} from './test/timelineRowMenu'
 
 /** Confirms the first-save mode dialog (#98), choosing references-only —
  * these tests exercise dirty tracking and open/re-link, not embedding, and
@@ -94,7 +100,7 @@ describe('unsaved-changes tracking (#76)', () => {
 
     // Duplicating a row is an ordinary edit (#314): it dirties the project,
     // and the copy is in the next save.
-    await user.click(screen.getByRole('button', { name: 'Duplicate clip.webm at position 1' }))
+    await chooseRowAction('clip.webm at position 1', DUPLICATE, user)
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
     await waitFor(() => expect(writes).toHaveLength(3))
@@ -115,10 +121,10 @@ describe('unsaved-changes tracking (#76)', () => {
     await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
     await waitFor(() => expect(writes).toHaveLength(4))
 
-    await user.click(screen.getByRole('button', { name: 'Copy settings of clip.webm at position 1' }))
+    await chooseRowAction('clip.webm at position 1', COPY_SETTINGS, user)
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Paste settings onto clip.webm at position 2' }))
+    await chooseRowAction('clip.webm at position 2', PASTE_SETTINGS, user)
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * Preview playback of time-remap effects (#141): a speed segment drives the
@@ -67,7 +68,7 @@ test('a speed segment drives playbackRate and stretches the sequence', async ({ 
 
   // The default segment fills the free space: [0, 1] at 0.5× on the 1s
   // entry, so 1s of source plays for 2s of sequence.
-  await page.getByRole('button', { name: 'Add speed segment to clip.webm at position 1' }).click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Speed segment')
   await expect(page.getByTestId('timeline-total')).toHaveText('0:02')
   await expect(page.getByRole('slider', { name: 'Seek within sequence' })).toHaveAttribute(
     'max',
@@ -95,7 +96,7 @@ test('a pause freezes the frame while the sequence clock advances', async ({ pag
   await addTrimmedEntry(page)
 
   // A pause at 0.5s holding 1s: the 1s entry plays for 2s of sequence.
-  await page.getByRole('button', { name: 'Add pause to clip.webm at position 1' }).click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Pause')
   const at = page.getByRole('spinbutton', {
     name: 'Pause 1 position of clip.webm at position 1 in seconds',
   })
@@ -157,7 +158,7 @@ test('seeking lands inside remapped regions on the right frame', async ({ page }
   await page.goto('./')
   await addTrimmedEntry(page)
 
-  await page.getByRole('button', { name: 'Add pause to clip.webm at position 1' }).click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Pause')
   const at = page.getByRole('spinbutton', {
     name: 'Pause 1 position of clip.webm at position 1 in seconds',
   })
@@ -190,14 +191,13 @@ test('two pauses on one instant hold for their combined duration (#153)', async 
   // by default): add a pause and move it to 0.5, add a second (it lands on a
   // free instant), then move it to 0.5 as well. The model counts both holds
   // — output [0.5, 2.5] is one combined 2s plateau on a 3s total.
-  const addPause = page.getByRole('button', { name: 'Add pause to clip.webm at position 1' })
-  await addPause.click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Pause')
   const first = page.getByRole('spinbutton', {
     name: 'Pause 1 position of clip.webm at position 1 in seconds',
   })
   await first.fill('0.5')
   await first.blur()
-  await addPause.click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Pause')
   // The new pause lands at a free instant before 0.5, becoming Pause 1.
   const added = page.getByRole('spinbutton', {
     name: 'Pause 1 position of clip.webm at position 1 in seconds',

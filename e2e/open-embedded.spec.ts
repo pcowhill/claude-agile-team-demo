@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * The self-contained round trip (#98) — the embedded twin of open.spec.ts:
@@ -75,7 +76,7 @@ test('an embedded save reopens with no re-link step, then plays and exports', as
     await outField.blur()
   }
   await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
-  await page.getByRole('button', { name: 'Add zoom to first.webm at position 1' }).click()
+  await chooseEffect(page, 'first.webm at position 1', 'Zoom')
   const totalBefore = await page.getByTestId('timeline-total').textContent()
 
   // Save with the DEFAULT mode: the first-save dialog preselects embedding

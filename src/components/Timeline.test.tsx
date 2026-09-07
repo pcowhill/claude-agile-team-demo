@@ -8,6 +8,28 @@ import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { chooseClipAction, clipMenuItem, queryClipMenuItem } from '../test/clipMenu'
 import {
+  ADD_PAUSE,
+  ADD_SPEED,
+  ADD_ZOOM,
+  COPY_SETTINGS,
+  DUPLICATE,
+  PASTE_SETTINGS,
+  RENAME,
+  chooseEffect,
+  chooseRowAction,
+  closeEffectMenu,
+  closeRowMenu,
+  effectItem,
+  effectMenuItems,
+  effectMenuTrigger,
+  queryEffectMenuTrigger,
+  queryRowMenuTrigger,
+  queryEffectItem,
+  queryRowAction,
+  rowMenuItems,
+  rowMenuTrigger,
+} from '../test/timelineRowMenu'
+import {
   ADD_SLATE,
   ADD_TEXT,
   IMPORT_SUBTITLES,
@@ -243,9 +265,7 @@ describe('timeline', () => {
       )
       expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:14')
       // Zooming into a still is supported (#140) — the same control as video.
-      expect(
-        screen.getByRole('button', { name: 'Add zoom to logo.png at position 2' }),
-      ).toBeEnabled()
+      expect(await effectItem('logo.png at position 2', ADD_ZOOM)).toBeEnabled()
     })
   })
 
@@ -480,7 +500,7 @@ describe('timeline', () => {
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       expect(
         screen.getByRole('spinbutton', { name: 'Zoom 1 start of a.mp4 at position 1 in seconds' }),
@@ -500,10 +520,8 @@ describe('timeline', () => {
       expect(
         screen.getByRole('spinbutton', { name: 'Zoom 1 centre X of a.mp4 at position 1 (0 to 1)' }),
       ).toHaveValue(0.5)
-      // The add button stays: an entry can carry several zooms (#129).
-      expect(
-        screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }),
-      ).toBeEnabled()
+      // The item stays enabled: an entry can carry several zooms (#129).
+      expect(await effectItem('a.mp4 at position 1', ADD_ZOOM)).toBeEnabled()
     })
 
     it('adds a second zoom into the free space after the first (#129)', async () => {
@@ -511,9 +529,8 @@ describe('timeline', () => {
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
-      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
-      await userEvent.click(addButton)
-      await userEvent.click(addButton)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       // The first zoom's default window spans [0, 2]; the second lands at 2.
       expect(
@@ -527,22 +544,22 @@ describe('timeline', () => {
       ).toHaveValue(1)
     })
 
-    it('disables the add button when the zoom windows fill the trimmed entry (#129)', async () => {
+    it('disables the Zoom item when the zoom windows fill the trimmed entry (#129)', async () => {
       render(<App />)
       await importClip('a.mp4', 2)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
-      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
-      await userEvent.click(addButton)
-      // The default window [0, 2] covers the whole 2s clip.
-      expect(addButton).toBeDisabled()
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
+      // The default window [0, 2] covers the whole 2s clip. The disabled
+      // state that sat on + Zoom sits on the item now (#419).
+      expect(await effectItem('a.mp4 at position 1', ADD_ZOOM)).toBeDisabled()
     })
 
     it('edits a parameter, and shows the clamp when a value cannot fit', async () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       const hold = screen.getByRole('spinbutton', {
         name: 'Zoom 1 hold of a.mp4 at position 1 in seconds',
@@ -568,9 +585,8 @@ describe('timeline', () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
-      await userEvent.click(addButton)
-      await userEvent.click(addButton)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       const firstScale = screen.getByRole('spinbutton', {
         name: 'Zoom 1 scale of a.mp4 at position 1',
@@ -592,7 +608,7 @@ describe('timeline', () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       const centreX = screen.getByRole('spinbutton', {
         name: 'Zoom 1 centre X of a.mp4 at position 1 (0 to 1)',
@@ -608,7 +624,7 @@ describe('timeline', () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       const scale = screen.getByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' })
       await userEvent.clear(scale)
@@ -621,7 +637,7 @@ describe('timeline', () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      await userEvent.click(screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       const outField = screen.getByRole('spinbutton', {
         name: 'Trim out point of a.mp4 at position 1 in seconds',
@@ -647,9 +663,8 @@ describe('timeline', () => {
       render(<App />)
       await importClip('a.mp4', 10)
       await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-      const addButton = screen.getByRole('button', { name: 'Add zoom to a.mp4 at position 1' })
-      await userEvent.click(addButton)
-      await userEvent.click(addButton)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
+      await chooseEffect('a.mp4 at position 1', ADD_ZOOM)
 
       await userEvent.click(
         screen.getByRole('button', { name: 'Remove zoom 1 from a.mp4 at position 1' }),
@@ -669,7 +684,8 @@ describe('timeline', () => {
       expect(
         screen.queryByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' }),
       ).not.toBeInTheDocument()
-      expect(addButton).toBeEnabled()
+      // With both zooms gone the whole entry is free again.
+      expect(await effectItem('a.mp4 at position 1', ADD_ZOOM)).toBeEnabled()
     })
   })
 
@@ -683,9 +699,7 @@ describe('timeline', () => {
     it('adds the default speed segment and shows its editable parameters', async () => {
       await addEntry()
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
-      )
+      await chooseEffect('a.mp4 at position 1', ADD_SPEED)
 
       expect(
         screen.getByRole('spinbutton', {
@@ -709,10 +723,8 @@ describe('timeline', () => {
     it('adds the default pause into free space and totals its hold', async () => {
       await addEntry()
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' }))
+      await chooseEffect('a.mp4 at position 1', ADD_SPEED)
+      await chooseEffect('a.mp4 at position 1', ADD_PAUSE)
 
       // The segment occupies [0, 2]; the pause lands where the free space starts.
       expect(
@@ -728,9 +740,7 @@ describe('timeline', () => {
 
     it('edits a parameter, and shows the clamp when a value cannot fit', async () => {
       await addEntry()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
-      )
+      await chooseEffect('a.mp4 at position 1', ADD_SPEED)
 
       const factor = screen.getByRole('spinbutton', {
         name: 'Speed segment 1 factor of a.mp4 at position 1',
@@ -754,9 +764,7 @@ describe('timeline', () => {
 
     it('rejects an invalid factor, snapping the field back', async () => {
       await addEntry()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
-      )
+      await chooseEffect('a.mp4 at position 1', ADD_SPEED)
 
       const factor = screen.getByRole('spinbutton', {
         name: 'Speed segment 1 factor of a.mp4 at position 1',
@@ -767,33 +775,31 @@ describe('timeline', () => {
       expect(factor).toHaveValue(0.5)
     })
 
-    it('disables the speed add when segments cover the range; the pause add once the end is held', async () => {
+    it('disables the Speed segment item when segments cover the range; Pause once the end is held', async () => {
       await addEntry(2)
+      const entry = 'a.mp4 at position 1'
 
-      const addSpeed = screen.getByRole('button', {
-        name: 'Add speed segment to a.mp4 at position 1',
-      })
-      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
-      await userEvent.click(addSpeed)
-      // The default segment [0, 2] covers the whole 2s clip.
-      expect(addSpeed).toBeDisabled()
-      expect(addPause).toBeEnabled()
+      await chooseEffect(entry, ADD_SPEED)
+      // The default segment [0, 2] covers the whole 2s clip. Both readings
+      // come off the items now (#419), where they sat on the buttons.
+      expect(await effectItem(entry, ADD_SPEED)).toBeDisabled()
+      expect(await effectItem(entry, ADD_PAUSE)).toBeEnabled()
+      await closeEffectMenu(entry)
       // With every instant covered, the pause lands at the very end.
-      await userEvent.click(addPause)
+      await chooseEffect(entry, ADD_PAUSE)
       expect(
         screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
       ).toHaveValue(2)
       // Segments cover every instant and the end already holds a pause:
       // there is nowhere left to place another (#153).
-      expect(addPause).toBeDisabled()
+      expect(await effectItem(entry, ADD_PAUSE)).toBeDisabled()
     })
 
     it('places a second default pause on a distinct instant (#153)', async () => {
       await addEntry()
-      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
-      await userEvent.click(addPause)
-      await userEvent.click(addPause)
-      // The first pause holds instant 0; a second "+ Pause" must not stack
+      await chooseEffect('a.mp4 at position 1', ADD_PAUSE)
+      await chooseEffect('a.mp4 at position 1', ADD_PAUSE)
+      // The first pause holds instant 0; a second Pause must not stack
       // onto the same instant — it lands mid-gap instead.
       expect(
         screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
@@ -808,15 +814,14 @@ describe('timeline', () => {
 
     it('removes an effect, renumbering the rest of its kind', async () => {
       await addEntry()
-      const addPause = screen.getByRole('button', { name: 'Add pause to a.mp4 at position 1' })
-      await userEvent.click(addPause)
+      await chooseEffect('a.mp4 at position 1', ADD_PAUSE)
       const at = screen.getByRole('spinbutton', {
         name: 'Pause 1 position of a.mp4 at position 1 in seconds',
       })
       await userEvent.clear(at)
       await userEvent.type(at, '4')
       await userEvent.tab()
-      await userEvent.click(addPause)
+      await chooseEffect('a.mp4 at position 1', ADD_PAUSE)
       // The new pause lands in the free gap before the first (window order).
       expect(
         screen.getByRole('spinbutton', { name: 'Pause 1 position of a.mp4 at position 1 in seconds' }),
@@ -838,20 +843,20 @@ describe('timeline', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('offers no remap controls on stills', async () => {
+    it('offers no remap items on stills — + Effect ▾ carries Zoom alone', async () => {
       render(<App />)
       await chooseFromAddMenu(ADD_SLATE)
-      expect(
-        screen.queryByRole('button', { name: /Add speed segment to/ }),
-      ).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /Add pause to/ })).not.toBeInTheDocument()
+      const slate = 'Color slate at position 1'
+      // A still's one duration is its timing (#138): the two items are
+      // absent, as their buttons were, rather than permanently disabled.
+      expect(await queryEffectItem(slate, ADD_SPEED)).toBeNull()
+      expect(await queryEffectItem(slate, ADD_PAUSE)).toBeNull()
+      expect(await effectMenuItems(slate)).toEqual([ADD_ZOOM])
     })
 
     it('re-clamps effects when a trim shrinks the entry under them', async () => {
       await addEntry()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Add speed segment to a.mp4 at position 1' }),
-      )
+      await chooseEffect('a.mp4 at position 1', ADD_SPEED)
       // Widen the end first: a start edit past the current end would make an
       // invalid (empty) intermediate range and be rejected.
       const end = screen.getByRole('spinbutton', {
@@ -2673,9 +2678,7 @@ describe('duplicate a timeline element (#314)', () => {
     fireEvent.change(outField, { target: { value: '5' } })
     fireEvent.blur(outField)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Duplicate a.mp4 at position 1' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', DUPLICATE)
 
     // The copy sits immediately after the original, its settings carried —
     // the trimmed out point shows on the row at position 2.
@@ -2700,9 +2703,7 @@ describe('duplicate a timeline element (#314)', () => {
     await importAudioClip('m.mp3', 8)
     await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Duplicate audio track m.mp3 at position 1' }),
-    )
+    await chooseRowAction('audio track m.mp3 at position 1', DUPLICATE)
 
     const tracks = within(screen.getByRole('list', { name: 'Audio tracks' })).getAllByRole(
       'listitem',
@@ -2720,9 +2721,7 @@ describe('duplicate a timeline element (#314)', () => {
     await importClip('cam.mp4', 6)
     await chooseClipAction('cam.mp4', 'Add as overlay')
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Duplicate overlay cam.mp4 at position 1' }),
-    )
+    await chooseRowAction('overlay cam.mp4 at position 1', DUPLICATE)
 
     expect(
       screen.getByRole('spinbutton', {
@@ -2737,9 +2736,7 @@ describe('duplicate a timeline element (#314)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await chooseFromAddMenu(ADD_TEXT)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Duplicate text overlay at position 1' }),
-    )
+    await chooseRowAction('text overlay at position 1', DUPLICATE)
 
     // The default text runs 0–3 s, so the copy starts at 3.
     expect(
@@ -2900,35 +2897,29 @@ describe('copy and paste settings (#315)', () => {
     await chooseClipAction('a.mp4', 'Add as overlay')
     await chooseFromAddMenu(ADD_TEXT)
 
-    expect(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Copy settings of audio track m.mp3 at position 1' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Copy settings of overlay a.mp4 at position 1' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Copy settings of text overlay at position 1' }),
-    ).toBeInTheDocument()
-    // A slate holds no settings group: neither control renders on its row.
-    expect(
-      screen.queryByRole('button', { name: 'Copy settings of Color slate at position 2' }),
-    ).not.toBeInTheDocument()
+    const holders = [
+      'a.mp4 at position 1',
+      'audio track m.mp3 at position 1',
+      'overlay a.mp4 at position 1',
+      'text overlay at position 1',
+    ]
+    for (const position of holders) {
+      expect(await queryRowAction(position, COPY_SETTINGS)).toBeInTheDocument()
+      await closeRowMenu(position)
+      // With nothing copied there is no Paste item anywhere.
+      expect(await queryRowAction(position, PASTE_SETTINGS)).toBeNull()
+      await closeRowMenu(position)
+    }
+    // A slate holds no settings group: neither item is in its ⋯, which
+    // still opens for the actions it does have.
+    expect(await rowMenuItems('Color slate at position 2')).toEqual([DUPLICATE, RENAME])
+    await closeRowMenu('Color slate at position 2')
 
-    // With nothing copied there is no Paste control anywhere.
-    expect(screen.queryByRole('button', { name: /^Paste settings onto/ })).not.toBeInTheDocument()
-
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    expect(
-      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 1' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Paste settings onto Color slate at position 2' }),
-    ).not.toBeInTheDocument()
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    expect(await queryRowAction('text overlay at position 1', PASTE_SETTINGS)).toBeInTheDocument()
+    await closeRowMenu('text overlay at position 1')
+    expect(await queryRowAction('Color slate at position 2', PASTE_SETTINGS)).toBeNull()
+    await closeRowMenu('Color slate at position 2')
   })
 
   it('clip→clip: applies the checked groups only, as one undo step', async () => {
@@ -2950,12 +2941,8 @@ describe('copy and paste settings (#315)', () => {
     fireEvent.change(cropTop, { target: { value: '20' } })
     fireEvent.blur(cropTop)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto b.mp4 at position 2' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    await chooseRowAction('b.mp4 at position 2', PASTE_SETTINGS)
 
     // The checklist offers the full clip↔clip surface, everything checked.
     const dialog = screen.getByRole('dialog')
@@ -3000,12 +2987,8 @@ describe('copy and paste settings (#315)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await chooseClipAction('a.mp4', 'Add as overlay')
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto overlay a.mp4 at position 1' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    await chooseRowAction('overlay a.mp4 at position 1', PASTE_SETTINGS)
     expect(
       within(screen.getByRole('dialog'))
         .getAllByRole('checkbox')
@@ -3019,12 +3002,8 @@ describe('copy and paste settings (#315)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await chooseFromAddMenu(ADD_TEXT)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 1' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    await chooseRowAction('text overlay at position 1', PASTE_SETTINGS)
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryAllByRole('checkbox')).toHaveLength(0)
     expect(within(dialog).getByText('None of the copied settings apply to this element.'))
@@ -3046,12 +3025,8 @@ describe('copy and paste settings (#315)', () => {
     const color = screen.getByLabelText('Color of text overlay at position 1')
     fireEvent.change(color, { target: { value: '#ffcc00' } })
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of text overlay at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto text overlay at position 2' }),
-    )
+    await chooseRowAction('text overlay at position 1', COPY_SETTINGS)
+    await chooseRowAction('text overlay at position 2', PASTE_SETTINGS)
     const dialog = screen.getByRole('dialog')
     expect(
       within(dialog)
@@ -3157,13 +3132,13 @@ describe('rename timeline elements (#405)', () => {
   const field = (position: string) =>
     screen.getByRole('textbox', { name: `New name for ${position}` })
 
-  it('renames a sequence entry through the ✎ button and Enter; every label and the preview readout follow, as one undo step', async () => {
+  it('renames a sequence entry through the ⋯ menu and Enter; every label and the preview readout follow, as one undo step', async () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     expect(screen.getByTestId('preview-now-playing')).toHaveTextContent('Clip 1 of 1: a.mp4')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Rename a.mp4 at position 1' }))
+    await chooseRowAction('a.mp4 at position 1', RENAME)
     const input = field('a.mp4 at position 1')
     // Opens with the current name, selected, so typing replaces it.
     expect(input).toHaveValue('a.mp4')
@@ -3172,7 +3147,8 @@ describe('rename timeline elements (#405)', () => {
 
     expect(sequenceNames()).toEqual(['Intro'])
     expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Rename Intro at position 1' })).toBeInTheDocument()
+    // The ⋯ is named for the row, so its own name follows the rename too.
+    expect(rowMenuTrigger('Intro at position 1')).toBeInTheDocument()
     expect(
       screen.getByRole('spinbutton', { name: 'Trim out point of Intro at position 1 in seconds' }),
     ).toBeInTheDocument()
@@ -3210,12 +3186,12 @@ describe('rename timeline elements (#405)', () => {
         .getAllByRole('listitem')
         .map((item) => item.querySelector('.clip-name')?.textContent)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Rename audio track m.mp3 at position 1' }))
+    await chooseRowAction('audio track m.mp3 at position 1', RENAME)
     await userEvent.keyboard('Bed{Escape}')
     expect(trackName()).toEqual(['m.mp3'])
     expect(screen.queryByRole('textbox', { name: /New name for/ })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Rename audio track m.mp3 at position 1' }))
+    await chooseRowAction('audio track m.mp3 at position 1', RENAME)
     await userEvent.keyboard('   {Enter}')
     expect(trackName()).toEqual(['m.mp3'])
     // Neither attempt was an edit: nothing to undo beyond the add itself.
@@ -3230,9 +3206,9 @@ describe('rename timeline elements (#405)', () => {
     await chooseClipAction('cam.mp4', 'Add as overlay')
     await chooseClipAction('logo.png', 'Add as overlay')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Rename overlay cam.mp4 at position 1' }))
+    await chooseRowAction('overlay cam.mp4 at position 1', RENAME)
     await userEvent.keyboard('Face{Enter}')
-    await userEvent.click(screen.getByRole('button', { name: 'Rename overlay logo.png at position 2' }))
+    await chooseRowAction('overlay logo.png at position 2', RENAME)
     await userEvent.keyboard('Logo{Enter}')
 
     const overlayNames = within(screen.getByRole('list', { name: 'Overlay layers' }))
@@ -3247,13 +3223,17 @@ describe('rename timeline elements (#405)', () => {
     ).toBeInTheDocument()
   })
 
-  it('offers no rename control on a text overlay', async () => {
+  it('offers no rename item on a text overlay', async () => {
     render(<App />)
     await importClip('a.mp4', 30)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await chooseFromAddMenu(ADD_TEXT)
-    expect(screen.queryByRole('button', { name: /Rename text overlay/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Rename a.mp4 at position 1' })).toBeInTheDocument()
+    // That row shows the overlay's content rather than a name, so there is
+    // nothing to rename — as before #419, when it carried no ✎ either.
+    expect(await queryRowAction('text overlay at position 1', RENAME)).toBeNull()
+    await closeRowMenu('text overlay at position 1')
+    expect(await queryRowAction('a.mp4 at position 1', RENAME)).toBeInTheDocument()
+    await closeRowMenu('a.mp4 at position 1')
   })
 })
 
@@ -3402,6 +3382,151 @@ describe("the timeline header's Add ▾ menu (#418)", () => {
   })
 })
 
+/**
+ * A timeline row's ⋯ menu and an expanded entry's + Effect ▾ (#419, from the
+ * approved redesign #401 / feedback #395). What each item *does* is covered
+ * by the suites that used to click the buttons and now go through
+ * `chooseRowAction` / `chooseEffect` — duplicate (#314), copy and paste
+ * settings (#315), rename (#405), zooms (#129) and time remapping (#141).
+ * What is left to assert here is the menus themselves: their per-row shape,
+ * that the moved buttons are gone, that ▾ ↑ ↓ ✕ stayed, and that both work
+ * from the keyboard.
+ *
+ * Placed before the file's last `describe` per `development.md`, so
+ * concurrent PRs do not all conflict at the file's tail.
+ */
+describe("a timeline row's ⋯ menu and + Effect ▾ (#419)", () => {
+  /** One row of every kind, plus a slate — which holds no settings group. */
+  const everyRowKind = async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
+    await chooseFromAddMenu(ADD_TEXT)
+  }
+
+  it('offers each row kind exactly the items its buttons were, and none where it had none', async () => {
+    await everyRowKind()
+
+    // Every row that held a settings group offers the same four, in the
+    // same order — Paste only once something is copied, so not yet.
+    for (const position of [
+      'a.mp4 at position 1',
+      'audio track m.mp3 at position 1',
+      'overlay a.mp4 at position 1',
+    ]) {
+      expect(await rowMenuItems(position)).toEqual([DUPLICATE, COPY_SETTINGS, RENAME])
+      await closeRowMenu(position)
+    }
+    // A text overlay's row shows its content rather than a name: no Rename.
+    expect(await rowMenuItems('text overlay at position 1')).toEqual([DUPLICATE, COPY_SETTINGS])
+    await closeRowMenu('text overlay at position 1')
+    // A slate holds no settings group at all (#315).
+    expect(await rowMenuItems('Color slate at position 2')).toEqual([DUPLICATE, RENAME])
+    await closeRowMenu('Color slate at position 2')
+
+    // Copying puts Paste on every row that can hold it, between Copy and
+    // Rename — the order the two buttons sat in.
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    expect(await rowMenuItems('a.mp4 at position 1')).toEqual([
+      DUPLICATE,
+      COPY_SETTINGS,
+      PASTE_SETTINGS,
+      RENAME,
+    ])
+    await closeRowMenu('a.mp4 at position 1')
+  })
+
+  it('leaves ▾ ↑ ↓ ✕ on the row, and the moved buttons nowhere', async () => {
+    await everyRowKind()
+
+    // The four that stayed keep the accessible names their tests use, which
+    // is why the collapse, reorder and remove suites are untouched by #419.
+    for (const name of [
+      'Collapse a.mp4 at position 1',
+      'Move a.mp4 at position 1 up',
+      'Move a.mp4 at position 1 down',
+      'Remove a.mp4 at position 1 from timeline',
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
+    // ↑ ↓ are the sequence's own ordering: an audio track never had them.
+    expect(
+      screen.queryByRole('button', { name: 'Move audio track m.mp3 at position 1 up' }),
+    ).toBeNull()
+
+    // The buttons the menus replaced are gone from every row.
+    for (const pattern of [
+      /^Duplicate /,
+      /^Copy settings of /,
+      /^Paste settings onto /,
+      /^Rename /,
+      /^Add zoom to /,
+      /^Add speed segment to /,
+      /^Add pause to /,
+    ]) {
+      expect(screen.queryByRole('button', { name: pattern })).toBeNull()
+    }
+  })
+
+  it('duplicates a row by keyboard alone, from the ⋯ trigger', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(sequenceNames()).toEqual(['a.mp4'])
+
+    // ArrowDown opens on the first item, Enter selects it — the menu-button
+    // contract #412 implements, exercised without the mouse.
+    rowMenuTrigger('a.mp4 at position 1').focus()
+    await userEvent.keyboard('{ArrowDown}')
+    const menu = screen.getByRole('menu', { name: 'More actions for a.mp4 at position 1' })
+    expect(within(menu).getByRole('menuitem', { name: DUPLICATE })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(sequenceNames()).toEqual(['a.mp4', 'a.mp4'])
+    // Selection closes the panel and hands focus back to the trigger.
+    expect(screen.queryByRole('menu', { name: 'More actions for a.mp4 at position 1' })).toBeNull()
+    expect(rowMenuTrigger('a.mp4 at position 1')).toHaveFocus()
+  })
+
+  it('offers Zoom · Speed segment · Pause under one + Effect ▾, and adds a zoom by keyboard', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+    expect(await effectMenuItems('a.mp4 at position 1')).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    await closeEffectMenu('a.mp4 at position 1')
+
+    effectMenuTrigger('a.mp4 at position 1').focus()
+    await userEvent.keyboard('{ArrowDown}')
+    const menu = screen.getByRole('menu', { name: '+ Effect on a.mp4 at position 1' })
+    expect(within(menu).getByRole('menuitem', { name: ADD_ZOOM })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Zoom 1 scale of a.mp4 at position 1' }),
+    ).toHaveValue(2)
+    expect(effectMenuTrigger('a.mp4 at position 1')).toHaveFocus()
+  })
+
+  it('is not offered on a collapsed row, whose fields are hidden with it', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(queryEffectMenuTrigger('a.mp4 at position 1')).toBeInTheDocument()
+
+    // + Effect ▾ sits with the fields it adds to, so collapsing (#299)
+    // takes it too — exactly as it took + Zoom, + Speed and + Pause. The
+    // row's own ⋯ stays: its actions are about the row, not its contents.
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse a.mp4 at position 1' }))
+    expect(queryEffectMenuTrigger('a.mp4 at position 1')).toBeNull()
+    expect(queryRowMenuTrigger('a.mp4 at position 1')).toBeInTheDocument()
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({
@@ -3430,12 +3555,8 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await importImage('logo.png')
     await chooseClipAction('logo.png', 'Add as overlay')
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto overlay logo.png at position 1' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    await chooseRowAction('overlay logo.png at position 1', PASTE_SETTINGS)
     // A still is soundless: no Audio checkbox, and no Background fill either
     // (no overlay of either kind holds one).
     expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
@@ -3447,12 +3568,8 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await chooseClipAction('a.mp4', 'Add as overlay')
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of a.mp4 at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto overlay a.mp4 at position 1' }),
-    )
+    await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
+    await chooseRowAction('overlay a.mp4 at position 1', PASTE_SETTINGS)
     expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Audio'])
   })
 
@@ -3468,12 +3585,8 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     fireEvent.change(volume, { target: { value: '0.25' } })
     fireEvent.blur(volume)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Copy settings of overlay logo.png at position 1' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Paste settings onto a.mp4 at position 1' }),
-    )
+    await chooseRowAction('overlay logo.png at position 1', COPY_SETTINGS)
+    await chooseRowAction('a.mp4 at position 1', PASTE_SETTINGS)
     // The checklist a still offers a clip: no Audio to leave checked.
     expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))

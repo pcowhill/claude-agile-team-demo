@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * Opening a saved project (#77): the full round trip — build a sequence with
@@ -73,7 +74,7 @@ test('a saved project reopens with its trims, transition and zoom, then plays an
     await outField.blur()
   }
   await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
-  await page.getByRole('button', { name: 'Add zoom to first.webm at position 1' }).click()
+  await chooseEffect(page, 'first.webm at position 1', 'Zoom')
   const totalBefore = await page.getByTestId('timeline-total').textContent()
 
   // Save references-only (#98) — this spec exercises the re-link open path —

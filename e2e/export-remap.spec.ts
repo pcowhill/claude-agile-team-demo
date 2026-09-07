@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * Export honors time remapping (#144): the exported file lasts the remapped
@@ -108,7 +109,7 @@ test('a speed segment stretches the exported file to the remapped total', async 
   // The default segment fills the free space: [0, 1] at 0.5× on the 1 s
   // entry, so the 1 s of source must record as ~2 s of output — a file that
   // ignored the remap would be ~1 s and fail the lower bound.
-  await page.getByRole('button', { name: 'Add speed segment to clip.webm at position 1' }).click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Speed segment')
   await expect(page.getByTestId('timeline-total')).toHaveText('0:02')
 
   const exported = await exportSequence(page)
@@ -127,7 +128,7 @@ test('a pause records as held frames for the configured duration', async ({ page
   // 1 s entry exports as ~2 s. Set the position mid-entry so the export
   // crosses into the hold mid-playback — the crossing path, not just the
   // entry-opening path.
-  await page.getByRole('button', { name: 'Add pause to clip.webm at position 1' }).click()
+  await chooseEffect(page, 'clip.webm at position 1', 'Pause')
   const at = page.getByRole('spinbutton', {
     name: 'Pause 1 position of clip.webm at position 1 in seconds',
   })

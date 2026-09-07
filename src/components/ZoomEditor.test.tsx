@@ -8,6 +8,7 @@ import { SETTINGS_KEY } from '../lib/settings'
 import { zoomsOf } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { chooseFromFileMenu } from '../test/fileMenu'
+import { ADD_ZOOM, chooseEffect } from '../test/timelineRowMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -55,7 +56,7 @@ async function placeImageWithZoom() {
   )
   await screen.findByText('logo.png')
   await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
-  await userEvent.click(screen.getByRole('button', { name: `Add zoom to ${position}` }))
+  await chooseEffect(position, ADD_ZOOM)
   expect(scaleField()).toHaveValue(2)
   expect(centreX()).toHaveValue(0.5)
 }

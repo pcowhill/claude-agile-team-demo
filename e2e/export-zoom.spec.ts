@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, frameAt, lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { chooseEffect } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -150,7 +151,7 @@ test('an export renders the zoom: the held region fills the frame (#65)', async 
   // source's dimensions, so frame fractions are source fractions: the green
   // half spans [0, 0.5] and the zoomed region [0, 0.5] × [0.25, 0.75] lies
   // entirely inside it. Window [0.5, 1.5]: full zoom over [0.7, 1.3].
-  await page.getByRole('button', { name: 'Add zoom to banded.webm at position 1' }).click()
+  await chooseEffect(page, 'banded.webm at position 1', 'Zoom')
   await fillZoomField(page, 'Zoom 1 start of banded.webm at position 1 in seconds', '0.5')
   await fillZoomField(page, 'Zoom 1 ramp-in of banded.webm at position 1 in seconds', '0.2')
   await fillZoomField(page, 'Zoom 1 hold of banded.webm at position 1 in seconds', '0.6')
@@ -236,7 +237,7 @@ test('a zoomed clip on the incoming side of a slide exports both effects (#65)',
   // The incoming clip zooms into its green band from its very head (a zero
   // ramp-in starts at full zoom), so its whole overlap appearance is the
   // magnified green region.
-  await page.getByRole('button', { name: 'Add zoom to banded.webm at position 2' }).click()
+  await chooseEffect(page, 'banded.webm at position 2', 'Zoom')
   await fillZoomField(page, 'Zoom 1 start of banded.webm at position 2 in seconds', '0')
   await fillZoomField(page, 'Zoom 1 ramp-in of banded.webm at position 2 in seconds', '0')
   await fillZoomField(page, 'Zoom 1 hold of banded.webm at position 2 in seconds', '1')

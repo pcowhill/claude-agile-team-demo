@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { chooseRowAction, rowMenuTrigger } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -71,14 +72,14 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
   })
   await outField.fill('0.8')
   await outField.blur()
-  await page.getByRole('button', { name: 'Duplicate clip.webm at position 1' }).click()
+  await chooseRowAction(page, 'clip.webm at position 1', 'Duplicate')
   await expect(sequenceRows).toHaveCount(3)
   await expect(
     page.getByRole('spinbutton', { name: 'Trim out point of clip.webm at position 2 in seconds' }),
   ).toHaveValue('0.8')
-  await expect(
-    page.getByRole('button', { name: 'Duplicate Color slate at position 3' }),
-  ).toBeVisible()
+  // The slate pushed down to position 3 still has its own ⋯, named for
+   // its new position.
+  await expect(rowMenuTrigger(page, 'Color slate at position 3')).toBeVisible()
 
   // An overlay's copy starts where the original's trimmed window ends.
   await chooseClipAction(page, 'clip.webm', 'Add as overlay')
@@ -87,7 +88,7 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
   })
   await overlayOut.fill('1')
   await overlayOut.blur()
-  await page.getByRole('button', { name: 'Duplicate overlay clip.webm at position 1' }).click()
+  await chooseRowAction(page, 'overlay clip.webm at position 1', 'Duplicate')
   await expect(
     page.getByRole('spinbutton', {
       name: 'Start time of overlay clip.webm at position 2 in seconds',

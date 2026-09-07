@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * Saving a project (#76): Save As… / Save / Ctrl+S write a file that #75's
@@ -77,7 +78,7 @@ test('saving downloads a project file that round-trips, and the dirty indicator 
     await outField.blur()
   }
   await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
-  await page.getByRole('button', { name: 'Add zoom to first.webm at position 1' }).click()
+  await chooseEffect(page, 'first.webm at position 1', 'Zoom')
 
   // The edits raised the indicator.
   await expect(page.getByRole('button', { name: 'Save (unsaved changes)' })).toBeVisible()
