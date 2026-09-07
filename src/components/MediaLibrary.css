@@ -10,9 +10,6 @@
   margin: 0;
 }
 
-/* Sort controls (#123): compact toggles above the clip list; the active
-   key shows its direction as an arrow (decorative — the accessible state is
-   aria-pressed on the active button). */
 /* View ▾ (#416) holds what the sort cluster (#123) and the view toggle
    (#311) used to spend five header controls on; the menu's own styling
    (Menu.css) does the rest. The trigger only: the panel is inside this
@@ -90,11 +87,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The name and its ✎ Rename (#404) share one flex slot, so the pair takes
-   the room the name alone did; while editing, the field takes the slot.
-   The floor is the name's 5rem plus the button: below it the row wraps
-   (as .clip-item allows) rather than the pair overflowing its slot under
-   the badge beside it — which is exactly what the first browser run did. */
 /* The name's slot. Its floor was 7rem while the slot held the name *and*
    the ✎ Rename beside it (#404); #416 moved rename into the row's ⋯, so the
    floor is the name's own 5rem again. Those 2rem are what decides whether a
