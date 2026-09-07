@@ -4,6 +4,7 @@ import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -105,6 +106,7 @@ test('an ellipse mask cuts the exported overlay corners to the base (#267)', asy
   // Ellipse mask (#266) and export again: the corner region lies outside the
   // inscribed ellipse, so the red base decodes through the cut, while the
   // card's centre stays the overlay's green.
+  await openPicture(page, 'overlay cam.webm at position 1')
   await page
     .getByRole('combobox', { name: 'Shape mask of overlay cam.webm at position 1' })
     .selectOption('ellipse')

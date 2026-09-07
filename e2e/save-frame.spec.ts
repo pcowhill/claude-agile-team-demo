@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseFromFrameMenu } from './frameMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -140,6 +141,7 @@ test('Save frame downloads the composed playhead frame as a PNG, orientation inc
   // Rotate 90° (#232) and save again: the snapshot composes through the
   // export draw path (#233), so the PNG is portrait at the oriented output
   // resolution with the left band carried to the top.
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('button', {
       name: 'Rotate banded.webm at position 1 90 degrees clockwise (currently 0 degrees)',

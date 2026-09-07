@@ -8,6 +8,12 @@ import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { chooseClipAction, clipMenuItem, queryClipMenuItem } from '../test/clipMenu'
 import {
+  appliedPictureGroups,
+  openPicture,
+  pictureToggle,
+  queryPictureToggle,
+} from '../test/pictureDisclosure'
+import {
   ADD_PAUSE,
   ADD_SPEED,
   ADD_ZOOM,
@@ -1707,6 +1713,9 @@ describe('color adjustments (#192)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    // The picture treatments sit behind the row's Picture disclosure since
+    // #420; every field below keeps its own accessible name and action.
+    await openPicture(position)
     const brightness = brightnessField(position)
     expect(brightness).toHaveValue(100)
     // Identity means nothing to reset, and no filter on the preview element.
@@ -1729,6 +1738,7 @@ describe('color adjustments (#192)', () => {
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
+    await openPicture('a.mp4 at position 1')
     const brightness = brightnessField('a.mp4 at position 1')
     await commitField(brightness, '400')
     expect(brightness).toHaveValue(200)
@@ -1741,6 +1751,7 @@ describe('color adjustments (#192)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await commitField(brightnessField(position), '80')
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: `Look of ${position}` }),
@@ -1770,6 +1781,7 @@ describe('color adjustments (#192)', () => {
     await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const position = 'overlay cam.mp4 at position 1'
+    await openPicture(position)
     const saturation = screen.getByRole('spinbutton', { name: `Saturation of ${position} (percent)` })
     await commitField(saturation, '0')
     expect(saturation).toHaveValue(0)
@@ -1785,6 +1797,7 @@ describe('color adjustments (#192)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await commitField(brightnessField(position), '150')
     expect(brightnessField(position)).toHaveValue(150)
 
@@ -1848,6 +1861,7 @@ describe('orientation (#232)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     // Identity: nothing to reset, no transform on the preview media element.
     expect(screen.getByRole('button', { name: `Reset orientation of ${position}` })).toBeDisabled()
     expect((screen.getByTestId('preview-video') as HTMLElement).style.transform).toBe('')
@@ -1869,6 +1883,7 @@ describe('orientation (#232)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await userEvent.click(rotateButton(position, 0))
     await userEvent.click(rotateButton(position, 90))
     await userEvent.click(rotateButton(position, 180))
@@ -1887,6 +1902,7 @@ describe('orientation (#232)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await userEvent.click(rotateButton(position, 0))
     await userEvent.click(screen.getByRole('checkbox', { name: `Flip ${position} vertically` }))
     await userEvent.click(screen.getByRole('button', { name: `Reset orientation of ${position}` }))
@@ -1911,6 +1927,7 @@ describe('orientation (#232)', () => {
     await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const position = 'overlay cam.mp4 at position 1'
+    await openPicture(position)
     await userEvent.click(rotateButton(position, 0))
     await userEvent.click(rotateButton(position, 90))
     expect((screen.getByTestId('preview-overlay-0') as HTMLElement).style.transform).toBe(
@@ -2053,6 +2070,7 @@ describe('crop (#255)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     // Identity: all edges zero, nothing to reset.
     expect(cropField('left', position)).toHaveValue(0)
     expect(screen.getByRole('button', { name: `Reset crop of ${position}` })).toBeDisabled()
@@ -2070,6 +2088,7 @@ describe('crop (#255)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await commitField(cropField('left', position), '60')
     await commitField(cropField('right', position), '50')
     // The reducer keeps at least 10% of the axis; the fields show the
@@ -2086,6 +2105,7 @@ describe('crop (#255)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     await commitField(cropField('bottom', position), '30')
     await userEvent.click(screen.getByRole('button', { name: `Reset crop of ${position}` }))
     expect(cropField('bottom', position)).toHaveValue(0)
@@ -2111,9 +2131,12 @@ describe('crop (#255)', () => {
     await chooseClipAction('cam.mp4', 'Add as overlay')
 
     const overlayPosition = 'overlay cam.mp4 at position 1'
+    await openPicture(overlayPosition)
     await commitField(cropField('top', overlayPosition), '15')
     expect(cropField('top', overlayPosition)).toHaveValue(15)
-    // The base entry's crop row is untouched.
+    // The base entry's crop row is untouched — and each row's disclosure is
+    // its own, so opening the entry's does not disturb the overlay's.
+    await openPicture('a.mp4 at position 1')
     expect(cropField('top', 'a.mp4 at position 1')).toHaveValue(0)
   })
 })
@@ -2268,6 +2291,7 @@ describe('background fill (#259)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     expect(fillSelect(position)).toHaveValue('none')
     await userEvent.selectOptions(fillSelect(position), 'blur')
     expect(fillSelect(position)).toHaveValue('blur')
@@ -2281,6 +2305,7 @@ describe('background fill (#259)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const position = 'a.mp4 at position 1'
+    await openPicture(position)
     expect(screen.queryByLabelText(`Background fill color of ${position}`)).not.toBeInTheDocument()
     await userEvent.selectOptions(fillSelect(position), 'color')
     // Picking Color commits the default color immediately.
@@ -2306,6 +2331,8 @@ describe('background fill (#259)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
 
+    await openPicture('a.mp4 at position 1')
+    await openPicture('b.mp4 at position 2')
     await userEvent.selectOptions(fillSelect('a.mp4 at position 1'), 'blur')
     expect(fillSelect('a.mp4 at position 1')).toHaveValue('blur')
     expect(fillSelect('b.mp4 at position 2')).toHaveValue('none')
@@ -2321,7 +2348,10 @@ describe('overlay shape mask (#266)', () => {
     render(<App />)
     await importClip('cam.mp4', 8)
     await chooseClipAction('cam.mp4', 'Add as overlay')
-    return 'overlay cam.mp4 at position 1'
+    const position = 'overlay cam.mp4 at position 1'
+    // The mask sits behind the row's Picture disclosure since #420.
+    await openPicture(position)
+    return position
   }
 
   it('defaults to Rectangle, stores Ellipse, and undo steps the edit back (#189)', async () => {
@@ -2846,7 +2876,9 @@ describe('image overlay layers (#294)', () => {
     await addLogoOverlay()
 
     // A treatment edit commits through the reducer exactly as on a video
-    // overlay — the controls are the shared ones.
+    // overlay — the controls are the shared ones, behind the same Picture
+    // disclosure a video overlay's sit behind (#420).
+    await openPicture(position)
     const saturation = () =>
       screen.getByRole('spinbutton', { name: `Saturation of ${position} (percent)` })
     await userEvent.clear(saturation())
@@ -2929,7 +2961,11 @@ describe('copy and paste settings (#315)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
 
-    // A distinctive grade and crop on the source.
+    // A distinctive grade and crop on the source. Both live behind the
+    // row's Picture disclosure since #420; the paste checklist and what it
+    // applies are unaffected by that — this test's subject.
+    await openPicture('a.mp4 at position 1')
+    await openPicture('b.mp4 at position 2')
     const saturation = screen.getByRole('spinbutton', {
       name: 'Saturation of a.mp4 at position 1 (percent)',
     })
@@ -3524,6 +3560,156 @@ describe("a timeline row's ⋯ menu and + Effect ▾ (#419)", () => {
     await userEvent.click(screen.getByRole('button', { name: 'Collapse a.mp4 at position 1' }))
     expect(queryEffectMenuTrigger('a.mp4 at position 1')).toBeNull()
     expect(queryRowMenuTrigger('a.mp4 at position 1')).toBeInTheDocument()
+  })
+})
+
+describe("a row's Picture disclosure (#420)", () => {
+  const addVideoEntry = async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    return 'a.mp4 at position 1'
+  }
+  const addOverlay = async () => {
+    await importClip('cam.mp4', 8)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    return 'overlay cam.mp4 at position 1'
+  }
+  /** One field from each group, by the group the summary names it under. */
+  const groupField = (name: string, position: string) =>
+    ({
+      Color: () => screen.queryByRole('spinbutton', { name: `Saturation of ${position} (percent)` }),
+      Orientation: () =>
+        screen.queryByRole('checkbox', { name: `Flip ${position} horizontally` }),
+      Crop: () => screen.queryByRole('spinbutton', { name: `Crop left of ${position} (percent)` }),
+      Background: () => screen.queryByRole('combobox', { name: `Background fill of ${position}` }),
+      Shape: () => screen.queryByRole('combobox', { name: `Shape mask of ${position}` }),
+    })[name]!()
+
+  it('starts closed, opens on click, and closes again — the fields with it', async () => {
+    const position = await addVideoEntry()
+
+    const toggle = pictureToggle(position)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    for (const group of ['Color', 'Orientation', 'Crop', 'Background']) {
+      expect(groupField(group, position)).toBeNull()
+    }
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    for (const group of ['Color', 'Orientation', 'Crop', 'Background']) {
+      expect(groupField(group, position)).toBeInTheDocument()
+    }
+    // A sequence entry's fourth group is the background fill, not a mask —
+    // an overlay renders in its own rectangle with no bars behind it.
+    expect(groupField('Shape', position)).toBeNull()
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(groupField('Crop', position)).toBeNull()
+  })
+
+  it("carries the overlay's Shape where an entry carries Background", async () => {
+    await addVideoEntry()
+    const position = await addOverlay()
+
+    await openPicture(position)
+    for (const group of ['Color', 'Orientation', 'Crop', 'Shape']) {
+      expect(groupField(group, position)).toBeInTheDocument()
+    }
+    expect(groupField('Background', position)).toBeNull()
+  })
+
+  it('leaves Timing and Audio visible without opening anything', async () => {
+    const position = await addVideoEntry()
+
+    // What a row is usually expanded for stays where it was — the point of
+    // grouping only the picture treatments (#401 option R1).
+    expect(pictureToggle(position)).toHaveAttribute('aria-expanded', 'false')
+    for (const name of [
+      `Trim in point of ${position} in seconds`,
+      `Trim out point of ${position} in seconds`,
+      `Volume of ${position} (0 to 1)`,
+      `Audio fade-in of ${position} in seconds`,
+    ]) {
+      expect(screen.getByRole('spinbutton', { name })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('checkbox', { name: `Mute ${position}` })).toBeInTheDocument()
+  })
+
+  it('names the applied groups in its summary, and names none at identity', async () => {
+    const position = await addVideoEntry()
+    expect(appliedPictureGroups(position)).toEqual([])
+    // Nothing to describe, so no dangling reference either.
+    expect(pictureToggle(position)).not.toHaveAttribute('aria-describedby')
+
+    await openPicture(position)
+    // Crop first, then the look, so the assertion below discriminates: the
+    // summary lists them in the order the groups render, not the order they
+    // were edited.
+    const crop = screen.getByRole('spinbutton', { name: `Crop top of ${position} (percent)` })
+    fireEvent.change(crop, { target: { value: '20' } })
+    fireEvent.blur(crop)
+    expect(appliedPictureGroups(position)).toEqual(['Crop'])
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: `Look of ${position}` }),
+      'sepia',
+    )
+    expect(appliedPictureGroups(position)).toEqual(['Color', 'Crop'])
+
+    // Resetting a group drops it again: "applied" is the same condition its
+    // own Reset button is enabled under.
+    await userEvent.click(screen.getByRole('button', { name: `Reset color of ${position}` }))
+    expect(appliedPictureGroups(position)).toEqual(['Crop'])
+  })
+
+  it('is offered on no slate and no audio track — neither has a picture', async () => {
+    render(<App />)
+    await importAudioClip('m.mp3', 8)
+    await chooseFromAddMenu(ADD_SLATE)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+
+    expect(queryPictureToggle('Color slate at position 1')).toBeNull()
+    expect(queryPictureToggle('audio track m.mp3 at position 1')).toBeNull()
+    // Absent, not empty: a slate's color is set directly (#143), and none of
+    // the treatments render for it at all.
+    expect(
+      screen.queryByRole('spinbutton', { name: /Crop left of Color slate/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('is remembered per row across a collapse, and is one row\'s own', async () => {
+    const position = await addVideoEntry()
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    const second = 'a.mp4 at position 2'
+
+    await openPicture(position)
+    // Opening one row's does not open another's: the state is per element.
+    expect(pictureToggle(second)).toHaveAttribute('aria-expanded', 'false')
+
+    // Collapsing the row (#299) hides the disclosure with everything else;
+    // expanding it brings it back as it was, like the row's own state.
+    await userEvent.click(screen.getByRole('button', { name: `Collapse ${position}` }))
+    expect(queryPictureToggle(position)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: `Expand ${position}` }))
+    expect(pictureToggle(position)).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('comes back closed for a row that left the timeline and returned', async () => {
+    const position = await addVideoEntry()
+    await openPicture(position)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: `Remove ${position} from timeline` }),
+    )
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+    // The id was pruned when the row went, so undo brings it back in the
+    // default state — the rule the collapse set follows (#299).
+    expect(pictureToggle(position)).toHaveAttribute('aria-expanded', 'false')
   })
 })
 

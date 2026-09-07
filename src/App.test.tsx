@@ -5,6 +5,7 @@ import App from './App'
 import { deserializeProject } from './lib/projectFile'
 import type { SaveDestination, SavePort } from './lib/saveProject'
 import { chooseFromFileMenu } from './test/fileMenu'
+import { openPicture } from './test/pictureDisclosure'
 import {
   COPY_SETTINGS,
   DUPLICATE,
@@ -113,6 +114,9 @@ describe('unsaved-changes tracking (#76)', () => {
     // Copy settings (#315) is session state, not an edit: the project stays
     // clean. The paste is an ordinary edit: it dirties, and the pasted
     // settings — never the clipboard itself — are in the next save.
+    // The grade below sits behind the row's Picture disclosure since #420;
+    // reaching it takes one more click and dirties nothing by itself.
+    await openPicture('clip.webm at position 1', user)
     const saturation = screen.getByRole('spinbutton', {
       name: 'Saturation of clip.webm at position 1 (percent)',
     })

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -98,6 +99,8 @@ test('flipping a clip flips the exported picture; unoriented exports unswapped (
 
   // Flip H (#232) and export again: the same region now decodes blue, and
   // the opposite region green — the mirror, in the file's own pixels.
+  // Orientation sits behind the row's Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('checkbox', { name: 'Flip banded.webm at position 1 horizontally' })
     .check()
@@ -115,6 +118,7 @@ test('a quarter turn exports portrait with the left band carried to the top (#23
   await page.goto('./')
   await placeBandedClip(page)
 
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('button', {
       name: 'Rotate banded.webm at position 1 90 degrees clockwise (currently 0 degrees)',

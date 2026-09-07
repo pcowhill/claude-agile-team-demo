@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openPicture } from './pictureDisclosure'
 
 /**
  * Per-clip crop (#255): trimming an edge visibly changes the previewed
@@ -113,6 +114,8 @@ test('cropping the left half reshapes the frame and renders only the kept region
   const before = await sampleScreenRect(page, leftHalfBefore)
   expect(before.g).toBeGreaterThan(before.b + 60)
 
+  // Crop lives behind the row's Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 1')
   const cropField = page.getByRole('spinbutton', {
     name: 'Crop left of banded.webm at position 1 (percent)',
   })
@@ -157,6 +160,7 @@ test('cropping the left half reshapes the frame and renders only the kept region
 
 test('a crop deeper than the floor clamps to keep a tenth of the axis', async ({ page }) => {
   await setup(page)
+  await openPicture(page, 'banded.webm at position 1')
   const left = page.getByRole('spinbutton', {
     name: 'Crop left of banded.webm at position 1 (percent)',
   })

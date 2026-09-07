@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -94,7 +95,9 @@ test('color and blur fills export into the pillarbox bars; none stays black (#26
     await outField.blur()
   }
   // Crop the second placement to its blue right half: it presents 160×180
-  // while the uncropped first entry keeps the frame at 320×180.
+  // while the uncropped first entry keeps the frame at 320×180. Crop and
+  // the fill both sit behind the row's Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 2')
   const cropField = page.getByRole('spinbutton', {
     name: 'Crop left of banded.webm at position 2 (percent)',
   })

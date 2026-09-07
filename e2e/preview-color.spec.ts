@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { openPicture } from './pictureDisclosure'
 
 /**
  * Per-clip color adjustments (#192): the preview element carries the
@@ -58,7 +59,9 @@ test('adjusting a clip sets the preview element filter; reset clears it', async 
   await expect(previewVideo).toBeVisible()
   expect(await previewVideo.evaluate((el) => el.style.filter)).toBe('')
 
-  // Brightness + a look → the canonical shared filter string, live.
+  // Brightness + a look → the canonical shared filter string, live. The
+  // colour controls sit behind the row's Picture disclosure since #420.
+  await openPicture(page, 'base.webm at position 1')
   const brightness = page.getByRole('spinbutton', {
     name: 'Brightness of base.webm at position 1 (percent)',
   })
@@ -78,6 +81,7 @@ test('adjusting a clip sets the preview element filter; reset clears it', async 
 
   // A video overlay filters its own element, independent of the base.
   await chooseClipAction(page, 'cam.webm', 'Add as overlay')
+  await openPicture(page, 'overlay cam.webm at position 1')
   const saturation = page.getByRole('spinbutton', {
     name: 'Saturation of overlay cam.webm at position 1 (percent)',
   })

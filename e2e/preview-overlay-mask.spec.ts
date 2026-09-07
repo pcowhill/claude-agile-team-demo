@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -129,6 +130,8 @@ test('an ellipse mask cuts the overlay corners to the base; Rectangle restores t
 
   // Ellipse: the corner region lies outside the inscribed ellipse — the red
   // base shows through the cut — while the centre stays the overlay's green.
+  // The mask sits behind the overlay row's Picture disclosure since #420.
+  await openPicture(page, 'overlay cam.webm at position 1')
   await page
     .getByRole('combobox', { name: 'Shape mask of overlay cam.webm at position 1' })
     .selectOption('ellipse')

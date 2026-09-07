@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import type {
   ColorAdjustments,
   ColorLook,
@@ -1058,6 +1058,23 @@ export function Timeline({
     ...videoOverlays.map((overlay) => overlay.id),
     ...texts.map((text) => text.id),
   ]
+  // Open "Picture" disclosures (#420, from the approved redesign #401 /
+  // feedback #395): the same shape of session UI state as `collapsed`
+  // above — a set of element ids, pruned with it, never an edit — but
+  // inverted, because a picture group starts closed. An expanded row showed
+  // every picture treatment at once: ten to fifteen fields between the
+  // timing the user opened the row for and the effects below it. They are
+  // one disclosure now, in the `.timeline-disclosure` idiom #418 introduced
+  // for "Subtitle style".
+  const [pictureOpen, setPictureOpen] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const isPictureOpen = (id: string) => pictureOpen.has(id)
+  const togglePictureOpen = (id: string) =>
+    setPictureOpen((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   useEffect(() => {
     // The timeline reference changes on every committed edit (and never
     // otherwise), which is exactly when an element can have disappeared.
@@ -1068,6 +1085,13 @@ export function Timeline({
       ...textsOf(timeline).map((text) => text.id),
     ])
     setCollapsed((previous) => {
+      const next = new Set([...previous].filter((id) => live.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+    // Picture disclosures are pruned with the collapse set and for the same
+    // reason: an element brought back by undo comes back in its default
+    // state, which for a picture group is closed.
+    setPictureOpen((previous) => {
       const next = new Set([...previous].filter((id) => live.has(id)))
       return next.size === previous.size ? previous : next
     })
@@ -1085,6 +1109,60 @@ export function Timeline({
       {isCollapsed(id) ? '▸' : '▾'}
     </button>
   )
+  /**
+   * The picture treatments of one row (#420, from the approved redesign
+   * #401 / feedback #395), behind one disclosure: Look/color (#192, #233),
+   * orientation (#232), crop (#255), then the one treatment that belongs to
+   * the row's kind — a shape mask on an overlay (#266), a background fill
+   * on a sequence entry (#259). Timing and Audio stay open above it,
+   * because those are what a row is usually expanded for; these are the
+   * ten-to-fifteen fields that were in the way.
+   *
+   * Closed by default and remembered per row for the session, in the
+   * `.timeline-disclosure` shape #418 introduced: a `<button
+   * aria-expanded>` whose ▸/▾ marker is decorative, since `aria-expanded`
+   * is the state assistive tech reads.
+   *
+   * The summary says which groups are applied, so a closed disclosure still
+   * tells you something is on the row. "Applied" is each group's own
+   * stored-key-free identity — exactly the condition its Reset button is
+   * disabled under, since the reducer normalizes an identity edit back to
+   * absent. It sits *outside* the button: the button's visible label is
+   * then exactly "Picture", which its accessible name contains (Label in
+   * Name, WCAG 2.5.3), and `aria-describedby` still hands the list to a
+   * screen reader on focus.
+   */
+  const pictureDisclosure = (
+    id: string,
+    position: string,
+    groups: readonly { name: string; applied: boolean; controls: ReactNode }[],
+  ) => {
+    const open = isPictureOpen(id)
+    const applied = groups.filter((group) => group.applied).map((group) => group.name)
+    const appliedId = `picture-applied-${id}`
+    return (
+      <div className="timeline-picture">
+        <div className="timeline-picture-summary">
+          <button
+            type="button"
+            className="timeline-disclosure"
+            aria-expanded={open}
+            aria-label={`Picture of ${position}`}
+            aria-describedby={applied.length > 0 ? appliedId : undefined}
+            onClick={() => togglePictureOpen(id)}
+          >
+            <span aria-hidden="true">{open ? '▾' : '▸'}</span> Picture
+          </button>
+          {applied.length > 0 && (
+            <span className="timeline-picture-applied" id={appliedId}>
+              · {applied.join(', ')}
+            </span>
+          )}
+        </div>
+        {open && groups.map((group) => <Fragment key={group.name}>{group.controls}</Fragment>)}
+      </div>
+    )
+  }
   // Folded sections (#300): the second level of the same view state. A
   // folded section shows only its heading row; unfolding brings its list
   // back with each element's own collapsed/expanded state untouched. Like
@@ -1690,42 +1768,60 @@ export function Timeline({
                     </div>
                   </>
                 )}
-                {/* Color adjustments (#192) apply to video and image entries;
-                    a slate's color is set directly above (#143). */}
-                {!isSlateEntry(entry) && (
-                  <ColorAdjustmentControls
-                    position={position}
-                    adjustments={entry.colorAdjustments}
-                    onCommit={(adjustments) => onSetEntryColor(entry.id, adjustments)}
-                  />
-                )}
-                {/* Orientation (#232): video and image entries; a slate has
-                    no sideways, exactly as it has no color adjustments. */}
-                {!isSlateEntry(entry) && (
-                  <OrientationControls
-                    position={position}
-                    orientation={entry.orientation}
-                    onCommit={(orientation) => onSetEntryOrientation(entry.id, orientation)}
-                  />
-                )}
-                {/* Crop (#255): video and image entries; a slate has nothing
-                    to trim, exactly as it has no orientation. */}
-                {!isSlateEntry(entry) && (
-                  <CropControls
-                    position={position}
-                    crop={entry.crop}
-                    onCommit={(crop) => onSetEntryCrop(entry.id, crop)}
-                  />
-                )}
-                {/* Background fill (#259): video and image entries; a slate
-                    fills its frame by construction. */}
-                {!isSlateEntry(entry) && (
-                  <BackgroundFillControls
-                    position={position}
-                    fill={entry.backgroundFill}
-                    onCommit={(fill) => onSetEntryBackgroundFill(entry.id, fill)}
-                  />
-                )}
+                {/* The entry's picture treatments (#420), under one
+                    disclosure. Each was its own always-visible row until
+                    then, and each still renders only for video and image
+                    entries — a slate's color is set directly above (#143),
+                    and a flat color has no sideways (#232), nothing to trim
+                    (#255) and no bars to fill behind it (#259) — so a slate
+                    has no picture group at all rather than an empty one. */}
+                {!isSlateEntry(entry) &&
+                  pictureDisclosure(entry.id, position, [
+                    {
+                      name: 'Color',
+                      applied: entry.colorAdjustments !== undefined,
+                      controls: (
+                        <ColorAdjustmentControls
+                          position={position}
+                          adjustments={entry.colorAdjustments}
+                          onCommit={(adjustments) => onSetEntryColor(entry.id, adjustments)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Orientation',
+                      applied: entry.orientation !== undefined,
+                      controls: (
+                        <OrientationControls
+                          position={position}
+                          orientation={entry.orientation}
+                          onCommit={(orientation) => onSetEntryOrientation(entry.id, orientation)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Crop',
+                      applied: entry.crop !== undefined,
+                      controls: (
+                        <CropControls
+                          position={position}
+                          crop={entry.crop}
+                          onCommit={(crop) => onSetEntryCrop(entry.id, crop)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Background',
+                      applied: entry.backgroundFill !== undefined,
+                      controls: (
+                        <BackgroundFillControls
+                          position={position}
+                          fill={entry.backgroundFill}
+                          onCommit={(fill) => onSetEntryBackgroundFill(entry.id, fill)}
+                        />
+                      ),
+                    },
+                  ])}
                 {(() => {
                   // An entry carries any number of non-overlapping zooms
                   // (#129), each independently editable; the accessible
@@ -2421,31 +2517,60 @@ export function Timeline({
                       </>
                     )}
                   </div>
-                  {/* Color adjustments (#192), exactly as on a sequence entry. */}
-                  <ColorAdjustmentControls
-                    position={position}
-                    adjustments={overlay.colorAdjustments}
-                    onCommit={(adjustments) => onSetVideoOverlayColor(overlay.id, adjustments)}
-                  />
-                  {/* Orientation (#232), exactly as on a sequence entry. */}
-                  <OrientationControls
-                    position={position}
-                    orientation={overlay.orientation}
-                    onCommit={(orientation) => onSetVideoOverlayOrientation(overlay.id, orientation)}
-                  />
-                  {/* Crop (#255), exactly as on a sequence entry. */}
-                  <CropControls
-                    position={position}
-                    crop={overlay.crop}
-                    onCommit={(crop) => onSetVideoOverlayCrop(overlay.id, crop)}
-                  />
-                  {/* Shape mask (#266): the placed rectangle's outline —
-                      an overlay treatment, so overlay rows only. */}
-                  <ShapeMaskControls
-                    position={position}
-                    mask={overlay.shapeMask}
-                    onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
-                  />
+                  {/* The overlay's picture treatments (#420), under the same
+                      disclosure a sequence entry gets — the same three
+                      groups, and Shape in place of Background: the mask is
+                      the placed rectangle's outline (#266), an overlay
+                      treatment, where an overlay has no bars behind it to
+                      fill. */}
+                  {pictureDisclosure(overlay.id, position, [
+                    {
+                      name: 'Color',
+                      applied: overlay.colorAdjustments !== undefined,
+                      controls: (
+                        <ColorAdjustmentControls
+                          position={position}
+                          adjustments={overlay.colorAdjustments}
+                          onCommit={(adjustments) => onSetVideoOverlayColor(overlay.id, adjustments)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Orientation',
+                      applied: overlay.orientation !== undefined,
+                      controls: (
+                        <OrientationControls
+                          position={position}
+                          orientation={overlay.orientation}
+                          onCommit={(orientation) =>
+                            onSetVideoOverlayOrientation(overlay.id, orientation)
+                          }
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Crop',
+                      applied: overlay.crop !== undefined,
+                      controls: (
+                        <CropControls
+                          position={position}
+                          crop={overlay.crop}
+                          onCommit={(crop) => onSetVideoOverlayCrop(overlay.id, crop)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Shape',
+                      applied: overlay.shapeMask !== undefined,
+                      controls: (
+                        <ShapeMaskControls
+                          position={position}
+                          mask={overlay.shapeMask}
+                          onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
+                        />
+                      ),
+                    },
+                  ])}
                     </>
                   )}
                 </li>
