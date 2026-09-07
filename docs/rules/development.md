@@ -76,7 +76,9 @@ detectable:
   so a session can tell when it does not apply — a file with one `describe`,
   or none, has no earlier block to sit before. When relocating an existing
   block, move it verbatim, so a reviewer can see at a glance that no test
-  changed.
+  changed. This is one instance of a general shape — the line every PR of a
+  kind reaches for — which "Textual conflict is not dependence" in
+  `operating-model.md` covers for the cases where no such workaround exists.
 
 ## Scope discipline
 
