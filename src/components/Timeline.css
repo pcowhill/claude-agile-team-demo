@@ -135,27 +135,33 @@
   white-space: nowrap;
 }
 
-.timeline-entry-actions {
-  display: flex;
-  gap: 0.25rem;
-}
+/* Every row's remaining actions — ↑ ↓ on a sequence entry, then ⋯ and ✕ —
+   as one cluster pinned to the row's right edge (#419). One cluster rather
+   than loose buttons is #416's lesson from the library row: loose buttons
+   wrap independently, and a control that wraps alone reads as unrelated to
+   the ones it belongs with.
 
-/* Inline rename (#405): the ✎ sits right after the name it edits, in every
-   row kind, and the field takes the name's flex slot so the row's width
-   does not change while editing. The audio and overlay rows push their
-   buttons right (margin-left: auto below); the rename button opts out so
-   it stays beside the name. */
-.timeline-rename {
-  min-width: 2rem;
+   `margin-left: auto` here replaces `.audio-track-main button` and
+   `.video-overlay-main button`, which set it on every button in those rows
+   one at a time. Both were already inert: `.clip-name` is `flex: 1`
+   (MediaLibrary.css), so it absorbs the row's free space and leaves the
+   auto margins nothing — which is why those rows started flush left rather
+   than spreading. Kept on the cluster because the row's flexible middle is
+   a property of the rows as they are today, not a guarantee. */
+.timeline-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
-.audio-track-main .timeline-rename,
-.video-overlay-main .timeline-rename {
-  margin-left: 0;
-}
-
-.timeline-entry-actions button {
+/* Direct children only, and the ⋯ by its own class — the panel's items are
+   buttons inside this cluster too, and a width meant for the row's glyphs
+   has no business reaching them. The ⋯ takes the same measurements as the
+   library row's (`.clip-more`, MediaLibrary.css): the same control. */
+.timeline-row-actions > button,
+.timeline-row-more > .menu-trigger {
   min-width: 2rem;
 }
 
@@ -205,7 +211,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-.timeline-zoom-add {
+/* The row that adds an effect (#419): the same small-print line as the
+   zoom and remap rows it follows, carrying one + Effect ▾ where + Zoom,
+   + Speed and + Pause used to sit in two separate rows. */
+.timeline-entry-effects {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.timeline-effect-add {
   font-size: 0.8rem;
   padding: 0.15rem 0.5rem;
 }
@@ -227,11 +244,6 @@
   border-radius: 4px;
   background: #1a1a1a;
   color: inherit;
-}
-
-.timeline-remap-add {
-  font-size: 0.8rem;
-  padding: 0.15rem 0.5rem;
 }
 
 /* Boundary row: the transition into the *next* entry, drawn as a connector. */
@@ -365,10 +377,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.audio-track-main button {
-  margin-left: auto;
 }
 
 .audio-track-controls {
@@ -561,10 +569,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.video-overlay-main button {
-  margin-left: auto;
 }
 
 .video-overlay-controls {

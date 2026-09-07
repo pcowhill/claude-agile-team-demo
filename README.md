@@ -124,7 +124,11 @@ entries can be time-remapped (#138, #141, #144): any number of speed segments
 (e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
 (freeze one frame for a chosen time), edited on the timeline and honored by
 the preview's playback, scrubbing, and sequence timing — and by the exported
-file, which plays the same remapped timing. Text overlays (#139) — titles,
+file, which plays the same remapped timing. Those, and an entry's zooms
+(#129), are added from one **+ Effect ▾** menu under the expanded row
+(#419) — Zoom · Speed segment · Pause, each offered exactly where it can go:
+greyed once the effects already on the entry leave no room for another, and
+a still offers Zoom alone, since its one duration is already its timing. Text overlays (#139) — titles,
 subtitles, labels — are added from the same **Add ▾** menu, with editable content
 (multi-line), timing, position, font (curated system stacks), size relative
 to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
@@ -242,7 +246,9 @@ export modal's automatic size shows the preset frame's dimensions — while a
 manual size entered there still overrides everything for that one export,
 exactly as before.
 Every timeline row — sequence entry, audio track, video overlay, text
-overlay — has a ⧉ Duplicate button on its main line (#314): one click makes
+overlay — keeps ▾ ↑ ↓ ✕ on its main line and everything else behind a **⋯**
+menu (#419): Duplicate, Copy settings, Paste settings and Rename…, each
+offered exactly where its button used to be. Duplicate (#314) makes
 an exact copy carrying every adjustable setting (trim, volume and fades,
 color, orientation, crop, background fill, speed segments and pauses,
 zooms, overlay placement and shape mask, text content and style), as a
@@ -251,13 +257,13 @@ original — transitions are never copied, since they belong to a boundary —
 while a duplicated track, overlay, or text starts where the original ends,
 so the two never stack.
 Sequence entries, slates, audio tracks and overlays can be renamed on the
-timeline (#405): the ✎ Rename button after the name — or a double-click on
-it — turns it into a field; Enter or clicking away commits, Escape cancels,
+timeline (#405): ⋯ → Rename… — or a double-click on the name — turns it
+into a field; Enter or clicking away commits, Escape cancels,
 and an empty name reverts. The new name shows everywhere the row is named
 (its header, its controls' labels, the preview's now-playing line), is one
 undo step, saves with the project, and never touches the library clip the
 row came from — clip and placed element each keep their own name.
-Beside it sit ⎘ Copy settings and ⎗ Paste settings (#315): Copy remembers a
+The same menu carries Copy settings and Paste settings (#315): Copy remembers a
 row's adjustable settings — never its media, trim, or timeline position —
 and Paste applies them to any other row through a checklist of the groups
 both rows can hold (Color, Orientation, Crop, Background fill, Audio, Text

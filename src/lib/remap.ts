@@ -351,7 +351,7 @@ export function defaultSpeedFor(
  * width, so a gap's *start* can coincide with an existing pause's instant
  * (a zero-width window bounds a gap without filling any of it); placing a
  * second pause onto an occupied instant is legal model state but never what
- * clicking "+ Pause" again means (#153), so occupied instants are skipped.
+ * choosing Pause again means (#153), so occupied instants are skipped.
  * Null — the affordance disables — for an empty entry (trimmed length 0),
  * or when segments cover the whole range and a pause already holds its end.
  */

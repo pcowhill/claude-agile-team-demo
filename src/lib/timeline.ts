@@ -460,7 +460,8 @@ export function slateEntry(
 }
 
 /**
- * What the "+ Zoom" control adds: a 2× zoom into the frame centre at the
+ * What + Effect ▾ → Zoom adds (#419; the "+ Zoom" button until then): a
+ * 2× zoom into the frame centre at the
  * start of the entry, with gentle ramps. The reducer clamps the window to
  * the entry's trimmed duration, so this is safe on any entry.
  */
@@ -915,7 +916,7 @@ export function zoomWindowDuration(zoom: ZoomSpec): number {
 }
 
 /**
- * What the "+ Zoom" control should add for an entry that already carries the
+ * What + Effect ▾ → Zoom should add for an entry that already carries the
  * given zooms (#129): the default zoom placed into free space. The chosen
  * gap is the first one that fits the default window whole, otherwise the
  * widest gap with the window shrunk proportionally to fit it — so adding

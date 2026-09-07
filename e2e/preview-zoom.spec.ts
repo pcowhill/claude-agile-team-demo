@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseEffect } from './timelineRowMenu'
 
 /**
  * Preview rendering of the zoom effect (#64). A colour-banded WebM (left
@@ -151,7 +152,7 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   expect(Math.abs(centerX - 0.5)).toBeLessThanOrEqual((1 - 1 / scale) / 2)
 
   // Window [0.2, 0.9] of the 1s entry: 0.2s ramps around a 0.3s hold.
-  await page.getByRole('button', { name: 'Add zoom to banded.webm at position 1' }).click()
+  await chooseEffect(page, 'banded.webm at position 1', 'Zoom')
   const fillZoomField = async (label: string, value: string) => {
     const field = page.getByRole('spinbutton', { name: label })
     await field.fill(value)
@@ -306,12 +307,11 @@ test('two zooms on one clip each magnify their own window, identity between (#12
   }
 
   // Zoom 1 into the green band over window [0.2, 0.6] of the 1.4s entry.
-  const addZoom = page.getByRole('button', { name: 'Add zoom to banded.webm at position 1' })
-  await addZoom.click()
+  await chooseEffect(page, 'banded.webm at position 1', 'Zoom')
   await configureZoom(1, { start: '0.2', scale: String(scale), centerX: String(centerGreenX) })
   // Zoom 2 into the blue band over window [0.9, 1.3]; the gap between the
   // windows is (0.6, 0.9).
-  await addZoom.click()
+  await chooseEffect(page, 'banded.webm at position 1', 'Zoom')
   await configureZoom(2, { start: '0.9', scale: String(scale), centerX: String(centerBlueX) })
 
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })

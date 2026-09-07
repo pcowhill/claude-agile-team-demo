@@ -1189,27 +1189,18 @@ export function Timeline({
         onCancel={() => setRenaming(null)}
       />
     ) : (
-      <>
-        {/* Double-clicking the name edits it, like the ✎ beside it. */}
-        <span
-          className="clip-name"
-          title={name}
-          onDoubleClick={onRenameElement === undefined ? undefined : () => setRenaming(id)}
-        >
-          {name}
-        </span>
-        {onRenameElement !== undefined && (
-          <button
-            type="button"
-            className="timeline-rename"
-            aria-label={`Rename ${position}`}
-            title="Rename"
-            onClick={() => setRenaming(id)}
-          >
-            ✎
-          </button>
-        )}
-      </>
+      /* Double-clicking the name edits it. Since #419 that is the only
+         gesture on the row itself: the ✎ that sat beside the name moved
+         into the row's ⋯ menu, because renaming is infrequent and the
+         plan's rule is frequent → visible. The double-click is why it
+         could move without costing anyone a click. */
+      <span
+        className="clip-name"
+        title={name}
+        onDoubleClick={onRenameElement === undefined ? undefined : () => setRenaming(id)}
+      >
+        {name}
+      </span>
     )
   // Which zoom's visual editor (#413) is open, if any — one at a time, since
   // each renders a still of the frame. View state only.
@@ -1233,45 +1224,86 @@ export function Timeline({
     groups: SettingsGroup[]
   } | null>(null)
   /**
-   * The row's ⎘/⎗ cluster: Copy on every row holding at least one settings
-   * group (a slate holds none), Paste on those same rows once something is
-   * copied — opening the checklist of the groups both rows can hold.
+   * A row's ⋯ menu (#419, from the approved redesign #401 / feedback #395).
+   * Everything that is not ▾ ↑ ↓ ✕ lives here, and each item is present
+   * exactly where its button was: Duplicate only where App wires it, Copy
+   * settings only on a row holding at least one settings group (a slate
+   * holds none), Paste only on those same rows once something is copied
+   * (#315), Rename only where the row shows a name to edit — a text
+   * overlay's row shows its content, and had no ✎ either.
+   *
+   * Items say only what they do and the panel is named for the row, which
+   * is what #416 settled: an item labelled for the row as well ("Duplicate
+   * a.mp4 at position 1" over a visible "Duplicate") would be an accessible
+   * name that does not contain its own visible label (WCAG 2.5.3).
    */
-  const settingsClipboardButtons = (
+  const rowActionsMenu = (
     kind: SettingsElementKind,
     element: Parameters<typeof copyElementSettings>[1],
     position: string,
+    { renamable = true }: { renamable?: boolean } = {},
   ) => {
-    if (onPasteSettings === undefined) return null
-    if (heldSettingsGroups(kind, element).length === 0) return null
+    // Duplicating and the settings clipboard both copy what the row holds,
+    // so they group together; renaming edits its identity, which is the
+    // grouping the library's ⋯ uses (#416).
+    const copies: MenuItem[] = []
+    if (onDuplicate !== undefined) {
+      copies.push({
+        kind: 'action',
+        label: 'Duplicate',
+        onSelect: () => onDuplicate(kind, element.id),
+      })
+    }
+    if (onPasteSettings !== undefined && heldSettingsGroups(kind, element).length > 0) {
+      copies.push({
+        kind: 'action',
+        label: 'Copy settings',
+        onSelect: () => setCopiedSettings(copyElementSettings(kind, element) ?? null),
+      })
+      if (copiedSettings !== null) {
+        copies.push({
+          kind: 'action',
+          label: 'Paste settings',
+          onSelect: () =>
+            setPendingPaste({
+              kind,
+              id: element.id,
+              name: position,
+              groups: compatibleSettingsGroups(copiedSettings, kind, element),
+            }),
+        })
+      }
+    }
+    const identity: MenuItem[] =
+      renamable && onRenameElement !== undefined
+        ? [
+            {
+              kind: 'action',
+              label: 'Rename…',
+              title: 'Rename (or double-click the name)',
+              onSelect: () => setRenaming(element.id),
+            },
+          ]
+        : []
+    // Joined only where both sides exist, so a text overlay's menu opens on
+    // Duplicate rather than on a separator.
+    const items = [copies, identity]
+      .filter((group) => group.length > 0)
+      .flatMap((group, index) =>
+        index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
+      )
+    // App wires none of these: no ⋯ at all, rather than a trigger that
+    // opens an empty panel.
+    if (items.length === 0) return null
     return (
-      <>
-        <button
-          type="button"
-          aria-label={`Copy settings of ${position}`}
-          title="Copy settings"
-          onClick={() => setCopiedSettings(copyElementSettings(kind, element) ?? null)}
-        >
-          ⎘
-        </button>
-        {copiedSettings !== null && (
-          <button
-            type="button"
-            aria-label={`Paste settings onto ${position}`}
-            title="Paste settings"
-            onClick={() =>
-              setPendingPaste({
-                kind,
-                id: element.id,
-                name: position,
-                groups: compatibleSettingsGroups(copiedSettings, kind, element),
-              })
-            }
-          >
-            ⎗
-          </button>
-        )}
-      </>
+      <Menu
+        label="⋯"
+        caret={false}
+        ariaLabel={`More actions for ${position}`}
+        menuLabel={`More actions for ${position}`}
+        className="timeline-row-more"
+        items={items}
+      />
     )
   }
 
@@ -1527,7 +1559,10 @@ export function Timeline({
                   )}
                   {nameCell(entry.id, entry.name, position)}
                   <span className="clip-duration">{formatDuration(effectiveDuration(entry))}</span>
-                  <span className="timeline-entry-actions">
+                  {/* One cluster, not loose buttons (#416's lesson): the
+                      row's remaining actions stay together at its right
+                      edge whatever the name's width. */}
+                  <span className="timeline-row-actions">
                     <button
                       type="button"
                       aria-label={`Move ${position} up`}
@@ -1544,17 +1579,7 @@ export function Timeline({
                     >
                       ↓
                     </button>
-                    {onDuplicate !== undefined && (
-                      <button
-                        type="button"
-                        aria-label={`Duplicate ${position}`}
-                        title="Duplicate"
-                        onClick={() => onDuplicate('entry', entry.id)}
-                      >
-                        ⧉
-                      </button>
-                    )}
-                    {settingsClipboardButtons('entry', entry, position)}
+                    {rowActionsMenu('entry', entry, position)}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
@@ -1707,7 +1732,6 @@ export function Timeline({
                   // names number them per entry, in window (start) order —
                   // the order the normalized state stores them in.
                   const entryZooms = zoomsForEntry(timeline, entry.id)
-                  const addable = defaultZoomFor(entryZooms, effectiveDuration(entry))
                   return (
                     <>
                       {entryZooms.map((entryZoom, zoomIndex) => {
@@ -1806,17 +1830,6 @@ export function Timeline({
                           </Fragment>
                         )
                       })}
-                      <div className="timeline-entry-zoom">
-                        <button
-                          type="button"
-                          className="timeline-zoom-add"
-                          aria-label={`Add zoom to ${position}`}
-                          disabled={addable === null}
-                          onClick={() => addable !== null && onAddZoom(entry.id, addable)}
-                        >
-                          + Zoom
-                        </button>
-                      </div>
                     </>
                   )
                 })()}
@@ -1830,8 +1843,6 @@ export function Timeline({
                     // stores them in.
                     const entryRemaps = remapsForEntry(timeline, entry.id)
                     const trimmed = effectiveDuration(entry)
-                    const addableSpeed = defaultSpeedFor(entryRemaps, trimmed)
-                    const addablePause = defaultPauseFor(entryRemaps, trimmed)
                     const kindIndex = (id: string, kind: RemapSpec['kind']) =>
                       entryRemaps.filter((effect) => effect.kind === kind).findIndex((effect) => effect.id === id) + 1
                     return (
@@ -1921,29 +1932,65 @@ export function Timeline({
                             })()
                           ),
                         )}
-                        <div className="timeline-entry-remap">
-                          <button
-                            type="button"
-                            className="timeline-remap-add"
-                            aria-label={`Add speed segment to ${position}`}
-                            disabled={addableSpeed === null}
-                            onClick={() => addableSpeed !== null && onAddRemap(entry.id, addableSpeed)}
-                          >
-                            + Speed
-                          </button>
-                          <button
-                            type="button"
-                            className="timeline-remap-add"
-                            aria-label={`Add pause to ${position}`}
-                            disabled={addablePause === null}
-                            onClick={() => addablePause !== null && onAddRemap(entry.id, addablePause)}
-                          >
-                            + Pause
-                          </button>
-                        </div>
                       </>
                     )
                   })()}
+                {/* + Effect ▾ (#419, from the approved redesign #401 /
+                    feedback #395): the three things an expanded entry can
+                    grow — a zoom (#129), a speed segment and a pause (#141)
+                    — behind one menu, below the lists of the ones it
+                    already has. Each item does exactly what its button did
+                    and is enabled under exactly the same condition: the
+                    default the library offers for the next one, or nothing
+                    if there is no room left for it. A still carries no time
+                    remapping at all (#138, its one duration is its timing),
+                    so its menu offers Zoom alone rather than two items
+                    permanently disabled. */}
+                {(() => {
+                  const addableZoom = defaultZoomFor(
+                    zoomsForEntry(timeline, entry.id),
+                    effectiveDuration(entry),
+                  )
+                  const items: MenuItem[] = [
+                    {
+                      kind: 'action',
+                      label: 'Zoom',
+                      disabled: addableZoom === null,
+                      onSelect: () => addableZoom !== null && onAddZoom(entry.id, addableZoom),
+                    },
+                  ]
+                  if (!isStillEntry(entry)) {
+                    const entryRemaps = remapsForEntry(timeline, entry.id)
+                    const trimmed = effectiveDuration(entry)
+                    const addableSpeed = defaultSpeedFor(entryRemaps, trimmed)
+                    const addablePause = defaultPauseFor(entryRemaps, trimmed)
+                    items.push(
+                      {
+                        kind: 'action',
+                        label: 'Speed segment',
+                        disabled: addableSpeed === null,
+                        onSelect: () => addableSpeed !== null && onAddRemap(entry.id, addableSpeed),
+                      },
+                      {
+                        kind: 'action',
+                        label: 'Pause',
+                        disabled: addablePause === null,
+                        onSelect: () => addablePause !== null && onAddRemap(entry.id, addablePause),
+                      },
+                    )
+                  }
+                  return (
+                    <div className="timeline-entry-effects">
+                      <Menu
+                        label="+ Effect"
+                        ariaLabel={`+ Effect on ${position}`}
+                        menuLabel={`+ Effect on ${position}`}
+                        triggerClassName="timeline-effect-add"
+                        items={items}
+                      />
+                    </div>
+                  )
+                })()}
                 {index < entries.length - 1 &&
                   (() => {
                     const next = entries[index + 1]
@@ -2054,30 +2101,22 @@ export function Timeline({
                     {collapseToggle(track.id, position)}
                     {nameCell(track.id, track.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
-                    {onDuplicate !== undefined && (
+                    <span className="timeline-row-actions">
+                      {rowActionsMenu('audio-track', track, position)}
                       <button
                         type="button"
-                        aria-label={`Duplicate ${position}`}
-                        title="Duplicate"
-                        onClick={() => onDuplicate('audio-track', track.id)}
+                        aria-label={`Remove ${position} from timeline`}
+                        onClick={() =>
+                          setPendingRemoval({
+                            name: position,
+                            consequence: 'The clip itself stays in the media library.',
+                            action: () => onRemoveAudioTrack(track.id),
+                          })
+                        }
                       >
-                        ⧉
+                        ✕
                       </button>
-                    )}
-                    {settingsClipboardButtons('audio-track', track, position)}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${position} from timeline`}
-                      onClick={() =>
-                        setPendingRemoval({
-                          name: position,
-                          consequence: 'The clip itself stays in the media library.',
-                          action: () => onRemoveAudioTrack(track.id),
-                        })
-                      }
-                    >
-                      ✕
-                    </button>
+                    </span>
                   </div>
                   {!isCollapsed(track.id) && (
                     <>
@@ -2244,30 +2283,22 @@ export function Timeline({
                     )}
                     {nameCell(overlay.id, overlay.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
-                    {onDuplicate !== undefined && (
+                    <span className="timeline-row-actions">
+                      {rowActionsMenu('video-overlay', overlay, position)}
                       <button
                         type="button"
-                        aria-label={`Duplicate ${position}`}
-                        title="Duplicate"
-                        onClick={() => onDuplicate('video-overlay', overlay.id)}
+                        aria-label={`Remove ${position} from timeline`}
+                        onClick={() =>
+                          setPendingRemoval({
+                            name: position,
+                            consequence: 'The clip itself stays in the media library.',
+                            action: () => onRemoveVideoOverlay(overlay.id),
+                          })
+                        }
                       >
-                        ⧉
+                        ✕
                       </button>
-                    )}
-                    {settingsClipboardButtons('video-overlay', overlay, position)}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${position} from timeline`}
-                      onClick={() =>
-                        setPendingRemoval({
-                          name: position,
-                          consequence: 'The clip itself stays in the media library.',
-                          action: () => onRemoveVideoOverlay(overlay.id),
-                        })
-                      }
-                    >
-                      ✕
-                    </button>
+                    </span>
                   </div>
                   {!isCollapsed(overlay.id) && (
                     <>
@@ -2460,30 +2491,25 @@ export function Timeline({
                         onCommit={(content) => set({ content })}
                       />
                     )}
-                    {onDuplicate !== undefined && (
+                    {/* No Rename: this row shows the overlay's content
+                        rather than a name, and carried no ✎ before #419
+                        either. */}
+                    <span className="timeline-row-actions">
+                      {rowActionsMenu('text', text, position, { renamable: false })}
                       <button
                         type="button"
-                        aria-label={`Duplicate ${position}`}
-                        title="Duplicate"
-                        onClick={() => onDuplicate('text', text.id)}
+                        aria-label={`Remove ${position} from timeline`}
+                        onClick={() =>
+                          setPendingRemoval({
+                            name: position,
+                            consequence: 'Its text content is discarded.',
+                            action: () => onRemoveText(text.id),
+                          })
+                        }
                       >
-                        ⧉
+                        ✕
                       </button>
-                    )}
-                    {settingsClipboardButtons('text', text, position)}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${position} from timeline`}
-                      onClick={() =>
-                        setPendingRemoval({
-                          name: position,
-                          consequence: 'Its text content is discarded.',
-                          action: () => onRemoveText(text.id),
-                        })
-                      }
-                    >
-                      ✕
-                    </button>
+                    </span>
                   </div>
                   {!isCollapsed(text.id) && (
                     <>
