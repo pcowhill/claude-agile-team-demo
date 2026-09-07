@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseClipAction, openClipMenu } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Extracting a video clip's audio into a standalone library clip (#154):
@@ -127,7 +128,7 @@ test('extracted audio lists as audio, survives removing the video, and exports a
   await expect(
     page.getByRole('list', { name: 'Audio tracks' }).getByRole('listitem'),
   ).toContainText('tone.webm (audio)')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -90,7 +91,7 @@ test('an overlay layer stays in the export while its element cannot supply a fra
 
   // video A → color slate B across a transition, the customer's shape.
   await page.getByRole('button', { name: 'Add base.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 2 in seconds',
   })

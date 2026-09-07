@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -57,7 +58,7 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
     .getByTestId('clip-file-input')
     .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   const sequenceRows = page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')
   await expect(sequenceRows).toHaveCount(2)

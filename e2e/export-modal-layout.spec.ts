@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectWithin } from './layout'
 import { chooseFromFileMenu } from './fileMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Locator = import('@playwright/test').Locator
 
@@ -30,7 +31,7 @@ test('the format note sits below the radios and the picker stays inside the dial
   await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()
 
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Export project' })
   // The format fieldset's own options: the Range fieldset below it (#385,
@@ -73,7 +74,7 @@ test('the Output row keeps Width, Height and Frame rate inside the dialog at bot
   page,
 }, testInfo) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Export project' })
   const output = dialog.locator('fieldset.export-settings')
@@ -132,7 +133,7 @@ test('the Range fieldset keeps its typed fields and error line inside the dialog
   page,
 }, testInfo) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Export project' })
   const custom = dialog.locator('.export-range-custom')

@@ -9,6 +9,7 @@ import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { chooseFromFileMenu } from '../test/fileMenu'
 import { chooseClipAction } from '../test/clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from '../test/timelineMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -193,7 +194,7 @@ describe('settings take effect without a reload (#286)', () => {
     await closeSettings()
 
     await addToTimeline('c.png')
-    await userEvent.click(screen.getByRole('button', { name: 'Add color slate to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
 
     // A still overlay layer is a still too (#294): `videoOverlay.ts` pins its
     // default to the sequence still's, so the setting has to reach it — a

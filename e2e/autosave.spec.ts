@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { addMenuTrigger } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -249,6 +250,8 @@ test('discarding the offer clears the snapshot and starts fresh', async ({ page 
   // second reload offers nothing.
   await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(0)
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Add color slate to timeline' })).toBeVisible()
+  // Add ▾ standing in for "the app came up" (#418 moved the slate button
+  // that stood in for it into this menu).
+  await expect(addMenuTrigger(page)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Restore' })).toHaveCount(0)
 })

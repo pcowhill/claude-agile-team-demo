@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Solid-color slates on the timeline (#143): placement with an editable
@@ -100,7 +101,7 @@ test('a slate joins the timeline red and 5s, with editable color and duration', 
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   const sequence = page.getByRole('list', { name: 'Sequence' })
   await expect(sequence.getByRole('listitem')).toContainText('Color slate')
@@ -135,7 +136,7 @@ test('the customer example previews: a red slate crossfading into a clip', async
     mimeType: 'video/webm',
     buffer: webm,
   })
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
 
@@ -166,7 +167,7 @@ test('the preview plays through a slate into the video on the wall clock', async
     mimeType: 'video/webm',
     buffer: webm,
   })
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
 
   // Keep it quick: slate 1s, video trimmed to 1s.
@@ -199,7 +200,7 @@ test('export renders the red slate, crossfading into the clip (#143)', async ({ 
     mimeType: 'video/webm',
     buffer: webm,
   })
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
 
   // Slate 1.5s + video 1s with a 0.5s crossfade → 2s total; the slate is
@@ -247,7 +248,7 @@ test('export renders the red slate, crossfading into the clip (#143)', async ({ 
 
 test('a slate-only timeline exports at the fallback frame size', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

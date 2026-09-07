@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -57,7 +58,7 @@ test('an overlay renders at its rectangle within the frame, only during its wind
   await page.goto('./')
 
   // A slate keeps the base media-free (#143); the overlay is a real clip.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   const webm = await recordWebm(page)
   await page.getByTestId('clip-file-input').setInputFiles([

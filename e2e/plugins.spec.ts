@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * The plugin manager (#197, ADR 0003): toggling a plugin through the real
@@ -29,7 +30,7 @@ async function setGifPlugin(page: import('@playwright/test').Page, enabled: bool
 
 /** Opens the export modal (a slate makes the timeline exportable). */
 async function openExportModal(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Export Project…' }).click()
   await expect(page.getByRole('dialog', { name: 'Export project' })).toBeVisible()
 }

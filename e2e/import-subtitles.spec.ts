@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
 
 /**
  * Subtitle import (#249): a real browser runs the whole pipeline — the .srt
@@ -31,7 +32,7 @@ test('imported cues land as text overlays and render at their times, bottom-cent
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await importSrt(page, SRT)
 
   // Both cues are ordinary overlays in the text lane, markup stripped.
@@ -66,7 +67,7 @@ test('imported cues land as text overlays and render at their times, bottom-cent
 
 test('a cue past the sequence end imports but never displays', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await importSrt(page, '1\n00:00:10,000 --> 00:00:12,000\nBeyond the end\n')
 
   // The overlay exists — same as a hand-made overlay timed past the end —
@@ -81,7 +82,7 @@ test('a cue past the sequence end imports but never displays', async ({ page }) 
 
 test('a file with no usable cues reports a failure and adds nothing', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await importSrt(page, 'this is prose, not subtitles')
 
   await expect(page.getByRole('alert')).toContainText(
@@ -94,7 +95,7 @@ test('editing the default subtitle style restyles rendered captions at once (#25
   page,
 }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await importSrt(page, SRT)
 
   // The first cue renders at the built-in default: white.
@@ -105,7 +106,11 @@ test('editing the default subtitle style restyles rendered captions at once (#25
   await expect(first).toHaveCSS('color', 'rgb(255, 255, 255)')
 
   // One edit of the default recolors every imported cue — the preview
-  // renders the restyled overlays through the existing text path.
+  // renders the restyled overlays through the existing text path. The style
+  // fields live behind the "Subtitle style" disclosure since #418; the
+  // import above already opened it, and opening it here is a no-op that
+  // says so rather than leaving the dependency implicit.
+  await openSubtitleStyle(page)
   await page.getByLabel('Default subtitle color').fill('#ffff00')
   await expect(first).toHaveCSS('color', 'rgb(255, 255, 0)')
   await seek.fill('3')

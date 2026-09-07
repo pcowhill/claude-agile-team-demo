@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectWithin } from './layout'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Transport keyboard shortcuts (#203), exercised media-free with a slate:
@@ -14,7 +15,7 @@ const blurActive = (page: import('@playwright/test').Page) =>
 
 test('space plays and pauses; arrows, Home and End move the playhead', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await blurActive(page)
 
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
@@ -50,7 +51,7 @@ test('space plays and pauses; arrows, Home and End move the playhead', async ({ 
 
 test('space typed into a number input edits the field, never the transport', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
 
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
@@ -62,7 +63,7 @@ test('space typed into a number input edits the field, never the transport', asy
 
 test('? opens the shortcut cheat sheet; Escape closes it', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await blurActive(page)
 
   await page.keyboard.press('Shift+?')

@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -85,7 +86,7 @@ test('an exported still overlay shows its picture and its alpha (#295)', async (
   await page.goto('./')
 
   // The base: the default red slate (#143), trimmed short for export speed.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

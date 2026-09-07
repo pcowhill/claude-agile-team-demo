@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -81,7 +82,7 @@ test('an ellipse mask cuts the exported overlay corners to the base (#267)', asy
   await page.goto('./')
 
   // The base: the default red slate (#143), trimmed short for export speed.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

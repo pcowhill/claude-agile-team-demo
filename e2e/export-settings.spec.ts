@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Export output settings (#179): the modal pre-fills the automatic frame,
@@ -142,13 +143,13 @@ test('a preset exports at its dimensions with text resolved against the chosen f
   await page.goto('./')
 
   // A red slate with a white text overlay — both media-free.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const slateDuration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })
   await slateDuration.fill('2')
   await slateDuration.blur()
-  await page.getByRole('button', { name: 'Add text overlay to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_TEXT)
   const size = page.getByRole('spinbutton', {
     name: 'Size of text overlay at position 1 (fraction of frame height)',
   })
@@ -228,7 +229,7 @@ test('custom dimensions and frame rate: the modal pre-fills the source frame, th
 
 test('invalid settings disable Export until corrected', async ({ page }) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await page.getByRole('button', { name: 'Export Project…' }).click()
 
   const width = page.getByRole('spinbutton', { name: 'Export width in pixels' })

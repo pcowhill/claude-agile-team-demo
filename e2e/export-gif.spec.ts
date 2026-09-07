@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * The GIF export plugin, end to end (#198): enable the plugin through the
@@ -81,8 +82,8 @@ test('the enabled GIF plugin exports a slate timeline as a plausible animated GI
 
   // A two-slate sequence (red then blue, 1 s each): deterministic frames
   // with a scene change, so per-frame palettes genuinely differ.
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration1 = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

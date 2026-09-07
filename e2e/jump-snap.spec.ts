@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectFrameItemEnabled } from './frameMenu'
 import { expectWithin } from './layout'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Jump to cuts and snap the committed seek to boundaries (#391), exercised
@@ -21,8 +22,8 @@ test('↑ / ↓ and the transport buttons land exactly on cuts and blend edges',
   page,
 }, testInfo) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:10')
   await blurActive(page)
 
@@ -93,8 +94,8 @@ test('a committed pointer seek snaps onto the cut with a tick; Alt or distance b
   page,
 }, testInfo) => {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:10')
   await blurActive(page)
 

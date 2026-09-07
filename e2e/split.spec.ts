@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseFromFrameMenu, expectFrameItemEnabled } from './frameMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Split at playhead (#190), exercised media-free with a slate: position the
@@ -12,7 +13,7 @@ test('splitting a slate at the playhead yields two halves; either half removes i
 }) => {
   await page.goto('./')
 
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
 
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })

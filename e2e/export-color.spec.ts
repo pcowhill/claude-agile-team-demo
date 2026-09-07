@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -110,7 +111,7 @@ test('an adjusted overlay exports adjusted while the base stays untouched (#195)
   // A green slate base (slates take no adjustments — their color is set
   // directly, #143) under a grayscaled red overlay in the default
   // bottom-right rectangle (0.62, 0.62, 0.35 × 0.35).
-  await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+  await chooseFromAddMenu(page, ADD_SLATE)
   const duration = page.getByRole('spinbutton', {
     name: 'Duration of Color slate at position 1 in seconds',
   })

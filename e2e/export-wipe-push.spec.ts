@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, frameAt, lastFrame, scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -15,7 +16,7 @@ type Page = import('@playwright/test').Page
 /** Two 1 s slates (red, then blue) with a 0.5 s transition of the type. */
 async function buildSlateSequence(page: Page, type: string) {
   for (const position of [1, 2] as const) {
-    await page.getByRole('button', { name: 'Add color slate to timeline' }).click()
+    await chooseFromAddMenu(page, ADD_SLATE)
     const duration = page.getByRole('spinbutton', {
       name: `Duration of Color slate at position ${position} in seconds`,
     })
