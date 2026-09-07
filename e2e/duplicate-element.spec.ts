@@ -6,10 +6,10 @@ import { chooseRowAction, rowMenuTrigger } from './timelineRowMenu'
 type Page = import('@playwright/test').Page
 
 /**
- * Duplicate a timeline element (#314), in real Chromium: the row's ⧉ control
- * makes an exact copy — a sequence entry's right after the original, an
- * overlay's on the lane starting where the original ends — and one Undo
- * removes it again.
+ * Duplicate a timeline element (#314), in real Chromium: the row's ⋯ →
+ * Duplicate (#419; the ⧉ button until then) makes an exact copy — a sequence
+ * entry's right after the original, an overlay's on the lane starting where
+ * the original ends — and one Undo removes it again.
  */
 
 /** Records a short solid-color WebM so rows have a decodable source. */
@@ -78,7 +78,7 @@ test('duplicating an entry and an overlay copies the rows; Undo removes them (#3
     page.getByRole('spinbutton', { name: 'Trim out point of clip.webm at position 2 in seconds' }),
   ).toHaveValue('0.8')
   // The slate pushed down to position 3 still has its own ⋯, named for
-   // its new position.
+  // its new position.
   await expect(rowMenuTrigger(page, 'Color slate at position 3')).toBeVisible()
 
   // An overlay's copy starts where the original's trimmed window ends.
