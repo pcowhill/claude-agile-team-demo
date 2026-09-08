@@ -321,8 +321,26 @@ on it. Drag inside the region to move the centre, drag a corner to change
 the magnification (the region keeps the frame's aspect and never leaves
 it), and the numbers beneath follow live; releasing commits one edit — one
 undo step — through the same fields, which keep working alongside. Timing
-stays numeric. The still renders once when the editor opens, never during a
+stays numeric. The still renders once per instant shown, never during a
 drag.
+A **Preview** slider under the frame scrubs the zoom's whole envelope
+(#421), from where it begins to where it has finished ramping out: the
+still is re-rendered at that instant and the region is drawn at the size
+the zoom actually has there — the whole frame at either end, part-way
+through a ramp, the full region across the hold — so the motion is visible
+without playing anything. Each instant is rendered once and kept while the
+editor is open, and the previous still stays on screen while the next one
+draws. The region takes drags only across the hold, where it is the zoom's
+own region; part-way through a ramp it is drawn dashed and read-only,
+because a drag there has no single stored zoom it could mean. While
+dragging, the centre snaps onto the frame centre and the thirds, with a
+guide line showing the alignment being held — hold Alt to ignore them, the
+same bypass the playhead's snapping uses (#391). With the region focused,
+the arrow keys nudge it by a hundredth of the frame (Shift for five times
+as far) and + / − change the magnification by 0.1, each press its own undo
+step. **Show result** swaps the picture for the frame the viewer gets at
+that instant — the zoom applied rather than bypassed, and no region drawn
+over it.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or

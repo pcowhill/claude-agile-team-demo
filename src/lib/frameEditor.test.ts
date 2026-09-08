@@ -2,17 +2,31 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_EDITOR_ZOOM_SCALE,
   MIN_EDITOR_ZOOM_SCALE,
+  ZOOM_NUDGE,
+  ZOOM_NUDGE_LARGE,
+  ZOOM_SCALE_STEP,
+  ZOOM_SNAP_TARGETS,
+  ZOOM_SNAP_TOLERANCE,
   movedZoom,
+  rectKeyStep,
   resizedZoom,
+  scaledZoom,
+  snappedZoom,
   withoutZoom,
   zoomAfterGesture,
+  zoomAfterKeyStep,
   zoomEditorSequenceTime,
+  zoomEnvelope,
   zoomFromRect,
+  zoomGuides,
   zoomHoldMidpoint,
+  zoomIsFullAt,
   zoomRect,
+  zoomRectAt,
 } from './frameEditor'
 import { DEFAULT_ZOOM, timelineReducer, zoomsOf } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
+import { zoomAt } from './zoom'
 
 const zoom: ZoomSpec = { ...DEFAULT_ZOOM, scale: 2, centerX: 0.5, centerY: 0.5 }
 
@@ -108,6 +122,185 @@ describe('zoom rectangle geometry (#413)', () => {
     expect(zoomAfterGesture(zoom, { kind: 'corner', corner: 'se', x: 0.7, y: 0.7 })).toEqual(
       resizedZoom(zoom, { x: 0.7, y: 0.7 }),
     )
+  })
+})
+
+describe('snapping the centre while dragging (#421)', () => {
+  it('pulls a centre inside the tolerance onto the frame centre or a third', () => {
+    expect(snappedZoom({ ...zoom, centerX: 0.51, centerY: 0.5 }).centerX).toBe(0.5)
+    expect(snappedZoom({ ...zoom, centerX: 0.345, centerY: 0.5 }).centerX).toBe(0.333)
+    expect(snappedZoom({ ...zoom, centerX: 0.5, centerY: 0.655 }).centerY).toBe(0.667)
+  })
+
+  it('leaves a centre outside the tolerance exactly where it was', () => {
+    // 0.02 is the reach, so 0.525 is 0.025 from the centre and 0.142 from a
+    // third: nothing is near enough to pull it.
+    expect(snappedZoom({ ...zoom, centerX: 0.525, centerY: 0.5 }).centerX).toBe(0.525)
+    // …and the boundary itself snaps, so the tolerance is inclusive rather
+    // than a hair short of what it advertises.
+    expect(snappedZoom({ ...zoom, centerX: 0.5 + ZOOM_SNAP_TOLERANCE, centerY: 0.5 }).centerX).toBe(
+      0.5,
+    )
+  })
+
+  it('never snaps somewhere the region cannot sit, and says so in the guides', () => {
+    // At scale 1.05 the region is nearly the whole frame: the centre can
+    // only move ±0.024, so a third is unreachable however near the pointer
+    // came. The snap is applied and the clamp takes it straight back.
+    const wide = { ...zoom, scale: 1.05, centerX: 0.34, centerY: 0.5 }
+    const snapped = snappedZoom(wide)
+    expect(snapped.centerX).toBe(0.476)
+    expect(zoomGuides(snapped).x).toBeNull()
+    // The same drag at scale 2, where a third does fit, does light the guide.
+    expect(zoomGuides(snappedZoom({ ...zoom, centerX: 0.34, centerY: 0.5 })).x).toBe(1 / 3)
+  })
+
+  it('reads the guides off the centre itself, both axes independently', () => {
+    expect(zoomGuides({ centerX: 0.5, centerY: 0.667 })).toEqual({ x: 0.5, y: 2 / 3 })
+    expect(zoomGuides({ centerX: 0.6, centerY: 0.4 })).toEqual({ x: null, y: null })
+    expect(ZOOM_SNAP_TARGETS).toEqual([1 / 3, 0.5, 2 / 3])
+  })
+
+  it('snaps a move gesture unless Alt bypasses it, and never a corner drag', () => {
+    // A move landing at 0.51 is pulled to 0.5…
+    const near = { kind: 'move', dx: 0.01, dy: 0 } as const
+    expect(zoomAfterGesture({ ...zoom, centerX: 0.5 }, near).centerX).toBe(0.5)
+    expect(zoomAfterGesture({ ...zoom, centerX: 0.505 }, near).centerX).toBe(0.5)
+    // …and left alone with Alt held (#391's convention).
+    expect(zoomAfterGesture({ ...zoom, centerX: 0.505 }, { ...near, altKey: true }).centerX).toBe(
+      0.515,
+    )
+    // A corner drag holds the centre by construction, so it is unchanged by
+    // snapping either way.
+    const corner = { kind: 'corner', corner: 'se', x: 0.7, y: 0.7 } as const
+    expect(zoomAfterGesture(zoom, corner)).toEqual(resizedZoom(zoom, { x: 0.7, y: 0.7 }))
+  })
+})
+
+describe('nudging with the keyboard (#421)', () => {
+  it('reads a step off the key, with Shift five times as far', () => {
+    expect(rectKeyStep({ key: 'ArrowRight' })).toEqual({ kind: 'move', dx: ZOOM_NUDGE, dy: 0 })
+    expect(rectKeyStep({ key: 'ArrowLeft' })).toEqual({ kind: 'move', dx: -ZOOM_NUDGE, dy: 0 })
+    expect(rectKeyStep({ key: 'ArrowUp' })).toEqual({ kind: 'move', dx: 0, dy: -ZOOM_NUDGE })
+    expect(rectKeyStep({ key: 'ArrowDown', shiftKey: true })).toEqual({
+      kind: 'move',
+      dx: 0,
+      dy: ZOOM_NUDGE_LARGE,
+    })
+    expect(ZOOM_NUDGE_LARGE).toBe(ZOOM_NUDGE * 5)
+  })
+
+  it('takes + and − however the keyboard spells them, and nothing else', () => {
+    for (const key of ['+', '=', 'Add']) {
+      expect(rectKeyStep({ key })).toEqual({ kind: 'scale', delta: ZOOM_SCALE_STEP })
+    }
+    for (const key of ['-', '_', 'Subtract']) {
+      expect(rectKeyStep({ key })).toEqual({ kind: 'scale', delta: -ZOOM_SCALE_STEP })
+    }
+    // Anything the editor does not take is left for the panel around it —
+    // Escape closes the editor, Tab moves on.
+    for (const key of ['Escape', 'Tab', 'a', 'Enter', ' ']) {
+      expect(rectKeyStep({ key })).toBeNull()
+    }
+  })
+
+  it('a nudge clamps at the frame edge like a drag does', () => {
+    // At scale 2 the centre stops at 0.75; ten nudges of 0.05 would reach
+    // 1.0 without the clamp.
+    let nudged = { ...zoom, centerX: 0.7, centerY: 0.5 }
+    for (let i = 0; i < 10; i++) {
+      nudged = zoomAfterKeyStep(nudged, { kind: 'move', dx: ZOOM_NUDGE_LARGE, dy: 0 })
+    }
+    expect(nudged.centerX).toBe(0.75)
+    expect(nudged).toEqual(movedZoom({ ...zoom, centerX: 0.75, centerY: 0.5 }, 0, 0))
+  })
+
+  it('a scale step stays inside the range a drag is held to, and re-fits the centre', () => {
+    expect(scaledZoom(zoom, ZOOM_SCALE_STEP).scale).toBe(2.1)
+    expect(scaledZoom(zoom, -ZOOM_SCALE_STEP).scale).toBe(1.9)
+    // The reducer rejects scale ≤ 1, so a key press must not propose one.
+    expect(scaledZoom({ ...zoom, scale: MIN_EDITOR_ZOOM_SCALE }, -ZOOM_SCALE_STEP).scale).toBe(
+      MIN_EDITOR_ZOOM_SCALE,
+    )
+    expect(scaledZoom({ ...zoom, scale: MAX_EDITOR_ZOOM_SCALE }, ZOOM_SCALE_STEP).scale).toBe(
+      MAX_EDITOR_ZOOM_SCALE,
+    )
+    // Zooming out from a corner-parked region pulls the centre back in: at
+    // scale 4 the centre may sit at 0.875, at 3.9 only at 0.872.
+    const parked = { ...zoom, scale: 4, centerX: 0.875, centerY: 0.875 }
+    expect(scaledZoom(parked, -ZOOM_SCALE_STEP)).toMatchObject({
+      scale: 3.9,
+      centerX: 0.872,
+      centerY: 0.872,
+    })
+  })
+
+  it('a key step and a drag reach the same numbers, through one clamp', () => {
+    expect(zoomAfterKeyStep(zoom, { kind: 'move', dx: 0.1, dy: -0.1 })).toEqual(
+      movedZoom(zoom, 0.1, -0.1),
+    )
+    expect(zoomAfterKeyStep(zoom, { kind: 'scale', delta: 0.5 })).toEqual(scaledZoom(zoom, 0.5))
+  })
+})
+
+describe('the scrub across the envelope (#421)', () => {
+  const ramped: ZoomSpec = { ...zoom, start: 1, rampIn: 0.5, hold: 2, rampOut: 0.5, scale: 2 }
+
+  it('spans the whole envelope, from the zoom-in to the end of the zoom-out', () => {
+    expect(zoomEnvelope(ramped)).toEqual({ start: 1, end: 4 })
+    // The slider opens at the hold midpoint, which is inside its own range.
+    const midpoint = zoomHoldMidpoint(ramped)
+    expect(midpoint).toBeGreaterThan(zoomEnvelope(ramped).start)
+    expect(midpoint).toBeLessThan(zoomEnvelope(ramped).end)
+  })
+
+  it('draws the whole frame at either end and the full region across the hold', () => {
+    expect(zoomRectAt(ramped, 1)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    expect(zoomRectAt(ramped, 4)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    expect(zoomRectAt(ramped, 2.5)).toEqual(zoomRect(ramped))
+    expect(zoomIsFullAt(ramped, 2.5)).toBe(true)
+    expect(zoomIsFullAt(ramped, 1.25)).toBe(false)
+    expect(zoomIsFullAt(ramped, 0.5)).toBe(false)
+  })
+
+  it('draws a partial region mid-ramp — half way in, half the magnification', () => {
+    // smoothstep(0.5) = 0.5, so scale is 1.5 and the region is 2/3 of the
+    // frame: strictly between the whole frame and the held region.
+    const partial = zoomRectAt(ramped, 1.25)
+    expect(partial.width).toBeCloseTo(2 / 3, 10)
+    expect(partial.width).toBeGreaterThan(zoomRect(ramped).width)
+    expect(partial.width).toBeLessThan(1)
+  })
+
+  it('agrees with what the preview and the export show at the same instant', () => {
+    // The helper takes an offset into the entry; `zoomAt` takes a source
+    // time on a real timeline. The two must describe one motion — this is
+    // the wiring (the entry in-point and `zoom.start` offsets) rather than
+    // the easing, which they share.
+    const state: TimelineState = {
+      entries: [{ ...entry('a', 12), inPoint: 2, outPoint: 12 }],
+      transitions: [],
+    }
+    const withZoom = timelineReducer(state, {
+      type: 'zoom-added',
+      zoom: { ...ramped, id: 'z1', entryId: 'a', centerX: 0.6, centerY: 0.4 },
+    })
+    const spec = { ...ramped, centerX: 0.6, centerY: 0.4 }
+    for (const offset of [1, 1.1, 1.25, 1.4, 1.5, 2.5, 3.5, 3.75, 4]) {
+      expect(zoomRectAt(spec, offset)).toEqual(zoomRect(zoomAt(withZoom, 0, 2 + offset)))
+    }
+  })
+
+  it('takes a still at any instant of the envelope, not only the midpoint', () => {
+    const state: TimelineState = {
+      entries: [entry('a', 10), { ...entry('b', 10), inPoint: 2, outPoint: 8 }],
+      transitions: [],
+    }
+    // Entry b starts at 10 s of sequence and is trimmed to start at 2 s of
+    // its source, so 1.25 s into it is 11.25 s of sequence.
+    expect(zoomEditorSequenceTime(state, 1, ramped, 1.25)).toBe(11.25)
+    // Omitted, the offset is still the hold midpoint #413 opens at.
+    expect(zoomEditorSequenceTime(state, 1, ramped)).toBe(zoomEditorSequenceTime(state, 1, ramped, 2.5))
   })
 })
 

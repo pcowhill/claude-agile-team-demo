@@ -1,6 +1,7 @@
 import { sequenceTimeAt } from './playback'
-import { zoomsOf } from './timeline'
+import { zoomsOf, zoomWindowDuration } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
+import { zoomRampFraction, zoomStateAt } from './zoom'
 
 /**
  * Geometry for the visual editors (#413, from the graphic-tools design #402
@@ -27,10 +28,23 @@ export type Corner = 'nw' | 'ne' | 'sw' | 'se'
 /**
  * What a pointer did to a rectangle, relative to the rectangle at the start
  * of the gesture: a move by an offset, or a corner dragged to a point.
+ * `altKey` is the raw modifier rather than an interpretation of it — the
+ * component reports what the pointer did, and each handle model decides
+ * what Alt means for it (#421: the zoom's model bypasses snapping).
  */
 export type RectGesture =
+  | { kind: 'move'; dx: number; dy: number; altKey?: boolean }
+  | { kind: 'corner'; corner: Corner; x: number; y: number; altKey?: boolean }
+
+/**
+ * What one key press means for the rectangle (#421). Separate from
+ * `RectGesture` because a pointer cannot express a scale step and a key
+ * cannot express a corner: the two input languages differ, and collapsing
+ * them would leave each handle model with cases it can never receive.
+ */
+export type RectKeyStep =
   | { kind: 'move'; dx: number; dy: number }
-  | { kind: 'corner'; corner: Corner; x: number; y: number }
+  | { kind: 'scale'; delta: number }
 
 /**
  * The editor never proposes a scale the reducer would reject (`scale > 1`,
@@ -106,11 +120,152 @@ export function resizedZoom(zoom: ZoomSpec, pointer: { x: number; y: number }): 
   return { ...zoom, scale, ...clampedCenter(scale, zoom.centerX, zoom.centerY) }
 }
 
-/** The zoom after a gesture that began with the zoom at `start`. */
+/**
+ * Where a dragged centre is pulled to (#421): the frame centre and the two
+ * thirds, on each axis independently — the alignments a viewer notices, and
+ * the ones the rule-of-thirds framing a zoom is usually reaching for.
+ */
+export const ZOOM_SNAP_TARGETS: readonly number[] = [1 / 3, 0.5, 2 / 3]
+
+/**
+ * How near the centre must come, as a fraction of the frame. Two percent is
+ * about 9 px on the editor's frame, which is 28 rem wide at most — close
+ * enough that a deliberate placement a few pixels off a guide is left
+ * alone, wide enough that reaching a guide does not take precision. Alt
+ * bypasses it entirely.
+ */
+export const ZOOM_SNAP_TOLERANCE = 0.02
+
+/**
+ * The nearest snap target within tolerance, or null. The reach is widened
+ * by a float's worth so that a centre exactly `ZOOM_SNAP_TOLERANCE` away
+ * snaps: `0.5 + 0.02` is 0.020000000000000018 from 0.5 in binary floating
+ * point, and a tolerance that silently excludes its own boundary is a
+ * tolerance nobody can reason about.
+ */
+function snapTarget(value: number): number | null {
+  let best: number | null = null
+  let bestDistance = ZOOM_SNAP_TOLERANCE + 1e-9
+  for (const target of ZOOM_SNAP_TARGETS) {
+    const distance = Math.abs(value - target)
+    // `<=` never fires before `<` for a nearer target, so ties keep the
+    // first listed — the thirds and the centre are 1/6 apart, so this is
+    // theoretical, but it makes the function total rather than order-shy.
+    if (distance <= bestDistance) {
+      best = target
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+/**
+ * The zoom with its centre pulled onto any guide it came near (#421), then
+ * re-clamped: a guide the region cannot reach at this scale (1/3 is outside
+ * the allowed range once the region is wider than two thirds of the frame)
+ * is snapped to and then clamped straight back off, which is why
+ * `zoomGuides` below reads the *result* rather than trusting the intent.
+ */
+export function snappedZoom(zoom: ZoomSpec): ZoomSpec {
+  const centerX = snapTarget(zoom.centerX) ?? zoom.centerX
+  const centerY = snapTarget(zoom.centerY) ?? zoom.centerY
+  return { ...zoom, ...clampedCenter(zoom.scale, centerX, centerY) }
+}
+
+/**
+ * Which guides the centre is sitting on — what the editor draws while a
+ * drag is in progress. Read from the centre itself rather than remembered
+ * from the snap that produced it, so a guide can never be drawn where the
+ * region is not (see `snappedZoom`), and a centre typed into the row's
+ * fields lights the same guide a dragged one does.
+ */
+export function zoomGuides(zoom: Pick<ZoomSpec, 'centerX' | 'centerY'>): {
+  x: number | null
+  y: number | null
+} {
+  const onTarget = (value: number) =>
+    ZOOM_SNAP_TARGETS.find((target) => round(target, 3) === round(value, 3)) ?? null
+  return { x: onTarget(zoom.centerX), y: onTarget(zoom.centerY) }
+}
+
+/**
+ * The zoom after a gesture that began with the zoom at `start`. A move
+ * snaps unless Alt bypasses it (#421, the convention #391 set for the
+ * playhead); a corner drag does not, because it holds the centre fixed by
+ * construction — snapping there would only fire on the re-clamp a shrinking
+ * region forces, which is not something the user aimed at.
+ */
 export function zoomAfterGesture(start: ZoomSpec, gesture: RectGesture): ZoomSpec {
-  return gesture.kind === 'move'
-    ? movedZoom(start, gesture.dx, gesture.dy)
-    : resizedZoom(start, gesture)
+  if (gesture.kind === 'corner') return resizedZoom(start, gesture)
+  const moved = movedZoom(start, gesture.dx, gesture.dy)
+  return gesture.altKey === true ? moved : snappedZoom(moved)
+}
+
+/** How far one arrow key moves the centre, as a fraction of the frame (#421). */
+export const ZOOM_NUDGE = 0.01
+/** …and with Shift held. */
+export const ZOOM_NUDGE_LARGE = 0.05
+/** How much one `+` / `−` press changes the magnification (#421). */
+export const ZOOM_SCALE_STEP = 0.1
+
+/**
+ * What a key press means for the region, or null for keys the editor does
+ * not take — so the component can leave those to the browser rather than
+ * swallowing every key that reaches a focused rectangle.
+ *
+ * `+` arrives as `'+'` on a shifted `=` and as `'Add'`/`'+'` on a numeric
+ * keypad; `=` is accepted unshifted for the same reason browsers do, and
+ * both `-` and `_` decrease. Snapping does not apply: a nudge is already a
+ * deliberate 1 % step, and pulling it onto a guide would make the step size
+ * a lie.
+ */
+export function rectKeyStep(event: {
+  key: string
+  shiftKey?: boolean
+}): RectKeyStep | null {
+  const step = event.shiftKey === true ? ZOOM_NUDGE_LARGE : ZOOM_NUDGE
+  switch (event.key) {
+    case 'ArrowLeft':
+      return { kind: 'move', dx: -step, dy: 0 }
+    case 'ArrowRight':
+      return { kind: 'move', dx: step, dy: 0 }
+    case 'ArrowUp':
+      return { kind: 'move', dx: 0, dy: -step }
+    case 'ArrowDown':
+      return { kind: 'move', dx: 0, dy: step }
+    case '+':
+    case '=':
+    case 'Add':
+      return { kind: 'scale', delta: ZOOM_SCALE_STEP }
+    case '-':
+    case '_':
+    case 'Subtract':
+      return { kind: 'scale', delta: -ZOOM_SCALE_STEP }
+    default:
+      return null
+  }
+}
+
+/**
+ * The zoom with its magnification stepped by `delta`, clamped to the range a
+ * drag is clamped to — the reducer rejects `scale <= 1`, so a key press must
+ * not be able to propose one — and its centre re-clamped, because a region
+ * that just grew may no longer fit where it sits.
+ */
+export function scaledZoom(zoom: ZoomSpec, delta: number): ZoomSpec {
+  const scale = clamp(
+    round(zoom.scale + delta, 2),
+    MIN_EDITOR_ZOOM_SCALE,
+    MAX_EDITOR_ZOOM_SCALE,
+  )
+  return { ...zoom, scale, ...clampedCenter(scale, zoom.centerX, zoom.centerY) }
+}
+
+/** The zoom after one key press, from the same starting spec a drag uses. */
+export function zoomAfterKeyStep(start: ZoomSpec, step: RectKeyStep): ZoomSpec {
+  return step.kind === 'move'
+    ? movedZoom(start, step.dx, step.dy)
+    : scaledZoom(start, step.delta)
 }
 
 /** Seconds into the entry where the zoom holds at full — the still the editor shows (#402 D2-a). */
@@ -119,18 +274,61 @@ export function zoomHoldMidpoint(zoom: ZoomSpec): number {
 }
 
 /**
- * The sequence time of the zoom's hold midpoint on `entries[entryIndex]` —
- * the instant `snapshotTimelineFrame` renders for the editor. Source time is
- * the entry's in-point plus the zoom's offset (the convention `zoomAt`
- * reads), mapped through the remap-aware sequence clock.
+ * The sequence time of an instant of the zoom on `entries[entryIndex]` — the
+ * instant `snapshotTimelineFrame` renders for the editor. `entryOffset` is
+ * seconds into the entry's trimmed range, the clock `zoom.start` and
+ * `zoomHoldMidpoint` are already in; source time is the entry's in-point
+ * plus that (the convention `zoomAt` reads), mapped through the remap-aware
+ * sequence clock. Defaults to the hold midpoint, which is where the editor
+ * opens (#413) and where its scrub slider starts (#421).
  */
 export function zoomEditorSequenceTime(
   state: TimelineState,
   entryIndex: number,
   zoom: ZoomSpec,
+  entryOffset: number = zoomHoldMidpoint(zoom),
 ): number {
   const entry = state.entries[entryIndex]
-  return sequenceTimeAt(state, entryIndex, entry.inPoint + zoomHoldMidpoint(zoom))
+  return sequenceTimeAt(state, entryIndex, entry.inPoint + entryOffset)
+}
+
+/**
+ * The span the scrub slider covers (#421): the zoom's whole envelope, in
+ * seconds into the entry — from where it begins to where it has finished
+ * ramping out, so scrubbing shows the motion from identity to identity.
+ */
+export function zoomEnvelope(zoom: ZoomSpec): { start: number; end: number } {
+  return { start: zoom.start, end: zoom.start + zoomWindowDuration(zoom) }
+}
+
+/**
+ * How finely the scrub slider steps, in seconds (#421). Coarse enough that
+ * one envelope asks for a bounded number of stills — the default 2 s window
+ * is 40 stops — and fine enough that a half-second ramp has ten of them.
+ */
+export const ZOOM_SCRUB_STEP = 0.05
+
+/**
+ * The region the zoom occupies at `entryOffset` seconds into the entry
+ * (#421): the full region across the hold, a partial one part-way through a
+ * ramp, and the whole frame at either end. Built on `zoomStateAt`, which is
+ * the same easing the preview and the export run, so the rectangle cannot
+ * disagree with what playing the zoom would show.
+ */
+export function zoomRectAt(zoom: ZoomSpec, entryOffset: number): FrameRect {
+  return zoomRect(zoomStateAt(zoom, entryOffset - zoom.start))
+}
+
+/**
+ * Whether the zoom is at full magnification at `entryOffset` — true across
+ * the hold, false anywhere in a ramp. The editor's handles only appear here:
+ * the drawn rectangle is the zoom's region *at that instant*, and a drag on
+ * a part-way region has no single stored spec it could mean, so rather than
+ * invent one the editor shows the motion read-only and hands the handles
+ * back at the hold (#421; #402's design edits the full zoom).
+ */
+export function zoomIsFullAt(zoom: ZoomSpec, entryOffset: number): boolean {
+  return zoomRampFraction(zoom, entryOffset - zoom.start) === 1
 }
 
 /**
