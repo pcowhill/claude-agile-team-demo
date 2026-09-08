@@ -438,9 +438,11 @@
   gap: 0.3rem;
 }
 
-/* The sliders themselves. One rule for all four row kinds, and it must be
-   more specific than `.audio-track-gain input` below, which predates ranges
-   and would otherwise give this one a 4.5rem box with a border. */
+/* The sliders themselves. One rule for all four row kinds. It had to
+   out-specify `.audio-track-gain input` below when #426 wrote it; #441
+   scoped that rule to `input[type='number']`, so it no longer needs to.
+   The resets stay all the same — they are not only an override: browsers
+   give a range input a default margin and box of their own. */
 .timeline-entry-audio input[type='range'],
 .timeline-entry-color input[type='range'],
 .audio-track-gain input[type='range'],
@@ -467,7 +469,15 @@
   font-size: 0.8rem;
 }
 
-.audio-track-gain input {
+/* Scoped to the number fields it was always meant for (#441). Unscoped, it
+   matched every input in the row — including the "Duck others" checkbox
+   (#241), which it gave a 4.5 rem box for a 13 px control and left its own
+   label some 60 px adrift. The three sibling rows
+   (`.timeline-entry-audio`, `.timeline-entry-color`,
+   `.video-overlay-controls`) always scoped theirs this way, and the
+   sequence entry's own Mute checkbox was unaffected, which is what made
+   this one look wrong beside it. */
+.audio-track-gain input[type='number'] {
   width: 4.5rem;
   padding: 0.15rem 0.3rem;
   border: 1px solid #2c2c2c;
