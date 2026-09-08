@@ -102,6 +102,12 @@ same mix (#105). Video entries and video overlays take the same optional
 audio fade-in/fade-out (#220): their sound ramps from silence to the item's
 volume and back, identically in the preview and the exported mix, and a
 fade on a transition boundary rides the crossfade.
+Each of those numbers carries a **range slider beside its field** (#426),
+on the field's own range and step — as do the colour dials and an overlay's
+corner radius. Dragging one moves the number as it goes and commits once on
+release, so a whole drag is a single undo step; the field itself still
+commits on blur or Enter exactly as before, and the two always read the
+same value.
 An audio track can duck the rest of the mix (#241): with "Duck others" on,
 every other sound source — other tracks, video entries' audio, overlay-video
 audio — drops to the track's duck level (25% by default, adjustable) while

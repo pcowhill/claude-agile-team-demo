@@ -3713,6 +3713,199 @@ describe("a row's Picture disclosure (#420)", () => {
   })
 })
 
+describe('range sliders beside the single-number fields (#426)', () => {
+  const undo = () => screen.getByRole('button', { name: 'Undo last timeline edit' })
+  const sliderFor = (fieldLabel: string) => screen.getByRole('slider', { name: `${fieldLabel} slider` })
+  const numberFor = (fieldLabel: string) => screen.getByRole('spinbutton', { name: fieldLabel })
+  /** One drag: several steps on the way, then the release that commits. */
+  const dragSlider = (element: HTMLElement, through: string[]) => {
+    for (const value of through) fireEvent.change(element, { target: { value } })
+    fireEvent.pointerUp(element)
+  }
+
+  const addVideoEntry = async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    return 'a.mp4 at position 1'
+  }
+
+  it("moves the number live and commits one undo step for the whole gesture", async () => {
+    const position = await addVideoEntry()
+    const label = `Volume of ${position} (0 to 1)`
+    const slider = sliderFor(label)
+    expect(slider).toHaveValue('1')
+
+    // Mid-gesture the number follows the slider, but nothing is committed:
+    // the whole drag is one edit, so one Undo must return to the start.
+    fireEvent.change(slider, { target: { value: '0.8' } })
+    expect(numberFor(label)).toHaveValue(0.8)
+    fireEvent.change(slider, { target: { value: '0.6' } })
+    fireEvent.change(slider, { target: { value: '0.4' } })
+    expect(numberFor(label)).toHaveValue(0.4)
+    fireEvent.pointerUp(slider)
+    expect(numberFor(label)).toHaveValue(0.4)
+
+    await userEvent.click(undo())
+    expect(numberFor(label)).toHaveValue(1)
+    // The pair stays in sync through the undo — the slider reads the same
+    // stored value the field does, not a remembered drag position.
+    expect(sliderFor(label)).toHaveValue('1')
+  })
+
+  it('carries the number field\'s own range and step, and keys commit on release too', async () => {
+    const position = await addVideoEntry()
+    const volume = sliderFor(`Volume of ${position} (0 to 1)`)
+    expect(volume).toHaveAttribute('min', '0')
+    expect(volume).toHaveAttribute('max', '1')
+    expect(volume).toHaveAttribute('step', '0.05')
+
+    // A fade's ceiling is the entry's own output duration, not a constant.
+    const fadeIn = sliderFor(`Audio fade-in of ${position} in seconds`)
+    expect(fadeIn).toHaveAttribute('max', '30')
+    expect(fadeIn).toHaveAttribute('step', '0.1')
+
+    // A key press is its own gesture: the step commits on its key-up, the
+    // way a drag commits on the pointer's.
+    fireEvent.change(fadeIn, { target: { value: '2' } })
+    fireEvent.keyUp(fadeIn, { key: 'ArrowRight' })
+    expect(numberFor(`Audio fade-in of ${position} in seconds`)).toHaveValue(2)
+    await userEvent.click(undo())
+    expect(numberFor(`Audio fade-in of ${position} in seconds`)).toHaveValue(0)
+  })
+
+  it('leaves the number field committing exactly as it did, slider following', async () => {
+    const position = await addVideoEntry()
+    const label = `Volume of ${position} (0 to 1)`
+    const volume = numberFor(label)
+
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '0.4')
+    // Still a draft: typing does not commit, and it does not move the
+    // stored value — but the slider tracks the draft, so the pair agrees.
+    expect(sliderFor(label)).toHaveValue('0.4')
+    await userEvent.tab()
+    expect(volume).toHaveValue(0.4)
+    expect(sliderFor(label)).toHaveValue('0.4')
+
+    // A typed value outside the range is clamped by the reducer, as before,
+    // and the slider snaps with the field rather than pinning silently.
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '5')
+    await userEvent.tab()
+    expect(volume).toHaveValue(1)
+    expect(sliderFor(label)).toHaveValue('1')
+  })
+
+  it('reaches the colour dials inside the Picture disclosure, dropping the group at identity', async () => {
+    const position = await addVideoEntry()
+    await openPicture(position)
+    const label = `Saturation of ${position} (percent)`
+    const saturation = sliderFor(label)
+    expect(saturation).toHaveAttribute('min', '0')
+    expect(saturation).toHaveAttribute('max', '200')
+    expect(saturation).toHaveAttribute('step', '5')
+
+    dragSlider(saturation, ['150', '175'])
+    expect(numberFor(label)).toHaveValue(175)
+    // One gesture, one edit — and the summary above notices, because the
+    // reducer stored something (#420).
+    expect(appliedPictureGroups(position)).toEqual(['Color'])
+
+    // Dragged back to identity, the reducer drops the key again.
+    dragSlider(sliderFor(label), ['100'])
+    expect(numberFor(label)).toHaveValue(100)
+    expect(appliedPictureGroups(position)).toEqual([])
+  })
+
+  it("offers one on an overlay's corner radius, only while the mask is rounded", async () => {
+    await addVideoEntry()
+    await importClip('cam.mp4', 8)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    const position = 'overlay cam.mp4 at position 1'
+    await openPicture(position)
+
+    const label = `Corner radius of ${position} (percent)`
+    expect(screen.queryByRole('slider', { name: `${label} slider` })).toBeNull()
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: `Shape mask of ${position}` }),
+      'rounded',
+    )
+    const radius = sliderFor(label)
+    expect(radius).toHaveAttribute('max', '50')
+    dragSlider(radius, ['20', '30'])
+    expect(numberFor(label)).toHaveValue(30)
+  })
+
+  it('gives an audio track and a video overlay the same pairs the entry has', async () => {
+    render(<App />)
+    await importAudioClip('m.mp3', 20)
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await importClip('cam.mp4', 8)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+
+    const track = 'audio track m.mp3 at position 1'
+    const overlay = 'overlay cam.mp4 at position 1'
+    for (const label of [
+      `Volume of ${track} (0 to 1)`,
+      `Fade-in of ${track} in seconds`,
+      `Fade-out of ${track} in seconds`,
+      `Volume of ${overlay} (0 to 1)`,
+      `Audio fade-in of ${overlay} in seconds`,
+      `Audio fade-out of ${overlay} in seconds`,
+    ]) {
+      expect(sliderFor(label)).toBeInTheDocument()
+    }
+
+    dragSlider(sliderFor(`Volume of ${track} (0 to 1)`), ['0.5', '0.3'])
+    expect(numberFor(`Volume of ${track} (0 to 1)`)).toHaveValue(0.3)
+  })
+
+  it('commits nothing on a release that ends no gesture of its own', async () => {
+    const position = await addVideoEntry()
+    const label = `Volume of ${position} (0 to 1)`
+    const volume = numberFor(label)
+
+    // A number field mid-typing, deliberately out of range: the draft is 5,
+    // the stored value still 1, and the slider mirrors the draft — pinned to
+    // its own maximum, since 5 is off the end of it.
+    await userEvent.clear(volume)
+    await userEvent.type(volume, '5')
+    expect(sliderFor(label)).toHaveValue('1')
+
+    // A release over the slider that no drag of its own preceded — a
+    // pointer let go while passing across it, or the key-up of a shortcut
+    // pressed while it has focus — must commit nothing. Committing here
+    // would push 5 through the reducer, which clamps it to the 1 already
+    // stored, and the draft would snap back to "1": what the user was
+    // typing, swallowed by a release they did not aim at this control.
+    // The browser spec found this the hard way, where the key-up of a
+    // Ctrl+Z arrived after the undo had changed the stored value and put
+    // the undone value straight back.
+    fireEvent.pointerUp(sliderFor(label))
+    fireEvent.keyUp(sliderFor(label), { key: 'z', ctrlKey: true })
+    expect(volume).toHaveValue(5)
+
+    // The field itself still commits on blur exactly as it always has —
+    // that is the behaviour the release must not borrow.
+    await userEvent.tab()
+    expect(numberFor(label)).toHaveValue(1)
+  })
+
+  it('gives no slider to the fields this change left alone', async () => {
+    const position = await addVideoEntry()
+    // Trim points are unbounded in feel — a slider across an hour-long clip
+    // says nothing — and the duck level is outside this change (#426).
+    expect(
+      screen.queryByRole('slider', { name: `Trim in point of ${position} in seconds slider` }),
+    ).toBeNull()
+    await openPicture(position)
+    expect(
+      screen.queryByRole('slider', { name: `Crop left of ${position} (percent) slider` }),
+    ).toBeNull()
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({
