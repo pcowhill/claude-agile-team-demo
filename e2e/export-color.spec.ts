@@ -4,6 +4,7 @@ import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -79,6 +80,8 @@ test('an export renders a grayscale look: the red clip decodes gray (#195)', asy
   await outField.fill('1.5')
   await outField.blur()
 
+  // The look sits behind the row's Picture disclosure since #420.
+  await openPicture(page, 'red.webm at position 1')
   await page
     .getByRole('combobox', { name: 'Look of red.webm at position 1' })
     .selectOption('grayscale')
@@ -120,6 +123,7 @@ test('an adjusted overlay exports adjusted while the base stays untouched (#195)
   await page.getByLabel('Color of Color slate at position 1').fill('#00cd00')
 
   await chooseClipAction(page, 'red.webm', 'Add as overlay')
+  await openPicture(page, 'overlay red.webm at position 1')
   await page
     .getByRole('combobox', { name: 'Look of overlay red.webm at position 1' })
     .selectOption('grayscale')

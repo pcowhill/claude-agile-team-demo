@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -100,7 +101,9 @@ test('cropping the left half exports only the kept region at the reshaped frame 
   expect(plain.height).toBe(180)
   expect(plain.g).toBeGreaterThan(plain.b + 60)
 
-  // Crop the green half away (#255) and export again.
+  // Crop the green half away (#255) and export again — behind the row's
+  // Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 1')
   const cropField = page.getByRole('spinbutton', {
     name: 'Crop left of banded.webm at position 1 (percent)',
   })

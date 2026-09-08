@@ -3,6 +3,7 @@ import { chooseFromFrameMenu, expectFrameItemEnabled, frameMenu, frameMenuTrigge
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseView } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -124,6 +125,8 @@ test('freeze frame captures the composed frame and splits & holds at the playhea
 
   // Rotate 90° (#232): the capture must be the composition, not the raw
   // decode — only the export draw path turns the landscape bands portrait.
+  // Orientation sits behind the row's Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('button', {
       name: 'Rotate banded.webm at position 1 90 degrees clockwise (currently 0 degrees)',

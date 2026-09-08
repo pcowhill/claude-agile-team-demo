@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -98,6 +99,8 @@ test('color and blur fills paint the pillarbox bars; none restores black', async
   // Crop the second placement to its blue right half: it presents 160×180
   // while the uncropped first entry keeps the frame at 320×180 — the
   // cropped entry pillarboxes with a bar on each side.
+  // Crop and the fill both sit behind the row's Picture disclosure (#420).
+  await openPicture(page, 'banded.webm at position 2')
   const cropField = page.getByRole('spinbutton', {
     name: 'Crop left of banded.webm at position 2 (percent)',
   })

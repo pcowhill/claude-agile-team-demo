@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openPicture } from './pictureDisclosure'
 
 /**
  * Clip orientation (#232): rotating and flipping a clip visibly transforms
@@ -112,7 +113,9 @@ test('flipping a clip horizontally mirrors its picture in the preview', async ({
   expect(before.g).toBeGreaterThan(before.b + 60)
 
   // Flip H: the same screen rectangle now shows the blue band, and the
-  // element carries the shared transform rule (#66 pattern).
+  // element carries the shared transform rule (#66 pattern). Orientation
+  // sits behind the row's Picture disclosure since #420.
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('checkbox', { name: 'Flip banded.webm at position 1 horizontally' })
     .check()
@@ -135,6 +138,7 @@ test('a quarter turn reshapes the frame portrait and turns the picture', async (
   const landscape = (await frame.boundingBox())!
   expect(landscape.width).toBeGreaterThan(landscape.height)
 
+  await openPicture(page, 'banded.webm at position 1')
   await page
     .getByRole('button', {
       name: 'Rotate banded.webm at position 1 90 degrees clockwise (currently 0 degrees)',

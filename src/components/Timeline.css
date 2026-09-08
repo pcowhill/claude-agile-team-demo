@@ -589,6 +589,39 @@
   color: #eee;
 }
 
+/* The picture disclosure (#420): one summary line where five rows of
+   treatments used to sit, with the groups stacked under it when it is open.
+   The wrapper is a column so the summary and the groups keep the same
+   vertical rhythm the rows had on their own — the row's other blocks are
+   siblings in the same flow, so nothing here changes their spacing. */
+.timeline-picture {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* The summary is its own row so opening it moves nothing sideways — the
+   `.timeline-header` lesson from #418, where two glyphs sharing a
+   space-between row ended up 87px apart. */
+.timeline-picture-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+/* Which groups are applied, beside the disclosure rather than inside it:
+   the button's visible label stays exactly "Picture", which its accessible
+   name contains (Label in Name), and `aria-describedby` carries this to a
+   screen reader. Ellipsized rather than wrapped, so a row with every group
+   applied still costs one line at a narrow width. */
+.timeline-picture-applied {
+  color: #aaa;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The entry's color-adjustment row (#192): three percent dials, the look
    select, and a reset — same look as the gain row above. */
 .timeline-entry-color {

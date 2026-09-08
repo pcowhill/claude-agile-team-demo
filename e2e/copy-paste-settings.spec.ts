@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseRowAction } from './timelineRowMenu'
+import { openPicture } from './pictureDisclosure'
 
 type Page = import('@playwright/test').Page
 
@@ -59,7 +60,11 @@ test('pasting with Color checked and Crop unchecked applies only the color (#315
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
 
-  // A distinctive grade and crop on the first clip.
+  // A distinctive grade and crop on the first clip. Both sit behind the
+  // row's Picture disclosure since #420; the paste checklist and what it
+  // applies are unchanged by that, which is this spec's subject.
+  await openPicture(page, 'clip.webm at position 1')
+  await openPicture(page, 'clip.webm at position 2')
   const saturation = page.getByRole('spinbutton', {
     name: 'Saturation of clip.webm at position 1 (percent)',
   })

@@ -155,7 +155,8 @@ same way into the exported file, overlay audio in the mix (#146); an image
 overlay draws into the file the same way, with no audio to mix (#295).
 An overlay also takes a shape mask (#266): clip its placed rectangle to an
 inscribed ellipse (a circle when square — the webcam-bubble look) or a
-rounded rectangle with a chosen corner radius, edited on the overlay row,
+rounded rectangle with a chosen corner radius, edited in the overlay row's
+Picture group (#420),
 rendered live in the preview, and saved with the project. Exports cut the
 same silhouette (#267): the video formats, the GIF plugin, and frame
 snapshots all draw masked overlays through one shared composition path,
@@ -199,6 +200,14 @@ first frame of the trimmed range, re-captured when the in-point changes;
 image entries show the image itself and slates a color swatch. Thumbnails
 are session state, recomputed from the media — never stored in project
 files.
+Every picture treatment below lives behind one **Picture ▸** disclosure on
+the row (#420), closed by default and remembered per row for the session:
+Color · Orientation · Crop, then one more according to the row — Background
+on a sequence entry, Shape on an overlay. Timing and audio stay where they
+were, since those are what a row is usually opened for. A closed summary
+still says what is applied — `▸ Picture · Color, Crop` — so nothing hides
+silently, and slates and audio tracks have no such group at all. Measured
+at 1280px, an expanded image entry's row went from 245px to 150px.
 Video and image entries (and video overlays) take per-clip color
 adjustments (#192): brightness, contrast, and saturation dials (0–200%)
 plus one-click grayscale and sepia looks, edited on the timeline row,
@@ -207,22 +216,22 @@ identically in exports (#195) — GIFs included, through the shared frame
 pipeline. A browser whose canvas cannot apply filters refuses to export an
 adjusted timeline rather than silently exporting it unadjusted.
 They also take an orientation (#232): rotate 90°/180°/270° and flip
-horizontal/vertical on the timeline row — the fix for sideways phone
+horizontal/vertical in that group — the fix for sideways phone
 footage and mirrored webcam clips — rendered live in the preview, saved
 with the project, and composing with zooms, transitions, and color
 adjustments; a quarter-turned clip letterboxes into the frame like any
 portrait source, and reshapes the output frame the same way. Exports
 render orientation through the same shared rule (#233) — GIFs included,
 through the shared frame pipeline.
-They also take a crop (#255): trim a percentage off each edge on the
-timeline row — chrome strips in screen recordings, headroom in webcam
+They also take a crop (#255): trim a percentage off each edge in that
+group — chrome strips in screen recordings, headroom in webcam
 clips — and only the kept region renders in the preview, applied before
 orientation, reshaping the output frame like any source and saved with the
 project (each axis always keeps at least a tenth). Exports render crop
 through the same shared rule (#256).
 They also take a background fill (#259): what shows behind a clip that
 doesn't fill the output frame — a portrait phone clip in a landscape
-sequence, a quarter-turned or cropped clip — chosen on the timeline row:
+sequence, a quarter-turned or cropped clip — chosen in that group:
 none (the default black bars), a blurred cover-fit copy of the clip's own
 current frame (the familiar social-video blur-fill), or a flat color. The
 backdrop renders live in the preview behind the normally fitted clip,
