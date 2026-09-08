@@ -1,17 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FREE_RECT_HANDLES,
   MAX_EDITOR_ZOOM_SCALE,
   MIN_EDITOR_ZOOM_SCALE,
+  RECT_SIZE_STEP,
+  RECT_SNAP_CENTRES,
   ZOOM_NUDGE,
   ZOOM_NUDGE_LARGE,
   ZOOM_SCALE_STEP,
   ZOOM_SNAP_TARGETS,
   ZOOM_SNAP_TOLERANCE,
+  clampedRect,
+  movedRect,
   movedZoom,
+  overlayEditorSequenceTime,
+  overlayRect,
+  rectAfterGesture,
+  rectAfterKeyStep,
+  rectGuides,
   rectKeyStep,
+  resizedRect,
   resizedZoom,
   scaledZoom,
+  snappedRect,
   snappedZoom,
+  withoutOverlay,
   withoutZoom,
   zoomAfterGesture,
   zoomAfterKeyStep,
@@ -24,11 +37,32 @@ import {
   zoomRect,
   zoomRectAt,
 } from './frameEditor'
-import { DEFAULT_ZOOM, timelineReducer, zoomsOf } from './timeline'
+import { DEFAULT_ZOOM, timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
+import { MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from './videoOverlay'
+import type { VideoOverlay } from './videoOverlay'
 import { zoomAt } from './zoom'
 
 const zoom: ZoomSpec = { ...DEFAULT_ZOOM, scale: 2, centerX: 0.5, centerY: 0.5 }
+
+/** The bounds the overlay editor works in — the reducer's own. */
+const BOUNDS = { minSize: MIN_OVERLAY_SIZE, maxSize: MAX_OVERLAY_SIZE }
+
+const overlay = (fields: Partial<VideoOverlay> = {}): VideoOverlay => ({
+  id: 'o1',
+  clipId: 'clip-cam',
+  name: 'cam.mp4',
+  duration: 8,
+  url: 'blob:cam',
+  offset: 0,
+  inPoint: 0,
+  outPoint: 8,
+  x: 0.6,
+  y: 0.6,
+  width: 0.3,
+  height: 0.2,
+  ...fields,
+})
 
 const entry = (id: string, duration: number) => ({
   id,
@@ -301,6 +335,354 @@ describe('the scrub across the envelope (#421)', () => {
     expect(zoomEditorSequenceTime(state, 1, ramped, 1.25)).toBe(11.25)
     // Omitted, the offset is still the hold midpoint #413 opens at.
     expect(zoomEditorSequenceTime(state, 1, ramped)).toBe(zoomEditorSequenceTime(state, 1, ramped, 2.5))
+  })
+})
+
+describe('the free rectangle: moving and resizing a placement (#422)', () => {
+  const rect = { x: 0.6, y: 0.6, width: 0.3, height: 0.2 }
+
+  it("reads a placement's rectangle off its own fields", () => {
+    expect(overlayRect(overlay())).toEqual(rect)
+    // An overlay carries far more than a rectangle; only these four come.
+    expect(Object.keys(overlayRect(overlay()))).toEqual(['x', 'y', 'width', 'height'])
+  })
+
+  it('clamps size into its bounds first, then position into what the size leaves', () => {
+    // The reducer's order (`clampVideoOverlay`): a rectangle grown past the
+    // frame is pulled back on, not shrunk.
+    expect(clampedRect({ x: 0.9, y: 0.9, width: 0.4, height: 0.4 }, BOUNDS)).toEqual({
+      x: 0.6,
+      y: 0.6,
+      width: 0.4,
+      height: 0.4,
+    })
+    // Below the floor, a typo cannot store an invisible sliver.
+    expect(clampedRect({ x: 0.5, y: 0.5, width: 0.001, height: 0.001 }, BOUNDS)).toMatchObject({
+      width: MIN_OVERLAY_SIZE,
+      height: MIN_OVERLAY_SIZE,
+    })
+    // Rounding is to a thousandth, and the position is clamped against the
+    // *rounded* size, so a flush rectangle stays flush.
+    const flush = clampedRect({ x: 0.9999, y: 0, width: 0.1004, height: 0.5 }, BOUNDS)
+    expect(flush).toEqual({ x: 0.9, y: 0, width: 0.1, height: 0.5 })
+    expect(flush.x + flush.width).toBe(1)
+  })
+
+  it('moves by a fraction of the frame, kept fully on it', () => {
+    expect(movedRect(rect, 0.05, -0.05, BOUNDS)).toMatchObject({ x: 0.65, y: 0.55 })
+    // Dragged off the right edge, it stops flush against it — and its size
+    // is untouched, which is what distinguishes a move from a resize.
+    const pushed = movedRect(rect, 0.5, 0.5, BOUNDS)
+    expect(pushed).toEqual({ x: 0.7, y: 0.8, width: 0.3, height: 0.2 })
+  })
+
+  it('resizes from a corner with the opposite corner held fixed', () => {
+    // The se corner dragged out: nw stays at (0.6, 0.6) and the size grows.
+    expect(resizedRect(rect, 'se', { x: 0.95, y: 0.9 }, BOUNDS)).toEqual({
+      x: 0.6,
+      y: 0.6,
+      width: 0.35,
+      height: 0.3,
+    })
+    // The nw corner dragged: the se corner (0.9, 0.8) is what stays.
+    expect(resizedRect(rect, 'nw', { x: 0.5, y: 0.5 }, BOUNDS)).toEqual({
+      x: 0.5,
+      y: 0.5,
+      width: 0.4,
+      height: 0.3,
+    })
+  })
+
+  it('resizes from an edge, changing that dimension and nothing else', () => {
+    // The whole point of an edge handle, and the thing a centre-fixed
+    // resize (the zoom's) cannot express.
+    expect(resizedRect(rect, 'e', { x: 0.8, y: 0.2 }, BOUNDS)).toEqual({
+      x: 0.6,
+      y: 0.6,
+      width: 0.2,
+      height: 0.2,
+    })
+    expect(resizedRect(rect, 'w', { x: 0.5, y: 0.9 }, BOUNDS)).toEqual({
+      x: 0.5,
+      y: 0.6,
+      width: 0.4,
+      height: 0.2,
+    })
+    expect(resizedRect(rect, 's', { x: 0.1, y: 0.9 }, BOUNDS)).toEqual({
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    })
+    expect(resizedRect(rect, 'n', { x: 0.1, y: 0.5 }, BOUNDS)).toEqual({
+      x: 0.6,
+      y: 0.5,
+      width: 0.3,
+      height: 0.3,
+    })
+  })
+
+  it('never lets a handle cross the edge it is measured from, or leave the frame', () => {
+    // Dragged past the fixed edge, the rectangle stops at the floor instead
+    // of flipping inside out.
+    expect(resizedRect(rect, 'e', { x: 0.1, y: 0.5 }, BOUNDS)).toMatchObject({
+      x: 0.6,
+      width: MIN_OVERLAY_SIZE,
+    })
+    // Dragged past the frame, it stops at the border: the nw corner pulled
+    // off the top-left keeps the se corner and grows only to the frame.
+    expect(resizedRect(rect, 'nw', { x: -0.5, y: -0.5 }, BOUNDS)).toEqual({
+      x: 0,
+      y: 0,
+      width: 0.9,
+      height: 0.8,
+    })
+  })
+
+  it('keeps the aspect on a Shift-held corner, width driving', () => {
+    // The 3:2 box (0.3 × 0.2) dragged to a width of 0.4 takes a height of
+    // 0.4 / 1.5 — not the 0.3 the pointer's y asked for.
+    const locked = resizedRect(rect, 'se', { x: 1, y: 0.9 }, BOUNDS, rect.width / rect.height)
+    expect(locked).toMatchObject({ x: 0.6, y: 0.6, width: 0.4 })
+    // 0.4 / 1.5 is 0.2667, stored as 0.27 — the ratio survives to the
+    // hundredth of a frame a placement is kept at, which is the most the
+    // row's own fields can express (`RECT_DECIMALS`).
+    expect(locked.height).toBeCloseTo(0.4 / 1.5, 2)
+    expect(locked.width / locked.height).toBeCloseTo(rect.width / rect.height, 1)
+    // Unlocked, the same drag takes the pointer's own y.
+    expect(resizedRect(rect, 'se', { x: 1, y: 0.9 }, BOUNDS)).toMatchObject({
+      width: 0.4,
+      height: 0.3,
+    })
+  })
+
+  it('shrinks a locked drag about its fixed corner rather than breaking the ratio', () => {
+    // A wide box anchored near the bottom: the width the pointer asks for
+    // would need more height than the frame has below the anchor, so the
+    // width comes down and the ratio survives.
+    const low = { x: 0.1, y: 0.8, width: 0.2, height: 0.1 }
+    const locked = resizedRect(low, 'se', { x: 0.9, y: 1 }, BOUNDS, low.width / low.height)
+    expect(locked.y + locked.height).toBeLessThanOrEqual(1)
+    expect(locked.width / locked.height).toBeCloseTo(low.width / low.height, 1)
+    expect(locked.height).toBeCloseTo(0.2, 2)
+  })
+
+  it('offers eight handles: four corners and four edges', () => {
+    expect([...FREE_RECT_HANDLES].sort()).toEqual(
+      ['e', 'n', 'ne', 'nw', 's', 'se', 'sw', 'w'].sort(),
+    )
+  })
+})
+
+describe('the free rectangle: snapping and guides (#422)', () => {
+  it('pulls a near edge flush to the frame', () => {
+    // 0.015 from the left border is inside the tolerance the zoom uses.
+    expect(snappedRect({ x: 0.015, y: 0.5, width: 0.3, height: 0.2 }, BOUNDS)).toMatchObject({
+      x: 0,
+    })
+    // …and the far edge to the right border, which is the same alignment
+    // seen from the other side.
+    expect(snappedRect({ x: 0.69, y: 0.5, width: 0.3, height: 0.2 }, BOUNDS)).toMatchObject({
+      x: 0.7,
+    })
+  })
+
+  it('pulls the centre onto a third or the middle, per axis independently', () => {
+    const snapped = snappedRect({ x: 0.36, y: 0.24, width: 0.3, height: 0.2 }, BOUNDS)
+    // centre x was 0.51 → 0.5; centre y was 0.34 → 1/3.
+    expect(snapped.x + snapped.width / 2).toBeCloseTo(0.5, 3)
+    expect(snapped.y + snapped.height / 2).toBeCloseTo(1 / 3, 2)
+    expect(RECT_SNAP_CENTRES).toEqual(ZOOM_SNAP_TARGETS)
+  })
+
+  it('takes the nearest alignment when an edge and a centre both compete', () => {
+    // A wide rectangle at x = 0.01: its near edge is 0.01 from the border,
+    // its centre 0.14 from the middle. The corner wins, which is what makes
+    // a rectangle parked in a corner stay there.
+    expect(snappedRect({ x: 0.01, y: 0.5, width: 0.7, height: 0.2 }, BOUNDS)).toMatchObject({
+      x: 0,
+    })
+  })
+
+  it('leaves a rectangle outside the tolerance exactly where it was', () => {
+    const free = { x: 0.44, y: 0.44, width: 0.3, height: 0.2 }
+    expect(snappedRect(free, BOUNDS)).toEqual(free)
+  })
+
+  it('reads guides off the rectangle, an edge winning over a centre', () => {
+    expect(rectGuides({ x: 0, y: 0.4, width: 0.3, height: 0.2 })).toEqual({ x: 0, y: 0.5 })
+    expect(rectGuides({ x: 0.7, y: 0.1, width: 0.3, height: 0.2 })).toEqual({ x: 1, y: null })
+    expect(rectGuides({ x: 0.35, y: 0.55, width: 0.3, height: 0.2 })).toEqual({ x: 0.5, y: null })
+    expect(rectGuides({ x: 0.44, y: 0.44, width: 0.3, height: 0.2 })).toEqual({ x: null, y: null })
+    // A full-frame rectangle satisfies both borders and the middle; the
+    // flush near edge is the one reported.
+    expect(rectGuides({ x: 0, y: 0, width: 1, height: 1 })).toEqual({ x: 0, y: 0 })
+  })
+
+  it('lights the centre guide for an odd-sized rectangle, which cannot land exactly', () => {
+    // A 0.35-wide box centred on the middle needs x = 0.325, which stores as
+    // 0.33 and leaves the centre at 0.505. The snap is real and visible, so
+    // the guide must be drawn: an equality test at the stored precision
+    // decides 0.505 is not 0.5 and shows nothing (this is how the browser
+    // spec first failed).
+    const odd = snappedRect({ x: 0.315, y: 0.5, width: 0.35, height: 0.2 }, BOUNDS)
+    expect(odd.x).toBe(0.33)
+    expect(odd.x + odd.width / 2).toBeCloseTo(0.505, 6)
+    expect(rectGuides(odd).x).toBe(0.5)
+    // Each alignment still has exactly one storable value near enough: one
+    // hundredth further out lights nothing.
+    expect(rectGuides({ x: 0.34, y: 0.5, width: 0.35, height: 0.2 }).x).toBeNull()
+    // …and a third, whose own rounding lands 0.0017 away, lights too.
+    const third = snappedRect({ x: 0.15, y: 0.5, width: 0.35, height: 0.2 }, BOUNDS)
+    expect(rectGuides(third).x).toBe(1 / 3)
+  })
+
+  it('never reports a guide the clamp moved the rectangle away from', () => {
+    // A full-width rectangle nudged left: it cannot move, so the centre
+    // guide it would have lit is not reported for x.
+    const wide = snappedRect({ x: -0.01, y: 0.5, width: 1, height: 0.2 }, BOUNDS)
+    expect(wide.x).toBe(0)
+    expect(rectGuides(wide).x).toBe(0)
+  })
+
+  it('snaps a move unless Alt bypasses it, and never a resize', () => {
+    const near = { x: 0.02, y: 0.5, width: 0.3, height: 0.2 }
+    expect(rectAfterGesture(near, { kind: 'move', dx: 0, dy: 0 }, BOUNDS)).toMatchObject({ x: 0 })
+    expect(
+      rectAfterGesture(near, { kind: 'move', dx: 0, dy: 0, altKey: true }, BOUNDS),
+    ).toMatchObject({ x: 0.02 })
+    // A resize is clamped by the frame, which already lands a handle
+    // dragged past the border flush — a snap there would only fight it. The
+    // west edge pulled to 0.01 stays at 0.01, well inside the tolerance that
+    // would have taken a *move* to 0.
+    expect(
+      rectAfterGesture(near, { kind: 'edge', edge: 'w', x: 0.01, y: 0.5 }, BOUNDS),
+    ).toMatchObject({ x: 0.01 })
+  })
+
+  it('locks the aspect on a Shift-held corner and ignores Shift on an edge', () => {
+    const start = { x: 0.1, y: 0.1, width: 0.3, height: 0.2 }
+    const ratio = start.width / start.height
+    const corner = rectAfterGesture(
+      start,
+      { kind: 'corner', corner: 'se', x: 0.5, y: 0.7, shiftKey: true },
+      BOUNDS,
+      ratio,
+    )
+    expect(corner.width / corner.height).toBeCloseTo(ratio, 1)
+    // An edge handle means "change this one dimension"; a modifier that made
+    // it change both would contradict the handle the user chose.
+    const edge = rectAfterGesture(
+      start,
+      { kind: 'edge', edge: 's', x: 0.5, y: 0.7, shiftKey: true },
+      BOUNDS,
+      ratio,
+    )
+    expect(edge.width).toBe(start.width)
+    expect(edge.height).toBeCloseTo(0.6, 3)
+  })
+})
+
+describe('the free rectangle: keyboard steps (#422)', () => {
+  const rect = { x: 0.6, y: 0.6, width: 0.3, height: 0.2 }
+
+  it('nudges by the same fraction the zoom does, clamped at the frame', () => {
+    expect(rectAfterKeyStep(rect, { kind: 'move', dx: ZOOM_NUDGE, dy: 0 }, BOUNDS)).toMatchObject({
+      x: 0.61,
+    })
+    expect(
+      rectAfterKeyStep(rect, { kind: 'move', dx: 0, dy: -ZOOM_NUDGE_LARGE }, BOUNDS),
+    ).toMatchObject({ y: 0.55 })
+    // Held against the right border it stops there rather than leaving it.
+    let nudged = rect
+    for (let i = 0; i < 20; i++) {
+      nudged = rectAfterKeyStep(nudged, { kind: 'move', dx: ZOOM_NUDGE_LARGE, dy: 0 }, BOUNDS)
+    }
+    expect(nudged.x).toBe(0.7)
+    expect(nudged.width).toBe(0.3)
+  })
+
+  it('grows and shrinks about the centre, and + then − returns exactly', () => {
+    // A square box, so one step is representable on both axes and the
+    // centre is preserved to the last digit rather than to within rounding.
+    const square = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 }
+    const bigger = rectAfterKeyStep(square, { kind: 'scale', delta: ZOOM_SCALE_STEP }, BOUNDS)
+    expect(bigger.width).toBe(square.width + RECT_SIZE_STEP)
+    expect(bigger.x + bigger.width / 2).toBe(square.x + square.width / 2)
+    expect(bigger.y + bigger.height / 2).toBe(square.y + square.height / 2)
+    // An additive step buys exact inverses, which the zoom's multiplicative
+    // magnification would not.
+    expect(rectAfterKeyStep(bigger, { kind: 'scale', delta: -ZOOM_SCALE_STEP }, BOUNDS)).toEqual(
+      square,
+    )
+  })
+
+  it('keeps the proportions it has, to the precision a placement is stored at', () => {
+    // 3:2 grown by one step: 0.32 wide wants 0.2133 high and stores 0.21, so
+    // the ratio and the centre each survive to within half of the hundredth
+    // `RECT_DECIMALS` keeps — which is the whole error rounding can cause.
+    const grown = rectAfterKeyStep(rect, { kind: 'scale', delta: ZOOM_SCALE_STEP }, BOUNDS)
+    expect(grown.width).toBeCloseTo(rect.width + RECT_SIZE_STEP, 3)
+    expect(grown.width / grown.height).toBeCloseTo(rect.width / rect.height, 1)
+    // Half a stored unit, widened by a float's worth — the drift here lands
+    // exactly on the bound and reads as 0.0050000000000000044 in binary
+    // floating point, the same reason `ZOOM_SNAP_TOLERANCE` above is
+    // inclusive by 1e-9 rather than exactly.
+    const halfAUnit = 0.005 + 1e-9
+    for (const drift of [
+      Math.abs(grown.x + grown.width / 2 - (rect.x + rect.width / 2)),
+      Math.abs(grown.y + grown.height / 2 - (rect.y + rect.height / 2)),
+    ]) {
+      expect(drift).toBeLessThanOrEqual(halfAUnit)
+    }
+  })
+
+  it('a shrink stops at the floor and a growth at the frame', () => {
+    let small = { x: 0.4, y: 0.4, width: 0.1, height: 0.1 }
+    for (let i = 0; i < 10; i++) {
+      small = rectAfterKeyStep(small, { kind: 'scale', delta: -ZOOM_SCALE_STEP }, BOUNDS)
+    }
+    expect(small.width).toBe(MIN_OVERLAY_SIZE)
+    let big = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 }
+    for (let i = 0; i < 60; i++) {
+      big = rectAfterKeyStep(big, { kind: 'scale', delta: ZOOM_SCALE_STEP }, BOUNDS)
+    }
+    expect(big.width).toBeLessThanOrEqual(MAX_OVERLAY_SIZE)
+    expect(big.x).toBeGreaterThanOrEqual(0)
+    expect(big.x + big.width).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('the overlay editor still (#422)', () => {
+  const state = (overlays: VideoOverlay[]): TimelineState => ({
+    entries: [entry('a', 10)],
+    transitions: [],
+    videoOverlays: overlays,
+  })
+
+  it("takes the still at the middle of the overlay's own window", () => {
+    // Not the sequence's start: the picture under the overlay is the one
+    // the placement is being judged against.
+    expect(overlayEditorSequenceTime(state([overlay()]), overlay({ offset: 2 }))).toBe(6)
+    expect(
+      overlayEditorSequenceTime(state([overlay()]), overlay({ offset: 1, inPoint: 2, outPoint: 6 })),
+    ).toBe(3)
+  })
+
+  it('clamps a window running past the sequence back into it', () => {
+    // An overlay's window may outrun the sequence (the allowed-tail rule),
+    // and there is no frame out there to draw.
+    expect(overlayEditorSequenceTime(state([overlay()]), overlay({ offset: 100 }))).toBe(10)
+    expect(overlayEditorSequenceTime({ entries: [], transitions: [] }, overlay())).toBe(0)
+  })
+
+  it('withoutOverlay leaves this overlay out for the snapshot and nothing else', () => {
+    const both = state([overlay(), overlay({ id: 'o2' })])
+    const bypassed = withoutOverlay(both, 'o1')
+    expect(videoOverlaysOf(bypassed).map((item) => item.id)).toEqual(['o2'])
+    expect(bypassed.entries).toBe(both.entries)
+    // An unknown id is a same-reference no-op, as withoutZoom's is.
+    expect(withoutOverlay(both, 'nope')).toBe(both)
   })
 })
 

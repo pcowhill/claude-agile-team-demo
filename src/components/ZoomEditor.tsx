@@ -140,11 +140,11 @@ export function ZoomEditor({
     <div
       role="dialog"
       aria-label={`Adjust ${zoomName} of ${position}`}
-      className="zoom-editor"
+      className="effect-editor"
       data-testid="zoom-editor"
       onKeyDown={handleKeyDown}
     >
-      <div className="zoom-editor-header">
+      <div className="effect-editor-header">
         <span>
           {zoomName}: {guidance}
         </span>
@@ -189,7 +189,7 @@ export function ZoomEditor({
         guides={zoomGuides(shown)}
         {...(snapshot === undefined ? {} : { snapshot })}
       />
-      <div className="zoom-editor-scrub">
+      <div className="effect-editor-scrub">
         <span>Preview</span>
         <input
           type="range"
@@ -201,7 +201,7 @@ export function ZoomEditor({
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
         <output aria-label={`${zoomName} preview time (live)`}>{seconds(scrub)}</output>
-        <label className="zoom-editor-result">
+        <label className="effect-editor-result">
           <input
             type="checkbox"
             checked={showResult}
@@ -210,7 +210,7 @@ export function ZoomEditor({
           Show result
         </label>
       </div>
-      <p className="zoom-editor-readout">
+      <p className="effect-editor-readout">
         <span>
           Scale ×
           <output aria-label={`${zoomName} scale (live)`}>{format(shown.scale)}</output>
@@ -222,7 +222,7 @@ export function ZoomEditor({
           Centre Y <output aria-label={`${zoomName} centre Y (live)`}>{format(shown.centerY)}</output>
         </span>
       </p>
-      <p className="zoom-editor-hint" id={hintId}>
+      <p className="effect-editor-hint" id={hintId}>
         {interactive
           ? 'Arrow keys nudge the region, Shift for five times as far; + and − change the magnification. Hold Alt while dragging to ignore the guides. '
           : ''}

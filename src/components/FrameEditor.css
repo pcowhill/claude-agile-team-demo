@@ -116,16 +116,54 @@
   cursor: nesw-resize;
 }
 
+/* Edge handles (#422), for the free rectangle an overlay's placement is: a
+   short strip on the middle of each side, so the corners either side of it
+   stay grabbable. Deliberately fainter than a corner — it does less (one
+   dimension, not two), the corners must stay the obvious targets, and a
+   solid bar here paints over the picture the placement is judged against. */
+.frame-editor-edge {
+  fill: rgba(255, 209, 102, 0.4);
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 0.75;
+}
+
+.frame-editor-edge-n,
+.frame-editor-edge-s {
+  cursor: ns-resize;
+}
+
+.frame-editor-edge-e,
+.frame-editor-edge-w {
+  cursor: ew-resize;
+}
+
+/* The shape the effect will actually paint inside the rectangle (#422): an
+   overlay's mask (#266) makes the placed silhouette an ellipse or a rounded
+   box, and a plain rectangle would say the wrong thing about it. Outline
+   only — the picture underneath is what the placement is being judged
+   against, so nothing is painted over it. */
+.frame-editor-silhouette {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
 .frame-editor-dragging,
 .frame-editor-dragging .frame-editor-rect,
-.frame-editor-dragging .frame-editor-corner {
+.frame-editor-dragging .frame-editor-corner,
+.frame-editor-dragging .frame-editor-edge {
   cursor: grabbing;
 }
 
-/* The zoom editor: an inline panel under its zoom's row of fields, so it is
-   anchored to the row it edits, never overlaps a neighbour, and needs no
-   viewport arithmetic inside a scrolling panel. */
-.zoom-editor {
+/* An effect editor's panel: inline under the row of fields it edits, so it
+   is anchored to that row, never overlaps a neighbour, and needs no viewport
+   arithmetic inside a scrolling panel. Shared chrome — the zoom editor
+   (#413/#421) and the overlay placement editor (#422) both wear it, which is
+   why these classes are named for the job rather than for the zoom, as they
+   were until #422 gave them a second wearer. */
+.effect-editor {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -137,7 +175,7 @@
   max-width: 30rem;
 }
 
-.zoom-editor-header {
+.effect-editor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -146,14 +184,14 @@
   color: #ccc;
 }
 
-.zoom-editor-header button {
+.effect-editor-header button {
   min-width: 2rem;
 }
 
 /* The scrub row (#421): the slider across the zoom's envelope, the instant
    it names, and the result toggle. Wraps rather than overflowing, so the
    panel keeps its width at 800px — the slider takes the slack. */
-.zoom-editor-scrub {
+.effect-editor-scrub {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -162,13 +200,13 @@
   color: #aaa;
 }
 
-.zoom-editor-scrub input[type='range'] {
+.effect-editor-scrub input[type='range'] {
   flex: 1 1 8rem;
   min-width: 6rem;
   margin: 0;
 }
 
-.zoom-editor-scrub output {
+.effect-editor-scrub output {
   color: #eee;
   font-variant-numeric: tabular-nums;
   /* Widest reading is "00.00 s"; a fixed box stops the toggle beside it
@@ -177,7 +215,7 @@
   text-align: right;
 }
 
-.zoom-editor-result {
+.effect-editor-result {
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -185,7 +223,7 @@
 }
 
 /* The live readout mirrors the row's numbers while a drag is in progress. */
-.zoom-editor-readout {
+.effect-editor-readout {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
@@ -195,11 +233,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-.zoom-editor-readout output {
+.effect-editor-readout output {
   color: #eee;
 }
 
-.zoom-editor-hint {
+.effect-editor-hint {
   margin: 0;
   font-size: 0.75rem;
   color: #888;

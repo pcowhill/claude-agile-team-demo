@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { rectKeyStep } from '../lib/frameEditor'
-import type { Corner, FrameRect, RectGesture, RectKeyStep } from '../lib/frameEditor'
+import type { Corner, Edge, FrameRect, RectGesture, RectHandle, RectKeyStep } from '../lib/frameEditor'
+import { inscribedEllipse, roundedCornerRadius } from '../lib/shapeMask'
+import type { ShapeMask } from '../lib/shapeMask'
 import type { TimelineState } from '../lib/timeline'
 import './FrameEditor.css'
 
@@ -25,8 +27,24 @@ import './FrameEditor.css'
  */
 
 const CORNERS: readonly Corner[] = ['nw', 'ne', 'sw', 'se']
+/** The handles a caller gets unless it asks for others — the zoom's four. */
+const DEFAULT_HANDLES: readonly RectHandle[] = CORNERS
 /** Handle size in CSS pixels — the target a fingertip or a pointer can hit. */
 const HANDLE = 12
+/**
+ * How thick an edge handle's grab strip is, and how far along its edge it
+ * runs (#422). Both are small on purpose, and looking at the rendered panel
+ * is what set them: a 10 px strip running half its side read as a second
+ * rectangle nested inside the first, competing with the region's own outline
+ * and with an overlay's mask silhouette, and slabbed over the very picture
+ * the placement is being judged against. Under a third of the side keeps the
+ * corners — the primary handles — obviously dominant, and leaves plenty of
+ * room either side of each strip for them.
+ */
+const EDGE_THICKNESS = 7
+const EDGE_LENGTH = 0.3
+
+const isEdge = (handle: RectHandle): handle is Edge => handle.length === 1
 /**
  * How many rendered stills one editor keeps (#421). Scrubbing an envelope
  * asks for a still per slider stop, and each is a full output-resolution
@@ -77,6 +95,20 @@ interface FrameEditorProps {
    * fractions — the caller's model says which ones the rectangle is on.
    */
   guides?: { x: number | null; y: number | null }
+  /**
+   * Which resize handles to offer (#422). Corners only by default, which is
+   * all an aspect-locked region can use; a free rectangle asks for the edges
+   * too, so one dimension can be changed without the other.
+   */
+  handles?: readonly RectHandle[]
+  /**
+   * The silhouette the effect will actually paint inside the rectangle
+   * (#422), when it is not the rectangle itself — an overlay's shape mask
+   * (#266). Drawn as an outline over the picture so the placement shows the
+   * shape it will really have; the geometry is `shapeMask.ts`'s own, so the
+   * outline cannot disagree with what the preview clips or the export draws.
+   */
+  silhouette?: ShapeMask
   /** Aspect to show until the snapshot arrives (the output frame's, if known). */
   fallbackAspect?: number
   /** Injectable for tests: jsdom has no canvas to compose on. */
@@ -87,7 +119,8 @@ interface Drag {
   pointerId: number
   start: FrameRect
   origin: { x: number; y: number }
-  corner: Corner | null
+  /** The handle being pulled, or null for a move from inside the region. */
+  handle: RectHandle | null
   live: FrameRect
 }
 
@@ -109,6 +142,8 @@ export function FrameEditor({
   showRegion = true,
   interactive = true,
   guides,
+  handles = DEFAULT_HANDLES,
+  silhouette,
   fallbackAspect = 16 / 9,
   snapshot = snapshotTimelineFrame,
 }: FrameEditorProps) {
@@ -204,7 +239,7 @@ export function FrameEditor({
     return { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height }
   }
 
-  const beginDrag = (event: ReactPointerEvent, corner: Corner | null) => {
+  const beginDrag = (event: ReactPointerEvent, handle: RectHandle | null) => {
     if (event.button !== 0) return
     event.preventDefault()
     // Capture on the layer, so the move and release reach it wherever the
@@ -212,19 +247,25 @@ export function FrameEditor({
     ;(event.currentTarget as SVGGraphicsElement).ownerSVGElement?.setPointerCapture?.(
       event.pointerId,
     )
-    setDrag({ pointerId: event.pointerId, start: rect, origin: toFraction(event), corner, live: rect })
+    setDrag({ pointerId: event.pointerId, start: rect, origin: toFraction(event), handle, live: rect })
   }
 
   const gestureOf = (current: Drag, event: ReactPointerEvent): RectGesture => {
     const point = toFraction(event)
-    return current.corner === null
-      ? {
-          kind: 'move',
-          dx: point.x - current.origin.x,
-          dy: point.y - current.origin.y,
-          altKey: event.altKey,
-        }
-      : { kind: 'corner', corner: current.corner, x: point.x, y: point.y, altKey: event.altKey }
+    // Both modifiers travel raw: this component says what the pointer did,
+    // and the caller's handle model decides what Alt and Shift mean for it.
+    const modifiers = { altKey: event.altKey, shiftKey: event.shiftKey }
+    if (current.handle === null) {
+      return {
+        kind: 'move',
+        dx: point.x - current.origin.x,
+        dy: point.y - current.origin.y,
+        ...modifiers,
+      }
+    }
+    return isEdge(current.handle)
+      ? { kind: 'edge', edge: current.handle, x: point.x, y: point.y, ...modifiers }
+      : { kind: 'corner', corner: current.handle, x: point.x, y: point.y, ...modifiers }
   }
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
@@ -264,6 +305,19 @@ export function FrameEditor({
     x: corner.endsWith('w') ? px.x : px.x + px.width,
     y: corner.startsWith('n') ? px.y : px.y + px.height,
   })
+  // An edge handle is a strip centred on the middle of its side, running
+  // half its length, so the two corners it sits between stay grabbable.
+  const edgeBox = (edge: Edge) => {
+    const vertical = edge === 'n' || edge === 's'
+    const along = vertical ? px.width * EDGE_LENGTH : px.height * EDGE_LENGTH
+    const midX = px.x + px.width / 2
+    const midY = px.y + px.height / 2
+    const at = edge === 'n' ? px.y : edge === 's' ? px.y + px.height : edge === 'w' ? px.x : px.x + px.width
+    return vertical
+      ? { x: midX - along / 2, y: at - EDGE_THICKNESS / 2, width: along, height: EDGE_THICKNESS }
+      : { x: at - EDGE_THICKNESS / 2, y: midY - along / 2, width: EDGE_THICKNESS, height: along }
+  }
+  const ellipse = inscribedEllipse(px)
   // Guides mark the alignment a gesture is holding, so they belong to the
   // gesture: at rest the default centre sits on one, and a permanent cross
   // through the frame would say nothing.
@@ -369,19 +423,61 @@ export function FrameEditor({
               width={px.width}
               height={px.height}
             />
+            {/* The shape the effect will really paint, inside the box that
+                positions it (#422/#266) — drawn whether or not the region
+                takes drags, since it describes the placement rather than
+                the gesture. */}
+            {silhouette !== undefined &&
+              (silhouette.kind === 'ellipse' ? (
+                <ellipse
+                  className="frame-editor-silhouette"
+                  data-testid="frame-editor-silhouette"
+                  data-shape="ellipse"
+                  cx={toPx(ellipse.cx)}
+                  cy={toPx(ellipse.cy)}
+                  rx={toPx(ellipse.rx)}
+                  ry={toPx(ellipse.ry)}
+                />
+              ) : (
+                <rect
+                  className="frame-editor-silhouette"
+                  data-testid="frame-editor-silhouette"
+                  data-shape="rounded"
+                  x={px.x}
+                  y={px.y}
+                  width={px.width}
+                  height={px.height}
+                  rx={toPx(roundedCornerRadius(px, silhouette.radius))}
+                />
+              ))}
             {interactive &&
-              CORNERS.map((corner) => {
-                const point = cornerPoint(corner)
+              handles.map((handle) => {
+                if (isEdge(handle)) {
+                  const box = edgeBox(handle)
+                  return (
+                    <rect
+                      key={handle}
+                      className={`frame-editor-edge frame-editor-edge-${handle}`}
+                      data-testid={`frame-editor-edge-${handle}`}
+                      x={toPx(box.x)}
+                      y={toPx(box.y)}
+                      width={toPx(box.width)}
+                      height={toPx(box.height)}
+                      onPointerDown={(event) => beginDrag(event, handle)}
+                    />
+                  )
+                }
+                const point = cornerPoint(handle)
                 return (
                   <rect
-                    key={corner}
-                    className={`frame-editor-corner frame-editor-corner-${corner}`}
-                    data-testid={`frame-editor-corner-${corner}`}
+                    key={handle}
+                    className={`frame-editor-corner frame-editor-corner-${handle}`}
+                    data-testid={`frame-editor-corner-${handle}`}
                     x={point.x - HANDLE / 2}
                     y={point.y - HANDLE / 2}
                     width={HANDLE}
                     height={HANDLE}
-                    onPointerDown={(event) => beginDrag(event, corner)}
+                    onPointerDown={(event) => beginDrag(event, handle)}
                   />
                 )
               })}

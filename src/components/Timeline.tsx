@@ -76,6 +76,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
+import { OverlayEditor } from './OverlayEditor'
 import { ZoomEditor } from './ZoomEditor'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
@@ -1359,6 +1360,10 @@ export function Timeline({
   // Which zoom's visual editor (#413) is open, if any — one at a time, since
   // each renders a still of the frame. View state only.
   const [editingZoomId, setEditingZoomId] = useState<string | null>(null)
+  // Which overlay's placement editor is open (#422) — session UI, like the
+  // zoom's above and the collapse set (#299): never part of the project
+  // model, the autosave snapshot, or the undo history.
+  const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -1981,7 +1986,7 @@ export function Timeline({
                                 // same button closes what it opened.
                                 <button
                                   type="button"
-                                  className="timeline-zoom-adjust"
+                                  className="timeline-adjust-button"
                                   aria-label={`Adjust ${zoomName} of ${position} visually`}
                                   aria-expanded={editing}
                                   title="Drag the zoom's region on a still of the frame"
@@ -2411,6 +2416,7 @@ export function Timeline({
               // its window is offset + duration, and the audio controls are
               // absent rather than disabled — there is nothing to control.
               const isImage = isImageOverlay(overlay)
+              const editingOverlay = editingOverlayId === overlay.id
               const set = (change: Partial<VideoOverlayPlacement>) =>
                 onUpdateVideoOverlay(overlay.id, { ...overlayPlacementOf(overlay), ...change })
               const setImage = (change: Partial<ImageOverlayPlacement>) =>
@@ -2559,6 +2565,23 @@ export function Timeline({
                       step={0.05}
                       onCommit={(height) => (isImage ? setImage({ height }) : set({ height }))}
                     />
+                    {visualEditors && (
+                      // The visual editor (#422): a toggle, so the same
+                      // button closes what it opened — the zoom's rule
+                      // (#413). It sits with the placement fields it edits
+                      // rather than at the row's end, which the audio group
+                      // owns.
+                      <button
+                        type="button"
+                        className="timeline-adjust-button"
+                        aria-label={`Adjust the placement of ${position} visually`}
+                        aria-expanded={editingOverlay}
+                        title="Drag the overlay's rectangle on a still of the frame"
+                        onClick={() => setEditingOverlayId(editingOverlay ? null : overlay.id)}
+                      >
+                        Adjust visually…
+                      </button>
+                    )}
                     {/* A still overlay is soundless (#294/#220): the audio
                         controls are absent, not disabled. */}
                     {!isImage && (
@@ -2602,6 +2625,15 @@ export function Timeline({
                       </>
                     )}
                   </div>
+                  {visualEditors && editingOverlay && (
+                    <OverlayEditor
+                      timeline={timeline}
+                      overlay={overlay}
+                      position={position}
+                      onUpdate={(rect) => (isImage ? setImage(rect) : set(rect))}
+                      onClose={() => setEditingOverlayId(null)}
+                    />
+                  )}
                   {/* The overlay's picture treatments (#420), under the same
                       disclosure a sequence entry gets — the same three
                       groups, and Shape in place of Background: the mask is
