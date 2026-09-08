@@ -334,6 +334,14 @@ interface SecondsFieldProps {
   min?: number
   step?: number
   onCommit: (value: number) => void
+  /**
+   * Show a range slider beside the number, on the same value (#426, from
+   * #402's approved slider polish). Opt-in per field rather than automatic:
+   * a slider is only meaningful where the range is bounded and small enough
+   * to feel — a volume, a fade, a percentage — and a trim point on an
+   * hour-long clip is neither.
+   */
+  slider?: boolean
 }
 
 /**
@@ -342,9 +350,31 @@ interface SecondsFieldProps {
  * committed value is validated — and possibly clamped — by the reducer, and
  * the field snaps back to (or shows) the stored state either way, so a
  * clamp is visible rather than silent.
+ *
+ * With `slider` (#426) a range input sits beside it on the same draft, so
+ * the two always read the same number. Dragging updates the draft on every
+ * step and commits **once, on release** — one gesture, one undo step — the
+ * same bargain the visual editors strike (#413). A key press on the focused
+ * slider is its own gesture and commits on its key-up.
  */
-function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: SecondsFieldProps) {
+function SecondsField({
+  label,
+  value,
+  max,
+  min = 0,
+  step = 0.1,
+  onCommit,
+  slider = false,
+}: SecondsFieldProps) {
   const [draft, setDraft] = useState(() => formatSeconds(value))
+  // Whether the slider has moved since it last committed (#426). A gesture
+  // ends on a pointer-up, a key-up or a blur, and those fire for far more
+  // than this control's own gestures: a release over a slider nobody
+  // dragged would otherwise commit whatever the number field beside it
+  // happens to be holding, and the key-up of a Ctrl+Z pressed on the
+  // focused slider arrives after the undo has changed `value`, putting the
+  // undone value straight back (the browser spec caught that one).
+  const slid = useRef(false)
 
   useEffect(() => {
     setDraft(formatSeconds(value))
@@ -362,7 +392,13 @@ function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: Seco
     if (event.key === 'Enter') event.currentTarget.blur()
   }
 
-  return (
+  const endGesture = () => {
+    if (!slid.current) return
+    slid.current = false
+    commit()
+  }
+
+  const number = (
     <input
       type="number"
       inputMode="decimal"
@@ -375,6 +411,42 @@ function SecondsField({ label, value, max, min = 0, step = 0.1, onCommit }: Seco
       onBlur={commit}
       onKeyDown={handleKeyDown}
     />
+  )
+  if (!slider) return number
+
+  // A range takes a number or nothing; a half-typed "1." or an emptied
+  // field is neither, so the stored value stands in until the field commits
+  // or snaps back. Clamped as well, because the number field lets a value
+  // outside the range be typed (the reducer clamps it) and a range would
+  // silently pin itself to an end without saying so.
+  const drafted = Number(draft)
+  const position =
+    draft.trim() !== '' && Number.isFinite(drafted)
+      ? Math.min(Math.max(drafted, min), max)
+      : value
+  return (
+    <span className="timeline-field">
+      {number}
+      <input
+        type="range"
+        aria-label={`${label} slider`}
+        step={step}
+        min={min}
+        max={max}
+        value={position}
+        onChange={(event) => {
+          slid.current = true
+          setDraft(event.target.value)
+        }}
+        // Not on change: that fires on every step of a drag, and each one
+        // would be its own undo step. Release ends the gesture — by pointer,
+        // by key, or by the focus leaving mid-gesture — and only a release
+        // that ends a gesture this slider actually made commits anything.
+        onPointerUp={endGesture}
+        onKeyUp={endGesture}
+        onBlur={endGesture}
+      />
+    </span>
   )
 }
 
@@ -417,6 +489,7 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
         min={COLOR_ADJUSTMENT_MIN}
         max={COLOR_ADJUSTMENT_MAX}
         step={5}
+        slider
         onCommit={(value) => commit({ brightness: value })}
       />
       <span>contrast</span>
@@ -426,6 +499,7 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
         min={COLOR_ADJUSTMENT_MIN}
         max={COLOR_ADJUSTMENT_MAX}
         step={5}
+        slider
         onCommit={(value) => commit({ contrast: value })}
       />
       <span>saturation</span>
@@ -435,6 +509,7 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
         min={COLOR_ADJUSTMENT_MIN}
         max={COLOR_ADJUSTMENT_MAX}
         step={5}
+        slider
         onCommit={(value) => commit({ saturation: value })}
       />
       <span>%</span>
@@ -650,6 +725,7 @@ function ShapeMaskControls({ position, mask, onCommit }: ShapeMaskControlsProps)
             min={0}
             max={MAX_ROUNDED_RADIUS * 100}
             step={5}
+            slider
             onCommit={(value) => onCommit({ kind: 'rounded', radius: value / 100 })}
           />
           <span>%</span>
@@ -1737,6 +1813,7 @@ export function Timeline({
                         value={entry.volume ?? 1}
                         max={1}
                         step={0.05}
+                        slider
                         onCommit={(volume) => onSetEntryVolume(entry.id, volume)}
                       />
                       <label className="timeline-mute">
@@ -1756,6 +1833,7 @@ export function Timeline({
                         label={`Audio fade-in of ${position} in seconds`}
                         value={entry.fadeIn ?? 0}
                         max={entryOutputDuration(entry, remapsOf(timeline))}
+                        slider
                         onCommit={(fadeIn) => onSetEntryFades(entry.id, fadeIn, entry.fadeOut ?? 0)}
                       />
                       <span>out</span>
@@ -1763,6 +1841,7 @@ export function Timeline({
                         label={`Audio fade-out of ${position} in seconds`}
                         value={entry.fadeOut ?? 0}
                         max={entryOutputDuration(entry, remapsOf(timeline))}
+                        slider
                         onCommit={(fadeOut) => onSetEntryFades(entry.id, entry.fadeIn ?? 0, fadeOut)}
                       />
                     </div>
@@ -2253,6 +2332,7 @@ export function Timeline({
                       value={track.volume ?? 1}
                       max={1}
                       step={0.05}
+                      slider
                       onCommit={(volume) => onSetAudioTrackVolume(track.id, volume)}
                     />
                     <span>Fade in</span>
@@ -2260,6 +2340,7 @@ export function Timeline({
                       label={`Fade-in of ${position} in seconds`}
                       value={track.fadeIn ?? 0}
                       max={trimmedLength}
+                      slider
                       onCommit={(fadeIn) =>
                         onSetAudioTrackFades(track.id, fadeIn, track.fadeOut ?? 0)
                       }
@@ -2269,6 +2350,7 @@ export function Timeline({
                       label={`Fade-out of ${position} in seconds`}
                       value={track.fadeOut ?? 0}
                       max={trimmedLength}
+                      slider
                       onCommit={(fadeOut) =>
                         onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
                       }
@@ -2487,6 +2569,7 @@ export function Timeline({
                           value={overlay.volume ?? 1}
                           max={1}
                           step={0.05}
+                          slider
                           onCommit={(volume) => set({ volume })}
                         />
                         <label className="timeline-mute">
@@ -2505,6 +2588,7 @@ export function Timeline({
                           label={`Audio fade-in of ${position} in seconds`}
                           value={overlay.fadeIn ?? 0}
                           max={trimmedLength}
+                          slider
                           onCommit={(fadeIn) => set({ fadeIn })}
                         />
                         <span>out</span>
@@ -2512,6 +2596,7 @@ export function Timeline({
                           label={`Audio fade-out of ${position} in seconds`}
                           value={overlay.fadeOut ?? 0}
                           max={trimmedLength}
+                          slider
                           onCommit={(fadeOut) => set({ fadeOut })}
                         />
                       </>

@@ -403,6 +403,10 @@
 .timeline-entry-audio {
   display: flex;
   align-items: center;
+  /* Wraps since #426: each field carries a slider beside it, and the row
+     no longer fits one line at every width. `.timeline-field` keeps each
+     number and its slider together, so a wrap falls between pairs. */
+  flex-wrap: wrap;
   gap: 0.4rem;
   color: #aaa;
   font-size: 0.8rem;
@@ -423,6 +427,34 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+/* A number field and its slider (#426), kept together: the rows around them
+   wrap, and a value separated from its own slider by a line break would be
+   worse than either row being one line longer. */
+.timeline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* The sliders themselves. One rule for all four row kinds, and it must be
+   more specific than `.audio-track-gain input` below, which predates ranges
+   and would otherwise give this one a 4.5rem box with a border. */
+.timeline-entry-audio input[type='range'],
+.timeline-entry-color input[type='range'],
+.audio-track-gain input[type='range'],
+.video-overlay-controls input[type='range'] {
+  width: 5rem;
+  /* The rows are 0.8rem text; a full-size thumb would set each row's line
+     height on its own. */
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: #ffd166;
+  cursor: pointer;
 }
 
 /* The track's gain row (#104): volume and fade-in/fade-out durations. */
@@ -627,6 +659,9 @@
 .timeline-entry-color {
   display: flex;
   align-items: center;
+  /* Wraps since #426, for the reason `.timeline-entry-audio` above wraps:
+     three dials each gained a slider. */
+  flex-wrap: wrap;
   gap: 0.4rem;
   color: #aaa;
   font-size: 0.8rem;
