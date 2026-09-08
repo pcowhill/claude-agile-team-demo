@@ -229,6 +229,234 @@ describe('visual Zoom editor (#413)', () => {
   })
 })
 
+describe('the Zoom editor\'s scrub, snapping, keys and result view (#421)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+    snapshotMock.mockReset()
+    snapshotMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:frame-still'),
+      revokeObjectURL: vi.fn(),
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      ...FRAME,
+      top: FRAME.y,
+      left: FRAME.x,
+      right: FRAME.x + FRAME.width,
+      bottom: FRAME.y + FRAME.height,
+      toJSON: () => ({}),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  /** The default zoom's envelope is 0 → 2 s, holding from 0.5 to 1.5. */
+  const scrubSlider = () =>
+    screen.getByRole('slider', { name: `Preview time of Zoom 1 of ${position} in seconds` })
+  const resultToggle = () => screen.getByRole('checkbox', { name: 'Show result' })
+  const scrubTo = async (value: string) => {
+    fireEvent.change(scrubSlider(), { target: { value } })
+    // The still for a new instant is rendered off a promise; let it land.
+    await screen.findByTestId('frame-editor-image')
+  }
+  /** The sequence times the editor has asked to have rendered, in order. */
+  const renderedTimes = () => snapshotMock.mock.calls.map((call) => call[1] as number)
+
+  it('spans the zoom\'s whole envelope and opens at the hold midpoint', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+
+    const slider = scrubSlider()
+    expect(slider).toHaveAttribute('min', '0')
+    expect(slider).toHaveAttribute('max', '2')
+    expect(slider).toHaveValue('1')
+    expect(within(editor()).getByRole('status', { name: 'Zoom 1 preview time (live)' }))
+      .toHaveTextContent('1.00 s')
+    expect(renderedTimes()).toEqual([1])
+  })
+
+  it('scrubs into a ramp: the region shrinks to what plays there, and stops taking drags', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    // Held: the middle half of the frame, and the corner handles are there.
+    expect(region()).toHaveAttribute('width', '200')
+    expect(screen.getByTestId('frame-editor-corner-se')).toBeInTheDocument()
+
+    // Half way through the 0.5 s ramp-in: smoothstep(0.5) = 0.5, so the
+    // magnification is 1.5 and the region is two thirds of the frame —
+    // between the whole frame and the held region, as it plays.
+    await scrubTo('0.25')
+    expect(region()).toHaveAttribute('width', '266.67')
+    expect(region()).toHaveAttribute('x', '66.67')
+    // Nothing to grab where the region is only passing through.
+    expect(screen.queryByTestId('frame-editor-corner-se')).not.toBeInTheDocument()
+    expect(region()).not.toHaveAttribute('tabindex')
+    expect(within(editor()).getByText(/part-way through a ramp/)).toBeInTheDocument()
+
+    // At the very start of the envelope the zoom has not begun: whole frame.
+    await scrubTo('0')
+    expect(region()).toHaveAttribute('width', '400')
+    expect(region()).toHaveAttribute('x', '0')
+
+    // Back into the hold and the handles come back.
+    await scrubTo('1.2')
+    expect(region()).toHaveAttribute('width', '200')
+    expect(screen.getByTestId('frame-editor-corner-se')).toBeInTheDocument()
+  })
+
+  it('renders each instant once and keeps the previous still up while the next arrives', async () => {
+    let release: ((blob: Blob) => void) | null = null
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<Blob>((resolve) => {
+          release = resolve
+        }),
+    )
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    // The first still: nothing to show until it lands.
+    expect(screen.getByTestId('frame-editor-pending')).toBeInTheDocument()
+    release!(new Blob(['png'], { type: 'image/png' }))
+    const still = await screen.findByTestId('frame-editor-image')
+
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    // The next still is in flight and the previous one has not gone away —
+    // scrubbing shows motion rather than flashing black.
+    expect(screen.getByTestId('frame-editor-image')).toBe(still)
+    expect(screen.getByTestId('frame-editor-updating')).toBeInTheDocument()
+    release!(new Blob(['png'], { type: 'image/png' }))
+    await screen.findByTestId('frame-editor-image')
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+    expect(renderedTimes()).toEqual([1, 0.25])
+
+    // Somewhere new renders; somewhere already drawn does not, in either
+    // direction — the cache is what makes scrubbing back and forth cheap.
+    fireEvent.change(scrubSlider(), { target: { value: '1' } })
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    fireEvent.change(scrubSlider(), { target: { value: '1' } })
+    expect(renderedTimes()).toEqual([1, 0.25])
+  })
+
+  it('snaps a dragged centre onto the frame centre, showing the guide, and Alt bypasses it', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.clear(centreX())
+    await userEvent.type(centreX(), '0.6{Enter}')
+    await userEvent.click(adjustButton())
+    // The region's middle is at 0.6 of 400 px; a 36 px drag left lands the
+    // centre on 0.51 — inside the 0.02 snap zone of the frame centre.
+    const from = { x: 240, y: 112.5 }
+    const to = { x: 204, y: 112.5 }
+
+    fireEvent.pointerDown(region(), { pointerId: 1, button: 0, clientX: from.x, clientY: from.y })
+    fireEvent.pointerMove(handles(), { pointerId: 1, clientX: to.x, clientY: to.y })
+    // Snapped, and the guide says which alignment is being held.
+    expect(within(editor()).getByRole('status', { name: 'Zoom 1 centre X (live)' })).toHaveTextContent(
+      '0.5',
+    )
+    expect(screen.getByTestId('frame-editor-guide-x')).toBeInTheDocument()
+    fireEvent.pointerUp(handles(), { pointerId: 1, clientX: to.x, clientY: to.y })
+    expect(centreX()).toHaveValue(0.5)
+    // The guides belong to the gesture: none once the pointer is up, even
+    // though the centre is still sitting on one.
+    expect(screen.queryByTestId('frame-editor-guide-x')).not.toBeInTheDocument()
+
+    // The same drag with Alt held keeps the 0.51 it was dragged to.
+    await userEvent.clear(centreX())
+    await userEvent.type(centreX(), '0.6{Enter}')
+    fireEvent.pointerDown(region(), { pointerId: 1, button: 0, clientX: from.x, clientY: from.y })
+    fireEvent.pointerMove(handles(), { pointerId: 1, clientX: to.x, clientY: to.y, altKey: true })
+    expect(screen.queryByTestId('frame-editor-guide-x')).not.toBeInTheDocument()
+    fireEvent.pointerUp(handles(), { pointerId: 1, clientX: to.x, clientY: to.y })
+    expect(centreX()).toHaveValue(0.51)
+  })
+
+  it('nudges with the arrow keys and steps the scale with + and −, one undo each', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+
+    region().focus()
+    expect(region()).toHaveFocus()
+    // The rectangle says how to drive it, for whoever arrives on it by Tab.
+    const hintId = region().getAttribute('aria-describedby')
+    expect(document.getElementById(hintId ?? '')).toHaveTextContent(/Arrow keys nudge/)
+
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(centreX()).toHaveValue(0.51)
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(centreX()).toHaveValue(0.52)
+    fireEvent.keyDown(region(), { key: 'ArrowUp', shiftKey: true })
+    expect(centreY()).toHaveValue(0.45)
+    fireEvent.keyDown(region(), { key: '+' })
+    expect(scaleField()).toHaveValue(2.1)
+
+    // One press, one step: undo walks back through them one at a time.
+    await userEvent.click(undoButton())
+    expect(scaleField()).toHaveValue(2)
+    await userEvent.click(undoButton())
+    expect(centreY()).toHaveValue(0.5)
+    await userEvent.click(undoButton())
+    expect(centreX()).toHaveValue(0.51)
+
+    // A key the editor does not take is left alone: Escape from the focused
+    // rectangle still reaches the panel and closes it.
+    region().focus()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: /Adjust Zoom 1/ })).not.toBeInTheDocument()
+  })
+
+  it('a nudge held against the frame edge commits nothing rather than an empty step', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.clear(centreX())
+    await userEvent.type(centreX(), '0.75{Enter}')
+    await userEvent.click(adjustButton())
+
+    region().focus()
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(centreX()).toHaveValue(0.75)
+    // The step before this one is the typed 0.75, not a no-op nudge.
+    await userEvent.click(undoButton())
+    expect(centreX()).toHaveValue(0.5)
+  })
+
+  it('Show result draws the zoom instead of bypassing it, and takes the handles away', async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    // Editing view: the still is the source with this zoom left out.
+    expect(zoomsOf(snapshotMock.mock.calls[0][0] as TimelineState)).toEqual([])
+
+    await userEvent.click(resultToggle())
+    expect(resultToggle()).toBeChecked()
+    // The zoom is in the timeline that was drawn, at the scrubbed instant.
+    const [resultTimeline, resultTime] = snapshotMock.mock.calls.at(-1) as [TimelineState, number]
+    expect(zoomsOf(resultTimeline)).toHaveLength(1)
+    expect(resultTime).toBeCloseTo(1, 6)
+    // Nothing to drag, and no region drawn over a frame that is the region.
+    expect(screen.queryByTestId('frame-editor-rect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('frame-editor-handles')).not.toBeInTheDocument()
+
+    // A committed edit refreshes the result, where it deliberately does not
+    // refresh the editing still: the point of the view is what it looks like.
+    const before = snapshotMock.mock.calls.length
+    await userEvent.clear(centreX())
+    await userEvent.type(centreX(), '0.6{Enter}')
+    expect(snapshotMock.mock.calls.length).toBe(before + 1)
+
+    await userEvent.click(resultToggle())
+    expect(region()).toBeInTheDocument()
+  })
+})
+
 describe('the Visual editors setting (#413)', () => {
   beforeEach(() => {
     probeMock.mockReset()

@@ -50,20 +50,50 @@ export function zoomAt(state: TimelineState, entryIndex: number, sourceTime: num
   // moment. Where two windows touch, the instant belongs to whichever
   // engages first in list (start) order — a measure-zero boundary.
   for (const zoom of zoomsForEntry(state, entry.id)) {
-    const g = rampFraction(zoom, sourceTime - entry.inPoint - zoom.start)
-    if (g > 0) {
-      return {
-        scale: 1 + (zoom.scale - 1) * g,
-        centerX: 0.5 + (zoom.centerX - 0.5) * g,
-        centerY: 0.5 + (zoom.centerY - 0.5) * g,
-      }
-    }
+    const t = sourceTime - entry.inPoint - zoom.start
+    if (rampFraction(zoom, t) > 0) return zoomStateAt(zoom, t)
   }
   return IDENTITY_ZOOM
 }
 
+/**
+ * One zoom's state at `t` seconds into its own window, with no timeline
+ * around it (#421). The visual editor draws the region the zoom occupies at
+ * the instant its scrub slider names, and the spec it draws may be mid-drag
+ * and so not in the timeline at all — but the easing must be the one the
+ * preview and the export use, not a second copy of it. So `zoomAt` above is
+ * this function plus the search for which zoom is engaged, and the editor
+ * calls it directly.
+ */
+export function zoomStateAt(zoom: ZoomSpecLike, t: number): ZoomState {
+  const g = rampFraction(zoom, t)
+  if (g <= 0) return IDENTITY_ZOOM
+  return {
+    scale: 1 + (zoom.scale - 1) * g,
+    centerX: 0.5 + (zoom.centerX - 0.5) * g,
+    centerY: 0.5 + (zoom.centerY - 0.5) * g,
+  }
+}
+
+/**
+ * The eased ramp fraction g of one zoom at `t` seconds into its window: 0
+ * outside it, 1 across the hold, smoothstepped through each ramp. Exported
+ * because the editor needs to know when it is showing the zoom at full —
+ * the only instants at which dragging the region has a stored meaning
+ * (#421).
+ */
+export function zoomRampFraction(zoom: ZoomSpecLike, t: number): number {
+  return rampFraction(zoom, t)
+}
+
+/** What the two above need of a zoom: its ramps and its full-zoom values. */
+type ZoomSpecLike = Pick<
+  ZoomEffect,
+  'rampIn' | 'hold' | 'rampOut' | 'scale' | 'centerX' | 'centerY'
+>
+
 /** The eased ramp fraction g of one zoom at `t` seconds into its window. */
-function rampFraction(zoom: ZoomEffect, t: number): number {
+function rampFraction(zoom: Pick<ZoomEffect, 'rampIn' | 'hold' | 'rampOut'>, t: number): number {
   const total = zoom.rampIn + zoom.hold + zoom.rampOut
   if (t < 0 || t > total) return 0
   if (t < zoom.rampIn) return smoothstep(t / zoom.rampIn)

@@ -151,6 +151,164 @@ test('the zoom editor shows the real frame at the output aspect, and drags commi
   await expect(editor).toHaveCount(0)
 })
 
+test('scrubbing shows the motion, snapping and the keys commit exact numbers, and Show result draws the zoom (#421)', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) }])
+  await page.getByRole('button', { name: 'Add logo.png to timeline' }).click()
+  await chooseEffect(page, position, 'Zoom')
+  await fillField(page, `Zoom 1 scale of ${position}`, '2')
+  await fillField(page, `Zoom 1 centre X of ${position} (0 to 1)`, '0.6')
+  await fillField(page, `Zoom 1 centre Y of ${position} (0 to 1)`, '0.6')
+
+  await page.getByRole('button', { name: `Adjust Zoom 1 of ${position} visually` }).click()
+  const editor = page.getByRole('dialog', { name: `Adjust Zoom 1 of ${position}` })
+  const frame = editor.getByTestId('frame-editor-frame')
+  await expect(editor.getByTestId('frame-editor-image')).toBeVisible()
+  const region = editor.getByTestId('frame-editor-rect')
+  const regionWidth = () => region.evaluate((node) => Number(node.getAttribute('width')))
+  const frameBox = (await frame.boundingBox())!
+
+  // The new controls lie inside the panel that holds them, at the default
+  // width — the rendered evidence the criteria ask for.
+  const slider = editor.getByRole('slider', {
+    name: `Preview time of Zoom 1 of ${position} in seconds`,
+  })
+  const showResult = editor.getByRole('checkbox', { name: 'Show result' })
+  await expectWithin(slider, editor, { what: 'the scrub slider' })
+  await expectWithin(showResult, editor, { what: 'the Show result toggle' })
+  await expectNoHorizontalScroll(page, 'the zoom editor with its scrub row')
+
+  // Scrub: the default zoom's envelope is 0 → 2 s, holding from 0.5 to 1.5.
+  await expect(slider).toHaveValue('1')
+  const heldWidth = await regionWidth()
+  expect(Math.abs(heldWidth - frameBox.width * 0.5)).toBeLessThan(1)
+
+  // Half way through the ramp-in the region is strictly between the whole
+  // frame and what it holds — the motion, without playing anything.
+  await slider.fill('0.25')
+  await expect(editor.getByText(/part-way through a ramp/)).toBeVisible()
+  const rampWidth = await regionWidth()
+  expect(
+    rampWidth,
+    `mid-ramp region ${rampWidth}px is not wider than the held ${heldWidth}px`,
+  ).toBeGreaterThan(heldWidth + 1)
+  expect(
+    rampWidth,
+    `mid-ramp region ${rampWidth}px is not narrower than the whole ${frameBox.width}px frame`,
+  ).toBeLessThan(frameBox.width - 1)
+  // A still really was drawn for the new instant, not the old one reused.
+  await expect(editor.getByTestId('frame-editor-updating')).toHaveCount(0)
+  await region.scrollIntoViewIfNeeded()
+  await editor.screenshot({ path: testInfo.outputPath('zoom-editor-mid-ramp.png') })
+
+  // Back into the hold, where the region takes drags again.
+  await slider.fill('1')
+  expect(Math.abs((await regionWidth()) - heldWidth)).toBeLessThan(1)
+
+  // A drag landing near the frame centre snaps onto it exactly. From (0.6,
+  // 0.6) a nine-hundredths move lands on 0.51 — inside the 0.02 snap zone.
+  const centreX = page.getByRole('spinbutton', { name: `Zoom 1 centre X of ${position} (0 to 1)` })
+  const centreY = page.getByRole('spinbutton', { name: `Zoom 1 centre Y of ${position} (0 to 1)` })
+  const start = await centreOf(region)
+  const target = { x: start.x - frameBox.width * 0.09, y: start.y - frameBox.height * 0.09 }
+  // Paused mid-drag, so the guides are on screen for the screenshot: they
+  // belong to the gesture and vanish on release.
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(target.x, target.y, { steps: 8 })
+  // `toBeAttached`, not `toBeVisible`: a guide is an SVG line, so its box is
+  // one axis wide and Playwright reads a zero-area box as hidden. Its
+  // coordinate is the real assertion — the guide is drawn where the centre
+  // snapped to, half way across the frame.
+  const guideX = editor.getByTestId('frame-editor-guide-x')
+  const guideY = editor.getByTestId('frame-editor-guide-y')
+  await expect(guideX).toBeAttached()
+  await expect(guideY).toBeAttached()
+  expect(
+    Math.abs((await guideX.evaluate((node) => Number(node.getAttribute('x1')))) - frameBox.width * 0.5),
+  ).toBeLessThan(1)
+  expect(
+    Math.abs(
+      (await guideY.evaluate((node) => Number(node.getAttribute('y1')))) - frameBox.height * 0.5,
+    ),
+  ).toBeLessThan(1)
+  await editor.screenshot({ path: testInfo.outputPath('zoom-editor-snapped.png') })
+  await page.mouse.up()
+  await expect(centreX).toHaveValue('0.5')
+  await expect(centreY).toHaveValue('0.5')
+  await expect(guideX).toHaveCount(0)
+
+  // The same drag with Alt held is left where it was dragged to.
+  await fillField(page, `Zoom 1 centre X of ${position} (0 to 1)`, '0.6')
+  await fillField(page, `Zoom 1 centre Y of ${position} (0 to 1)`, '0.6')
+  const startAgain = await centreOf(region)
+  await page.keyboard.down('Alt')
+  await dragPointer(page, startAgain, {
+    x: startAgain.x - frameBox.width * 0.09,
+    y: startAgain.y - frameBox.height * 0.09,
+  })
+  await page.keyboard.up('Alt')
+  await expect(centreX).toHaveValue('0.51')
+  await expect(centreY).toHaveValue('0.51')
+
+  // One arrow key, one hundredth of the frame, one undo step.
+  await region.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(centreX).toHaveValue('0.52')
+  await page.keyboard.press('Control+z')
+  await expect(centreX).toHaveValue('0.51')
+
+  // Show result draws the frame the viewer gets: the zoom is applied, so
+  // there is no region to draw over it and nothing to drag.
+  await showResult.check()
+  await expect(region).toHaveCount(0)
+  await expect(editor.getByTestId('frame-editor-image')).toBeVisible()
+  await expect
+    .poll(() =>
+      editor.getByTestId('frame-editor-image').evaluate((el: HTMLImageElement) => el.naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await editor.screenshot({ path: testInfo.outputPath('zoom-editor-result.png') })
+  await showResult.uncheck()
+  await expect(region).toBeVisible()
+})
+
+test('the scrub row and result toggle fit the editor at 800px too (#421)', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 1100 })
+  await page.goto('./')
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) }])
+  await page.getByRole('button', { name: 'Add logo.png to timeline' }).click()
+  await chooseEffect(page, position, 'Zoom')
+  await page.getByRole('button', { name: `Adjust Zoom 1 of ${position} visually` }).click()
+  const editor = page.getByRole('dialog', { name: `Adjust Zoom 1 of ${position}` })
+  await expect(editor.getByTestId('frame-editor-image')).toBeVisible()
+
+  const slider = editor.getByRole('slider', {
+    name: `Preview time of Zoom 1 of ${position} in seconds`,
+  })
+  const showResult = editor.getByRole('checkbox', { name: 'Show result' })
+  await expectWithin(slider, editor, { what: 'the scrub slider at 800px' })
+  await expectWithin(showResult, editor, { what: 'the Show result toggle at 800px' })
+  await expectWithin(editor, page.getByRole('region', { name: 'Timeline' }), {
+    axis: 'x',
+    what: 'the zoom editor at 800px',
+  })
+  await expectNoHorizontalScroll(page, 'the zoom editor scrub row at 800px')
+  // The reading beside the slider is fixed-width so the toggle does not
+  // step sideways as the slider moves; it must not wrap to do that.
+  const reading = editor.getByRole('status', { name: 'Zoom 1 preview time (live)' })
+  expect(
+    await reading.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    'the scrub reading overflows its own box',
+  ).toBe(true)
+})
+
 test('the editor fits the timeline panel at the narrow width too, and the setting hides it (#413)', async ({
   page,
 }) => {

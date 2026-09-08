@@ -50,6 +50,21 @@
   color: #f0a0a0;
 }
 
+/* While a *new* still renders and the previous one is still on screen
+   (#421): a corner chip rather than the centred "Rendering the frame…",
+   which would cover the picture the scrub is meant to keep visible. */
+.frame-editor-updating {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ccc;
+  font-size: 0.7rem;
+  pointer-events: none;
+}
+
 .frame-editor-handles {
   position: absolute;
   inset: 0;
@@ -67,6 +82,22 @@
   stroke: #ffd166;
   stroke-width: 2;
   cursor: move;
+}
+
+/* Inert while the scrub sits in a ramp (#421): the region is drawn as it
+   will look at that instant, but there is nothing to grab. */
+.frame-editor-rect-inert {
+  cursor: default;
+  stroke-dasharray: 6 4;
+}
+
+/* The alignment a drag is holding (#421) — drawn only while the gesture
+   lasts, so the frame is not permanently crossed by lines. */
+.frame-editor-guide {
+  stroke: #7fd1ff;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
 }
 
 .frame-editor-corner {
@@ -117,6 +148,40 @@
 
 .zoom-editor-header button {
   min-width: 2rem;
+}
+
+/* The scrub row (#421): the slider across the zoom's envelope, the instant
+   it names, and the result toggle. Wraps rather than overflowing, so the
+   panel keeps its width at 800px — the slider takes the slack. */
+.zoom-editor-scrub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.zoom-editor-scrub input[type='range'] {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+  margin: 0;
+}
+
+.zoom-editor-scrub output {
+  color: #eee;
+  font-variant-numeric: tabular-nums;
+  /* Widest reading is "00.00 s"; a fixed box stops the toggle beside it
+     from stepping sideways as the slider moves. */
+  min-width: 3.6rem;
+  text-align: right;
+}
+
+.zoom-editor-result {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
 }
 
 /* The live readout mirrors the row's numbers while a drag is in progress. */
