@@ -140,7 +140,9 @@ subtitles, labels — are added from the same **Add ▾** menu, with editable co
 to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
 durations (#177), rendering in the preview above the composed frame for
 their window — and in the exported file, which draws the same overlays with
-the same relative size, position, and fade envelope (#142). Subtitles can be
+the same relative size, position, and fade envelope (#142). The block can
+also be dragged into place on a still of the frame rather than typed (#424 —
+see the visual editors below). Subtitles can be
 imported from a standard .srt file through **Add ▾ → Subtitles from .srt
 file…** (#249): every cue lands as an ordinary text overlay timed to the
 cue, bottom-center at a readable caption default, individually editable like
@@ -387,6 +389,22 @@ as the row's own does. Crop applies in the source's own space before
 orientation, so on a rotated or flipped clip the edge under the pointer may
 be named for a different stored one — the readout says which, rather than
 quietly renaming it.
+A text overlay has the last of them (#424): **Adjust visually…** beside its
+Centre fields draws the rendered text block as a rectangle on a still of the
+frame at the middle of the overlay's window — with the text **drawn**, since
+the text is what is being placed, so a committed drag re-renders the still
+with the block where it now is. The box is measured, not stored: a text
+overlay is a centre and a type size, and its width is whatever the widest
+line comes out as under its font, so the editor measures it with the same
+font the export draws with, at the still's own resolution, and the handle
+sits on the text you see. Drag inside the block to move its centre, snapping
+flush to the frame and onto the centre and thirds with the same guides and
+Alt bypass; drag its one corner to scale it about its centre — both
+dimensions follow one size, so a corner is the whole resize — and it never
+grows off the frame. The arrow keys nudge it and + / − step the size by the
+field's own 0.01, each press its own undo step. Imported subtitles are text
+overlays, so the editor opens for them too, and a drag pins the position the
+way typing it would (#250).
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or

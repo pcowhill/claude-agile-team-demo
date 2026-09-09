@@ -341,6 +341,24 @@ export interface TextDraw {
 }
 
 /**
+ * The canvas `font` shorthand one overlay is drawn with at a frame height:
+ * style, weight, the type size in px (the `size` fraction of the frame
+ * height, #139), the curated stack. The weight is always spelled out —
+ * canvas font parsing rejects partial shorthands in some engines, and an
+ * explicit string is deterministic. Exported on its own because it is also
+ * what the text block must be *measured* with (#424): a handle drawn on a
+ * box measured under any other font string would sit beside the text rather
+ * than on it.
+ */
+export function textCanvasFont(
+  text: Pick<TextOverlay, 'size' | 'font' | 'bold' | 'italic'>,
+  frameHeight: number,
+): string {
+  const size = text.size * frameHeight
+  return `${text.italic ? 'italic ' : ''}${text.bold ? 700 : 400} ${size}px ${textFontStack(text.font)}`
+}
+
+/**
  * Resolves one overlay's draw parameters against a frame size (#142) at a
  * sequence instant — the instant feeds the fade envelope (#177), computed by
  * the same `textOpacityAt` the preview sets as CSS opacity.
@@ -356,9 +374,7 @@ export function textDraw(
   const lines = text.content.split('\n')
   return {
     lines,
-    // The weight is always spelled out: canvas font parsing rejects partial
-    // shorthands in some engines, and an explicit string is deterministic.
-    font: `${text.italic ? 'italic ' : ''}${text.bold ? 700 : 400} ${size}px ${textFontStack(text.font)}`,
+    font: textCanvasFont(text, frameHeight),
     color: text.color,
     x: text.x * frameWidth,
     // The block of n lines is centred on y: its height is n·lineHeight, and

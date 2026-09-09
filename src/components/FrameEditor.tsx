@@ -111,6 +111,15 @@ interface FrameEditorProps {
   silhouette?: ShapeMask
   /** Aspect to show until the snapshot arrives (the output frame's, if known). */
   fallbackAspect?: number
+  /**
+   * Reports the still's pixel size once it has loaded (#424) — the output
+   * frame the snapshot composed, which is the resolution the frame's text
+   * was drawn at. A caller whose rectangle is *measured* rather than stored
+   * (a text block's width is a property of the rendered text) measures at
+   * this size so its box is the drawn text's, and until it arrives it has
+   * only a guess to measure at.
+   */
+  onFrame?: (frame: { width: number; height: number }) => void
   /** Injectable for tests: jsdom has no canvas to compose on. */
   snapshot?: typeof snapshotTimelineFrame
 }
@@ -145,6 +154,7 @@ export function FrameEditor({
   handles = DEFAULT_HANDLES,
   silhouette,
   fallbackAspect = 16 / 9,
+  onFrame,
   snapshot = snapshotTimelineFrame,
 }: FrameEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null)
@@ -340,7 +350,10 @@ export function FrameEditor({
             draggable={false}
             onLoad={(event) => {
               const { naturalWidth, naturalHeight } = event.currentTarget
-              if (naturalWidth > 0 && naturalHeight > 0) setAspect(naturalWidth / naturalHeight)
+              if (naturalWidth > 0 && naturalHeight > 0) {
+                setAspect(naturalWidth / naturalHeight)
+                onFrame?.({ width: naturalWidth, height: naturalHeight })
+              }
             }}
           />
         )}

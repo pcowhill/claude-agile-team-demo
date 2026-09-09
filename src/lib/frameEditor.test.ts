@@ -14,6 +14,8 @@ import {
   ZOOM_NUDGE_LARGE,
   ZOOM_SCALE_STEP,
   ZOOM_SNAP_TARGETS,
+  TEXT_HANDLES,
+  TEXT_SIZE_STEP,
   ZOOM_SNAP_TOLERANCE,
   clampedRect,
   cropAfterGesture,
@@ -23,6 +25,7 @@ import {
   cropRect,
   cropSourceTimeline,
   movedRect,
+  movedTextBlock,
   movedZoom,
   overlayEditorSequenceTime,
   overlayRect,
@@ -31,11 +34,20 @@ import {
   rectGuides,
   rectKeyStep,
   resizedRect,
+  resizedTextBlock,
   resizedZoom,
   scaledZoom,
   snappedRect,
+  snappedTextBlock,
   snappedZoom,
   sourceCropEdge,
+  textAfterGesture,
+  textAfterKeyStep,
+  textBlockRect,
+  textBlockShape,
+  textEditorSequenceTime,
+  textFrameKey,
+  textFromBlockRect,
   withoutOverlay,
   withoutZoom,
   zoomAfterGesture,
@@ -50,9 +62,11 @@ import {
   zoomRectAt,
 } from './frameEditor'
 import { MIN_KEPT_FRACTION, cropsEqual, normalizeCrop } from './crop'
+import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
+import type { TextOverlay } from './textOverlay'
 import { DEFAULT_ZOOM, timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
-import type { CropSubject } from './frameEditor'
+import type { CropSubject, TextBlockShape } from './frameEditor'
 import { MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from './videoOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { zoomAt } from './zoom'
@@ -1035,6 +1049,268 @@ describe('the crop editor still (#423)', () => {
     expect(cropFrameKey({ ...base, orientation: { flipH: true } })).not.toBe(
       cropFrameKey({ ...base, orientation: { flipV: true } }),
     )
+  })
+})
+
+/**
+ * A deterministic stand-in for canvas `measureText`: half the type size per
+ * character, read off the font string the export builds — so a wrong font
+ * string (a size not in px, a size at the wrong frame height) shows up as a
+ * wrong width rather than passing through an estimate that ignored it.
+ */
+const halfEmPerChar = (font: string, line: string) => {
+  const px = /(\d+(?:\.\d+)?)px/.exec(font)
+  if (px === null) throw new Error(`no px size in font "${font}"`)
+  return Number(px[1]) * 0.5 * line.length
+}
+const FRAME_1600 = { width: 1600, height: 900 }
+const title: TextOverlay = { ...DEFAULT_TEXT, id: 't1', x: 0.5, y: 0.5, size: 0.1 }
+// 'Title' at 0.1 of a 900px frame is 90px type, five characters at half an
+// em each is 225px, 225 / 1600 of the frame, per 0.1 of size: 1.40625.
+const TITLE_SHAPE: TextBlockShape = { lines: 1, widthPerSize: 1.40625 }
+
+describe('the text block: measuring its shape (#424)', () => {
+  it('reads the widest line under the export font string, per unit of size', () => {
+    expect(textBlockShape(title, FRAME_1600, halfEmPerChar)).toEqual(TITLE_SHAPE)
+    // The widest line decides; the line count is the content's.
+    expect(
+      textBlockShape({ ...title, content: 'Hi\nThere' }, FRAME_1600, halfEmPerChar),
+    ).toEqual({ lines: 2, widthPerSize: 1.40625 })
+  })
+
+  it('is independent of the size and of the frame height it was measured at', () => {
+    // Text scales linearly with its type size, which is what lets one
+    // measurement serve every size a drag passes through.
+    expect(textBlockShape({ ...title, size: 0.2 }, FRAME_1600, halfEmPerChar).widthPerSize).toBeCloseTo(
+      1.40625,
+      9,
+    )
+    expect(
+      textBlockShape(title, { width: 320, height: 180 }, halfEmPerChar).widthPerSize,
+    ).toBeCloseTo(1.40625, 9)
+    // …but not of the aspect: the width is a fraction of the frame's width.
+    expect(
+      textBlockShape(title, { width: 900, height: 900 }, halfEmPerChar).widthPerSize,
+    ).toBeCloseTo(2.5, 9)
+  })
+
+  it('measures with the font the frame is drawn with: style, weight, px size, stack', () => {
+    const fonts: string[] = []
+    textBlockShape({ ...title, bold: true, italic: true, font: 'serif' }, FRAME_1600, (font) => {
+      fonts.push(font)
+      return 1
+    })
+    expect(fonts).toEqual(['italic 700 90px Georgia, "Times New Roman", serif'])
+  })
+
+  it('has no width without a size or a frame, rather than dividing by zero', () => {
+    expect(textBlockShape({ ...title, size: 0 }, FRAME_1600, halfEmPerChar)).toEqual({
+      lines: 1,
+      widthPerSize: 0,
+    })
+    expect(textBlockShape(title, { width: 0, height: 0 }, halfEmPerChar).widthPerSize).toBe(0)
+  })
+})
+
+describe('the text block: centre and size to a box and back (#424)', () => {
+  it('centres a block of n line heights on (x, y), as wide as its widest line', () => {
+    expect(textBlockRect({ x: 0.5, y: 0.5, size: 0.1 }, TITLE_SHAPE)).toEqual({
+      x: 0.5 - 0.140625 / 2,
+      y: 0.5 - 0.12 / 2,
+      width: 0.140625,
+      height: 0.12,
+    })
+    // Two lines: twice the height, the same width.
+    const two = textBlockRect({ x: 0.5, y: 0.5, size: 0.1 }, { ...TITLE_SHAPE, lines: 2 })
+    expect(two.height).toBeCloseTo(0.24, 9)
+    expect(two.y).toBeCloseTo(0.38, 9)
+    expect(two.width).toBe(0.140625)
+  })
+
+  it('round-trips', () => {
+    const placement = { x: 0.3, y: 0.7, size: 0.08 }
+    const back = textFromBlockRect(textBlockRect(placement, TITLE_SHAPE), TITLE_SHAPE)
+    expect(back.x).toBeCloseTo(0.3, 9)
+    expect(back.y).toBeCloseTo(0.7, 9)
+    expect(back.size).toBeCloseTo(0.08, 9)
+    expect(TEXT_LINE_HEIGHT).toBe(1.2)
+  })
+})
+
+describe('the text block: moving (#424)', () => {
+  const start = { x: 0.5, y: 0.5, size: 0.1 }
+
+  it('moves the centre by a fraction of the frame, to the precision the fields show', () => {
+    expect(movedTextBlock(start, 0.2, -0.1, TITLE_SHAPE)).toEqual({ x: 0.7, y: 0.4, size: 0.1 })
+    expect(movedTextBlock(start, 0.123, 0, TITLE_SHAPE).x).toBe(0.62)
+  })
+
+  it('passes a size it did not touch through verbatim', () => {
+    // A typed 0.083 is finer than the editor stores; a move is not a
+    // licence to rewrite it.
+    expect(movedTextBlock({ ...start, size: 0.083 }, 0.1, 0, TITLE_SHAPE).size).toBe(0.083)
+  })
+
+  it('keeps the block on the frame, stepping a rounded centre back inside', () => {
+    // The right edge may reach 1: centre ≤ 1 − 0.0703. Rounding 0.9297 gives
+    // 0.93, which would put the edge at 1.0003 — so the centre steps one
+    // storable unit in, and the block is inside rather than a hair over.
+    const right = movedTextBlock(start, 1, 0, TITLE_SHAPE)
+    expect(right.x).toBe(0.92)
+    expect(right.x + 0.140625 / 2).toBeLessThanOrEqual(1)
+    const up = movedTextBlock(start, 0, -1, TITLE_SHAPE)
+    // Half the height is 0.06 exactly, so the flush centre is storable.
+    expect(up.y).toBe(0.06)
+    expect(up.y - 0.06).toBe(0)
+  })
+
+  it('an over-wide block is held by the reducer’s rule instead: its centre within the frame', () => {
+    // 1.5 frames wide: there is no inside to keep it in, and fighting the
+    // user sliding a long title would help nobody.
+    const wide: TextBlockShape = { lines: 1, widthPerSize: 15 }
+    expect(movedTextBlock(start, 1, 0, wide).x).toBe(1)
+    expect(movedTextBlock(start, -1, 0, wide).x).toBe(0)
+    // The other axis still fits, and is still kept on the frame.
+    expect(movedTextBlock(start, 0, 1, wide).y).toBe(0.94)
+  })
+})
+
+describe('the text block: snapping (#424)', () => {
+  const start = { x: 0.5, y: 0.5, size: 0.1 }
+
+  it('pulls the centre onto a third or the middle, and Alt bypasses it', () => {
+    // 0.34 is 0.0067 from a third, inside the tolerance.
+    expect(snappedTextBlock({ ...start, x: 0.34 }, TITLE_SHAPE).x).toBe(0.33)
+    expect(textAfterGesture(start, { kind: 'move', dx: -0.16, dy: 0 }, TITLE_SHAPE).x).toBe(0.33)
+    expect(
+      textAfterGesture(start, { kind: 'move', dx: -0.16, dy: 0, altKey: true }, TITLE_SHAPE).x,
+    ).toBe(0.34)
+    // Beyond the tolerance nothing moves.
+    expect(snappedTextBlock({ ...start, x: 0.3 }, TITLE_SHAPE).x).toBe(0.3)
+    expect(ZOOM_SNAP_TOLERANCE).toBe(0.02)
+  })
+
+  it('pulls an edge flush to the frame, as near as the stored precision reaches', () => {
+    // The block's top is 0.06 above its centre, so flush is a centre of 0.06 —
+    // storable exactly on this axis, and the snap lands there from 0.075.
+    expect(snappedTextBlock({ ...start, y: 0.075 }, TITLE_SHAPE).y).toBe(0.06)
+    // Its left edge is 0.0703 from the centre, which no hundredth is: the
+    // snap aims for 0.0703 and lands on the nearest storable centre that
+    // still keeps the block on the frame, within one hundredth of flush.
+    const left = snappedTextBlock({ ...start, x: 0.08 }, TITLE_SHAPE)
+    expect(left.x - 0.140625 / 2).toBeGreaterThanOrEqual(0)
+    expect(left.x - 0.140625 / 2).toBeLessThan(0.01)
+  })
+
+  it('a corner drag does not snap: the centre is fixed by construction', () => {
+    const grown = textAfterGesture(
+      { ...start, x: 0.34 },
+      { kind: 'corner', corner: 'se', x: 0.5, y: 0.6 },
+      TITLE_SHAPE,
+    )
+    expect(grown.x).toBe(0.34)
+  })
+})
+
+describe('the text block: resizing from the corner (#424)', () => {
+  const start = { x: 0.5, y: 0.5, size: 0.1 }
+
+  it('scales about the centre by the pointer’s larger distance from it, like the zoom', () => {
+    // The corner sits at (0.5703, 0.56): a pointer there is factor 1.
+    expect(resizedTextBlock(start, { x: 0.5 + 0.140625 / 2, y: 0.56 }, TITLE_SHAPE).size).toBe(0.1)
+    // Twice as far out horizontally, the same vertically: the larger wins…
+    expect(resizedTextBlock(start, { x: 0.5 + 0.140625, y: 0.56 }, TITLE_SHAPE).size).toBe(0.2)
+    // …and so does twice as far vertically with the pointer over the centre
+    // line: neither axis is privileged.
+    expect(resizedTextBlock(start, { x: 0.5, y: 0.62 }, TITLE_SHAPE).size).toBe(0.2)
+    // Half-way in on both axes.
+    expect(resizedTextBlock(start, { x: 0.5 + 0.140625 / 4, y: 0.53 }, TITLE_SHAPE).size).toBe(0.05)
+    // The centre is untouched by a resize.
+    expect(resizedTextBlock(start, { x: 0.9, y: 0.9 }, TITLE_SHAPE)).toMatchObject({ x: 0.5, y: 0.5 })
+    // Through the gesture, a corner and an (unoffered) edge mean the same thing.
+    expect(textAfterGesture(start, { kind: 'edge', edge: 'e', x: 0.5 + 0.140625, y: 0.5 }, TITLE_SHAPE).size).toBe(0.2)
+  })
+
+  it('is capped so the block stays on the frame about its centre, and floored at the model’s minimum', () => {
+    // Centred, the width is the tighter axis: 1 / 1.40625 = 0.711, floored
+    // to a storable 0.71 so the rounded size fits too.
+    expect(resizedTextBlock(start, { x: 2, y: 2 }, TITLE_SHAPE).size).toBe(0.71)
+    // Off-centre there is less room: 0.4 of frame either side of x = 0.2.
+    expect(resizedTextBlock({ ...start, x: 0.2 }, { x: 2, y: 2 }, TITLE_SHAPE).size).toBe(0.28)
+    // Without a measured width only the height caps: 1 / 1.2, floored.
+    expect(resizedTextBlock(start, { x: 2, y: 2 }, { lines: 1, widthPerSize: 0 }).size).toBe(0.83)
+    // A pointer on the centre asks for nothing; the floor answers.
+    expect(resizedTextBlock(start, { x: 0.5, y: 0.5 }, TITLE_SHAPE).size).toBe(MIN_TEXT_SIZE)
+    // A block that cannot fit even at the floor gets the floor, not less.
+    expect(resizedTextBlock({ ...start, x: 0.001 }, { x: 2, y: 2 }, TITLE_SHAPE).size).toBe(
+      MIN_TEXT_SIZE,
+    )
+    expect(MAX_TEXT_SIZE).toBe(1)
+  })
+})
+
+describe('the text block: keyboard steps (#424)', () => {
+  const start = { x: 0.5, y: 0.5, size: 0.1 }
+
+  it('nudges the centre by the shared step, unsnapped', () => {
+    expect(textAfterKeyStep(start, { kind: 'move', dx: ZOOM_NUDGE, dy: 0 }, TITLE_SHAPE)).toEqual({
+      x: 0.51,
+      y: 0.5,
+      size: 0.1,
+    })
+    // 0.34 would snap under a drag; a nudge lands where it says.
+    expect(
+      textAfterKeyStep({ ...start, x: 0.35 }, { kind: 'move', dx: -ZOOM_NUDGE, dy: 0 }, TITLE_SHAPE).x,
+    ).toBe(0.34)
+    expect(
+      textAfterKeyStep(start, { kind: 'move', dx: 0, dy: -ZOOM_NUDGE_LARGE }, TITLE_SHAPE).y,
+    ).toBe(0.45)
+  })
+
+  it('steps the size by the field’s own step, capped and floored like a drag', () => {
+    expect(TEXT_SIZE_STEP).toBe(0.01)
+    expect(textAfterKeyStep(start, { kind: 'scale', delta: ZOOM_SCALE_STEP }, TITLE_SHAPE).size).toBe(0.11)
+    expect(textAfterKeyStep(start, { kind: 'scale', delta: -ZOOM_SCALE_STEP }, TITLE_SHAPE).size).toBe(0.09)
+    expect(
+      textAfterKeyStep({ ...start, size: MIN_TEXT_SIZE }, { kind: 'scale', delta: -1 }, TITLE_SHAPE)
+        .size,
+    ).toBe(MIN_TEXT_SIZE)
+    expect(textAfterKeyStep({ ...start, size: 0.71 }, { kind: 'scale', delta: 1 }, TITLE_SHAPE).size).toBe(
+      0.71,
+    )
+    // Exact inverses, with no float residue in the stored value.
+    const up = textAfterKeyStep(start, { kind: 'scale', delta: 1 }, TITLE_SHAPE)
+    expect(textAfterKeyStep(up, { kind: 'scale', delta: -1 }, TITLE_SHAPE).size).toBe(0.1)
+  })
+})
+
+describe('the text editor still (#424)', () => {
+  const state: TimelineState = { entries: [entry('a', 5)], transitions: [] }
+
+  it('offers one corner handle and no edges', () => {
+    expect(TEXT_HANDLES).toEqual(['se'])
+  })
+
+  it('takes the still at the middle of the overlay’s window, inside the sequence', () => {
+    expect(textEditorSequenceTime(state, { offset: 1, duration: 3 })).toBe(2.5)
+    // A window running past the end (the allowed tail) has no frame out
+    // there: the still is the sequence's last instant.
+    expect(textEditorSequenceTime(state, { offset: 4, duration: 4 })).toBe(5)
+    expect(textEditorSequenceTime({ entries: [], transitions: [] }, { offset: 1, duration: 2 })).toBe(0)
+  })
+
+  it('keys the still on everything the draw reads, since the text is drawn rather than bypassed', () => {
+    const base = textFrameKey(title)
+    expect(textFrameKey({ ...title, x: 0.3 })).not.toBe(base)
+    expect(textFrameKey({ ...title, size: 0.2 })).not.toBe(base)
+    expect(textFrameKey({ ...title, content: 'Other' })).not.toBe(base)
+    expect(textFrameKey({ ...title, font: 'mono' })).not.toBe(base)
+    expect(textFrameKey({ ...title, color: '#00ff00' })).not.toBe(base)
+    expect(textFrameKey({ ...title, bold: true })).not.toBe(base)
+    expect(textFrameKey({ ...title, offset: 2 })).not.toBe(base)
+    // Provenance and overrides change nothing about the picture.
+    expect(textFrameKey({ ...title, subtitle: true, styleOverrides: ['x'] })).toBe(base)
+    expect(textFrameKey({ ...title, id: 't2' })).not.toBe(base)
   })
 })
 
