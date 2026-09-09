@@ -64,6 +64,11 @@ test('every settings row lays out inside the dialog, at a wide viewport and a na
     'New still or slate duration',
     'When a previous session is found',
     'Default export format',
+    // Added in #453: this row arrived with #413 and was never added to the
+    // list, so the row carrying the dialog's longest hint was the one row
+    // whose box nobody measured — the same omission, in a test's per-row
+    // list, that left the hint itself describing only zooms.
+    'Visual editors',
   ]
   for (const label of labels) {
     const settingRow = row(page, label)
@@ -71,6 +76,21 @@ test('every settings row lays out inside the dialog, at a wide viewport and a na
     await expectWithin(settingRow.locator('select'), settingRow, {
       what: `control of "${label}"`,
     })
+
+    // A hint that overflows its own box is invisible to the containment
+    // checks above, so it needs its own kind of assertion (#453). Measured:
+    // with the Visual editors hint replaced by a 200-character unbreakable
+    // token the <p> kept its 438px box and the text spilled to a scrollWidth
+    // of 1345 — every containment check still passed, because the border box
+    // never grew. That silent spill is what the export modal's format note
+    // did (#268). Compare the text against its box instead.
+    const hint = settingRow.locator('.settings-hint')
+    if ((await hint.count()) > 0) {
+      expect(
+        await hint.evaluate((node) => node.scrollWidth <= node.clientWidth),
+        `the hint of "${label}" overflows its own box`,
+      ).toBe(true)
+    }
   }
 
   await expectNoHorizontalScroll(page, 'settings dialog open at 1280px')

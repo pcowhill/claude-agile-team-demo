@@ -108,10 +108,13 @@ interface TimelineProps {
    */
   onRenameElement?: (id: string, name: string) => void
   /**
-   * Offers the visual editors (#413): an Adjust visually… toggle beside each
-   * zoom's fields that opens the zoom editor under the row. Off by default
-   * so tests that predate it render as before; App passes the Settings
-   * switch (`visualEditors`), whose Off never renders a frame.
+   * Offers the visual editors (#413): an Adjust visually… toggle beside the
+   * fields it stands in for, opening that editor under the row. One flag
+   * covers every editor this row family offers, so it is worded for the set
+   * rather than for whichever one came first — naming them is what went
+   * stale three times as editors were added (#453). Off by default so tests
+   * that predate it render as before; App passes the Settings switch
+   * (`visualEditors`), whose Off never renders a frame.
    */
   visualEditors?: boolean
   /**

@@ -219,7 +219,7 @@ export function SettingsControl({
               </SettingRow>
               <SettingRow
                 label="Visual editors"
-                hint="Adjust visually… buttons beside a zoom's fields open a still of the frame to drag the zoom on. Off hides them and never renders that frame."
+                hint="Adjust visually… buttons open a still of the frame beside the fields they stand in for, so the value can be dragged into place instead of typed. Off hides every one of them and never renders that frame."
               >
                 {(describedBy) => (
                   <select
