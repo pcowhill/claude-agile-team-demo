@@ -187,10 +187,11 @@ test('the audio track and overlay rows get the same pairs, boxed like the entry\
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   await chooseClipAction(page, 'clip.webm', 'Add as overlay')
 
-  // `.audio-track-gain input` predates ranges and would give one a 4.5rem
-  // bordered box; the row's own screenshot and this measurement are what
-  // say the range rule wins. A boxed range would be 4.5rem — 72px — and
-  // taller than the 1rem the rule sets.
+  // The range rule's own width and height, measured. It had to out-specify
+  // `.audio-track-gain input`, which predated ranges, until #441 scoped that
+  // rule to `input[type='number']` — nothing competes for these now, and the
+  // row's own screenshot and this measurement are what say so. A boxed range
+  // would be 4.5rem — 72px — and taller than the 1rem the rule sets.
   for (const [row, label] of [
     ['audio track tone.wav at position 1', 'Volume of audio track tone.wav at position 1 (0 to 1)'],
     [
