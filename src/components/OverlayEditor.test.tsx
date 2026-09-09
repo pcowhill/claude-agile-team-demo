@@ -205,7 +205,7 @@ describe('visual overlay placement editor (#422)', () => {
   it("Shift on a corner keeps the rectangle's proportions", async () => {
     render(<App />)
     await placeOverlay()
-    // A 2:1 box, so a broken lock is unmistakable in the numbers.
+    // A 1.75:1 box, so a broken lock is unmistakable in the numbers.
     await userEvent.clear(height())
     await userEvent.type(height(), '0.2{Enter}')
     await userEvent.clear(top())

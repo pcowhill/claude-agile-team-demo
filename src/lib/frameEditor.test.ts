@@ -361,7 +361,7 @@ describe('the free rectangle: moving and resizing a placement (#422)', () => {
       width: MIN_OVERLAY_SIZE,
       height: MIN_OVERLAY_SIZE,
     })
-    // Rounding is to a thousandth, and the position is clamped against the
+    // Rounding is to a hundredth, and the position is clamped against the
     // *rounded* size, so a flush rectangle stays flush.
     const flush = clampedRect({ x: 0.9999, y: 0, width: 0.1004, height: 0.5 }, BOUNDS)
     expect(flush).toEqual({ x: 0.9, y: 0, width: 0.1, height: 0.5 })
