@@ -1,6 +1,9 @@
+import { MIN_KEPT_FRACTION } from './crop'
+import type { Crop } from './crop'
+import type { Orientation } from './orientation'
 import { sequenceTimeAt } from './playback'
 import { totalDuration, videoOverlaysOf, zoomsOf, zoomWindowDuration } from './timeline'
-import type { TimelineState, ZoomSpec } from './timeline'
+import type { TimelineEntry, TimelineState, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import { zoomRampFraction, zoomStateAt } from './zoom'
 
@@ -395,6 +398,19 @@ export interface RectBounds {
   minSize: number
   /** Largest allowed width and height. */
   maxSize: number
+  /**
+   * How many decimals the rectangle is stored to; absent means
+   * `RECT_DECIMALS`. Precision belongs here with the size range for the
+   * reason `RECT_DECIMALS` gives: it is a property of what the rectangle
+   * *is*, not of the gesture that moved it, and every function that clamps
+   * one already takes these bounds. A placement is kept to a hundredth
+   * because its number field shows a fraction; a crop's field shows a
+   * **percent** of the same fraction (#423), so it can express two digits
+   * more — which is what lets the crop editor offer a coarse whole-percent
+   * snap and an Alt-held fine mode without either putting a value in the
+   * model that its own mirror cannot hold.
+   */
+  decimals?: number
 }
 
 /**
@@ -447,11 +463,12 @@ const RECT_EPSILON = 0.5 * 10 ** -RECT_DECIMALS + 1e-9
  * frame and make the reducer clamp it back.
  */
 export function clampedRect(rect: FrameRect, bounds: RectBounds): FrameRect {
-  const width = round(clamp(rect.width, bounds.minSize, bounds.maxSize), RECT_DECIMALS)
-  const height = round(clamp(rect.height, bounds.minSize, bounds.maxSize), RECT_DECIMALS)
+  const decimals = bounds.decimals ?? RECT_DECIMALS
+  const width = round(clamp(rect.width, bounds.minSize, bounds.maxSize), decimals)
+  const height = round(clamp(rect.height, bounds.minSize, bounds.maxSize), decimals)
   return {
-    x: round(clamp(rect.x, 0, 1 - width), RECT_DECIMALS),
-    y: round(clamp(rect.y, 0, 1 - height), RECT_DECIMALS),
+    x: round(clamp(rect.x, 0, 1 - width), decimals),
+    y: round(clamp(rect.y, 0, 1 - height), decimals),
     width,
     height,
   }
@@ -741,4 +758,333 @@ export function withoutZoom(state: TimelineState, zoomId: string): TimelineState
   const zooms = zoomsOf(state)
   if (!zooms.some((zoom) => zoom.id === zoomId)) return state
   return { ...state, zooms: zooms.filter((zoom) => zoom.id !== zoomId) }
+}
+
+/**
+ * ── Crop: the kept region as a rectangle (#423, from #402's design D4) ────
+ *
+ * Crop (#255) is four fractions trimmed from the edges of a source, and the
+ * region it keeps is a rectangle — so the same pointer language works, with
+ * `resizedRect`'s opposite-edge-fixed model doing exactly what dragging a
+ * crop edge means. Two things are the crop's own, and both come from crop
+ * living in a different space from everything else the editors touch.
+ *
+ * **The picture is the element's own source, not the composed frame.** A
+ * placement is already a fraction of the output frame, so #422's rectangle
+ * could sit straight on a composed still. A crop is a fraction of the
+ * *source*, and the source lands somewhere inside the frame that the model
+ * cannot compute: an entry letterboxes into it (`fitRect`, #176) and an
+ * overlay letterboxes inside its own placement rectangle
+ * (`overlayDestRect`, #145) — both need the source's pixel dimensions, and
+ * neither a `TimelineEntry` nor a `VideoOverlay` carries them (the wall #422
+ * hit when it wanted the clip's aspect for Shift). So `cropSourceTimeline`
+ * builds a one-element timeline instead: that element alone, uncropped, with
+ * no canvas preset. `canvasFrameSize` then derives the frame from that one
+ * source, the picture fills it edge to edge, and a crop fraction *is* a
+ * frame fraction with no mapping at all.
+ *
+ * **Crop is in source space, before orientation** (`crop.ts`'s "order of
+ * operations is meaning"), while the picture shown is oriented. So the
+ * displayed left edge is not always the stored `left`: on a clip rotated a
+ * quarter turn it is the stored `bottom`. `sourceCropEdge` is that
+ * permutation, and it is the whole of the difference — every other function
+ * below works on the displayed rectangle.
+ */
+
+/**
+ * What the crop editor can edit: a video/image sequence entry, or a video/
+ * image overlay. The two carry the same source description under the same
+ * names — id, clip, window, url, and the colour and orientation applied to
+ * the picture — so one shape serves both rather than a union the geometry
+ * would have to keep discriminating. A slate is excluded by its own rule
+ * rather than by this type: it carries no crop at all (#255).
+ */
+export type CropSubject = Pick<
+  TimelineEntry,
+  | 'id'
+  | 'clipId'
+  | 'name'
+  | 'duration'
+  | 'url'
+  | 'inPoint'
+  | 'outPoint'
+  | 'kind'
+  | 'colorAdjustments'
+  | 'orientation'
+  | 'crop'
+>
+
+/** The four edges a crop trims, named as `Crop`'s own fields. */
+export const CROP_EDGES = ['left', 'right', 'top', 'bottom'] as const
+export type CropEdge = (typeof CROP_EDGES)[number]
+
+const OPPOSITE_EDGE: Record<CropEdge, CropEdge> = {
+  left: 'right',
+  right: 'left',
+  top: 'bottom',
+  bottom: 'top',
+}
+
+/**
+ * Which post-flip source edge each DISPLAYED edge is, per quarter turn.
+ * Rotation is clockwise, so the source's left edge comes up at the top at
+ * 90°: read each row as "the displayed edge on the left is really this one".
+ */
+const UNROTATED_EDGE: Record<number, Record<CropEdge, CropEdge>> = {
+  0: { left: 'left', right: 'right', top: 'top', bottom: 'bottom' },
+  90: { top: 'left', right: 'top', bottom: 'right', left: 'bottom' },
+  180: { left: 'right', right: 'left', top: 'bottom', bottom: 'top' },
+  270: { bottom: 'left', right: 'bottom', top: 'right', left: 'top' },
+}
+
+/**
+ * The stored crop edge that a given edge of the *displayed* picture trims.
+ *
+ * Orientation composes flips first, then the rotation (`orientation.ts`), so
+ * this undoes them in the opposite order: rotate the displayed edge back
+ * into post-flip source space, then undo the flip that axis carries. A flip
+ * is its own inverse, which is why one table serves both directions.
+ *
+ * The permutation is a bijection over the four edges, so reading a crop
+ * through it and writing one back through it are exact inverses — which is
+ * what `cropRect` and `cropFromRect` rely on.
+ */
+export function sourceCropEdge(displayed: CropEdge, orientation?: Orientation): CropEdge {
+  const unrotated = UNROTATED_EDGE[orientation?.rotation ?? 0][displayed]
+  const flipped =
+    unrotated === 'left' || unrotated === 'right'
+      ? orientation?.flipH === true
+      : orientation?.flipV === true
+  return flipped ? OPPOSITE_EDGE[unrotated] : unrotated
+}
+
+/**
+ * How precisely a crop is stored, and the two modes the editor offers.
+ *
+ * The row's field holds a **percent** and shows two decimals of it
+ * (`formatSeconds` in `Timeline.tsx`), so the fraction behind it can carry
+ * four — two more than a placement's (`RECT_DECIMALS`). That gap is what
+ * makes the issue's "snapping to whole percent values with Alt bypass" a
+ * real snap rather than a restatement of the storage precision: a drag lands
+ * on a whole percent, and Alt gives every digit the field can show. Both are
+ * values the four number fields can express exactly, so the drag and its
+ * mirror still cannot disagree (#422's rule).
+ */
+export const CROP_DECIMALS = 2
+export const CROP_FINE_DECIMALS = 4
+
+/**
+ * The range a kept region is held inside: never smaller than the reducer's
+ * own floor on either axis (`MIN_KEPT_FRACTION`, which `normalizeCrop`
+ * scales an over-deep pair of edges back to), never larger than the whole
+ * source. Clamping to it before dispatch means the reducer never moves the
+ * rectangle underneath the drag.
+ */
+export const CROP_BOUNDS: RectBounds = {
+  minSize: MIN_KEPT_FRACTION,
+  maxSize: 1,
+  decimals: CROP_DECIMALS,
+}
+
+/** The same range at the precision Alt asks for. */
+export const CROP_FINE_BOUNDS: RectBounds = { ...CROP_BOUNDS, decimals: CROP_FINE_DECIMALS }
+
+/**
+ * The handles a crop offers: the four edges, one per stored value, which is
+ * what the issue asks for and what makes a gesture legible — each drag moves
+ * exactly one of the four numbers below it. Corners are deliberately not
+ * offered: a corner is two edges at once, and nothing about a crop needs the
+ * two to move together (`cropAfterGesture` still handles one, for the reason
+ * `zoomAfterGesture` handles an edge).
+ */
+export const CROP_HANDLES: readonly RectHandle[] = ['n', 'e', 's', 'w']
+
+/**
+ * The kept region as a rectangle on the **displayed** (oriented) picture.
+ * An absent crop is the whole source.
+ */
+export function cropRect(crop: Crop | undefined, orientation?: Orientation): FrameRect {
+  const trimmed = (displayed: CropEdge) => crop?.[sourceCropEdge(displayed, orientation)] ?? 0
+  const x = trimmed('left')
+  const y = trimmed('top')
+  // The sizes are complements of two stored edges, and a complement of two
+  // clean decimals is not clean in binary floating point (1 − 0.1 − 0.2 is
+  // 0.7000000000000001) — so they are rounded for the reason `cropFromRect`
+  // rounds its own, and the two are exact inverses because both do.
+  return {
+    x,
+    y,
+    width: round(1 - x - trimmed('right'), CROP_FINE_DECIMALS),
+    height: round(1 - y - trimmed('bottom'), CROP_FINE_DECIMALS),
+  }
+}
+
+/**
+ * The crop a displayed rectangle means, back in the source's own space —
+ * `cropRect`'s inverse, and the shape `entry-crop-set` /
+ * `video-overlay-crop-set` take. All four edges are always given, as the
+ * row's own fields do: the reducer normalizes, dropping the zeroes, so a
+ * crop is never stored two ways.
+ *
+ * Every edge is rounded to `CROP_FINE_DECIMALS`, whichever mode produced the
+ * rectangle. Two of them are complements — `1 − x − width` — and a
+ * complement of two clean decimals is not clean in binary floating point
+ * (1 − 0.33 − 0.35 is 0.32000000000000006), so without this the model would
+ * carry noise the field cannot show and `cropsEqual` would call a re-commit
+ * of the same crop an edit. Rounding at the finer of the two precisions
+ * leaves a whole-percent value untouched.
+ */
+export function cropFromRect(rect: FrameRect, orientation?: Orientation): Crop {
+  const displayed: Record<CropEdge, number> = {
+    left: rect.x,
+    right: 1 - rect.x - rect.width,
+    top: rect.y,
+    bottom: 1 - rect.y - rect.height,
+  }
+  const crop: Crop = {}
+  for (const edge of CROP_EDGES) {
+    crop[sourceCropEdge(edge, orientation)] = round(
+      clamp(displayed[edge], 0, 1),
+      CROP_FINE_DECIMALS,
+    )
+  }
+  return crop
+}
+
+/**
+ * The kept region after one edge was dragged with Shift held: the opposite
+ * edge is trimmed by the same amount, so the region grows or shrinks about
+ * its own centre and stays where it was aimed.
+ *
+ * The cap is what keeps the symmetry honest. Without it a region whose
+ * centre is off-centre could be asked for a size that runs off the frame,
+ * and `clampedRect` would slide it back — leaving the two edges trimmed by
+ * different amounts, which is the one thing this gesture promises not to do.
+ */
+export function symmetricResizedRect(
+  start: FrameRect,
+  edge: Edge,
+  pointer: { x: number; y: number },
+  bounds: RectBounds,
+): FrameRect {
+  const horizontal = edge === 'e' || edge === 'w'
+  const low = horizontal ? start.x : start.y
+  const centre = low + (horizontal ? start.width : start.height) / 2
+  const room = 2 * Math.min(centre, 1 - centre)
+  // Signed, deliberately not a distance: an edge dragged *past* the centre
+  // has asked for a region with nothing left in it, so the half-size goes
+  // negative and the floor below catches it. `Math.abs` would instead have
+  // the handle bounce off the centre and start growing the region again,
+  // with the dragged edge now on the far side of the one it began on — which
+  // is what the first version of this did, and what its test now pins.
+  const reach = horizontal ? pointer.x : pointer.y
+  const half = edge === 'w' || edge === 'n' ? centre - reach : reach - centre
+  const size = clamp(
+    2 * half,
+    bounds.minSize,
+    Math.max(bounds.minSize, Math.min(bounds.maxSize, room)),
+  )
+  return clampedRect(
+    horizontal
+      ? { ...start, x: centre - size / 2, width: size }
+      : { ...start, y: centre - size / 2, height: size },
+    bounds,
+  )
+}
+
+/**
+ * The kept region after a pointer gesture. Alt drops the whole-percent snap
+ * — this editor's Alt, and #391's convention that Alt means "give me what I
+ * am pointing at" rather than what the tool would tidy it to.
+ *
+ * Shift makes an edge drag symmetric, which is the issue's own wording and
+ * the reason Shift does not mean here what it means in the placement editor
+ * (#422, where it locks an aspect): the two editors take the modifier the
+ * gesture each offers has a use for, and Alt is spoken for in both.
+ *
+ * A move pans the kept region without resizing it, and deliberately does not
+ * snap onto the frame's alignments the way a placement's does: those are
+ * where an overlay is *put*, while a crop is a window on a source, and there
+ * is nothing interesting about its centre sitting on a third.
+ */
+export function cropAfterGesture(start: FrameRect, gesture: RectGesture): FrameRect {
+  const bounds = gesture.altKey === true ? CROP_FINE_BOUNDS : CROP_BOUNDS
+  if (gesture.kind === 'move') return movedRect(start, gesture.dx, gesture.dy, bounds)
+  // A corner cannot arrive through `CROP_HANDLES`, but the model is total
+  // over one rather than leaving a case for a later editor to trip over —
+  // `zoomAfterGesture`'s rule, and it costs a branch.
+  if (gesture.kind === 'corner') return resizedRect(start, gesture.corner, gesture, bounds)
+  return gesture.shiftKey === true
+    ? symmetricResizedRect(start, gesture.edge, gesture, bounds)
+    : resizedRect(start, gesture.edge, gesture, bounds)
+}
+
+/**
+ * What the crop editor draws: the element alone, **uncropped**, on no canvas
+ * preset — so `canvasFrameSize` derives the output frame from this one
+ * source's own oriented dimensions and the picture fills it edge to edge.
+ * That is what makes a crop fraction a frame fraction (see this section's
+ * header), and it is why the still is not the composed frame: the source's
+ * place inside that frame is not computable from the model.
+ *
+ * Everything that would change the picture without being part of the source
+ * is left out — other entries, overlays, text, transitions, and the zooms
+ * and remaps that live on the state rather than on the element. Colour and
+ * orientation come along, because they are the element's own treatment of
+ * the very picture being trimmed.
+ *
+ * An overlay is described as an entry here rather than as an overlay: an
+ * overlay drawn as an overlay lands in its placement rectangle, a fraction
+ * of a fraction of the frame, which is precisely the geometry this view
+ * exists to avoid. Its fields are the entry's fields under different names
+ * (`videoOverlay.ts` says so), so nothing is invented.
+ */
+export function cropSourceTimeline(subject: CropSubject): TimelineState {
+  return {
+    entries: [
+      {
+        id: subject.id,
+        clipId: subject.clipId,
+        name: subject.name,
+        duration: subject.duration,
+        url: subject.url,
+        inPoint: subject.inPoint,
+        outPoint: subject.outPoint,
+        ...(subject.kind === undefined ? {} : { kind: subject.kind }),
+        ...(subject.colorAdjustments === undefined
+          ? {}
+          : { colorAdjustments: subject.colorAdjustments }),
+        ...(subject.orientation === undefined ? {} : { orientation: subject.orientation }),
+      },
+    ],
+    transitions: [],
+  }
+}
+
+/**
+ * The instant the crop editor draws: the middle of the element's own window,
+ * measured in the one-element timeline above — where sequence time 0 is the
+ * element's `inPoint`, so the middle is half the window's length. A still's
+ * window is `[0, duration]`, so this is its midpoint too.
+ */
+export function cropEditorSequenceTime(subject: Pick<CropSubject, 'inPoint' | 'outPoint'>): number {
+  return Math.max(0, (subject.outPoint - subject.inPoint) / 2)
+}
+
+/**
+ * The still's cache key. The element's id alone would be enough for the crop
+ * itself — the picture has it bypassed, so committing one cannot change it —
+ * but **orientation** is drawn, and it also decides which stored edge each
+ * displayed edge is (`sourceCropEdge`). A rotation applied with the editor
+ * open must therefore re-render, or the handles would trim edges the picture
+ * no longer shows on that side.
+ */
+export function cropFrameKey(subject: CropSubject): string {
+  const orientation = subject.orientation
+  return [
+    subject.id,
+    orientation?.rotation ?? 0,
+    orientation?.flipH === true ? 'H' : '',
+    orientation?.flipV === true ? 'V' : '',
+  ].join('#')
 }

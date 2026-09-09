@@ -183,11 +183,17 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   ).toBeLessThanOrEqual(0.005 + 1e-9)
 
   // Keyboard: one nudge, one undo step.
+  //
+  // Polled, not read once. `page.keyboard.press` resolves when the event is
+  // dispatched, not when React has committed the render it causes, so a bare
+  // `inputValue()` straight afterwards can read the pre-undo DOM — a race
+  // that lost this assertion in a full-suite run alongside #423's new spec
+  // and passes alone. `toHaveValue` retries, which is the whole difference.
   await region.focus()
   await page.keyboard.press('ArrowRight')
-  const nudged = Number(await left(page).inputValue())
+  await expect(left(page)).toHaveValue('0.34')
   await page.keyboard.press('Control+z')
-  expect(Number(await left(page).inputValue())).toBeCloseTo(nudged - 0.01, 2)
+  await expect(left(page)).toHaveValue('0.33')
 })
 
 test('Shift on a corner keeps the proportions, and the mask silhouette is drawn (#422)', async ({

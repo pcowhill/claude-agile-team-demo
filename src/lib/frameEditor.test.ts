@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CROP_BOUNDS,
+  CROP_DECIMALS,
+  CROP_EDGES,
+  CROP_FINE_DECIMALS,
+  CROP_HANDLES,
   FREE_RECT_HANDLES,
   MAX_EDITOR_ZOOM_SCALE,
   MIN_EDITOR_ZOOM_SCALE,
@@ -11,6 +16,12 @@ import {
   ZOOM_SNAP_TARGETS,
   ZOOM_SNAP_TOLERANCE,
   clampedRect,
+  cropAfterGesture,
+  cropEditorSequenceTime,
+  cropFrameKey,
+  cropFromRect,
+  cropRect,
+  cropSourceTimeline,
   movedRect,
   movedZoom,
   overlayEditorSequenceTime,
@@ -24,6 +35,7 @@ import {
   scaledZoom,
   snappedRect,
   snappedZoom,
+  sourceCropEdge,
   withoutOverlay,
   withoutZoom,
   zoomAfterGesture,
@@ -37,8 +49,10 @@ import {
   zoomRect,
   zoomRectAt,
 } from './frameEditor'
+import { MIN_KEPT_FRACTION, cropsEqual, normalizeCrop } from './crop'
 import { DEFAULT_ZOOM, timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
+import type { CropSubject } from './frameEditor'
 import { MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from './videoOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { zoomAt } from './zoom'
@@ -683,6 +697,344 @@ describe('the overlay editor still (#422)', () => {
     expect(bypassed.entries).toBe(both.entries)
     // An unknown id is a same-reference no-op, as withoutZoom's is.
     expect(withoutOverlay(both, 'nope')).toBe(both)
+  })
+})
+
+describe('the crop rectangle: which stored edge each displayed one is (#423)', () => {
+  // Crop applies in the source's own space BEFORE orientation (`crop.ts`),
+  // while the editor draws the oriented picture — so this permutation is the
+  // whole of the difference between the two, and getting it wrong trims a
+  // different edge than the one under the pointer.
+  it('is the identity when nothing is turned or mirrored', () => {
+    for (const edge of CROP_EDGES) {
+      expect(sourceCropEdge(edge, undefined)).toBe(edge)
+      expect(sourceCropEdge(edge, {})).toBe(edge)
+    }
+  })
+
+  it('a quarter turn clockwise brings the source left edge up to the top', () => {
+    // A stripe down the source's left edge is along the top after a 90° CW
+    // turn, so the top handle is what trims it.
+    expect(sourceCropEdge('top', { rotation: 90 })).toBe('left')
+    expect(sourceCropEdge('right', { rotation: 90 })).toBe('top')
+    expect(sourceCropEdge('bottom', { rotation: 90 })).toBe('right')
+    expect(sourceCropEdge('left', { rotation: 90 })).toBe('bottom')
+    // 270° is the same turn the other way: left goes down to the bottom.
+    expect(sourceCropEdge('bottom', { rotation: 270 })).toBe('left')
+    expect(sourceCropEdge('left', { rotation: 270 })).toBe('top')
+    // Half a turn swaps both axes.
+    expect(sourceCropEdge('left', { rotation: 180 })).toBe('right')
+    expect(sourceCropEdge('top', { rotation: 180 })).toBe('bottom')
+  })
+
+  it('a flip swaps its own axis, and composes with the turn in the stored order', () => {
+    expect(sourceCropEdge('right', { flipH: true })).toBe('left')
+    expect(sourceCropEdge('top', { flipH: true })).toBe('top')
+    expect(sourceCropEdge('bottom', { flipV: true })).toBe('top')
+    // Flips apply in source space first, then the rotation
+    // (`orientation.ts`), so mirroring puts the source's left edge on the
+    // source's right, and the turn then carries that to the bottom.
+    expect(sourceCropEdge('bottom', { rotation: 90, flipH: true })).toBe('left')
+    expect(sourceCropEdge('left', { rotation: 90, flipV: true })).toBe('top')
+  })
+
+  it('is a bijection for every orientation, which is what makes the round trip exact', () => {
+    for (const rotation of [undefined, 90, 180, 270] as const) {
+      for (const flipH of [false, true]) {
+        for (const flipV of [false, true]) {
+          const orientation = { ...(rotation === undefined ? {} : { rotation }), flipH, flipV }
+          const mapped = CROP_EDGES.map((edge) => sourceCropEdge(edge, orientation))
+          expect([...mapped].sort()).toEqual([...CROP_EDGES].sort())
+        }
+      }
+    }
+  })
+})
+
+describe('the crop rectangle: reading and writing a crop (#423)', () => {
+  it('reads the kept region off the four trims, and an absent crop is the whole source', () => {
+    expect(cropRect(undefined)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    expect(cropRect({ left: 0.1, right: 0.2, top: 0.05, bottom: 0.15 })).toEqual({
+      x: 0.1,
+      y: 0.05,
+      width: 0.7,
+      height: 0.8,
+    })
+    // A crop stores only its non-zero edges (`normalizeCrop`), so the absent
+    // ones have to read as no trim rather than as undefined.
+    expect(cropRect({ left: 0.25 })).toMatchObject({ x: 0.25, width: 0.75, height: 1 })
+  })
+
+  it('reads it through the orientation, so the rectangle sits where the picture shows it', () => {
+    // The source's left quarter is trimmed; turned 90° CW that quarter is
+    // along the top, so the rectangle starts a quarter down rather than a
+    // quarter across.
+    expect(cropRect({ left: 0.25 }, { rotation: 90 })).toEqual({
+      x: 0,
+      y: 0.25,
+      width: 1,
+      height: 0.75,
+    })
+    expect(cropRect({ left: 0.25 }, { flipH: true })).toMatchObject({ x: 0, width: 0.75 })
+  })
+
+  it('writes every edge back, so the reducer normalizes rather than the editor', () => {
+    // All four always, exactly as the row's own fields commit them: the
+    // reducer drops the zeroes, which is what keeps one crop from being
+    // stored two ways.
+    expect(cropFromRect({ x: 0.1, y: 0.05, width: 0.7, height: 0.8 })).toEqual({
+      left: 0.1,
+      right: 0.2,
+      top: 0.05,
+      bottom: 0.15,
+    })
+  })
+
+  it('round-trips through any orientation', () => {
+    const crop = { left: 0.1, right: 0.2, top: 0.05, bottom: 0.15 }
+    for (const orientation of [
+      undefined,
+      { rotation: 90 } as const,
+      { rotation: 270, flipH: true } as const,
+      { flipV: true } as const,
+    ]) {
+      expect(cropFromRect(cropRect(crop, orientation), orientation)).toEqual(crop)
+    }
+  })
+
+  it('rounds the complements it derives, which binary floating point does not', () => {
+    // `right` is 1 − x − width, and neither 0.33 nor 0.35 is exact in
+    // binary: unrounded this reads 0.32000000000000006, a value the percent
+    // field cannot show and `cropsEqual` would call different from 0.32, so
+    // re-committing an unchanged crop would look like an edit.
+    expect(1 - 0.33 - 0.35).not.toBe(0.32)
+    expect(cropFromRect({ x: 0.33, y: 0, width: 0.35, height: 1 }).right).toBe(0.32)
+    // Rounding is at the finer of the two precisions, so an Alt-held value
+    // the field can show survives it.
+    expect(cropFromRect({ x: 0.1234, y: 0, width: 0.5, height: 1 }).left).toBe(0.1234)
+  })
+})
+
+describe('the crop rectangle: gestures (#423)', () => {
+  const whole = { x: 0, y: 0, width: 1, height: 1 }
+  const kept = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }
+
+  it('an edge drag trims that edge and leaves the other three where they were', () => {
+    // The opposite edge is held fixed (`resizedRect`), which is exactly what
+    // trimming one edge of a source means.
+    const west = cropAfterGesture(whole, { kind: 'edge', edge: 'w', x: 0.3, y: 0.5 })
+    expect(west).toEqual({ x: 0.3, y: 0, width: 0.7, height: 1 })
+    expect(cropFromRect(west)).toEqual({ left: 0.3, right: 0, top: 0, bottom: 0 })
+    const south = cropAfterGesture(whole, { kind: 'edge', edge: 's', x: 0.5, y: 0.8 })
+    expect(cropFromRect(south)).toEqual({ left: 0, right: 0, top: 0, bottom: 0.2 })
+  })
+
+  it('snaps to whole percents, and Alt gives every digit the field can show', () => {
+    // The issue's snap. Two decimals of the fraction *is* a whole percent,
+    // and the field behind it holds a percent with two decimals of its own —
+    // which is what leaves Alt something finer to offer.
+    expect(cropAfterGesture(whole, { kind: 'edge', edge: 'w', x: 0.3372, y: 0.5 }).x).toBe(0.34)
+    expect(
+      cropAfterGesture(whole, { kind: 'edge', edge: 'w', x: 0.3372, y: 0.5, altKey: true }).x,
+    ).toBe(0.3372)
+    // Both are values the row's own percent field can express exactly, so
+    // the drag and its mirror cannot disagree (#422's rule).
+    expect(CROP_DECIMALS).toBe(2)
+    expect(CROP_FINE_DECIMALS).toBe(4)
+  })
+
+  it('Shift trims the opposite edge as far, about the centre', () => {
+    const symmetric = cropAfterGesture(kept, { kind: 'edge', edge: 'w', x: 0.3, y: 0.5 })
+    expect(symmetric).toMatchObject({ x: 0.3, width: 0.5 })
+    const held = cropAfterGesture(kept, { kind: 'edge', edge: 'w', x: 0.3, y: 0.5, shiftKey: true })
+    // The centre is 0.5 and stays there; both edges came in by 0.1.
+    expect(held).toMatchObject({ x: 0.3, width: 0.4 })
+    expect(held.x + held.width / 2).toBeCloseTo(0.5, 6)
+    expect(cropFromRect(held)).toMatchObject({ left: 0.3, right: 0.3 })
+    // The other axis is untouched either way.
+    expect(held.y).toBe(kept.y)
+    expect(held.height).toBe(kept.height)
+  })
+
+  it('a symmetric drag off the frame shrinks rather than sliding, keeping the two edges equal', () => {
+    // An off-centre region: its centre is 0.3, so a symmetric growth can
+    // only reach 0.6 wide before the left edge would leave the frame.
+    // Sliding it back instead would silently trim the two edges by
+    // different amounts, which is the one thing this gesture promises not
+    // to do.
+    const off = { x: 0.1, y: 0.2, width: 0.4, height: 0.6 }
+    const grown = cropAfterGesture(off, { kind: 'edge', edge: 'e', x: 1, y: 0.5, shiftKey: true })
+    expect(grown.x).toBe(0)
+    expect(grown.width).toBe(0.6)
+    expect(grown.x + grown.width / 2).toBeCloseTo(0.3, 6)
+    const back = cropFromRect(grown)
+    expect(back.left).toBe(0)
+    expect(back.right).toBeCloseTo(0.4, 6)
+  })
+
+  it('edges cannot cross: a handle dragged past its opposite stops at the reducer’s own floor', () => {
+    // `MIN_KEPT_FRACTION` is what `normalizeCrop` would scale an over-deep
+    // pair back to, so clamping here means the reducer never moves the
+    // rectangle underneath the drag.
+    const crossed = cropAfterGesture(whole, { kind: 'edge', edge: 'w', x: 1.5, y: 0.5 })
+    expect(crossed.width).toBe(MIN_KEPT_FRACTION)
+    expect(crossed.x + crossed.width).toBeLessThanOrEqual(1)
+    const shiftCrossed = cropAfterGesture(kept, {
+      kind: 'edge',
+      edge: 'n',
+      x: 0.5,
+      y: 0.48,
+      shiftKey: true,
+    })
+    expect(shiftCrossed.height).toBe(MIN_KEPT_FRACTION)
+    // And what it commits is a crop the reducer keeps unchanged.
+    const stored = normalizeCrop(cropFromRect(shiftCrossed))
+    expect(cropsEqual(normalizeCrop(cropFromRect(shiftCrossed)), stored)).toBe(true)
+    expect(1 - (stored?.top ?? 0) - (stored?.bottom ?? 0)).toBeCloseTo(MIN_KEPT_FRACTION, 6)
+  })
+
+  it('a symmetric edge dragged past the centre collapses to the floor rather than bouncing', () => {
+    // The first version took the distance from the centre, so a north edge
+    // pulled below the middle started *growing* the region again with the
+    // two edges swapped over — an unmistakable defect the moment it is
+    // written down, and invisible until a drag goes that far. The half-size
+    // is signed now, so crossing the centre reads as "nothing left".
+    const kept = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }
+    const past = cropAfterGesture(kept, { kind: 'edge', edge: 'n', x: 0.5, y: 0.9, shiftKey: true })
+    expect(past.height).toBe(MIN_KEPT_FRACTION)
+    expect(past.y + past.height / 2).toBeCloseTo(0.5, 6)
+    // Exactly at the centre is the same answer, from the other side of zero.
+    expect(
+      cropAfterGesture(kept, { kind: 'edge', edge: 's', x: 0.5, y: 0.5, shiftKey: true }).height,
+    ).toBe(MIN_KEPT_FRACTION)
+  })
+
+  it('a move pans the kept region without resizing it, and does not snap to alignments', () => {
+    const panned = cropAfterGesture(kept, { kind: 'move', dx: -0.19, dy: 0 })
+    expect(panned).toMatchObject({ x: 0.01, width: 0.6 })
+    // A placement's move would have pulled that 0.01 flush to 0 (#422);
+    // a crop is a window on a source, not something parked in a corner.
+    expect(panned.x).not.toBe(0)
+    // Dragged off the source it stops at the border, still the same size.
+    expect(cropAfterGesture(kept, { kind: 'move', dx: -1, dy: 1 })).toEqual({
+      x: 0,
+      y: 0.4,
+      width: 0.6,
+      height: 0.6,
+    })
+  })
+
+  it('handles a corner even though it offers none, rather than leaving a case for a later editor', () => {
+    expect([...CROP_HANDLES].sort()).toEqual(['e', 'n', 's', 'w'])
+    expect(cropAfterGesture(whole, { kind: 'corner', corner: 'nw', x: 0.2, y: 0.3 })).toEqual({
+      x: 0.2,
+      y: 0.3,
+      width: 0.8,
+      height: 0.7,
+    })
+  })
+
+  it('nudges and resizes with the keyboard by the percentages the issue asks for', () => {
+    // 1% and 5% are what the shared steps already are, so the crop editor
+    // takes them rather than a second pair of constants.
+    expect(rectAfterKeyStep(kept, { kind: 'move', dx: ZOOM_NUDGE, dy: 0 }, CROP_BOUNDS).x).toBe(0.21)
+    expect(
+      rectAfterKeyStep(kept, { kind: 'move', dx: 0, dy: -ZOOM_NUDGE_LARGE }, CROP_BOUNDS).y,
+    ).toBe(0.15)
+    const grown = rectAfterKeyStep(kept, { kind: 'scale', delta: ZOOM_SCALE_STEP }, CROP_BOUNDS)
+    expect(grown.width).toBe(kept.width + RECT_SIZE_STEP)
+    expect(grown.x + grown.width / 2).toBeCloseTo(0.5, 6)
+    // The floor is the reducer's, not a placement's.
+    let small = kept
+    for (let i = 0; i < 40; i++) {
+      small = rectAfterKeyStep(small, { kind: 'scale', delta: -ZOOM_SCALE_STEP }, CROP_BOUNDS)
+    }
+    expect(small.width).toBe(MIN_KEPT_FRACTION)
+  })
+})
+
+describe('the crop editor still (#423)', () => {
+  const cropped = {
+    ...entry('a', 10),
+    crop: { left: 0.2 },
+    orientation: { rotation: 90 } as const,
+    colorAdjustments: { brightness: 1.2 },
+  }
+
+  it('draws the element alone and uncropped, so a crop fraction is a frame fraction', () => {
+    const source = cropSourceTimeline(cropped)
+    expect(source.entries).toHaveLength(1)
+    // The bypass: the still shows what is there to trim, not what survives.
+    expect(source.entries[0].crop).toBeUndefined()
+    // No canvas preset and nothing else in the sequence, so
+    // `canvasFrameSize` derives the frame from this one source and the
+    // picture fills it edge to edge — the whole reason the still is not the
+    // composed frame.
+    expect(source.canvasPreset).toBeUndefined()
+    expect(source.videoOverlays).toBeUndefined()
+    expect(source.texts).toBeUndefined()
+    expect(source.zooms).toBeUndefined()
+    expect(source.transitions).toEqual([])
+  })
+
+  it("keeps the element's own treatment of the picture being trimmed", () => {
+    const source = cropSourceTimeline(cropped)
+    expect(source.entries[0]).toMatchObject({
+      id: 'a',
+      url: cropped.url,
+      inPoint: cropped.inPoint,
+      outPoint: cropped.outPoint,
+      orientation: { rotation: 90 },
+      colorAdjustments: { brightness: 1.2 },
+    })
+    // Absent fields stay absent rather than becoming `undefined` keys.
+    expect(Object.keys(cropSourceTimeline(entry('a', 10)).entries[0])).not.toContain('orientation')
+  })
+
+  it('describes an overlay as an entry, because an overlay lands in its placement rectangle', () => {
+    const still: VideoOverlay = {
+      id: 'o1',
+      kind: 'image',
+      clipId: 'clip-cam',
+      name: 'cam.png',
+      duration: 5,
+      url: 'blob:cam',
+      offset: 3,
+      inPoint: 0,
+      outPoint: 5,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+      crop: { top: 0.1 },
+    }
+    const source = cropSourceTimeline(still)
+    // Drawn as an overlay it would occupy 0.3 × 0.3 of the frame, and its
+    // own picture letterboxes inside even that — the geometry this view
+    // exists to avoid.
+    expect(source.videoOverlays).toBeUndefined()
+    expect(source.entries[0]).toMatchObject({ id: 'o1', kind: 'image', url: 'blob:cam' })
+    expect(source.entries[0].crop).toBeUndefined()
+  })
+
+  it("takes the still at the middle of the element's own window", () => {
+    // Sequence time 0 in the one-element timeline is the element's inPoint,
+    // so the middle of the window is half its length.
+    expect(cropEditorSequenceTime({ inPoint: 0, outPoint: 10 })).toBe(5)
+    expect(cropEditorSequenceTime({ inPoint: 2, outPoint: 8 })).toBe(3)
+    expect(cropEditorSequenceTime({ inPoint: 4, outPoint: 4 })).toBe(0)
+  })
+
+  it('keys the still on the orientation as well as the element', () => {
+    // A crop cannot change this picture — it is bypassed — but a rotation
+    // both turns it and moves which stored edge each handle trims, so the
+    // still has to be re-rendered for one.
+    const base: CropSubject = entry('a', 10)
+    expect(cropFrameKey(base)).toBe(cropFrameKey({ ...base, crop: { left: 0.3 } }))
+    expect(cropFrameKey({ ...base, orientation: { rotation: 90 } })).not.toBe(cropFrameKey(base))
+    expect(cropFrameKey({ ...base, orientation: { flipH: true } })).not.toBe(
+      cropFrameKey({ ...base, orientation: { flipV: true } }),
+    )
   })
 })
 

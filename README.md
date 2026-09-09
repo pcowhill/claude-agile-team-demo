@@ -237,7 +237,9 @@ group — chrome strips in screen recordings, headroom in webcam
 clips — and only the kept region renders in the preview, applied before
 orientation, reshaping the output frame like any source and saved with the
 project (each axis always keeps at least a tenth). Exports render crop
-through the same shared rule (#256).
+through the same shared rule (#256). The kept region can also be dragged on
+a still of the source rather than typed (#423 — see the visual editors
+below).
 They also take a background fill (#259): what shows behind a clip that
 doesn't fill the output frame — a portrait phone clip in a landscape
 sequence, a quarter-turned or cropped clip — chosen in that group:
@@ -366,6 +368,25 @@ its own undo step. Where the overlay carries a shape mask, the silhouette it
 will really be painted in is outlined inside the rectangle, so a bubble is
 placed as a bubble. The four number fields mirror every drag live and a
 whole gesture is one undo step, exactly as for a zoom.
+A crop has one too (#423): **Adjust visually…** beside the Crop fields, in
+the row's **Picture** group, draws the kept region on a still of the
+element's **own source** — that element alone, uncropped, filling the frame,
+rather than the composed picture. That is the crop's own difference: a
+placement is already a fraction of the output frame, while a crop is a
+fraction of the source, and where a source lands inside the frame depends on
+pixel dimensions the project does not store. Showing the source instead
+makes a crop percentage a fraction of what you see, and it is what lets an
+overlay be cropped on its whole picture rather than inside the small
+rectangle it is placed in. Drag any of the four edges to trim it, with the
+trimmed margins dimmed; hold Shift to trim the opposite edge as far, or drag
+inside the region to pan it without resizing. Drags land on whole percents,
+and Alt gives finer values — every digit the fields themselves can show. The
+arrow keys nudge the region by 1 % (Shift 5 %) and + / − resize it, each
+press its own undo step, and **Reset** in the panel clears the crop exactly
+as the row's own does. Crop applies in the source's own space before
+orientation, so on a rotated or flipped clip the edge under the pointer may
+be named for a different stored one — the readout says which, rather than
+quietly renaming it.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
