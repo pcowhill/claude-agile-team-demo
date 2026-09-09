@@ -1,7 +1,10 @@
 import { MIN_KEPT_FRACTION } from './crop'
 import type { Crop } from './crop'
+import { textCanvasFont } from './exportVideo'
 import type { Orientation } from './orientation'
 import { sequenceTimeAt } from './playback'
+import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
+import type { TextOverlay } from './textOverlay'
 import { totalDuration, videoOverlaysOf, zoomsOf, zoomWindowDuration } from './timeline'
 import type { TimelineEntry, TimelineState, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
@@ -1086,5 +1089,302 @@ export function cropFrameKey(subject: CropSubject): string {
     orientation?.rotation ?? 0,
     orientation?.flipH === true ? 'H' : '',
     orientation?.flipV === true ? 'V' : '',
+  ].join('#')
+}
+
+/**
+ * ── Text: the rendered block as a rectangle (#424, from #402's design D4) ──
+ *
+ * A text overlay is placed by a **centre and a type size** (`x`, `y` as
+ * frame fractions, `size` as a fraction of the frame height — `textOverlay.ts`),
+ * not by a box. The box the editor draws is *derived*: its height is the
+ * line count times the line height, and its width is a property of the
+ * rendered text — how wide the widest line comes out under the overlay's
+ * font, which nothing in the model stores and only a measurement can say.
+ * So this model has a third input beside the placement and the gesture: a
+ * `TextBlockShape`, measured once per content/font/frame with the same
+ * canvas font string the export draws with (`textCanvasFont`), so the box
+ * the handles sit on is the box the still shows.
+ *
+ * Two things follow from the block being *derived* rather than stored:
+ *
+ * - Both dimensions scale with `size` and the aspect is fixed by the
+ *   content, so the one resize gesture is the zoom's — a corner dragged
+ *   about the centre, the pointer's larger distance deciding (`resizedZoom`)
+ *   — and the issue's single corner handle is the whole of the resize
+ *   vocabulary. Edges would have nothing to do.
+ * - The functions below take and return a `TextPlacement`, not a
+ *   `FrameRect`: a gesture changes the fields it changes and passes the
+ *   others through verbatim, so a move cannot rewrite a typed `size` to the
+ *   editor's precision. The component converts to a rectangle to draw and
+ *   back only through these, never by reading a centre off a box.
+ */
+
+/** The fields the text editor edits — the position part of a `TextOverlaySpec`. */
+export type TextPlacement = Pick<TextOverlay, 'x' | 'y' | 'size'>
+
+/**
+ * What the rendered block's rectangle depends on beside the placement: the
+ * measurement, reduced to two numbers that are independent of `x`, `y` and
+ * `size`. Text scales linearly with its type size, so the width is stored
+ * *per unit of size* and any placement's box is a multiplication away.
+ */
+export interface TextBlockShape {
+  /** Lines in the content — explicit newlines only; there is no wrapping (#139). */
+  lines: number
+  /** The widest line's width as a fraction of the frame, per unit of `size`. */
+  widthPerSize: number
+}
+
+/**
+ * The shape of one overlay's block, measured at a frame size. `measure` is
+ * a canvas `measureText` over a font string (`textMeasure.ts`); the frame
+ * is the output frame the still was composed at, so the measurement is made
+ * at the px size the text is actually drawn at rather than scaled from some
+ * other size — the two differ by hinting at small sizes, and the still is
+ * what the box has to agree with.
+ */
+export function textBlockShape(
+  text: Pick<TextOverlay, 'content' | 'font' | 'size' | 'bold' | 'italic'>,
+  frame: { width: number; height: number },
+  measure: (font: string, line: string) => number,
+): TextBlockShape {
+  const lines = text.content.split('\n')
+  if (text.size <= 0 || frame.width <= 0 || frame.height <= 0) {
+    return { lines: lines.length, widthPerSize: 0 }
+  }
+  const font = textCanvasFont(text, frame.height)
+  const widest = Math.max(0, ...lines.map((line) => measure(font, line)))
+  return { lines: lines.length, widthPerSize: widest / frame.width / text.size }
+}
+
+/** The block's width and height, as frame fractions, for a size. */
+function textBlockExtent(size: number, shape: TextBlockShape) {
+  return { width: size * shape.widthPerSize, height: size * shape.lines * TEXT_LINE_HEIGHT }
+}
+
+/**
+ * The rectangle a placement's block occupies: `textDraw`'s geometry read the
+ * other way — the block of n lines is centred on (`x`, `y`), n line heights
+ * tall, and as wide as its widest line.
+ */
+export function textBlockRect(placement: TextPlacement, shape: TextBlockShape): FrameRect {
+  const { width, height } = textBlockExtent(placement.size, shape)
+  return { x: placement.x - width / 2, y: placement.y - height / 2, width, height }
+}
+
+/**
+ * `textBlockRect`'s inverse, unrounded — the centre and the size a rectangle
+ * of this shape means. For the component's readout and tests; the gestures
+ * below never go through it, since they hold the placement itself.
+ */
+export function textFromBlockRect(rect: FrameRect, shape: TextBlockShape): TextPlacement {
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+    size: rect.height / (shape.lines * TEXT_LINE_HEIGHT),
+  }
+}
+
+/**
+ * How much one `+` / `−` press changes the type size (#424): the row's own
+ * field step, so a press is one click of its spinner — and one undo step,
+ * like every other editor's key.
+ */
+export const TEXT_SIZE_STEP = 0.01
+
+/**
+ * A stored-precision value inside a range. Rounding a value that was just
+ * clamped to a bound can push it back over — a centre clamped to a half-
+ * extent of 0.133 rounds to 0.13, three thousandths outside — so a rounded
+ * result that lands past a bound steps one storable unit back inside. Where
+ * the range is narrower than a unit there is nothing inside to step to, and
+ * the nearer bound's rounding stands.
+ */
+function roundedInside(value: number, low: number, high: number, decimals: number): number {
+  const unit = 10 ** -decimals
+  const rounded = round(clamp(value, low, high), decimals)
+  if (rounded < low - 1e-9 && rounded + unit <= high + 1e-9) return round(rounded + unit, decimals)
+  if (rounded > high + 1e-9 && rounded - unit >= low - 1e-9) return round(rounded - unit, decimals)
+  return rounded
+}
+
+/**
+ * A centre that keeps a block of `extent` on the frame along one axis, at
+ * the stored precision. A block that does not fit at all — a title wider
+ * than the frame — is held by the reducer's own rule instead (the centre
+ * within the frame, `clampTextOverlay`), since there is no inside to keep
+ * it in and a user sliding an over-wide title should not be fought.
+ */
+function clampedTextCentre(value: number, extent: number): number {
+  const half = extent / 2
+  return extent <= 1
+    ? roundedInside(value, half, 1 - half, RECT_DECIMALS)
+    : round(clamp(value, 0, 1), RECT_DECIMALS)
+}
+
+/**
+ * The largest size whose block still fits about a fixed centre — what a
+ * corner drag or a `+` press may grow to. Floored to the stored precision
+ * so the rounded size fits too; never below the model's own floor, which
+ * wins over the frame when the two conflict (a block at `MIN_TEXT_SIZE`
+ * always fits somewhere, and the centre clamp then moves it there).
+ */
+function maxTextSizeAt(placement: TextPlacement, shape: TextBlockShape): number {
+  const roomX = 2 * Math.min(placement.x, 1 - placement.x)
+  const roomY = 2 * Math.min(placement.y, 1 - placement.y)
+  const byWidth = shape.widthPerSize > 0 ? roomX / shape.widthPerSize : Infinity
+  const byHeight = roomY / (shape.lines * TEXT_LINE_HEIGHT)
+  const cap = Math.floor(Math.min(byWidth, byHeight, MAX_TEXT_SIZE) * 10 ** RECT_DECIMALS) / 10 ** RECT_DECIMALS
+  return Math.max(MIN_TEXT_SIZE, cap)
+}
+
+/**
+ * The block moved by a fraction of the frame, its centre rounded to what the
+ * row's fields can show (`RECT_DECIMALS` — a text centre is the same kind of
+ * value in the same kind of field as a placement's edge) and kept on the
+ * frame; the size passes through untouched.
+ */
+export function movedTextBlock(
+  start: TextPlacement,
+  dx: number,
+  dy: number,
+  shape: TextBlockShape,
+): TextPlacement {
+  const { width, height } = textBlockExtent(start.size, shape)
+  return {
+    ...start,
+    x: clampedTextCentre(start.x + dx, width),
+    y: clampedTextCentre(start.y + dy, height),
+  }
+}
+
+/**
+ * The block with each axis pulled onto any alignment it came near — the
+ * free rectangle's own rule (`rectSnapOffset`): its edges flush to the
+ * frame's borders, or its centre onto the centre and thirds, whichever is
+ * nearest. Read off the block's box so a wide title snaps flush by its edge
+ * exactly as a placement does.
+ */
+export function snappedTextBlock(placement: TextPlacement, shape: TextBlockShape): TextPlacement {
+  const rect = textBlockRect(placement, shape)
+  return movedTextBlock(
+    placement,
+    rectSnapOffset(rect.x, rect.width),
+    rectSnapOffset(rect.y, rect.height),
+    shape,
+  )
+}
+
+/**
+ * The block resized from its corner dragged to `pointer`, about its centre:
+ * the zoom's gesture (`resizedZoom`), for the zoom's reason — the aspect is
+ * fixed, so one distance decides both dimensions, and the pointer's larger
+ * distance from the centre relative to the block's half-extent is the scale
+ * factor. Capped so the block stays on the frame about the centre it has,
+ * and clamped to the model's size range; the centre passes through.
+ */
+export function resizedTextBlock(
+  start: TextPlacement,
+  pointer: { x: number; y: number },
+  shape: TextBlockShape,
+): TextPlacement {
+  const { width, height } = textBlockExtent(start.size, shape)
+  const byX = width > 0 ? Math.abs(pointer.x - start.x) / (width / 2) : 0
+  const byY = height > 0 ? Math.abs(pointer.y - start.y) / (height / 2) : 0
+  const factor = Math.max(byX, byY)
+  return {
+    ...start,
+    size: clamp(
+      round(start.size * factor, RECT_DECIMALS),
+      MIN_TEXT_SIZE,
+      maxTextSizeAt(start, shape),
+    ),
+  }
+}
+
+/**
+ * The placement after a pointer gesture. A move snaps unless Alt bypasses
+ * it (#391's convention, as every editor here follows); a corner drag does
+ * not, because it holds the centre fixed by construction — the zoom's
+ * reasoning, unchanged. An edge cannot arrive (`TEXT_HANDLES` offers none),
+ * but the model is total over one rather than leaving a case for a later
+ * editor to trip over: for an aspect-locked, centre-fixed block an edge and
+ * a corner would mean the same thing, so they do.
+ */
+export function textAfterGesture(
+  start: TextPlacement,
+  gesture: RectGesture,
+  shape: TextBlockShape,
+): TextPlacement {
+  if (gesture.kind !== 'move') return resizedTextBlock(start, gesture, shape)
+  const moved = movedTextBlock(start, gesture.dx, gesture.dy, shape)
+  return gesture.altKey === true ? moved : snappedTextBlock(moved, shape)
+}
+
+/**
+ * The placement after one key press: an arrow nudges the centre by the
+ * shared step, unsnapped (a nudge is a deliberate 1 %); `+` / `−` step the
+ * type size by the field's own step, capped like a drag.
+ */
+export function textAfterKeyStep(
+  start: TextPlacement,
+  step: RectKeyStep,
+  shape: TextBlockShape,
+): TextPlacement {
+  if (step.kind === 'move') return movedTextBlock(start, step.dx, step.dy, shape)
+  const size = start.size + (step.delta > 0 ? TEXT_SIZE_STEP : -TEXT_SIZE_STEP)
+  return {
+    ...start,
+    size: clamp(round(size, RECT_DECIMALS), MIN_TEXT_SIZE, maxTextSizeAt(start, shape)),
+  }
+}
+
+/**
+ * The handles a text block offers: one corner (#424, "one corner handle for
+ * size"). Resizing is about the centre with the aspect fixed, so every
+ * corner would do the same thing and one says so; the bottom-right is the
+ * one a reader's eye ends a line at. No edges: with both dimensions driven
+ * by one size there is no "change this one dimension" for an edge to mean.
+ */
+export const TEXT_HANDLES: readonly RectHandle[] = ['se']
+
+/**
+ * The sequence time the text editor draws (#424): the middle of the
+ * overlay's own window, so the still shows the frame the text is actually
+ * over — the overlay editor's rule — clamped into the sequence, because a
+ * text window may run past the end (`textOverlay.ts`'s allowed tail) and
+ * there is no frame out there.
+ */
+export function textEditorSequenceTime(
+  state: TimelineState,
+  text: Pick<TextOverlay, 'offset' | 'duration'>,
+): number {
+  return clamp(text.offset + text.duration / 2, 0, Math.max(0, totalDuration(state)))
+}
+
+/**
+ * The still's cache key. Unlike the other editors, this one draws the effect
+ * it edits — the text is what is being placed, and nothing is bypassed — so
+ * a committed drag *does* change the picture, and the key carries every
+ * field the draw reads: the placement and the type as well as the identity.
+ * A move re-renders the still with the text in its new place, which is what
+ * lets the box be checked against the picture rather than trusted.
+ */
+export function textFrameKey(text: TextOverlay): string {
+  return [
+    text.id,
+    text.x,
+    text.y,
+    text.size,
+    text.font,
+    text.color,
+    text.bold ? 'b' : '',
+    text.italic ? 'i' : '',
+    text.offset,
+    text.duration,
+    text.fadeIn ?? 0,
+    text.fadeOut ?? 0,
+    text.content,
   ].join('#')
 }

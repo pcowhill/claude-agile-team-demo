@@ -79,6 +79,7 @@ import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { OverlayEditor } from './OverlayEditor'
+import { TextEditor } from './TextEditor'
 import { ZoomEditor } from './ZoomEditor'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
@@ -1424,6 +1425,9 @@ export function Timeline({
   // entry and an overlay are separate id spaces, and one editor is open at a
   // time because each renders a still of its own source.
   const [editingCropKey, setEditingCropKey] = useState<string | null>(null)
+  // Which text overlay's placement editor is open (#424) — session UI like
+  // the three above, and one at a time for the same reason.
+  const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -2760,6 +2764,7 @@ export function Timeline({
           <ol className="text-overlay-list" aria-label="Text overlays">
             {texts.map((text, index) => {
               const position = `text overlay at position ${index + 1}`
+              const editingText = editingTextId === text.id
               const set = (change: Partial<TextOverlaySpec>) =>
                 onUpdateText(text.id, { ...textSpecOf(text), ...change })
               return (
@@ -2841,6 +2846,21 @@ export function Timeline({
                       step={0.05}
                       onCommit={(y) => set({ y })}
                     />
+                    {visualEditors && (
+                      // The visual editor (#424): a toggle, so the same
+                      // button closes what it opened — the zoom's rule
+                      // (#413). Beside the centre fields it edits.
+                      <button
+                        type="button"
+                        className="timeline-adjust-button"
+                        aria-label={`Adjust the placement of ${position} visually`}
+                        aria-expanded={editingText}
+                        title="Drag the text block on a still of the frame"
+                        onClick={() => setEditingTextId(editingText ? null : text.id)}
+                      >
+                        Adjust visually…
+                      </button>
+                    )}
                     <span>Fade in</span>
                     <SecondsField
                       label={`Fade-in of ${position} in seconds`}
@@ -2902,6 +2922,15 @@ export function Timeline({
                       Italic
                     </label>
                   </div>
+                  {visualEditors && editingText && (
+                    <TextEditor
+                      timeline={timeline}
+                      text={text}
+                      position={position}
+                      onUpdate={(placement) => set(placement)}
+                      onClose={() => setEditingTextId(null)}
+                    />
+                  )}
                     </>
                   )}
                 </li>
