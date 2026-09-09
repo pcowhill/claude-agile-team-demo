@@ -21,6 +21,7 @@ import {
 } from '../lib/colorAdjustments'
 import type { Orientation } from '../lib/orientation'
 import type { Crop } from '../lib/crop'
+import type { CropSubject } from '../lib/frameEditor'
 import { DEFAULT_FILL_COLOR } from '../lib/backgroundFill'
 import type { BackgroundFill, BackgroundFillInput } from '../lib/backgroundFill'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../lib/shapeMask'
@@ -73,6 +74,7 @@ import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
+import { CropEditor } from './CropEditor'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
@@ -615,6 +617,13 @@ interface CropControlsProps {
   crop: Crop | undefined
   /** Receives the full crop on every edit; `{}` is the reset (#255). */
   onCommit: (crop: Crop) => void
+  /**
+   * The visual editor's toggle (#423), when the Visual editors setting has
+   * one to offer. A slot rather than a flag: the row knows where the button
+   * belongs — beside the fields it edits — and the caller knows what it
+   * does, exactly as the overlay row holds its own `Adjust visually…`.
+   */
+  adjust?: ReactNode
 }
 
 /**
@@ -627,7 +636,7 @@ interface CropControlsProps {
  * the item to its stored-key-free identity), and the fields snap back to
  * the stored state, so a clamp is visible rather than silent.
  */
-function CropControls({ position, crop, onCommit }: CropControlsProps) {
+function CropControls({ position, crop, onCommit, adjust }: CropControlsProps) {
   const percent = (value: number | undefined) => (value ?? 0) * 100
   const commit = (change: Partial<Record<keyof Crop, number>>) => {
     const next = {
@@ -673,6 +682,7 @@ function CropControls({ position, crop, onCommit }: CropControlsProps) {
       >
         Reset
       </button>
+      {adjust}
     </div>
   )
 }
@@ -1209,6 +1219,51 @@ export function Timeline({
    * Name, WCAG 2.5.3), and `aria-describedby` still hands the list to a
    * screen reader on focus.
    */
+  /**
+   * The Crop group's controls (#255) plus, where the Visual editors setting
+   * allows (#413), the `Adjust visually…` toggle and the panel it opens
+   * (#423). One builder for both wearers: an entry and a video overlay carry
+   * the same source description under the same names, so the editor takes
+   * either (`CropSubject`) and only the commit differs.
+   */
+  const cropGroupControls = (
+    key: string,
+    subject: CropSubject,
+    position: string,
+    commit: (crop: Crop) => void,
+  ) => {
+    const editing = editingCropKey === key
+    return (
+      <>
+        <CropControls
+          position={position}
+          crop={subject.crop}
+          onCommit={commit}
+          {...(visualEditors
+            ? {
+                adjust: (
+                  // A toggle, so the same button closes what it opened —
+                  // the zoom's rule (#413).
+                  <button
+                    type="button"
+                    className="timeline-adjust-button"
+                    aria-label={`Adjust the crop of ${position} visually`}
+                    aria-expanded={editing}
+                    title="Drag the kept region on a still of the source"
+                    onClick={() => setEditingCropKey(editing ? null : key)}
+                  >
+                    Adjust visually…
+                  </button>
+                ),
+              }
+            : {})}
+        />
+        {visualEditors && editing && (
+          <CropEditor subject={subject} position={position} onCommit={commit} onClose={() => setEditingCropKey(null)} />
+        )}
+      </>
+    )
+  }
   const pictureDisclosure = (
     id: string,
     position: string,
@@ -1364,6 +1419,11 @@ export function Timeline({
   // zoom's above and the collapse set (#299): never part of the project
   // model, the autosave snapshot, or the undo history.
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
+  // Which element's crop editor is open (#423), as `entry:<id>` or
+  // `overlay:<id>` — session UI like the two above. Prefixed because an
+  // entry and an overlay are separate id spaces, and one editor is open at a
+  // time because each renders a still of its own source.
+  const [editingCropKey, setEditingCropKey] = useState<string | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<{
     name: string
     consequence: string
@@ -1886,12 +1946,8 @@ export function Timeline({
                     {
                       name: 'Crop',
                       applied: entry.crop !== undefined,
-                      controls: (
-                        <CropControls
-                          position={position}
-                          crop={entry.crop}
-                          onCommit={(crop) => onSetEntryCrop(entry.id, crop)}
-                        />
+                      controls: cropGroupControls(`entry:${entry.id}`, entry, position, (crop) =>
+                        onSetEntryCrop(entry.id, crop),
                       ),
                     },
                     {
@@ -2668,12 +2724,11 @@ export function Timeline({
                     {
                       name: 'Crop',
                       applied: overlay.crop !== undefined,
-                      controls: (
-                        <CropControls
-                          position={position}
-                          crop={overlay.crop}
-                          onCommit={(crop) => onSetVideoOverlayCrop(overlay.id, crop)}
-                        />
+                      controls: cropGroupControls(
+                        `overlay:${overlay.id}`,
+                        overlay,
+                        position,
+                        (crop) => onSetVideoOverlayCrop(overlay.id, crop),
                       ),
                     },
                     {
