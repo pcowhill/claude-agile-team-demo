@@ -1,6 +1,7 @@
 import { sequenceTimeAt } from './playback'
-import { zoomsOf, zoomWindowDuration } from './timeline'
+import { totalDuration, videoOverlaysOf, zoomsOf, zoomWindowDuration } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
+import type { VideoOverlay } from './videoOverlay'
 import { zoomRampFraction, zoomStateAt } from './zoom'
 
 /**
@@ -26,15 +27,35 @@ export interface FrameRect {
 export type Corner = 'nw' | 'ne' | 'sw' | 'se'
 
 /**
+ * A single edge of a rectangle (#422): the handles of a model where one
+ * dimension changes and the other is left exactly as it was. A zoom's region
+ * is aspect-locked, so it offers corners only and never sees one of these.
+ */
+export type Edge = 'n' | 'e' | 's' | 'w'
+
+/** Any resize handle: a corner (both axes at once) or an edge (one). */
+export type RectHandle = Corner | Edge
+
+/**
  * What a pointer did to a rectangle, relative to the rectangle at the start
- * of the gesture: a move by an offset, or a corner dragged to a point.
- * `altKey` is the raw modifier rather than an interpretation of it — the
- * component reports what the pointer did, and each handle model decides
- * what Alt means for it (#421: the zoom's model bypasses snapping).
+ * of the gesture: a move by an offset, or a handle dragged to a point.
+ * `altKey` and `shiftKey` are the raw modifiers rather than an
+ * interpretation of them — the component reports what the pointer did, and
+ * each handle model decides what they mean for it (#421: the zoom's model
+ * bypasses snapping with Alt; #422: the free rectangle locks its aspect
+ * with Shift).
  */
 export type RectGesture =
-  | { kind: 'move'; dx: number; dy: number; altKey?: boolean }
-  | { kind: 'corner'; corner: Corner; x: number; y: number; altKey?: boolean }
+  | { kind: 'move'; dx: number; dy: number; altKey?: boolean; shiftKey?: boolean }
+  | {
+      kind: 'corner'
+      corner: Corner
+      x: number
+      y: number
+      altKey?: boolean
+      shiftKey?: boolean
+    }
+  | { kind: 'edge'; edge: Edge; x: number; y: number; altKey?: boolean; shiftKey?: boolean }
 
 /**
  * What one key press means for the rectangle (#421). Separate from
@@ -196,7 +217,12 @@ export function zoomGuides(zoom: Pick<ZoomSpec, 'centerX' | 'centerY'>): {
  * region forces, which is not something the user aimed at.
  */
 export function zoomAfterGesture(start: ZoomSpec, gesture: RectGesture): ZoomSpec {
-  if (gesture.kind === 'corner') return resizedZoom(start, gesture)
+  // Every resize is one gesture for a zoom, whichever handle was pulled: its
+  // region is aspect-locked and centre-fixed, so a corner and an edge would
+  // do the same thing. The component offers a zoom only corners (#422's
+  // `handles`), so `edge` does not arrive today — but `resizedZoom` is total
+  // over both rather than leaving a case for a later editor to trip over.
+  if (gesture.kind !== 'move') return resizedZoom(start, gesture)
   const moved = movedZoom(start, gesture.dx, gesture.dy)
   return gesture.altKey === true ? moved : snappedZoom(moved)
 }
@@ -329,6 +355,381 @@ export function zoomRectAt(zoom: ZoomSpec, entryOffset: number): FrameRect {
  */
 export function zoomIsFullAt(zoom: ZoomSpec, entryOffset: number): boolean {
   return zoomRampFraction(zoom, entryOffset - zoom.start) === 1
+}
+
+/**
+ * ── The free rectangle (#422, from #402's design D4) ──────────────────────
+ *
+ * An overlay's placement is a rectangle in frame fractions with no aspect
+ * lock (`src/lib/videoOverlay.ts`), so it needs a different handle model
+ * from the zoom's: it moves, and it resizes from a corner (both axes) or an
+ * edge (one), each holding the *opposite* edge fixed rather than the centre.
+ * That is the difference the two models exist to express — a zoom edits one
+ * region whose shape is forced, an overlay edits a box.
+ *
+ * The functions below are deliberately free of overlay vocabulary so #423's
+ * crop and #424's text block can reuse them: they speak of a `FrameRect` and
+ * the `RectBounds` it must stay inside.
+ */
+
+/**
+ * Every handle a free rectangle offers (#422): the four corners, which move
+ * both axes, and the four edges, which move one. Exported as the set rather
+ * than assembled at each call site so the editors and their tests agree
+ * about what "a free rectangle" means.
+ */
+export const FREE_RECT_HANDLES: readonly RectHandle[] = [
+  'nw',
+  'ne',
+  'sw',
+  'se',
+  'n',
+  'e',
+  's',
+  'w',
+]
+
+/** The size range a free rectangle is held inside, as fractions of the frame. */
+export interface RectBounds {
+  /** Smallest allowed width and height — an overlay's `MIN_OVERLAY_SIZE`. */
+  minSize: number
+  /** Largest allowed width and height. */
+  maxSize: number
+}
+
+/**
+ * The rectangle a placement occupies. Trivial, and named so the editors read
+ * the same way the zoom's `zoomRect` does rather than inlining field picks.
+ */
+export function overlayRect(
+  placement: Pick<VideoOverlay, 'x' | 'y' | 'width' | 'height'>,
+): FrameRect {
+  const { x, y, width, height } = placement
+  return { x, y, width, height }
+}
+
+/**
+ * How precisely a placement is stored: to a hundredth of the frame, which is
+ * exactly what the row's number fields can express (`formatSeconds` in
+ * `Timeline.tsx` shows at most two decimals) and exactly one arrow-key nudge
+ * (`ZOOM_NUDGE`).
+ *
+ * This matters rather than being a detail. The drag and the four number
+ * fields are two halves of one control — the issue's "the fields mirror the
+ * drag live" — so a drag that stored a third decimal would put a value in
+ * the model that its own mirror cannot hold, and the next commit from that
+ * field would silently rewrite it. Two decimals makes the two exactly
+ * interchangeable.
+ */
+const RECT_DECIMALS = 2
+
+/**
+ * The most a stored placement can differ from the value that produced it —
+ * half of `RECT_DECIMALS`'s last digit, widened by a float's worth for the
+ * reason `ZOOM_SNAP_TOLERANCE` is.
+ *
+ * It exists because a rectangle whose size is an odd number of hundredths
+ * cannot have its centre on an alignment exactly: a 0.35-wide box centred on
+ * 0.5 needs `x = 0.325`, which stores as 0.33 and leaves the centre at
+ * 0.505. Snapping to the frame's own borders *is* exact (0 and 1 are
+ * representable at any precision); snapping a centre is exact only to this,
+ * so a guide is drawn when the centre is this close and not only when it is
+ * equal — otherwise a snap the user can see would light no guide at all.
+ */
+const RECT_EPSILON = 0.5 * 10 ** -RECT_DECIMALS + 1e-9
+
+/**
+ * The rectangle the reducer would keep: size into its bounds first, then
+ * position into what the size leaves — the order `clampVideoOverlay` uses,
+ * so the editor never proposes a placement the model would move underneath
+ * it. Rounded at the same time, and the position is clamped *against the
+ * rounded size*, so rounding cannot push a flush rectangle a hair off the
+ * frame and make the reducer clamp it back.
+ */
+export function clampedRect(rect: FrameRect, bounds: RectBounds): FrameRect {
+  const width = round(clamp(rect.width, bounds.minSize, bounds.maxSize), RECT_DECIMALS)
+  const height = round(clamp(rect.height, bounds.minSize, bounds.maxSize), RECT_DECIMALS)
+  return {
+    x: round(clamp(rect.x, 0, 1 - width), RECT_DECIMALS),
+    y: round(clamp(rect.y, 0, 1 - height), RECT_DECIMALS),
+    width,
+    height,
+  }
+}
+
+/** The rectangle moved by a fraction of the frame, kept fully on it. */
+export function movedRect(
+  start: FrameRect,
+  dx: number,
+  dy: number,
+  bounds: RectBounds,
+): FrameRect {
+  return clampedRect({ ...start, x: start.x + dx, y: start.y + dy }, bounds)
+}
+
+/**
+ * The rectangle after a handle was dragged to `pointer`, with the opposite
+ * edge held fixed — the conventional free-rectangle resize, and the reason
+ * an edge drag can change one dimension and leave the other untouched
+ * (which centre-fixed resizing cannot express).
+ *
+ * `lockRatio` is a width ÷ height in *frame fractions*; when given, the
+ * dragged corner keeps it. **Width drives**, deliberately: "whichever axis
+ * moved further" makes a slow diagonal drag flip between axes mid-gesture.
+ * Where the ratio and the frame genuinely conflict the frame wins — a
+ * rectangle off the frame is not a placement — but the fit below shrinks
+ * about the fixed corner first, so that only happens for a ratio no size in
+ * `bounds` can satisfy.
+ */
+export function resizedRect(
+  start: FrameRect,
+  handle: RectHandle,
+  pointer: { x: number; y: number },
+  bounds: RectBounds,
+  lockRatio?: number,
+): FrameRect {
+  const pullsWest = handle.includes('w')
+  const pullsEast = handle.includes('e')
+  const pullsNorth = handle.includes('n')
+  const pullsSouth = handle.includes('s')
+
+  // The edge the drag does not move; the new size is measured from it.
+  const anchorX = pullsWest ? start.x + start.width : start.x
+  const anchorY = pullsNorth ? start.y + start.height : start.y
+  // How much frame there is between that edge and the border it grows toward.
+  const roomX = pullsWest ? anchorX : 1 - anchorX
+  const roomY = pullsNorth ? anchorY : 1 - anchorY
+
+  const sizeFrom = (
+    pulls: boolean,
+    anchor: number,
+    towardsOrigin: boolean,
+    reach: number,
+    room: number,
+    fallback: number,
+  ) => {
+    if (!pulls) return fallback
+    const raw = towardsOrigin ? anchor - reach : reach - anchor
+    return clamp(raw, bounds.minSize, Math.min(bounds.maxSize, room))
+  }
+
+  let width = sizeFrom(
+    pullsWest || pullsEast,
+    anchorX,
+    pullsWest,
+    pointer.x,
+    roomX,
+    start.width,
+  )
+  let height = sizeFrom(
+    pullsNorth || pullsSouth,
+    anchorY,
+    pullsNorth,
+    pointer.y,
+    roomY,
+    start.height,
+  )
+
+  // A non-finite ratio is unreachable — `clampedRect` and the reducer both
+  // hold a height at `minSize`, so no caller can divide by zero — but the
+  // guard costs a clause and an Infinity here would silently collapse the
+  // other axis to the floor rather than failing.
+  if (
+    lockRatio !== undefined &&
+    Number.isFinite(lockRatio) &&
+    lockRatio > 0 &&
+    (pullsWest || pullsEast)
+  ) {
+    // The largest ratio-preserving width that fits both axes' room, then the
+    // height it forces. `Math.max` against `minSize` keeps a cap smaller than
+    // the floor from proposing a negative size; `clampedRect` is the backstop
+    // for the case where no size satisfies both.
+    const cap = Math.min(bounds.maxSize, roomX, Math.min(bounds.maxSize, roomY) * lockRatio)
+    width = clamp(width, bounds.minSize, Math.max(bounds.minSize, cap))
+    height = width / lockRatio
+  }
+
+  return clampedRect(
+    {
+      x: pullsWest ? anchorX - width : anchorX,
+      y: pullsNorth ? anchorY - height : anchorY,
+      width,
+      height,
+    },
+    bounds,
+  )
+}
+
+/**
+ * The alignments a moved rectangle's *centre* is pulled onto, beside the
+ * frame's own borders — deliberately
+ * the zoom's own targets (`ZOOM_SNAP_TARGETS`), so the two editors agree
+ * about where the interesting places in a frame are, and one list changes
+ * both.
+ */
+export const RECT_SNAP_CENTRES: readonly number[] = ZOOM_SNAP_TARGETS
+
+/**
+ * How far one axis of a moved rectangle should be nudged to land on the
+ * nearest alignment within `ZOOM_SNAP_TOLERANCE`, or 0 when nothing is near.
+ * Three kinds of alignment compete on equal terms — the near edge flush to
+ * the frame, the far edge flush to it, and the centre on a third or the
+ * middle — and the nearest wins, so a small rectangle in a corner snaps to
+ * the corner rather than being dragged to the centre line.
+ *
+ * The reach is widened by a float's worth for the reason `snapTarget` above
+ * is: a tolerance that excludes its own boundary is one nobody can reason
+ * about. Strict `<` keeps the first-listed alignment on an exact tie.
+ */
+function rectSnapOffset(low: number, size: number): number {
+  const high = low + size
+  const centre = low + size / 2
+  let best = 0
+  let bestDistance = ZOOM_SNAP_TOLERANCE + 1e-9
+  const consider = (delta: number) => {
+    const distance = Math.abs(delta)
+    if (distance < bestDistance) {
+      best = delta
+      bestDistance = distance
+    }
+  }
+  // The frame's own two borders — not a tunable list: 0 and 1 are what
+  // "flush to the frame" means. An overlay is more often parked in a corner
+  // than placed in the middle, and flush is a value nobody hits by hand.
+  consider(0 - low)
+  consider(1 - high)
+  for (const target of RECT_SNAP_CENTRES) consider(target - centre)
+  return best
+}
+
+/** The rectangle with each axis pulled onto any alignment it came near. */
+export function snappedRect(rect: FrameRect, bounds: RectBounds): FrameRect {
+  return clampedRect(
+    {
+      ...rect,
+      x: rect.x + rectSnapOffset(rect.x, rect.width),
+      y: rect.y + rectSnapOffset(rect.y, rect.height),
+    },
+    bounds,
+  )
+}
+
+/**
+ * Which alignments the rectangle is sitting on — what the editor draws while
+ * a drag is in progress. Read from the rectangle itself rather than
+ * remembered from the snap that produced it, exactly as `zoomGuides` is and
+ * for the same reason: a rectangle the clamp moved back must not still show
+ * the guide it was aimed at, and a placement *typed* into the row's fields
+ * lights the same guide a dragged one does.
+ *
+ * An edge flush to the frame wins over a centre alignment, since a
+ * full-frame rectangle satisfies both and the flush edge is the one the
+ * drag was reaching for.
+ */
+export function rectGuides(rect: FrameRect): { x: number | null; y: number | null } {
+  // Compared to within the precision a placement is *stored* at, not exactly
+  // (see `RECT_EPSILON`): a centre snapped onto a third stores 0.33 and onto
+  // the middle can store 0.505, and an equality test would drop the guide
+  // the snap just earned. Each alignment still has exactly one storable
+  // value this close to it, so no guide is ever drawn for a near miss.
+  const on = (a: number, b: number) => Math.abs(a - b) <= RECT_EPSILON
+  const axis = (low: number, size: number): number | null => {
+    if (on(low, 0)) return 0
+    if (on(low + size, 1)) return 1
+    const centre = low + size / 2
+    return RECT_SNAP_CENTRES.find((target) => on(target, centre)) ?? null
+  }
+  return { x: axis(rect.x, rect.width), y: axis(rect.y, rect.height) }
+}
+
+/**
+ * The rectangle after a pointer gesture. A move snaps unless Alt bypasses it
+ * (#391's convention, as the zoom's model follows). A resize does not snap:
+ * dragging a handle past the border already lands it flush, because the
+ * clamp is the frame — so a snap there would only fight the clamp.
+ *
+ * Shift locks the aspect on a **corner** drag only. On an edge drag it is
+ * ignored on purpose: an edge handle's whole meaning is "change this one
+ * dimension", and a modifier that made it change both would contradict the
+ * handle the user chose.
+ */
+export function rectAfterGesture(
+  start: FrameRect,
+  gesture: RectGesture,
+  bounds: RectBounds,
+  lockRatio?: number,
+): FrameRect {
+  if (gesture.kind === 'move') {
+    const moved = movedRect(start, gesture.dx, gesture.dy, bounds)
+    return gesture.altKey === true ? moved : snappedRect(moved, bounds)
+  }
+  if (gesture.kind === 'edge') {
+    return resizedRect(start, gesture.edge, gesture, bounds)
+  }
+  const locked = gesture.shiftKey === true ? lockRatio : undefined
+  return resizedRect(start, gesture.corner, gesture, bounds, locked)
+}
+
+/**
+ * How much one `+` / `−` press changes a free rectangle's width, as a
+ * fraction of the frame (#422). Additive rather than the zoom's
+ * multiplicative magnification, so `+` and `−` are exact inverses and a
+ * press is the same size wherever the rectangle already is.
+ */
+export const RECT_SIZE_STEP = 0.02
+
+/**
+ * The rectangle after one key press: an arrow nudges it by the same fraction
+ * the zoom's does, and `+` / `−` grow or shrink it **about its centre**,
+ * keeping the proportions it currently has — the sign of the zoom's scale
+ * step, not its magnitude (see `RECT_SIZE_STEP`). Growing an overlay on `+`
+ * is the opposite of what `+` does to a zoom's region, and is the right way
+ * round in both cases: the key makes the thing being edited bigger.
+ */
+export function rectAfterKeyStep(
+  start: FrameRect,
+  step: RectKeyStep,
+  bounds: RectBounds,
+): FrameRect {
+  if (step.kind === 'move') return movedRect(start, step.dx, step.dy, bounds)
+  const width = start.width + (step.delta > 0 ? RECT_SIZE_STEP : -RECT_SIZE_STEP)
+  const height = start.height === 0 ? 0 : width * (start.height / start.width)
+  return clampedRect(
+    {
+      x: start.x + (start.width - width) / 2,
+      y: start.y + (start.height - height) / 2,
+      width,
+      height,
+    },
+    bounds,
+  )
+}
+
+/**
+ * The sequence time the overlay editor draws (#422): the middle of the
+ * overlay's own window, so the still shows the frame the overlay is actually
+ * over rather than whatever is at the sequence's start. Clamped into the
+ * sequence, because an overlay's window may run past the end (the
+ * allowed-tail rule, `videoOverlay.ts`) and there is no frame out there.
+ */
+export function overlayEditorSequenceTime(
+  state: TimelineState,
+  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint'>,
+): number {
+  const middle = overlay.offset + (overlay.outPoint - overlay.inPoint) / 2
+  return clamp(middle, 0, Math.max(0, totalDuration(state)))
+}
+
+/**
+ * The timeline with one overlay left out, for the editor's snapshot: the
+ * rectangle is drawn on the frame *without* this overlay, so it shows where
+ * the overlay will sit rather than covering the picture it is being placed
+ * against. Same reference when the id is unknown — `withoutZoom`'s rule.
+ */
+export function withoutOverlay(state: TimelineState, overlayId: string): TimelineState {
+  const overlays = videoOverlaysOf(state)
+  if (!overlays.some((overlay) => overlay.id === overlayId)) return state
+  return { ...state, videoOverlays: overlays.filter((overlay) => overlay.id !== overlayId) }
 }
 
 /**

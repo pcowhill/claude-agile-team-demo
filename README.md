@@ -159,6 +159,9 @@ each with its own start time, trim, fractional placement rectangle, and
 volume/mute, shown in the preview above the base video — and composited the
 same way into the exported file, overlay audio in the mix (#146); an image
 overlay draws into the file the same way, with no audio to mix (#295).
+The placement rectangle can also be dragged on a still of the frame rather
+than typed, with the mask silhouette shown (#422 — see the visual editors
+below).
 An overlay also takes a shape mask (#266): clip its placed rectangle to an
 inscribed ellipse (a circle when square — the webcam-bubble look) or a
 rounded rectangle with a chosen corner radius, edited in the overlay row's
@@ -347,6 +350,22 @@ as far) and + / − change the magnification by 0.1, each press its own undo
 step. **Show result** swaps the picture for the frame the viewer gets at
 that instant — the zoom applied rather than bypassed, and no region drawn
 over it.
+An overlay's placement has the same visual editor (#422): **Adjust
+visually…** beside its Rect fields draws the overlay's rectangle on a still
+of the frame it sits over — taken at the middle of the overlay's own window,
+with that overlay left out, so the rectangle marks where it will go rather
+than covering the picture it is being placed against. Drag inside to move
+it; drag a corner to resize both dimensions, or an edge to change just one,
+which is what a placement can do and an aspect-locked zoom region cannot.
+Hold Shift on a corner to keep the rectangle's proportions. Moving it snaps
+the rectangle flush to the frame's own borders and its centre onto the
+centre and thirds — an overlay is more often parked in a corner than placed
+in the middle — with the same guide lines and the same Alt bypass the zoom
+editor uses, and the arrow keys nudge it while + / − resize it, each press
+its own undo step. Where the overlay carries a shape mask, the silhouette it
+will really be painted in is outlined inside the rectangle, so a bubble is
+placed as a bubble. The four number fields mirror every drag live and a
+whole gesture is one undo step, exactly as for a zoom.
 The export modal shows the output settings it will use — width, height, and
 frame rate, pre-filled with the automatic source-derived values — and lets
 them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
