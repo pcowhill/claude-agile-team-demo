@@ -30,6 +30,21 @@ worse than no test, because it manufactures false confidence.
 - A PR with failing required checks is never merged.
 - Flaky tests are bugs: file an issue, and fix or quarantine them
   deliberately — never by deleting coverage to get green.
+- **Never read a value once, straight after a synthetic input.** A browser
+  driver's `keyboard.press` or `mouse.up` resolves when the event has been
+  *dispatched*, not when the framework has committed the render it causes,
+  so a bare `inputValue()` on the next line can read the previous render.
+  Assert with an auto-retrying matcher instead — `expect(locator)
+  .toHaveValue(…)`, or `expect.poll` where the comparison is numeric or
+  derived — and when two values must agree with each other, read both
+  **inside one poll**, so they come from the same render. Once a retrying
+  assertion has observed the commit, one-shot reads of that same render are
+  fine. The race hides under low load, which is why it is a rule and not a
+  fix in one file: #444's spec passed alone and in three full-suite runs,
+  then failed the first run that carried one more test (#446's spec, which
+  had independently written the same shape). Measured on that spec with
+  `npx playwright test e2e/crop-editor.spec.ts --workers=2 --repeat-each=5`:
+  **2 failed** before the reads were polled, **0 of 20** after (#449).
 - Never claim checks passed without CI evidence or an actual local run — and
   a local run is evidence only for the tree it ran on, which must be the
   tree that was pushed (see "Pull Requests" in `development.md`).
