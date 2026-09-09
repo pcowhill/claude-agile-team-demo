@@ -118,8 +118,19 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
     x: start.x - frameBox.width * 0.2,
     y: start.y - frameBox.height * 0.2,
   })
-  expect(Math.abs(Number(await left(page).inputValue()) - 0.42)).toBeLessThan(0.005)
-  expect(Math.abs(Number(await top(page).inputValue()) - 0.42)).toBeLessThan(0.005)
+  // Polled, not read once: a driver's release resolves on dispatch, not on
+  // React's commit, so a bare read can see the pre-drag render
+  // (`quality-and-ci.md`, #449). The same tolerance, retried.
+  await expect
+    .poll(async () => Math.abs(Number(await left(page).inputValue()) - 0.42), {
+      message: 'left edge after the drag',
+    })
+    .toBeLessThan(0.005)
+  await expect
+    .poll(async () => Math.abs(Number(await top(page).inputValue()) - 0.42), {
+      message: 'top edge after the drag',
+    })
+    .toBeLessThan(0.005)
   // A move is not a resize.
   await expect(boxWidth(page)).toHaveValue('0.35')
   await expect(boxHeight(page)).toHaveValue('0.35')
@@ -134,7 +145,11 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
     x: frameBox.x + frameBox.width * 0.42,
     y: (await centreOf(region)).y,
   })
-  expect(Math.abs(Number(await boxWidth(page).inputValue()) - 0.55)).toBeLessThan(0.02)
+  await expect
+    .poll(async () => Math.abs(Number(await boxWidth(page).inputValue()) - 0.55), {
+      message: 'width after the edge drag',
+    })
+    .toBeLessThan(0.02)
   await expect(boxHeight(page)).toHaveValue('0.35')
   await expect(top(page)).toHaveValue('0.62')
 
@@ -174,13 +189,20 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   // a placement is stored to the hundredth its own field can express
   // (`RECT_EPSILON`). The guide above is drawn for exactly this reason.
   await expect(left(page)).toHaveValue('0.33')
-  expect(
-    Math.abs(
-      Number(await left(page).inputValue()) +
-        Number(await boxWidth(page).inputValue()) / 2 -
-        0.5,
-    ),
-  ).toBeLessThanOrEqual(0.005 + 1e-9)
+  // Two values that must agree, read inside one poll so both come from the
+  // same render (#449) — the retrying assertion above has already seen the
+  // commit, so this settles on its first sample; the shape is the point.
+  await expect
+    .poll(
+      async () =>
+        Math.abs(
+          Number(await left(page).inputValue()) +
+            Number(await boxWidth(page).inputValue()) / 2 -
+            0.5,
+        ),
+      { message: 'the centre against the middle of the frame' },
+    )
+    .toBeLessThanOrEqual(0.005 + 1e-9)
 
   // Keyboard: one nudge, one undo step.
   //
@@ -227,6 +249,10 @@ test('Shift on a corner keeps the proportions, and the mask silhouette is drawn 
     { x: frameBox.x + frameBox.width * 0.8, y: frameBox.y + frameBox.height * 0.95 },
     'Shift',
   )
+  // Wait for the commit through a retrying assertion, then read the settled
+  // render once for the three comparisons below (#449): the width was 0.3
+  // and the drag can only have grown it.
+  await expect(boxWidth(page)).not.toHaveValue('0.3')
   const width = Number(await boxWidth(page).inputValue())
   const height = Number(await boxHeight(page).inputValue())
   expect(width).toBeGreaterThan(0.3)
