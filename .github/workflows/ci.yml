@@ -69,6 +69,28 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
+      # The runner image ships an apt source for Google Chrome, and
+      # `install-deps` runs `apt-get update`, so every Playwright job depends
+      # on a third-party index it has no use for: Chromium's system libraries
+      # come from Ubuntu's own archives, and that list is there for the
+      # preinstalled browser. On 2026-09-09 dl.google.com served a
+      # `Packages.gz` that did not match the SHA256 in its own `InRelease`,
+      # apt failed the whole update, and `install-deps` exited 100 twenty-five
+      # seconds into the job — on every PR at once (#447).
+      #
+      # This is NOT the fault the two retry steps below handle. Those exist
+      # for an apt that hangs or dies holding the lock (#85, #89), so they
+      # kill the leader, repair dpkg state and fetch again. Fetching again is
+      # exactly what cannot fix a corrupt index: the re-run of #447's failed
+      # job returned the same two hashes. Removing the source is the only
+      # move that helps, and it is safe — it uninstalls nothing, and matches
+      # nothing (a silent no-op) on an image that stops shipping the list.
+      - name: Drop the Google Chrome apt source
+        run: |
+          grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null \
+            | xargs -r sudo rm -f
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+
       # Split from the browser download so a hang is attributable to one
       # half or the other; apt is quick since ubuntu-latest already carries
       # most of Playwright's system dependencies. Quick when it works, that
