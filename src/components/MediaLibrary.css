@@ -51,6 +51,27 @@
   overflow-y: auto;
 }
 
+/* A small gap between the items and the scrollbar (#460, feedback #457),
+   about the grid's own spacing, while the list scrolls — MediaLibrary.tsx
+   measures the overflow and sets the class. Both views: the rows are flex
+   items and the cards grid tracks, and each recomputes inside the narrower
+   content box, so the cards stay equal. With no scrollbar the rows' right
+   edge stays flush with the header's, exactly as before. */
+.clip-list-scrolls {
+  padding-right: 0.4rem;
+}
+
+/* The gap is taken from the name's floor, not from the row's fit. At 1280px
+   the list row has zero slack — measured: 349.8px of content, 350.1px
+   wanted with the 5rem floor (the boundary the .clip-name-wrap comment
+   below describes) — so 6.4px less width would wrap every row onto a second
+   line. The floor is what decides that fit, so it gives up the same 0.4rem
+   while the list scrolls: the row's min-content is unchanged at every width,
+   and a long name at the boundary ellipsizes 6px sooner. */
+.clip-list-scrolls .clip-name-wrap {
+  min-width: 4.6rem;
+}
+
 .clip-item {
   display: flex;
   /* Wrapping caps the row's min-content at its widest single item instead
