@@ -50,9 +50,13 @@ export interface AppSettings {
   exportFormat: string
   /**
    * Whether the visual editors are offered (#413, from #402): the Adjust
-   * visually… buttons beside a zoom's fields, which render a still of the
-   * frame to drag on. Off hides the buttons and so never renders a frame —
-   * the customer asked for the switch because of that render cost.
+   * visually… buttons beside the fields they stand in for, which render a
+   * still of the frame to drag on. Off hides the buttons and so never
+   * renders a frame — the customer asked for the switch because of that
+   * render cost. One switch covers every editor there is, so this says
+   * "the fields" rather than naming them: it was written for the zoom
+   * alone (#413) and went stale three times over as the placement (#422),
+   * crop (#423) and text (#424) editors joined it (#453).
    */
   visualEditors: boolean
 }
