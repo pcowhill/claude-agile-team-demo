@@ -4,6 +4,8 @@ import {
   SNAP_FALLBACK_THRESHOLD_SECONDS,
   SNAP_PIXELS,
   STEP_SECONDS,
+  loopPlayStart,
+  loopWrapTarget,
   modalDialogOpen,
   nextBoundary,
   previousBoundary,
@@ -13,6 +15,7 @@ import {
   targetClaimsKeys,
   transportActionForKey,
 } from './transport'
+import { markedExportRange } from './exportVideo'
 
 const key = (
   k: string,
@@ -230,6 +233,54 @@ describe('snapToBoundary and its threshold (#391)', () => {
     // fixed fallback rather than no snapping at all.
     expect(snapThresholdSeconds(20, 0)).toBe(SNAP_FALLBACK_THRESHOLD_SECONDS)
     expect(snapThresholdSeconds(0, 400)).toBe(SNAP_FALLBACK_THRESHOLD_SECONDS)
+  })
+})
+
+describe('loopWrapTarget / loopPlayStart (#459)', () => {
+  const span = { start: 2, end: 8 }
+
+  it('wraps to the mark-in the moment the position reaches the mark-out, not before', () => {
+    expect(loopWrapTarget(7.99, span, 10)).toBeNull()
+    expect(loopWrapTarget(8, span, 10)).toBe(2)
+    expect(loopWrapTarget(8.5, span, 10)).toBe(2)
+    // Float noise on the boundary counts as reached (half-open at the end).
+    expect(loopWrapTarget(8 - 1e-9, span, 10)).toBe(2)
+  })
+
+  it('without a valid span, wraps the whole sequence at its end', () => {
+    expect(loopWrapTarget(9.99, null, 10)).toBeNull()
+    expect(loopWrapTarget(10, null, 10)).toBe(0)
+    expect(loopWrapTarget(10.5, null, 10)).toBe(0)
+  })
+
+  it('a span ending at the sequence end wraps there to the mark-in, not to 0', () => {
+    expect(loopWrapTarget(10, { start: 4, end: 10 }, 10)).toBe(4)
+  })
+
+  it('validity is not its concern: the caller passes markedExportRange\'s answer', () => {
+    // An inverted pair reaches it as null, and so loops the whole sequence.
+    expect(markedExportRange(8, 2, 10)).toBeNull()
+    expect(loopWrapTarget(10, markedExportRange(8, 2, 10), 10)).toBe(0)
+    expect(loopWrapTarget(8, markedExportRange(2, 8, 10), 10)).toBe(2)
+  })
+
+  it('Play starts from the mark-in when the playhead is outside the span', () => {
+    expect(loopPlayStart(0, span, 10)).toBe(2)
+    expect(loopPlayStart(1.99, span, 10)).toBe(2)
+    expect(loopPlayStart(8, span, 10)).toBe(2)
+    expect(loopPlayStart(9, span, 10)).toBe(2)
+  })
+
+  it('Play inside the span starts where the playhead is', () => {
+    expect(loopPlayStart(2, span, 10)).toBe(2)
+    expect(loopPlayStart(5.5, span, 10)).toBe(5.5)
+    expect(loopPlayStart(7.99, span, 10)).toBe(7.99)
+  })
+
+  it('Play without a span keeps its old rule: only the sequence end restarts from 0', () => {
+    expect(loopPlayStart(0, null, 10)).toBe(0)
+    expect(loopPlayStart(5.5, null, 10)).toBe(5.5)
+    expect(loopPlayStart(10, null, 10)).toBe(0)
   })
 })
 

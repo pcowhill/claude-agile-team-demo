@@ -429,7 +429,11 @@ whole project (#385), in every format, GIF and MP3 included. A range
 boundary inside a transition or effect exports exactly what the preview
 shows at that instant — mid-blend if that is where the mark sits, no
 snapping. Marks are session-only: they are never saved into the project
-file and are gone after a reload.
+file and are gone after a reload. The ↻ **Loop** toggle beside the marks
+plays the marked range on repeat (#459): reaching the mark-out jumps back to
+the mark-in and keeps going until you pause, Play from outside the range
+starts at the mark-in, and with no valid range marked the whole sequence
+loops instead of stopping at its end. Loop is session-only like the marks.
 File ▾ → Plugins… opens the plugin manager (#197): optional built-in
 features ship as lazy-loaded modules that download only when enabled, keeping
 the default editor lightweight (see
