@@ -337,3 +337,101 @@ test('the editor fits the timeline panel at the narrow width too, and the settin
   await expect(adjust).toHaveCount(0)
   await expect(editor).toHaveCount(0)
 })
+
+/** A real 1.5 s WebM (320×180), recorded in-page — a source that has to be decoded, unlike the PNG above. */
+async function recordWebm(page: Page): Promise<Buffer> {
+  const webmBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 320
+    canvas.height = 180
+    const ctx = canvas.getContext('2d')!
+    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' })
+    const chunks: Blob[] = []
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data)
+    }
+    const stopped = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve()
+    })
+    recorder.start()
+    const start = performance.now()
+    await new Promise<void>((resolve) => {
+      const draw = () => {
+        const elapsed = performance.now() - start
+        ctx.fillStyle = '#123'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        // A box that crosses the frame, so every instant is its own picture.
+        ctx.fillStyle = '#fc3'
+        ctx.fillRect((elapsed / 1500) * 260, 60, 60, 60)
+        if (elapsed > 1500) resolve()
+        else requestAnimationFrame(draw)
+      }
+      draw()
+    })
+    recorder.stop()
+    await stopped
+    const buffer = await new Blob(chunks, { type: 'video/webm' }).arrayBuffer()
+    let binary = ''
+    for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
+    return btoa(binary)
+  })
+  return Buffer.from(webmBase64, 'base64')
+}
+
+test('scrubbing a real clip across many stops lands the last still promptly, in Show result mode (#458)', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: await recordWebm(page) }])
+  const clipPosition = 'clip.webm at position 1'
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await chooseEffect(page, clipPosition, 'Zoom')
+  await page.getByRole('button', { name: `Adjust Zoom 1 of ${clipPosition} visually` }).click()
+  const editor = page.getByRole('dialog', { name: `Adjust Zoom 1 of ${clipPosition}` })
+  const image = editor.getByTestId('frame-editor-image')
+  const updating = editor.getByTestId('frame-editor-updating')
+  await expect(image).toBeVisible()
+  await expect
+    .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth))
+    .toBeGreaterThan(0)
+
+  // The customer's report (#425) was in Show result mode, where every stop is
+  // a distinct picture; its first still has to be up before the drag starts,
+  // so what is measured is the drag alone.
+  await editor.getByRole('checkbox', { name: 'Show result' }).check()
+  await expect(updating).toHaveCount(0)
+  const slider = editor.getByRole('slider', {
+    name: `Preview time of Zoom 1 of ${clipPosition} in seconds`,
+  })
+  const valueBefore = await slider.inputValue()
+  const srcBefore = await image.getAttribute('src')
+
+  // Drag the thumb across the whole slider in two dozen moves: a couple of
+  // dozen instants asked for inside a second, each a real decode of the clip.
+  const box = (await slider.boundingBox())!
+  await page.mouse.move(box.x + 4, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2, { steps: 24 })
+  await page.mouse.up()
+  const released = Date.now()
+  await expect(slider).not.toHaveValue(valueBefore)
+
+  // The still for where the slider stopped is on screen — a new picture, and
+  // nothing further on order. Before #458 every stop the drag passed rendered
+  // in full, each with its own freshly loaded copy of the clip, and the last
+  // one landed only after all of them.
+  await expect(image).not.toHaveAttribute('src', srcBefore ?? '', { timeout: 10_000 })
+  await expect(updating).toHaveCount(0)
+  const settledAfter = Date.now() - released
+  testInfo.annotations.push({
+    type: 'measured',
+    description: `last still shown ${settledAfter} ms after the slider was released`,
+  })
+  expect(
+    settledAfter,
+    `the last still took ${settledAfter} ms to arrive after the slider was released`,
+  ).toBeLessThan(500)
+  await editor.screenshot({ path: testInfo.outputPath('zoom-editor-after-scrub.png') })
+})

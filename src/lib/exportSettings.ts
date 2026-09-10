@@ -73,6 +73,35 @@ export function automaticSettings(frame: SourceDimensions): ExportSettings {
 }
 
 /**
+ * Probes one source's pixel dimensions from its (in-memory) blob metadata:
+ * an <img> for a still, a metadata-only <video> otherwise. Resolves null when
+ * the source fails to load, which the callers treat as "contributes nothing".
+ * Exported so a caller that asks for the frame repeatedly — the visual
+ * editors' snapshot session (#458) — can memoize it per URL instead of
+ * re-loading every source's metadata on each call.
+ */
+export function probeSourceDimensions(url: string, still: boolean): Promise<SourceDimensions | null> {
+  return new Promise<SourceDimensions | null>((resolve) => {
+    if (still) {
+      const probe = new Image()
+      probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight })
+      probe.onerror = () => resolve(null)
+      probe.src = url
+    } else {
+      const probe = document.createElement('video')
+      probe.preload = 'metadata'
+      probe.addEventListener(
+        'loadedmetadata',
+        () => resolve({ width: probe.videoWidth, height: probe.videoHeight }),
+        { once: true },
+      )
+      probe.addEventListener('error', () => resolve(null), { once: true })
+      probe.src = url
+    }
+  })
+}
+
+/**
  * The output frame the automatic rule would pick for the current timeline —
  * what the modal pre-fills (#179). Probes each distinct non-slate source's
  * dimensions from its (in-memory) blob metadata, then applies the same
@@ -85,7 +114,10 @@ export function automaticSettings(frame: SourceDimensions): ExportSettings {
  * export's own sizing pass; with nothing probed the fallback frame comes
  * back — reshaped by the preset the same way.
  */
-export function automaticExportFrame(timeline: TimelineState): Promise<SourceDimensions> {
+export function automaticExportFrame(
+  timeline: TimelineState,
+  probe: typeof probeSourceDimensions = probeSourceDimensions,
+): Promise<SourceDimensions> {
   const targets: { url: string; still: boolean }[] = []
   const seen = new Set<string>()
   for (const entry of timeline.entries) {
@@ -93,27 +125,7 @@ export function automaticExportFrame(timeline: TimelineState): Promise<SourceDim
     seen.add(entry.url)
     targets.push({ url: entry.url, still: isStillEntry(entry) })
   }
-  const probes = targets.map(
-    ({ url, still }) =>
-      new Promise<SourceDimensions | null>((resolve) => {
-        if (still) {
-          const probe = new Image()
-          probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight })
-          probe.onerror = () => resolve(null)
-          probe.src = url
-        } else {
-          const probe = document.createElement('video')
-          probe.preload = 'metadata'
-          probe.addEventListener(
-            'loadedmetadata',
-            () => resolve({ width: probe.videoWidth, height: probe.videoHeight }),
-            { once: true },
-          )
-          probe.addEventListener('error', () => resolve(null), { once: true })
-          probe.src = url
-        }
-      }),
-  )
+  const probes = targets.map(({ url, still }) => probe(url, still))
   return Promise.all(probes).then((dims) => {
     const byUrl = new Map(targets.map((target, index) => [target.url, dims[index]]))
     return canvasFrameSize(
