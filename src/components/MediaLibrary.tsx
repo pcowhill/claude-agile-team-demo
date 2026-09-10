@@ -260,6 +260,29 @@ export function MediaLibrary({
   // at a time, since the field takes the name's place in its row.
   const [renamingId, setRenamingId] = useState<string | null>(null)
 
+  // A gap beside the scrollbar (#460, from feedback #457), only while the
+  // list actually scrolls: CSS cannot see overflow, and an always-on right
+  // padding would indent a short library's rows away from the header's
+  // right edge for no reason. Measured on mount, whenever the clip count or
+  // the view changes (both change scrollHeight without changing the box),
+  // and through a ResizeObserver on the list for viewport changes (the
+  // #308 cap is 50vh, so the box itself moves with the window).
+  const listRef = useRef<HTMLUListElement>(null)
+  const [listScrolls, setListScrolls] = useState(false)
+  useEffect(() => {
+    const list = listRef.current
+    if (list === null) {
+      setListScrolls(false)
+      return
+    }
+    const measure = () => setListScrolls(list.scrollHeight > list.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [library.clips.length, view])
+
   // Double-clicking the name previews the clip (#403), like the ▶ action
   // below — the way a source monitor opens a clip in desktop editors.
   // Renaming (#404) is ⋯ → Rename… since #416; the field still takes the
@@ -546,9 +569,11 @@ export function MediaLibrary({
               keep working; only a modifier class and the arrangement of the
               shared pieces change. */}
           <ul
+            ref={listRef}
             className={[
               'clip-list',
               view === 'thumbnails' ? 'clip-list-thumbnails' : null,
+              listScrolls ? 'clip-list-scrolls' : null,
               selected.length > 0 ? 'has-selection' : null,
             ]
               .filter(Boolean)

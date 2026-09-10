@@ -1295,6 +1295,46 @@ describe('the row menu and View ▾ (#416)', () => {
   })
 })
 
+describe('a gap beside the scrollbar while the list scrolls (#460)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+  })
+
+  const clipList = () => screen.getByRole('list', { name: 'Imported clips' })
+  /** jsdom lays nothing out; the metrics the component reads are set here. */
+  const setMetrics = (scrollHeight: number, clientHeight: number) => {
+    Object.defineProperty(clipList(), 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(clipList(), 'clientHeight', { configurable: true, get: () => clientHeight })
+  }
+
+  it('sets the class only while the list overflows, following the clip count both ways', async () => {
+    render(<App />)
+    await importClips([['a.wav', 'audio'], ['b.wav', 'audio'], ['c.wav', 'audio']])
+    // jsdom reports 0 × 0: nothing overflows, no gap.
+    expect(clipList()).not.toHaveClass('clip-list-scrolls')
+
+    // The list outgrows its cap; the next import re-measures.
+    setMetrics(600, 360)
+    await importClips([['d.wav', 'audio']])
+    expect(clipList()).toHaveClass('clip-list-scrolls')
+
+    // And back inside it — a removal, a taller window — the gap goes.
+    setMetrics(300, 360)
+    await importClips([['e.wav', 'audio']])
+    expect(clipList()).not.toHaveClass('clip-list-scrolls')
+  })
+
+  it('re-measures when the view changes, since a card grid is a different height', async () => {
+    render(<App />)
+    await importClips([['a.wav', 'audio'], ['b.wav', 'audio']])
+    expect(clipList()).not.toHaveClass('clip-list-scrolls')
+    setMetrics(600, 360)
+    await chooseView('Thumbnails')
+    expect(clipList()).toHaveClass('clip-list-thumbnails')
+    expect(clipList()).toHaveClass('clip-list-scrolls')
+  })
+})
+
 describe('media library batch Remove (#293)', () => {
   const removeSelected = () =>
     within(bar()!).getByRole('button', { name: 'Remove selected clips' })
