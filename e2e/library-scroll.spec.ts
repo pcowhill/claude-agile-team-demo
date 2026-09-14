@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import type { Locator } from '@playwright/test'
+import { chooseView } from './clipMenu'
 import { expectNoHorizontalScroll } from './layout'
 import { sineWav } from './sineWav'
 
@@ -15,9 +17,48 @@ const wavs = (from: number, count: number) =>
     buffer: sineWav(0.2),
   }))
 
+/**
+ * The gap between the items and the list's content edge (#460): the list's
+ * `clientWidth` excludes its scrollbar, so this is exactly the space the
+ * items leave beside it — the padding while the list scrolls, and nothing at
+ * all when it does not. Measured from the rightmost item edge, because in
+ * the card grid only the last column reaches the content edge; in the list
+ * view every row does, and their right edges are asserted equal as well.
+ */
+async function gapBesideScrollbar(list: Locator): Promise<{ gap: number; spread: number }> {
+  return list.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    const contentRight = box.left + element.clientLeft + element.clientWidth
+    const rights = Array.from(element.querySelectorAll(':scope > li')).map(
+      (item) => item.getBoundingClientRect().right,
+    )
+    const grid = getComputedStyle(element).display === 'grid'
+    return {
+      gap: contentRight - Math.max(...rights),
+      // Rows all end together; cards end where their column does.
+      spread: grid ? 0 : Math.max(...rights) - Math.min(...rights),
+    }
+  })
+}
+
+/** The items stop a small distance short of the scrollbar (#460). */
+async function expectGapBesideScrollbar(list: Locator, when: string) {
+  const { gap, spread } = await gapBesideScrollbar(list)
+  expect(gap, `gap ${gap}px beside the scrollbar ${when}`).toBeGreaterThanOrEqual(4)
+  expect(gap, `gap ${gap}px beside the scrollbar ${when}`).toBeLessThanOrEqual(8)
+  expect(spread, `rows end unevenly ${when}`).toBeLessThanOrEqual(1)
+}
+
+/** The items reach the list's content edge: no gap is reserved (#460). */
+async function expectNoGapBesideScrollbar(list: Locator, when: string) {
+  const { gap, spread } = await gapBesideScrollbar(list)
+  expect(Math.abs(gap), `gap ${gap}px with no scrollbar ${when}`).toBeLessThanOrEqual(1)
+  expect(spread, `rows end unevenly ${when}`).toBeLessThanOrEqual(1)
+}
+
 test('a large library scrolls internally and stops pushing the timeline down (#308)', async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto('./')
   const input = page.getByTestId('clip-file-input')
   const rows = page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')
@@ -63,6 +104,28 @@ test('a large library scrolls internally and stops pushing the timeline down (#3
 
   // (d) No horizontal page scroll with the scrollbar present (#208 guard).
   await expectNoHorizontalScroll(page, '30 clips, list scrolled to the bottom')
+
+  // (e) A small, even gap between the rows and the scrollbar (#460, from
+  // #457), in the list view and — the customer's screenshot — the card
+  // grid, whose tracks recompute inside the narrower content box so the
+  // cards stay equal in width.
+  await expect(list).toHaveClass(/clip-list-scrolls/)
+  await expectGapBesideScrollbar(list, 'in the list view')
+  await chooseView(page, 'Thumbnails')
+  await expect(list).toHaveClass(/clip-list-thumbnails/)
+  const cards = list.getByRole('listitem')
+  await expect(cards).toHaveCount(30)
+  expect(await list.evaluate((node) => node.scrollHeight > node.clientHeight + 1)).toBe(true)
+  await expectGapBesideScrollbar(list, 'in the thumbnail view')
+  const widths = await cards.evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().width),
+  )
+  for (const width of widths) {
+    expect(Math.abs(width - widths[0]), 'cards in one grid differ in width').toBeLessThanOrEqual(1)
+  }
+  await expectNoHorizontalScroll(page, '30 cards with the scrollbar and its gap')
+  await list.screenshot({ path: testInfo.outputPath('library-thumbnails-scrollbar-gap.png') })
+  await chooseView(page, 'List')
 })
 
 test('a small library does not scroll and reserves no space (#308)', async ({ page }) => {
@@ -85,4 +148,31 @@ test('a small library does not scroll and reserves no space (#308)', async ({ pa
   const last = (await rows.last().boundingBox())!
   expect(listBox.y).toBeCloseTo(first.y, 0)
   expect(listBox.y + listBox.height).toBeCloseTo(last.y + last.height, 0)
+  // …and reserves no gap beside a scrollbar it does not have (#460): the
+  // rows reach the list's edge as they always did.
+  await expect(list).not.toHaveClass(/clip-list-scrolls/)
+  await expectNoGapBesideScrollbar(list, 'with 3 rows')
+
+  // The same three clips as cards are two grid rows, taller than the 50vh
+  // cap at 720px: that grid scrolls, so it has the gap — and a taller
+  // window takes the scrollbar away and the gap with it, with no reload,
+  // which is the resize path the component listens for.
+  const scrolls = () => list.evaluate((node) => node.scrollHeight > node.clientHeight + 1)
+  await chooseView(page, 'Thumbnails')
+  await expect(list).toHaveClass(/clip-list-thumbnails/)
+  await expect(list).toHaveClass(/clip-list-scrolls/)
+  expect(await scrolls(), 'three cards overflow the cap at 720px').toBe(true)
+  await expectGapBesideScrollbar(list, 'with 3 cards at 720px')
+  await page.setViewportSize({ width: 1280, height: 1400 })
+  await expect(list).not.toHaveClass(/clip-list-scrolls/)
+  expect(await scrolls(), 'three cards fit under the cap at 1400px').toBe(false)
+  await expectNoGapBesideScrollbar(list, 'with 3 cards at 1400px')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await chooseView(page, 'List')
+
+  // Crossing into scrolling — no reload — the gap appears with the scrollbar.
+  await input.setInputFiles(wavs(4, 27))
+  await expect(rows).toHaveCount(30)
+  await expect(list).toHaveClass(/clip-list-scrolls/)
+  await expectGapBesideScrollbar(list, 'once the library grew to 30 rows')
 })
