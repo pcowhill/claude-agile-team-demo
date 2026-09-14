@@ -136,6 +136,19 @@ export function createSnapshotSession(): SnapshotSession {
 }
 
 /**
+ * How far behind the sought time a presented frame's timestamp may lie and
+ * still count as the sought frame (#465). A seek presents the frame whose
+ * timestamp is at or before the target, so the gap is at most one frame's
+ * duration: 100 ms covers sources down to 10 fps (the deltas measured at
+ * 30 fps were under 35 ms), while a stale frame from farther back — a fresh
+ * element's first frame, say — keeps re-arming as #276 intends. A slower
+ * source than that loses nothing: its seeks simply fall back to the bound.
+ */
+const SOUGHT_FRAME_TOLERANCE = 0.1
+/** Rounding slack ahead of the sought time — well under a frame at 60 fps. */
+const SOUGHT_FRAME_LEAD = 0.005
+
+/**
  * Arms a wait for the element's next PRESENTED frame (#276). `seeked` and
  * `loadeddata` fire when the seek/load completes, which is before the frame
  * has necessarily been presented — and drawing a not-yet-presented frame
@@ -151,8 +164,22 @@ export function createSnapshotSession(): SnapshotSession {
  * stale/black frame) instead of hanging the snapshot forever. Without
  * `requestVideoFrameCallback` the awaiter resolves immediately — exactly
  * the pre-#276 behavior.
+ *
+ * With `soughtTime` (#465), a callback for the frame *at* that time settles
+ * the wait even while `seeking` still reads true. Chromium can run the
+ * sought frame's callback before the seek algorithm has cleared `seeking`;
+ * the `seeking` check alone then re-arms, and on a paused element no
+ * further frame is ever presented, so the bound above was what resolved
+ * about half of all seeks — 300 ms a still, measured on #462's e2e. The
+ * presented frame is the sought one when its timestamp is at or just
+ * before `soughtTime`: within SOUGHT_FRAME_TOLERANCE behind, since a
+ * frame's duration is not known here, and a hair ahead for rounding. A
+ * pre-seek frame that far from the target still re-arms, as before.
  */
-const armPresentedFrame = (element: HTMLVideoElement): (() => Promise<void>) => {
+const armPresentedFrame = (
+  element: HTMLVideoElement,
+  soughtTime?: number,
+): (() => Promise<void>) => {
   if (typeof element.requestVideoFrameCallback !== 'function') {
     return () => Promise.resolve()
   }
@@ -160,9 +187,16 @@ const armPresentedFrame = (element: HTMLVideoElement): (() => Promise<void>) => 
   let settle = () => {
     presented = true
   }
-  const onFrame = () => {
-    if (element.seeking) element.requestVideoFrameCallback(onFrame)
-    else settle()
+  const isSoughtFrame = (mediaTime: number) =>
+    soughtTime !== undefined &&
+    mediaTime <= soughtTime + SOUGHT_FRAME_LEAD &&
+    soughtTime - mediaTime < SOUGHT_FRAME_TOLERANCE
+  const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+    if (element.seeking && !isSoughtFrame(metadata.mediaTime)) {
+      element.requestVideoFrameCallback(onFrame)
+    } else {
+      settle()
+    }
   }
   element.requestVideoFrameCallback(onFrame)
   return () =>
@@ -323,7 +357,7 @@ async function renderFrame(
         // Armed immediately before the seek is issued: the awaited frame is
         // the sought one, presented — `seeked` alone fires before
         // presentation, the window where the draw could rasterize black.
-        const soughtFramePresented = armPresentedFrame(element)
+        const soughtFramePresented = armPresentedFrame(element, sourceTime)
         await afterEvent(element, 'seeked', () => {
           element.currentTime = sourceTime
         })
