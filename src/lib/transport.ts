@@ -195,3 +195,36 @@ export function snapToBoundary(
   }
   return best === null || bestDistance <= BOUNDARY_EPSILON ? null : best
 }
+
+/** A validated marked span (`markedExportRange`'s output), or none. */
+export type LoopSpan = { start: number; end: number } | null
+
+/**
+ * Where looping playback wraps to (#459), or null to carry on. Half-open at
+ * the out-point, the convention hard cuts use: the pass ends the moment the
+ * published position reaches `span.end`, so the out-point's frame is never
+ * played twice and playback never runs past it. Without a valid span the
+ * whole sequence loops — reaching `total` wraps to 0. Validity is
+ * `markedExportRange`'s alone: an inverted, unset or single mark is no span.
+ * The caller checks that Loop is on; this rule says only where a pass ends.
+ */
+export function loopWrapTarget(position: number, span: LoopSpan, total: number): number | null {
+  if (span !== null) {
+    return position >= span.end - BOUNDARY_EPSILON ? span.start : null
+  }
+  return position >= total - BOUNDARY_EPSILON ? 0 : null
+}
+
+/**
+ * Where Play begins with Loop on (#459): from the mark-in when the playhead
+ * stands outside the span (before it, or at or past its end — the end is
+ * not inside, per `loopWrapTarget`), from where it is otherwise. Without a
+ * span, only the sequence end restarts from 0 — the same rule Play has
+ * always had.
+ */
+export function loopPlayStart(position: number, span: LoopSpan, total: number): number {
+  if (span !== null) {
+    return position < span.start || position >= span.end - BOUNDARY_EPSILON ? span.start : position
+  }
+  return position >= total - BOUNDARY_EPSILON ? 0 : position
+}

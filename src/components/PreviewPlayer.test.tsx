@@ -2939,6 +2939,186 @@ describe('jump to cuts and snap on committed seek (#391)', () => {
   })
 })
 
+describe('loop playback (#459)', () => {
+  const oneEntry: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 10,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 10,
+      },
+    ],
+  }
+
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  let frames: FrameRequestCallback[]
+
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const video = () => screen.getByTestId('preview-video') as HTMLVideoElement
+  const seekSlider = () => screen.getByRole('slider', { name: 'Seek within sequence' })
+  const loopToggle = () => screen.getByRole('button', { name: 'Loop playback' })
+  /** Runs the latest scheduled tick with the element's clock at `time`. */
+  const tickAt = (time: number) => {
+    video().currentTime = time
+    const tick = frames[frames.length - 1]
+    act(() => tick(0))
+  }
+  /**
+   * Lets a cue land: cueElement sets the clock and plays once the element
+   * has metadata, which jsdom never loads — so the event is fired here, and
+   * the last cue registered (the one under test) is what the clock shows.
+   */
+  const settleCue = () => act(() => void fireEvent(video(), new Event('loadedmetadata')))
+
+  it('is a pressed toggle beside the marks, off by default and never disabled', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    const toggle = loopToggle()
+    expect(toggle).toBe(screen.getByTestId('preview-loop'))
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(toggle).toBeEnabled()
+    // Directly after Mark out: it belongs with the marks it repeats.
+    expect(
+      screen.getByTestId('preview-mark-out').compareDocumentPosition(toggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('with a valid span, reaching the mark-out seeks back to the mark-in and keeps playing', () => {
+    render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} />)
+    fireEvent.click(loopToggle())
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(5)
+    expect(seekSlider()).toHaveValue('5')
+    // Short of the mark-out: nothing wraps.
+    tickAt(7.99)
+    expect(seekSlider()).toHaveValue('7.99')
+    // On it: the published position and the element's clock are both back
+    // at the mark-in — the wrap went through seek(), which re-cues — and
+    // the transport still shows Pause.
+    tickAt(8)
+    expect(seekSlider()).toHaveValue('2')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    settleCue()
+    expect(video().currentTime).toBe(2)
+    expect(video().paused).toBe(false)
+    // …and the next pass runs on from there.
+    tickAt(3)
+    expect(seekSlider()).toHaveValue('3')
+  })
+
+  it('with Loop off nothing changes: the mark-out is passed and the end still pauses', () => {
+    render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(8)
+    expect(seekSlider()).toHaveValue('8')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    tickAt(10)
+    expect(seekSlider()).toHaveValue('10')
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+    expect(video().paused).toBe(true)
+  })
+
+  it('without a valid span, the sequence end wraps to 0 and keeps playing', () => {
+    // An inverted pair is no span (markedExportRange), so it loops the whole
+    // sequence — the one validity rule, not a second one.
+    render(<PreviewPlayer timeline={oneEntry} markIn={8} markOut={2} />)
+    fireEvent.click(loopToggle())
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(8.5)
+    expect(seekSlider()).toHaveValue('8.5')
+    tickAt(10)
+    expect(seekSlider()).toHaveValue('0')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    settleCue()
+    expect(video().currentTime).toBe(0)
+    expect(video().paused).toBe(false)
+  })
+
+  it('a span ending at the sequence end wraps there to the mark-in', () => {
+    render(<PreviewPlayer timeline={oneEntry} markIn={4} markOut={10} />)
+    fireEvent.click(loopToggle())
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(10)
+    expect(seekSlider()).toHaveValue('4')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    settleCue()
+    expect(video().currentTime).toBe(4)
+  })
+
+  it('Play with Loop on starts at the mark-in from outside the span, and in place from inside it', () => {
+    render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} />)
+    fireEvent.click(loopToggle())
+    fireEvent.change(seekSlider(), { target: { value: '9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    expect(seekSlider()).toHaveValue('2')
+    settleCue()
+    expect(video().currentTime).toBe(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Pause preview' }))
+
+    fireEvent.change(seekSlider(), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    expect(seekSlider()).toHaveValue('5')
+    settleCue()
+    expect(video().currentTime).toBe(5)
+  })
+
+  it('toggling mid-pass takes effect at the next boundary, without seeking', () => {
+    render(<PreviewPlayer timeline={oneEntry} markIn={2} markOut={8} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(5)
+    // On mid-pass: the playhead stays where it is…
+    fireEvent.click(loopToggle())
+    expect(seekSlider()).toHaveValue('5')
+    tickAt(6)
+    expect(seekSlider()).toHaveValue('6')
+    // …and off again mid-pass lets this pass run out past the mark-out and
+    // stop at the end, as it always did.
+    fireEvent.click(loopToggle())
+    tickAt(8)
+    expect(seekSlider()).toHaveValue('8')
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    tickAt(10)
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {

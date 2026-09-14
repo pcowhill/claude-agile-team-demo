@@ -70,8 +70,11 @@ import {
   snapToBoundary,
   stepTarget,
   targetClaimsKeys,
+  loopPlayStart,
+  loopWrapTarget,
   transportActionForKey,
 } from '../lib/transport'
+import type { LoopSpan } from '../lib/transport'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
@@ -615,6 +618,25 @@ export function PreviewPlayer({
   )
 
   const total = totalDuration(timeline)
+  // The marked export range's visible span (#385): the shared rule
+  // (markedExportRange) that also decides what the export modal offers, so
+  // the highlight and the offered range can never disagree — and, since
+  // #459, the span Loop repeats, so the loop and the highlight agree too.
+  const markedSpan = markedExportRange(markIn, markOut, total)
+  // Loop (#459): plays the marked span on repeat, or the whole sequence
+  // without one. Session-only like the marks, and the player's own state —
+  // nothing else reads it, so it does not climb to App the way the marks
+  // did for the export modal. The rAF tick is a closure over the render that
+  // started playback, so it reads the live values through refs, as it does
+  // for everything else that can change under it.
+  const [loop, setLoop] = useState(false)
+  const loopRef = useRef(false)
+  loopRef.current = loop
+  const loopSpanRef = useRef<LoopSpan>(null)
+  loopSpanRef.current = markedSpan
+  // seek() is defined below the tick and re-created as `playing` changes;
+  // the tick wraps through whichever is current.
+  const seekRef = useRef<(time: number) => void>(() => {})
   const empty = timeline.entries.length === 0
   // Whether a library clip is being auditioned in place of the sequence (#403).
   const sourceMode = sourceClip !== null
@@ -1088,6 +1110,15 @@ export function PreviewPlayer({
             duckFactorAt(ducking, time)
         }
         cuePrimary({ index: index + 1, entry: next, sourceTime: next.inPoint }, 0, true)
+      } else if (loopRef.current) {
+        // Loop (#459): the sequence end is the end of a pass, not of
+        // playback — back to the mark-in (a span ending here loops from its
+        // own start) or to 0, through the same seek a slider drag makes,
+        // so every element re-cues together. The tick carries on.
+        const sequenceEnd = totalDuration(timeline)
+        seekRef.current(loopWrapTarget(sequenceEnd, loopSpanRef.current, sequenceEnd) ?? 0)
+        frameRef.current = requestAnimationFrame(tick)
+        return
       } else {
         video.pause()
         secondaryVideo()?.pause()
@@ -1101,6 +1132,19 @@ export function PreviewPlayer({
       }
     } else {
       const time = entryStartTime(timeline, index) + outputInto
+      // Loop (#459): a pass ends the moment the published position reaches
+      // the mark-out — half-open, so the out-point's frame never shows twice
+      // and nothing past it plays. The wrap is an ordinary seek to the
+      // mark-in while playing, and this frame's remaining work (gain, the
+      // overlap) belongs to a position that is no longer current.
+      if (loopRef.current) {
+        const wrap = loopWrapTarget(time, loopSpanRef.current, total)
+        if (wrap !== null) {
+          seekRef.current(wrap)
+          frameRef.current = requestAnimationFrame(tick)
+          return
+        }
+      }
       setSequenceTime(time)
       // Tracks start and stop mid-play as the position crosses their
       // windows, and drifting clocks are snapped back (#103).
@@ -1182,11 +1226,16 @@ export function PreviewPlayer({
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
+  }, [timeline, total, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
 
   const play = useCallback(() => {
-    // Play from the end restarts the sequence.
-    const from = sequenceTime >= total ? 0 : sequenceTime
+    // Play from the end restarts the sequence; with Loop on (#459), Play
+    // from outside the marked span starts at the mark-in.
+    const from = loop
+      ? loopPlayStart(sequenceTime, markedSpan, total)
+      : sequenceTime >= total
+        ? 0
+        : sequenceTime
     const location = locateInSequence(timeline, from)
     if (!location) return
     setPlaying(true)
@@ -1197,7 +1246,7 @@ export function PreviewPlayer({
     syncVideoOverlays(from, true)
     stopLoop()
     frameRef.current = requestAnimationFrame(tick)
-  }, [sequenceTime, total, timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, stopLoop, tick])
+  }, [sequenceTime, total, timeline, loop, markedSpan, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, stopLoop, tick])
 
   const pause = useCallback(() => {
     stopLoop()
@@ -1290,6 +1339,7 @@ export function PreviewPlayer({
     },
     [timeline, cuePrimary, syncSecondary, syncAudioTracks, syncVideoOverlays, playing],
   )
+  seekRef.current = seek
 
   // Snap on committed seek (#391): only when the pointer releases the slider
   // — never on intermediate drag positions (scrubbing stays live and free)
@@ -1469,10 +1519,6 @@ export function PreviewPlayer({
   // frame under the playhead), so one probe decides both Frame ▾ items (#417).
   const freezeTarget = freezeTargetAt(timeline, Math.min(sequenceTime, total), 'split')
   const canFreeze = freezeTarget !== null && !freezing && onFreezeFrame !== undefined
-  // The marked export range's visible span (#385): the shared rule
-  // (markedExportRange) that also decides what the export modal offers, so
-  // the highlight and the offered range can never disagree.
-  const markedSpan = markedExportRange(markIn, markOut, total)
   /** The Frame ▾ items (#417); see the menu's comment in the transport. */
   const frameItems: MenuItem[] = [
     {
@@ -2054,6 +2100,23 @@ export function PreviewPlayer({
               onClick={() => onMarkOut?.(Math.min(sequenceTime, total))}
             >
               ⇤
+            </button>
+            {/* Loop (#459, the approved #392): plays the marked span on
+                repeat — reaching the mark-out jumps back to the mark-in
+                and carries on until paused — or the whole sequence when no
+                valid span is marked. A pressed toggle rather than a mode
+                elsewhere, because it belongs with the marks it repeats;
+                session-only like them. It needs marks for nothing, so it is
+                never disabled while there is a sequence to play. */}
+            <button
+              type="button"
+              data-testid="preview-loop"
+              aria-label="Loop playback"
+              aria-pressed={loop}
+              title="Loop playback: repeat the marked range, or the whole sequence when no range is marked"
+              onClick={() => setLoop((on) => !on)}
+            >
+              ↻
             </button>
             {/* Frame ▾ (#417, from the approved redesign #401 / feedback
                 #395 — the customer named the preview as the busiest region

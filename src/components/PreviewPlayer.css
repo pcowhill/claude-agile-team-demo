@@ -317,6 +317,15 @@
   min-width: 2.25rem;
 }
 
+/* Loop (#459) is the transport's one toggle, so its state has to show: on,
+   it takes the marks' amber — the span it repeats — where every other
+   control stays a plain button. */
+.preview-controls button[aria-pressed='true'] {
+  background: rgba(255, 140, 26, 0.35);
+  border-color: #ff8c1a;
+  color: #fff;
+}
+
 .preview-position {
   font-variant-numeric: tabular-nums;
   color: #bbb;
