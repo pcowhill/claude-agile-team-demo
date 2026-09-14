@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  RECORDING_KEYFRAME_INTERVAL_MS,
   recordedClipName,
   recordingFileExtension,
   screenRecordingName,
@@ -11,7 +12,12 @@ import {
   voiceOverName,
   webcamRecordingName,
 } from './recording'
-import type { RecorderLike, RecordingDependencies, ScreenRecordingDependencies } from './recording'
+import type {
+  RecorderLike,
+  RecorderOptions,
+  RecordingDependencies,
+  ScreenRecordingDependencies,
+} from './recording'
 
 describe('voiceOverName (#224)', () => {
   it('starts at 1 and always numbers past the highest existing voice-over', () => {
@@ -46,8 +52,13 @@ function fakeRecordingWorld(options?: {
   const stream = {
     getTracks: () => [{ stop: stopTrack }, { stop: stopTrack }],
   } as unknown as MediaStream
-  let recorder: (RecorderLike & { started: boolean; requestedMime: string | undefined }) | null =
-    null
+  let recorder:
+    | (RecorderLike & {
+        started: boolean
+        requestedMime: string | undefined
+        requestedOptions: RecorderOptions
+      })
+    | null = null
   const dependencies: RecordingDependencies = {
     getUserMedia: vi.fn((constraints: MediaStreamConstraints) => {
       expect(constraints).toEqual({ audio: true })
@@ -60,6 +71,7 @@ function fakeRecordingWorld(options?: {
       recorder = {
         started: false,
         requestedMime: recorderOptions.mimeType,
+        requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'audio/webm',
         ondataavailable: null,
         onstop: null,
@@ -104,6 +116,12 @@ describe('startMicrophoneRecording', () => {
     // The empty chunk was skipped; the others concatenated in order.
     expect(await file.text()).toBe('audio')
     expect(world.stopTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for no keyframe interval: an audio capture has no keyframes (#468)', async () => {
+    const world = fakeRecordingWorld()
+    await startMicrophoneRecording(world.dependencies)
+    expect(world.recorder().requestedOptions).toEqual({ mimeType: 'audio/webm;codecs=opus' })
   })
 
   it('lets the browser pick its default container when no candidate is supported', async () => {
@@ -193,8 +211,13 @@ function fakeScreenWorld(options?: {
     getTracks: () => [videoTrack, audioTrack],
     getVideoTracks: () => [videoTrack],
   } as unknown as MediaStream
-  let recorder: (RecorderLike & { started: boolean; requestedMime: string | undefined }) | null =
-    null
+  let recorder:
+    | (RecorderLike & {
+        started: boolean
+        requestedMime: string | undefined
+        requestedOptions: RecorderOptions
+      })
+    | null = null
   const dependencies: ScreenRecordingDependencies = {
     getDisplayMedia: vi.fn((constraints: MediaStreamConstraints) => {
       // Audio is requested so tab/system audio records when granted.
@@ -206,6 +229,7 @@ function fakeScreenWorld(options?: {
       recorder = {
         started: false,
         requestedMime: recorderOptions.mimeType,
+        requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null,
         onstop: null,
@@ -252,6 +276,23 @@ describe('startScreenRecording (#225)', () => {
     expect(file.type).toBe('video/webm;codecs=vp9,opus')
     expect(await file.text()).toBe('screen')
     expect(world.stopTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for a keyframe every second, so seeking the recording stays quick (#468)', async () => {
+    const world = fakeScreenWorld()
+    await startScreenRecording(() => {}, world.dependencies)
+    expect(world.recorder().requestedOptions).toEqual({
+      mimeType: 'video/webm;codecs=vp9,opus',
+      videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+    })
+    expect(RECORDING_KEYFRAME_INTERVAL_MS).toBe(1000)
+    // The interval rides along even when the container is left to the
+    // browser; a browser that does not know the option ignores it.
+    const defaultContainer = fakeScreenWorld({ supportedTypes: [] })
+    await startScreenRecording(() => {}, defaultContainer.dependencies)
+    expect(defaultContainer.recorder().requestedOptions).toEqual({
+      videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+    })
   })
 
   it("the browser's own stop-sharing UI reaches onShareEnded", async () => {
@@ -323,7 +364,11 @@ function fakeScreenCameraWorld(options?: {
     getTracks: () => [{ stop: stopCameraTrack }, { stop: stopCameraTrack }],
   } as unknown as MediaStream
   const cameraRequests: MediaStreamConstraints[] = []
-  const recorders: (RecorderLike & { started: boolean; forStream: MediaStream })[] = []
+  const recorders: (RecorderLike & {
+    started: boolean
+    forStream: MediaStream
+    requestedOptions: RecorderOptions
+  })[] = []
   const dependencies = {
     getDisplayMedia: vi.fn((constraints: MediaStreamConstraints) => {
       expect(constraints).toEqual({ video: true, audio: true })
@@ -342,11 +387,12 @@ function fakeScreenCameraWorld(options?: {
         ? Promise.reject(options.denyVideoOnlyCamera)
         : Promise.resolve(cameraStream)
     }),
-    createRecorder: (stream: MediaStream, recorderOptions: { mimeType?: string }) => {
+    createRecorder: (stream: MediaStream, recorderOptions: RecorderOptions) => {
       if (stream === cameraStream && options?.failCameraRecorder) throw options.failCameraRecorder
       const recorder = {
         started: false,
         forStream: stream,
+        requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null as ((event: { data: Blob }) => void) | null,
         onstop: null as (() => void) | null,
@@ -401,6 +447,15 @@ describe('startScreenCameraRecording (#388)', () => {
     expect(await files.camera.text()).toBe('camera')
     expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
     expect(world.stopCameraTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('both recorders ask for a keyframe every second (#468)', async () => {
+    const world = fakeScreenCameraWorld()
+    await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(world.recorders.map((recorder) => recorder.requestedOptions)).toEqual([
+      { mimeType: 'video/webm;codecs=vp9,opus', videoKeyFrameIntervalDuration: 1000 },
+      { mimeType: 'video/webm;codecs=vp9,opus', videoKeyFrameIntervalDuration: 1000 },
+    ])
   })
 
   it('a camera denial releases the already-granted screen capture and surfaces once', async () => {
@@ -486,8 +541,13 @@ function fakeWebcamWorld(options?: {
   const stream = {
     getTracks: () => [{ stop: stopTrack }, { stop: stopTrack }],
   } as unknown as MediaStream
-  let recorder: (RecorderLike & { started: boolean; requestedMime: string | undefined }) | null =
-    null
+  let recorder:
+    | (RecorderLike & {
+        started: boolean
+        requestedMime: string | undefined
+        requestedOptions: RecorderOptions
+      })
+    | null = null
   const dependencies: RecordingDependencies = {
     getUserMedia: vi.fn((constraints: MediaStreamConstraints) => {
       requests.push(constraints)
@@ -505,6 +565,7 @@ function fakeWebcamWorld(options?: {
       recorder = {
         started: false,
         requestedMime: recorderOptions.mimeType,
+        requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null,
         onstop: null,
@@ -561,6 +622,15 @@ describe('startWebcamRecording (#226)', () => {
     expect(file.type).toBe('video/webm;codecs=vp9,opus')
     expect(await file.text()).toBe('webcam')
     expect(world.stopTrack).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for a keyframe every second, like the screen capture (#468)', async () => {
+    const world = fakeWebcamWorld()
+    await startWebcamRecording(world.dependencies)
+    expect(world.recorder().requestedOptions).toEqual({
+      mimeType: 'video/webm;codecs=vp9,opus',
+      videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+    })
   })
 
   it('a camera without a microphone still records: the video-only fallback (#226)', async () => {

@@ -22,9 +22,22 @@ export interface RecorderLike {
   readonly mimeType: string
 }
 
+/**
+ * What a recorder is asked for. `mimeType` is the container (below);
+ * `videoKeyFrameIntervalDuration` is the MediaRecorder spec's request for a
+ * keyframe at most this many milliseconds apart (#468). lib.dom does not
+ * know the latter yet, so the type is spelled here; a browser that does not
+ * implement it ignores an unknown option, which is the whole feature
+ * detection needed.
+ */
+export interface RecorderOptions {
+  mimeType?: string
+  videoKeyFrameIntervalDuration?: number
+}
+
 export interface RecordingDependencies {
   getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>
-  createRecorder: (stream: MediaStream, options: { mimeType?: string }) => RecorderLike
+  createRecorder: (stream: MediaStream, options: RecorderOptions) => RecorderLike
   isTypeSupported: (mimeType: string) => boolean
 }
 
@@ -70,6 +83,28 @@ const AUDIO_MIME_CANDIDATES = [
   'audio/mp4',
   'audio/ogg;codecs=opus',
 ]
+
+/**
+ * How far apart, at most, the keyframes in a video recording lie (#468).
+ *
+ * Chromium's MediaRecorder otherwise places them sparsely — one at the start
+ * of a 3.5 s test capture and none after — and a seek on the file decodes
+ * forward from the last keyframe before the target, so seeking anywhere in
+ * such a recording costs the decode of everything since it. Every seek this
+ * app makes on its own recordings pays that: the visual editors' scrub and
+ * loop (#413, #421, #425), Save frame (#237), the preview. Measured at
+ * 1280×720 the latency climbed from 59 ms to 238 ms across the 3.5 s clip
+ * with the default, and stayed in a 30–90 ms sawtooth with a keyframe every
+ * second, for 1.7% more bytes. One second is the conventional interval for
+ * footage that will be edited: any seek decodes at most a second of video.
+ * Not applied to audio-only captures, which have no keyframes.
+ */
+export const RECORDING_KEYFRAME_INTERVAL_MS = 1000
+
+/** The recorder options every video capture adds to its container choice. */
+const VIDEO_RECORDER_OPTIONS: RecorderOptions = {
+  videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+}
 
 /** The extension matching an audio capture MIME type, for the clip's file name. */
 export function recordingFileExtension(mimeType: string): string {
@@ -154,6 +189,7 @@ function recordStream(
   mimeCandidates: readonly string[],
   fallbackMimeType: string,
   recorderFailure: string,
+  recorderOptions: RecorderOptions = {},
 ): RecordingSession {
   const releaseStream = () => {
     for (const track of stream.getTracks()) track.stop()
@@ -161,7 +197,10 @@ function recordStream(
   let recorder: RecorderLike
   const mimeType = mimeCandidates.find((candidate) => dependencies.isTypeSupported(candidate))
   try {
-    recorder = dependencies.createRecorder(stream, mimeType === undefined ? {} : { mimeType })
+    recorder = dependencies.createRecorder(stream, {
+      ...recorderOptions,
+      ...(mimeType === undefined ? {} : { mimeType }),
+    })
   } catch (error) {
     // The capture was granted but the recorder could not start: release the
     // device/surface before surfacing the failure.
@@ -308,6 +347,7 @@ export async function startScreenRecording(
     VIDEO_MIME_CANDIDATES,
     'video/webm',
     'The screen recorder could not start.',
+    VIDEO_RECORDER_OPTIONS,
   )
   // The browser's "stop sharing" control ends the video track outside our
   // dialog; concluding through the session first makes the later hook a
@@ -421,6 +461,7 @@ export async function startScreenCameraRecording(
     VIDEO_MIME_CANDIDATES,
     'video/webm',
     'The screen recorder could not start.',
+    VIDEO_RECORDER_OPTIONS,
   )
   let cameraSession: RecordingSession
   try {
@@ -430,6 +471,7 @@ export async function startScreenCameraRecording(
       VIDEO_MIME_CANDIDATES,
       'video/webm',
       'The camera recorder could not start.',
+      VIDEO_RECORDER_OPTIONS,
     )
   } catch (error) {
     // recordStream released the camera stream before throwing; the started
@@ -501,5 +543,6 @@ export async function startWebcamRecording(
     VIDEO_MIME_CANDIDATES,
     'video/webm',
     'The webcam recorder could not start.',
+    VIDEO_RECORDER_OPTIONS,
   )
 }
