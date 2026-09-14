@@ -343,7 +343,9 @@ the zoom actually has there — the whole frame at either end, part-way
 through a ramp, the full region across the hold — so the motion is visible
 without playing anything. Each instant is rendered once and kept while the
 editor is open, and the previous still stays on screen while the next one
-draws. The region takes drags only across the hold, where it is the zoom's
+draws. The clip itself stays loaded for as long as the editor is open, so a
+new instant is a seek rather than a reload, and a quick drag across the
+slider renders where it stops, not every stop it passed (#458). The region takes drags only across the hold, where it is the zoom's
 own region; part-way through a ramp it is drawn dashed and read-only,
 because a drag there has no single stored zoom it could mean. While
 dragging, the centre snaps onto the frame centre and the thirds, with a

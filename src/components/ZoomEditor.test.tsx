@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
-import { snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { createSnapshotSession, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { SETTINGS_KEY } from '../lib/settings'
 import { zoomsOf } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
@@ -20,10 +20,16 @@ vi.mock('../lib/probeMedia', () => ({
 vi.mock('../lib/frameSnapshot', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/frameSnapshot')>()),
   snapshotTimelineFrame: vi.fn(),
+  createSnapshotSession: vi.fn(),
 }))
 
 const probeMock = vi.mocked(probeMediaFile)
 const snapshotMock = vi.mocked(snapshotTimelineFrame)
+// The editor's session (#458) holds real media elements; with the snapshot
+// stubbed there is nothing to hold, so a stub with a spy for a release is all
+// the tests need. Set once: nothing resets it, so every test has one.
+const sessionMock = vi.mocked(createSnapshotSession)
+sessionMock.mockImplementation(() => ({ release: vi.fn() }))
 
 /** The frame's laid-out box: 400 × 225 at the origin, so a fraction is 4 px. */
 const FRAME = { x: 0, y: 0, width: 400, height: 225 }
@@ -454,6 +460,98 @@ describe('the Zoom editor\'s scrub, snapping, keys and result view (#421)', () =
 
     await userEvent.click(resultToggle())
     expect(region()).toBeInTheDocument()
+  })
+
+  it('a quick scrub across several stops renders the first and the last, and shows the last (#458)', async () => {
+    const releases: ((blob: Blob) => void)[] = []
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<Blob>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const png = () => new Blob(['png'], { type: 'image/png' })
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    releases[0](png())
+    await screen.findByTestId('frame-editor-image')
+
+    // Three stops in quick succession while the first of them renders: the
+    // two behind it wait as one, and only the last of those is rendered.
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    fireEvent.change(scrubSlider(), { target: { value: '0.3' } })
+    fireEvent.change(scrubSlider(), { target: { value: '0.35' } })
+    expect(renderedTimes()).toEqual([1, 0.25])
+    expect(screen.getByTestId('frame-editor-updating')).toBeInTheDocument()
+    releases[1](png())
+    await waitFor(() => expect(renderedTimes()).toEqual([1, 0.25, 0.35]))
+    // 0.25 landed, but 0.35 is what is on order — the indicator stays up.
+    expect(screen.getByTestId('frame-editor-updating')).toBeInTheDocument()
+    releases[2](png())
+    await waitFor(() =>
+      expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument(),
+    )
+
+    // The skipped stop was never drawn, so it renders when asked for on its
+    // own; the superseded one that did land is cached like any other.
+    fireEvent.change(scrubSlider(), { target: { value: '0.3' } })
+    expect(renderedTimes()).toEqual([1, 0.25, 0.35, 0.3])
+    releases[3](png())
+    await waitFor(() =>
+      expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument(),
+    )
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    expect(renderedTimes()).toEqual([1, 0.25, 0.35, 0.3])
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+  })
+
+  it('scrubbing back onto a still that is already up drops what was waiting (#458)', async () => {
+    const releases: ((blob: Blob) => void)[] = []
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<Blob>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const png = () => new Blob(['png'], { type: 'image/png' })
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    releases[0](png())
+    await screen.findByTestId('frame-editor-image')
+
+    // Away (renders), further (waits), and back to the cached opening instant.
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    fireEvent.change(scrubSlider(), { target: { value: '0.3' } })
+    fireEvent.change(scrubSlider(), { target: { value: '1' } })
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+    releases[1](png())
+    // The 0.3 that waited is not owed any more: nothing renders after 0.25.
+    await waitFor(() => expect(renderedTimes()).toEqual([1, 0.25]))
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    expect(renderedTimes()).toEqual([1, 0.25])
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+  })
+
+  it('opens one snapshot session for the editor, renders through it, and releases it on close (#458)', async () => {
+    const release = vi.fn()
+    const session = { release }
+    sessionMock.mockClear()
+    sessionMock.mockImplementationOnce(() => session)
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    await screen.findByTestId('frame-editor-image')
+    expect(sessionMock).toHaveBeenCalledTimes(1)
+    expect(snapshotMock.mock.calls[0][2]).toEqual({ session })
+    await scrubTo('0.25')
+    expect(snapshotMock.mock.calls[1][2]).toEqual({ session })
+    expect(release).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(editor(), { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: `Adjust Zoom 1 of ${position}` })).not.toBeInTheDocument()
+    expect(release).toHaveBeenCalledTimes(1)
   })
 })
 

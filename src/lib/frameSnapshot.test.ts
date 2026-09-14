@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { frameFileName, snapshotTimelineFrame } from './frameSnapshot'
+import { createSnapshotSession, frameFileName, snapshotTimelineFrame } from './frameSnapshot'
 import { ExportUnsupportedError } from './exportVideo'
+import { probeSourceDimensions } from './exportSettings'
 import type { TimelineEntry, TimelineState } from './timeline'
 
 // The snapshot (#237) composes through the export's factored frame composer
@@ -8,6 +9,14 @@ import type { TimelineEntry, TimelineState } from './timeline'
 // and the export e2e specs). These tests cover the snapshot's own job: the
 // refusal rules, and cueing the right sources to the right source times
 // before drawing — with fake elements, since jsdom decodes nothing.
+
+// The output-frame probe loads real metadata (#179); jsdom never fires it, so
+// it is stubbed where a test leaves `frame` unset (the session tests, #458).
+vi.mock('./exportSettings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./exportSettings')>()),
+  probeSourceDimensions: vi.fn(),
+}))
+const probeMock = vi.mocked(probeSourceDimensions)
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
   clipId: `clip-${overrides.id}`,
@@ -35,6 +44,8 @@ class FakeVideo {
   seeks: number[] = []
   /** Every src assignment — release clears `src`, so assert against these. */
   urls: string[] = []
+  /** When set, a src assignment fires `error` instead of loading (#458). */
+  failsToLoad = false
 
   addEventListener(name: string, listener: () => void) {
     if (!this.listeners.has(name)) this.listeners.set(name, new Set())
@@ -43,7 +54,7 @@ class FakeVideo {
   removeEventListener(name: string, listener: () => void) {
     this.listeners.get(name)?.delete(listener)
   }
-  private dispatch(name: string) {
+  dispatch(name: string) {
     for (const listener of [...(this.listeners.get(name) ?? [])]) listener()
   }
   get src() {
@@ -53,6 +64,10 @@ class FakeVideo {
     this.urlValue = url
     this.urls.push(url)
     queueMicrotask(() => {
+      if (this.failsToLoad) {
+        this.dispatch('error')
+        return
+      }
       this.readyState = 2
       this.dispatch('loadedmetadata')
     })
@@ -102,7 +117,8 @@ class FakeImage {
 }
 
 function fakeContext(filterSupported: boolean) {
-  const draws: { source: unknown; args: number[] }[] = []
+  /** `time` is the source's clock at the moment it was drawn (#458). */
+  const draws: { source: unknown; args: number[]; time: number | undefined }[] = []
   const fills: { style: string; args: number[] }[] = []
   let filterValue = 'none'
   let fillStyleValue = ''
@@ -138,7 +154,7 @@ function fakeContext(filterSupported: boolean) {
     ellipse: () => {},
     clip: () => {},
     drawImage: (source: unknown, ...args: number[]) => {
-      draws.push({ source, args })
+      draws.push({ source, args, time: (source as { currentTime?: number }).currentTime })
     },
   }
   return { context: context as unknown as CanvasRenderingContext2D, draws, fills }
@@ -388,6 +404,140 @@ describe('snapshotTimelineFrame (#237)', () => {
     await snapshotTimelineFrame(timeline, 0, options)
     // Source time 0 equals the fresh element's clock: cued without a seek.
     expect(videos[0].seeks).toEqual([])
+  })
+})
+
+describe('snapshot sessions (#458)', () => {
+  const trimmed: TimelineState = { entries: [entry({ id: 'a', inPoint: 2, outPoint: 6 })] }
+
+  it('keeps the loaded element across renders, seeking it in place, until release()', async () => {
+    const { options, videos, draws } = snapshotOptions()
+    const session = createSnapshotSession()
+    await snapshotTimelineFrame(trimmed, 1.5, { ...options, session })
+    await snapshotTimelineFrame(trimmed, 2.5, { ...options, session })
+
+    // One element, loaded once, seeked twice — never released in between.
+    expect(videos).toHaveLength(1)
+    expect(videos[0].urls).toEqual(['blob:a'])
+    expect(videos[0].seeks).toEqual([3.5, 4.5])
+    expect(videos[0].loaded).toBe(false)
+    expect(draws.map((draw) => draw.time)).toEqual([3.5, 4.5])
+
+    // The instant it is already on costs no seek at all.
+    await snapshotTimelineFrame(trimmed, 2.5, { ...options, session })
+    expect(videos[0].seeks).toEqual([3.5, 4.5])
+    expect(draws).toHaveLength(3)
+
+    session.release()
+    expect(videos[0].loaded).toBe(true)
+    expect(videos[0].src).toBe('')
+  })
+
+  it('a frame drawing one source twice takes two elements, and keeps both', async () => {
+    const { options, videos } = snapshotOptions()
+    const session = createSnapshotSession()
+    // Two entries cut from the same clip, dissolving into each other: at
+    // sequence 3 the frame needs blob:a at source 3 and at source 2 at once.
+    const timeline: TimelineState = {
+      entries: [entry({ id: 'a', outPoint: 4 }), entry({ id: 'b', url: 'blob:a', inPoint: 1, outPoint: 5 })],
+      transitions: [{ beforeId: 'a', afterId: 'b', type: 'crossfade', duration: 2 }],
+    }
+    await snapshotTimelineFrame(timeline, 3, { ...options, session })
+    expect(videos).toHaveLength(2)
+    expect(videos.map((video) => video.urls)).toEqual([['blob:a'], ['blob:a']])
+    expect(videos[0].seeks).toEqual([3])
+    expect(videos[1].seeks).toEqual([2])
+
+    // A second look at the same overlap re-uses both, and loads nothing.
+    await snapshotTimelineFrame(timeline, 3.5, { ...options, session })
+    expect(videos).toHaveLength(2)
+    expect(videos[0].seeks).toEqual([3, 3.5])
+    expect(videos[1].seeks).toEqual([2, 2.5])
+    session.release()
+    expect(videos.every((video) => video.loaded)).toBe(true)
+  })
+
+  it('renders sharing a session run one at a time, so each draws its own instant', async () => {
+    const { options, videos, draws } = snapshotOptions()
+    const session = createSnapshotSession()
+    // Issued together, not awaited in turn — the shape a scrub produces.
+    const first = snapshotTimelineFrame(trimmed, 1.5, { ...options, session })
+    const second = snapshotTimelineFrame(trimmed, 2.5, { ...options, session })
+    await Promise.all([first, second])
+
+    expect(videos).toHaveLength(1)
+    expect(videos[0].seeks).toEqual([3.5, 4.5])
+    // Had the second seek landed while the first still waited on its own,
+    // the first would have drawn the second's frame.
+    expect(draws.map((draw) => draw.time)).toEqual([3.5, 4.5])
+  })
+
+  it('a failed render does not fail the ones queued behind it', async () => {
+    const { options, videos } = snapshotOptions()
+    const session = createSnapshotSession()
+    const empty: TimelineState = { entries: [] }
+    const failed = snapshotTimelineFrame(empty, 0, { ...options, session })
+    const next = snapshotTimelineFrame(trimmed, 1.5, { ...options, session })
+    await expect(failed).rejects.toThrow('The timeline is empty')
+    await expect(next).resolves.toBeInstanceOf(Blob)
+    expect(videos[0].seeks).toEqual([3.5])
+  })
+
+  it('a source that fails to load leaves the session, so the next render loads afresh', async () => {
+    const { options, videos } = snapshotOptions()
+    const session = createSnapshotSession()
+    const createVideo = options.createVideo
+    let failNext = true
+    const failing = {
+      ...options,
+      session,
+      createVideo: () => {
+        const video = createVideo()
+        ;(video as unknown as FakeVideo).failsToLoad = failNext
+        failNext = false
+        return video
+      },
+    }
+    await expect(snapshotTimelineFrame(trimmed, 1.5, failing)).rejects.toThrow(
+      'A source clip failed to load',
+    )
+    // Evicted and released — not left in the pool to be re-used broken.
+    expect(videos).toHaveLength(1)
+    expect(videos[0].loaded).toBe(true)
+
+    await snapshotTimelineFrame(trimmed, 1.5, failing)
+    expect(videos).toHaveLength(2)
+    expect(videos[1].urls).toEqual(['blob:a'])
+    expect(videos[1].seeks).toEqual([3.5])
+  })
+
+  it("probes each source's dimensions once per session, not once per render", async () => {
+    probeMock.mockReset()
+    probeMock.mockResolvedValue({ width: 320, height: 180 })
+    const { frame: _frame, ...unframed } = snapshotOptions().options
+    // Without a session every render probes again — Save frame's one-shot.
+    await snapshotTimelineFrame(trimmed, 1.5, unframed)
+    await snapshotTimelineFrame(trimmed, 2.5, unframed)
+    expect(probeMock).toHaveBeenCalledTimes(2)
+
+    probeMock.mockClear()
+    const session = createSnapshotSession()
+    await snapshotTimelineFrame(trimmed, 1.5, { ...unframed, session })
+    await snapshotTimelineFrame(trimmed, 2.5, { ...unframed, session })
+    expect(probeMock).toHaveBeenCalledTimes(1)
+    expect(probeMock).toHaveBeenCalledWith('blob:a', false)
+  })
+
+  it('a released session renders as a one-shot: load, draw, release', async () => {
+    const { options, videos } = snapshotOptions()
+    const session = createSnapshotSession()
+    await snapshotTimelineFrame(trimmed, 1.5, { ...options, session })
+    session.release()
+    await snapshotTimelineFrame(trimmed, 2.5, { ...options, session })
+    expect(videos).toHaveLength(2)
+    // The second element is the render's own, and released with its draw.
+    expect(videos[1].seeks).toEqual([4.5])
+    expect(videos[1].loaded).toBe(true)
   })
 })
 

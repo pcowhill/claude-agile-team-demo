@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { createSnapshotSession, snapshotTimelineFrame } from '../lib/frameSnapshot'
+import type { SnapshotSession } from '../lib/frameSnapshot'
 import { rectKeyStep } from '../lib/frameEditor'
 import type { Corner, Edge, FrameRect, RectGesture, RectHandle, RectKeyStep } from '../lib/frameEditor'
 import { inscribedEllipse, roundedCornerRadius } from '../lib/shapeMask'
@@ -166,6 +167,22 @@ export function FrameEditor({
   // renders — so a URL is released when it is evicted or the editor closes,
   // never when it stops being the one on screen.
   const cacheRef = useRef(new Map<string, string>())
+  // One snapshot session per mounted editor (#458): the sources the first
+  // still loads stay loaded, so every later instant is a seek on them rather
+  // than a reload of each from scratch. Released with the cache when the
+  // editor closes — or, if a render is mid-flight then, once it lands.
+  const sessionRef = useRef<SnapshotSession | null>(null)
+  // Latest-wins scheduling (#458). One render is in flight at a time; an
+  // instant asked for while it runs waits in `pendingRef`, replacing any
+  // earlier one still waiting, so a slider dragged across forty stops renders
+  // the one it started on and the one it stopped at — not forty, each with
+  // its own decode competing for the machine. `wantedRef` is the instant on
+  // order right now: only its still is shown when a render lands, though
+  // every render that lands is cached for a revisit.
+  const wantedRef = useRef<string | null>(null)
+  const inFlightRef = useRef(false)
+  const pendingRef = useRef<{ key: string; time: number } | null>(null)
+  const unmountedRef = useRef(false)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -173,12 +190,22 @@ export function FrameEditor({
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [drag, setDrag] = useState<Drag | null>(null)
 
-  // Every still the editor rendered, released together when it closes.
+  // Every still the editor rendered, and every source its session loaded,
+  // released together when it closes. A render still in flight at that
+  // moment holds the session's elements, so it releases them when it lands
+  // (below) rather than having them pulled out from under its seek.
   useEffect(() => {
+    unmountedRef.current = false
+    if (sessionRef.current === null) sessionRef.current = createSnapshotSession()
     const cache = cacheRef.current
     return () => {
+      unmountedRef.current = true
       for (const url of cache.values()) revoke(url)
       cache.clear()
+      if (!inFlightRef.current) {
+        sessionRef.current?.release()
+        sessionRef.current = null
+      }
     }
   }, [])
 
@@ -186,45 +213,83 @@ export function FrameEditor({
   // been drawn before, rendered otherwise. The one on screen is left there
   // meanwhile, so scrubbing shows motion rather than flashing black.
   useEffect(() => {
+    const startRender = (request: { key: string; time: number }) => {
+      const session = sessionRef.current ?? createSnapshotSession()
+      sessionRef.current = session
+      inFlightRef.current = true
+      snapshot(timelineRef.current, request.time, { session })
+        .then((blob) => {
+          const url = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(blob) : null
+          if (unmountedRef.current) {
+            if (url !== null) revoke(url)
+            return
+          }
+          if (url !== null) {
+            const cache = cacheRef.current
+            cache.set(request.key, url)
+            while (cache.size > STILL_CACHE_LIMIT) {
+              const oldest = cache.keys().next()
+              if (oldest.done === true) break
+              const evicted = cache.get(oldest.value)
+              cache.delete(oldest.value)
+              // Never release what is about to be shown: object URLs repeat in
+              // tests, and a revoked-but-shown URL is a broken image.
+              if (evicted !== undefined && evicted !== url) revoke(evicted)
+            }
+          }
+          if (wantedRef.current !== request.key) return
+          setRendering(false)
+          setImageUrl(url)
+        })
+        .catch((reason: unknown) => {
+          if (unmountedRef.current || wantedRef.current !== request.key) return
+          setRendering(false)
+          setError(reason instanceof Error ? reason.message : 'The frame could not be rendered.')
+        })
+        .finally(() => {
+          inFlightRef.current = false
+          if (unmountedRef.current) {
+            sessionRef.current?.release()
+            sessionRef.current = null
+            return
+          }
+          const next = pendingRef.current
+          pendingRef.current = null
+          if (next === null) return
+          // What waited may have landed meanwhile — the user scrubbed away
+          // and back while the same instant rendered — so the cache is
+          // checked before a render is spent on it.
+          const cached = cacheRef.current.get(next.key)
+          if (cached === undefined) {
+            startRender(next)
+            return
+          }
+          if (wantedRef.current !== next.key) return
+          setRendering(false)
+          setImageUrl(cached)
+        })
+    }
+
     const key = `${frameKey}@${sequenceTime}`
+    wantedRef.current = key
     const cached = cacheRef.current.get(key)
     if (cached !== undefined) {
+      // Shown at once, and nothing else is owed: an instant still waiting
+      // to render was asked for before this one.
+      pendingRef.current = null
       setError(null)
       setRendering(false)
       setImageUrl(cached)
       return
     }
-    let cancelled = false
     setError(null)
     setRendering(true)
-    snapshot(timelineRef.current, sequenceTime)
-      .then((blob) => {
-        if (cancelled) return
-        const url = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(blob) : null
-        if (url !== null) {
-          const cache = cacheRef.current
-          cache.set(key, url)
-          while (cache.size > STILL_CACHE_LIMIT) {
-            const oldest = cache.keys().next()
-            if (oldest.done === true) break
-            const evicted = cache.get(oldest.value)
-            cache.delete(oldest.value)
-            // Never release what is about to be shown: object URLs repeat in
-            // tests, and a revoked-but-shown URL is a broken image.
-            if (evicted !== undefined && evicted !== url) revoke(evicted)
-          }
-        }
-        setRendering(false)
-        setImageUrl(url)
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return
-        setRendering(false)
-        setError(reason instanceof Error ? reason.message : 'The frame could not be rendered.')
-      })
-    return () => {
-      cancelled = true
+    const request = { key, time: sequenceTime }
+    if (inFlightRef.current) {
+      pendingRef.current = request
+      return
     }
+    startRender(request)
   }, [frameKey, sequenceTime, snapshot])
 
   // The handle layer is drawn in CSS pixels over the frame, so it tracks
