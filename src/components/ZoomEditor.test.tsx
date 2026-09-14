@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
@@ -552,6 +552,317 @@ describe('the Zoom editor\'s scrub, snapping, keys and result view (#421)', () =
     fireEvent.keyDown(editor(), { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: `Adjust Zoom 1 of ${position}` })).not.toBeInTheDocument()
     expect(release).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Loop: the hold played on repeat inside the editor (#425)', () => {
+  /**
+   * The loop's clock, driven by hand: `requestAnimationFrame` callbacks
+   * collect here and `advance` runs them with the fake clock moved on, so a
+   * test says exactly how much wall time passes. Real timers stay real, so
+   * userEvent and the render promises behave as in every other test; only
+   * the two things the loop reads — the frame callback and `performance.now`
+   * — are stubbed.
+   */
+  const clock = { now: 0, frames: new Map<number, FrameRequestCallback>(), next: 1 }
+  const advance = (ms: number) => {
+    clock.now += ms
+    const due = [...clock.frames.values()]
+    clock.frames.clear()
+    act(() => {
+      for (const callback of due) callback(clock.now)
+    })
+  }
+
+  beforeEach(() => {
+    probeMock.mockReset()
+    snapshotMock.mockReset()
+    snapshotMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:frame-still'),
+      revokeObjectURL: vi.fn(),
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      ...FRAME,
+      top: FRAME.y,
+      left: FRAME.x,
+      right: FRAME.x + FRAME.width,
+      bottom: FRAME.y + FRAME.height,
+      toJSON: () => ({}),
+    })
+    clock.now = 0
+    clock.frames.clear()
+    clock.next = 1
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      const id = clock.next++
+      clock.frames.set(id, callback)
+      return id
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      clock.frames.delete(id)
+    })
+    vi.spyOn(performance, 'now').mockImplementation(() => clock.now)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  /** The default zoom: start 0, ramp-in 0.5, hold 1 → the loop plays 0.5 → 1.5 s. */
+  const scrubSlider = () =>
+    screen.getByRole('slider', { name: `Preview time of Zoom 1 of ${position} in seconds` })
+  const reading = () =>
+    within(editor()).getByRole('status', { name: 'Zoom 1 preview time (live)' })
+  const loopButton = () =>
+    screen.getByRole('button', { name: `Loop the hold of Zoom 1 of ${position}` })
+  const renderedTimes = () => snapshotMock.mock.calls.map((call) => call[1] as number)
+  /** Lets a resolved render land: the still pipeline's promise chain is a few microtasks long. */
+  const settle = async () => {
+    await act(async () => {})
+  }
+  const openEditor = async () => {
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    await screen.findByTestId('frame-editor-image')
+    expect(renderedTimes()).toEqual([1])
+  }
+
+  it('Loop on rests on the first frame for a second, then advances in real time with the slider following, rests on the last, and wraps', async () => {
+    await openEditor()
+    expect(loopButton()).toHaveAttribute('aria-pressed', 'false')
+    expect(scrubSlider()).toBeEnabled()
+
+    // On: the hold's first frame at once, before any animation frame.
+    fireEvent.click(loopButton())
+    expect(loopButton()).toHaveAttribute('aria-pressed', 'true')
+    expect(scrubSlider()).toBeDisabled()
+    expect(scrubSlider()).toHaveValue('0.5')
+    expect(reading()).toHaveTextContent('0.50 s')
+    expect(renderedTimes()).toEqual([1, 0.5])
+    expect(clock.frames.size).toBe(1)
+    await settle()
+
+    // The leading rest: half a second on, still the first frame.
+    advance(500)
+    expect(scrubSlider()).toHaveValue('0.5')
+    expect(renderedTimes()).toEqual([1, 0.5])
+
+    // Running: 1.1 s in is 0.1 s into the hold, on the slider's grid.
+    advance(600)
+    expect(scrubSlider()).toHaveValue('0.6')
+    expect(reading()).toHaveTextContent('0.60 s')
+    expect(renderedTimes()).toEqual([1, 0.5, 0.6])
+    await settle()
+    // Ticks between two stops cost nothing: the position is unchanged.
+    advance(20)
+    expect(renderedTimes()).toEqual([1, 0.5, 0.6])
+    // The region keeps its handles throughout — the loop never leaves the hold.
+    expect(region()).toHaveAttribute('tabindex', '0')
+    expect(screen.getByText(/drag the region to move it/)).toBeInTheDocument()
+
+    // The trailing rest: past the hold's second, the last frame holds.
+    advance(980)
+    expect(scrubSlider()).toHaveValue('1.5')
+    expect(reading()).toHaveTextContent('1.50 s')
+    expect(renderedTimes().at(-1)).toBe(1.5)
+    await settle()
+    advance(899)
+    expect(scrubSlider()).toHaveValue('1.5')
+
+    // And round again: a pass is 3 s (rest, hold, rest), so 3.1 s is 0.1 s
+    // into the second pass's leading rest.
+    advance(101)
+    expect(scrubSlider()).toHaveValue('0.5')
+    expect(reading()).toHaveTextContent('0.50 s')
+  })
+
+  it('pausing leaves the slider at the current instant, showing that still, and stops the clock', async () => {
+    await openEditor()
+    fireEvent.click(loopButton())
+    await settle()
+    advance(1300)
+    expect(scrubSlider()).toHaveValue('0.8')
+    expect(renderedTimes().at(-1)).toBe(0.8)
+    await settle()
+
+    fireEvent.click(loopButton())
+    expect(loopButton()).toHaveAttribute('aria-pressed', 'false')
+    expect(scrubSlider()).toBeEnabled()
+    expect(scrubSlider()).toHaveValue('0.8')
+    expect(reading()).toHaveTextContent('0.80 s')
+    // No frame is armed, and time passing changes nothing.
+    expect(clock.frames.size).toBe(0)
+    const before = renderedTimes()
+    advance(2000)
+    expect(scrubSlider()).toHaveValue('0.8')
+    expect(renderedTimes()).toEqual(before)
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+
+    // Scrubbing by hand works again, exactly as if the loop had never run.
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    expect(renderedTimes().at(-1)).toBe(0.25)
+    await screen.findByText(/part-way through a ramp/)
+  })
+
+  it('a drag mid-loop commits one edit, over the moving picture', async () => {
+    await openEditor()
+    fireEvent.click(loopButton())
+    await settle()
+    advance(1200)
+    expect(scrubSlider()).toHaveValue('0.7')
+    await settle()
+
+    // Press at the region's middle and move right by 40 px (0.1 of the frame).
+    const liveX = () => within(editor()).getByRole('status', { name: 'Zoom 1 centre X (live)' })
+    fireEvent.pointerDown(region(), { pointerId: 1, button: 0, clientX: 200, clientY: 112.5 })
+    fireEvent.pointerMove(handles(), { pointerId: 1, clientX: 240, clientY: 112.5 })
+    expect(liveX()).toHaveTextContent('0.6')
+    // The loop keeps going under the drag: another stop lands meanwhile.
+    advance(100)
+    expect(scrubSlider()).toHaveValue('0.8')
+    expect(centreX()).toHaveValue(0.5)
+    fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 240, clientY: 112.5 })
+    expect(centreX()).toHaveValue(0.6)
+    expect(centreY()).toHaveValue(0.5)
+    // Still looping, and the region drawn at the new centre: 0.6 × 400 − 100.
+    expect(loopButton()).toHaveAttribute('aria-pressed', 'true')
+    expect(region()).toHaveAttribute('x', '140')
+    // One gesture, one undo step: the add-zoom is the step before it.
+    await userEvent.click(undoButton())
+    expect(centreX()).toHaveValue(0.5)
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(centreX()).toHaveValue(0.6)
+  })
+
+  it('in Show result mode the loop draws the zoom, and a commit reaches the next frame', async () => {
+    await openEditor()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show result' }))
+    fireEvent.click(loopButton())
+    await settle()
+    advance(1200)
+    await settle()
+    const [timeline, time] = snapshotMock.mock.calls.at(-1) as [TimelineState, number]
+    expect(zoomsOf(timeline)).toHaveLength(1)
+    expect(time).toBe(0.7)
+    expect(screen.queryByTestId('frame-editor-rect')).not.toBeInTheDocument()
+
+    await userEvent.clear(centreX())
+    await userEvent.type(centreX(), '0.6{Enter}')
+    await settle()
+    advance(50)
+    await settle()
+    const [next, nextTime] = snapshotMock.mock.calls.at(-1) as [TimelineState, number]
+    expect(zoomsOf(next)[0].centerX).toBe(0.6)
+    expect(nextTime).toBe(0.75)
+  })
+
+  it('closing the editor while looping stops the clock and releases the session', async () => {
+    const release = vi.fn()
+    sessionMock.mockClear()
+    sessionMock.mockImplementationOnce(() => ({ release }))
+    await openEditor()
+    fireEvent.click(loopButton())
+    await settle()
+    advance(1200)
+    await settle()
+    expect(clock.frames.size).toBe(1)
+    const before = renderedTimes()
+
+    fireEvent.keyDown(editor(), { key: 'Escape' })
+    expect(
+      screen.queryByRole('dialog', { name: `Adjust Zoom 1 of ${position}` }),
+    ).not.toBeInTheDocument()
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(clock.frames.size).toBe(0)
+    advance(1000)
+    expect(renderedTimes()).toEqual(before)
+  })
+
+  it('a still that lands after the slider has moved on is shown — the newest picture there is — unless a later instant is already up', async () => {
+    const releases: ((blob: Blob) => void)[] = []
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<Blob>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const png = () => new Blob(['png'], { type: 'image/png' })
+    // Distinct URLs per still, so the picture on screen can be told apart.
+    let urls = 0
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => `blob:still-${++urls}`),
+      revokeObjectURL: vi.fn(),
+    })
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    releases[0](png())
+    const image = await screen.findByTestId('frame-editor-image')
+    expect(image).toHaveAttribute('src', 'blob:still-1')
+
+    // Two stops while the first renders: when 0.25 lands the slider is on
+    // 0.35, and 0.25 goes up anyway — motion in the drag's direction, and
+    // what a loop that cannot keep up with its clock needs (#425). The badge
+    // stays until the instant on order is the one up.
+    fireEvent.change(scrubSlider(), { target: { value: '0.25' } })
+    fireEvent.change(scrubSlider(), { target: { value: '0.35' } })
+    expect(renderedTimes()).toEqual([1, 0.25])
+    releases[1](png())
+    await waitFor(() => expect(image).toHaveAttribute('src', 'blob:still-2'))
+    expect(screen.getByTestId('frame-editor-updating')).toBeInTheDocument()
+    await waitFor(() => expect(renderedTimes()).toEqual([1, 0.25, 0.35]))
+    releases[2](png())
+    await waitFor(() => expect(image).toHaveAttribute('src', 'blob:still-3'))
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+
+    // Away to an instant that renders, then back onto a cached one: the
+    // cached still is up at once, and the older render landing afterwards
+    // must not put an older picture over it.
+    fireEvent.change(scrubSlider(), { target: { value: '0.5' } })
+    expect(renderedTimes()).toEqual([1, 0.25, 0.35, 0.5])
+    fireEvent.change(scrubSlider(), { target: { value: '0.35' } })
+    expect(image).toHaveAttribute('src', 'blob:still-3')
+    releases[3](png())
+    await waitFor(() => expect(renderedTimes()).toHaveLength(4))
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    expect(image).toHaveAttribute('src', 'blob:still-3')
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+    // The render that landed unshown is cached like any other.
+    fireEvent.change(scrubSlider(), { target: { value: '0.5' } })
+    expect(image).toHaveAttribute('src', 'blob:still-4')
+    expect(renderedTimes()).toHaveLength(4)
+  })
+
+  it('the rendering badge stays off while looping — the motion is the sign of progress — and comes back on pause', async () => {
+    const releases: ((blob: Blob) => void)[] = []
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<Blob>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const png = () => new Blob(['png'], { type: 'image/png' })
+    render(<App />)
+    await placeImageWithZoom()
+    await userEvent.click(adjustButton())
+    releases[0](png())
+    await screen.findByTestId('frame-editor-image')
+
+    fireEvent.click(loopButton())
+    // 0.5 is rendering and nothing says so.
+    expect(renderedTimes()).toEqual([1, 0.5])
+    expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument()
+    fireEvent.click(loopButton())
+    // Paused with that render still in flight: the badge is back.
+    expect(screen.getByTestId('frame-editor-updating')).toBeInTheDocument()
+    releases[1](png())
+    await waitFor(() =>
+      expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument(),
+    )
   })
 })
 
