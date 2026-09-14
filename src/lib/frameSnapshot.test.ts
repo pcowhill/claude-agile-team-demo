@@ -541,6 +541,159 @@ describe('snapshot sessions (#458)', () => {
   })
 })
 
+describe('the sought frame settles the presented-frame wait while `seeking` still reads true (#465)', () => {
+  /**
+   * A <video> whose seek the test drives by hand: `currentTime =` records
+   * the target and marks the element seeking, `finishSeek()` clears the
+   * flag and fires `seeked`, and `presentFrame(mediaTime)` runs the
+   * collected requestVideoFrameCallback callbacks with that timestamp — so
+   * the test, not the fake, decides whether presentation lands before or
+   * after the seek completes. Chromium does the former on about half of
+   * seeks, which is the case #465 fixes.
+   */
+  class SeekingFakeVideo extends FakeVideo {
+    seeking = false
+    private target = 0
+    frameCallbacks: ((now: number, metadata: { mediaTime: number }) => void)[] = []
+    get currentTime() {
+      return this.target
+    }
+    set currentTime(time: number) {
+      this.target = time
+      this.seeks.push(time)
+      this.seeking = true
+    }
+    finishSeek() {
+      this.seeking = false
+      this.dispatch('seeked')
+    }
+    requestVideoFrameCallback(callback: (now: number, metadata: { mediaTime: number }) => void) {
+      this.frameCallbacks.push(callback)
+    }
+    presentFrame(mediaTime: number) {
+      const callbacks = [...this.frameCallbacks]
+      this.frameCallbacks = []
+      for (const callback of callbacks) callback(0, { mediaTime })
+    }
+  }
+  const timeline: TimelineState = { entries: [entry({ id: 'a', inPoint: 2, outPoint: 6 })] }
+  const seekingOptions = () => {
+    const videos: SeekingFakeVideo[] = []
+    const { canvas, draws } = fakeCanvas()
+    return {
+      videos,
+      draws,
+      options: {
+        frame: { width: 320, height: 180 },
+        createCanvas: () => canvas,
+        createVideo: () => {
+          const video = new SeekingFakeVideo()
+          videos.push(video)
+          return video as unknown as HTMLVideoElement
+        },
+      },
+    }
+  }
+  const drain = async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+  }
+
+  it('a callback for the sought frame that runs before the seek completes settles the wait, with no timer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { videos, draws, options } = seekingOptions()
+      let settled = false
+      const pending = snapshotTimelineFrame(timeline, 1.5, options).then((blob) => {
+        settled = true
+        return blob
+      })
+      await drain()
+      expect(videos[0].seeks).toEqual([3.5])
+      expect(videos[0].seeking).toBe(true)
+
+      // The losing order: the frame at 3.5 (timestamped a frame's worth
+      // behind it, as a presented frame is) is presented while `seeking`
+      // still reads true; only then does the seek complete.
+      videos[0].presentFrame(3.48)
+      videos[0].finishSeek()
+      await drain()
+      expect(settled).toBe(true)
+      expect(draws).toHaveLength(1)
+      // Settled by the frame, not by the 300 ms bound: no timer was ever armed.
+      expect(vi.getTimerCount()).toBe(0)
+      expect((await pending).type).toBe('image/png')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a frame from elsewhere during the seek still re-arms, and the sought frame settles it afterwards (#276 kept)', async () => {
+    vi.useFakeTimers()
+    try {
+      const { videos, draws, options } = seekingOptions()
+      let settled = false
+      const pending = snapshotTimelineFrame(timeline, 1.5, options).then((blob) => {
+        settled = true
+        return blob
+      })
+      await drain()
+      expect(videos[0].seeking).toBe(true)
+
+      // A fresh element's first frame, presented while the seek to 3.5 is
+      // under way: far from the target, so it is not the sought frame.
+      videos[0].presentFrame(0)
+      expect(videos[0].frameCallbacks.length).toBeGreaterThan(0)
+      videos[0].finishSeek()
+      await drain()
+      expect(settled).toBe(false)
+      expect(draws).toHaveLength(0)
+
+      videos[0].presentFrame(3.5)
+      await drain()
+      expect(settled).toBe(true)
+      expect(draws).toHaveLength(1)
+      expect((await pending).type).toBe('image/png')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a frame just past the sought time counts too, but one a frame or more behind does not', async () => {
+    vi.useFakeTimers()
+    try {
+      // Ahead by rounding slack: settles.
+      const ahead = seekingOptions()
+      let aheadSettled = false
+      const aheadPending = snapshotTimelineFrame(timeline, 1.5, ahead.options).then(() => {
+        aheadSettled = true
+      })
+      await drain()
+      ahead.videos[0].presentFrame(3.503)
+      ahead.videos[0].finishSeek()
+      await drain()
+      expect(aheadSettled).toBe(true)
+      await aheadPending
+
+      // Behind by more than the tolerance: re-arms, so the bound resolves it.
+      const behind = seekingOptions()
+      let behindSettled = false
+      const behindPending = snapshotTimelineFrame(timeline, 1.5, behind.options).then(() => {
+        behindSettled = true
+      })
+      await drain()
+      behind.videos[0].presentFrame(3.3)
+      behind.videos[0].finishSeek()
+      await drain()
+      expect(behindSettled).toBe(false)
+      await vi.advanceTimersByTimeAsync(300)
+      expect(behindSettled).toBe(true)
+      await behindPending
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('snapshotTimelineFrame with still overlay layers (#295)', () => {
   const stillOverlay = {
     id: 'logo',

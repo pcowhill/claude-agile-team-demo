@@ -429,17 +429,16 @@ test('scrubbing a real clip across many stops lands the last still promptly, in 
     type: 'measured',
     description: `last still shown ${settledAfter} ms after the slider was released`,
   })
-  // The bound covers the presented-frame wait's fallback (#465): on about
-  // half of seeks the sought frame's callback runs while `seeking` is still
-  // true, the wait re-arms, and its 300 ms timer is what resolves it. Two
-  // renders follow a release (the stop the drag began on and the one it
-  // ended on), so the honest distribution on this tree is trimodal — ~45,
-  // ~315 and ~805 ms over ten repeats — and 500 ms sat inside it. This is
-  // a guard against the customer's 1–2 s (#458), not the discriminating
-  // measurement; the unit tests are. #465 brings the bound back down.
+  // Two renders follow a release (the stop the drag began on and the one
+  // it ended on). Before #465 the presented-frame wait lost a race on about
+  // half of seeks and its 300 ms fallback resolved them, so this measured
+  // ~45, ~315 or ~805 ms; with the sought frame settling the wait it is
+  // 21–53 ms over ten repeats here, and the bound is roughly ten times
+  // that for the runner's variance. It guards the customer's 1–2 s (#458)
+  // and the #465 fallback alike; the discriminating tests are the unit ones.
   expect(
     settledAfter,
     `the last still took ${settledAfter} ms to arrive after the slider was released`,
-  ).toBeLessThan(1500)
+  ).toBeLessThan(500)
   await editor.screenshot({ path: testInfo.outputPath('zoom-editor-after-scrub.png') })
 })
