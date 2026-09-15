@@ -21,8 +21,14 @@ import type { TimelineState } from './timeline'
  * but a project saved from a different browser may disagree by container
  * rounding — so allow 1% of the stored duration, floored at 100 ms.
  */
+export const RELINK_DURATION_TOLERANCE_FRACTION = 0.01
+export const RELINK_DURATION_TOLERANCE_MIN_SECONDS = 0.1
+
 export function durationsMatch(stored: number, probed: number): boolean {
-  return Math.abs(stored - probed) <= Math.max(0.1, stored * 0.01)
+  return (
+    Math.abs(stored - probed) <=
+    Math.max(RELINK_DURATION_TOLERANCE_MIN_SECONDS, stored * RELINK_DURATION_TOLERANCE_FRACTION)
+  )
 }
 
 export type MatchResult =
