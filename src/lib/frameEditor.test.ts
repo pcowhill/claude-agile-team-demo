@@ -17,6 +17,7 @@ import {
   TEXT_HANDLES,
   TEXT_SIZE_STEP,
   ZOOM_SNAP_TOLERANCE,
+  LOOP_PAUSE_MS,
   clampedRect,
   cropAfterGesture,
   cropEditorSequenceTime,
@@ -57,6 +58,9 @@ import {
   zoomFromRect,
   zoomGuides,
   zoomHoldMidpoint,
+  zoomHoldSpan,
+  loopPositionAt,
+  loopScrubStop,
   zoomIsFullAt,
   zoomRect,
   zoomRectAt,
@@ -1311,6 +1315,86 @@ describe('the text editor still (#424)', () => {
     // Provenance and overrides change nothing about the picture.
     expect(textFrameKey({ ...title, subtitle: true, styleOverrides: ['x'] })).toBe(base)
     expect(textFrameKey({ ...title, id: 't2' })).not.toBe(base)
+  })
+})
+
+describe('the loop over the hold (#425)', () => {
+  const ramped: ZoomSpec = { ...zoom, start: 1, rampIn: 0.5, hold: 2, rampOut: 0.5, scale: 2 }
+
+  it('plays the hold and nothing else, clipped to the entry when it runs off the end', () => {
+    expect(zoomHoldSpan(ramped, 10)).toEqual({ start: 1.5, end: 3.5 })
+    // The hold is where the region has its handles — the loop never leaves it.
+    expect(zoomIsFullAt(ramped, 1.5)).toBe(true)
+    expect(zoomIsFullAt(ramped, 3.5)).toBe(true)
+    expect(zoomIsFullAt(ramped, 1.49)).toBe(false)
+    expect(zoomIsFullAt(ramped, 3.51)).toBe(false)
+    // A clip that ends mid-hold plays what exists; one that ends before the
+    // hold begins gives a single instant rather than an inverted span.
+    expect(zoomHoldSpan(ramped, 2.5)).toEqual({ start: 1.5, end: 2.5 })
+    expect(zoomHoldSpan(ramped, 1.2)).toEqual({ start: 1.2, end: 1.2 })
+  })
+
+  it('rests on the first frame, runs the hold at real time, rests on the last, then wraps', () => {
+    const at = (ms: number) => loopPositionAt(ms, 1.5, 3.5)
+    // The leading rest: the first frame for a whole pause.
+    expect(at(0)).toBe(1.5)
+    expect(at(LOOP_PAUSE_MS - 1)).toBe(1.5)
+    // Then real time: a second of the clock is a second of the hold.
+    expect(at(LOOP_PAUSE_MS)).toBe(1.5)
+    expect(at(LOOP_PAUSE_MS + 500)).toBeCloseTo(2.0, 9)
+    expect(at(LOOP_PAUSE_MS + 1999)).toBeCloseTo(3.499, 9)
+    // The trailing rest: the last frame for a whole pause.
+    expect(at(LOOP_PAUSE_MS + 2000)).toBe(3.5)
+    expect(at(LOOP_PAUSE_MS + 2000 + LOOP_PAUSE_MS - 1)).toBe(3.5)
+    // Round again from the first frame.
+    expect(at(2 * LOOP_PAUSE_MS + 2000)).toBe(1.5)
+    expect(at(2 * LOOP_PAUSE_MS + 2000 + LOOP_PAUSE_MS + 250)).toBeCloseTo(1.75, 9)
+    // A clock read a hair before the start still names the first frame.
+    expect(at(-1)).toBe(1.5)
+  })
+
+  it('a hold shorter than one pause is mostly rests, and a zero-length hold is two rests on one frame', () => {
+    const short = (ms: number) => loopPositionAt(ms, 2, 2.4, 1000)
+    expect(short(999)).toBe(2)
+    expect(short(1200)).toBeCloseTo(2.2, 9)
+    expect(short(1400)).toBe(2.4)
+    expect(short(2399)).toBe(2.4)
+    expect(short(2400)).toBe(2)
+    const instant = (ms: number) => loopPositionAt(ms, 2, 2, 1000)
+    expect(instant(0)).toBe(2)
+    expect(instant(1500)).toBe(2)
+    expect(instant(1999)).toBe(2)
+    // An inverted span is treated as its start, never as a negative run.
+    expect(loopPositionAt(1500, 3, 2)).toBe(3)
+  })
+
+  it('the pause is a parameter, so the rhythm can be tested at any tempo', () => {
+    expect(loopPositionAt(99, 0, 1, 100)).toBe(0)
+    expect(loopPositionAt(600, 0, 1, 100)).toBeCloseTo(0.5, 9)
+    expect(loopPositionAt(1150, 0, 1, 100)).toBe(1)
+    expect(loopPositionAt(1200, 0, 1, 100)).toBe(0)
+  })
+
+  it('snaps a position onto the scrub grid without ever passing the hold\'s end', () => {
+    // Floored, so a position a hair before a stop shows the stop before it.
+    expect(loopScrubStop(1.5, 1.5, 3.5)).toBe(1.5)
+    expect(loopScrubStop(1.6, 1.5, 3.5)).toBe(1.6)
+    expect(loopScrubStop(1.5999, 1.5, 3.5)).toBe(1.55)
+    expect(loopScrubStop(2.0, 1.5, 3.5)).toBe(2)
+    // The end is exact, whether or not it lies on the grid from the start.
+    expect(loopScrubStop(3.5, 1.5, 3.5)).toBe(3.5)
+    expect(loopScrubStop(3.49, 1.5, 3.53)).toBe(3.45)
+    expect(loopScrubStop(3.53, 1.5, 3.53)).toBe(3.53)
+    expect(loopScrubStop(9, 1.5, 3.5)).toBe(3.5)
+    // Nothing before the start either.
+    expect(loopScrubStop(1.2, 1.5, 3.5)).toBe(1.5)
+    // Every stop the loop can show is inside the hold, where the handles live.
+    for (let ms = 0; ms <= 4000; ms += 7) {
+      const stop = loopScrubStop(loopPositionAt(ms, 1.5, 3.5), 1.5, 3.5)
+      expect(zoomIsFullAt(ramped, stop)).toBe(true)
+    }
+    // No float tails reach the slider: three decimals at most.
+    expect(loopScrubStop(0.5 + 0.1 + 0.2, 0.5, 1.5)).toBe(0.8)
   })
 })
 

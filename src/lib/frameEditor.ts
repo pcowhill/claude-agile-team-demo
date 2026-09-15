@@ -364,6 +364,80 @@ export function zoomIsFullAt(zoom: ZoomSpec, entryOffset: number): boolean {
 }
 
 /**
+ * ── Looping the hold (#425, from #402's design D2-c) ──────────────────────
+ *
+ * The editor's Loop plays the hold — the span where `zoomIsFullAt` is true,
+ * so the region keeps its handles throughout — in real time, resting on its
+ * first and last frame so the eye finds the ends, then round again. The
+ * rhythm is these three functions; the component feeds them a wall clock
+ * and draws whatever instant they name through the same still pipeline the
+ * scrub slider uses, so looping is scrubbing with a clock behind it.
+ */
+
+/** How long the loop rests on the hold's first and on its last frame, in milliseconds. */
+export const LOOP_PAUSE_MS = 1000
+
+/**
+ * The span the loop plays, in seconds into the entry: the hold, clipped to
+ * the entry's trimmed duration when it runs off the end — a clip shorter
+ * than the hold plays what exists and wraps. Never inverted: a hold lying
+ * wholly past the end collapses to the single instant at the end.
+ */
+export function zoomHoldSpan(
+  zoom: ZoomSpec,
+  entryDuration: number,
+): { start: number; end: number } {
+  const start = Math.min(zoom.start + zoom.rampIn, entryDuration)
+  const end = Math.min(zoom.start + zoom.rampIn + zoom.hold, entryDuration)
+  return { start, end: Math.max(start, end) }
+}
+
+/**
+ * Where the loop is `elapsedMs` after it started: on the hold's first frame
+ * for `pauseMs`, then through the hold at real time, then on its last frame
+ * for `pauseMs`, then round again from the first. A hold shorter than one
+ * pause is mostly rests, which is the point of the rests. Pure, so the
+ * editor can hand it `performance.now()` and a test a number.
+ */
+export function loopPositionAt(
+  elapsedMs: number,
+  holdStart: number,
+  holdEnd: number,
+  pauseMs: number = LOOP_PAUSE_MS,
+): number {
+  const end = Math.max(holdStart, holdEnd)
+  const runMs = (end - holdStart) * 1000
+  const periodMs = pauseMs + runMs + pauseMs
+  if (periodMs <= 0) return holdStart
+  // A clock read a hair before the start is the start, not the end of a pass.
+  const phase = elapsedMs <= 0 ? 0 : elapsedMs % periodMs
+  if (phase < pauseMs) return holdStart
+  if (phase < pauseMs + runMs) return holdStart + (phase - pauseMs) / 1000
+  return end
+}
+
+/**
+ * The slider stop the loop shows for a position: floored onto the scrub grid
+ * counted from the hold's start, so it never lands a fraction past the
+ * hold's end — where `zoomIsFullAt` turns false and the region would lose
+ * its handles for one frame — and the end itself kept exact, since the
+ * trailing rest sits there. Quantising also lets the still cache serve a
+ * second pass of a short hold without a render. Rounded to a thousandth so
+ * a float's tail never reaches the slider's value.
+ */
+export function loopScrubStop(
+  position: number,
+  holdStart: number,
+  holdEnd: number,
+  step: number = ZOOM_SCRUB_STEP,
+): number {
+  const end = Math.max(holdStart, holdEnd)
+  if (position >= end) return end
+  const stops = Math.max(0, Math.floor((position - holdStart) / step + 1e-9))
+  return Math.min(end, Math.round((holdStart + stops * step) * 1000) / 1000)
+}
+
+/**
  * ── The free rectangle (#422, from #402's design D4) ──────────────────────
  *
  * An overlay's placement is a rectangle in frame fractions with no aspect

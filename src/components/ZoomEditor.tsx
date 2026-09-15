@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   ZOOM_SCRUB_STEP,
+  loopPositionAt,
+  loopScrubStop,
   withoutZoom,
   zoomAfterGesture,
   zoomAfterKeyStep,
@@ -10,12 +12,14 @@ import {
   zoomFromRect,
   zoomGuides,
   zoomHoldMidpoint,
+  zoomHoldSpan,
   zoomIsFullAt,
   zoomRect,
   zoomRectAt,
 } from '../lib/frameEditor'
 import type { FrameRect, RectGesture, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { effectiveDuration } from '../lib/timeline'
 import type { TimelineState, ZoomEffect, ZoomSpec } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
 
@@ -33,6 +37,21 @@ import { FrameEditor } from './FrameEditor'
  * nudges and `+` / `−` scale steps, each its own undo step; and a **Show
  * result** toggle that draws the frame the viewer will get instead of the
  * region on the source.
+ *
+ * #425 adds design D2-c, the phase the customer asked for after using the
+ * still-plus-scrub editor: a **Loop** toggle that plays the hold in real
+ * time inside the editor, resting a second on its first and last frame.
+ * Looping is scrubbing with a clock behind it — a `requestAnimationFrame`
+ * tick maps wall time to a hold position through `loopPositionAt` and sets
+ * the scrub position, and each frame comes through `FrameEditor`'s own
+ * latest-wins still pipeline on its #458 session, so it is the export's
+ * composer drawing from elements that stay loaded and seek in place, not a
+ * third pipeline. The slider follows and is read-only while looping;
+ * pausing leaves it at the current instant, showing that instant's still,
+ * exactly as if the user had scrubbed there. The rest of the editor is
+ * unchanged underneath: the region stays draggable over the moving picture
+ * (the loop never leaves the hold, where the handles live), and in Show
+ * result mode the committed values are what the next frame draws from.
  *
  * Rendered inline under the zoom's row of fields rather than floating: it
  * is then anchored to exactly the row it edits, overlaps nothing, and needs
@@ -87,6 +106,9 @@ export function ZoomEditor({
   // #413 showed before there was anywhere else to be.
   const [scrubbed, setScrubbed] = useState(() => zoomHoldMidpoint(zoom))
   const [showResult, setShowResult] = useState(false)
+  // Loop (#425): session-only, off when the editor opens, and its clock runs
+  // in the effect below for exactly as long as this is true.
+  const [looping, setLooping] = useState(false)
   const stored = specOf(zoom)
   const shown = live ?? stored
   // Timing is edited in the row's fields while the editor is open, so the
@@ -110,6 +132,34 @@ export function ZoomEditor({
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
+
+  // The hold the loop plays, in the entry's clock, clipped to the entry so a
+  // clip shorter than the hold plays what exists and wraps. A timing edit in
+  // the row's fields moves it, and the effect below restarts the loop from
+  // the first frame of the new hold — the reversible choice.
+  const entryDuration = effectiveDuration(timeline.entries[entryIndex])
+  const hold = zoomHoldSpan(stored, entryDuration)
+
+  // The loop's clock (#425). One tick a frame: where the loop is now, on the
+  // slider's grid, into the scrub position — and the still pipeline does the
+  // rest, coalescing whatever it cannot keep up with (latest wins, #458).
+  // Setting an unchanged position is free, so the 60 Hz tick costs a render
+  // only at each new stop. The first tick runs at once, so toggling Loop on
+  // shows the hold's first frame without waiting for the next animation
+  // frame; the cleanup stops the clock, which is also what closing the
+  // editor does — FrameEditor's own unmount releases the session's elements.
+  useEffect(() => {
+    if (!looping) return
+    const startedAt = performance.now()
+    let handle = 0
+    const tick = () => {
+      const position = loopPositionAt(performance.now() - startedAt, hold.start, hold.end)
+      setScrubbed(loopScrubStop(position, hold.start, hold.end))
+      handle = requestAnimationFrame(tick)
+    }
+    tick()
+    return () => cancelAnimationFrame(handle)
+  }, [looping, hold.start, hold.end])
 
   const applyGesture = (start: FrameRect, gesture: RectGesture): FrameRect =>
     zoomRect(zoomAfterGesture({ ...stored, ...zoomFromRect(start) }, gesture))
@@ -186,6 +236,9 @@ export function ZoomEditor({
         describedBy={hintId}
         showRegion={!showResult}
         interactive={interactive}
+        // A loop lands a frame every few dozen milliseconds; the badge would
+        // only flicker over the motion, which is itself the sign of progress.
+        showRenderingIndicator={!looping}
         guides={zoomGuides(shown)}
         {...(snapshot === undefined ? {} : { snapshot })}
       />
@@ -198,6 +251,10 @@ export function ZoomEditor({
           max={envelope.end}
           step={ZOOM_SCRUB_STEP}
           value={scrub}
+          // Read-only while the loop drives it: a range input has no
+          // read-only state, and a thumb the clock keeps taking back would
+          // fight the hand. Pausing hands it back where the loop stopped.
+          disabled={looping}
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
         <output aria-label={`${zoomName} preview time (live)`}>{seconds(scrub)}</output>
@@ -209,6 +266,25 @@ export function ZoomEditor({
           />
           Show result
         </label>
+        {/* Loop (#425): plays the hold on repeat, resting a second on its
+            first and last frame. A pressed toggle beside the slider it
+            drives, styled like the transport's ↻ (#459) so one glyph means
+            one thing across the app. */}
+        <button
+          type="button"
+          className="effect-editor-loop"
+          data-testid="zoom-editor-loop"
+          aria-pressed={looping}
+          aria-label={`Loop the hold of ${zoomName} of ${position}`}
+          title={
+            looping
+              ? 'Pause the loop, leaving the preview where it is'
+              : 'Loop: play the hold on repeat, resting a second on its first and last frame'
+          }
+          onClick={() => setLooping((on) => !on)}
+        >
+          ↻ Loop
+        </button>
       </div>
       <p className="effect-editor-readout">
         <span>
@@ -226,6 +302,7 @@ export function ZoomEditor({
         {interactive
           ? 'Arrow keys nudge the region, Shift for five times as far; + and − change the magnification. Hold Alt while dragging to ignore the guides. '
           : ''}
+        {looping ? 'Loop is playing the hold; pause it to scrub by hand. ' : ''}
         Timing stays in the fields above, and each change is one undo step.
       </p>
     </div>

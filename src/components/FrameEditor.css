@@ -222,6 +222,19 @@
   white-space: nowrap;
 }
 
+/* Loop (#425): the scrub row's one toggle, so its state has to show. On, it
+   takes the same amber the transport's ↻ takes (#459), and it never wraps
+   its own label. */
+.effect-editor-loop {
+  white-space: nowrap;
+}
+
+.effect-editor-scrub button[aria-pressed='true'] {
+  background: rgba(255, 140, 26, 0.35);
+  border-color: #ff8c1a;
+  color: #fff;
+}
+
 /* The live readout mirrors the row's numbers while a drag is in progress. */
 .effect-editor-readout {
   display: flex;

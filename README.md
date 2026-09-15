@@ -349,7 +349,12 @@ without playing anything. Each instant is rendered once and kept while the
 editor is open, and the previous still stays on screen while the next one
 draws. The clip itself stays loaded for as long as the editor is open, so a
 new instant is a seek rather than a reload, and a quick drag across the
-slider renders where it stops, not every stop it passed (#458). The region takes drags only across the hold, where it is the zoom's
+slider renders where it stops, not every stop it passed (#458). **Loop**
+(#425) plays the hold on repeat inside the editor, resting a second on its
+first and last frame so the ends are easy to see, with the slider following
+along and the region still draggable over the moving picture; with Show
+result on, it is the finished frame that loops. Pause it to scrub by hand
+again — the slider stays where the loop stopped. The region takes drags only across the hold, where it is the zoom's
 own region; part-way through a ramp it is drawn dashed and read-only,
 because a drag there has no single stored zoom it could mean. While
 dragging, the centre snaps onto the frame centre and the thirds, with a

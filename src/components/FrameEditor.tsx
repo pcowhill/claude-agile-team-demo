@@ -92,6 +92,14 @@ interface FrameEditorProps {
    */
   interactive?: boolean
   /**
+   * Whether to flag a render in progress over the still (#425). On by
+   * default: a scrub stop that takes a moment says so. A loop lands a frame
+   * every few dozen milliseconds, so there the badge would only flicker over
+   * the motion that is itself the sign of progress, and the caller turns it
+   * off for the duration.
+   */
+  showRenderingIndicator?: boolean
+  /**
    * Alignment guides to draw while a gesture is in progress, as frame
    * fractions — the caller's model says which ones the rectangle is on.
    */
@@ -151,6 +159,7 @@ export function FrameEditor({
   describedBy,
   showRegion = true,
   interactive = true,
+  showRenderingIndicator = true,
   guides,
   handles = DEFAULT_HANDLES,
   silhouette,
@@ -177,11 +186,21 @@ export function FrameEditor({
   // earlier one still waiting, so a slider dragged across forty stops renders
   // the one it started on and the one it stopped at — not forty, each with
   // its own decode competing for the machine. `wantedRef` is the instant on
-  // order right now: only its still is shown when a render lands, though
-  // every render that lands is cached for a revisit.
+  // order right now: it is what the rendering badge waits for, and every
+  // render that lands is cached for a revisit.
+  //
+  // What is *shown* is the newest picture there is (#425): requests are
+  // numbered, and a landed render goes on screen unless something asked for
+  // later is already up. A still that lands after the slider has moved on is
+  // still newer than the one on screen, so it shows — the motion in the
+  // drag's direction — and a loop whose frames take longer than its clock
+  // grants them shows every frame it manages, late, rather than only the
+  // ones that happen to land while their instant is still the one on order.
   const wantedRef = useRef<string | null>(null)
   const inFlightRef = useRef(false)
-  const pendingRef = useRef<{ key: string; time: number } | null>(null)
+  const pendingRef = useRef<{ key: string; time: number; seq: number } | null>(null)
+  const requestSeqRef = useRef(0)
+  const shownSeqRef = useRef(0)
   const unmountedRef = useRef(false)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [rendering, setRendering] = useState(false)
@@ -213,7 +232,7 @@ export function FrameEditor({
   // been drawn before, rendered otherwise. The one on screen is left there
   // meanwhile, so scrubbing shows motion rather than flashing black.
   useEffect(() => {
-    const startRender = (request: { key: string; time: number }) => {
+    const startRender = (request: { key: string; time: number; seq: number }) => {
       const session = sessionRef.current ?? createSnapshotSession()
       sessionRef.current = session
       inFlightRef.current = true
@@ -237,9 +256,12 @@ export function FrameEditor({
               if (evicted !== undefined && evicted !== url) revoke(evicted)
             }
           }
-          if (wantedRef.current !== request.key) return
-          setRendering(false)
+          // Never behind a later picture; on screen otherwise, and the badge
+          // comes down only when the instant on order is the one up.
+          if (request.seq < shownSeqRef.current) return
+          shownSeqRef.current = request.seq
           setImageUrl(url)
+          if (wantedRef.current === request.key) setRendering(false)
         })
         .catch((reason: unknown) => {
           if (unmountedRef.current || wantedRef.current !== request.key) return
@@ -265,6 +287,7 @@ export function FrameEditor({
             return
           }
           if (wantedRef.current !== next.key) return
+          shownSeqRef.current = next.seq
           setRendering(false)
           setImageUrl(cached)
         })
@@ -272,11 +295,13 @@ export function FrameEditor({
 
     const key = `${frameKey}@${sequenceTime}`
     wantedRef.current = key
+    const seq = ++requestSeqRef.current
     const cached = cacheRef.current.get(key)
     if (cached !== undefined) {
       // Shown at once, and nothing else is owed: an instant still waiting
       // to render was asked for before this one.
       pendingRef.current = null
+      shownSeqRef.current = seq
       setError(null)
       setRendering(false)
       setImageUrl(cached)
@@ -284,7 +309,7 @@ export function FrameEditor({
     }
     setError(null)
     setRendering(true)
-    const request = { key, time: sequenceTime }
+    const request = { key, time: sequenceTime, seq }
     if (inFlightRef.current) {
       pendingRef.current = request
       return
@@ -427,7 +452,7 @@ export function FrameEditor({
             Rendering the frame…
           </p>
         )}
-        {imageUrl !== null && rendering && (
+        {imageUrl !== null && rendering && showRenderingIndicator && (
           <span
             className="frame-editor-updating"
             data-testid="frame-editor-updating"

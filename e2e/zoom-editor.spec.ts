@@ -295,6 +295,13 @@ test('the scrub row and result toggle fit the editor at 800px too (#421)', async
   const showResult = editor.getByRole('checkbox', { name: 'Show result' })
   await expectWithin(slider, editor, { what: 'the scrub slider at 800px' })
   await expectWithin(showResult, editor, { what: 'the Show result toggle at 800px' })
+  // Loop (#425) joined the row: inside the editor, its label unwrapped.
+  const loop = editor.getByRole('button', { name: `Loop the hold of Zoom 1 of ${position}` })
+  await expectWithin(loop, editor, { what: 'the Loop toggle at 800px' })
+  expect(
+    await loop.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    'the Loop label wraps inside its button at 800px',
+  ).toBe(true)
   await expectWithin(editor, page.getByRole('region', { name: 'Timeline' }), {
     axis: 'x',
     what: 'the zoom editor at 800px',
@@ -338,9 +345,13 @@ test('the editor fits the timeline panel at the narrow width too, and the settin
   await expect(editor).toHaveCount(0)
 })
 
-/** A real 1.5 s WebM (320×180), recorded in-page — a source that has to be decoded, unlike the PNG above. */
-async function recordWebm(page: Page): Promise<Buffer> {
-  const webmBase64 = await page.evaluate(async () => {
+/**
+ * A real WebM (320×180), recorded in-page — a source that has to be decoded,
+ * unlike the PNG above. 1.5 s by default; the loop test (#425) asks for
+ * enough to hold a 2 s hold between half-second ramps.
+ */
+async function recordWebm(page: Page, durationMs = 1500): Promise<Buffer> {
+  const webmBase64 = await page.evaluate(async (durationMs) => {
     const canvas = document.createElement('canvas')
     canvas.width = 320
     canvas.height = 180
@@ -362,8 +373,8 @@ async function recordWebm(page: Page): Promise<Buffer> {
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         // A box that crosses the frame, so every instant is its own picture.
         ctx.fillStyle = '#fc3'
-        ctx.fillRect((elapsed / 1500) * 260, 60, 60, 60)
-        if (elapsed > 1500) resolve()
+        ctx.fillRect((elapsed / durationMs) * 260, 60, 60, 60)
+        if (elapsed > durationMs) resolve()
         else requestAnimationFrame(draw)
       }
       draw()
@@ -374,9 +385,135 @@ async function recordWebm(page: Page): Promise<Buffer> {
     let binary = ''
     for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
     return btoa(binary)
-  })
+  }, durationMs)
   return Buffer.from(webmBase64, 'base64')
 }
+
+test('Loop plays the hold on repeat inside the editor, resting a second at each end, with the slider following (#425)', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  // A 3.5 s clip: room for a 2 s hold between the default half-second ramps.
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: await recordWebm(page, 3500) }])
+  const clipPosition = 'clip.webm at position 1'
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await chooseEffect(page, clipPosition, 'Zoom')
+  // Start 0, ramp-in 0.5, hold 2: the loop plays 0.5 → 2.5 s.
+  await fillField(page, `Zoom 1 hold of ${clipPosition} in seconds`, '2')
+  await page.getByRole('button', { name: `Adjust Zoom 1 of ${clipPosition} visually` }).click()
+  const editor = page.getByRole('dialog', { name: `Adjust Zoom 1 of ${clipPosition}` })
+  const image = editor.getByTestId('frame-editor-image')
+  await expect(image).toBeVisible()
+  await expect
+    .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth))
+    .toBeGreaterThan(0)
+  const frame = editor.getByTestId('frame-editor-frame')
+  const stillBox = (await frame.boundingBox())!
+  const slider = editor.getByRole('slider', {
+    name: `Preview time of Zoom 1 of ${clipPosition} in seconds`,
+  })
+  const reading = editor.getByRole('status', { name: 'Zoom 1 preview time (live)' })
+  const loop = editor.getByRole('button', { name: `Loop the hold of Zoom 1 of ${clipPosition}` })
+  const row = editor.locator('.effect-editor-scrub')
+  /** The published position: the reading beside the slider, in seconds. */
+  const secondsShown = () => reading.textContent().then((text) => Number.parseFloat(text ?? ''))
+  await expect(slider).toHaveValue('1.5')
+
+  // Geometry (a new control on an existing surface): Loop lies inside the
+  // scrub row and the editor, and did not wrap the row onto a second line —
+  // the row is no taller than a single control, with a margin for the
+  // slider's own height. Its label does not wrap inside the button either.
+  await expectWithin(loop, row, { what: 'the Loop toggle in the scrub row' })
+  await expectWithin(loop, editor, { what: 'the Loop toggle' })
+  const rowBox = (await row.boundingBox())!
+  const loopBox = (await loop.boundingBox())!
+  expect(
+    rowBox.height,
+    `the scrub row is ${rowBox.height}px tall beside a ${loopBox.height}px Loop button: it wrapped`,
+  ).toBeLessThan(loopBox.height * 1.5)
+  expect(
+    await loop.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    'the Loop label wraps inside its button',
+  ).toBe(true)
+  await expectNoHorizontalScroll(page, 'the zoom editor with Loop')
+
+  // Count the stills the loop lands, for the render-cost statement: every
+  // change of the picture's src is one frame drawn through the composer.
+  await image.evaluate((el) => {
+    const counter = window as unknown as { __loopFrames: number }
+    counter.__loopFrames = 0
+    new MutationObserver(() => {
+      counter.__loopFrames += 1
+    }).observe(el, { attributes: true, attributeFilter: ['src'] })
+  })
+  const framesLanded = () =>
+    page.evaluate(() => (window as unknown as { __loopFrames: number }).__loopFrames)
+
+  // On: the hold's first frame at once, the slider handed to the clock.
+  const pressed = Date.now()
+  await loop.click()
+  await expect(loop).toHaveAttribute('aria-pressed', 'true')
+  await expect(slider).toBeDisabled()
+  await expect(reading).toHaveText('0.50 s')
+
+  // The leading rest lasts a second: the position leaves the first frame
+  // no sooner than that (a lower bound only — the runner can be slow, but
+  // time cannot pass faster).
+  await expect.poll(secondsShown, { timeout: 5_000 }).toBeGreaterThan(0.5)
+  const leftFirstFrameAfter = Date.now() - pressed
+  expect(
+    leftFirstFrameAfter,
+    `left the first frame ${leftFirstFrameAfter} ms after Loop was pressed; the rest is 1000 ms`,
+  ).toBeGreaterThan(900)
+
+  // Mid-hold: the picture is the still's size, the region has its handles
+  // (the loop never leaves the hold), the badge is not flickering over the
+  // motion, and the main preview has not been started by any of this.
+  const loopingBox = (await frame.boundingBox())!
+  expect(Math.abs(loopingBox.width - stillBox.width)).toBeLessThan(1)
+  expect(Math.abs(loopingBox.height - stillBox.height)).toBeLessThan(1)
+  await expect(editor.getByTestId('frame-editor-corner-se')).toBeVisible()
+  await expect(editor.getByTestId('frame-editor-updating')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible()
+  await editor.screenshot({ path: testInfo.outputPath('zoom-editor-looping.png') })
+
+  // It runs to the hold's end at real time — 2 s of hold takes no less than
+  // 2 s — and rests there.
+  await expect.poll(secondsShown, { timeout: 6_000 }).toBe(2.5)
+  const reachedEndAfter = Date.now() - pressed
+  expect(
+    reachedEndAfter,
+    `reached the hold's end ${reachedEndAfter} ms after Loop was pressed; rest + hold is 3000 ms`,
+  ).toBeGreaterThan(2800)
+  const framesInPass = await framesLanded()
+  testInfo.annotations.push({
+    type: 'measured',
+    description:
+      `${framesInPass} stills landed between Loop on and the hold's end ` +
+      `(${(framesInPass / 2).toFixed(1)} per second of a 2 s hold; 41 stops exist on the 0.05 s grid)`,
+  })
+  // A loop that draws nothing would still pass every timing check above.
+  expect(framesInPass, 'no still changed while the hold played').toBeGreaterThan(5)
+
+  // And round again from the first frame.
+  await expect.poll(secondsShown, { timeout: 5_000 }).toBe(0.5)
+
+  // Pause: the slider stays where the loop stopped and is handed back.
+  await expect.poll(secondsShown, { timeout: 5_000 }).toBeGreaterThan(0.5)
+  await loop.click()
+  await expect(loop).toHaveAttribute('aria-pressed', 'false')
+  await expect(slider).toBeEnabled()
+  const pausedAt = await secondsShown()
+  expect(pausedAt).toBeGreaterThan(0.5)
+  expect(pausedAt).toBeLessThanOrEqual(2.5)
+  // Nothing moves it now: the same reading a moment later, and the slider
+  // agrees with it.
+  await page.waitForTimeout(400)
+  expect(await secondsShown()).toBe(pausedAt)
+  await expect(slider).toHaveValue(String(pausedAt))
+})
 
 test('scrubbing a real clip across many stops lands the last still promptly, in Show result mode (#458)', async ({
   page,
