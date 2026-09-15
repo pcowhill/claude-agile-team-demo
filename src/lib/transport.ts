@@ -28,6 +28,8 @@ export type TransportAction =
   | { kind: 'shortcut-help' }
   /** Add a chapter marker at the playhead (#487) — M, the editors' convention. */
   | { kind: 'add-marker' }
+  /** Open the user guide (#478) — F1, the desktop convention for help. */
+  | { kind: 'user-guide' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -90,6 +92,11 @@ export function transportActionForKey(
     case 'm':
     case 'M':
       return { kind: 'add-marker' }
+    // F1 opens the user guide (#478): the help key on every desktop, and one
+    // the browser otherwise spends on its own help page. Bare only, like
+    // Home/End.
+    case 'F1':
+      return event.shiftKey ? null : { kind: 'user-guide' }
     default:
       return null
   }

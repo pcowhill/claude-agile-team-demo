@@ -34,6 +34,7 @@ const shortcutsFor = (
   { keys: ['Esc'], does: 'Leave the source preview, back to the sequence' },
   { keys: ['Ctrl/Cmd + Z'], does: 'Undo the last timeline edit' },
   { keys: ['Ctrl/Cmd + Shift + Z', 'Ctrl/Cmd + Y'], does: 'Redo' },
+  { keys: ['F1'], does: 'Open the user guide' },
   { keys: ['?'], does: 'Show this cheat sheet' },
 ]
 

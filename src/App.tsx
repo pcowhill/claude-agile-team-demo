@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { MediaLibrary } from './components/MediaLibrary'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { ProjectControls } from './components/ProjectControls'
+import { ShortcutHelpDialog } from './components/ShortcutHelpDialog'
 import { Timeline } from './components/Timeline'
 import { openAutosaveStore } from './lib/autosave'
 import type { AutosaveStore } from './lib/autosave'
@@ -32,9 +33,19 @@ import { loadLibraryView, saveLibraryView } from './lib/libraryView'
 import type { LibraryView } from './lib/libraryView'
 import { loadSettings, saveSettings } from './lib/settings'
 import type { AppSettings } from './lib/settings'
+import { guideConstants } from './lib/guide/constants'
+import { useGuideLocation } from './lib/guide/useGuideLocation'
 import { probeMediaFile } from './lib/probeMedia'
 import type { SavePort } from './lib/saveProject'
 import './App.css'
+
+/**
+ * The user guide panel (#478) is a lazy chunk — the compiled guide, its
+ * search and its renderer download the first time it opens, so the editor's
+ * entry bundle does not grow (the plugins' discipline, ADR 0003; checked by
+ * `npm run check:bundle`).
+ */
+const UserGuide = lazy(() => import('./guide/UserGuide'))
 
 interface AppProps {
   /** Injectable for tests (jsdom can probe no real media and show no picker). */
@@ -468,6 +479,18 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Help (#478): the user guide's place is the URL hash (useGuideLocation),
+  // opened from Help ▾, F1 or a `#guide/…` link; the shortcut cheat sheet
+  // (#203) is owned here too since Help ▾ opens it as well as `?`, so the
+  // menu item and the key show one and the same dialog.
+  const guide = useGuideLocation()
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
+  const openShortcutHelp = useCallback(() => setShortcutHelpOpen(true), [])
+  const closeShortcutHelp = useCallback(() => setShortcutHelpOpen(false), [])
+  // The values behind the guide's {{PLACEHOLDER}}s, live where they are
+  // settings; memoised so the search index is built once per change.
+  const constants = useMemo(() => guideConstants(settings), [settings])
+
   const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
   const handleDragEnter = (event: DragEvent) => {
@@ -522,9 +545,13 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           settings={settings}
           onSetSettings={handleSetSettings}
           exportRange={exportRange}
+          onOpenGuide={guide.open}
+          onOpenShortcutHelp={openShortcutHelp}
         />
       </header>
-      <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
+      {/* The editor and, while open, the guide docked beside it (#478). */}
+      <div className="app-body">
+        <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
@@ -577,6 +604,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onRenameMarker={(id, name) => dispatchTimeline({ type: 'marker-renamed', id, name })}
           onMoveMarker={(id, time) => dispatchTimeline({ type: 'marker-moved', id, time })}
           onRemoveMarker={(id) => dispatchTimeline({ type: 'marker-removed', id })}
+          onShortcutHelp={openShortcutHelp}
+          onOpenGuide={guide.open}
         />
         <Timeline
           timeline={timeline}
@@ -692,7 +721,34 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'audio-track-duck-set', id, duck, duckLevel })
           }
         />
-      </main>
+        </main>
+        {guide.location !== null && (
+          <Suspense
+            fallback={
+              <aside className="user-guide user-guide-loading" aria-label="User guide" aria-busy="true">
+                Loading the user guide…
+              </aside>
+            }
+          >
+            <UserGuide
+              location={guide.location}
+              constants={constants}
+              onNavigate={guide.navigate}
+              onClose={guide.close}
+            />
+          </Suspense>
+        )}
+      </div>
+      {/* The cheat sheet (#203), owned here since #478 so Help ▾ and `?`
+          open the same one; rendered at the app level so it answers while
+          the timeline is empty, as it always did. */}
+      {shortcutHelpOpen && (
+        <ShortcutHelpDialog
+          onClose={closeShortcutHelp}
+          stepSeconds={settings.stepSeconds}
+          largeStepSeconds={settings.largeStepSeconds}
+        />
+      )}
     </div>
   )
 }

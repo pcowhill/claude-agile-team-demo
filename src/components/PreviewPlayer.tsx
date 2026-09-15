@@ -155,6 +155,15 @@ interface PreviewPlayerProps {
   onRenameMarker?: (id: string, name: string) => void
   onMoveMarker?: (id: string, time: number) => void
   onRemoveMarker?: (id: string) => void
+  /**
+   * The help surfaces (#478): `?` opens the shortcut cheat sheet and F1 the
+   * user guide. When App supplies these, the keys call them, so Help ▾'s
+   * items and the keys open one and the same dialog or panel. Without them
+   * `?` opens the sheet this component renders itself — the #203 behaviour
+   * every standalone test relies on — and F1 does nothing.
+   */
+  onShortcutHelp?: () => void
+  onOpenGuide?: () => void
 }
 
 /**
@@ -580,6 +589,8 @@ export function PreviewPlayer({
   onRenameMarker,
   onMoveMarker,
   onRemoveMarker,
+  onShortcutHelp,
+  onOpenGuide,
 }: PreviewPlayerProps) {
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
@@ -1446,8 +1457,9 @@ export function PreviewPlayer({
       if (action === null) return
       // While a library clip is previewed (#403) the transport keys drive the
       // source — SourcePreview owns that handler — and the sequence stands
-      // down for every key but `?`, which opens the cheat sheet in either mode.
-      if (sourceMode && action.kind !== 'shortcut-help') return
+      // down for every key but `?` and F1, which open the cheat sheet and
+      // the user guide in either mode.
+      if (sourceMode && action.kind !== 'shortcut-help' && action.kind !== 'user-guide') return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       event.preventDefault()
       switch (action.kind) {
@@ -1492,7 +1504,11 @@ export function PreviewPlayer({
           break
         }
         case 'shortcut-help':
-          setHelpOpen(true)
+          if (onShortcutHelp !== undefined) onShortcutHelp()
+          else setHelpOpen(true)
+          break
+        case 'user-guide':
+          onOpenGuide?.()
           break
         case 'add-marker':
           // M (#487) does exactly what Frame ▾'s item does, guards included:
@@ -1508,6 +1524,8 @@ export function PreviewPlayer({
     play,
     pause,
     addMarkerAtPlayhead,
+    onShortcutHelp,
+    onOpenGuide,
     seek,
     sequenceTime,
     total,

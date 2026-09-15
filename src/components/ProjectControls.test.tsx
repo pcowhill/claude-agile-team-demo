@@ -1089,6 +1089,38 @@ describe('the header File menu (#415)', () => {
     expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
   })
 
+  it('renders Help ▾ only with both help callbacks, and then with both items (#478)', async () => {
+    const { rerender } = render(
+      <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Help' })).toBeNull()
+
+    const onOpenGuide = vi.fn()
+    const onOpenShortcutHelp = vi.fn()
+    rerender(
+      <ProjectControls
+        library={library}
+        timeline={timeline}
+        dirty={false}
+        onSaved={vi.fn()}
+        onOpenGuide={onOpenGuide}
+        onOpenShortcutHelp={onOpenShortcutHelp}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }))
+    const menu = screen.getByRole('menu', { name: 'Help menu' })
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['User guide…F1', 'Keyboard shortcuts…?'])
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'User guide…' }))
+    expect(onOpenGuide).toHaveBeenCalledTimes(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts…' }))
+    expect(onOpenShortcutHelp).toHaveBeenCalledTimes(1)
+  })
+
   it('offers Settings… only with both halves of the settings wiring, as the gear did', async () => {
     render(
       <ProjectControls library={library} timeline={timeline} dirty={false} onSaved={vi.fn()} />,

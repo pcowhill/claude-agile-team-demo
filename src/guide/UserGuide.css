@@ -1,0 +1,241 @@
+/* The user guide panel's looks (#478). Its column — width, stickiness,
+   the narrow-window sheet — is laid out in App.css so the loading
+   placeholder has the same box before this chunk arrives. */
+.user-guide-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.user-guide-heading {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.user-guide-close {
+  line-height: 1;
+}
+
+.user-guide-search-field {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  background: #111;
+  color: inherit;
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+
+.user-guide-results-count {
+  margin: 0.5rem 0;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.user-guide-hit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.user-guide-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  background: #262626;
+  border: 1px solid #383838;
+  border-radius: 6px;
+}
+
+.user-guide-hit:hover,
+.user-guide-hit:focus-visible {
+  border-color: #7e8cff;
+}
+
+.user-guide-hit-where {
+  font-weight: 600;
+}
+
+.user-guide-hit-snippet {
+  color: #bbb;
+  font-size: 0.85rem;
+}
+
+.user-guide mark {
+  background: rgba(255, 180, 84, 0.35);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* Contents: a disclosure, so a reader who knows where they are can give the
+   room to the text. Entries never wrap mid-word; a long title wraps at a
+   space, which the e2e spec measures. */
+.user-guide-contents {
+  margin: 0.75rem 0 0.5rem;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.5rem;
+}
+
+.user-guide-contents-toggle {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.15rem 0.35rem;
+  background: none;
+  border: 1px solid transparent;
+}
+
+.user-guide-contents-toggle:hover {
+  border-color: #444;
+}
+
+.user-guide-toc,
+.user-guide-toc-headings {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.user-guide-toc-headings {
+  list-style: none;
+  padding-left: 0.9rem;
+  color: #bbb;
+}
+
+.user-guide-toc a {
+  color: #cfd6ff;
+  text-decoration: none;
+  overflow-wrap: break-word;
+}
+
+.user-guide-toc a[aria-current='page'] {
+  color: #fff;
+  font-weight: 600;
+}
+
+.user-guide-toc a:hover {
+  text-decoration: underline;
+}
+
+/* The section being read. Headings step down from the article's title. */
+.user-guide-article h2 {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.user-guide-article h3 {
+  margin: 1.25rem 0 0.4rem;
+  font-size: 1.05rem;
+  scroll-margin-top: 0.5rem;
+}
+
+.user-guide-article h4 {
+  margin: 1rem 0 0.3rem;
+  font-size: 0.95rem;
+  scroll-margin-top: 0.5rem;
+}
+
+.user-guide-article h5 {
+  margin: 0.8rem 0 0.25rem;
+  font-size: 0.9rem;
+  scroll-margin-top: 0.5rem;
+}
+
+.user-guide-article p,
+.user-guide-article ul,
+.user-guide-article ol {
+  margin: 0 0 0.7rem;
+}
+
+.user-guide-article li {
+  margin-bottom: 0.25rem;
+}
+
+.user-guide-article a {
+  color: #9db1ff;
+}
+
+.user-guide-article code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: #2b2b2b;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+.user-guide-article pre {
+  background: #141414;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+
+.user-guide-article pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.user-guide-article blockquote {
+  margin: 0 0 0.7rem;
+  padding: 0.1rem 0.75rem;
+  border-left: 3px solid #4a4a4a;
+  color: #bbb;
+}
+
+.user-guide-article table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 0.8rem;
+  font-size: 0.85rem;
+}
+
+.user-guide-article th,
+.user-guide-article td {
+  border: 1px solid #383838;
+  padding: 0.3rem 0.45rem;
+  vertical-align: top;
+  text-align: left;
+}
+
+.user-guide-article th {
+  background: #262626;
+}
+
+.user-guide-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #333;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+
+.user-guide-neighbours {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #333;
+  font-size: 0.85rem;
+}
+
+.user-guide-neighbours a {
+  color: #9db1ff;
+}
+
+.user-guide-next {
+  margin-left: auto;
+}

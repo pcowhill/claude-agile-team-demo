@@ -30,8 +30,57 @@
   font-size: 0.9rem;
 }
 
+/* The editor and, while it is open, the user guide docked to its right
+   (#478). A row so the panel takes a column of its own and the editor's
+   grid re-flows into the rest, rather than the panel covering anything. */
+.app-body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+/* The guide panel's column (#478). Its looks are the lazy chunk's
+   (src/guide/UserGuide.css); the column itself is laid out here so the
+   loading placeholder occupies the same space before the chunk arrives. It
+   scrolls on its own, sticky to the viewport, so reading it never moves
+   the editor. */
+.user-guide {
+  flex: 0 0 24rem;
+  min-width: 0;
+  max-height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-left: 1px solid #333;
+  background: #1f1f1f;
+  padding: 0.75rem 1rem 1rem;
+}
+
+.user-guide-loading {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+/* Below this width the editor cannot spare a column: the panel covers the
+   viewport instead, and Close or Escape brings the editor back. The
+   breakpoint is where main's grid would otherwise be squeezed into
+   horizontal scroll with the panel beside it. */
+@media (max-width: 1000px) {
+  .user-guide {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    flex: none;
+    max-height: none;
+    border-left: none;
+  }
+}
+
 .app-main {
   flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 1fr 2fr;
   /* The top row (library + preview) never shrinks below a genuinely usable
