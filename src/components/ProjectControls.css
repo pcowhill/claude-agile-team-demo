@@ -4,6 +4,32 @@
   gap: 0.5rem;
 }
 
+/* The three header controls share one height (#472, from the customer's
+   #470). A button with no height of its own is as tall as the tallest glyph
+   its font draws, and the 💾 is drawn by whichever colour-emoji font the
+   platform has — taller than the text font on macOS and Windows, the same
+   as it in this repository's Linux CI — so Save stood proud of File ▾ and
+   Export Project… on the customer's screen and not on ours. The height is
+   this rule's now, the glyphs are centred inside it, and neither a taller
+   emoji nor the ● dot can change it. Scoped to this row: the other menus'
+   triggers are sized by the rows they sit in. */
+.project-controls > button,
+.project-file-menu > .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
+/* Menu's wrapper is inline-block (Menu.css), which keeps the line's strut
+   under the trigger: the wrapper is taller than its button, and the row
+   centres the wrapper. A flex wrapper is exactly the trigger's box. */
+.project-file-menu {
+  display: inline-flex;
+}
+
 /* Save is the one frequent header action, so #415 kept it out of File ▾ as
    a compact icon. Its glyph and the ● dot sit on one line; the accessible
    name carries the meaning, since neither mark has one. */

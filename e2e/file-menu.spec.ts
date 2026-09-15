@@ -94,6 +94,68 @@ test('File ▾ is keyboard-operable into Export ▸, which opens the modal on th
   await expect(fileTrigger(page)).toBeFocused()
 })
 
+test('File ▾, Save and Export Project… share one height with their tops and bottoms aligned, whatever draws the 💾 (#472)', async ({
+  page,
+}, testInfo) => {
+  // The customer's picture (#470) showed Save taller than its neighbours and
+  // File ▾ sitting a hair high. A button with no height of its own is as
+  // tall as the glyphs its font draws, and the 💾 comes from the platform's
+  // colour-emoji font — taller than the text's on macOS and Windows, the
+  // same as it in this Linux Chromium, where all three measured 21 px before
+  // the fix. So the state that fails on the customer's machine has to be
+  // made here: a test-only stylesheet raises the emoji's font-size by half,
+  // which is what a taller emoji font does to the line box.
+  await page.goto('./')
+  const controls = () => [
+    fileTrigger(page),
+    page.locator('.project-save-button'),
+    page.getByRole('button', { name: 'Export Project…' }),
+  ]
+  /** Every edge of Save's and Export's box within a pixel of File ▾'s; returns the shared height. */
+  const expectAligned = async (when: string): Promise<number> => {
+    const boxes = await Promise.all(controls().map(async (locator) => (await locator.boundingBox())!))
+    const [file, ...others] = boxes
+    for (const box of others) {
+      const where = `${when}: ${JSON.stringify(box)} against File ▾ ${JSON.stringify(file)}`
+      expect(Math.abs(box.height - file.height), `${where}: heights differ`).toBeLessThanOrEqual(1)
+      expect(Math.abs(box.y - file.y), `${where}: tops differ`).toBeLessThanOrEqual(1)
+      expect(
+        Math.abs(box.y + box.height - (file.y + file.height)),
+        `${where}: bottoms differ`,
+      ).toBeLessThanOrEqual(1)
+    }
+    return file.height
+  }
+  const tallGlyph = () =>
+    page.addStyleTag({ content: '.project-save-button > span { font-size: 150%; }' })
+
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 800, height: 1100 },
+  ]) {
+    await page.setViewportSize(viewport)
+    const clean = await expectAligned(`clean project at ${viewport.width}px`)
+    const style = await tallGlyph()
+    const tall = await expectAligned(`taller emoji at ${viewport.width}px`)
+    // The box is the rule's, not the glyph's: a taller glyph changes nothing.
+    expect(Math.abs(tall - clean), `a taller emoji changed the height at ${viewport.width}px`).toBeLessThanOrEqual(1)
+    if (viewport.width === 1280) {
+      await page.locator('.app-header').screenshot({ path: testInfo.outputPath('header-buttons-tall-glyph.png') })
+    }
+    await style.evaluate((node) => (node as Element).remove())
+  }
+
+  // Dirty: the ● dot joins the glyph on Save's one line (#415), and the
+  // height is still the rule's, with and without the taller emoji.
+  await seedTimeline(page)
+  await expect(page.locator('.project-dirty')).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const dirty = await expectAligned('dirty project at 1280px')
+  await tallGlyph()
+  const dirtyTall = await expectAligned('dirty project with a taller emoji at 1280px')
+  expect(Math.abs(dirtyTall - dirty), 'the dot or the taller emoji changed the height').toBeLessThanOrEqual(1)
+})
+
 test('the reduced header and the open menu fit both widths, and Canvas sits on the timeline header (#415)', async ({
   page,
 }, testInfo) => {
