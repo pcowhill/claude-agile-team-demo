@@ -1,12 +1,15 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { userGuidePlugin } from './tools/guide/vitePlugin.ts'
 
 // base must match the GitHub Pages project path:
 // https://pcowhill.github.io/claude-agile-team-demo/
 export default defineConfig({
   base: '/claude-agile-team-demo/',
-  plugins: [react()],
+  // The user guide (#478): docs/guide/*.md compiled into `virtual:user-guide`
+  // at build time, imported only by the lazily loaded guide chunk.
+  plugins: [react(), userGuidePlugin()],
   build: {
     // The manifest feeds the plugin bundle-discipline check (#197):
     // `npm run check:bundle` proves plugin chunks stay out of the entry

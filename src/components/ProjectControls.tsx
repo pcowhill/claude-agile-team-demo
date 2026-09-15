@@ -94,6 +94,14 @@ interface ProjectControlsProps {
    * the menu and the modal can never disagree about what is recordable.
    */
   isTypeSupported?: (type: string) => boolean
+  /**
+   * The Help ▾ menu's two actions (#478): open the user guide, open the
+   * keyboard-shortcut cheat sheet. Optional as a pair, like the settings
+   * wiring — without both, no Help ▾ renders, so a caller that predates the
+   * guide gets no dead control.
+   */
+  onOpenGuide?: () => void
+  onOpenShortcutHelp?: () => void
 }
 
 type SaveStatus =
@@ -150,6 +158,8 @@ export function ProjectControls({
   onSetSettings,
   exportRange = null,
   isTypeSupported = mediaRecorderSupports,
+  onOpenGuide,
+  onOpenShortcutHelp,
 }: ProjectControlsProps) {
   // The port touches window at creation, so default lazily, once.
   const portRef = useRef<SavePort | null>(port ?? null)
@@ -661,6 +671,20 @@ export function ProjectControls({
       : []),
   ]
 
+  /**
+   * Help ▾ (#478, from the approved design #477 §1): the conventional home
+   * for help, beside File ▾. It holds the user guide and the `?` cheat
+   * sheet, so both help surfaces are found in one place; each item shows
+   * the key that also opens it.
+   */
+  const helpItems: MenuItem[] | null =
+    onOpenGuide !== undefined && onOpenShortcutHelp !== undefined
+      ? [
+          { kind: 'action', label: 'User guide…', shortcut: 'F1', onSelect: onOpenGuide },
+          { kind: 'action', label: 'Keyboard shortcuts…', shortcut: '?', onSelect: onOpenShortcutHelp },
+        ]
+      : null
+
   return (
     <div className="project-controls">
       <Menu
@@ -670,6 +694,9 @@ export function ProjectControls({
         disabled={saving}
         className="project-file-menu"
       />
+      {helpItems !== null && (
+        <Menu label="Help" menuLabel="Help menu" items={helpItems} className="project-help-menu" />
+      )}
       <input
         ref={openInputRef}
         type="file"
