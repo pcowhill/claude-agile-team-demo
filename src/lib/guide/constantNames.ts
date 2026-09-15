@@ -32,6 +32,18 @@ export const GUIDE_CONSTANT_NAMES = [
   'STEP_SECONDS',
   /** The configured Shift+arrow step, in seconds (a live setting, #286). */
   'LARGE_STEP_SECONDS',
+  /** Seconds of quiet after the last change before autosave writes (#194). */
+  'AUTOSAVE_DEBOUNCE_SECONDS',
+  /** How often a video recording asks for a keyframe, in seconds (#468). */
+  'RECORDING_KEYFRAME_INTERVAL_SECONDS',
+  /** Re-linking tolerates this much duration difference, as a percentage (#77). */
+  'RELINK_DURATION_TOLERANCE_PERCENT',
+  /** …and never less than this many seconds of difference. */
+  'RELINK_DURATION_TOLERANCE_MIN_SECONDS',
+  /** The project file's extension (#75). */
+  'PROJECT_FILE_EXTENSION',
+  /** The width and height a new overlay takes, as a percentage of the frame (#145). */
+  'DEFAULT_OVERLAY_SIZE_PERCENT',
 ] as const
 
 export type GuideConstantName = (typeof GUIDE_CONSTANT_NAMES)[number]
