@@ -34,7 +34,10 @@ session has, do not write it as an ordinary checkbox. Write it as one of:
 - a **proxy criterion** a session can execute that evidences the same
   underlying property (e.g. "the exported file demuxes as WebM/VP9 with an
   Opus audio track, verified with FFmpeg" instead of "plays in another
-  mainstream media player"); or
+  mainstream media player"). A proxy keeps the parameters of the criterion
+  it stands in for — its duration, resolution, content and repeat count —
+  unless the substitution says which one changes and why (#471; the
+  matching rule for PR evidence is in `development.md`, "Pull Requests"); or
 - a criterion explicitly marked **customer-verifiable**: the issue states
   that verification belongs to the customer, and the criterion is excluded
   from the team-executed evidence in the Definition of Done
