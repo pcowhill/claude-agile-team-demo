@@ -10,6 +10,7 @@ import {
   sequenceBoundaries,
   sequenceTimeAt,
   splitTargetAt,
+  navigationBoundaries,
 } from './playback'
 import { timelineReducer, totalDuration } from './timeline'
 import { zoomAt } from './zoom'
@@ -517,6 +518,37 @@ describe('sequenceBoundaries (#391)', () => {
       const boundaries = sequenceBoundaries(state)
       expect(boundaries[boundaries.length - 1]).toBe(totalDuration(state))
     }
+  })
+})
+
+describe('navigationBoundaries (#487)', () => {
+  const slates: TimelineState = {
+    entries: [
+      { id: 's1', clipId: '', name: 'Slate', kind: 'slate', color: '#ff0000', duration: 5, url: '', inPoint: 0, outPoint: 5 },
+      { id: 's2', clipId: '', name: 'Slate', kind: 'slate', color: '#00ff00', duration: 5, url: '', inPoint: 0, outPoint: 5 },
+    ],
+  }
+
+  it('is the cuts alone without markers — the same array', () => {
+    expect(navigationBoundaries(slates)).toEqual(sequenceBoundaries(slates))
+  })
+
+  it('adds every marker inside the sequence, sorted and de-duplicated with the cuts', () => {
+    const withMarkers: TimelineState = {
+      ...slates,
+      markers: [
+        { id: 'a', time: 2.5, name: 'A' },
+        { id: 'b', time: 5, name: 'On the cut' },
+        { id: 'c', time: 7.25, name: 'C' },
+      ],
+    }
+    expect(navigationBoundaries(withMarkers)).toEqual([0, 2.5, 5, 7.25, 10])
+  })
+
+  it('leaves out a marker past the sequence end — not a place the playhead can be', () => {
+    const beyond: TimelineState = { ...slates, markers: [{ id: 'z', time: 12, name: 'Later' }] }
+    expect(navigationBoundaries(beyond)).toEqual([0, 5, 10])
+    expect(navigationBoundaries({ entries: [], markers: [{ id: 'z', time: 1, name: 'Z' }] })).toEqual([])
   })
 })
 

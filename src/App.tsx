@@ -600,6 +600,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onExitSourcePreview={handleExitSourcePreview}
           onAddSourceToTimeline={handleAddToTimeline}
           onAddSourceAsOverlay={handleAddOverlay}
+          onAddMarker={(marker) => dispatchTimeline({ type: 'marker-added', marker })}
+          onRenameMarker={(id, name) => dispatchTimeline({ type: 'marker-renamed', id, name })}
+          onMoveMarker={(id, time) => dispatchTimeline({ type: 'marker-moved', id, time })}
+          onRemoveMarker={(id) => dispatchTimeline({ type: 'marker-removed', id })}
           onShortcutHelp={openShortcutHelp}
           onOpenGuide={guide.open}
         />

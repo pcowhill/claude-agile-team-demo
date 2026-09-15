@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
-import type { TimelineEntry, TimelineState } from '../lib/timeline'
+import type { TimelineEntry, TimelineState, ChapterMarker } from '../lib/timeline'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -14,6 +14,9 @@ import {
   totalDuration,
   isImageOverlay,
   videoOverlaysOf,
+  markerAt,
+  markersOf,
+  nextMarkerName,
 } from '../lib/timeline'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
@@ -23,7 +26,7 @@ import {
   frontedLocation,
   isTransitionOverlayActive,
   locateInSequence,
-  sequenceBoundaries,
+  navigationBoundaries,
   sequenceTimeAt,
   splitTargetAt,
 } from '../lib/playback'
@@ -76,6 +79,7 @@ import {
 } from '../lib/transport'
 import type { LoopSpan } from '../lib/transport'
 import { Menu } from './Menu'
+import { NameField } from './NameField'
 import type { MenuItem } from './Menu'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
 import { SourcePreview } from './SourcePreview'
@@ -140,6 +144,18 @@ interface PreviewPlayerProps {
   onAddSourceToTimeline?: (clip: LibraryClip) => void
   onAddSourceAsOverlay?: (clip: LibraryClip) => void
   /**
+   * Chapter markers (#487, the approved #461): App dispatches each as one
+   * timeline edit. The player composes a new marker — an id, the playhead's
+   * time, the default name — and owns the inline name field that opens on
+   * it. Optional like the rest: without the callbacks the Frame ▾ item and
+   * the tick menus disable and M does nothing, while the ticks still draw
+   * for a state that carries markers.
+   */
+  onAddMarker?: (marker: ChapterMarker) => void
+  onRenameMarker?: (id: string, name: string) => void
+  onMoveMarker?: (id: string, time: number) => void
+  onRemoveMarker?: (id: string) => void
+  /**
    * The help surfaces (#478): `?` opens the shortcut cheat sheet and F1 the
    * user guide. When App supplies these, the keys call them, so Help ▾'s
    * items and the keys open one and the same dialog or panel. Without them
@@ -149,6 +165,21 @@ interface PreviewPlayerProps {
   onShortcutHelp?: () => void
   onOpenGuide?: () => void
 }
+
+/**
+ * How close the playhead must be to a marker for the readout to name it
+ * (#487): the seek slider's own step. A landing by ↑ / ↓ or a snap is exact;
+ * this covers a slider parked one notch away from exact by rounding.
+ */
+const MARKER_READOUT_TOLERANCE = 0.01
+
+/**
+ * A marker's time is the playhead's, rounded to the millisecond (#487): the
+ * arrow keys accumulate binary fractions (2.5 arrives as 2.5000000000000004),
+ * and a chapter time is a number a person reads and a file keeps. A
+ * thousandth of a second is finer than any frame.
+ */
+const markerTime = (time: number): number => Math.round(time * 1000) / 1000
 
 /** For the source preview's Back without App wiring: a stable no-op, so the
  * source's key handler is not re-subscribed on every render (#403). */
@@ -554,6 +585,10 @@ export function PreviewPlayer({
   onExitSourcePreview,
   onAddSourceToTimeline,
   onAddSourceAsOverlay,
+  onAddMarker,
+  onRenameMarker,
+  onMoveMarker,
+  onRemoveMarker,
   onShortcutHelp,
   onOpenGuide,
 }: PreviewPlayerProps) {
@@ -605,6 +640,11 @@ export function PreviewPlayer({
   const [sequenceTime, setSequenceTime] = useState(0)
   // The keyboard-shortcut cheat sheet (#203), opened with `?`.
   const [helpOpen, setHelpOpen] = useState(false)
+  // Chapter markers (#487): which marker's inline name field is open, or
+  // null. Resolved against the timeline on every render, so a marker that
+  // is undone or removed while its field is up simply takes the field with
+  // it; the id is all that is stored.
+  const [namingMarkerId, setNamingMarkerId] = useState<string | null>(null)
   // Save frame (#237): one snapshot at a time; a failure reports where the
   // transport lives rather than failing silently.
   const [savingFrame, setSavingFrame] = useState(false)
@@ -629,6 +669,25 @@ export function PreviewPlayer({
   )
 
   const total = totalDuration(timeline)
+  const markers = markersOf(timeline)
+  const namingMarker =
+    namingMarkerId === null ? null : (markers.find((marker) => marker.id === namingMarkerId) ?? null)
+  // Frame ▾'s item and the M key (#487) share this: a new marker at the
+  // clamped playhead with the default name, and its name field opened —
+  // or, where a marker already sits on this instant, that marker's field,
+  // since a second tick at one time would be one tick with two names.
+  const addMarkerAtPlayhead = useCallback(() => {
+    if (onAddMarker === undefined || timeline.entries.length === 0) return
+    const at = markerTime(Math.min(sequenceTime, total))
+    const existing = markerAt(timeline, at)
+    if (existing !== null) {
+      setNamingMarkerId(existing.id)
+      return
+    }
+    const marker: ChapterMarker = { id: crypto.randomUUID(), time: at, name: nextMarkerName(timeline) }
+    onAddMarker(marker)
+    setNamingMarkerId(marker.id)
+  }, [onAddMarker, timeline, sequenceTime, total])
   // The marked export range's visible span (#385): the shared rule
   // (markedExportRange) that also decides what the export modal offers, so
   // the highlight and the offered range can never disagree — and, since
@@ -1364,7 +1423,7 @@ export function PreviewPlayer({
     const committed = Number(event.currentTarget.value)
     const snapped = snapToBoundary(
       committed,
-      sequenceBoundaries(timeline),
+      navigationBoundaries(timeline),
       snapThresholdSeconds(total, event.currentTarget.getBoundingClientRect().width),
     )
     if (snapped === null) return
@@ -1423,7 +1482,7 @@ export function PreviewPlayer({
           // the clamped position, exact by construction — the same numbers
           // entryStartTime produces, so split/freeze/marks at the landing
           // act precisely on the cut.
-          const boundaries = sequenceBoundaries(timeline)
+          const boundaries = navigationBoundaries(timeline)
           const position = Math.min(sequenceTime, total)
           seek(
             action.direction === 'previous'
@@ -1451,6 +1510,11 @@ export function PreviewPlayer({
         case 'user-guide':
           onOpenGuide?.()
           break
+        case 'add-marker':
+          // M (#487) does exactly what Frame ▾'s item does, guards included:
+          // inert with nothing on the timeline or no wiring.
+          addMarkerAtPlayhead()
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -1459,6 +1523,7 @@ export function PreviewPlayer({
     playing,
     play,
     pause,
+    addMarkerAtPlayhead,
     onShortcutHelp,
     onOpenGuide,
     seek,
@@ -1575,6 +1640,18 @@ export function PreviewPlayer({
       testId: 'preview-freeze-frame-append',
       disabled: !canFreeze,
       onSelect: () => freezeFrame('append'),
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Add chapter marker at playhead',
+      shortcut: 'M',
+      testId: 'preview-add-marker',
+      // The marks' own rule (#385): nothing on the timeline, or no wiring.
+      disabled: timeline.entries.length === 0 || onAddMarker === undefined,
+      title:
+        'Add a named chapter marker at the playhead (M) — saved with the project; ↑ / ↓ jump to it',
+      onSelect: addMarkerAtPlayhead,
     },
   ]
   // Gate the overlay on the actual engagement, not the recomputed location
@@ -2076,7 +2153,7 @@ export function PreviewPlayer({
               aria-label="Jump to previous cut"
               title="Jump the playhead to the previous cut or transition edge (↑)"
               onClick={() =>
-                seek(previousBoundary(sequenceBoundaries(timeline), Math.min(sequenceTime, total)))
+                seek(previousBoundary(navigationBoundaries(timeline), Math.min(sequenceTime, total)))
               }
             >
               ⏮
@@ -2087,7 +2164,7 @@ export function PreviewPlayer({
               aria-label="Jump to next cut"
               title="Jump the playhead to the next cut or transition edge (↓)"
               onClick={() =>
-                seek(nextBoundary(sequenceBoundaries(timeline), Math.min(sequenceTime, total)))
+                seek(nextBoundary(navigationBoundaries(timeline), Math.min(sequenceTime, total)))
               }
             >
               ⏭
@@ -2206,6 +2283,56 @@ export function PreviewPlayer({
                   style={{ left: `${(Math.min(snapTick, total) / total) * 100}%` }}
                 />
               )}
+              {/* Chapter markers (#487): a numbered tick below the track at
+                  each marker inside the sequence, painted above the input
+                  so it can be pressed with the thumb parked on it. The
+                  number is the chapter's order; the name is the tick's
+                  accessible name and its hover title, and the readout
+                  beside the bar says it when the playhead is on the marker.
+                  Nothing here changes the row's height — the ticks are
+                  positioned, like the marks and the snap tick. */}
+              {total > 0 &&
+                markers.map((marker, index) =>
+                  marker.time > total ? null : (
+                    <span
+                      key={marker.id}
+                      className="preview-marker"
+                      data-testid="preview-marker"
+                      data-marker-time={marker.time}
+                      style={{ left: `${(marker.time / total) * 100}%` }}
+                    >
+                      <Menu
+                        label={<span className="preview-marker-badge">{index + 1}</span>}
+                        caret={false}
+                        ariaLabel={`Chapter marker ${marker.name} at ${formatDuration(marker.time)}`}
+                        menuLabel={`Chapter marker ${marker.name}`}
+                        title={marker.name}
+                        triggerClassName="preview-marker-tick"
+                        items={[
+                          {
+                            kind: 'action',
+                            label: 'Rename…',
+                            disabled: onRenameMarker === undefined,
+                            onSelect: () => setNamingMarkerId(marker.id),
+                          },
+                          {
+                            kind: 'action',
+                            label: 'Move to playhead',
+                            disabled: onMoveMarker === undefined,
+                            onSelect: () =>
+                              onMoveMarker?.(marker.id, markerTime(Math.min(sequenceTime, total))),
+                          },
+                          {
+                            kind: 'action',
+                            label: 'Remove',
+                            disabled: onRemoveMarker === undefined,
+                            onSelect: () => onRemoveMarker?.(marker.id),
+                          },
+                        ]}
+                      />
+                    </span>
+                  ),
+                )}
               <input
                 type="range"
                 aria-label="Seek within sequence"
@@ -2220,7 +2347,45 @@ export function PreviewPlayer({
             </div>
             <span className="preview-position" data-testid="preview-position">
               {formatDuration(Math.min(sequenceTime, total))} / {formatDuration(total)}
+              {(() => {
+                const current = markerAt(timeline, Math.min(sequenceTime, total), MARKER_READOUT_TOLERANCE)
+                return current === null ? null : (
+                  <span className="preview-position-marker" data-testid="preview-position-marker">
+                    {' · '}
+                    {current.name}
+                  </span>
+                )
+              })()}
             </span>
+            {markers.some((marker) => marker.time > total) && (
+              /* A marker past the sequence's end is kept, not drawn (#487):
+                 said here so it is not lost silently. */
+              <span className="preview-markers-beyond" data-testid="preview-markers-beyond">
+                {(() => {
+                  const beyond = markers.filter((marker) => marker.time > total).length
+                  return `${beyond} chapter marker${beyond === 1 ? '' : 's'} past the end`
+                })()}
+              </span>
+            )}
+            {namingMarker !== null && (
+              /* The inline name field (#487), the NameField the rows use
+                 (#405): opens on the marker's current name selected; Enter
+                 or clicking away commits, Escape (or an empty name) keeps
+                 what it had. */
+              <span className="preview-marker-naming" data-testid="preview-marker-naming">
+                <span>Chapter at {formatDuration(namingMarker.time)}:</span>
+                <NameField
+                  key={namingMarker.id}
+                  label={`Name of chapter marker at ${formatDuration(namingMarker.time)}`}
+                  value={namingMarker.name}
+                  onCommit={(name) => {
+                    onRenameMarker?.(namingMarker.id, name)
+                    setNamingMarkerId(null)
+                  }}
+                  onCancel={() => setNamingMarkerId(null)}
+                />
+              </span>
+            )}
           </div>
           {saveFrameError !== null && (
             <p className="preview-save-frame-error" role="alert">

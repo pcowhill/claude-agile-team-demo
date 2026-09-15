@@ -26,6 +26,8 @@ export type TransportAction =
    * keyboard form of the ⇥ / ⇤ transport buttons (#385). */
   | { kind: 'mark'; which: 'in' | 'out' }
   | { kind: 'shortcut-help' }
+  /** Add a chapter marker at the playhead (#487) — M, the editors' convention. */
+  | { kind: 'add-marker' }
   /** Open the user guide (#478) — F1, the desktop convention for help. */
   | { kind: 'user-guide' }
 
@@ -85,6 +87,11 @@ export function transportActionForKey(
       return { kind: 'mark', which: 'out' }
     case '?':
       return { kind: 'shortcut-help' }
+    // M adds a chapter marker at the playhead (#487): the key most desktop
+    // editors use, unclaimed here. Either case, for the same reason as I / O.
+    case 'm':
+    case 'M':
+      return { kind: 'add-marker' }
     // F1 opens the user guide (#478): the help key on every desktop, and one
     // the browser otherwise spends on its own help page. Bare only, like
     // Home/End.

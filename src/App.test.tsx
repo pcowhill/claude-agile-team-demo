@@ -297,6 +297,35 @@ describe('Open and New Project (#77)', () => {
   })
 })
 
+describe('chapter markers through the app (#487)', () => {
+  it('a marker is an edit: it dirties the project, one undo step removes it, redo restores it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /^Add$/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Color slate' }))
+    expect(screen.getByRole('button', { name: 'Save (unsaved changes)' })).toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', cancelable: true }))
+    })
+    const field = await screen.findByRole('textbox', { name: /^Name of chapter marker at 0:00/ })
+    await user.clear(field)
+    await user.type(field, 'Start{Enter}')
+    expect(screen.getByRole('button', { name: 'Chapter marker Start at 0:00' })).toBeInTheDocument()
+
+    // Two edits (add, rename): undo twice empties the ticks; redo brings both back.
+    const undo = screen.getByRole('button', { name: /^Undo/ })
+    await user.click(undo)
+    expect(screen.getByRole('button', { name: 'Chapter marker Chapter 1 at 0:00' })).toBeInTheDocument()
+    await user.click(undo)
+    expect(screen.queryByTestId('preview-marker')).toBeNull()
+    const redo = screen.getByRole('button', { name: /^Redo/ })
+    await user.click(redo)
+    await user.click(redo)
+    expect(screen.getByRole('button', { name: 'Chapter marker Start at 0:00' })).toBeInTheDocument()
+  })
+})
+
 describe('preview expansion (#128)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))

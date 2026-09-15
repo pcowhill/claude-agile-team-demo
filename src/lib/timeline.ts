@@ -379,6 +379,26 @@ export interface TimelineState {
    * through a reshape. That is pinned by test rather than assumed.
    */
   canvasPreset?: CanvasPreset
+  /**
+   * Chapter markers (#487, the approved #461): named points in sequence
+   * time, kept sorted by time. A marker is not attached to an entry and
+   * does not move when clips are edited — a chapter is a point in the
+   * finished video, and the user places it against the picture. Project
+   * content: saved and restored like the collections, undoable like every
+   * edit. Optional and written only while any exist, so every earlier state
+   * (and file) stays shaped exactly as before. Carried across other edits
+   * verbatim by `withProjectFields`, like `subtitleStyle` — `withEffects`
+   * rebuilds the entry-bound collections only.
+   */
+  markers?: ChapterMarker[]
+}
+
+/** A chapter marker (#487): a name at a sequence time. */
+export interface ChapterMarker {
+  id: string
+  /** Sequence time in seconds, ≥ 0. May lie past the current end. */
+  time: number
+  name: string
 }
 
 export const emptyTimeline: TimelineState = { entries: [] }
@@ -655,6 +675,11 @@ export type TimelineAction =
   | { type: 'texts-added'; texts: TextOverlay[] }
   | { type: 'text-updated'; id: string; text: TextOverlaySpec }
   | { type: 'text-removed'; id: string }
+  /** Chapter markers (#487): add at a time, rename, move, remove — each one edit. */
+  | { type: 'marker-added'; marker: ChapterMarker }
+  | { type: 'marker-renamed'; id: string; name: string }
+  | { type: 'marker-moved'; id: string; time: number }
+  | { type: 'marker-removed'; id: string }
   | {
       /**
        * Sets the project's default subtitle style whole (#250), the
@@ -870,6 +895,59 @@ export function remapsOf(state: TimelineState): RemapEffect[] {
 }
 
 /** The state's text overlays (#139), tolerating pre-text states. */
+/** The chapter markers (#487), sorted by time; an absent list is empty. */
+export function markersOf(state: TimelineState): ChapterMarker[] {
+  return state.markers ?? []
+}
+
+/**
+ * The name a new marker gets (#487): `Chapter N`, N counting the markers
+ * that exist plus one — a placeholder the inline field opens on, so a
+ * marker added and left alone still reads as something.
+ */
+export function nextMarkerName(state: TimelineState): string {
+  return `Chapter ${markersOf(state).length + 1}`
+}
+
+/** Two marker times this close are the same instant (the slider's step is 0.01 s). */
+export const MARKER_TIME_EPSILON = 1e-6
+
+/** The marker at `time`, if one sits within `tolerance` of it (nearest wins). */
+export function markerAt(
+  state: TimelineState,
+  time: number,
+  tolerance: number = MARKER_TIME_EPSILON,
+): ChapterMarker | null {
+  let best: ChapterMarker | null = null
+  let bestDistance = Infinity
+  for (const marker of markersOf(state)) {
+    const distance = Math.abs(marker.time - time)
+    if (distance <= tolerance && distance < bestDistance) {
+      best = marker
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+function isValidMarker(marker: ChapterMarker): boolean {
+  return (
+    typeof marker.id === 'string' &&
+    marker.id !== '' &&
+    Number.isFinite(marker.time) &&
+    marker.time >= 0 &&
+    typeof marker.name === 'string' &&
+    marker.name.trim() !== ''
+  )
+}
+
+/** Sorted by time, ties by insertion order; names trimmed. */
+function normalizedMarkers(markers: readonly ChapterMarker[]): ChapterMarker[] {
+  return markers
+    .map((marker) => (marker.name === marker.name.trim() ? marker : { ...marker, name: marker.name.trim() }))
+    .sort((a, b) => a.time - b.time)
+}
+
 export function textsOf(state: TimelineState): TextOverlay[] {
   return state.texts ?? []
 }
@@ -1340,11 +1418,17 @@ export function normalizedTimelineState(
   videoOverlays: VideoOverlay[] = [],
   subtitleStyle?: SubtitleStyle,
   canvasPreset?: CanvasPreset,
+  markers: ChapterMarker[] = [],
 ): TimelineState {
   const state = withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
   // The project-level fields (#250, #273) are carried, not normalized — the
-  // caller (deserialization) already stores them in canonical form.
-  return withProjectFields(state, { subtitleStyle, canvasPreset })
+  // caller (deserialization) already stores them in canonical form. Markers
+  // (#487) are sorted, the one canonical form a file might not have kept.
+  return withProjectFields(state, {
+    subtitleStyle,
+    canvasPreset,
+    ...(markers.length === 0 ? {} : { markers: normalizedMarkers(markers) }),
+  })
 }
 
 /**
@@ -1359,11 +1443,13 @@ export function normalizedTimelineState(
  */
 function withProjectFields(
   next: TimelineState,
-  fields: { subtitleStyle?: SubtitleStyle; canvasPreset?: CanvasPreset },
+  fields: { subtitleStyle?: SubtitleStyle; canvasPreset?: CanvasPreset; markers?: ChapterMarker[] },
 ): TimelineState {
   const carried = {
     ...(fields.subtitleStyle === undefined ? {} : { subtitleStyle: fields.subtitleStyle }),
     ...(fields.canvasPreset === undefined ? {} : { canvasPreset: fields.canvasPreset }),
+    // Markers (#487) are project-level too: an empty list is no key.
+    ...(fields.markers === undefined || fields.markers.length === 0 ? {} : { markers: fields.markers }),
   }
   return Object.keys(carried).length === 0 ? next : { ...next, ...carried }
 }
@@ -1419,14 +1505,89 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       canvasPreset: state.canvasPreset,
     })
   }
+  if (
+    action.type === 'marker-added' ||
+    action.type === 'marker-renamed' ||
+    action.type === 'marker-moved' ||
+    action.type === 'marker-removed'
+  ) {
+    // Chapter markers (#487) are project-level like the two above: their
+    // own actions here, and every other edit carries them verbatim through
+    // withProjectFields below. Each is same-reference when it changes
+    // nothing, so a no-op is not an edit.
+    const markers = reduceMarkers(markersOf(state), action)
+    if (markers === markersOf(state)) return state
+    const { markers: _replaced, ...rest } = state
+    return markers.length === 0 ? rest : { ...rest, markers }
+  }
   const next = reduceTimelineCollections(state, action)
   if (next === state || action.type === 'timeline-replaced') return next
   return withProjectFields(next, state)
 }
 
+function reduceMarkers(
+  markers: ChapterMarker[],
+  action: Extract<
+    TimelineAction,
+    { type: 'marker-added' | 'marker-renamed' | 'marker-moved' | 'marker-removed' }
+  >,
+): ChapterMarker[] {
+  switch (action.type) {
+    case 'marker-added': {
+      const marker = action.marker
+      if (!isValidMarker(marker)) return markers
+      // Ids are the handle the other actions act on — never two alike; and
+      // two markers at one instant would be one tick with two names, so a
+      // second at the same time is refused (the UI selects the first instead).
+      if (markers.some((existing) => existing.id === marker.id)) return markers
+      if (markers.some((existing) => Math.abs(existing.time - marker.time) <= MARKER_TIME_EPSILON)) {
+        return markers
+      }
+      return normalizedMarkers([...markers, marker])
+    }
+    case 'marker-renamed': {
+      const name = action.name.trim()
+      if (name === '') return markers
+      const index = markers.findIndex((marker) => marker.id === action.id)
+      if (index === -1 || markers[index].name === name) return markers
+      const next = [...markers]
+      next[index] = { ...next[index], name }
+      return next
+    }
+    case 'marker-moved': {
+      if (!Number.isFinite(action.time) || action.time < 0) return markers
+      const index = markers.findIndex((marker) => marker.id === action.id)
+      if (index === -1 || Math.abs(markers[index].time - action.time) <= MARKER_TIME_EPSILON) return markers
+      // Onto another marker's instant is refused for the same reason adding there is.
+      if (
+        markers.some(
+          (other, i) => i !== index && Math.abs(other.time - action.time) <= MARKER_TIME_EPSILON,
+        )
+      ) {
+        return markers
+      }
+      const next = [...markers]
+      next[index] = { ...next[index], time: action.time }
+      return normalizedMarkers(next)
+    }
+    case 'marker-removed': {
+      const remaining = markers.filter((marker) => marker.id !== action.id)
+      return remaining.length === markers.length ? markers : remaining
+    }
+  }
+}
+
 function reduceTimelineCollections(
   state: TimelineState,
-  action: Exclude<TimelineAction, { type: 'subtitle-style-set' } | { type: 'canvas-preset-set' }>,
+  action: Exclude<
+    TimelineAction,
+    | { type: 'subtitle-style-set' }
+    | { type: 'canvas-preset-set' }
+    | { type: 'marker-added' }
+    | { type: 'marker-renamed' }
+    | { type: 'marker-moved' }
+    | { type: 'marker-removed' }
+  >,
 ): TimelineState {
   const transitions = transitionsOf(state)
   const zooms = zoomsOf(state)

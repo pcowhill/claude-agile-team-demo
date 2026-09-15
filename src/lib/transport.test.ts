@@ -84,6 +84,11 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('?'))).toEqual({ kind: 'shortcut-help' })
   })
 
+  it('maps M to adding a chapter marker, in either letter case (#487)', () => {
+    expect(transportActionForKey(key('m'))).toEqual({ kind: 'add-marker' })
+    expect(transportActionForKey(key('M', { shiftKey: true }))).toEqual({ kind: 'add-marker' })
+  })
+
   it('maps F1 to the user guide (#478), bare only', () => {
     expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
     expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()
@@ -102,6 +107,7 @@ describe('transportActionForKey (#203)', () => {
         'i',
         'o',
         '?',
+        'm',
         'F1',
       ]) {
         expect(transportActionForKey(key(k, modifiers))).toBeNull()

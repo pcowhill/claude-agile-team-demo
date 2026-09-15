@@ -1590,6 +1590,8 @@ describe('Split at playhead (#190)', () => {
       'Save frame as PNG…',
       'Freeze frame — split & hold',
       'Freeze frame — append after clip',
+      // Chapter markers (#487) joined the menu below a separator, with M shown.
+      'Add chapter marker at playheadM',
     ])
     // The buttons those items replaced are gone from the transport.
     for (const name of [/Split/, /Save frame/, /Freeze frame/]) {
@@ -3116,6 +3118,204 @@ describe('loop playback (#459)', () => {
     expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
     tickAt(10)
     expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+  })
+})
+
+describe('chapter markers (#487)', () => {
+  const twoSlates: TimelineState = {
+    entries: [
+      { id: 's1', clipId: '', name: 'Slate', kind: 'slate', color: '#ff0000', duration: 5, url: '', inPoint: 0, outPoint: 5 },
+      { id: 's2', clipId: '', name: 'Slate', kind: 'slate', color: '#00ff00', duration: 5, url: '', inPoint: 0, outPoint: 5 },
+    ],
+  }
+  const withMarkers: TimelineState = {
+    ...twoSlates,
+    markers: [
+      { id: 'm1', time: 2.5, name: 'Intro' },
+      { id: 'm2', time: 7, name: 'Chapter 2' },
+      { id: 'm3', time: 12, name: 'Later' },
+    ],
+  }
+  const pressOnWindow = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const slider = () => screen.getByRole('slider', { name: 'Seek within sequence' })
+  const nameField = () => screen.getByRole('textbox', { name: /^Name of chapter marker at/ })
+
+  it('Frame ▾ adds a marker at the clamped playhead with the default name and opens its field; Enter renames', () => {
+    const onAddMarker = vi.fn()
+    const onRenameMarker = vi.fn()
+    const { rerender } = render(
+      <PreviewPlayer timeline={twoSlates} onAddMarker={onAddMarker} onRenameMarker={onRenameMarker} />,
+    )
+    fireEvent.change(slider(), { target: { value: '2.5' } })
+    chooseFromFrameMenu('preview-add-marker')
+    expect(onAddMarker).toHaveBeenCalledTimes(1)
+    const marker = onAddMarker.mock.calls[0][0]
+    expect(marker).toMatchObject({ time: 2.5, name: 'Chapter 1' })
+    expect(typeof marker.id).toBe('string')
+    // App dispatches; the marker arrives in the next timeline and the field opens on it.
+    rerender(
+      <PreviewPlayer
+        timeline={{ ...twoSlates, markers: [marker] }}
+        onAddMarker={onAddMarker}
+        onRenameMarker={onRenameMarker}
+      />,
+    )
+    expect(nameField()).toHaveValue('Chapter 1')
+    expect(nameField()).toHaveFocus()
+    fireEvent.change(nameField(), { target: { value: 'Intro' } })
+    fireEvent.keyDown(nameField(), { key: 'Enter' })
+    expect(onRenameMarker).toHaveBeenCalledWith(marker.id, 'Intro')
+    expect(screen.queryByRole('textbox', { name: /^Name of chapter marker/ })).toBeNull()
+  })
+
+  it('Escape in the field keeps the default name — no rename is dispatched', () => {
+    const onRenameMarker = vi.fn()
+    const onAddMarker = vi.fn()
+    const { rerender } = render(
+      <PreviewPlayer timeline={twoSlates} onAddMarker={onAddMarker} onRenameMarker={onRenameMarker} />,
+    )
+    pressOnWindow('m')
+    const marker = onAddMarker.mock.calls[0][0]
+    rerender(
+      <PreviewPlayer
+        timeline={{ ...twoSlates, markers: [marker] }}
+        onAddMarker={onAddMarker}
+        onRenameMarker={onRenameMarker}
+      />,
+    )
+    fireEvent.keyDown(nameField(), { key: 'Escape' })
+    expect(onRenameMarker).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: /^Name of chapter marker/ })).toBeNull()
+  })
+
+  it('M adds through the same path and respects the guards: a field, a modal, an empty timeline, no wiring', () => {
+    const onAddMarker = vi.fn()
+    const { rerender } = render(<PreviewPlayer timeline={twoSlates} onAddMarker={onAddMarker} />)
+    fireEvent.change(slider(), { target: { value: '7' } })
+    pressOnWindow('M', { shiftKey: true })
+    expect(onAddMarker).toHaveBeenCalledWith(expect.objectContaining({ time: 7, name: 'Chapter 1' }))
+
+    const input = document.createElement('input')
+    input.type = 'text'
+    document.body.appendChild(input)
+    try {
+      input.focus()
+      fireEvent.keyDown(input, { key: 'm' })
+    } finally {
+      input.remove()
+    }
+    expect(onAddMarker).toHaveBeenCalledTimes(1)
+
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveTextContent(
+      'Add a chapter marker at the playhead',
+    )
+    pressOnWindow('m')
+    expect(onAddMarker).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    rerender(<PreviewPlayer timeline={{ entries: [] }} onAddMarker={onAddMarker} />)
+    pressOnWindow('m')
+    expect(onAddMarker).toHaveBeenCalledTimes(1)
+
+    rerender(<PreviewPlayer timeline={twoSlates} />)
+    pressOnWindow('m')
+    expect(onAddMarker).toHaveBeenCalledTimes(1)
+    expect(frameMenuItem('preview-add-marker')).toBeDisabled()
+  })
+
+  it('adding on an instant that already has a marker opens that marker’s field instead of a second tick', () => {
+    const onAddMarker = vi.fn()
+    render(<PreviewPlayer timeline={withMarkers} onAddMarker={onAddMarker} onRenameMarker={vi.fn()} />)
+    fireEvent.change(slider(), { target: { value: '2.5' } })
+    pressOnWindow('m')
+    expect(onAddMarker).not.toHaveBeenCalled()
+    expect(nameField()).toHaveValue('Intro')
+  })
+
+  it('draws a numbered tick per marker inside the sequence at its fraction, names it, and counts the ones past the end', () => {
+    render(<PreviewPlayer timeline={withMarkers} />)
+    const ticks = screen.getAllByTestId('preview-marker')
+    expect(ticks).toHaveLength(2)
+    expect(ticks[0].style.left).toBe('25%')
+    expect(ticks[1].style.left).toBe('70%')
+    expect(screen.getByRole('button', { name: 'Chapter marker Intro at 0:03' })).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: 'Chapter marker Chapter 2 at 0:07' })).toHaveTextContent('2')
+    expect(screen.getByRole('button', { name: 'Chapter marker Intro at 0:03' })).toHaveAttribute('title', 'Intro')
+    expect(screen.getByTestId('preview-markers-beyond')).toHaveTextContent('1 chapter marker past the end')
+  })
+
+  it('names the marker under the playhead in the readout, within the slider’s step', () => {
+    render(<PreviewPlayer timeline={withMarkers} />)
+    expect(screen.queryByTestId('preview-position-marker')).toBeNull()
+    fireEvent.change(slider(), { target: { value: '2.5' } })
+    expect(screen.getByTestId('preview-position-marker')).toHaveTextContent('Intro')
+    fireEvent.change(slider(), { target: { value: '2.51' } })
+    expect(screen.getByTestId('preview-position-marker')).toHaveTextContent('Intro')
+    fireEvent.change(slider(), { target: { value: '2.6' } })
+    expect(screen.queryByTestId('preview-position-marker')).toBeNull()
+  })
+
+  it('a tick’s menu renames, moves to the playhead, and removes through the callbacks', () => {
+    const onRenameMarker = vi.fn()
+    const onMoveMarker = vi.fn()
+    const onRemoveMarker = vi.fn()
+    render(
+      <PreviewPlayer
+        timeline={withMarkers}
+        onRenameMarker={onRenameMarker}
+        onMoveMarker={onMoveMarker}
+        onRemoveMarker={onRemoveMarker}
+      />,
+    )
+    const tick = screen.getByRole('button', { name: 'Chapter marker Intro at 0:03' })
+    fireEvent.click(tick)
+    const menu = screen.getByRole('menu', { name: 'Chapter marker Intro' })
+    expect(Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent)).toEqual([
+      'Rename…',
+      'Move to playhead',
+      'Remove',
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    expect(nameField()).toHaveValue('Intro')
+    fireEvent.change(nameField(), { target: { value: 'Opening' } })
+    fireEvent.keyDown(nameField(), { key: 'Enter' })
+    expect(onRenameMarker).toHaveBeenCalledWith('m1', 'Opening')
+
+    fireEvent.change(slider(), { target: { value: '4' } })
+    fireEvent.click(tick)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to playhead' }))
+    expect(onMoveMarker).toHaveBeenCalledWith('m1', 4)
+
+    fireEvent.click(tick)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
+    expect(onRemoveMarker).toHaveBeenCalledWith('m1')
+  })
+
+  it('↑ / ↓ and the jump buttons stop on markers as on cuts', () => {
+    render(<PreviewPlayer timeline={withMarkers} />)
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('2.5')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('5')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('7')
+    pressOnWindow('ArrowDown')
+    expect(slider()).toHaveValue('10')
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to previous cut' }))
+    expect(slider()).toHaveValue('7')
+  })
+
+  it('a marker whose field is open and is then removed takes the field with it', () => {
+    const { rerender } = render(<PreviewPlayer timeline={withMarkers} onRenameMarker={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Chapter marker Intro at 0:03' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    expect(nameField()).toBeInTheDocument()
+    rerender(<PreviewPlayer timeline={twoSlates} onRenameMarker={vi.fn()} />)
+    expect(screen.queryByRole('textbox', { name: /^Name of chapter marker/ })).toBeNull()
   })
 })
 
