@@ -122,6 +122,22 @@ does. Do not write ADRs for trivial or easily reversed choices.
   reviewers and to CI, so one unstaged file makes a sincere claim false —
   #330 reported a passing suite its branch could not have run, and CI
   failed on the file that was never committed (#335).
+- **Evidence for a criterion is measured at the parameters the criterion
+  names.** A criterion that says 30 s, 1280×720, a screen recording, or ten
+  repeats is asking for that measurement because the number depends on it.
+  A different duration, resolution, content, clip or load is a
+  *substitution*, and a substitution is stated beside the criterion it
+  answers — each parameter that changed and why — never left to be inferred
+  from a table whose columns happen to differ. `product-management.md`'s
+  proxy criteria are the same rule from the other side: a proxy changes
+  what it must and keeps every parameter it does not have to. Every number
+  can be true and the evidence still answer a different question, which is
+  why the honest-evidence invariant alone did not cover this. #469 is the
+  worked example: #468 asked for the file-size change of a 30 s screen
+  recording, the PR reported +1.7% on a 3.5 s clip with a box moving every
+  frame, and the review's measurement at the criterion's own parameters
+  read +164% — a trade-off that shipped described as negligible when it is
+  material (#471).
 - **A UI-affecting change carries rendered evidence, not only jsdom.** jsdom
   has no layout, so a component test cannot see what is mis-sized,
   mis-placed, or showing through something else. A PR that adds or changes
