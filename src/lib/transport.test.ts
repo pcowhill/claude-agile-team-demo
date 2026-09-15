@@ -84,6 +84,11 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('?'))).toEqual({ kind: 'shortcut-help' })
   })
 
+  it('maps F1 to the user guide (#478), bare only', () => {
+    expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
+    expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()
+  })
+
   it('never claims Ctrl/Cmd/Alt chords — those belong to the browser and #189 undo/redo', () => {
     for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
       for (const k of [
@@ -97,6 +102,7 @@ describe('transportActionForKey (#203)', () => {
         'i',
         'o',
         '?',
+        'F1',
       ]) {
         expect(transportActionForKey(key(k, modifiers))).toBeNull()
       }

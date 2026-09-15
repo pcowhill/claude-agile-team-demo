@@ -21,6 +21,20 @@ every format this browser can record — picking one opens the export dialog
 on it — plus Plugins… and Settings…. Nothing changed about what any of them
 does. The menu is a normal menu-button: it opens on click or ArrowDown, the
 arrows move and wrap, Escape closes it and returns focus to File ▾.
+A **Help ▾** menu beside File ▾ holds the **User guide…** (#478, from
+feedback #476 and the approved design #477) and the **Keyboard
+shortcuts…** cheat sheet. The guide is a panel docked to the right of the
+editor — not a modal, so you can read what a control does while looking
+at it — with a search field (results as you type, matching by word
+prefix), a collapsible table of contents and the section being read; F1
+opens it too, Escape inside it closes it, and every section and heading
+has a URL (`#guide/concepts/what-is-saved-where`) the browser's Back button
+honours. It ships with Quick Start and Concepts; the feature pages follow
+(#479–#486). The guide's source is Markdown under
+[`docs/guide/`](docs/guide/README.md), compiled into the app at build time
+and loaded lazily (see
+[`docs/adr/0005-user-guide-markdown-compiler.md`](docs/adr/0005-user-guide-markdown-compiler.md));
+a broken link, an unknown `{{PLACEHOLDER}}` or raw HTML fails the build.
 The session is also autosaved continuously (#194): the project structure and
 the imported media are snapshotted into the browser's own storage shortly
 after every edit, and reopening the page after a crash or refresh offers
@@ -490,8 +504,12 @@ npm run test:e2e   # browser tests (Playwright — see "Browser tests" below)
 npm run lint       # oxlint
 npm run typecheck  # tsc -b
 npm run build      # production build to dist/
-npm run check:bundle  # after build: plugin chunks stay out of the entry bundle (#197)
+npm run check:bundle  # after build: plugin and user-guide chunks stay out of the entry bundle (#197, #478)
 ```
+
+The user guide's text lives in `docs/guide/` — see
+[`docs/guide/README.md`](docs/guide/README.md) for how to write a section
+and what the build checks.
 
 #### Browser tests
 

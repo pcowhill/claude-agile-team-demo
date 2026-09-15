@@ -144,8 +144,8 @@ export function SourcePreview({
   // over a control with its own keyboard behavior and under any modal. The
   // sequence player's own handler stands down for these keys while a source
   // is previewed, so each keydown is claimed exactly once. ↑ / ↓ are
-  // sequence-only (edit points, #391) and `?` stays the sequence player's:
-  // both are left alone here. Escape leaves the mode, from anywhere but a
+  // sequence-only (edit points, #391) and `?` and F1 stay the sequence
+  // player's (#203, #478): all are left alone here. Escape leaves the mode, from anywhere but a
   // text field or a dialog (which claims Escape for itself).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -159,7 +159,7 @@ export function SourcePreview({
         step: stepSeconds,
         largeStep: largeStepSeconds,
       })
-      if (action === null || action.kind === 'shortcut-help') return
+      if (action === null || action.kind === 'shortcut-help' || action.kind === 'user-guide') return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       // Claimed even where nothing happens (an image, or a boundary jump),
       // so the page never scrolls under a key the transport owns.
