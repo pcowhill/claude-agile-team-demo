@@ -84,6 +84,11 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('?'))).toEqual({ kind: 'shortcut-help' })
   })
 
+  it('maps M to adding a chapter marker, in either letter case (#487)', () => {
+    expect(transportActionForKey(key('m'))).toEqual({ kind: 'add-marker' })
+    expect(transportActionForKey(key('M', { shiftKey: true }))).toEqual({ kind: 'add-marker' })
+  })
+
   it('never claims Ctrl/Cmd/Alt chords — those belong to the browser and #189 undo/redo', () => {
     for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
       for (const k of [
@@ -97,6 +102,7 @@ describe('transportActionForKey (#203)', () => {
         'i',
         'o',
         '?',
+        'm',
       ]) {
         expect(transportActionForKey(key(k, modifiers))).toBeNull()
       }

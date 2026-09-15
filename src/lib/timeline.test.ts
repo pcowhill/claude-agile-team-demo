@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
-import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec } from './timeline'
+import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec, ChapterMarker } from './timeline'
 import {
   audioTrackFromClip,
   audioTracksOf,
@@ -27,6 +27,9 @@ import {
   transitionsOf,
   zoomsForEntry,
   zoomsOf,
+  markersOf,
+  nextMarkerName,
+  markerAt,
 } from './timeline'
 import type { RemapEffect, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
@@ -4545,6 +4548,96 @@ describe('element-renamed (#405)', () => {
     // The entry's clipId still names the library clip; the clip's own name
     // (mediaLibrary state) is not part of the timeline and cannot change here.
     expect(state.entries[0].clipId).toBe('clip-a')
+  })
+})
+
+describe('chapter markers (#487)', () => {
+  const base: TimelineState = { entries: [] }
+  const marker = (id: string, time: number, name = `Chapter ${id}`): ChapterMarker => ({ id, time, name })
+
+  it('adds a marker, kept sorted by time, and writes the key only while any exist', () => {
+    const one = timelineReducer(base, { type: 'marker-added', marker: marker('b', 7) })
+    expect(one.markers).toEqual([marker('b', 7)])
+    const two = timelineReducer(one, { type: 'marker-added', marker: marker('a', 2.5) })
+    expect(markersOf(two).map((m) => m.id)).toEqual(['a', 'b'])
+    expect(nextMarkerName(two)).toBe('Chapter 3')
+    const none = timelineReducer(
+      timelineReducer(two, { type: 'marker-removed', id: 'a' }),
+      { type: 'marker-removed', id: 'b' },
+    )
+    expect(none).not.toHaveProperty('markers')
+  })
+
+  it('refuses a duplicate id, a second marker at the same instant, and an invalid marker — as same-reference no-ops', () => {
+    const one = timelineReducer(base, { type: 'marker-added', marker: marker('a', 2) })
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('a', 9) })).toBe(one)
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('z', 2) })).toBe(one)
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('z', -1) })).toBe(one)
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('z', Number.NaN) })).toBe(one)
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('z', 3, '   ') })).toBe(one)
+    expect(timelineReducer(one, { type: 'marker-added', marker: marker('', 3) })).toBe(one)
+  })
+
+  it('renames with the name trimmed; an empty name, an unknown id or no change is a no-op', () => {
+    const one = timelineReducer(base, { type: 'marker-added', marker: marker('a', 2) })
+    const renamed = timelineReducer(one, { type: 'marker-renamed', id: 'a', name: '  Intro  ' })
+    expect(markersOf(renamed)[0].name).toBe('Intro')
+    expect(timelineReducer(renamed, { type: 'marker-renamed', id: 'a', name: 'Intro' })).toBe(renamed)
+    expect(timelineReducer(renamed, { type: 'marker-renamed', id: 'a', name: '' })).toBe(renamed)
+    expect(timelineReducer(renamed, { type: 'marker-renamed', id: 'nope', name: 'X' })).toBe(renamed)
+  })
+
+  it('moves a marker, re-sorting; onto another marker, off the number line, or nowhere is a no-op', () => {
+    let state = timelineReducer(base, { type: 'marker-added', marker: marker('a', 2) })
+    state = timelineReducer(state, { type: 'marker-added', marker: marker('b', 5) })
+    const moved = timelineReducer(state, { type: 'marker-moved', id: 'a', time: 8 })
+    expect(markersOf(moved).map((m) => [m.id, m.time])).toEqual([
+      ['b', 5],
+      ['a', 8],
+    ])
+    expect(timelineReducer(moved, { type: 'marker-moved', id: 'a', time: 8 })).toBe(moved)
+    expect(timelineReducer(moved, { type: 'marker-moved', id: 'a', time: 5 })).toBe(moved)
+    expect(timelineReducer(moved, { type: 'marker-moved', id: 'a', time: -0.5 })).toBe(moved)
+    expect(timelineReducer(moved, { type: 'marker-moved', id: 'zz', time: 1 })).toBe(moved)
+  })
+
+  it('carries markers verbatim across every other edit, and a whole replacement brings its own', () => {
+    const withMarker = timelineReducer(base, { type: 'marker-added', marker: marker('a', 2) })
+    const edited = timelineReducer(withMarker, {
+      type: 'entry-added',
+      entry: {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'clip.webm',
+        duration: 10,
+        url: 'blob:clip',
+        inPoint: 0,
+        outPoint: 10,
+      },
+    })
+    expect(edited.markers).toBe(withMarker.markers)
+    const replaced = timelineReducer(edited, { type: 'timeline-replaced', timeline: { entries: [] } })
+    expect(replaced).not.toHaveProperty('markers')
+  })
+
+  it('markerAt finds the marker on an instant within the tolerance, nearest first', () => {
+    let state = timelineReducer(base, { type: 'marker-added', marker: marker('a', 2) })
+    state = timelineReducer(state, { type: 'marker-added', marker: marker('b', 2.1) })
+    expect(markerAt(state, 2)?.id).toBe('a')
+    expect(markerAt(state, 2.0000001)?.id).toBe('a')
+    expect(markerAt(state, 2.05)).toBeNull()
+    expect(markerAt(state, 2.06, 0.05)?.id).toBe('b')
+  })
+
+  it('normalizedTimelineState sorts a file\'s markers and writes no key for none', () => {
+    const sorted = normalizedTimelineState([], [], [], [], [], [], [], undefined, undefined, [
+      marker('b', 9),
+      marker('a', 1),
+    ])
+    expect(markersOf(sorted).map((m) => m.id)).toEqual(['a', 'b'])
+    expect(normalizedTimelineState([], [], [], [], [], [], [], undefined, undefined, [])).not.toHaveProperty(
+      'markers',
+    )
   })
 })
 

@@ -14,6 +14,7 @@ import type {
   TimelineTransition,
   TransitionType,
   ZoomEffect,
+  ChapterMarker,
 } from './timeline'
 import {
   audioTracksOf,
@@ -25,6 +26,7 @@ import {
   isImageOverlay,
   videoOverlaysOf,
   zoomsOf,
+  markersOf,
 } from './timeline'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
@@ -83,6 +85,7 @@ import { isCanvasPreset } from './frameSize'
  *                   styleOverrides? }],                         // (#250)
  *       "subtitleStyle": { x, y, font, size, color, bold, italic }, // (#250)
  *       "canvasPreset": "16:9" | "9:16" | "1:1" | "4:5",          // (#273)
+ *       "markers": [{ id, time, name }],                          // (#487)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -245,7 +248,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 18
+export const PROJECT_SCHEMA_VERSION = 19
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -282,6 +285,8 @@ export const CANVAS_PRESET_SCHEMA_VERSION = 16
 export const IMAGE_OVERLAYS_SCHEMA_VERSION = 17
 /** The version any renamed library clip forces, whichever the save mode (#404). */
 export const RENAMED_CLIPS_SCHEMA_VERSION = 18
+/** Chapter markers on the timeline (#487): `timeline.markers`. */
+export const MARKERS_SCHEMA_VERSION = 19
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -374,6 +379,11 @@ export interface ProjectTimeline {
    * when one is set, mirroring `TimelineState` where absence means Auto.
    */
   canvasPreset?: CanvasPreset
+  /**
+   * Chapter markers (#487, schema version 19). Present exactly when the
+   * file carries any, mirroring `TimelineState` where absence means none.
+   */
+  markers?: ChapterMarker[]
   /**
    * Overlay video layers (#145). Present exactly when the file carries any,
    * additive within a schema version exactly like `remaps`.
@@ -562,6 +572,7 @@ export async function serializeProject(
   // version 3 (#137), whichever the save mode; otherwise the mode alone
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
+  const hasMarkers = markersOf(timeline).length > 0
   const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
@@ -599,7 +610,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasRenamedClips
+    schemaVersion: hasMarkers
+      ? MARKERS_SCHEMA_VERSION
+      : hasRenamedClips
       ? RENAMED_CLIPS_SCHEMA_VERSION
       : hasImageOverlays
       ? IMAGE_OVERLAYS_SCHEMA_VERSION
@@ -797,6 +810,12 @@ export async function serializeProject(
       // stores it exactly then), so Auto projects stay byte-identical to
       // earlier output at their lower schema version.
       ...(timeline.canvasPreset === undefined ? {} : { canvasPreset: timeline.canvasPreset }),
+      // Chapter markers (#487) are written only while any exist, so
+      // marker-free projects stay byte-identical to earlier output at their
+      // lower schema version. Sorted by time already (the state keeps them so).
+      ...(!hasMarkers
+        ? {}
+        : { markers: markersOf(timeline).map(({ id, time, name }) => ({ id, time, name })) }),
       audioTracks: audioTracksOf(timeline).map(
         ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
           id,
@@ -1569,6 +1588,24 @@ function validateProject(document: Record<string, unknown>): Project {
   // dropped would reshape the project's frame without saying so.
   const canvasPreset = asCanvasPreset(timelineRaw.canvasPreset, 'timeline.canvasPreset')
 
+  // Chapter markers (#487, schema version 19): absent in files saved before
+  // them and in every marker-free file since. A name must be a non-empty
+  // string and a time a finite non-negative number; ids are unique.
+  const markerIds = new Set<string>()
+  const markers = asArray(timelineRaw.markers ?? [], 'timeline.markers').map((value, index) => {
+    const path = `timeline.markers[${index}]`
+    const raw = asRecord(value, path)
+    const marker: ChapterMarker = {
+      id: asString(raw.id, `${path}.id`),
+      time: asNonNegative(raw.time, `${path}.time`),
+      name: asString(raw.name, `${path}.name`),
+    }
+    if (marker.name.trim() === '') throw new Error(`${path}.name must not be empty`)
+    if (markerIds.has(marker.id)) throw new Error(`${path}.id "${marker.id}" is duplicated`)
+    markerIds.add(marker.id)
+    return marker
+  })
+
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
   const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
@@ -1757,6 +1794,7 @@ function validateProject(document: Record<string, unknown>): Project {
       ...(texts.length === 0 ? {} : { texts }),
       ...(subtitleStyle === undefined ? {} : { subtitleStyle }),
       ...(canvasPreset === undefined ? {} : { canvasPreset }),
+      ...(markers.length === 0 ? {} : { markers }),
       audioTracks,
       ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },

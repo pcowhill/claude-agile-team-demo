@@ -182,6 +182,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       })),
       project.timeline.subtitleStyle,
       project.timeline.canvasPreset,
+      project.timeline.markers ?? [],
     ),
   }
 }

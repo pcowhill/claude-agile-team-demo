@@ -36,6 +36,7 @@ import {
   CANVAS_PRESET_SCHEMA_VERSION,
   IMAGE_OVERLAYS_SCHEMA_VERSION,
   RENAMED_CLIPS_SCHEMA_VERSION,
+  MARKERS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1120,7 +1121,7 @@ describe('project file versioning', () => {
     // overlay shape masks (#266); version 16 added the project's canvas
     // preset (#273); version 17 added image overlay layers (#294); version
     // 18 added renamed library clips with their original filename (#404).
-    expect(PROJECT_SCHEMA_VERSION).toBe(18)
+    expect(PROJECT_SCHEMA_VERSION).toBe(19)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1139,6 +1140,7 @@ describe('project file versioning', () => {
     expect(CANVAS_PRESET_SCHEMA_VERSION).toBe(16)
     expect(IMAGE_OVERLAYS_SCHEMA_VERSION).toBe(17)
     expect(RENAMED_CLIPS_SCHEMA_VERSION).toBe(18)
+    expect(MARKERS_SCHEMA_VERSION).toBe(19)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3628,6 +3630,58 @@ describe('renamed library clips in project files (#404, schema version 18)', () 
       ok: true,
       project: { clips: expectedRenamedClips, timeline: expectedProject.timeline },
     })
+  })
+})
+
+// Chapter markers (#487, schema version 19). The rules every optional
+// timeline field obeys: the key is written only while any exist, a
+// marker-free project stays byte-identical at its lower version, a
+// malformed marker is refused by name.
+describe('chapter markers in project files (#487, schema version 19)', () => {
+  const markers = [
+    { id: 'm1', time: 0, name: 'Intro' },
+    { id: 'm2', time: 4.5, name: 'The walk' },
+  ]
+
+  it('round-trips markers at the new version, sorted by time', async () => {
+    const bytes = await serializeProject(library, { ...timeline, markers: [markers[1], markers[0]] })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(MARKERS_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).markers).toEqual([markers[1], markers[0]])
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // The file keeps what it was given; the state sorts on restore
+    // (normalizedTimelineState), so a hand-edited file is not refused.
+    expect(result.project.timeline.markers).toEqual([markers[1], markers[0]])
+  })
+
+  it('writes no key and no version bump for a project without markers', async () => {
+    const without = await serializeProject(library, timeline)
+    const explicitlyEmpty = await serializeProject(library, { ...timeline, markers: [] })
+    expect(new Uint8Array(explicitlyEmpty)).toEqual(new Uint8Array(without))
+    const document = await gunzipJson(without)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(document.timeline as Record<string, unknown>).not.toHaveProperty('markers')
+    const result = await deserializeProject(without)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline).not.toHaveProperty('markers')
+  })
+
+  it('refuses a malformed marker by name', async () => {
+    const withMarkers = (list: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: MARKERS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, markers: list },
+    })
+    await expectRefusal(await gzipJson(withMarkers([{ id: 'm', time: -1, name: 'X' }])), 'timeline.markers[0].time')
+    await expectRefusal(await gzipJson(withMarkers([{ id: 'm', time: 1, name: '' }])), 'timeline.markers[0].name')
+    await expectRefusal(await gzipJson(withMarkers([{ id: 'm', time: 'soon', name: 'X' }])), 'timeline.markers[0].time')
+    await expectRefusal(await gzipJson(withMarkers([{ time: 1, name: 'X' }])), 'timeline.markers[0].id')
+    await expectRefusal(
+      await gzipJson(withMarkers([{ id: 'm', time: 1, name: 'X' }, { id: 'm', time: 2, name: 'Y' }])),
+      'timeline.markers[1].id "m" is duplicated',
+    )
   })
 })
 

@@ -445,6 +445,18 @@ plays the marked range on repeat (#459): reaching the mark-out jumps back to
 the mark-in and keeps going until you pause, Play from outside the range
 starts at the mark-in, and with no valid range marked the whole sequence
 loops instead of stopping at its end. Loop is session-only like the marks.
+**Chapter markers** (#487, the approved suggestion #461) name points of
+the sequence: Frame ▾ → *Add chapter marker at playhead* — or **M** — drops
+one at the playhead and opens an inline name field (`Chapter 1`, `Chapter
+2`, … until you type; Enter commits, Escape keeps the default). Each marker
+is a small numbered tick under the seek bar with its name on hover and in
+its accessible name; the time readout names the marker under the playhead;
+↑ / ↓ and the seek bar's snap treat markers as boundaries like cuts; a
+tick's menu offers Rename…, Move to playhead and Remove. Markers are part
+of the project — saved in the file and the autosave, restored on open,
+undoable like every edit — and a marker past the current end is kept but
+not drawn, with the readout saying how many. The export dialog's *Copy
+chapter list* is #488.
 File ▾ → Plugins… opens the plugin manager (#197): optional built-in
 features ship as lazy-loaded modules that download only when enabled, keeping
 the default editor lightweight (see

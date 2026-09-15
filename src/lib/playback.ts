@@ -7,6 +7,7 @@ import {
   remapsForEntry,
   remapsOf,
   totalDuration,
+  markersOf,
 } from './timeline'
 import { outputTimeAtSource, sourceTimeAtOutput } from './remap'
 
@@ -89,6 +90,24 @@ export function sequenceBoundaries(state: TimelineState): number[] {
   }
   boundaries.sort((a, b) => a - b)
   return boundaries.filter((value, i) => i === 0 || value !== boundaries[i - 1])
+}
+
+/**
+ * Where ↑ / ↓ land and where a committed seek snaps (#391, #487): the cuts
+ * and blend edges from `sequenceBoundaries`, plus every chapter marker that
+ * lies within the sequence. One set for both, because a marker the keys
+ * reach but the slider slides past — or the reverse — would feel broken.
+ * A marker past the end is not a place the playhead can be, so it is left
+ * out; it stays in the project for when the sequence grows back.
+ */
+export function navigationBoundaries(state: TimelineState): number[] {
+  const cuts = sequenceBoundaries(state)
+  const markers = markersOf(state)
+  if (markers.length === 0) return cuts
+  const total = totalDuration(state)
+  const all = [...cuts, ...markers.map((marker) => marker.time).filter((time) => time <= total)]
+  all.sort((a, b) => a - b)
+  return all.filter((value, i) => i === 0 || value !== all[i - 1])
 }
 
 /**

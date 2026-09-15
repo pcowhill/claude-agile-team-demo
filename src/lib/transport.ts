@@ -26,6 +26,8 @@ export type TransportAction =
    * keyboard form of the ⇥ / ⇤ transport buttons (#385). */
   | { kind: 'mark'; which: 'in' | 'out' }
   | { kind: 'shortcut-help' }
+  /** Add a chapter marker at the playhead (#487) — M, the editors' convention. */
+  | { kind: 'add-marker' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -83,6 +85,11 @@ export function transportActionForKey(
       return { kind: 'mark', which: 'out' }
     case '?':
       return { kind: 'shortcut-help' }
+    // M adds a chapter marker at the playhead (#487): the key most desktop
+    // editors use, unclaimed here. Either case, for the same reason as I / O.
+    case 'm':
+    case 'M':
+      return { kind: 'add-marker' }
     default:
       return null
   }
