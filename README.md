@@ -2,509 +2,71 @@
 
 An experiment in **repository-driven autonomous software development**.
 
+This repository is built and maintained by a succession of independent
+Claude Code sessions acting as an agile software team — product manager,
+developer, reviewer, QA engineer, release engineer, maintainer. Each session
+is started with essentially one instruction (`Go`) and orients itself
+entirely from the persistent state in this repository and its GitHub Issues,
+Pull Requests, comments, and CI results. The full operating model lives in
+[`CLAUDE.md`](CLAUDE.md) and [`docs/rules/`](docs/rules/).
+
+There is no predetermined product. What gets built is decided by the human
+**customer** through GitHub. The repository's history — issues, PRs, reviews,
+decisions — is itself an artifact of the experiment.
+
 ## The product: Browser Video Editor
 
-The customer asked for a simple video editor that runs entirely in the
-browser (#3): import clips, arrange and trim them on a timeline, preview the
-result, and export a video file. Projects can be saved to a `.bvep` file and
-reopened later (#71, #92): by default the file embeds your media, so that
-single file moves to another computer and opens ready to edit with no
-re-linking. Choosing "references only" at first save (revisitable via Save
-As…) writes a small file with edits and clip metadata instead; opening one
-asks you to re-select the original media files and matches them back up by
-filename and duration.
-The header keeps only what is used often (#415, from feedback #395 "So Many
-Buttons"): a **File ▾** menu, a compact 💾 Save carrying the unsaved-changes
-dot, and Export Project…. File ▾ holds New Project, Open Project…, Save
-(with its Ctrl+S shortcut shown), Save As…, an **Export ▸** submenu listing
-every format this browser can record — picking one opens the export dialog
-on it — plus Plugins… and Settings…. Nothing changed about what any of them
-does. The menu is a normal menu-button: it opens on click or ArrowDown, the
-arrows move and wrap, Escape closes it and returns focus to File ▾.
-A **Help ▾** menu beside File ▾ holds the **User guide…** (#478, from
-feedback #476 and the approved design #477) and the **Keyboard
-shortcuts…** cheat sheet. The guide is a panel docked to the right of the
-editor — not a modal, so you can read what a control does while looking
-at it — with a search field (results as you type, matching by word
-prefix), a collapsible table of contents and the section being read; F1
-opens it too, Escape inside it closes it, and every section and heading
-has a URL (`#guide/concepts/what-is-saved-where`) the browser's Back button
-honours. It ships with Quick Start and Concepts; the feature pages follow
-(#479–#486). The guide's source is Markdown under
-[`docs/guide/`](docs/guide/README.md), compiled into the app at build time
-and loaded lazily (see
-[`docs/adr/0005-user-guide-markdown-compiler.md`](docs/adr/0005-user-guide-markdown-compiler.md));
-a broken link, an unknown `{{PLACEHOLDER}}` or raw HTML fails the build.
-The session is also autosaved continuously (#194): the project structure and
-the imported media are snapshotted into the browser's own storage shortly
-after every edit, and reopening the page after a crash or refresh offers
-"Restore last session?" — restoring brings back the timeline and the media
-with no file re-picking. If the media outgrows browser storage, autosave
-unobtrusively degrades to keeping the structure only, and restore then asks
-for the media files again via the usual re-link dialog. Audio files (music, voice-overs, sound effects) can
-be imported into the media library alongside videos (#100) and placed on the
-timeline as audio tracks — each with a start time and trim, overlapping
-freely (#102). A video clip's audio can also be extracted into a standalone
-audio clip in the library (#154), which keeps working even after the video
-itself is removed. Any library clip can be auditioned without touching the
-timeline (#403): the ▶ Preview action on its row — or a double-click on its
-name or thumbnail — shows the clip alone in the preview panel, a video or
-audio clip with its own play/pause and seek, an image as it is; Back to
-sequence or Escape returns to the sequence exactly where it was, and Space
-and the arrow keys drive the source while it is up. A clip can be renamed
-(#404): ⋯ → Rename… turns its name into a field (Enter or clicking away
-commits, Escape cancels, an empty name reverts); the new name shows
-everywhere the clip is named, sorts and saves with the project, while the
-original filename is kept underneath so a references-only project still
-re-links from the file on disk — the re-link dialog shows both. Elements
-already placed on the timeline keep the names they were placed with; new
-placements take the current one. Library rows are multi-selectable (#292): each row has a
-checkbox (faded until you hover or start selecting) with Shift+click range
-selection and a Select-all box in the header, and a selection bar adds every
-selected clip to the timeline in library order — videos and images as
-sequence entries, audio as tracks — as a single undoable step, or removes
-the whole selection at once (#293) behind one confirmation that names how
-many clips and how many timeline entries go with them. Each row keeps only its two frequent actions inline — ▶ Preview and Add —
-with everything else behind a **⋯ menu** named for the clip (#416): Add as
-overlay, Extract audio, Rename… and Remove, each offered exactly where its
-button used to be, so an audio clip's menu holds only the two that apply to
-it. The library
-itself stops growing at about half the viewport's height (#308): past that,
-the clip list scrolls on its own while the title, Import clips, Record,
-View ▾, and selection controls stay at the top, so a big import never
-pushes the timeline far down the page. The same clips can be shown two
-ways (#311): List view is one text row each, and Thumbnail view is a grid
-of square cards — as many per row as fit — each dominated by a picture of
-the media, with the name, kind badge, duration and the identical actions
-beneath. A video card shows the captured first frame, an image card the
-image itself, and an audio card its waveform; a clip whose picture cannot
-be decoded keeps a per-kind placeholder mark instead. The library header's
-**View ▾** menu (#416) switches between them and holds the sort keys with
-them — Name, Type and Length (#123), each showing the direction it last ran
-in, and picking the current key again reverses it. The layout choice is
-remembered per browser across page loads — a view preference, so it is
-never part of a project file or the autosave snapshot; sorting stays what it
-always was, an action on the stored clip order rather than a saved setting. Voice-overs can be recorded directly into the library
-(#224): a Record button beside Import offers a Microphone source (browsers
-ask for permission; the control hides entirely where recording is
-unsupported), and stopping the capture adds it as an ordinary audio clip —
-`Voice-over 1` — placeable, trimmable, mixable, and exportable like any
-imported audio file, autosave included. The same menu offers a Screen
-source (#225): the browser's own tab/window/display picker starts a capture
-— with tab/system audio kept when the browser grants it — shown live in
-the recording dialog, and stopping (our Stop button or the browser's own
-"stop sharing") adds it as an ordinary video clip, `Screen recording 1`,
-ready to trim, overlay, transition, and export; the source hides where
-`getDisplayMedia` is unavailable. Video recordings ask the browser for a
-keyframe every second (#468), so seeking anywhere in one — the visual
-editors' scrub and loop, Save frame, the preview — decodes at most a second
-of footage rather than everything since the recording began; browsers
-that do not offer the option record as before. A Webcam source (#226) records camera
-video plus microphone audio the same way — a live self-view in the dialog,
-the clip landing as `Webcam recording 1`, ready to layer as a
-picture-in-picture commentary bubble; a camera without a microphone still
-records, video-only. A Screen + camera source (#388) records both at once
-from one gesture — the screen picker, then the camera, with either denial
-canceling the whole start — showing both live in the dialog, and stopping
-places the take: the screen clip lands on the timeline with the camera clip
-as a corner overlay bubble starting alongside it, both ordinary editable
-clips (reposition, resize, mask, mute — never a baked composite), the
-arrival undoable as one step while both captures stay in the library. The
-microphone records with the camera clip; tab/system audio, when granted,
-stays with the screen clip. A references-only project file
-cannot re-link a recording (it never existed on disk); save with embedded
-media to carry recordings across machines. The preview plays them mixed with the videos' own audio
-(#103), honoring each track's volume and optional fade-in/fade-out and each
-video entry's volume and mute (#104), and the exported file carries that
-same mix (#105). Video entries and video overlays take the same optional
-audio fade-in/fade-out (#220): their sound ramps from silence to the item's
-volume and back, identically in the preview and the exported mix, and a
-fade on a transition boundary rides the crossfade.
-Each of those numbers carries a **range slider beside its field** (#426),
-on the field's own range and step — as do the colour dials and an overlay's
-corner radius. Dragging one moves the number as it goes and commits once on
-release, so a whole drag is a single undo step; the field itself still
-commits on blur or Enter exactly as before, and the two always read the
-same value.
-An audio track can duck the rest of the mix (#241): with "Duck others" on,
-every other sound source — other tracks, video entries' audio, overlay-video
-audio — drops to the track's duck level (25% by default, adjustable) while
-it audibly plays, ramping smoothly down just before its window and back up
-after, with brief gaps merged so a voice-over's pauses don't pump the music.
-The ducking track itself is never ducked, preview and export apply the
-identical rule, and the setting persists with the project. Still images import into the media library too (#137),
-with their pixel dimensions probed and shown with an Image badge, and can
-be placed on the timeline as stills with an adjustable duration (5 s by
-default, #140) — participating in transitions, zooms, preview, export, and
-project files like any clip. Solid-color slates (#143) can be added from the
-timeline header's **Add ▾** menu (#418) — no import, any 24-bit color, same
-adjustable duration — so a video can e.g. open on a red screen that
-crossfades into a clip.
-Transitions between adjacent entries offer a crossfade, four slide
-directions, four wipes, four pushes, fades through black and white, an
-opening and a closing iris, and a cross-zoom (#181), rendered identically by
-the preview and the exported file from one shared rule. Video
-entries can be time-remapped (#138, #141, #144): any number of speed segments
-(e.g. 0.5× slow motion or 1.5× speed-up over part of a clip) and pauses
-(freeze one frame for a chosen time), edited on the timeline and honored by
-the preview's playback, scrubbing, and sequence timing — and by the exported
-file, which plays the same remapped timing. Those, and an entry's zooms
-(#129), are added from one **+ Effect ▾** menu under the expanded row
-(#419) — Zoom · Speed segment · Pause, each offered exactly where it can go:
-greyed once the effects already on the entry leave no room for another, and
-a still offers Zoom alone, since its one duration is already its timing. Text overlays (#139) — titles,
-subtitles, labels — are added from the same **Add ▾** menu, with editable content
-(multi-line), timing, position, font (curated system stacks), size relative
-to the frame, any color, bold/italic, and per-overlay fade-in/fade-out
-durations (#177), rendering in the preview above the composed frame for
-their window — and in the exported file, which draws the same overlays with
-the same relative size, position, and fade envelope (#142). The block can
-also be dragged into place on a still of the frame rather than typed (#424 —
-see the visual editors below). Subtitles can be
-imported from a standard .srt file through **Add ▾ → Subtitles from .srt
-file…** (#249): every cue lands as an ordinary text overlay timed to the
-cue, bottom-center at a readable caption default, individually editable like
-any other, with skipped/malformed cue blocks reported in the library's
-failure list. A per-project default subtitle style (#250) — font, size,
-color, bold/italic, position — restyles every imported subtitle at once; a
-property edited on an individual cue is pinned and keeps its value through
-later default changes, while the cue's other properties keep following. Its
-controls sit behind a **Subtitle style** disclosure below the timeline
-header (#418), which appears once the timeline has any text overlay to
-restyle and opens itself whenever subtitles are imported — so the eight
-fields are one click away when they are wanted and cost nothing when they
-are not. Video clips can
-also be layered above the sequence as overlays (#145) — picture-in-picture —
-each with its own start time, trim, fractional placement rectangle, and
-volume/mute, shown in the preview above the base video — and composited the
-same way into the exported file, overlay audio in the mix (#146); an image
-overlay draws into the file the same way, with no audio to mix (#295).
-The placement rectangle can also be dragged on a still of the frame rather
-than typed, with the mask silhouette shown (#422 — see the visual editors
-below).
-An overlay also takes a shape mask (#266): clip its placed rectangle to an
-inscribed ellipse (a circle when square — the webcam-bubble look) or a
-rounded rectangle with a chosen corner radius, edited in the overlay row's
-Picture group (#420),
-rendered live in the preview, and saved with the project. Exports cut the
-same silhouette (#267): the video formats, the GIF plugin, and frame
-snapshots all draw masked overlays through one shared composition path,
-so what plays is what exports.
-An **image** can be layered the same way (#294) — a logo, a watermark, a
-sticker, or a transparent title-card PNG. A still overlay takes the same
-placement rectangle and the same picture treatments (color, orientation,
-crop, shape mask) as a video one, and shows for an explicit length you set
-on its row rather than a trim, since there is no source to trim; it carries
-no audio controls, because a still has no sound. Transparent pixels show
-the layers below through, so a logo sits on the footage rather than in a
-box. The preview renders it above the base video, it saves and reopens
-with the project, and the exported file draws it the same way (#295) —
-inside the same rectangle, for the same window, with the same treatments,
-and with its transparent pixels still transparent, so a watermark burns
-into the output exactly as the preview showed it. A still adds nothing to
-the audio mix, having no sound to add, and never changes the output frame
-size: the frame follows the sequence's own sources, so a logo cannot
-reshape the video it sits on. Saved frames (#237) include it too, through
-the same shared composition path.
-Every timeline row shows a coverage bar for where the item plays in the
-composed timeline (#180) — per-section colors (green video, amber image,
-the slate's own color, blue audio, purple overlays, magenta text), all
-scaled to the video sequence's duration, with anything past the video's
-end clamped (it never plays). Every sound-bearing bar draws its clip's
-audio amplitude as a waveform (#191, #230): audio tracks, video entries,
-and video overlays alike — soundless items (stills, slates, clips whose
-audio cannot be decoded) keep the plain bar. Every section is titled —
-Sequence, Audio, Overlays, Text — and every row can be collapsed to a thin
-wedge of just its coverage bar and main line (#299), individually or all at
-once from the timeline header's compact ▲ / ▼ pair (#418, named for what
-they do rather than lettered). Each section
-heading carries its own controls too (#300): fold the whole section down to
-its heading (unfolding brings every row back exactly as it was), or
-collapse / expand just that section's rows; the header's ▲ also
-folds every section and ▼ unfolds and expands everything.
-Collapsing and folding are view choices, never edits, so they are not
-undoable and not saved with the project.
-Video entries and overlay rows also carry a small thumbnail (#193) — the
-first frame of the trimmed range, re-captured when the in-point changes;
-image entries show the image itself and slates a color swatch. Thumbnails
-are session state, recomputed from the media — never stored in project
-files.
-Every picture treatment below lives behind one **Picture ▸** disclosure on
-the row (#420), closed by default and remembered per row for the session:
-Color · Orientation · Crop, then one more according to the row — Background
-on a sequence entry, Shape on an overlay. Timing and audio stay where they
-were, since those are what a row is usually opened for. A closed summary
-still says what is applied — `▸ Picture · Color, Crop` — so nothing hides
-silently, and slates and audio tracks have no such group at all. Measured
-at 1280px, an expanded image entry's row went from 245px to 150px.
-Video and image entries (and video overlays) take per-clip color
-adjustments (#192): brightness, contrast, and saturation dials (0–200%)
-plus one-click grayscale and sepia looks, edited on the timeline row,
-rendered live in the preview, saved with the project, and rendered
-identically in exports (#195) — GIFs included, through the shared frame
-pipeline. A browser whose canvas cannot apply filters refuses to export an
-adjusted timeline rather than silently exporting it unadjusted.
-They also take an orientation (#232): rotate 90°/180°/270° and flip
-horizontal/vertical in that group — the fix for sideways phone
-footage and mirrored webcam clips — rendered live in the preview, saved
-with the project, and composing with zooms, transitions, and color
-adjustments; a quarter-turned clip letterboxes into the frame like any
-portrait source, and reshapes the output frame the same way. Exports
-render orientation through the same shared rule (#233) — GIFs included,
-through the shared frame pipeline.
-They also take a crop (#255): trim a percentage off each edge in that
-group — chrome strips in screen recordings, headroom in webcam
-clips — and only the kept region renders in the preview, applied before
-orientation, reshaping the output frame like any source and saved with the
-project (each axis always keeps at least a tenth). Exports render crop
-through the same shared rule (#256). The kept region can also be dragged on
-a still of the source rather than typed (#423 — see the visual editors
-below).
-They also take a background fill (#259): what shows behind a clip that
-doesn't fill the output frame — a portrait phone clip in a landscape
-sequence, a quarter-turned or cropped clip — chosen in that group:
-none (the default black bars), a blurred cover-fit copy of the clip's own
-current frame (the familiar social-video blur-fill), or a flat color. The
-backdrop renders live in the preview behind the normally fitted clip,
-never reshapes the output frame, and saves with the project. Exports —
-the video formats, the GIF plugin, and frame snapshots alike — render
-the fill through the same shared rule (#260).
-The project's canvas takes a preset (#273): the output frame normally
-follows the sources (the largest source width and height, so nothing is
-downscaled), and the Canvas control on the timeline's header fixes it to
-16:9, 9:16, 1:1 or 4:5 instead — a landscape screen recording can be edited
-against the vertical frame it is destined for. A fixed preset yields the
-smallest frame of exactly that aspect that still contains the sources, so
-no clip is ever downscaled; the mismatched ones letterbox into it, which is
-exactly the shape background fill treats. The preview stage reshapes live,
-overlay rectangles, text positions and zoom centres keep composing against
-the chosen frame, and the preset saves with the project. Auto is the
-default and is byte-identical to a project that never chose one. Exports
-render the preset too (#274): the video formats, the GIF plugin, and frame
-snapshots all derive their frame through the same shared rule, and the
-export modal's automatic size shows the preset frame's dimensions — while a
-manual size entered there still overrides everything for that one export,
-exactly as before.
-Every timeline row — sequence entry, audio track, video overlay, text
-overlay — keeps ▾ ↑ ↓ ✕ on its main line and everything else behind a **⋯**
-menu (#419): Duplicate, Copy settings, Paste settings and Rename…, each
-offered exactly where its button used to be. Duplicate (#314) makes
-an exact copy carrying every adjustable setting (trim, volume and fades,
-color, orientation, crop, background fill, speed segments and pauses,
-zooms, overlay placement and shape mask, text content and style), as a
-single undo step. A duplicated sequence entry lands right after the
-original — transitions are never copied, since they belong to a boundary —
-while a duplicated track, overlay, or text starts where the original ends,
-so the two never stack.
-Sequence entries, slates, audio tracks and overlays can be renamed on the
-timeline (#405): ⋯ → Rename… — or a double-click on the name — turns it
-into a field; Enter or clicking away commits, Escape cancels,
-and an empty name reverts. The new name shows everywhere the row is named
-(its header, its controls' labels, the preview's now-playing line), is one
-undo step, saves with the project, and never touches the library clip the
-row came from — clip and placed element each keep their own name.
-The same menu carries Copy settings and Paste settings (#315): Copy remembers a
-row's adjustable settings — never its media, trim, or timeline position —
-and Paste applies them to any other row through a checklist of the groups
-both rows can hold (Color, Orientation, Crop, Background fill, Audio, Text
-style), everything checked by default, so a paste is never a surprise
-overwrite. Each value pastes as the source's effective one, identity
-included — pasting an ungraded clip's Color resets the target's grade. One
-paste is one undo step. The copied settings live only in the current
-session: they are never saved with the project, and a reload starts with
-nothing copied.
-Every timeline edit is undoable (#189): Undo/Redo buttons on the timeline
-and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) walk a bounded history of
-edits back and forward — except while typing in a text field, where the
-shortcut stays the browser's own text undo.
-The preview answers transport keys (#203): Space plays/pauses, ← / → step
-the playhead 0.1 s (1 s with Shift) — both settable in Settings (#286) —
-Home/End jump to the sequence bounds, and ? opens a cheat sheet of every
-shortcut, which states the step sizes you have chosen — all inert while
-typing in a field or while a dialog is open, so no control loses its own
-keys. I / O set the export range's in / out marks at the playhead (#417),
-the same marks the ⇥ / ⇤ transport buttons set.
-↑ / ↓ (and two transport buttons) jump the playhead exactly onto the
-previous / next cut — entry boundaries, both edges of a transition blend,
-the sequence ends (#391) — and releasing a seek near a boundary snaps onto
-it with a brief tick on the seek bar; hold Alt while releasing to place
-freely, and the slider's own arrow keys still step 0.01 s without snapping.
-The preview's frame-level actions live in its **Frame ▾** menu (#417, from
-feedback #395): Split at playhead, Save frame as PNG…, and Freeze frame as
-two items — split & hold, or append after clip — so the placement is the
-item you pick. Split at playhead cuts the entry under the
-playhead into two independently trimmable, removable halves (#190) — the
-razor. An untouched split plays back and exports exactly like the original;
-per-entry effects follow the cut (speed segments and pauses split exactly,
-zooms move to or split with the half that shows them), and the item
-disables where there is nothing to split — entry boundaries and transition
-overlaps.
-Frame ▾ → Save frame as PNG… downloads the exact frame under
-the playhead as a PNG at the output resolution (#237) — composed through the
-export's own draw path, so transitions mid-overlap, zooms, color
-adjustments, orientation, overlay layers of either kind — video and stills
-(#295) — and text render exactly as an export of that moment would.
-The same composed still is what the visual zoom editor shows (#413, from
-feedback #396): an Adjust visually… button beside a zoom's number fields
-opens, under that row, a picture of the frame at the middle of the zoom's
-hold with the zoom itself left out, and the region the zoom will fill drawn
-on it. Drag inside the region to move the centre, drag a corner to change
-the magnification (the region keeps the frame's aspect and never leaves
-it), and the numbers beneath follow live; releasing commits one edit — one
-undo step — through the same fields, which keep working alongside. Timing
-stays numeric. The still renders once per instant shown, never during a
-drag.
-A **Preview** slider under the frame scrubs the zoom's whole envelope
-(#421), from where it begins to where it has finished ramping out: the
-still is re-rendered at that instant and the region is drawn at the size
-the zoom actually has there — the whole frame at either end, part-way
-through a ramp, the full region across the hold — so the motion is visible
-without playing anything. Each instant is rendered once and kept while the
-editor is open, and the previous still stays on screen while the next one
-draws. The clip itself stays loaded for as long as the editor is open, so a
-new instant is a seek rather than a reload, and a quick drag across the
-slider renders where it stops, not every stop it passed (#458). **Loop**
-(#425) plays the hold on repeat inside the editor, resting a second on its
-first and last frame so the ends are easy to see, with the slider following
-along and the region still draggable over the moving picture; with Show
-result on, it is the finished frame that loops. Pause it to scrub by hand
-again — the slider stays where the loop stopped. The region takes drags only across the hold, where it is the zoom's
-own region; part-way through a ramp it is drawn dashed and read-only,
-because a drag there has no single stored zoom it could mean. While
-dragging, the centre snaps onto the frame centre and the thirds, with a
-guide line showing the alignment being held — hold Alt to ignore them, the
-same bypass the playhead's snapping uses (#391). With the region focused,
-the arrow keys nudge it by a hundredth of the frame (Shift for five times
-as far) and + / − change the magnification by 0.1, each press its own undo
-step. **Show result** swaps the picture for the frame the viewer gets at
-that instant — the zoom applied rather than bypassed, and no region drawn
-over it.
-An overlay's placement has the same visual editor (#422): **Adjust
-visually…** beside its Rect fields draws the overlay's rectangle on a still
-of the frame it sits over — taken at the middle of the overlay's own window,
-with that overlay left out, so the rectangle marks where it will go rather
-than covering the picture it is being placed against. Drag inside to move
-it; drag a corner to resize both dimensions, or an edge to change just one,
-which is what a placement can do and an aspect-locked zoom region cannot.
-Hold Shift on a corner to keep the rectangle's proportions. Moving it snaps
-the rectangle flush to the frame's own borders and its centre onto the
-centre and thirds — an overlay is more often parked in a corner than placed
-in the middle — with the same guide lines and the same Alt bypass the zoom
-editor uses, and the arrow keys nudge it while + / − resize it, each press
-its own undo step. Where the overlay carries a shape mask, the silhouette it
-will really be painted in is outlined inside the rectangle, so a bubble is
-placed as a bubble. The four number fields mirror every drag live and a
-whole gesture is one undo step, exactly as for a zoom.
-A crop has one too (#423): **Adjust visually…** beside the Crop fields, in
-the row's **Picture** group, draws the kept region on a still of the
-element's **own source** — that element alone, uncropped, filling the frame,
-rather than the composed picture. That is the crop's own difference: a
-placement is already a fraction of the output frame, while a crop is a
-fraction of the source, and where a source lands inside the frame depends on
-pixel dimensions the project does not store. Showing the source instead
-makes a crop percentage a fraction of what you see, and it is what lets an
-overlay be cropped on its whole picture rather than inside the small
-rectangle it is placed in. Drag any of the four edges to trim it, with the
-trimmed margins dimmed; hold Shift to trim the opposite edge as far, or drag
-inside the region to pan it without resizing. Drags land on whole percents,
-and Alt gives finer values — every digit the fields themselves can show. The
-arrow keys nudge the region by 1 % (Shift 5 %) and + / − resize it, each
-press its own undo step, and **Reset** in the panel clears the crop exactly
-as the row's own does. Crop applies in the source's own space before
-orientation, so on a rotated or flipped clip the edge under the pointer may
-be named for a different stored one — the readout says which, rather than
-quietly renaming it.
-A text overlay has the last of them (#424): **Adjust visually…** beside its
-Centre fields draws the rendered text block as a rectangle on a still of the
-frame at the middle of the overlay's window — with the text **drawn**, since
-the text is what is being placed, so a committed drag re-renders the still
-with the block where it now is. The box is measured, not stored: a text
-overlay is a centre and a type size, and its width is whatever the widest
-line comes out as under its font, so the editor measures it with the same
-font the export draws with, at the still's own resolution, and the handle
-sits on the text you see. Drag inside the block to move its centre, snapping
-flush to the frame and onto the centre and thirds with the same guides and
-Alt bypass; drag its one corner to scale it about its centre — both
-dimensions follow one size, so a corner is the whole resize — and it never
-grows off the frame. The arrow keys nudge it and + / − step the size by the
-field's own 0.01, each press its own undo step. Imported subtitles are text
-overlays, so the editor opens for them too, and a drag pins the position the
-way typing it would (#250).
-The export modal shows the output settings it will use — width, height, and
-frame rate, pre-filled with the automatic source-derived values — and lets
-them be kept, switched to a named preset (Web 854×480 up to 4K UHD), or
-edited freely for that one export (#179). Its Range line exports the whole
-project, the marked range while marks are set, or a custom range typed as a
-start and an end (m:ss or seconds, pre-filled from the marks or the whole
-sequence) — no marks needed (#400). Two "Audio only" formats save just
-the project's mixed soundtrack — the same mix a video export records, with
-no video track — hiding the video-only output settings while selected:
-WebM/Opus (#245), recorded like the video formats, and MP3 (#269), encoded
-client-side by a lazily loaded pure-JS LAME port (see
-[`docs/adr/0004-mp3-encoder-dependency.md`](docs/adr/0004-mp3-encoder-dependency.md)),
-so it works wherever Web Audio does, whatever the browser's recorder
-supports.
-The ⇥ / ⇤ buttons on the transport — or the I / O keys — mark a span of the
-sequence at
-the playhead — highlighted in amber on the seek bar, each mark showing as a
-bracket at its position from the moment it is set, so a lone in or out mark
-is visible too (#399); cleared with one click — and the
-export modal then offers exporting just that marked range instead of the
-whole project (#385), in every format, GIF and MP3 included. A range
-boundary inside a transition or effect exports exactly what the preview
-shows at that instant — mid-blend if that is where the mark sits, no
-snapping. Marks are session-only: they are never saved into the project
-file and are gone after a reload. The ↻ **Loop** toggle beside the marks
-plays the marked range on repeat (#459): reaching the mark-out jumps back to
-the mark-in and keeps going until you pause, Play from outside the range
-starts at the mark-in, and with no valid range marked the whole sequence
-loops instead of stopping at its end. Loop is session-only like the marks.
-**Chapter markers** (#487, the approved suggestion #461) name points of
-the sequence: Frame ▾ → *Add chapter marker at playhead* — or **M** — drops
-one at the playhead and opens an inline name field (`Chapter 1`, `Chapter
-2`, … until you type; Enter commits, Escape keeps the default). Each marker
-is a small numbered tick under the seek bar with its name on hover and in
-its accessible name; the time readout names the marker under the playhead;
-↑ / ↓ and the seek bar's snap treat markers as boundaries like cuts; a
-tick's menu offers Rename…, Move to playhead and Remove. Markers are part
-of the project — saved in the file and the autosave, restored on open,
-undoable like every edit — and a marker past the current end is kept but
-not drawn, with the readout saying how many. The export dialog's *Copy
-chapter list* is #488.
-File ▾ → Plugins… opens the plugin manager (#197): optional built-in
-features ship as lazy-loaded modules that download only when enabled, keeping
-the default editor lightweight (see
-[`docs/adr/0003-plugin-architecture.md`](docs/adr/0003-plugin-architecture.md)).
-Enabled plugins are remembered per browser and re-activate on the next
-visit; a project saved using plugin features records that dependency, and
-opening it prompts to enable what it needs. The first official plugin is
-GIF export (#198): enabling it adds an "Animated GIF" format to the export
-dialog — the full composed timeline, encoded soundless at 10 fps and
-downscaled to at most 480 px (the limits are stated beside the format) so
-files stay manageable.
-File ▾ → Settings… opens Settings (#286, from feedback #281): the
-preferences that used to be hardcoded, stored in this browser and applied
-immediately, with no reload. The initial set is the playhead's nudge and
-jump step sizes, how long a newly added still, color slate or image
-overlay layer shows, what
-happens when a previous session's autosave is found (ask — today's
-behaviour — always restore, or never offer, with autosave still recording
-either way), which format the export dialog opens preselected on, and
-whether the visual editors are offered at all (#413; Off hides their buttons
-and so never renders a frame). These
-are per-device preferences rather than project content, so they never travel
-with a saved project or its autosave snapshot, and a browser with nothing
-stored behaves exactly as the editor did before there were settings.
-Side-by-side layouts compose from the same pieces: use a color
-slate as the base entry and place two or more overlays in halves or
-quadrants. It is
-deployed
-automatically from `main` to GitHub Pages:
-**https://pcowhill.github.io/claude-agile-team-demo/**
+A video editor that runs entirely in the browser (#3). Import video, image
+and audio clips — or record from a microphone, the screen, a webcam, or the
+screen and camera at once — arrange and trim them on a timeline, layer
+overlays and text over the sequence, preview the result, and export a video
+or audio file. Everything happens on the machine it runs on: no upload, no
+account, no server. Projects save to a `.bvep` file and reopen later, and
+the session is autosaved continuously so a crash or a refresh loses nothing.
 
-Stack: Vite + TypeScript + React, tested with Vitest and React Testing
-Library, linted with oxlint — see
-[`docs/adr/0001-frontend-stack-and-deployment.md`](docs/adr/0001-frontend-stack-and-deployment.md).
+**Try it: https://pcowhill.github.io/claude-agile-team-demo/**
+
+## What the editor does: the user guide
+
+**The user guide is the product's documentation.**
+[Open it in the app](https://pcowhill.github.io/claude-agile-team-demo/#guide/quick-start),
+or press **F1** — or **Help ▾ → User guide…** — anywhere in the editor. It
+opens as a panel docked beside the editor — over it on a narrow screen — so
+a control can be read about while being looked at, and it has a search field
+and a table of contents.
+
+Every control, menu item, setting, dialog and keyboard shortcut is explained
+there, and its
+[Feature Index](https://pcowhill.github.io/claude-agile-team-demo/#guide/feature-index)
+lists them all alphabetically, each linking to the page that explains it.
+
+That index is not a promise but a check (#485): `e2e/feature-index.spec.ts`
+walks the running editor in CI and fails the build naming any control the
+guide does not list. A feature cannot quietly outrun its documentation.
+
+**This README deliberately no longer describes the features** (#486). Two
+descriptions of one editor drift apart, and only one of them is tested
+against the app. The guide's source is Markdown under
+[`docs/guide/`](docs/guide/README.md), compiled into the app at build time
+and loaded lazily — see
+[ADR 0005](docs/adr/0005-user-guide-markdown-compiler.md).
+
+## Stack and architecture
+
+Vite + TypeScript + React; unit-tested with Vitest and React Testing
+Library, browser-tested with Playwright, linted with oxlint. Deployed
+automatically from `main` to GitHub Pages.
+
+Decisions whose reasoning outlives their commit are recorded in
+[`docs/adr/`](docs/adr/):
+
+| ADR | Decision |
+| --- | --- |
+| [0001](docs/adr/0001-frontend-stack-and-deployment.md) | Frontend stack, testing tooling, and deployment approach |
+| [0002](docs/adr/0002-overlay-video-layers.md) | Overlay video layers over a single base sequence |
+| [0003](docs/adr/0003-plugin-architecture.md) | Plugin architecture: built-in optional modules behind registries |
+| [0004](docs/adr/0004-mp3-encoder-dependency.md) | MP3 export encodes with a pure-JS LAME port |
+| [0005](docs/adr/0005-user-guide-markdown-compiler.md) | The user guide: Markdown compiled at build time |
 
 ### Development
 
@@ -545,18 +107,6 @@ every PR and push to `main`; merged changes deploy to GitHub Pages via
 `.github/workflows/deploy.yml`. CI installs the pinned revision, so it takes
 the first branch above and is unaffected by the fallback.
 
-This repository is built and maintained by a succession of independent
-Claude Code sessions acting as an agile software team — product manager,
-developer, reviewer, QA engineer, release engineer, maintainer. Each session
-is started with essentially one instruction (`Go`) and orients itself
-entirely from the persistent state in this repository and its GitHub Issues,
-Pull Requests, comments, and CI results. The full operating model lives in
-[`CLAUDE.md`](CLAUDE.md) and [`docs/rules/`](docs/rules/).
-
-There is no predetermined product. What gets built is decided by the human
-**customer** through GitHub. The repository's history — issues, PRs, reviews,
-decisions — is itself an artifact of the experiment.
-
 ## How to interact with the team (for the customer)
 
 - **Ask for anything / give feedback:** open an issue using the *Customer
@@ -582,3 +132,5 @@ handled by the AI team through ordinary GitHub workflow.
 - AI-proposed product ideas never become scope without explicit customer
   approval.
 - Test results are only ever claimed from real execution or CI evidence.
+- Every user-facing change updates `docs/guide/` in the same PR, and CI
+  fails when a control in the app has no Feature Index entry.
