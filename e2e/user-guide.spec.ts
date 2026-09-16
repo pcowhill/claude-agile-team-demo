@@ -215,8 +215,10 @@ test('search coverage (#479): one representative query per content section finds
   const results = panel.getByRole('list', { name: 'Search results' })
   // The first hit's "Section › heading" line names the section a reader
   // lands in; each query is a word the customer would type for that page.
+  // (`rename` was the Media library query until the Timeline page (#480)
+  // gained its own "Rename…" heading, which outranks a body mention.)
   for (const [query, section] of [
-    ['rename', 'Media library'],
+    ['thumbnail', 'Media library'],
     ['webcam', 'Recording'],
     ['autosave', 'Projects'],
   ] as const) {
