@@ -10,5 +10,11 @@
   "audio",
   "preview-and-playback",
   "undo-redo",
-  "projects"
+  "projects",
+  "export",
+  "plugins",
+  "settings",
+  "keyboard-shortcuts",
+  "troubleshooting",
+  "glossary"
 ]

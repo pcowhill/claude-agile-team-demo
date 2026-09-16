@@ -45,6 +45,20 @@ const constants: GuideConstants = {
   SUBTITLE_DEFAULT_Y_PERCENT: '90',
   DUCK_RAMP_SECONDS: '0.25',
   SNAP_PIXELS: '8',
+  EXPORT_FRAME_RATE: '30',
+  MIN_EXPORT_DIMENSION: '16',
+  MAX_EXPORT_DIMENSION: '7680',
+  MAX_EXPORT_FRAME_RATE: '120',
+  EXPORT_SIZE_PRESETS: 'Web 854×480, HD 1280×720',
+  GIF_FPS: '10',
+  GIF_MAX_PX: '480',
+  MP3_KBPS: '192',
+  DEFAULT_STEP_SECONDS: '0.1',
+  DEFAULT_LARGE_STEP_SECONDS: '1',
+  STEP_CHOICES: '0.05 s, 0.1 s',
+  LARGE_STEP_CHOICES: '0.5 s, 1 s',
+  STILL_DURATION_CHOICES: '2 s, 5 s',
+  DEFAULT_EXPORT_FORMAT: 'WebM',
 }
 
 const text = (value: string) => ({ kind: 'text' as const, text: value })

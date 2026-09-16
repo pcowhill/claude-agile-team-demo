@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { shortcutsFor } from '../lib/shortcuts'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from '../lib/transport'
 import './dialog.css'
 import './ShortcutHelpDialog.css'
@@ -10,33 +11,6 @@ interface ShortcutHelpDialogProps {
   stepSeconds?: number
   largeStepSeconds?: number
 }
-
-/** Every shortcut the app answers to, in one place (#203): the transport
- * keys this dialog is opened by, and the #189 undo/redo chords the App-level
- * handler owns. Update this table when a shortcut is added or changed.
- * `keys` lists alternative combos: each renders as its own <kbd> on its own
- * line, so a combo never wraps mid-combo (#287).
- *
- * A function of the step sizes rather than a constant, because those are now
- * settings (#286) and a cheat sheet that still said "0.1 s" after the user
- * chose 0.25 s would be documentation that lies. */
-const shortcutsFor = (
-  stepSeconds: number,
-  largeStepSeconds: number,
-): readonly { keys: readonly string[]; does: string }[] => [
-  { keys: ['Space'], does: 'Play / pause the preview' },
-  { keys: ['← / →'], does: `Step the playhead ${stepSeconds} s back / forward` },
-  { keys: ['Shift + ← / →'], does: `Step the playhead ${largeStepSeconds} s back / forward` },
-  { keys: ['Home / End'], does: 'Jump to the sequence start / end' },
-  { keys: ['↑ / ↓'], does: 'Jump to the previous / next cut or transition edge' },
-  { keys: ['I / O'], does: 'Mark the export range in / out at the playhead' },
-  { keys: ['M'], does: 'Add a chapter marker at the playhead' },
-  { keys: ['Esc'], does: 'Leave the source preview, back to the sequence' },
-  { keys: ['Ctrl/Cmd + Z'], does: 'Undo the last timeline edit' },
-  { keys: ['Ctrl/Cmd + Shift + Z', 'Ctrl/Cmd + Y'], does: 'Redo' },
-  { keys: ['F1'], does: 'Open the user guide' },
-  { keys: ['?'], does: 'Show this cheat sheet' },
-]
 
 /**
  * The keyboard-shortcut cheat sheet (#203), opened with `?`. Same
