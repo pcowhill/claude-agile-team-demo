@@ -104,7 +104,31 @@ Screenshots belong in **Quick Start only** — the customer's decision on
 #477 (question 2). Every other section is text; it says exactly where a
 control is instead. An image needs alt text that says what the reader
 should see: `![The empty editor with the library on the left](images/empty.png)`.
-How the images are taken and retaken is #483.
+The files live in `docs/guide/images/`; a picture the Markdown names but
+the directory lacks fails the build, like a broken link, and the images
+ship with the guide's lazy chunk, never in the entry bundle.
+
+**Screenshots are taken by a script, never by hand** (#483), so a UI change
+is followed by one command rather than a session with a cropping tool:
+
+```sh
+npm run guide:screenshots
+```
+
+It drives the app through Quick Start's steps in Chromium on the two
+fixture clips in `e2e/guide-fixtures/` and rewrites every image. The
+clips are committed so a retake changes only what the UI changed;
+`npm run guide:fixtures` re-records them, which is needed only to change
+the clips themselves. A frame is captured only once two consecutive
+captures agree, and an existing image is kept when the new capture
+differs from it by rasterizer noise alone — Chromium draws a rounded
+corner's anti-aliased pixels one shade apart between otherwise identical
+runs — so a retake rewrites a file only when the UI changed; the run
+prints *unchanged*, *kept* or *rewritten* for each image. A retake on
+another machine differs in the text's pixels (its fonts), which is a
+retake, not a defect. Keep the set small — the current budget is stated
+in the PR that last retook it — and the pictures in Quick Start only;
+`tools/guide/guideContent.test.ts` counts them.
 
 ## Before opening a PR
 

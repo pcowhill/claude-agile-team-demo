@@ -10,11 +10,15 @@ Click **Import clips** in the Media library and choose one or more video files, 
 
 A file the browser cannot decode is listed under the library with the reason, so nothing disappears silently.
 
+![The editor after importing two clips: the Media library on the left lists interview.webm and b-roll.webm with their durations, the Preview on the right is empty, and the Timeline below has nothing on it yet](images/editor-after-import.png)
+
 ## 2. Put them on the timeline
 
 Each library row has an **Add** button — its full name is *Add … to timeline*. Click it to append the clip to the **Sequence**, the top section of the timeline. Add two clips.
 
 Sequence entries play one after another in the order they are listed. Each timeline row has **↑** and **↓** on its main line to move it, and **✕** to take it off the timeline; the clip stays in the library.
+
+![The Timeline panel with both clips in the Sequence section: two expanded rows, each with a thumbnail, its name and duration, ↑ ↓ ⋯ ✕, a green coverage bar and its In, Out and Volume fields; + Transition sits between them, and the Total in the header is the two durations added](images/timeline-two-clips.png)
 
 ## 3. Trim
 
@@ -23,6 +27,8 @@ Click a row's **▾** to expand it. The **In** and **Out** fields set where the 
 ## 4. Add a transition
 
 Between two adjacent sequence entries sits a **+ Transition** button. Click it: a crossfade of {{DEFAULT_TRANSITION_DURATION}} s appears, with a type menu and a duration field beside it. The type menu lists every transition the app has — slides, wipes, pushes, fades through black and white, irises and a cross-zoom. A transition overlaps the two clips, so the sequence gets shorter by its length.
+
+![Between the first entry's + Effect ▾ and the second entry's row, the transition control that replaced + Transition: a type menu reading Crossfade, a duration field in seconds, and ✕ to remove it](images/transition-added.png)
 
 ## 5. Add a title
 
@@ -35,6 +41,8 @@ Press **Play** under the preview, or press **Space** anywhere outside a text fie
 ## 7. Export
 
 Click **Export Project…** in the header. The dialog lists the formats this browser can record, shows the output size and frame rate it will use, and offers the whole project or a range. Click **Export**: the file renders in real time — a thirty-second sequence takes about thirty seconds — and downloads when it finishes.
+
+![The Export project dialog: a Format group listing the formats this browser records, a Range group with Whole project selected, an Output group with the size preset, width, height and frame rate, and the Cancel and Export buttons](images/export-dialog.png)
 
 ## 8. Save the project
 

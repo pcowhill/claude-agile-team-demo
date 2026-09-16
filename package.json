@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "guide:screenshots": "playwright test --config playwright.guide.config.ts guide-screenshots",
+    "guide:fixtures": "playwright test --config playwright.guide.config.ts guide-fixtures",
     "check:bundle": "node tools/runPluginChunksCheck.ts",
     "preview": "vite preview"
   },
