@@ -164,6 +164,10 @@ does. Do not write ADRs for trivial or easily reversed choices.
   want of this — the export modal's overflowing format note (#268, fixed in
   #270) and the cheat sheet's mid-combo wrap (#287, fixed in #289) — both
   reported by the customer with screenshots (#264, #282).
+- **The user guide is user-facing documentation and is updated with the
+  change, not after it.** A PR that adds, changes or removes something the
+  user can see or do carries its `docs/guide/` update (see "Definition of
+  Done" below); the PR template's checkbox records which applied.
 - Opening the PR is the handoff: the authoring session must not review,
   approve, or merge it (`review.md`), and must not arrange to resume itself
   afterwards — no self-check-ins, PR-activity subscriptions, or other
@@ -190,5 +194,14 @@ An implementation issue is Done only when **all** of the following hold:
 - the PR is merged
 - associated documentation (README, ADRs, user-facing docs) is updated where
   appropriate
+- for a **user-facing change** — a control, a menu item, a setting, a
+  dialog, a shortcut, or a behaviour the user can observe — `docs/guide/`
+  is updated **in the same PR**: the feature's page or passage for a
+  change; a new page in the feature-page shape (`docs/guide/README.md`),
+  plus its Feature Index entry once the index exists (#485), for an
+  addition; the removal of the page or passage for a removal. The guide
+  is how the customer learns what the app does (#476), and a feature PR
+  that changes the UI without touching `docs/guide/` is how the guide
+  drifts (#484)
 
 "Done" never means merely "code was written."

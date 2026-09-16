@@ -23,6 +23,14 @@
      surface, plus a geometry assertion for anything a later change could
      regress. See "Pull Requests" in docs/rules/development.md. -->
 
+## User guide
+
+<!-- The Definition of Done (docs/rules/development.md): a user-facing
+     change updates docs/guide/ in the same PR. Tick exactly one. -->
+
+- [ ] User-facing change: `docs/guide/` updated in this PR
+- [ ] Not a user-facing change
+
 ## Risks and follow-up
 
 <!-- Remaining risks, known limitations, and links to follow-up issues. -->
