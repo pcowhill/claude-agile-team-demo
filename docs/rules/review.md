@@ -16,12 +16,17 @@ GitHub identity:
   Comment on the PR describing what you changed so the next session knows a
   fresh review is needed.
 
-GitHub does not merely fail to enforce that boundary — it over-enforces the
-`APPROVE` verb, rejecting a formal approval (`Can not approve your own pull
-request`) even on a PR you are entitled to review, because author and
-reviewer are the same account. That is expected, not a permissions problem,
-and not a reason to stop — see "Review outcomes" for how a positive verdict
-is recorded.
+GitHub does not merely fail to enforce that boundary — it over-enforces it,
+in **both** directions, because author and reviewer are the same account. A
+formal approval is rejected with `Can not approve your own pull request`,
+and a formal rejection with `Can not request changes on your own pull
+request` — even on a PR you are entitled to review. Both are expected, not
+permissions problems, and neither is a reason to stop: every verdict is
+recorded as a `COMMENT` review, and "Review outcomes" below says what each
+one must say. The negative verb is written down because a session that
+reaches for it and reads the refusal as "I am not certain I am allowed to"
+either stalls or merges anyway, and that one ends with a defect on `main`
+(#502; measured on the changes-required review of #501).
 
 ## Reviewing a PR
 
@@ -64,10 +69,14 @@ conflicted nor depended on each other — and that test is unchanged.
 
 ## Review outcomes
 
-**Changes required:** leave concrete, actionable review feedback on the PR
-and ensure the work remains unmerged. Prefer specific comments over vague
-concerns. A later session (or the same one, if it isn't the author) may then
-address the feedback.
+**Changes required:** submit the review with `COMMENT` — `REQUEST_CHANGES`
+is refused (above) — stating the verdict, what must change, and plainly that
+the PR stays unmerged until it does. That comment review *is* the
+changes-required verdict of record, exactly as a comment review is the
+approval of record below; state it rather than re-explaining GitHub's
+behavior. Leave concrete, actionable feedback, and ensure the work remains
+unmerged. Prefer specific comments over vague concerns. A later session (or
+the same one, if it isn't the author) may then address the feedback.
 
 **Satisfies requirements and required checks pass:** submit the review with
 `COMMENT`, stating the verdict and the evidence for it, then merge. Because a
