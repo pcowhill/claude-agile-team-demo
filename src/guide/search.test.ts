@@ -11,6 +11,12 @@ const constants: GuideConstants = {
   DEFAULT_TEXT_DURATION: '3',
   STEP_SECONDS: '0.1',
   LARGE_STEP_SECONDS: '1',
+  AUTOSAVE_DEBOUNCE_SECONDS: '1.5',
+  RECORDING_KEYFRAME_INTERVAL_SECONDS: '1',
+  RELINK_DURATION_TOLERANCE_PERCENT: '1',
+  RELINK_DURATION_TOLERANCE_MIN_SECONDS: '0.1',
+  PROJECT_FILE_EXTENSION: '.bvep',
+  DEFAULT_OVERLAY_SIZE_PERCENT: '35',
 }
 
 const text = (value: string) => ({ kind: 'text' as const, text: value })

@@ -1,8 +1,16 @@
+import { AUTOSAVE_DEBOUNCE_MS } from '../autosave'
 import { DEFAULT_DUCK_LEVEL } from '../gain'
 import { HISTORY_LIMIT } from '../history'
+import {
+  RELINK_DURATION_TOLERANCE_FRACTION,
+  RELINK_DURATION_TOLERANCE_MIN_SECONDS,
+} from '../openProject'
+import { RECORDING_KEYFRAME_INTERVAL_MS } from '../recording'
+import { PROJECT_FILE_EXTENSION } from '../saveProject'
 import type { AppSettings } from '../settings'
 import { DEFAULT_TEXT } from '../textOverlay'
 import { DEFAULT_STILL_DURATION, DEFAULT_TRANSITION_DURATION } from '../timeline'
+import { DEFAULT_OVERLAY_RECT } from '../videoOverlay'
 import type { GuideConstants } from './constantNames'
 
 /**
@@ -21,5 +29,11 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     DEFAULT_TEXT_DURATION: String(DEFAULT_TEXT.duration),
     STEP_SECONDS: String(settings.stepSeconds),
     LARGE_STEP_SECONDS: String(settings.largeStepSeconds),
+    AUTOSAVE_DEBOUNCE_SECONDS: String(AUTOSAVE_DEBOUNCE_MS / 1000),
+    RECORDING_KEYFRAME_INTERVAL_SECONDS: String(RECORDING_KEYFRAME_INTERVAL_MS / 1000),
+    RELINK_DURATION_TOLERANCE_PERCENT: String(Math.round(RELINK_DURATION_TOLERANCE_FRACTION * 100)),
+    RELINK_DURATION_TOLERANCE_MIN_SECONDS: String(RELINK_DURATION_TOLERANCE_MIN_SECONDS),
+    PROJECT_FILE_EXTENSION,
+    DEFAULT_OVERLAY_SIZE_PERCENT: String(Math.round(DEFAULT_OVERLAY_RECT.width * 100)),
   }
 }
