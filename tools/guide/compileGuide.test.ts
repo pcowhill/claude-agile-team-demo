@@ -111,6 +111,20 @@ describe('compileGuide: structure (#478)', () => {
     ])
   })
 
+  it('turns an empty ```shortcuts fence into the generated table, and refuses one with content (#482)', () => {
+    const section = one('# T\n\n## Every shortcut\n\n```shortcuts\n```\n\nAfter.\n')
+    expect(section.blocks).toEqual([
+      { kind: 'heading', level: 2, anchor: 'every-shortcut', inlines: [{ kind: 'text', text: 'Every shortcut' }], text: 'Every shortcut' },
+      { kind: 'shortcuts' },
+      { kind: 'paragraph', inlines: [{ kind: 'text', text: 'After.' }] },
+    ])
+    // Any other fence is still code, whatever its info string.
+    expect(one('# T\n\n```sh\nnpm test\n```\n').blocks).toEqual([{ kind: 'code', text: 'npm test' }])
+    const problems = problemsOf([source('alpha', '# T\n\n```shortcuts\n| Keys | Does |\n```\n')])
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('takes no content')
+  })
+
   it('orders sections as contents.json says, not as the files sort', () => {
     const document = compileGuide([source('alpha', '# A\n'), source('zulu', '# Z\n')], {
       order: ['zulu', 'alpha'],

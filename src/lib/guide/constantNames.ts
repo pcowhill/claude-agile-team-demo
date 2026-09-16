@@ -74,6 +74,28 @@ export const GUIDE_CONSTANT_NAMES = [
   'PROJECT_FILE_EXTENSION',
   /** The width and height a new overlay takes, as a percentage of the frame (#145). */
   'DEFAULT_OVERLAY_SIZE_PERCENT',
+  /** The export's automatic frame rate, in frames per second (#179). */
+  'EXPORT_FRAME_RATE',
+  /** The export dialog's bounds on a typed width or height, in pixels, and on the frame rate (#179). */
+  'MIN_EXPORT_DIMENSION',
+  'MAX_EXPORT_DIMENSION',
+  'MAX_EXPORT_FRAME_RATE',
+  /** The named output-size presets, as the dialog labels them, comma-separated (#179). */
+  'EXPORT_SIZE_PRESETS',
+  /** The GIF plugin's sampling rate and longer-side cap (#198). */
+  'GIF_FPS',
+  'GIF_MAX_PX',
+  /** The MP3 export's bitrate, in kbps (#269). */
+  'MP3_KBPS',
+  /** The default arrow-key steps before Settings changes them, in seconds (#286). */
+  'DEFAULT_STEP_SECONDS',
+  'DEFAULT_LARGE_STEP_SECONDS',
+  /** The choices each duration setting offers, comma-separated with their unit (#286). */
+  'STEP_CHOICES',
+  'LARGE_STEP_CHOICES',
+  'STILL_DURATION_CHOICES',
+  /** The export format the dialog opens on before Settings changes it (#286). */
+  'DEFAULT_EXPORT_FORMAT',
 ] as const
 
 export type GuideConstantName = (typeof GUIDE_CONSTANT_NAMES)[number]

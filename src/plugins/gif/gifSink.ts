@@ -1,5 +1,6 @@
 import { GIFEncoder, applyPalette, quantize } from 'gifenc'
 import type { ExportFrameSink } from '../../lib/exportVideo'
+import { GIF_FRAME_RATE, GIF_MAX_DIMENSION } from '../gifLimits'
 
 /**
  * The GIF plugin's frame sink (#198): receives every frame the shared export
@@ -25,8 +26,7 @@ import type { ExportFrameSink } from '../../lib/exportVideo'
  *   frame's own pixels, so a scene change re-quantizes rather than smearing
  *   one global palette across unrelated shots.
  */
-export const GIF_FRAME_RATE = 10
-export const GIF_MAX_DIMENSION = 480
+export { GIF_FRAME_RATE, GIF_MAX_DIMENSION }
 /** GIF frame delay for the sampling rate, in milliseconds (10 cs exactly). */
 export const GIF_FRAME_DELAY_MS = 1000 / GIF_FRAME_RATE
 /** GIF's palette-size ceiling. */
