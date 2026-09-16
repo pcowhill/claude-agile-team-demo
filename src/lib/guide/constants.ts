@@ -12,7 +12,11 @@ import {
   ZOOM_SCALE_STEP,
 } from '../frameEditor'
 import { FREEZE_STILL_DURATION } from '../freezeFrame'
-import { DEFAULT_DUCK_LEVEL } from '../gain'
+import { EXPORT_SIZE_PRESETS, MAX_EXPORT_DIMENSION, MAX_EXPORT_FRAME_RATE, MIN_EXPORT_DIMENSION } from '../exportSettings'
+import { exportFormats } from '../exportFormats'
+import { MP3_KBPS } from '../exportMp3'
+import { EXPORT_FRAME_RATE } from '../exportVideo'
+import { DEFAULT_DUCK_LEVEL, DUCK_RAMP_SECONDS } from '../gain'
 import { HISTORY_LIMIT } from '../history'
 import {
   RELINK_DURATION_TOLERANCE_FRACTION,
@@ -22,9 +26,24 @@ import { RECORDING_KEYFRAME_INTERVAL_MS } from '../recording'
 import { DEFAULT_PAUSE_HOLD, DEFAULT_SPEED_FACTOR, DEFAULT_SPEED_LENGTH } from '../remap'
 import { PROJECT_FILE_EXTENSION } from '../saveProject'
 import type { AppSettings } from '../settings'
+import {
+  DEFAULT_SETTINGS,
+  LARGE_STEP_CHOICES,
+  STEP_CHOICES,
+  STILL_DURATION_CHOICES,
+  formatSeconds,
+} from '../settings'
+import { GIF_FRAME_RATE, GIF_MAX_DIMENSION } from '../../plugins/gifLimits'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
-import { DEFAULT_TEXT } from '../textOverlay'
+import {
+  DEFAULT_SUBTITLE_STYLE,
+  DEFAULT_TEXT,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
+  TEXT_LINE_HEIGHT,
+} from '../textOverlay'
 import { DEFAULT_STILL_DURATION, DEFAULT_TRANSITION_DURATION, DEFAULT_ZOOM } from '../timeline'
+import { LARGE_STEP_SECONDS, SNAP_PIXELS, STEP_SECONDS } from '../transport'
 import { DEFAULT_OVERLAY_RECT } from '../videoOverlay'
 import type { GuideConstants } from './constantNames'
 
@@ -73,5 +92,27 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     RELINK_DURATION_TOLERANCE_MIN_SECONDS: String(RELINK_DURATION_TOLERANCE_MIN_SECONDS),
     PROJECT_FILE_EXTENSION,
     DEFAULT_OVERLAY_SIZE_PERCENT: String(Math.round(DEFAULT_OVERLAY_RECT.width * 100)),
+    DEFAULT_TEXT_SIZE_PERCENT: percent(DEFAULT_TEXT.size),
+    MIN_TEXT_SIZE_PERCENT: percent(MIN_TEXT_SIZE),
+    MAX_TEXT_SIZE_PERCENT: percent(MAX_TEXT_SIZE),
+    TEXT_LINE_HEIGHT: String(TEXT_LINE_HEIGHT),
+    SUBTITLE_DEFAULT_SIZE_PERCENT: percent(DEFAULT_SUBTITLE_STYLE.size),
+    SUBTITLE_DEFAULT_Y_PERCENT: percent(DEFAULT_SUBTITLE_STYLE.y),
+    DUCK_RAMP_SECONDS: String(DUCK_RAMP_SECONDS),
+    SNAP_PIXELS: String(SNAP_PIXELS),
+    EXPORT_FRAME_RATE: String(EXPORT_FRAME_RATE),
+    MIN_EXPORT_DIMENSION: String(MIN_EXPORT_DIMENSION),
+    MAX_EXPORT_DIMENSION: String(MAX_EXPORT_DIMENSION),
+    MAX_EXPORT_FRAME_RATE: String(MAX_EXPORT_FRAME_RATE),
+    EXPORT_SIZE_PRESETS: EXPORT_SIZE_PRESETS.map((preset) => preset.label).join(', '),
+    GIF_FPS: String(GIF_FRAME_RATE),
+    GIF_MAX_PX: String(GIF_MAX_DIMENSION),
+    MP3_KBPS: String(MP3_KBPS),
+    DEFAULT_STEP_SECONDS: String(STEP_SECONDS),
+    DEFAULT_LARGE_STEP_SECONDS: String(LARGE_STEP_SECONDS),
+    STEP_CHOICES: STEP_CHOICES.map(formatSeconds).join(', '),
+    LARGE_STEP_CHOICES: LARGE_STEP_CHOICES.map(formatSeconds).join(', '),
+    STILL_DURATION_CHOICES: STILL_DURATION_CHOICES.map(formatSeconds).join(', '),
+    DEFAULT_EXPORT_FORMAT: exportFormats.get(DEFAULT_SETTINGS.exportFormat).label,
   }
 }

@@ -275,6 +275,95 @@ test('search coverage (#480): one representative query per content section finds
   await panel.screenshot({ path: testInfo.outputPath('user-guide-timeline-1280.png') })
 })
 
+test('search coverage (#481): one representative query per content section finds that section first', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  // The customer's own example first (#476): `duck others` is the Audio
+  // page's heading of that name. The other three are section titles, which
+  // the search ranks above every heading and body.
+  for (const [query, where] of [
+    ['duck others', 'Audio › Duck others'],
+    ['subtitle', 'Text and subtitles'],
+    ['playback', 'Preview and playback'],
+    ['undo', 'Undo and redo'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(where)
+  }
+
+  // The rendered evidence for the new pages: Audio, scrolled to the top.
+  await searchField(page).fill('')
+  await panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Audio', exact: true }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Audio' })).toBeVisible()
+  await expectNoWrap(panel.getByRole('navigation', { name: 'Contents' }).getByRole('link'), 'contents entry')
+  await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
+  await expectNoHorizontalScroll(page, 'guide on Audio at 1280px')
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-audio-1280.png') })
+})
+
+test('search coverage (#482): one representative query per content section finds that section first', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  // A word the customer would type for each page. Three of the issue's own
+  // queries land first on another page's heading — `permission` on
+  // Recording's "Permissions and failures", `ctrl+z` on the Undo page's
+  // chords, `slate` on Settings' "New still or slate duration" — each a
+  // correct answer, so those three are asserted below as hits on their
+  // pages rather than as first hits, and a page-specific word stands in.
+  for (const [query, where] of [
+    ['mp3', 'Export › Audio only: WebM/Opus and MP3'],
+    ['plugin', 'Plugins'],
+    ['step size', 'Settings › Step sizes: playhead nudge and jump'],
+    ['shortcut', 'Keyboard shortcuts'],
+    ['browser support', 'Troubleshooting › Browser support and feature detection'],
+    ['remap', 'Glossary › Remap, speed segment and pause'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(where)
+  }
+  for (const [query, section] of [
+    ['ctrl+z', 'Keyboard shortcuts'],
+    ['permission', 'Troubleshooting'],
+    ['slate', 'Glossary'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.locator('.user-guide-hit-where').filter({ hasText: section }).first()).toBeVisible()
+  }
+
+  // The generated table (#482): the guide's Keyboard shortcuts page shows
+  // the cheat sheet's rows, with the step sizes in force.
+  await searchField(page).fill('')
+  await panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Keyboard shortcuts', exact: true }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Keyboard shortcuts' })).toBeVisible()
+  const table = panel.getByTestId('user-guide-shortcuts')
+  await expect(table).toContainText('Step the playhead 0.1 s back / forward')
+  await expect(table).toContainText('Open the user guide')
+  await expectNoWrap(panel.getByRole('navigation', { name: 'Contents' }).getByRole('link'), 'contents entry')
+  await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
+  await expectWithin(table, panel, { axis: 'x', what: 'shortcut table' })
+  // A combo never breaks mid-combo, and the Redo row's two alternatives sit
+  // on separate lines rather than running together (#287's rule, here too).
+  await expectNoWrap(table.locator('kbd'), 'key combo')
+  const redo = table.getByRole('row').filter({ hasText: 'Redo' }).locator('kbd')
+  await expect(redo).toHaveCount(2)
+  const [first, second] = await Promise.all([redo.nth(0).boundingBox(), redo.nth(1).boundingBox()])
+  expect(first, 'first Redo combo has a box').not.toBeNull()
+  expect(second, 'second Redo combo has a box').not.toBeNull()
+  expect(second!.y, 'the Redo combos stack on separate lines').toBeGreaterThanOrEqual(first!.y + first!.height)
+  await expectNoHorizontalScroll(page, 'guide on Keyboard shortcuts at 1280px')
+  // The screenshot shows the table, not the Contents above it.
+  await table.scrollIntoViewIfNeeded()
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-shortcuts-1280.png') })
+})
+
 test('Quick Start screenshots (#483): every image loads and fits the panel', async ({ page }, testInfo) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })

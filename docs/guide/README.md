@@ -74,6 +74,20 @@ say "100" after the code says 200. The names live in
 unknown placeholder fails the build. Some values are live settings — the
 arrow-key step sizes — and read the value in force.
 
+## The generated shortcut table
+
+The Keyboard shortcuts section is not written by hand. Its table comes from
+`src/lib/shortcuts.ts` — the same table the `?` cheat sheet renders — so
+the two can never disagree, and it shows the arrow-key step sizes in force.
+The page writes an empty fenced block whose info string is `shortcuts`:
+
+    ```shortcuts
+    ```
+
+The build turns it into the table; a `shortcuts` block with content in it
+fails the build. Adding or changing a shortcut means editing
+`src/lib/shortcuts.ts`, which updates both.
+
 ## What Markdown is allowed
 
 Headings, paragraphs, `**bold**`, `*emphasis*`, `` `inline code` `` for

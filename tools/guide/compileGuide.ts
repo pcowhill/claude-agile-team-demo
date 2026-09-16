@@ -25,7 +25,7 @@ import type {
  *
  * What is allowed — headings 2–4 under one `#` title, paragraphs, lists,
  * tables, emphasis, inline code, fenced code, blockquotes, rules, links,
- * images and `{{PLACEHOLDER}}`s — and what is rejected (raw HTML, unknown
+ * images, `{{PLACEHOLDER}}`s and the ```shortcuts directive (#482) — and what is rejected (raw HTML, unknown
  * placeholders, links that go nowhere) is written down for authors in
  * `docs/guide/README.md`; keep the two in step.
  */
@@ -196,7 +196,7 @@ class SectionCompiler {
       case 'blockquote':
         return { kind: 'blockquote', blocks: this.blocks((token as Tokens.Blockquote).tokens) }
       case 'code':
-        return { kind: 'code', text: (token as Tokens.Code).text }
+        return this.code(token as Tokens.Code)
       case 'hr':
         return { kind: 'rule' }
       case 'html':
@@ -206,6 +206,22 @@ class SectionCompiler {
         this.problem(`unsupported Markdown (${token.type})`, token.raw)
         return null
     }
+  }
+
+  /**
+   * A fenced block is code — except the `shortcuts` directive (#482): an
+   * empty fence whose info string is `shortcuts` becomes the generated
+   * keyboard-shortcut table, so the page is never authored by hand.
+   */
+  private code(token: Tokens.Code): GuideBlock | null {
+    if (token.lang?.trim() === 'shortcuts') {
+      if (token.text.trim().length > 0) {
+        this.problem('the `shortcuts` block takes no content; the table is generated from src/lib/shortcuts.ts', token.raw)
+        return null
+      }
+      return { kind: 'shortcuts' }
+    }
+    return { kind: 'code', text: token.text }
   }
 
   private heading(token: Tokens.Heading): GuideBlock | null {

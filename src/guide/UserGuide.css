@@ -239,3 +239,27 @@
 .user-guide-next {
   margin-left: auto;
 }
+
+/* The generated shortcut table (#482): the cheat sheet's own rules for a
+   key combo (#287) — a combo never breaks mid-combo, and alternative combos
+   stack one per line — so the table reads as the dialog does. */
+.user-guide-shortcuts td {
+  vertical-align: top;
+}
+
+.user-guide-shortcuts td:first-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.user-guide-shortcuts kbd {
+  white-space: nowrap;
+  font-family: inherit;
+  background: #333;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.85em;
+}

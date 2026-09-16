@@ -6,5 +6,15 @@
   "timeline",
   "editing-video",
   "visual-editors",
-  "projects"
+  "text-and-subtitles",
+  "audio",
+  "preview-and-playback",
+  "undo-redo",
+  "projects",
+  "export",
+  "plugins",
+  "settings",
+  "keyboard-shortcuts",
+  "troubleshooting",
+  "glossary"
 ]

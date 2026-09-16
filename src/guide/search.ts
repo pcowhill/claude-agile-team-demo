@@ -1,5 +1,6 @@
 import type { GuideBlock, GuideDocument, GuideInline } from '../lib/guide/document'
 import type { GuideConstants } from '../lib/guide/constantNames'
+import { shortcutsFor } from '../lib/shortcuts'
 
 /**
  * The guide's search (#478, design #477 §5): an index of passages built in
@@ -82,6 +83,12 @@ function blockText(block: GuideBlock, constants: GuideConstants): string {
       return block.text
     case 'rule':
       return ''
+    case 'shortcuts':
+      // The generated table (#482) is searchable as the reader sees it, so
+      // `ctrl+z` finds the Keyboard shortcuts page.
+      return shortcutsFor(Number(constants.STEP_SECONDS), Number(constants.LARGE_STEP_SECONDS))
+        .map(({ keys, does }) => `${keys.join(' or ')} · ${does}`)
+        .join(' · ')
   }
 }
 

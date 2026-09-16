@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { GuideConstants } from '../lib/guide/constantNames'
 import type { GuideBlock, GuideInline, GuideLinkTarget } from '../lib/guide/document'
+import { shortcutsFor } from '../lib/shortcuts'
 import { guideHash, headingElementId } from '../lib/guide/location'
 
 /**
@@ -143,5 +144,40 @@ function Block({ block, context }: { block: GuideBlock; context: RenderContext }
       )
     case 'rule':
       return <hr />
+    case 'shortcuts':
+      return <ShortcutsTable context={context} />
   }
+}
+
+/**
+ * The Keyboard shortcuts page's table (#482): the cheat sheet's own rows
+ * (`shortcutsFor`), with the step sizes in force. The sizes reach the guide
+ * as the same strings its placeholders show, so the table reads them back —
+ * `String(n)` round-trips through `Number` for every step the settings
+ * offer.
+ */
+function ShortcutsTable({ context }: { context: RenderContext }) {
+  const rows = shortcutsFor(Number(context.constants.STEP_SECONDS), Number(context.constants.LARGE_STEP_SECONDS))
+  return (
+    <table className="user-guide-shortcuts" data-testid="user-guide-shortcuts">
+      <thead>
+        <tr>
+          <th scope="col">Keys</th>
+          <th scope="col">What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ keys, does }) => (
+          <tr key={keys.join('|')}>
+            <td>
+              {keys.map((combo) => (
+                <kbd key={combo}>{combo}</kbd>
+              ))}
+            </td>
+            <td>{does}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }

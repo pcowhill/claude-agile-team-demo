@@ -50,6 +50,13 @@ export type GuideBlock =
   | { kind: 'blockquote'; blocks: GuideBlock[] }
   | { kind: 'code'; text: string }
   | { kind: 'rule' }
+  /**
+   * The keyboard-shortcut table, generated at render time from the same
+   * `shortcutsFor` the cheat sheet uses (#482, design #477 §6), so the two
+   * cannot disagree. Written in the source as an empty fenced block with the
+   * info string `shortcuts`.
+   */
+  | { kind: 'shortcuts' }
 
 /** A heading's entry in the section's table of contents and link targets. */
 export interface GuideHeading {
