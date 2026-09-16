@@ -17,7 +17,7 @@ The arrangement: what plays, when, and how. This page is the map of the panel �
 
 A section with nothing in it shows a short hint instead of rows. Anything that would play past the end of the sequence is cut off there.
 
-**Related.** [Concepts](concepts.md#the-four-sections-of-the-timeline) · [Put them on the timeline](quick-start.md#2-put-them-on-the-timeline)
+**Related.** [Concepts](concepts.md#the-four-sections-of-the-timeline) · [Put them on the timeline](quick-start.md#2-put-them-on-the-timeline) · [Add](media-library.md#add)
 
 ## The header
 
@@ -91,7 +91,7 @@ The **thumbnail** on a video entry or video overlay is the first frame of its tr
 
 **Details.** The name becomes a field with the current name selected; Enter or clicking away commits, Escape cancels, an empty name reverts. The new name shows everywhere the row is named — its header, its controls' labels, the preview's now-playing line — is one undo step, and saves with the project. It never touches the library clip the row came from: the clip and each element made from it keep their own names. Text overlays are named by their content and are not renamed here.
 
-**Related.** [The ⋯ menu](#the-menu)
+**Related.** [The ⋯ menu](#the-menu) · [Renaming a clip](media-library.md#renaming-a-clip)
 
 ## Picture ▸
 

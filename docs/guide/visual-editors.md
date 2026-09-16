@@ -10,7 +10,7 @@ Four places on the timeline where a value can be dragged into place on a picture
 
 **Details.** On by default. The setting's own words: *Adjust visually… buttons sit beside the fields they stand in for, and open a still of the frame to drag the value into place instead of typing it. Off hides them all and never renders that frame.* The fields keep working either way; the switch is a per-device preference, never part of a project.
 
-**Related.** [What is saved where](concepts.md#what-is-saved-where)
+**Related.** [What is saved where](concepts.md#what-is-saved-where) · [What is never in a project file](projects.md#what-is-never-in-a-project-file)
 
 ## What each editor shows
 

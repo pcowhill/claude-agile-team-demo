@@ -31,7 +31,7 @@ The preview panel shows the video as it will export, at the instant the **playhe
 **Details.**
 
 - **Space** plays and pauses.
-- **←** and **→** step the playhead {{STEP_SECONDS}} s; with **Shift**, {{LARGE_STEP_SECONDS}} s. Both sizes are yours to change in Settings, and this page shows the values in force.
+- **←** and **→** step the playhead {{STEP_SECONDS}} s; with **Shift**, {{LARGE_STEP_SECONDS}} s. Both sizes are yours to change in [Settings](settings.md#step-sizes-playhead-nudge-and-jump), and this page shows the values in force.
 - **Home** and **End** jump to the sequence's start and end.
 - **↑** and **↓** [jump to the previous and next cut](#jumping-to-cuts).
 - **I** and **O** set the export [marks](#export-marks) in and out at the playhead.
@@ -70,7 +70,7 @@ Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo)
 
 **What it does.** Bounds a range of the sequence, so the export dialog can export just that range.
 
-**Details.** Each mark is set at the playhead and shows at once as a bracket on the seek bar — opening right for in, left for out — so a lone mark is visible too. While the in mark lies before the out mark, the span between them is highlighted in amber and is the **marked range**: the export dialog's Range line offers it in every format, GIF and MP3 included. An inverted pair, or a single mark, is no range. A mark inside a transition or an effect exports exactly what the preview shows at that instant — mid-blend if that is where it sits, with no snapping. Marks are session-only: they are never saved into the project file and are gone after a reload.
+**Details.** Each mark is set at the playhead and shows at once as a bracket on the seek bar — opening right for in, left for out — so a lone mark is visible too. While the in mark lies before the out mark, the span between them is highlighted in amber and is the **marked range**: the [export dialog's Range line](export.md#the-range-line) offers it in every format, GIF and MP3 included. An inverted pair, or a single mark, is no range. A mark inside a transition or an effect exports exactly what the preview shows at that instant — mid-blend if that is where it sits, with no snapping. Marks are session-only: they are never saved into the project file and are gone after a reload.
 
 **Related.** [Loop](#loop) · [What is saved where](concepts.md#what-is-saved-where)
 
