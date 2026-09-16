@@ -32,6 +32,36 @@ export const GUIDE_CONSTANT_NAMES = [
   'STEP_SECONDS',
   /** The configured Shift+arrow step, in seconds (a live setting, #286). */
   'LARGE_STEP_SECONDS',
+  /** The least a crop may keep on each axis, as a percentage (#255). */
+  'CROP_MIN_KEPT_PERCENT',
+  /** The colour dials' range, in percent; 100 is unchanged (#192). */
+  'COLOR_ADJUSTMENT_MIN',
+  'COLOR_ADJUSTMENT_MAX',
+  /** A new speed segment's factor and length in seconds; a new pause's hold (#138). */
+  'DEFAULT_SPEED_FACTOR',
+  'DEFAULT_SPEED_LENGTH',
+  'DEFAULT_PAUSE_HOLD',
+  /** How long a frozen frame's still shows when placed (#379). */
+  'FREEZE_STILL_DURATION',
+  /** A new zoom's magnification, ramp and hold, in the room it has (#63). */
+  'DEFAULT_ZOOM_SCALE',
+  'DEFAULT_ZOOM_RAMP',
+  'DEFAULT_ZOOM_HOLD',
+  /** The magnification the zoom editor's corner drag stays within (#413). */
+  'EDITOR_ZOOM_MIN_SCALE',
+  'EDITOR_ZOOM_MAX_SCALE',
+  /** An arrow key's nudge in the visual editors, as a percentage of the frame; Shift's too (#421). */
+  'EDITOR_NUDGE_PERCENT',
+  'EDITOR_NUDGE_LARGE_PERCENT',
+  /** What one + / − press does: the zoom's scale, a rectangle's size in percent, a text size (#421, #422, #424). */
+  'ZOOM_SCALE_STEP',
+  'RECT_SIZE_STEP_PERCENT',
+  'TEXT_SIZE_STEP',
+  /** How long Loop rests on the hold's first and last frame, in seconds (#425). */
+  'LOOP_REST_SECONDS',
+  /** A rounded shape mask's corner radius: its ceiling and its starting value, in percent (#266). */
+  'MAX_ROUNDED_RADIUS_PERCENT',
+  'DEFAULT_ROUNDED_RADIUS_PERCENT',
   /** Seconds of quiet after the last change before autosave writes (#194). */
   'AUTOSAVE_DEBOUNCE_SECONDS',
   /** How often a video recording asks for a keyframe, in seconds (#468). */

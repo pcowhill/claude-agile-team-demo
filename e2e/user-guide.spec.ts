@@ -215,8 +215,10 @@ test('search coverage (#479): one representative query per content section finds
   const results = panel.getByRole('list', { name: 'Search results' })
   // The first hit's "Section › heading" line names the section a reader
   // lands in; each query is a word the customer would type for that page.
+  // (`rename` was the Media library query until the Timeline page (#480)
+  // gained its own "Rename…" heading, which outranks a body mention.)
   for (const [query, section] of [
-    ['rename', 'Media library'],
+    ['thumbnail', 'Media library'],
     ['webcam', 'Recording'],
     ['autosave', 'Projects'],
   ] as const) {
@@ -242,6 +244,35 @@ test('search coverage (#479): one representative query per content section finds
   await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
   await expectNoHorizontalScroll(page, 'guide on Recording at 1280px')
   await panel.screenshot({ path: testInfo.outputPath('user-guide-recording-1280.png') })
+})
+
+test('search coverage (#480): one representative query per content section finds that section first', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  // The issue's own queries: the customer's example (Duplicate) first.
+  for (const [query, section] of [
+    ['duplicate', 'Timeline'],
+    ['crossfade', 'Editing video'],
+    ['snap', 'Visual editors'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(
+      section,
+    )
+  }
+
+  // The rendered evidence for the new pages: Timeline, scrolled to the top.
+  await searchField(page).fill('')
+  await panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Timeline', exact: true }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Timeline' })).toBeVisible()
+  await expectNoWrap(panel.getByRole('navigation', { name: 'Contents' }).getByRole('link'), 'contents entry')
+  await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
+  await expectNoHorizontalScroll(page, 'guide on Timeline at 1280px')
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-timeline-1280.png') })
 })
 
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
