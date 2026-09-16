@@ -275,6 +275,36 @@ test('search coverage (#480): one representative query per content section finds
   await panel.screenshot({ path: testInfo.outputPath('user-guide-timeline-1280.png') })
 })
 
+test('search coverage (#481): one representative query per content section finds that section first', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  // The customer's own example first (#476): `duck others` is the Audio
+  // page's heading of that name. The other three are section titles, which
+  // the search ranks above every heading and body.
+  for (const [query, where] of [
+    ['duck others', 'Audio › Duck others'],
+    ['subtitle', 'Text and subtitles'],
+    ['playback', 'Preview and playback'],
+    ['undo', 'Undo and redo'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(where)
+  }
+
+  // The rendered evidence for the new pages: Audio, scrolled to the top.
+  await searchField(page).fill('')
+  await panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Audio', exact: true }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Audio' })).toBeVisible()
+  await expectNoWrap(panel.getByRole('navigation', { name: 'Contents' }).getByRole('link'), 'contents entry')
+  await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
+  await expectNoHorizontalScroll(page, 'guide on Audio at 1280px')
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-audio-1280.png') })
+})
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })

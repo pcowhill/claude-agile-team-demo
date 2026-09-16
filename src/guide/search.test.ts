@@ -37,6 +37,14 @@ const constants: GuideConstants = {
   RELINK_DURATION_TOLERANCE_MIN_SECONDS: '0.1',
   PROJECT_FILE_EXTENSION: '.bvep',
   DEFAULT_OVERLAY_SIZE_PERCENT: '35',
+  DEFAULT_TEXT_SIZE_PERCENT: '8',
+  MIN_TEXT_SIZE_PERCENT: '1',
+  MAX_TEXT_SIZE_PERCENT: '100',
+  TEXT_LINE_HEIGHT: '1.2',
+  SUBTITLE_DEFAULT_SIZE_PERCENT: '5',
+  SUBTITLE_DEFAULT_Y_PERCENT: '90',
+  DUCK_RAMP_SECONDS: '0.25',
+  SNAP_PIXELS: '8',
 }
 
 const text = (value: string) => ({ kind: 'text' as const, text: value })
