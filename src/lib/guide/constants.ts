@@ -1,3 +1,4 @@
+import { AUTOSAVE_DEBOUNCE_MS } from '../autosave'
 import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import {
@@ -13,11 +14,18 @@ import {
 import { FREEZE_STILL_DURATION } from '../freezeFrame'
 import { DEFAULT_DUCK_LEVEL } from '../gain'
 import { HISTORY_LIMIT } from '../history'
+import {
+  RELINK_DURATION_TOLERANCE_FRACTION,
+  RELINK_DURATION_TOLERANCE_MIN_SECONDS,
+} from '../openProject'
+import { RECORDING_KEYFRAME_INTERVAL_MS } from '../recording'
 import { DEFAULT_PAUSE_HOLD, DEFAULT_SPEED_FACTOR, DEFAULT_SPEED_LENGTH } from '../remap'
+import { PROJECT_FILE_EXTENSION } from '../saveProject'
 import type { AppSettings } from '../settings'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
 import { DEFAULT_TEXT } from '../textOverlay'
 import { DEFAULT_STILL_DURATION, DEFAULT_TRANSITION_DURATION, DEFAULT_ZOOM } from '../timeline'
+import { DEFAULT_OVERLAY_RECT } from '../videoOverlay'
 import type { GuideConstants } from './constantNames'
 
 /**
@@ -59,5 +67,11 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     LOOP_REST_SECONDS: String(LOOP_PAUSE_MS / 1000),
     MAX_ROUNDED_RADIUS_PERCENT: percent(MAX_ROUNDED_RADIUS),
     DEFAULT_ROUNDED_RADIUS_PERCENT: percent(DEFAULT_ROUNDED_RADIUS),
+    AUTOSAVE_DEBOUNCE_SECONDS: String(AUTOSAVE_DEBOUNCE_MS / 1000),
+    RECORDING_KEYFRAME_INTERVAL_SECONDS: String(RECORDING_KEYFRAME_INTERVAL_MS / 1000),
+    RELINK_DURATION_TOLERANCE_PERCENT: String(Math.round(RELINK_DURATION_TOLERANCE_FRACTION * 100)),
+    RELINK_DURATION_TOLERANCE_MIN_SECONDS: String(RELINK_DURATION_TOLERANCE_MIN_SECONDS),
+    PROJECT_FILE_EXTENSION,
+    DEFAULT_OVERLAY_SIZE_PERCENT: String(Math.round(DEFAULT_OVERLAY_RECT.width * 100)),
   }
 }

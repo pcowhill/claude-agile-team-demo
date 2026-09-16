@@ -39,6 +39,10 @@ Evaluate against:
 - architecture and fit with existing code
 - maintainability and readability
 - tests: do they exist, pass, and provide real evidence of correctness?
+- documentation: a user-facing change carries its `docs/guide/` update (the
+  Definition of Done in `development.md`), and the update says what the
+  code does — spot-check one stated fact against the code or the running
+  app
 - security, where relevant
 - UX, where relevant
 - CI / check results (all required checks must pass)

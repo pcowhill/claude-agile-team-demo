@@ -206,6 +206,44 @@ test('search: results as you type, the typed prefix highlighted, Enter opens the
   expect(new URL(page.url()).hash).toMatch(/^#guide\//)
 })
 
+test('search coverage (#479): one representative query per content section finds that section first', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  // The first hit's "Section › heading" line names the section a reader
+  // lands in; each query is a word the customer would type for that page.
+  for (const [query, section] of [
+    ['rename', 'Media library'],
+    ['webcam', 'Recording'],
+    ['autosave', 'Projects'],
+  ] as const) {
+    await searchField(page).fill(query)
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(
+      section,
+    )
+  }
+  // Not yet written: the Audio page (#481). The phrase must not land in one
+  // of this PR's sections, which would mean a passage claiming that feature.
+  await searchField(page).fill('duck others')
+  const status = panel.getByRole('status')
+  await expect(status).toBeVisible()
+  for (const where of await results.locator('.user-guide-hit-where').allInnerTexts()) {
+    expect(where, `"duck others" hit ${where}`).not.toMatch(/^(Media library|Recording|Projects)/)
+  }
+
+  // The rendered evidence for the new pages: Recording, scrolled to the top.
+  await searchField(page).fill('')
+  await panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Recording' }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Recording' })).toBeVisible()
+  await expectNoWrap(panel.getByRole('navigation', { name: 'Contents' }).getByRole('link'), 'contents entry')
+  await expectWithin(panel.getByRole('article'), panel, { axis: 'x', what: 'article' })
+  await expectNoHorizontalScroll(page, 'guide on Recording at 1280px')
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-recording-1280.png') })
+})
+
 test('search coverage (#480): one representative query per content section finds that section first', async ({
   page,
 }, testInfo) => {
