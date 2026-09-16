@@ -74,6 +74,19 @@ export const GUIDE_CONSTANT_NAMES = [
   'PROJECT_FILE_EXTENSION',
   /** The width and height a new overlay takes, as a percentage of the frame (#145). */
   'DEFAULT_OVERLAY_SIZE_PERCENT',
+  /** A new text overlay's size, and the size a text overlay may take, as percentages of the frame's height (#139). */
+  'DEFAULT_TEXT_SIZE_PERCENT',
+  'MIN_TEXT_SIZE_PERCENT',
+  'MAX_TEXT_SIZE_PERCENT',
+  /** Line spacing of a multi-line text block, as a multiple of its size (#142). */
+  'TEXT_LINE_HEIGHT',
+  /** The built-in subtitle style's size, as a percentage of the frame's height, and how far down the frame its centre sits (#249). */
+  'SUBTITLE_DEFAULT_SIZE_PERCENT',
+  'SUBTITLE_DEFAULT_Y_PERCENT',
+  /** How long ducking ramps down before, and back up after, a ducking track's window, in seconds (#241). */
+  'DUCK_RAMP_SECONDS',
+  /** How close, in pixels of slider travel, a released seek must land to a cut to snap onto it (#391). */
+  'SNAP_PIXELS',
   /** The export's automatic frame rate, in frames per second (#179). */
   'EXPORT_FRAME_RATE',
   /** The export dialog's bounds on a typed width or height, in pixels, and on the frame rate (#179). */
