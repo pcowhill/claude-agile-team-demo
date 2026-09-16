@@ -82,7 +82,10 @@ export function guideModule(document: GuideDocument, images: readonly string[], 
   for (const section of marked.sections) replaceBlocks(section.blocks)
   let json = JSON.stringify(marked)
   const imports = images.map((src, index) => {
-    json = json.replace(`"${imageMarker(index)}"`, `image${index}`)
+    // Every occurrence, not the first: `imagePathsOf` lists each picture
+    // once, so a picture used twice leaves two markers behind one import,
+    // and a string `replace` would leave the second as literal text.
+    json = json.split(`"${imageMarker(index)}"`).join(`image${index}`)
     return `import image${index} from ${JSON.stringify(`/${dir}/${src}?url`)}\n`
   })
   return `${imports.join('')}export default ${json}\n`
