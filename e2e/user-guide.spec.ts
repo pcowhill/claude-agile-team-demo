@@ -386,6 +386,56 @@ test('Quick Start screenshots (#483): every image loads and fits the panel', asy
   await panel.screenshot({ path: testInfo.outputPath('user-guide-quick-start-images-1280.png') })
 })
 
+test('Feature Index (#485): the customer’s own query lands, and every entry is a link', async ({
+  page,
+}, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+
+  // The customer's own example (#476). The criterion allows either the
+  // Feature Index entry or the Audio page; the Audio page's own heading
+  // wins, which is the better answer — the index would only point there.
+  await searchField(page).fill('duck others')
+  await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(
+    'Audio › Duck others',
+  )
+  // …and the index is reachable by the same search, for a label whose page
+  // does not spell it out.
+  await searchField(page).fill('feature index')
+  await expect(
+    results.locator('.user-guide-hit-where').filter({ hasText: 'Feature Index' }).first(),
+  ).toBeVisible()
+
+  await searchField(page).fill('')
+  const contents = panel.getByRole('navigation', { name: 'Contents' })
+  await contents.getByRole('link', { name: 'Feature Index', exact: true }).click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Feature Index' })).toBeVisible()
+
+  const article = panel.getByRole('article')
+  // Every entry carries at least one link, and they navigate inside the
+  // panel: clicking one lands on the page it names without leaving the app.
+  const entryLinks = article.getByRole('listitem').getByRole('link')
+  expect(await entryLinks.count(), 'the index links its entries').toBeGreaterThan(150)
+  await article.getByRole('link', { name: 'Audio › Duck others' }).first().click()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Audio' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Duck others' })).toBeVisible()
+  await page.goBack()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Feature Index' })).toBeVisible()
+
+  await expectNoWrap(contents.getByRole('link'), 'contents entry')
+  await expectWithin(article, panel, { axis: 'x', what: 'article' })
+  // An entry is one line per control; a long one wraps within the panel
+  // rather than pushing the panel sideways.
+  await expectNoHorizontalScroll(page, 'guide on Feature Index at 1280px')
+  // The screenshot shows the entries, not the Contents above them.
+  const firstEntry = article.getByRole('listitem').first()
+  await firstEntry.scrollIntoViewIfNeeded()
+  await expect(firstEntry).toBeVisible()
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-feature-index-1280.png') })
+})
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })

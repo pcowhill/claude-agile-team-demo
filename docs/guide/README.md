@@ -130,6 +130,39 @@ retake, not a defect. Keep the set small — the current budget is stated
 in the PR that last retook it — and the pictures in Quick Start only;
 `tools/guide/guideContent.test.ts` counts them.
 
+## The Feature Index
+
+`feature-index.md` is the guide's contract with the customer's requirement
+that no feature may exist in the app the guide does not mention (#476,
+#485): every control, menu item, setting, dialog and keyboard shortcut,
+alphabetically, each linking to the page that explains it. It is the last
+section in `contents.json`.
+
+An entry is one list item opening with its bolded name:
+
+```markdown
+- **Duck others** — an expanded audio track's row. [Audio › Duck others](audio.md#duck-others)
+```
+
+The name is **what the control says on screen**, not its accessible name,
+because a reader looks up the words they just saw. A control drawn as a
+glyph alone — ↑, ✕, ⋯ — goes under *Symbols and keys* with what it does in
+brackets. `tools/guide/guideContent.test.ts` checks the section is last,
+that every entry is alphabetical within its letter group and carries a
+link, and the compile checks the link resolves.
+
+**Adding a control to the app means adding its entry here**, and the
+check that enforces it is `e2e/feature-index.spec.ts`: it walks the
+running editor — every menu, every dialog, a timeline holding one row of
+each kind — collects every control it can see, and fails naming any that
+this page does not list. Its own doc comment lists the surfaces it opens;
+a new menu or dialog is added there, since the walk cannot find a control
+behind a door it never opens. Two tables in that spec turn an accessible
+name into an entry name: shape rules that strip the element a row control
+acts on (`Brightness of clip.webm at position 1 (percent)`), and an alias
+table for the ones that genuinely read differently on screen. Each carries
+its reason; add to them rather than bending a label.
+
 ## Before opening a PR
 
 - Every stated fact checked against the code or the running app, not only
