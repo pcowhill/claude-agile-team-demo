@@ -37,7 +37,7 @@ The **💾** button carries a **●** while the project has unsaved changes and 
 - **Embed media in the project file** — the default. One self-contained file that opens on any computer with no re-linking. It includes the media data, so the file is large — about the size of the media plus a little.
 - **Store references only**. A small file with the edits and the clips' names, durations, kinds and — for images — pixel dimensions. Opening it asks you to re-select the original files.
 
-Either way the file holds the whole arrangement: every element, trim, transition, effect and setting on the timeline, the names you gave clips and elements, the canvas preset, the default subtitle style, chapter markers, and the names of any plugins the project relies on. A project opened from an embedded file re-saves embedded, and one opened from a references file re-saves with references, until Save As… says otherwise. Recordings can only travel in an embedded file; see [Recordings and project files](recording.md#recordings-and-project-files).
+Either way the file holds the whole arrangement: every element, trim, transition, effect and setting on the timeline, the names you gave clips and elements, the canvas preset, the default subtitle style, [chapter markers](preview-and-playback.md#chapter-markers), and the names of any plugins the project relies on. A project opened from an embedded file re-saves embedded, and one opened from a references file re-saves with references, until Save As… says otherwise. Recordings can only travel in an embedded file; see [Recordings and project files](recording.md#recordings-and-project-files).
 
 **Related.** [Save and Save As…](#save-and-save-as) · [What is saved where](concepts.md#what-is-saved-where)
 
@@ -65,13 +65,13 @@ A file saved by a newer version of the editor may name a transition type or a pl
 
 ## Autosave and Restore last session
 
-**Where to find it.** Automatic. The *Restore last session?* bar appears under the header when the page opens and a snapshot is found; the choice of whether it appears is in **File ▾** › **Settings…**.
+**Where to find it.** Automatic. The *Restore last session?* bar appears under the header when the page opens and a snapshot is found; the choice of whether it appears is in **File ▾** › [**Settings…**](settings.md#when-a-previous-session-is-found).
 
 **What it does.** Keeps a copy of the session in this browser's own storage so a crash, a closed tab or a refresh loses nothing that had settled.
 
 **Details.** {{AUTOSAVE_DEBOUNCE_SECONDS}} s after the last change, the project's structure — what a references-only file holds — is written to browser storage, and each clip's media is stored once, the first time it appears, and deleted when the clip leaves the library. The snapshot also records whether the project matched its last save. An empty session — no clips, nothing on the timeline — clears the snapshot.
 
-Opening the page with a snapshot present shows *Restore last session? An autosaved project from a previous session was found*, with **Restore** and **Discard**. Restore brings back the library and the timeline with no file picking (a dialog on the way, if one is needed, calls it *the autosaved session*); work that had never been saved comes back showing the unsaved dot. Discard deletes the snapshot for good. Until you choose, the autosave does not overwrite the snapshot. Settings › *When a previous session is found* changes only the offer: **Ask each time** (the default), **Always restore** (no bar, straight into the restore) or **Never restore** (no bar; the autosave takes over and overwrites the old snapshot). The autosave keeps recording whichever you choose.
+Opening the page with a snapshot present shows *Restore last session? An autosaved project from a previous session was found*, with **Restore** and **Discard**. Restore brings back the library and the timeline with no file picking (a dialog on the way, if one is needed, calls it *the autosaved session*); work that had never been saved comes back showing the unsaved dot. Discard deletes the snapshot for good. Until you choose, the autosave does not overwrite the snapshot. [Settings › *When a previous session is found*](settings.md#when-a-previous-session-is-found) changes only the offer: **Ask each time** (the default), **Always restore** (no bar, straight into the restore) or **Never restore** (no bar; the autosave takes over and overwrites the old snapshot). The autosave keeps recording whichever you choose.
 
 Two notes appear when something is wrong. *Autosave: the media no longer fits in browser storage, so only the project structure is being kept* means the media outgrew the browser's quota; restoring such a snapshot goes through the re-link dialog, asking for the media files again. *Autosave is currently unavailable* means the browser would not store even the structure — save your project to a file to keep it safe. Where the browser has no such storage at all, the autosave is simply off.
 
@@ -83,10 +83,10 @@ The snapshot never travels: it lives in this browser profile only, and the undo 
 
 A project file holds the project, not your preferences or your session. It never contains:
 
-- the **Settings** (step sizes, still duration, the restore choice, the export dialog's preselected format, the Visual editors switch) — these are per device, and a browser with none uses the defaults;
-- **view choices** — the library's List or Thumbnail layout, the preview's expanded state, which rows are collapsed and which sections folded;
-- the **export marks** and Loop, and settings copied with *Copy settings*;
-- the **undo history** — a reopened project starts with nothing to undo;
-- **which plugins are enabled** — the file records which plugins it *needs*, and enabling is per browser.
+- the [**Settings**](settings.md) (step sizes, still duration, the restore choice, the export dialog's preselected format, the [Visual editors](visual-editors.md#turning-the-editors-on-and-off) switch) — these are per device, and a browser with none uses the defaults;
+- **view choices** — the library's [List or Thumbnail layout](media-library.md#list-and-thumbnail-views), the preview's expanded state, which rows are collapsed and which sections folded;
+- the [**export marks**](preview-and-playback.md#export-marks) and [Loop](preview-and-playback.md#loop), and settings copied with [*Copy settings*](timeline.md#copy-settings-and-paste-settings);
+- the [**undo history**](undo-redo.md#undo-history-and-project-files) — a reopened project starts with nothing to undo;
+- [**which plugins are enabled**](plugins.md#enabled-plugins-and-this-browser) — the file records which plugins it *needs*, and enabling is per browser.
 
 The autosave snapshot holds the same things a project file holds, and none of these either. [What is saved where](concepts.md#what-is-saved-where) lays the three places side by side.

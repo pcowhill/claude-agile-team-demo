@@ -28,7 +28,7 @@ Record straight into the media library — a voice-over from the [microphone](#m
 
 **What it does.** Records a tab, a window or the whole display into a video clip.
 
-**Details.** The browser shows its own picker for what to share. Audio is requested along with the picture: when the browser grants tab or system audio it records with the video, and when it grants none the clip is video-only. The dialog shows what is being captured, muted, so the captured sound never feeds back. The browser's own *stop sharing* control ends the recording exactly as the dialog's Stop button does. The clip lands as *Screen recording 1*, *Screen recording 2*, …, ready to trim, overlay, transition and export.
+**Details.** The browser shows its own picker for what to share. Audio is requested along with the picture: when the browser grants tab or system audio it records with the video, and when it grants none the clip is video-only. The dialog shows what is being captured, muted, so the captured sound never feeds back. The browser's own *stop sharing* control ends the recording exactly as the dialog's Stop button does. The clip lands as *Screen recording 1*, *Screen recording 2*, …, ready to [trim](editing-video.md#trimming), overlay, [transition](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) and [export](export.md).
 
 **Related.** [Screen + camera](#screen-camera) · [Keyframes every second](#keyframes-every-second)
 

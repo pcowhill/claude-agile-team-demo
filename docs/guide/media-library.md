@@ -1,6 +1,6 @@
 # Media library
 
-The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on the timeline. This page covers [importing](#importing-clips), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
+The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
 
 Library changes are not undo steps. Importing, renaming and removing clips change the project (the file saves them, and the 💾 button shows the unsaved dot), but Undo and Redo cover the timeline only; see [Edits and everything else](concepts.md#edits-and-everything-else).
 
@@ -76,7 +76,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **What it does.** Places the clip on the timeline: a video or image is appended to the Sequence, an audio clip becomes an audio track.
 
-**Details.** A clip can be added any number of times, and each placement is trimmed and adjusted on its own; removing a placement leaves the clip in the library. An image is placed as a still with the default duration from Settings ({{DEFAULT_STILL_DURATION}} s unless you changed it).
+**Details.** A clip can be added any number of times, and each placement is trimmed and adjusted on its own; removing a placement leaves the clip in the library. An image is placed as a still with the default duration from [Settings](settings.md#new-still-or-slate-duration) ({{DEFAULT_STILL_DURATION}} s unless you changed it).
 
 **Related.** [Selecting several clips](#selecting-several-clips) · [The four sections of the timeline](concepts.md#the-four-sections-of-the-timeline)
 
@@ -88,14 +88,14 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Details.** The items, each present only where it applies:
 
-- **Add as overlay** (video and image clips) places the clip above the sequence as an overlay layer — picture-in-picture in the bottom-right corner, {{DEFAULT_OVERLAY_SIZE_PERCENT}} % of the frame wide and high, starting at the beginning of the sequence; a video overlay plays the whole clip and an image overlay shows for the still duration. Reposition, resize and trim it from its timeline row.
+- **Add as overlay** (video and image clips) places the clip above the sequence as an overlay layer — picture-in-picture in the bottom-right corner, {{DEFAULT_OVERLAY_SIZE_PERCENT}} % of the frame wide and high, starting at the beginning of the sequence; a video overlay plays the whole clip and an image overlay shows for the still duration. Reposition, resize and trim it from [its timeline row](timeline.md#a-row).
 - **Extract audio** (video clips) makes a new audio clip from the video's sound, named after the video with *(audio)* appended. It keeps working after the video is removed from the library, and a references-only project re-links it from the video file.
 - **Rename…** opens the name for editing; see [Renaming a clip](#renaming-a-clip).
 - **Remove** asks for confirmation; see [Removing a clip](#removing-a-clip).
 
 An audio clip's menu holds only Rename… and Remove, since it has no picture to overlay and no video to extract from.
 
-**Related.** [Add](#add)
+**Related.** [Add](#add) · [A row](timeline.md#a-row) · [Visual editors](visual-editors.md)
 
 ## Renaming a clip
 
