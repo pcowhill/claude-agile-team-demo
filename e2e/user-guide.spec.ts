@@ -275,6 +275,28 @@ test('search coverage (#480): one representative query per content section finds
   await panel.screenshot({ path: testInfo.outputPath('user-guide-timeline-1280.png') })
 })
 
+test('Quick Start screenshots (#483): every image loads and fits the panel', async ({ page }, testInfo) => {
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  await expect(panel.getByRole('heading', { level: 2, name: 'Quick Start' })).toBeVisible()
+  const images = panel.getByRole('article').locator('img')
+  await expect(images).toHaveCount(4)
+  for (const image of await images.all()) {
+    await image.scrollIntoViewIfNeeded()
+    await expect(image).toBeVisible()
+    // Loaded, not a broken-image glyph: a decoded picture has a natural size.
+    await expect.poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    await expectWithin(image, panel, { axis: 'x', what: 'Quick Start screenshot' })
+    const alt = (await image.getAttribute('alt')) ?? ''
+    expect(alt.length, 'alt text says what the reader should see').toBeGreaterThan(40)
+  }
+  await expectNoHorizontalScroll(page, 'guide on Quick Start with images at 1280px')
+  // The rendered evidence: the first screenshot as the panel shows it.
+  await images.first().scrollIntoViewIfNeeded()
+  await panel.screenshot({ path: testInfo.outputPath('user-guide-quick-start-images-1280.png') })
+})
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })

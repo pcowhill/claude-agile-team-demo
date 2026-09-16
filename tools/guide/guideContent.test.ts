@@ -3,7 +3,8 @@ import { GUIDE_CONSTANT_NAMES } from '../../src/lib/guide/constantNames.ts'
 import { DEFAULT_GUIDE_LOCATION } from '../../src/lib/guide/location.ts'
 import type { GuideBlock, GuideDocument } from '../../src/lib/guide/document.ts'
 import { GuideCompileError, compileGuide } from './compileGuide.ts'
-import { readGuideSources } from './sources.ts'
+import { imagePathsOf, imageProblem } from './images.ts'
+import { GUIDE_DIR, readGuideSources } from './sources.ts'
 
 /**
  * The real guide compiles (#478 §4, §6.2): every internal link resolves,
@@ -53,6 +54,19 @@ describe('docs/guide (#478)', () => {
         expect(images, `${section.id}.md has an image; only quick-start.md may`).toEqual([])
       }
     }
+  })
+
+  it('shows three to five screenshots in Quick Start, each a file under docs/guide/ (#483)', () => {
+    const document = compileRealGuide()
+    const quickStart = document.sections.find((section) => section.id === 'quick-start')!
+    const images = imagePathsOf({ sections: [quickStart] })
+    expect(images.length).toBeGreaterThanOrEqual(3)
+    expect(images.length).toBeLessThanOrEqual(5)
+    for (const src of imagePathsOf(document)) {
+      expect(imageProblem(src, GUIDE_DIR), src).toBeNull()
+    }
+    expect(imageProblem('images/not-there.png', GUIDE_DIR)).toContain('not found')
+    expect(imageProblem('../secrets.png', GUIDE_DIR)).toContain('must be a file under')
   })
 
   it('gives every section at least one heading to link to', () => {
