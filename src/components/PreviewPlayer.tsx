@@ -21,6 +21,13 @@ import {
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
 import {
+  DEFAULT_REVIEW_RATE,
+  REVIEW_RATES,
+  formatReviewRate,
+  nextReviewRate,
+  type ReviewRate,
+} from '../lib/reviewSpeed'
+import {
   audioTrackPlaybackAt,
   entryStartTime,
   frontedLocation,
@@ -801,6 +808,16 @@ export function PreviewPlayer({
   loopRef.current = loop
   const loopSpanRef = useRef<LoopSpan>(null)
   loopSpanRef.current = markedSpan
+  // Review speed (#522, the approved suggestion #515): how fast the preview
+  // plays, multiplied into whatever rate the timeline's own effects already
+  // give a clip. Session-only exactly as Loop and the marks are — not in the
+  // project, the autosave, the settings or any export — and the player's own
+  // state for the same reason: nothing outside reads it. The tick and the
+  // sync callbacks read it through a ref, so changing the rate never
+  // re-creates them and interrupts playback.
+  const [reviewRate, setReviewRate] = useState<ReviewRate>(DEFAULT_REVIEW_RATE)
+  const reviewRateRef = useRef<number>(DEFAULT_REVIEW_RATE)
+  reviewRateRef.current = reviewRate
   // seek() is defined below the tick and re-created as `playing` changes;
   // the tick wraps through whichever is current.
   const seekRef = useRef<(time: number) => void>(() => {})
@@ -840,6 +857,15 @@ export function PreviewPlayer({
   const secondaryVideo = () => (primaryIsARef.current ? videoBRef.current : videoARef.current)
 
   /**
+   * The rate to hand a media element: the rate the timeline itself asks for
+   * at that instant, times the review rate (#522). Every `playbackRate` this
+   * component assigns goes through it — including the literal 1s for an
+   * un-remapped element and for the audio tracks and video overlays, which
+   * are the ones a rate applied site by site forgets.
+   */
+  const playedRate = useCallback((base = 1) => base * reviewRateRef.current, [])
+
+  /**
    * Aligns every audio track element with a sequence position (#103): a
    * track whose window covers the position plays from the matching source
    * time while `running`, and is paused otherwise. Its volume is set to the
@@ -858,26 +884,38 @@ export function PreviewPlayer({
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
         element.volume =
           audioTrackGainAt(track, sequenceTime) * trackDuckFactorAt(track, ducking, sequenceTime)
+        // A track plays at its natural rate times the review rate (#522).
+        // Without this the position it is corrected towards would advance
+        // faster than the element does and the drift test below would fire
+        // every frame — a track re-seeking continuously, which stutters
+        // rather than merely drifting. Set even while paused, so resuming
+        // starts at the right speed.
+        const rate = playedRate()
+        if (element.playbackRate !== rate) element.playbackRate = rate
+        // The tolerance is a wall-clock one, so in source seconds it scales
+        // with the rate: the same sampling jitter between two frames is
+        // twice as many seconds of source at 2×.
+        const drift = AUDIO_DRIFT_EPSILON * rate
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
             // play() rejects (AbortError) when interrupted by pause — an
             // expected outcome, matching the video elements.
             element.play().catch(() => {})
-          } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+          } else if (Math.abs(element.currentTime - sourceTime) > drift) {
             element.currentTime = sourceTime
           }
         } else {
           if (!element.paused) element.pause()
           // Keep the paused element cued to the position (its in-point while
           // the position is before the window) so resuming starts aligned.
-          if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+          if (Math.abs(element.currentTime - sourceTime) > drift) {
             element.currentTime = sourceTime
           }
         }
       }
     },
-    [audioTracks, ducking],
+    [audioTracks, ducking, playedRate],
   )
 
   const pauseAudioTracks = useCallback(() => {
@@ -908,13 +946,20 @@ export function PreviewPlayer({
         const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
         element.volume =
           videoOverlayGainAt(overlay, sequenceTime) * duckFactorAt(ducking, sequenceTime)
+        // The review rate and its rate-relative tolerance, for the same
+        // reason as the audio tracks above (#522) — this function is their
+        // twin, down to sharing the epsilon, so an overlay left at 1× would
+        // drift against the picture it sits on.
+        const rate = playedRate()
+        if (element.playbackRate !== rate) element.playbackRate = rate
+        const drift = AUDIO_DRIFT_EPSILON * rate
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
             // play() rejects (AbortError) when interrupted by pause — an
             // expected outcome, matching the other media elements.
             element.play().catch(() => {})
-          } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+          } else if (Math.abs(element.currentTime - sourceTime) > drift) {
             element.currentTime = sourceTime
           }
         } else {
@@ -922,13 +967,13 @@ export function PreviewPlayer({
           // Keep the paused element cued to the position (its in-point while
           // the position is before the window) so resuming starts aligned —
           // and so a paused scrub through the window shows the right frame.
-          if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+          if (Math.abs(element.currentTime - sourceTime) > drift) {
             element.currentTime = sourceTime
           }
         }
       }
     },
-    [videoOverlays, ducking],
+    [videoOverlays, ducking, playedRate],
   )
 
   const pauseVideoOverlays = useCallback(() => {
@@ -960,7 +1005,7 @@ export function PreviewPlayer({
   const cueElement = useCallback(
     (video: HTMLVideoElement, url: string, sourceTime: number, thenPlay: boolean, rate = 1) => {
       const start = () => {
-        video.playbackRate = rate
+        video.playbackRate = playedRate(rate)
         video.currentTime = sourceTime
         // play() rejects (AbortError) when interrupted by pause or a src
         // switch — an expected outcome here, not an error to surface.
@@ -973,7 +1018,7 @@ export function PreviewPlayer({
         start()
       }
     },
-    [],
+    [playedRate],
   )
 
   /**
@@ -1139,7 +1184,11 @@ export function PreviewPlayer({
       const clock = stillClockRef.current
       if (!clock) return
       const now = performance.now()
-      clock.sourceTime += (now - clock.lastNow) / 1000
+      // A still has no element to carry the review rate (#522), so its wall
+      // clock takes it here: without this a still would hold for the same
+      // wall seconds while the video either side of it played twice as
+      // fast, and the playhead would jump at every boundary between them.
+      clock.sourceTime += ((now - clock.lastNow) / 1000) * reviewRateRef.current
       clock.lastNow = now
       sourceTime = clock.sourceTime
       outputInto = sourceTime - entry.inPoint
@@ -1149,7 +1198,9 @@ export function PreviewPlayer({
       // clock advances the output position through the hold.
       const hold = holdRef.current
       const now = performance.now()
-      hold.outputNow += (now - hold.lastNow) / 1000
+      // The other wall clock (#522): a pause plateau scales with the review
+      // rate for the same reason a still does.
+      hold.outputNow += ((now - hold.lastNow) / 1000) * reviewRateRef.current
       hold.lastNow = now
       sourceTime = entry.inPoint + hold.at
       if (hold.outputNow < hold.outputEnd) {
@@ -1178,7 +1229,7 @@ export function PreviewPlayer({
           // would restart it from the beginning.
           holdRef.current = null
           lastRelSourceRef.current = hold.at
-          video.playbackRate = rateAtSourceTime(effects, hold.at)
+          video.playbackRate = playedRate(rateAtSourceTime(effects, hold.at))
           video.play().catch(() => {})
         } else {
           holdRef.current = null
@@ -1215,7 +1266,7 @@ export function PreviewPlayer({
         outputInto = outputStart
       } else {
         lastRelSourceRef.current = relSource
-        const rate = rateAtSourceTime(effects, relSource)
+        const rate = playedRate(rateAtSourceTime(effects, relSource))
         if (video.playbackRate !== rate) video.playbackRate = rate
         outputInto = outputTimeAtSource(trimmed, effects, relSource)
         reachedOut = sourceDone
@@ -1264,7 +1315,8 @@ export function PreviewPlayer({
           syncVideoOverlays(time, true)
           holdRef.current = null
           lastRelSourceRef.current = incoming.currentTime - next.inPoint
-          if (incoming.playbackRate !== 1) incoming.playbackRate = 1
+          const plain = playedRate(1)
+          if (incoming.playbackRate !== plain) incoming.playbackRate = plain
         } else {
           // A remapped incoming entry (or an overlap shorter than a frame,
           // where engagement raced the out-point): land on the geometric
@@ -1385,7 +1437,8 @@ export function PreviewPlayer({
                   secondary.currentTime = expected
                 }
               } else {
-                if (secondary.playbackRate !== inState.rate) secondary.playbackRate = inState.rate
+                const inRate = playedRate(inState.rate)
+                if (secondary.playbackRate !== inRate) secondary.playbackRate = inRate
                 if (secondary.paused) {
                   secondary.currentTime = expected
                   secondary.play().catch(() => {})
@@ -1409,7 +1462,7 @@ export function PreviewPlayer({
       }
     }
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, total, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking])
+  }, [timeline, total, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking, playedRate])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence; with Loop on (#459), Play
@@ -1627,6 +1680,13 @@ export function PreviewPlayer({
           // M (#487) does exactly what Frame ▾'s item does, guards included:
           // inert with nothing on the timeline or no wiring.
           addMarkerAtPlayhead()
+          break
+        case 'review-speed':
+          // R (#522) steps the same four rates the control offers, wrapping
+          // past 2× back to 0.5×. No guard: it changes how the preview
+          // plays, which is meaningful with an empty timeline too, and the
+          // next Play honours it.
+          setReviewRate((rate) => nextReviewRate(rate))
           break
       }
     }
@@ -2375,6 +2435,28 @@ export function PreviewPlayer({
             >
               ↻
             </button>
+            {/* Review speed (#522, the approved #515): how fast the preview
+                plays, for finding a moment in a long take without watching
+                it at length. One `select` rather than a button per rate —
+                the transport is the row #395 called too busy, and a select
+                shows the current rate in the space of one control. Named
+                *Review speed*, never *Speed*, so it cannot be read as the
+                speed-segment effect, which does change the output; this
+                changes nothing but the watching. */}
+            <select
+              className="preview-review-speed"
+              data-testid="preview-review-speed"
+              aria-label="Review speed"
+              title="How fast the preview plays (R) — this session only, never in an export; it multiplies with a clip's own speed segments"
+              value={reviewRate}
+              onChange={(event) => setReviewRate(Number(event.target.value) as ReviewRate)}
+            >
+              {REVIEW_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {formatReviewRate(rate)}
+                </option>
+              ))}
+            </select>
             {/* Frame ▾ (#417, from the approved redesign #401 / feedback
                 #395 — the customer named the preview as the busiest region
                 and asked for Split to live here too): the frame-level
@@ -2509,6 +2591,17 @@ export function PreviewPlayer({
             </div>
             <span className="preview-position" data-testid="preview-position">
               {formatDuration(Math.min(sequenceTime, total))} / {formatDuration(total)}
+              {/* The rate beside the playhead while it is not 1× (#522), so
+                  a preview running fast reads as a choice rather than a bug
+                  — and beside the time, where the eye already is, rather
+                  than only in the transport row. At 1× it says nothing, and
+                  the row is exactly as it was (#395). */}
+              {reviewRate !== DEFAULT_REVIEW_RATE && (
+                <span className="preview-position-review-rate" data-testid="preview-review-rate">
+                  {' · '}
+                  {formatReviewRate(reviewRate)}
+                </span>
+              )}
               {(() => {
                 const current = markerAt(timeline, Math.min(sequenceTime, total), MARKER_READOUT_TOLERANCE)
                 return current === null ? null : (

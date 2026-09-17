@@ -30,6 +30,9 @@ export type TransportAction =
   | { kind: 'add-marker' }
   /** Open the user guide (#478) — F1, the desktop convention for help. */
   | { kind: 'user-guide' }
+  /** Step the preview's review speed to the next rate (#522) — R, cycling
+   * 0.5× → 1× → 1.5× → 2× → 0.5×. */
+  | { kind: 'review-speed' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -97,6 +100,13 @@ export function transportActionForKey(
     // Home/End.
     case 'F1':
       return event.shiftKey ? null : { kind: 'user-guide' }
+    // R steps the review speed (#522): mnemonic for *Review speed*, and
+    // free — Record ▾ is a menu with no shortcut of its own, and the
+    // recording dialog claims only Space. Either case, for the same reason
+    // as I / O and M.
+    case 'r':
+    case 'R':
+      return { kind: 'review-speed' }
     default:
       return null
   }

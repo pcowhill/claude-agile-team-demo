@@ -10,6 +10,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **+ Effect** — an expanded sequence entry, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
 - **?** — shows the keyboard cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
+- **× (beside the playhead)** — the position readout, while the review speed is not 1×; how fast the preview is playing. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **← / →** — steps the playhead back and forward by the nudge size. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **↑ (move up)** — a row's main line; moves the element up within its section. [Timeline › A row](timeline.md#a-row)
 - **↑ / ↓** — jumps the playhead to the previous or next cut, transition edge or chapter marker. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
@@ -178,6 +179,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## R
 
+- **R** — steps the review speed through 0.5×, 1×, 1.5× and 2×, wrapping round. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **Record** — the media library header; the menu of capture sources. [Recording › Record ▾](recording.md#record)
 - **Redaction region block size** — a redaction region set to Pixelate; the block, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region blur strength** — a redaction region set to Blur; the radius, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
@@ -201,6 +203,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Reset orientation** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Restore size** — the preview header, once expanded; gives the width back. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
 - **Resume recording** — the recording dialog, while paused; carries on into the same clip. [Recording › Pause and resume](recording.md#pause-and-resume)
+- **Review speed** — the preview transport; how fast the preview plays, at 0.5×, 1×, 1.5× or 2×. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **Rotate** — an expanded video or image row › Picture ▸; each press turns the source 90°. [Editing video › Orientation](editing-video.md#orientation)
 
 ## S

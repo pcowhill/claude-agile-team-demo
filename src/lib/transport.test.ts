@@ -89,6 +89,11 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('M', { shiftKey: true }))).toEqual({ kind: 'add-marker' })
   })
 
+  it('maps R to stepping the review speed, in either letter case (#522)', () => {
+    expect(transportActionForKey(key('r'))).toEqual({ kind: 'review-speed' })
+    expect(transportActionForKey(key('R', { shiftKey: true }))).toEqual({ kind: 'review-speed' })
+  })
+
   it('maps F1 to the user guide (#478), bare only', () => {
     expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
     expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()
@@ -108,6 +113,7 @@ describe('transportActionForKey (#203)', () => {
         'o',
         '?',
         'm',
+        'r',
         'F1',
       ]) {
         expect(transportActionForKey(key(k, modifiers))).toBeNull()

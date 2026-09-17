@@ -346,6 +346,29 @@
   color: #6ad0b8;
 }
 
+/* The review rate beside the playhead (#522), shown only while it is not 1×.
+   The transport's own accent rather than the marker's green: it is a
+   property of how the preview is playing, not something on the timeline. */
+.preview-position-review-rate {
+  color: #9aa8ff;
+}
+
+/* The Review speed control (#522). The transport is otherwise all buttons,
+   and a `select` left to the browser's own metrics stands ~3px taller than
+   they do — visible as a step in the row, which is the kind of thing only
+   looking finds. Borrowed from the timeline's own select (Timeline.css,
+   `.timeline-transition select`), with the padding trimmed until the boxes
+   measured the same height. It holds "0.5×" at its widest, so no width. */
+.preview-controls .preview-review-speed {
+  padding: 0.05rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 .preview-markers-beyond {
   color: #888;
   font-size: 0.8rem;

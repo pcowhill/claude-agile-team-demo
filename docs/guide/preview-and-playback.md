@@ -16,9 +16,9 @@ The preview panel shows the video as it will export, at the instant the **playhe
 
 **Where to find it.** The row under the stage.
 
-**What it does.** Plays, pauses and positions the playhead, and holds the marks, Loop and the Frame ▾ menu.
+**What it does.** Plays, pauses and positions the playhead, and holds the marks, Loop, Review speed and the Frame ▾ menu.
 
-**Details.** From left to right: **Play** / **Pause**; **⏮** and **⏭**, which [jump to the previous or next cut](#jumping-to-cuts); **⇥** and **⇤**, which set the export [marks](#export-marks); **↻ Loop**; and, while marks are set, **✕ Marks** to clear them. Below runs the **seek bar**: dragging it scrubs the picture live, and releasing commits the position and may [snap it to a cut](#snapping-on-release). With the slider focused, its own arrow keys step it by its own small step, never snapping, so a position just beside a cut can still be reached. The **readout** shows the position and the total as minutes and seconds — hours appear past an hour — and names the chapter marker under the playhead, if any. The **now-playing line** says which entry is playing — *Clip 2 of 5: interview.mp4* — and, inside a transition, the entry it is blending into and the transition's name. The **Frame ▾** menu is in the same row.
+**Details.** From left to right: **Play** / **Pause**; **⏮** and **⏭**, which [jump to the previous or next cut](#jumping-to-cuts); **⇥** and **⇤**, which set the export [marks](#export-marks); **↻ Loop**; **Review speed**, which sets [how fast the preview plays](#review-speed); and, while marks are set, **✕ Marks** to clear them. Below runs the **seek bar**: dragging it scrubs the picture live, and releasing commits the position and may [snap it to a cut](#snapping-on-release). With the slider focused, its own arrow keys step it by its own small step, never snapping, so a position just beside a cut can still be reached. The **readout** shows the position and the total as minutes and seconds — hours appear past an hour — and names the chapter marker under the playhead, if any, and the [review speed](#review-speed) while it is not 1×. The **now-playing line** says which entry is playing — *Clip 2 of 5: interview.mp4* — and, inside a transition, the entry it is blending into and the transition's name. The **Frame ▾** menu is in the same row.
 
 **Related.** [Keyboard control](#keyboard-control) · [The Frame ▾ menu](#the-frame-menu)
 
@@ -36,13 +36,14 @@ The preview panel shows the video as it will export, at the instant the **playhe
 - **↑** and **↓** [jump to the previous and next cut](#jumping-to-cuts).
 - **I** and **O** set the export [marks](#export-marks) in and out at the playhead.
 - **M** adds a [chapter marker](#chapter-markers) at the playhead.
+- **R** steps the [review speed](#review-speed) through 0.5× · 1× · 1.5× · 2×, wrapping round.
 - **?** opens the keyboard cheat sheet, **F1** the user guide; **Esc** leaves a [previewed library clip](#previewing-a-library-clip).
 
 Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo). The same list, with the step sizes in force, is **Help ▾** › **Keyboard shortcuts…**.
 
 **Related.** [When the shortcuts pause](#when-the-shortcuts-pause)
 
-**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · ? · F1 · Esc.
+**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · R · ? · F1 · Esc.
 
 ## Jumping to cuts
 
@@ -83,6 +84,18 @@ Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo)
 **Details.** With a valid marked range, reaching the out mark jumps back to the in mark and keeps playing until you pause; the out mark's own frame is never played twice. **Play** from outside the range starts at the in mark; from inside it, where the playhead is. With no valid range, the whole sequence loops instead of stopping at its end. Loop is session-only like the marks, and turning it on or off is not an edit.
 
 **Related.** [Export marks](#export-marks) · [Visual editors: Loop](visual-editors.md#loop)
+
+## Review speed
+
+**Where to find it.** The transport's **Review speed** drop-down, beside **↻ Loop**.
+
+**What it does.** Plays the preview at **0.5×**, **1×**, **1.5×** or **2×**, for finding a moment in a long take without watching it at length.
+
+**Details.** It changes the *watching*, never the video: nothing about it reaches an export, a saved frame or the project file, and it returns to 1× when the page is reloaded — Loop and the export marks are session-only in exactly the same way. While the rate is not 1× it is shown beside the playhead's time, so a preview running fast reads as a choice rather than a fault. **R** steps through the four rates and wraps round.
+
+It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segments-and-pauses): a clip already slowed to 0.5× reviewed at 2× plays at 1×, and one sped up to 2× reviewed at 2× plays at 4×. Everything the preview plays takes the rate together — the sequence, audio tracks, video overlays, and the time a [still](timeline.md#the-header) or a [pause](editing-video.md#speed-segments-and-pauses) holds for — so the picture and the sound stay in step. Voices keep their pitch, as the browser's own fast playback does.
+
+**Related.** [Loop](#loop) · [The transport](#the-transport) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 
 ## Chapter markers
 
