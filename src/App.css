@@ -67,8 +67,8 @@
 /* The guide panel's column (#478). Its looks are the lazy chunk's
    (src/guide/UserGuide.css); the column itself is laid out here so the
    loading placeholder occupies the same space before the chunk arrives. It
-   scrolls on its own, sticky to the viewport, so reading it never moves
-   the editor. */
+   scrolls on its own, within the height of the column it sits in, so
+   reading it never moves the editor. */
 .user-guide {
   flex: 0 0 24rem;
   min-width: 0;
@@ -136,9 +136,22 @@
 /* Expanded preview (#128, option B in #126): the preview panel becomes the
    full-width first row, its height following the video's aspect ratio (the
    stage rule lives in PreviewPlayer.css); the library, timeline, and export
-   panels flow below into content-sized rows, reached by page scroll. */
+   panels flow below into content-sized rows, reached by scrolling the
+   column. */
 .app-main-preview-expanded {
   grid-template-rows: none;
+  /* Content-sized rows, said explicitly, because `auto` stopped meaning it
+     once #524 gave the shell a definite height. The expanded stage is
+     `flex: 0 0 auto` with an `aspect-ratio`, so its height comes from its
+     width — and in a grid whose own height is definite, an `auto` implicit
+     row credits that item with no height at all: the row resolved to 34px
+     (the panel's padding and border, a zero-height content box) while the
+     stage still laid out at 674px and painted straight over the media
+     library and the timeline, swallowing their clicks. Measured at
+     1280x720: `800.266px` on the old indefinite-height shell, `34px` with
+     the definite one, `800.266px` again with this. `align-content: start`
+     does not help — the row is mis-sized, not mis-placed. */
+  grid-auto-rows: max-content;
 }
 
 /* Every panel goes full width — the library would otherwise sit in a
@@ -175,6 +188,13 @@
   .app-main {
     grid-template-columns: 1fr;
     grid-template-rows: none;
+    /* For the reason the expanded rule above carries: below this width the
+       stage is `flex: 0 0 auto` with an `aspect-ratio` too (PreviewPlayer's
+       own media query), so the preview panel collapsed to its padding here
+       as soon as any clip was on the timeline. Measured at 360x640 with
+       three slates: panel `386px` before #524, `34px` after, `386px` with
+       this. */
+    grid-auto-rows: max-content;
   }
 
   .panel-wide {

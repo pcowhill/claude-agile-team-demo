@@ -3,6 +3,7 @@ import {
   expectBottomWithinViewport,
   expectNoHorizontalScroll,
   expectNoVerticalPageScroll,
+  expectWithin,
 } from './layout'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
@@ -210,4 +211,47 @@ test('a project taller than the window stays reachable — in the editor column,
   }
   // Scrolling the column never scrolls the page, whatever it reached.
   expect(await page.evaluate(() => window.scrollY), 'the page scrolled').toBe(0)
+})
+
+test('the preview panel keeps its picture inside it, expanded and at narrow widths (#524)', async ({
+  page,
+}) => {
+  // The shell's definite height changed how the editor's grid sizes a row
+  // whose item takes its height from an `aspect-ratio` — which the preview
+  // stage does, expanded and below 700px. An `auto` implicit row credited
+  // it with nothing: the row resolved to the panel's padding and border,
+  // 34px with a zero-height content box, while the stage still laid out at
+  // full size and painted over the media library and the timeline. Every
+  // assertion in this file and in `preview-layout.spec.ts` stayed green
+  // through it, because the stage's own box was never wrong — only the
+  // panel's, and nothing measured whether one was inside the other.
+  const previewPanel = page.getByRole('region', { name: 'Preview' })
+  const picture = page.getByTestId('preview-frame')
+
+  // Expanded, at a desktop size (#128 option B, customer-approved in #126).
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('./')
+  await fillTimeline(page, 6)
+  await page.getByRole('button', { name: 'Expand preview' }).click()
+  await expect(page.getByRole('button', { name: 'Restore preview size' })).toBeVisible()
+  await expectWithin(picture, previewPanel, {
+    axis: 'y',
+    what: 'the expanded preview picture',
+  })
+
+  // And it is not merely drawn inside — a control below it still takes the
+  // click. The spilled stage covered the timeline's own buttons, so this
+  // click was refused with "preview-slate intercepts pointer events".
+  await page.getByRole('button', { name: 'Expand all timeline elements' }).click()
+  await page.getByRole('button', { name: 'Restore preview size' }).click()
+
+  // The single-column layout below 700px, where the stage takes its height
+  // from its width too — no expanding needed, just a clip on the timeline.
+  await page.setViewportSize({ width: 360, height: 640 })
+  await page.goto('./')
+  await fillTimeline(page, 3)
+  await expectWithin(picture, previewPanel, {
+    axis: 'y',
+    what: 'the preview picture in the single-column layout',
+  })
 })
