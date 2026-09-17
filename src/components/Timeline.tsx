@@ -785,7 +785,11 @@ function RedactionControls({
     <div className="timeline-redactions">
       <div className="timeline-entry-color">
         <span>Redact</span>
-        <button type="button" aria-label={`Add a redaction region to ${position}`} onClick={add}>
+        <button
+          type="button"
+          aria-label={`Add a redaction region on ${position}`}
+          onClick={add}
+        >
           + Add region
         </button>
         {list.length === 0 && <span className="timeline-hint">Nothing hidden</span>}
@@ -793,13 +797,17 @@ function RedactionControls({
       {list.map((region, index) => {
         // Regions are addressed by their position in the list, which is what
         // the user sees; ids are stable but meaningless to read aloud.
-        const which = `region ${index + 1} of ${position}`
+        // The region's place in the list, which is what the user sees;
+        // ids are stable but meaningless to read aloud. The number sits
+        // where the Feature Index walk's shape rules can lift it out, so
+        // every region's controls normalize to one entry name.
+        const which = `Redaction region ${index + 1}`
         return (
           <div className="timeline-redaction" key={region.id}>
             <div className="timeline-entry-color">
               <span>Area</span>
               <SecondsField
-                label={`Redaction ${which}: left (percent)`}
+                label={`${which} left of ${position} (percent)`}
                 value={percent(region.left)}
                 min={0}
                 max={99}
@@ -808,7 +816,7 @@ function RedactionControls({
               />
               <span>top</span>
               <SecondsField
-                label={`Redaction ${which}: top (percent)`}
+                label={`${which} top of ${position} (percent)`}
                 value={percent(region.top)}
                 min={0}
                 max={99}
@@ -817,7 +825,7 @@ function RedactionControls({
               />
               <span>width</span>
               <SecondsField
-                label={`Redaction ${which}: width (percent)`}
+                label={`${which} width of ${position} (percent)`}
                 value={percent(region.width)}
                 min={1}
                 max={100}
@@ -826,7 +834,7 @@ function RedactionControls({
               />
               <span>height</span>
               <SecondsField
-                label={`Redaction ${which}: height (percent)`}
+                label={`${which} height of ${position} (percent)`}
                 value={percent(region.height)}
                 min={1}
                 max={100}
@@ -838,7 +846,7 @@ function RedactionControls({
             <div className="timeline-entry-color">
               <span>Shows from</span>
               <SecondsField
-                label={`Redaction ${which}: start (seconds)`}
+                label={`${which} start of ${position} in seconds`}
                 value={region.start}
                 min={0}
                 max={duration}
@@ -847,7 +855,7 @@ function RedactionControls({
               />
               <span>to</span>
               <SecondsField
-                label={`Redaction ${which}: end (seconds)`}
+                label={`${which} end of ${position} in seconds`}
                 value={region.end}
                 min={0}
                 max={duration}
@@ -859,7 +867,7 @@ function RedactionControls({
             <div className="timeline-entry-color">
               <span>Style</span>
               <select
-                aria-label={`Redaction ${which}: style`}
+                aria-label={`${which} style of ${position}`}
                 value={region.style}
                 onChange={(event) => restyle(index, event.target.value as RedactionStyle)}
               >
@@ -871,7 +879,7 @@ function RedactionControls({
                 <>
                   <span>strength</span>
                   <SecondsField
-                    label={`Redaction ${which}: blur strength (source pixels)`}
+                    label={`${which} blur strength of ${position} in pixels`}
                     value={region.strength ?? DEFAULT_BLUR_STRENGTH}
                     min={0}
                     max={MAX_REDACTION_STRENGTH}
@@ -885,7 +893,7 @@ function RedactionControls({
                 <>
                   <span>block size</span>
                   <SecondsField
-                    label={`Redaction ${which}: block size (source pixels)`}
+                    label={`${which} block size of ${position} in pixels`}
                     value={region.blockSize ?? DEFAULT_PIXELATE_BLOCK}
                     min={1}
                     max={MAX_REDACTION_STRENGTH}
@@ -898,14 +906,14 @@ function RedactionControls({
               {region.style === 'solid' && (
                 <input
                   type="color"
-                  aria-label={`Redaction ${which}: colour`}
+                  aria-label={`${which} colour of ${position}`}
                   value={region.color ?? DEFAULT_REDACTION_COLOR}
                   onChange={(event) => replace(index, { color: event.target.value })}
                 />
               )}
               <button
                 type="button"
-                aria-label={`Remove redaction ${which}`}
+                aria-label={`Remove ${which.toLowerCase()} of ${position}`}
                 onClick={() => onCommit(list.filter((_, at) => at !== index))}
               >
                 Remove

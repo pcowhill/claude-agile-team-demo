@@ -31,6 +31,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## A
 
 - **Add** — a media library row; appends the clip to the sequence, or adds it as a track. [Media library › Add](media-library.md#add)
+- **Add a redaction region** — an expanded video or image row › Picture ▸ › Redact; the **+ Add region** button. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Add as overlay** — a media library row's ⋯ menu. [Media library › The ⋯ menu](media-library.md#the-menu)
 - **Add chapter marker at playhead** — Frame ▾. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
@@ -169,8 +170,19 @@ This list is checked against the running editor in CI: a control the app shows a
 ## R
 
 - **Record** — the media library header; the menu of capture sources. [Recording › Record ▾](recording.md#record)
+- **Redaction region block size** — a redaction region set to Pixelate; the block, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region blur strength** — a redaction region set to Blur; the radius, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region colour** — a redaction region set to Solid; what it is filled with. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region end** — a redaction region; where its window stops, in seconds into the source. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region height** — a redaction region; its height, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region left** — a redaction region; its left edge, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region start** — a redaction region; where its window begins, in seconds into the source. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region style** — a redaction region; Blur, Pixelate or Solid. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region top** — a redaction region; its top edge, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
+- **Redaction region width** — a redaction region; its width, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redo** — the timeline header. [Undo and redo](undo-redo.md#undo-and-redo)
 - **Remove** — a media library row's ⋯ menu; takes the clip off the shelf. [Media library › Removing a clip](media-library.md#removing-a-clip)
+- **Remove redaction region** — a redaction region; takes it away. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Remove transition** — the ✕ on a transition control between two entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Rename…** — a media library row's ⋯ menu, and a timeline row's ⋯ menu. [Media library › Renaming a clip](media-library.md#renaming-a-clip) · [Timeline › Rename…](timeline.md#rename)
 - **Reset color** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)

@@ -34,6 +34,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'LARGE_STEP_SECONDS',
   /** The least a crop may keep on each axis, as a percentage (#255). */
   'CROP_MIN_KEPT_PERCENT',
+  'DEFAULT_PIXELATE_BLOCK',
+  'DEFAULT_BLUR_STRENGTH',
   /** The colour dials' range, in percent; 100 is unchanged (#192). */
   'COLOR_ADJUSTMENT_MIN',
   'COLOR_ADJUSTMENT_MAX',
