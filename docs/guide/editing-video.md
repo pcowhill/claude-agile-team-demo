@@ -104,6 +104,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 - **Shows from … to …** — the window, in seconds into the source, like the In and Out fields. Outside it the picture is untouched.
 - **Style** — **Blur** (a *strength*, in source pixels), **Pixelate** (a *block size*, in source pixels, {{DEFAULT_PIXELATE_BLOCK}} to start with) or **Solid** (a colour, black to start with). A new region is a Pixelate.
 - **Remove** takes the region away.
+- **Adjust visually…** opens the [redaction editor](visual-editors.md#what-each-editor-shows) under the region: drag it into place on a still of the source, with the other regions outlined and a Preview slider across its window.
 
 A clip can hold any number of regions, and they may overlap. Every change is one undo step.
 
@@ -113,7 +114,7 @@ The region shows in the preview as you play, and is drawn into the export, a [sa
 
 **If a blurred region cannot be drawn.** A browser without canvas filters refuses the export and the saved frame outright, naming the redaction, rather than writing out the thing you meant to hide — the same rule [colour adjustments](#colour-adjustments) follow. Switching that region to Pixelate or Solid exports anywhere, since neither needs the filter.
 
-**Related.** [Crop](#crop) · [Background fill](#background-fill) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+**Related.** [Crop](#crop) · [Background fill](#background-fill) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Visual editors](visual-editors.md)
 
 ## Background fill
 

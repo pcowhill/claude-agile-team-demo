@@ -2,6 +2,8 @@ import { MIN_KEPT_FRACTION } from './crop'
 import type { Crop } from './crop'
 import { textCanvasFont } from './exportVideo'
 import type { Orientation } from './orientation'
+import { MIN_REGION_FRACTION, MIN_WINDOW_SECONDS } from './redaction'
+import type { RedactionRegion } from './redaction'
 import { sequenceTimeAt } from './playback'
 import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
@@ -1164,6 +1166,223 @@ export function cropFrameKey(subject: CropSubject): string {
     orientation?.flipH === true ? 'H' : '',
     orientation?.flipV === true ? 'V' : '',
   ].join('#')
+}
+
+/**
+ * ── Redaction: a region as a rectangle on the source picture (#493) ──────
+ *
+ * A redaction region (`redaction.ts`) is a rectangle in **source**
+ * fractions — `left`, `top`, `width`, `height` of the source frame, before
+ * orientation and before crop — with a time window in the element's own
+ * source seconds. The editor draws it on the same picture the crop editor
+ * draws on and for the same reason: the element's own source, uncropped,
+ * filling the frame, so a region fraction *is* a frame fraction with no
+ * mapping to the composed frame's geometry (see the crop section's header).
+ *
+ * The one mapping that remains is orientation's, and it is exactly the
+ * crop's. A region's four margins from the source frame's edges — `left`,
+ * `1 − left − width`, `top`, `1 − top − height` — *are* a crop of the source,
+ * so `cropRect` and `cropFromRect` carry a region through a turned or
+ * mirrored picture with no new geometry: on a clip rotated a quarter turn
+ * the handle along the displayed top moves the stored `left`, and the
+ * readout names it, as the crop editor's does.
+ *
+ * The editor's subject is the crop editor's (`CropSubject`) — the same
+ * source description an entry and a video overlay share; the regions on it
+ * travel separately, since the editor commits the whole list.
+ *
+ * The handle model is the overlay's (`rectAfterGesture`): a free box with
+ * corners and edges, Shift locking the aspect on a corner, snapping onto
+ * the frame's edges, centre and thirds with the Alt bypass. Where the crop
+ * editor's Alt means finer values, a region has no whole-percent snap to
+ * bypass — its fields already show two decimals of a percent — so Alt keeps
+ * #391's meaning here. Nothing outside the rectangle is shaded: a redaction
+ * hides the *inside*, and dimming the outside would read as a crop.
+ */
+
+/** The four stored fractions a gesture edits; the window and style pass through. */
+export type RegionRect = Pick<RedactionRegion, 'left' | 'top' | 'width' | 'height'>
+
+/**
+ * The range a region is held inside: never smaller than the reducer's own
+ * floor on either axis (`MIN_REGION_FRACTION`, which `normalizeRedactionRegion`
+ * clamps to), never larger than the whole source, and stored to the four
+ * decimals the row's percent fields show two of — so the drag and its
+ * mirror cannot disagree (#422's rule), and clamping here means the reducer
+ * never moves the rectangle underneath the drag.
+ */
+export const REDACTION_BOUNDS: RectBounds = {
+  minSize: MIN_REGION_FRACTION,
+  maxSize: 1,
+  decimals: CROP_FINE_DECIMALS,
+}
+
+/** The handles a region offers: a free rectangle's eight, as an overlay's. */
+export const REDACTION_HANDLES: readonly RectHandle[] = FREE_RECT_HANDLES
+
+/**
+ * A region's margins from the source frame's edges — the crop it would be
+ * if it were one, which is what lets the crop's orientation mapping serve.
+ * The two far margins are complements and rounded for the reason `cropRect`
+ * rounds its own.
+ */
+function regionMargins(region: RegionRect): Crop {
+  return {
+    left: region.left,
+    right: round(clamp(1 - region.left - region.width, 0, 1), CROP_FINE_DECIMALS),
+    top: region.top,
+    bottom: round(clamp(1 - region.top - region.height, 0, 1), CROP_FINE_DECIMALS),
+  }
+}
+
+/** The region as a rectangle on the **displayed** (oriented) picture. */
+export function redactionRect(region: RegionRect, orientation?: Orientation): FrameRect {
+  return cropRect(regionMargins(region), orientation)
+}
+
+/**
+ * The stored fractions a displayed rectangle means, back in the source's
+ * own space — `redactionRect`'s inverse. Every value is rounded to the
+ * region's own precision, so a re-commit of an unmoved rectangle compares
+ * equal to what is stored.
+ */
+export function regionFromRect(rect: FrameRect, orientation?: Orientation): RegionRect {
+  const margins = cropFromRect(rect, orientation)
+  const left = margins.left ?? 0
+  const top = margins.top ?? 0
+  return {
+    left,
+    top,
+    width: round(clamp(1 - left - (margins.right ?? 0), 0, 1), CROP_FINE_DECIMALS),
+    height: round(clamp(1 - top - (margins.bottom ?? 0), 0, 1), CROP_FINE_DECIMALS),
+  }
+}
+
+/** Whether two regions cover the same rectangle. */
+export function regionRectsEqual(a: RegionRect, b: RegionRect): boolean {
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height
+}
+
+/**
+ * The rectangle after a pointer gesture — the overlay's model, with the
+ * aspect Shift locks being the rectangle's own at the gesture's start.
+ */
+export function redactionAfterGesture(start: FrameRect, gesture: RectGesture): FrameRect {
+  return rectAfterGesture(
+    start,
+    gesture,
+    REDACTION_BOUNDS,
+    start.height === 0 ? undefined : start.width / start.height,
+  )
+}
+
+/** The rectangle after one key press — the overlay's steps, at the region's bounds. */
+export function redactionAfterKeyStep(start: FrameRect, step: RectKeyStep): FrameRect {
+  return rectAfterKeyStep(start, step, REDACTION_BOUNDS)
+}
+
+/**
+ * What the redaction editor draws: the crop editor's still — the element
+ * alone, uncropped, filling the frame — over the **whole source** rather
+ * than the element's trimmed window. A region's window is in source
+ * seconds and may lie anywhere in the source, trim or no trim (its fields
+ * range over the whole duration), so the still's clock is made the
+ * source's own: with `inPoint` 0 a sequence second is a source second, and
+ * the Preview slider hands its value straight to the snapshot. The regions
+ * are left off, as the crop is, so the editing picture shows what the
+ * region is being placed over rather than the mask.
+ */
+export function redactionSourceTimeline(subject: CropSubject): TimelineState {
+  const base = cropSourceTimeline(subject)
+  const [entry] = base.entries
+  if (entry === undefined) return base
+  return {
+    ...base,
+    entries: [{ ...entry, inPoint: 0, outPoint: Math.max(subject.duration, MIN_WINDOW_SECONDS) }],
+  }
+}
+
+/**
+ * The still for **Show result**: the same picture with every region on the
+ * element drawn through `drawRedactions` — the export's own painter, since
+ * the snapshot is the export's own composer — so the treatment shown is the
+ * treatment shipped. All regions, not only the one being edited: the
+ * result is what the viewer gets.
+ */
+export function redactionResultTimeline(
+  subject: CropSubject,
+  regions: readonly RedactionRegion[],
+): TimelineState {
+  const base = redactionSourceTimeline(subject)
+  const [entry] = base.entries
+  if (entry === undefined || regions.length === 0) return base
+  return { ...base, entries: [{ ...entry, redactions: [...regions] }] }
+}
+
+/**
+ * The span the Preview slider scrubs and Loop plays: the region's own
+ * window, clipped to the source, in source seconds. Never inverted — a
+ * window past the end collapses to the instant at the end — and never
+ * empty on the slider: `normalizeRedactionRegion` keeps a stored window at
+ * least `MIN_WINDOW_SECONDS` long, and the clip here keeps that floor where
+ * the source allows it.
+ */
+export function redactionWindow(
+  region: Pick<RedactionRegion, 'start' | 'end'>,
+  sourceDuration: number,
+): { start: number; end: number } {
+  const limit = Math.max(0, sourceDuration)
+  const start = clamp(region.start, 0, limit)
+  const end = clamp(region.end, start, limit)
+  return { start, end }
+}
+
+/**
+ * The instant the editor opens on: the middle of the window, which shows
+ * the mask on a frame it certainly covers. Rounded onto the slider's grid
+ * so the opening still is one a later scrub stop can hit again from the
+ * cache.
+ */
+export function redactionWindowMidpoint(window: { start: number; end: number }): number {
+  return loopScrubStop((window.start + window.end) / 2, window.start, window.end)
+}
+
+/**
+ * The still's cache key while editing: the crop editor's (the element and
+ * its orientation, since a turn both changes the picture and moves which
+ * stored edge each handle edits) — a committed drag changes no pixel of
+ * this picture, so the regions are deliberately not in it.
+ */
+export function redactionFrameKey(subject: CropSubject): string {
+  return `${cropFrameKey(subject)}#redact`
+}
+
+/**
+ * The result still's cache key: the editing key plus every region's stored
+ * values, because there the regions *are* the picture — a committed drag
+ * must re-render or the preview goes stale the moment it is used.
+ */
+export function redactionResultFrameKey(
+  subject: CropSubject,
+  regions: readonly RedactionRegion[],
+): string {
+  const drawn = regions
+    .map((region) =>
+      [
+        region.left,
+        region.top,
+        region.width,
+        region.height,
+        region.start,
+        region.end,
+        region.style,
+        region.strength ?? '',
+        region.blockSize ?? '',
+        region.color ?? '',
+      ].join(','),
+    )
+    .join(';')
+  return `${redactionFrameKey(subject)}:result:${drawn}`
 }
 
 /**

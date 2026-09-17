@@ -1,7 +1,7 @@
 import { AUTOSAVE_DEBOUNCE_MS } from '../autosave'
 import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
-import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK } from '../redaction'
+import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
 import {
   LOOP_PAUSE_MS,
   MAX_EDITOR_ZOOM_SCALE,
@@ -87,6 +87,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     RECT_SIZE_STEP_PERCENT: percent(RECT_SIZE_STEP),
     TEXT_SIZE_STEP: String(TEXT_SIZE_STEP),
     LOOP_REST_SECONDS: String(LOOP_PAUSE_MS / 1000),
+    REDACTION_MIN_REGION_PERCENT: percent(MIN_REGION_FRACTION),
     MAX_ROUNDED_RADIUS_PERCENT: percent(MAX_ROUNDED_RADIUS),
     DEFAULT_ROUNDED_RADIUS_PERCENT: percent(DEFAULT_ROUNDED_RADIUS),
     AUTOSAVE_DEBOUNCE_SECONDS: String(AUTOSAVE_DEBOUNCE_MS / 1000),

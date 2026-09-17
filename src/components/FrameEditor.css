@@ -91,6 +91,18 @@
   stroke-dasharray: 6 4;
 }
 
+/* A sibling rectangle (#493): another region already on this picture,
+   drawn as a thin dashed outline under the one being edited. Inert — it
+   describes what is placed, not a gesture — so the pointer passes through
+   it as through bare picture. */
+.frame-editor-outline {
+  fill: none;
+  stroke: rgba(255, 209, 102, 0.6);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
 /* The alignment a drag is holding (#421) — drawn only while the gesture
    lasts, so the frame is not permanently crossed by lines. */
 .frame-editor-guide {

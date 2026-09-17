@@ -18,6 +18,8 @@ import {
   TEXT_SIZE_STEP,
   ZOOM_SNAP_TOLERANCE,
   LOOP_PAUSE_MS,
+  REDACTION_BOUNDS,
+  REDACTION_HANDLES,
   clampedRect,
   cropAfterGesture,
   cropEditorSequenceTime,
@@ -34,6 +36,17 @@ import {
   rectAfterKeyStep,
   rectGuides,
   rectKeyStep,
+  redactionAfterGesture,
+  redactionAfterKeyStep,
+  redactionFrameKey,
+  redactionRect,
+  redactionResultFrameKey,
+  redactionResultTimeline,
+  redactionSourceTimeline,
+  redactionWindow,
+  redactionWindowMidpoint,
+  regionFromRect,
+  regionRectsEqual,
   resizedRect,
   resizedTextBlock,
   resizedZoom,
@@ -66,6 +79,8 @@ import {
   zoomRectAt,
 } from './frameEditor'
 import { MIN_KEPT_FRACTION, cropsEqual, normalizeCrop } from './crop'
+import { DEFAULT_REGION_RECT, MIN_REGION_FRACTION } from './redaction'
+import type { RedactionRegion } from './redaction'
 import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
 import { DEFAULT_ZOOM, timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
@@ -1395,6 +1410,193 @@ describe('the loop over the hold (#425)', () => {
     }
     // No float tails reach the slider: three decimals at most.
     expect(loopScrubStop(0.5 + 0.1 + 0.2, 0.5, 1.5)).toBe(0.8)
+  })
+})
+
+describe('the redaction rectangle: a region on the source picture (#493)', () => {
+  const region: RedactionRegion = {
+    id: 'rd1',
+    ...DEFAULT_REGION_RECT,
+    start: 1,
+    end: 3,
+    style: 'solid',
+    color: '#000000',
+  }
+  const subject: CropSubject = {
+    id: 'e1',
+    clipId: 'clip-e1',
+    name: 'talk.mp4',
+    duration: 8,
+    url: 'blob:talk',
+    inPoint: 2,
+    outPoint: 6,
+    crop: { right: 0.2 },
+  }
+
+  it('reads a region as the rectangle it is, and writes it back exactly', () => {
+    // A region is already a frame rectangle on the uncropped source, so
+    // with nothing turned the two are the same four numbers.
+    expect(redactionRect(region)).toEqual({ x: 0.35, y: 0.4, width: 0.3, height: 0.2 })
+    expect(regionFromRect({ x: 0.35, y: 0.4, width: 0.3, height: 0.2 })).toEqual({
+      left: 0.35,
+      top: 0.4,
+      width: 0.3,
+      height: 0.2,
+    })
+  })
+
+  it('maps through orientation as a crop does, so a turned picture moves a different stored edge', () => {
+    // A quarter turn clockwise brings the source's left edge up to the top:
+    // the region's stored `left` of 0.35 becomes the displayed top, and its
+    // stored `top` of 0.4 the displayed *right* margin — so x is
+    // 1 − 0.4 − 0.2.
+    expect(redactionRect(region, { rotation: 90 })).toEqual({
+      x: 0.4,
+      y: 0.35,
+      width: 0.2,
+      height: 0.3,
+    })
+    // Mirrored, the stored left margin is the displayed right one.
+    expect(redactionRect(region, { flipH: true })).toEqual({
+      x: 0.35,
+      y: 0.4,
+      width: 0.3,
+      height: 0.2,
+    })
+    expect(redactionRect({ ...region, left: 0.1 }, { flipH: true })).toMatchObject({ x: 0.6 })
+    // Dragging the displayed top edge down on the turned picture edits the
+    // stored `left` — what the readout names — and nothing else.
+    const dragged = regionFromRect({ x: 0.4, y: 0.45, width: 0.2, height: 0.2 }, { rotation: 90 })
+    expect(dragged).toEqual({ left: 0.45, top: 0.4, width: 0.2, height: 0.2 })
+  })
+
+  it('round-trips through every orientation, including the rounding of its complements', () => {
+    const rects = [
+      { left: 0.35, top: 0.4, width: 0.3, height: 0.2 },
+      { left: 0.33, top: 0.1, width: 0.35, height: 0.55 },
+      { left: 0, top: 0, width: 1, height: 1 },
+      { left: 0.1234, top: 0.5678, width: 0.0101, height: 0.4321 },
+    ]
+    for (const rect of rects) {
+      for (const orientation of [
+        undefined,
+        { rotation: 90 } as const,
+        { rotation: 180, flipV: true } as const,
+        { rotation: 270, flipH: true } as const,
+        { flipH: true, flipV: true } as const,
+      ]) {
+        expect(regionFromRect(redactionRect(rect, orientation), orientation)).toEqual(rect)
+      }
+    }
+    // 1 − 0.33 − 0.35 is not 0.32 in binary; the derived margin is rounded so
+    // an unmoved rectangle compares equal to its stored region.
+    expect(regionRectsEqual(regionFromRect(redactionRect(rects[1])), rects[1])).toBe(true)
+  })
+
+  it('gestures are the overlay’s free rectangle, held at the region’s own floor', () => {
+    const start = redactionRect(region)
+    // A move by a fraction of the frame, away from every alignment.
+    expect(redactionAfterGesture(start, { kind: 'move', dx: -0.2, dy: -0.2 })).toEqual({
+      x: 0.15,
+      y: 0.2,
+      width: 0.3,
+      height: 0.2,
+    })
+    // A move landing near the frame centre snaps onto it; Alt leaves it be.
+    const near = { kind: 'move', dx: -0.01, dy: 0.012 } as const
+    expect(redactionAfterGesture(start, near)).toEqual(start)
+    expect(redactionAfterGesture(start, { ...near, altKey: true })).toEqual({
+      x: 0.34,
+      y: 0.412,
+      width: 0.3,
+      height: 0.2,
+    })
+    // An edge changes one dimension, holding the opposite edge fixed.
+    expect(redactionAfterGesture(start, { kind: 'edge', edge: 'e', x: 0.8, y: 0.5 })).toEqual({
+      x: 0.35,
+      y: 0.4,
+      width: 0.45,
+      height: 0.2,
+    })
+    // Shift on a corner keeps the proportions the rectangle started with.
+    const locked = redactionAfterGesture(start, {
+      kind: 'corner',
+      corner: 'se',
+      x: 0.8,
+      y: 0.95,
+      shiftKey: true,
+    })
+    expect(locked.width / locked.height).toBeCloseTo(1.5, 6)
+    expect(locked.x).toBe(0.35)
+    expect(locked.y).toBe(0.4)
+    // A corner dragged past its opposite stops at the reducer's floor rather
+    // than crossing or vanishing.
+    const collapsed = redactionAfterGesture(start, { kind: 'corner', corner: 'se', x: 0, y: 0 })
+    expect(collapsed.width).toBe(MIN_REGION_FRACTION)
+    expect(collapsed.height).toBe(MIN_REGION_FRACTION)
+    expect(REDACTION_BOUNDS.minSize).toBe(MIN_REGION_FRACTION)
+    expect(REDACTION_HANDLES).toEqual(FREE_RECT_HANDLES)
+  })
+
+  it('key steps nudge by the shared amounts and resize about the centre', () => {
+    const start = redactionRect(region)
+    expect(redactionAfterKeyStep(start, { kind: 'move', dx: ZOOM_NUDGE, dy: 0 }).x).toBeCloseTo(
+      0.36,
+      6,
+    )
+    expect(
+      redactionAfterKeyStep(start, { kind: 'move', dx: 0, dy: -ZOOM_NUDGE_LARGE }).y,
+    ).toBeCloseTo(0.35, 6)
+    const grown = redactionAfterKeyStep(start, { kind: 'scale', delta: 1 })
+    expect(grown.width).toBeCloseTo(0.3 + RECT_SIZE_STEP, 6)
+    expect(grown.x + grown.width / 2).toBeCloseTo(0.5, 6)
+  })
+
+  it('draws the whole source, uncropped and regionless, on the source’s own clock', () => {
+    const still = redactionSourceTimeline({ ...subject, redactions: [region] } as CropSubject)
+    expect(still.entries).toHaveLength(1)
+    expect(still.transitions).toEqual([])
+    expect(still.videoOverlays).toBeUndefined()
+    const [entry] = still.entries
+    // Not the trimmed window: a region's window is in source seconds and may
+    // lie anywhere in the source, so a sequence second must be a source second.
+    expect(entry.inPoint).toBe(0)
+    expect(entry.outPoint).toBe(8)
+    expect(entry.url).toBe('blob:talk')
+    // The crop is bypassed, as the crop editor's is, and the regions with it.
+    expect(entry.crop).toBeUndefined()
+    expect(entry.redactions).toBeUndefined()
+    // The result view puts every region back, and only the regions.
+    const result = redactionResultTimeline(subject, [region])
+    expect(result.entries[0].redactions).toEqual([region])
+    expect(result.entries[0].crop).toBeUndefined()
+    expect(redactionResultTimeline(subject, []).entries[0].redactions).toBeUndefined()
+  })
+
+  it('scrubs and loops the region’s own window, clipped to the source', () => {
+    expect(redactionWindow(region, 8)).toEqual({ start: 1, end: 3 })
+    // A window past the end collapses to the end, never inverts.
+    expect(redactionWindow({ start: 9, end: 12 }, 8)).toEqual({ start: 8, end: 8 })
+    expect(redactionWindow({ start: 6, end: 12 }, 8)).toEqual({ start: 6, end: 8 })
+    // It opens in the middle of the window, on the slider's grid.
+    expect(redactionWindowMidpoint({ start: 1, end: 3 })).toBe(2)
+    expect(redactionWindowMidpoint({ start: 0, end: 5 })).toBe(2.5)
+    expect(redactionWindowMidpoint({ start: 0.1, end: 0.2 })).toBe(0.15)
+  })
+
+  it('keys the editing still on the element and orientation only, and the result still on the regions too', () => {
+    expect(redactionFrameKey(subject)).toBe(`${cropFrameKey(subject)}#redact`)
+    expect(redactionFrameKey({ ...subject, orientation: { rotation: 90 } })).not.toBe(
+      redactionFrameKey(subject),
+    )
+    // A committed drag changes no pixel of the editing picture, so it is
+    // not in that key; it changes the result, so it is in this one.
+    const before = redactionResultFrameKey(subject, [region])
+    expect(redactionResultFrameKey(subject, [{ ...region, left: 0.2 }])).not.toBe(before)
+    expect(redactionResultFrameKey(subject, [{ ...region, style: 'blur', strength: 12 }])).not.toBe(
+      before,
+    )
+    expect(before.startsWith(redactionFrameKey(subject))).toBe(true)
   })
 })
 

@@ -61,6 +61,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'TEXT_SIZE_STEP',
   /** How long Loop rests on the hold's first and last frame, in seconds (#425). */
   'LOOP_REST_SECONDS',
+  /** The smallest side a redaction region can be dragged to, in percent of the source (#493). */
+  'REDACTION_MIN_REGION_PERCENT',
   /** A rounded shape mask's corner radius: its ceiling and its starting value, in percent (#266). */
   'MAX_ROUNDED_RADIUS_PERCENT',
   'DEFAULT_ROUNDED_RADIUS_PERCENT',

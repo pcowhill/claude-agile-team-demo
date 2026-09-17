@@ -120,7 +120,7 @@ A fixed aspect for the output frame — 16:9, 9:16, 1:1 or 4:5 — or Auto, whic
 
 ### Visual editor
 
-A still of the frame under a row on which a value — a zoom's region, an overlay's rectangle, a crop, a text block — is dragged into place instead of typed. See [Visual editors](visual-editors.md).
+A still of the frame under a row on which a value — a zoom's region, an overlay's rectangle, a crop, a text block, a redaction region — is dragged into place instead of typed. See [Visual editors](visual-editors.md).
 
 ## Files and storage
 

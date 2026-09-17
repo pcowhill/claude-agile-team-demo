@@ -85,6 +85,7 @@ import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CropEditor } from './CropEditor'
+import { RedactionEditor } from './RedactionEditor'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
@@ -709,6 +710,14 @@ interface RedactionControlsProps {
   /** The accessible name of the row's owner. */
   position: string
   regions: readonly RedactionRegion[] | undefined
+  /**
+   * The element the regions sit on, for the visual editor's still (#493) —
+   * an entry or a video overlay, which carry the same source description
+   * under the same names (`CropSubject`).
+   */
+  subject: CropSubject
+  /** Whether the Visual editors setting offers `Adjust visually…` (#413). */
+  visualEditors: boolean
   /** The element's trim, which a fresh region's window defaults to (#492). */
   inPoint: number
   outPoint: number
@@ -734,12 +743,18 @@ interface RedactionControlsProps {
 function RedactionControls({
   position,
   regions,
+  subject,
+  visualEditors,
   inPoint,
   outPoint,
   duration,
   onCommit,
 }: RedactionControlsProps) {
   const list = regions ?? []
+  // Which region's visual editor is open (#493), by the region's stable id
+  // so a Remove above it does not shift the panel onto a neighbour. One at
+  // a time, as the other editors are: the button is a toggle.
+  const [editingId, setEditingId] = useState<string | null>(null)
   const percent = (value: number) => value * 100
   const replace = (index: number, change: Partial<RedactionRegion>) => {
     const next = list.map((region, at) => (at === index ? { ...region, ...change } : region))
@@ -918,10 +933,36 @@ function RedactionControls({
               >
                 Remove
               </button>
+              {visualEditors && (
+                // A toggle, so the same button closes what it opened — the
+                // zoom's rule (#413); the editor draws under this region's
+                // rows (#493).
+                <button
+                  type="button"
+                  className="timeline-adjust-button"
+                  aria-label={`Adjust ${which} of ${position} visually`}
+                  aria-expanded={editingId === region.id}
+                  title="Drag the region on a still of the source"
+                  onClick={() => setEditingId(editingId === region.id ? null : region.id)}
+                >
+                  Adjust visually…
+                </button>
+              )}
             </div>
             <p className="timeline-hint">
               Blur can be partly reversed on small text; Pixelate and Solid cannot.
             </p>
+            {visualEditors && editingId === region.id && (
+              <RedactionEditor
+                subject={subject}
+                regions={list}
+                index={index}
+                regionName={which}
+                position={position}
+                onCommit={onCommit}
+                onClose={() => setEditingId(null)}
+              />
+            )}
           </div>
         )
       })}
@@ -2215,6 +2256,8 @@ export function Timeline({
                         <RedactionControls
                           position={position}
                           regions={entry.redactions}
+                          subject={entry}
+                          visualEditors={visualEditors}
                           inPoint={entry.inPoint}
                           outPoint={entry.outPoint}
                           duration={entry.duration}
@@ -3010,6 +3053,8 @@ export function Timeline({
                         <RedactionControls
                           position={position}
                           regions={overlay.redactions}
+                          subject={overlay}
+                          visualEditors={visualEditors}
                           inPoint={overlay.inPoint}
                           outPoint={overlay.outPoint}
                           duration={overlay.duration}
