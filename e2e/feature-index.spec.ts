@@ -39,21 +39,21 @@ import { sineWav } from './sineWav'
  *   down, recording, and paused
  * - the Save mode dialog, and the Open project dialog it writes the file
  *   for, both before and after its clips are re-linked
+ * - the discard guard (#520), in both its wordings: one dialog whose
+ *   confirm button is named for what it is about to do, so New Project and
+ *   Open Project… over an unsaved edit show different buttons over it
  *
  * Several controls exist only under a condition (`troubleshooting.md`, *A
  * control is missing*), so the walk creates the condition: it adds a
  * transition between two entries, enables both plugins, turns Duck others
  * on, sets the export marks, expands the preview, and — since #507 — adds a
  * zoom and a redaction region, because neither a zoom's fields nor a
- * region's exist until one has been made.
+ * region's exist until one has been made. Since #525 it adds the other two
+ * + Effect ▾ effects for the same reason: a speed segment's three fields
+ * and a pause's two exist only once the effect does.
  *
  * **What it deliberately does not open** — and so cannot check:
  *
- * - the **discard guard** (*Discard unsaved changes?*, with *Discard and
- *   open* / *Discard and start new*), which needs an unsaved edit standing
- *   when a project is opened or started. Its controls are indexed nowhere
- *   today, which is the same gap this walk closed for the four surfaces
- *   above; tracked separately rather than widened into #507.
  * - the **screen, webcam and screen + camera** recording sources. The
  *   display-capture prompt cannot be auto-answered the way the fake
  *   microphone can, and the dialog's own controls are the same three
@@ -149,6 +149,16 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     pattern: /\b([Zz])oom \d+/g,
     replacement: '$1oom',
     why: "the same shape one effect up: a zoom control names which of an entry's zooms it edits, a position in a list rather than part of the control (#421). Both cases, because Remove says it in lower case",
+  },
+  {
+    pattern: /\b([Ss])peed segment \d+/g,
+    replacement: '$1peed segment',
+    why: "the same shape again: a speed segment's fields name which of an entry's segments they edit (#525). Both cases, because Remove says it in lower case. The stem keeps the effect's whole name — the entry is Speed segment factor, not Speed factor, because Speed segment is what the + Effect ▾ item and the row both call it",
+  },
+  {
+    pattern: /\b([Pp])ause \d+/g,
+    replacement: '$1ause',
+    why: "as the speed segment above (#525). Safe beside Pause and Pause recording, which carry no number: the digit is what this matches",
   },
   {
     pattern: /^(Expand|Collapse) all .*elements$/,
@@ -723,6 +733,23 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     await walkEditor(adjust, `the placement editor of ${position}`)
   }
 
+  // ── A speed segment and a pause (#525) ──────────────────────────────
+  //
+  // The other two + Effect ▾ effects. Neither has a visual editor, so the
+  // block above never met them, and like the zoom their fields exist only
+  // once the effect does — the menu items were always collected, the seven
+  // controls they draw never were. Both go on the same video entry, which
+  // is the kind that takes a remap at all.
+  await chooseEffect(page, firstEntry, 'Speed segment')
+  await expect(
+    timeline.getByRole('spinbutton', { name: `Speed segment 1 factor of ${firstEntry}` }),
+  ).toBeVisible()
+  await chooseEffect(page, firstEntry, 'Pause')
+  await expect(
+    timeline.getByRole('spinbutton', { name: `Pause 1 hold of ${firstEntry} in seconds` }),
+  ).toBeVisible()
+  await record('an entry with a speed segment and a pause', timeline)
+
   // ── The recording dialog (#507) ─────────────────────────────────────
   //
   // Three states since #514, each with controls of its own: counting down
@@ -768,6 +795,34 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await saveMode.getByRole('button', { name: 'Save…', exact: true }).click()
   const projectBytes = await readFile((await (await downloading).path())!)
   await expect(saveMode).toHaveCount(0)
+
+  // ── The discard guard (#520) ────────────────────────────────────────
+  //
+  // One dialog with two wordings: its confirm button is named for what it
+  // is about to do, so File ▾ › New Project and File ▾ › Open Project…
+  // raise the same guard with different buttons. It needs an unsaved edit
+  // standing, which is why it sits here and not earlier — the save above
+  // has just made the project clean, so the walk dirties it again with one
+  // field that touches no row: the canvas preset is project state and is
+  // always on screen, where a row's own field needs its row still open.
+  //
+  // Cancelled both times, never confirmed: Discard and start new would
+  // empty the timeline the rest of this section still needs, and Discard
+  // and open chains straight into the browser's own file picker — which is
+  // why the Open project dialog below is still reached through the file
+  // input, exactly as it was before this guard was walked.
+  await timeline.getByRole('combobox', { name: 'Canvas aspect' }).selectOption({ index: 1 })
+  const discardGuard = page.getByRole('dialog', { name: 'Discard unsaved changes?' })
+  for (const [item, surface] of [
+    ['New Project', 'the discard guard, starting a new project'],
+    ['Open Project…', 'the discard guard, opening a project'],
+  ] as const) {
+    await chooseFromFileMenu(page, item)
+    await expect(discardGuard).toBeVisible()
+    await record(surface, discardGuard)
+    await discardGuard.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(discardGuard).toHaveCount(0)
+  }
 
   await page
     .getByTestId('project-file-input')
@@ -821,8 +876,10 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   ).toEqual([])
   // A guard on the walk itself: a collection that silently stopped finding
   // controls would otherwise pass with an empty missing list. Raised with
-  // the widening (#507) — 165 before it, 194 after — keeping roughly the
+  // each widening — 162 originally, 194 with #507's four surfaces, 205 with
+  // #520's discard guard and #525's speed segment and pause (the other two
+  // came from #527's transport control and its key) — keeping roughly the
   // slack the original 150-against-162 left, so a surface that stops
   // opening is caught while an ordinary control being retired is not.
-  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(185)
+  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(196)
 })
