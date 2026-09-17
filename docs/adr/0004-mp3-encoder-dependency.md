@@ -39,7 +39,9 @@ last published in 2019 and its 1.2.1 build breaks under ES-module bundling
 ESM with TypeScript types, and changes no encoding behaviour.
 
 Encoding parameters: 192 kbps CBR stereo at the AudioContext's sample rate
-(`MP3_KBPS` in `exportMp3.ts` states the reasoning).
+(`MP3_KBPS` in `mp3Bitrate.ts` states the reasoning; it lives apart from
+`exportMp3.ts` so the user guide can read it without defeating that module's
+lazy load, #503).
 
 ### License
 

@@ -15,7 +15,7 @@ import {
 import { FREEZE_STILL_DURATION } from '../freezeFrame'
 import { EXPORT_SIZE_PRESETS, MAX_EXPORT_DIMENSION, MAX_EXPORT_FRAME_RATE, MIN_EXPORT_DIMENSION } from '../exportSettings'
 import { exportFormats } from '../exportFormats'
-import { MP3_KBPS } from '../exportMp3'
+import { MP3_KBPS } from '../mp3Bitrate'
 import { EXPORT_FRAME_RATE } from '../exportVideo'
 import { DEFAULT_DUCK_LEVEL, DUCK_RAMP_SECONDS } from '../gain'
 import { HISTORY_LIMIT } from '../history'

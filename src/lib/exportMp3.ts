@@ -1,4 +1,7 @@
 import type { ExportAudioSink } from './exportVideo'
+// The bitrate lives in its own module so the guide can state it without
+// importing this lazily loaded one (#503); the reasoning is there too.
+import { MP3_KBPS } from './mp3Bitrate'
 
 /**
  * MP3 audio-only export (#269, from customer feedback #264): the mixed
@@ -15,14 +18,6 @@ import type { ExportAudioSink } from './exportVideo'
  * never carries it: a visitor pays for the encoder when an MP3 export runs,
  * not on page load.
  */
-
-/**
- * Encoding bitrate. 192 kbps CBR: comfortably transparent for mixed
- * speech/music at MP3's efficiency, and still ~24 KB per second of audio.
- * (The WebM path records Opus at the browser's default, typically 128 kbps —
- * a more efficient codec, so the MP3 needs the higher number to keep up.)
- */
-export const MP3_KBPS = 192
 
 export const MP3_MIME_TYPE = 'audio/mpeg'
 
