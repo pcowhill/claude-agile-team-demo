@@ -187,6 +187,34 @@ export function areValidRedactions(regions: readonly RedactionRegion[]): boolean
 }
 
 /**
+ * Whether a region is acceptable as **editing** input — the loose check the
+ * reducer uses, exactly as `isValidCrop` is loose where `asCrop` is strict.
+ * Ranges are not rejected here; they clamp (`normalizeRedactionRegion`),
+ * because a dragged handle or a typed percent routinely overshoots and
+ * snapping back is the established behaviour of every other adjustment. A
+ * *file* is someone else's data and gets the strict check instead, since a
+ * region that silently moved on open would no longer cover what it hides.
+ */
+export function isAcceptableRedactionInput(region: RedactionRegion): boolean {
+  if (typeof region.id !== 'string' || region.id === '') return false
+  const numbers = [region.left, region.top, region.width, region.height, region.start, region.end]
+  if (!numbers.every((value) => typeof value === 'number' && Number.isFinite(value))) return false
+  if (region.style !== 'blur' && region.style !== 'pixelate' && region.style !== 'solid') {
+    return false
+  }
+  for (const value of [region.strength, region.blockSize]) {
+    if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value))) return false
+  }
+  return region.color === undefined || typeof region.color === 'string'
+}
+
+/** The editing-path counterpart of `areValidRedactions`: loose, ids unique. */
+export function areAcceptableRedactionInputs(regions: readonly RedactionRegion[]): boolean {
+  if (!regions.every(isAcceptableRedactionInput)) return false
+  return new Set(regions.map((region) => region.id)).size === regions.length
+}
+
+/**
  * The canonical stored form of one region: the rectangle clamped inside the
  * source frame at no less than `MIN_REGION_FRACTION` on each axis, the
  * window ordered and non-empty, and exactly the one style parameter the

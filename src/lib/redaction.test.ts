@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   activeRedactions,
+  areAcceptableRedactionInputs,
   areValidRedactions,
+  isAcceptableRedactionInput,
   DEFAULT_BLUR_STRENGTH,
   DEFAULT_PIXELATE_BLOCK,
   DEFAULT_REDACTION_COLOR,
@@ -94,6 +96,36 @@ describe('isValidRedactionRegion (#492)', () => {
     expect(
       isValidRedactionRegion(region({ style: 'blur', color: '#000000', strength: 4 })),
     ).toBe(false)
+  })
+})
+
+describe('isAcceptableRedactionInput — the editing path clamps where the file path refuses', () => {
+  it('accepts an out-of-range rectangle and window that the strict check rejects', () => {
+    const overshot = region({ left: 0.9, width: 0.5, start: 5, end: 2 })
+    // A dragged handle or a typed percent routinely overshoots; snapping
+    // back is what every other adjustment does (`isValidCrop` is loose too).
+    expect(isValidRedactionRegion(overshot)).toBe(false)
+    expect(isAcceptableRedactionInput(overshot)).toBe(true)
+    expect(isValidRedactionRegion(normalizeRedactionRegion(overshot))).toBe(true)
+  })
+
+  it('accepts a stale parameter from another style, which normalizing drops', () => {
+    const stale = region({ style: 'blur', color: '#ffffff', strength: 8 })
+    expect(isValidRedactionRegion(stale)).toBe(false)
+    expect(isAcceptableRedactionInput(stale)).toBe(true)
+    expect(normalizeRedactionRegion(stale).color).toBeUndefined()
+  })
+
+  it('still refuses what no amount of clamping could fix', () => {
+    expect(isAcceptableRedactionInput(region({ id: '' }))).toBe(false)
+    expect(isAcceptableRedactionInput(region({ left: Number.NaN }))).toBe(false)
+    expect(isAcceptableRedactionInput(region({ end: Number.POSITIVE_INFINITY }))).toBe(false)
+    expect(isAcceptableRedactionInput(region({ style: 'smudge' as never }))).toBe(false)
+  })
+
+  it('refuses duplicate ids either way — ids address a region within its element', () => {
+    expect(areAcceptableRedactionInputs([region({ id: 'a' }), region({ id: 'a' })])).toBe(false)
+    expect(areAcceptableRedactionInputs([region({ id: 'a' }), region({ id: 'b' })])).toBe(true)
   })
 })
 

@@ -5,7 +5,7 @@ import type { Crop } from './crop'
 import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
 import type { RedactionRegion } from './redaction'
 import {
-  areValidRedactions,
+  areAcceptableRedactionInputs,
   normalizeRedactions,
   redactionsEqual,
 } from './redaction'
@@ -1367,7 +1367,7 @@ function withPastedVisualSettings<T extends PastedVisualSettings>(
     // arrives through an action like any other input, so it is validated
     // before it is stored — the strict check, since a region that is out of
     // range no longer covers what it was drawn over (#492).
-    if (regions !== undefined && !areValidRedactions(regions)) return undefined
+    if (regions !== undefined && !areAcceptableRedactionInputs(regions)) return undefined
     const normalized = normalizeRedactions(regions)
     if (!redactionsEqual(normalized, element.redactions)) {
       const target = draft()
@@ -2704,7 +2704,7 @@ function reduceTimelineCollections(
       // Slates carry no redactions (#492): a flat colour has nothing to
       // hide, exactly as it carries no crop (#255).
       if (isSlateEntry(entry)) return state
-      if (!areValidRedactions(action.redactions)) return state
+      if (!areAcceptableRedactionInputs(action.redactions)) return state
       const normalized = normalizeRedactions(action.redactions)
       // Compare normalized against stored (stored is always normalized), so
       // re-committing the same list — or clearing an entry that has none —
@@ -2723,7 +2723,7 @@ function reduceTimelineCollections(
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
       if (index === -1) return state
       const overlay = videoOverlays[index]
-      if (!areValidRedactions(action.redactions)) return state
+      if (!areAcceptableRedactionInputs(action.redactions)) return state
       const normalized = normalizeRedactions(action.redactions)
       if (redactionsEqual(normalized, overlay.redactions)) return state
       const overlays = [...videoOverlays]
