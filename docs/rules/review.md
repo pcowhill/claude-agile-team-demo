@@ -26,7 +26,11 @@ recorded as a `COMMENT` review, and "Review outcomes" below says what each
 one must say. The negative verb is written down because a session that
 reaches for it and reads the refusal as "I am not certain I am allowed to"
 either stalls or merges anyway, and that one ends with a defect on `main`
-(#502; measured on the changes-required review of #501).
+(#502; measured on the changes-required review of #501). To check what the
+API does rather than take this paragraph's word for it, submit the probe
+against a **merged** PR: a refusal creates nothing, so it costs one call and
+leaves no artifact, while the same probe against an open PR records a
+verdict nobody meant if it succeeds (#508).
 
 ## Reviewing a PR
 
