@@ -194,7 +194,7 @@ test('a pause is absent from the file: one clip, shorter than the wall time, and
   expect(wallSeconds - duration, 'the pause is missing from the file').toBeGreaterThan(1)
 })
 
-test('a screen + camera take paused ten times delivers two clips whose lengths agree within a frame (#514)', async ({
+test('a screen + camera take paused ten times delivers two clips whose lengths agree within three frames (#514)', async ({
   page,
 }) => {
   test.setTimeout(180_000)

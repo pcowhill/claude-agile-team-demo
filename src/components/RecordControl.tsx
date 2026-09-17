@@ -244,6 +244,7 @@ export function RecordControl({
     // `elapsed` is deliberately part of the condition rather than a
     // dependency: the focus move happens once, on the first reading of a
     // fresh take, not on every tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capture, phase, clock])
 
   // The live previews (#225/#226/#388): the dialog's <video> elements play
