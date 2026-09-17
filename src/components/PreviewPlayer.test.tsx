@@ -3319,6 +3319,147 @@ describe('chapter markers (#487)', () => {
   })
 })
 
+describe('review speed (#522)', () => {
+  const oneEntry: TimelineState = {
+    entries: [
+      {
+        id: 'e1',
+        clipId: 'c1',
+        name: 'first.webm',
+        duration: 10,
+        url: 'blob:first',
+        inPoint: 0,
+        outPoint: 10,
+      },
+    ],
+  }
+  /** The same entry carrying a 2× speed segment over its whole length. */
+  const doubled: TimelineState = {
+    ...oneEntry,
+    remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 0, end: 10, factor: 2 }],
+  }
+  const withTrack: TimelineState = {
+    ...oneEntry,
+    audioTracks: [
+      {
+        id: 't1',
+        clipId: 'a1',
+        name: 'music.mp3',
+        duration: 30,
+        url: 'blob:music',
+        offset: 0,
+        inPoint: 0,
+        outPoint: 10,
+      },
+    ],
+  }
+
+  const pausedState = new WeakMap<HTMLMediaElement, boolean>()
+  let frames: FrameRequestCallback[]
+
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, false)
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      pausedState.set(this, true)
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      return pausedState.get(this) ?? true
+    })
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const control = () => screen.getByRole('combobox', { name: 'Review speed' })
+  const video = () => screen.getByTestId('preview-video') as HTMLVideoElement
+  const tickAt = (time: number) => {
+    video().currentTime = time
+    act(() => frames[frames.length - 1](0))
+  }
+
+  it('offers the four approved rates beside Loop, at 1×, and says nothing while it is 1×', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    expect(control()).toHaveValue('1')
+    expect([...control().querySelectorAll('option')].map((option) => option.textContent)).toEqual([
+      '0.5×',
+      '1×',
+      '1.5×',
+      '2×',
+    ])
+    // Beside the Loop toggle it belongs with, as the marks and Loop are.
+    expect(
+      screen.getByTestId('preview-loop').compareDocumentPosition(control()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.queryByTestId('preview-review-rate')).not.toBeInTheDocument()
+  })
+
+  it('shows the rate beside the playhead once it is not 1×, and hides it again', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    fireEvent.change(control(), { target: { value: '2' } })
+    expect(screen.getByTestId('preview-review-rate')).toHaveTextContent('2×')
+    expect(screen.getByTestId('preview-position')).toHaveTextContent('0:00 / 0:10 · 2×')
+    fireEvent.change(control(), { target: { value: '0.5' } })
+    expect(screen.getByTestId('preview-review-rate')).toHaveTextContent('0.5×')
+    fireEvent.change(control(), { target: { value: '1' } })
+    expect(screen.queryByTestId('preview-review-rate')).not.toBeInTheDocument()
+  })
+
+  it('R steps the four rates and wraps, exactly as the control does', () => {
+    render(<PreviewPlayer timeline={oneEntry} />)
+    for (const expected of ['1.5', '2', '0.5', '1', '1.5']) {
+      fireEvent.keyDown(window, { key: 'r' })
+      expect(control()).toHaveValue(expected)
+    }
+  })
+
+  it('drives the primary element at the review rate — multiplied by the clip’s own speed segment', () => {
+    render(<PreviewPlayer timeline={doubled} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    tickAt(1)
+    // The segment alone: 2×.
+    expect(video().playbackRate).toBe(2)
+    fireEvent.change(control(), { target: { value: '2' } })
+    tickAt(2)
+    // The product #515 decided on, and the guide states: 2 × 2 = 4.
+    expect(video().playbackRate).toBe(4)
+    // Back to 1× and the element is the timeline's own rate again.
+    fireEvent.change(control(), { target: { value: '1' } })
+    tickAt(3)
+    expect(video().playbackRate).toBe(2)
+  })
+
+  it('drives an audio track at the review rate, so its clock keeps up with the position', () => {
+    // Without this the position the track is corrected towards advances
+    // faster than the element does, and the drift test re-seeks every frame.
+    render(<PreviewPlayer timeline={withTrack} />)
+    const track = screen.getByTestId('preview-audio-0') as HTMLAudioElement
+    expect(track.playbackRate).toBe(1)
+    fireEvent.change(control(), { target: { value: '2' } })
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), {
+      target: { value: '3' },
+    })
+    expect(track.playbackRate).toBe(2)
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {
