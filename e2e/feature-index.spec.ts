@@ -38,7 +38,7 @@ import { sineWav } from './sineWav'
  * on, sets the export marks, and expands the preview.
  *
  * **What it deliberately does not open** — and so cannot check: the visual
- * editors (Crop, Zoom, Overlay, Text, Frame), the recording dialog behind
+ * editors (Crop, Zoom, Overlay, Text, Redaction, Frame), the recording dialog behind
  * Record ▾'s sources, the Open project and Save mode dialogs, and the user
  * guide panel itself. Their controls may be indexed; the walk neither
  * requires nor forbids an entry for them, and it never fails for an entry it
@@ -171,6 +171,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Adjust the placement visually',
     to: 'Adjust visually…',
     why: 'as above — the placement editor, same button text',
+  },
+  {
+    from: 'Adjust Redaction region visually',
+    to: 'Adjust visually…',
+    why: 'as above — the redaction editor (#493), same button text; the shape rule above lifted the region number out',
   },
   {
     from: 'Remove from timeline',

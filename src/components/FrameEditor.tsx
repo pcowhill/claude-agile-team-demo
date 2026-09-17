@@ -118,6 +118,20 @@ interface FrameEditorProps {
    * outline cannot disagree with what the preview clips or the export draws.
    */
   silhouette?: ShapeMask
+  /**
+   * Whether to dim the picture outside the rectangle (#493). On by default:
+   * for a zoom, a placement and a crop, the outside is what the effect
+   * leaves out. A redaction hides the *inside*, and dimming the outside
+   * would read as a crop, so that editor turns the shade off.
+   */
+  shade?: boolean
+  /**
+   * Other rectangles of the same kind on this picture, drawn as inert
+   * outlines so the user sees what is already placed (#493's sibling
+   * regions). They take no pointer and no key: a drag on one falls through
+   * to nothing, exactly as a drag on bare picture does.
+   */
+  outlines?: readonly FrameRect[]
   /** Aspect to show until the snapshot arrives (the output frame's, if known). */
   fallbackAspect?: number
   /**
@@ -163,6 +177,8 @@ export function FrameEditor({
   guides,
   handles = DEFAULT_HANDLES,
   silhouette,
+  shade = true,
+  outlines,
   fallbackAspect = 16 / 9,
   onFrame,
   snapshot = snapshotTimelineFrame,
@@ -481,11 +497,26 @@ export function FrameEditor({
           >
             {/* Everything outside the rectangle is dimmed: what the effect
                 leaves out. Even-odd fill cuts the rectangle out of the frame. */}
-            <path
-              className="frame-editor-shade"
-              fillRule="evenodd"
-              d={`M0 0H${size.width}V${size.height}H0Z M${px.x} ${px.y}h${px.width}v${px.height}h${-px.width}Z`}
-            />
+            {shade && (
+              <path
+                className="frame-editor-shade"
+                fillRule="evenodd"
+                d={`M0 0H${size.width}V${size.height}H0Z M${px.x} ${px.y}h${px.width}v${px.height}h${-px.width}Z`}
+              />
+            )}
+            {/* Siblings (#493): the other rectangles already on this picture,
+                as outlines under the one being edited. */}
+            {outlines?.map((outline, index) => (
+              <rect
+                key={index}
+                className="frame-editor-outline"
+                data-testid="frame-editor-outline"
+                x={toPx(outline.x * size.width)}
+                y={toPx(outline.y * size.height)}
+                width={toPx(outline.width * size.width)}
+                height={toPx(outline.height * size.height)}
+              />
+            ))}
             {shownGuides.x !== null && (
               <line
                 className="frame-editor-guide"

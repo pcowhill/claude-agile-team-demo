@@ -35,7 +35,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add as overlay** — a media library row's ⋯ menu. [Media library › The ⋯ menu](media-library.md#the-menu)
 - **Add chapter marker at playhead** — Frame ▾. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
-- **Adjust visually…** — beside the crop fields, an overlay's placement fields and a text overlay's centre fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
+- **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields and a redaction region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Audio fade-out** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
