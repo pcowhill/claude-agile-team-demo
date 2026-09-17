@@ -157,6 +157,10 @@ test('one take records screen and camera, placed as entry plus corner overlay (#
       { timeout: 30_000 },
     )
     .toBeGreaterThan(1.2)
+  // The previews go live during the countdown (#514), before the recorders
+  // start, so the span above can pass while the take has barely begun;
+  // the recorded-time readout is what says a second of *recording* exists.
+  await expect(page.getByTestId('record-elapsed')).toHaveText(/0:0[1-9]/, { timeout: 15_000 })
   await page.getByRole('button', { name: 'Stop recording' }).click()
 
   // Both captures land as ordinary library clips under their own names.

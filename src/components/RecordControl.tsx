@@ -242,9 +242,8 @@ export function RecordControl({
     if (phase === 'countdown') startNowRef.current?.focus()
     else if (phase === 'recording' && clock !== null && elapsed === 0) pauseRef.current?.focus()
     // `elapsed` is deliberately part of the condition rather than a
-    // dependency of interest: the focus move happens once, on the first
-    // reading of a fresh take, not on every tick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // dependency: the focus move happens once, on the first reading of a
+    // fresh take, not on every tick.
   }, [capture, phase, clock])
 
   // The live previews (#225/#226/#388): the dialog's <video> elements play
