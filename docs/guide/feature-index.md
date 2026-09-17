@@ -14,7 +14,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **↑ (move up)** — a row's main line; moves the element up within its section. [Timeline › A row](timeline.md#a-row)
 - **↑ / ↓** — jumps the playhead to the previous or next cut, transition edge or chapter marker. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
 - **↓ (move down)** — a row's main line; moves the element down within its section. [Timeline › A row](timeline.md#a-row)
-- **↻ Loop** — the preview transport; replays the marked range on repeat. [Preview and playback › Loop](preview-and-playback.md#loop)
+- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold or the redaction region’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
 - **⇤ Mark out** — the preview transport; marks the export range's end at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⇥ Mark in** — the preview transport; marks the export range's start at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⋯ menu** — a timeline row's main line, and a media library row. [Timeline › The ⋯ menu](timeline.md#the-menu) · [Media library › The ⋯ menu](media-library.md#the-menu)
@@ -25,6 +25,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **▶ Play** — the preview transport. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **▾ (expand a row)** — a row's main line; shows the element's fields. [Timeline › A row](timeline.md#a-row)
 - **▾ (fold a section)** — a section heading; folds that whole section away. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
+- **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
 - **✕ Marks** — the preview transport, once a mark is set; clears both. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 
@@ -55,6 +56,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Centre X** — an expanded text row; the block's centre across the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Centre Y** — an expanded text row; the block's centre down the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Chapter list** — the export dialog's Range group; the read-only field a refused copy falls back to. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
+- **Choose media files…** — the re-link dialog, opening a references-only project; picks the original files to match against the project’s clips. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Close** — the Settings and Plugins dialogs. [Settings › Opening Settings](settings.md#opening-settings)
 - **Color** — an expanded text row, and a colour slate's row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Timeline › The header](timeline.md#the-header)
 - **Color slate** — Add ▾; a solid colour of any shade, with a duration. [Timeline › The header](timeline.md#the-header)
@@ -94,6 +96,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## E
 
+- **Embed media in the project file** — the Save project dialog; one self-contained file with the media data in it. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Esc** — leaves the source preview, back to the sequence. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
@@ -159,6 +162,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## O
 
+- **Open project** — the re-link dialog; applies the project once every clip is linked. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Open Project…** — File ▾. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Out** — an expanded video or audio row; where the clip stops playing. [Editing video › Trimming](editing-video.md#trimming)
 
@@ -170,6 +174,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
+- **Preview** — the slider under a visual editor’s still; scrubs the zoom’s envelope or the redaction region’s window. [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
 
 ## R
 
@@ -188,9 +193,10 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove** — a media library row's ⋯ menu; takes the clip off the shelf. [Media library › Removing a clip](media-library.md#removing-a-clip)
 - **Remove redaction region** — a redaction region; takes it away. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Remove transition** — the ✕ on a transition control between two entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
+- **Remove zoom** — a zoom on an expanded sequence entry; takes it away. [Editing video › Zooms](editing-video.md#zooms)
 - **Rename…** — a media library row's ⋯ menu, and a timeline row's ⋯ menu. [Media library › Renaming a clip](media-library.md#renaming-a-clip) · [Timeline › Rename…](timeline.md#rename)
 - **Reset color** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
-- **Reset crop** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
+- **Reset crop** — an expanded video or image row › Picture ▸ › Crop, and the **Reset** button in the crop editor. [Editing video › Crop](editing-video.md#crop) · [Visual editors › Reset](visual-editors.md#reset)
 - **Reset default subtitle style** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Reset orientation** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Restore size** — the preview header, once expanded; gives the width back. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
@@ -203,6 +209,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Save** — the 💾 button beside File ▾, and File ▾ › Save. [Projects › Save and Save As…](projects.md#save-and-save-as)
 - **Save As…** — File ▾. [Projects › Save and Save As…](projects.md#save-and-save-as)
 - **Save frame as PNG…** — Frame ▾. [Preview and playback › The Frame ▾ menu](preview-and-playback.md#the-frame-menu)
+- **Save…** — the Save project dialog; writes the file in the mode chosen above it. [Projects › Save and Save As…](projects.md#save-and-save-as)
 - **Screen** — Record ▾. [Recording › Screen](recording.md#screen)
 - **Screen + camera** — Record ▾. [Recording › Screen + camera](recording.md#screen-camera)
 - **Seek bar** — the preview transport; drag it to move the playhead. [Preview and playback › The transport](preview-and-playback.md#the-transport)
@@ -211,12 +218,15 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Settings…** — File ▾. [Settings › Opening Settings](settings.md#opening-settings)
 - **Shape mask** — an expanded overlay row › Picture ▸. [Editing video › Shape mask](editing-video.md#shape-mask)
 - **Shift + ← / →** — steps the playhead back and forward by the jump size. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
+- **Show result** — a visual editor’s scrub row; draws the frame the viewer gets instead of the outline. [Visual editors › Show result](visual-editors.md#show-result)
 - **Size** — an expanded text row; the line height as a fraction of the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Space** — plays or pauses the preview. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
 - **Speed segment** — + Effect ▾ on a sequence entry. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Split at playhead** — Frame ▾. [Editing video › Split at playhead](editing-video.md#split-at-playhead)
 - **Start now** — the recording dialog, during the countdown; skips it. [Recording › The countdown](recording.md#the-countdown)
 - **Start time** — an expanded overlay, text or audio row; the second of the video it begins at. [Timeline › A row](timeline.md#a-row)
+- **Stop recording** — the recording dialog; ends the capture and hands the clip to the library. [Recording › The recording dialog](recording.md#the-recording-dialog)
+- **Store references only** — the Save project dialog; a small file of edits and clip names, re-linked when it is opened. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Subtitle style** — under the timeline header, once the timeline holds a text overlay. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Subtitles from .srt file…** — Add ▾. [Text and subtitles › Subtitles from an .srt file](text-and-subtitles.md#subtitles-from-an-srt-file)
 
@@ -251,3 +261,10 @@ This list is checked against the running editor in CI: a control the app shows a
 ## Z
 
 - **Zoom** — + Effect ▾ on a sequence entry. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom centre X** — a zoom on an expanded sequence entry; where it magnifies, across the frame. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom centre Y** — a zoom on an expanded sequence entry; where it magnifies, down the frame. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom hold** — a zoom on an expanded sequence entry; how long it stays at full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom ramp-in** — a zoom on an expanded sequence entry; how long it takes to reach full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom ramp-out** — a zoom on an expanded sequence entry; how long it takes to return, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom scale** — a zoom on an expanded sequence entry; how far it magnifies (the × field). [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom start** — a zoom on an expanded sequence entry; where it begins, in seconds into the entry. [Editing video › Zooms](editing-video.md#zooms)
