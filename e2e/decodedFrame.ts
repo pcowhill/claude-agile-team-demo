@@ -177,6 +177,142 @@ export async function sampleExportedFrame(
   )
 }
 
+/** One cell of a sampled grid: the average colour of its patch. */
+export interface GridCell {
+  r: number
+  g: number
+  b: number
+}
+
+export interface GridSample {
+  /** `rows` arrays of `columns` cells, in reading order. */
+  cells: GridCell[][]
+  duration: number
+  width: number
+  height: number
+}
+
+/**
+ * Decodes the exported WebM, seeks as `sampleExportedFrame` does, and
+ * returns a `columns` × `rows` grid of cell averages over a fractional
+ * region — for assertions a single average cannot make: whether a patch is
+ * FLAT (a pixelated block, whose cells must all agree), whether two patches
+ * differ, or what one small patch's colour is at a known place (#492).
+ *
+ * The seek-and-presentation wait is #276's, the same as `sampleExportedFrame`
+ * above; it is repeated rather than shared because `page.evaluate` sends a
+ * whole function across the bridge and cannot call a helper defined out
+ * here. Sampling a grid of averages rather than raw pixels keeps the
+ * transfer bounded — a 1280×720 frame is 3.7M numbers — while still
+ * answering those questions.
+ */
+export async function sampleExportedGrid(
+  page: Page,
+  webm: Buffer,
+  fromEndSeconds: number,
+  rect: SampleRect,
+  columns: number,
+  rows: number,
+): Promise<GridSample> {
+  return await page.evaluate(
+    async ({ base64, fromEndSeconds, rect, columns, rows }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
+      const video = document.createElement('video')
+      video.muted = true
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const settleIfKnown = () => {
+            if (Number.isFinite(video.duration) && video.duration > 0) {
+              resolve()
+              return true
+            }
+            return false
+          }
+          video.onerror = () => reject(new Error('exported file failed to decode'))
+          video.onloadedmetadata = () => {
+            if (settleIfKnown()) return
+            video.ondurationchange = () => settleIfKnown()
+            video.currentTime = Number.MAX_SAFE_INTEGER
+          }
+          video.src = url
+        })
+        const duration = video.duration
+        const target = Math.max(0, duration - fromEndSeconds)
+        await new Promise<void>((resolve, reject) => {
+          const started = performance.now()
+          let presented = false
+          const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+            if (Math.abs(metadata.mediaTime - target) < 0.25) presented = true
+            else video.requestVideoFrameCallback(onFrame)
+          }
+          video.requestVideoFrameCallback(onFrame)
+          video.currentTime = target
+          let settledAt: number | null = null
+          const check = () => {
+            if (
+              !video.seeking &&
+              Math.abs(video.currentTime - target) < 0.25 &&
+              video.readyState >= 2
+            ) {
+              settledAt ??= performance.now()
+              if (presented || performance.now() - settledAt > 1500) {
+                resolve()
+                return
+              }
+            }
+            if (performance.now() - started > 10_000) {
+              reject(new Error('seeking the exported file timed out'))
+            } else {
+              requestAnimationFrame(check)
+            }
+          }
+          check()
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(video, 0, 0)
+        const x0 = Math.floor(rect.x * canvas.width)
+        const y0 = Math.floor(rect.y * canvas.height)
+        const w = Math.max(1, Math.floor(rect.width * canvas.width))
+        const h = Math.max(1, Math.floor(rect.height * canvas.height))
+        const data = ctx.getImageData(x0, y0, w, h).data
+        const cells: { r: number; g: number; b: number }[][] = []
+        for (let row = 0; row < rows; row += 1) {
+          const line: { r: number; g: number; b: number }[] = []
+          const yStart = Math.floor((row * h) / rows)
+          const yEnd = Math.max(yStart + 1, Math.floor(((row + 1) * h) / rows))
+          for (let column = 0; column < columns; column += 1) {
+            const xStart = Math.floor((column * w) / columns)
+            const xEnd = Math.max(xStart + 1, Math.floor(((column + 1) * w) / columns))
+            let r = 0
+            let g = 0
+            let b = 0
+            let count = 0
+            for (let y = yStart; y < yEnd; y += 1) {
+              for (let x = xStart; x < xEnd; x += 1) {
+                const index = (y * w + x) * 4
+                r += data[index]
+                g += data[index + 1]
+                b += data[index + 2]
+                count += 1
+              }
+            }
+            line.push({ r: r / count, g: g / count, b: b / count })
+          }
+          cells.push(line)
+        }
+        return { cells, duration, width: video.videoWidth, height: video.videoHeight }
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    },
+    { base64: webm.toString('base64'), fromEndSeconds, rect, columns, rows },
+  )
+}
+
 /**
  * Decodes the exported WebM once and walks it end to end with paused seeks
  * on a fixed grid, sampling the given bands of every visited frame (#370).

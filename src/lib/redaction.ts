@@ -135,6 +135,14 @@ export const DEFAULT_REGION_RECT = { left: 0.35, top: 0.4, width: 0.3, height: 0
 /** Lowercase `#rrggbb`, the stored colour form shared with slates (#143). */
 const HEX_COLOR = /^#[0-9a-f]{6}$/
 
+/**
+ * Slack for the pixelate block count: a region's source rectangle comes out
+ * of a fraction multiplication, so a rectangle meant to be exactly one
+ * block wide measures 64.00000000000003 px. Far smaller than any block a
+ * user can ask for, and far larger than the dust it absorbs.
+ */
+const BLOCK_EPSILON = 1e-6
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** A plain rectangle. Structurally `FitRect`, without the import cycle. */
@@ -439,8 +447,15 @@ export function drawRedactions(options: DrawRedactionsOptions): void {
     }
     if (region.style === 'pixelate') {
       const blockSize = Math.max(1, region.blockSize ?? DEFAULT_PIXELATE_BLOCK)
-      const columns = Math.max(1, Math.ceil(src.width / blockSize))
-      const rows = Math.max(1, Math.ceil(src.height / blockSize))
+      // The block count is a ceiling with a hair of slack, because the
+      // source rectangle is computed from fractions and lands on
+      // 64.00000000000003 rather than 64 — a bare ceiling then yields one
+      // extra sliver block, which is visible: a region exactly N blocks
+      // wide would be pixelated on an N+1 grid, and where the source
+      // changes colour at a block boundary the sliver reads as a seam.
+      const blocks = (extent: number) => Math.max(1, Math.ceil(extent / blockSize - BLOCK_EPSILON))
+      const columns = blocks(src.width)
+      const rows = blocks(src.height)
       if (buffer === null) buffer = makeBuffer(createCanvas)
       if (buffer === null) continue
       const { canvas, context: bufferContext } = buffer

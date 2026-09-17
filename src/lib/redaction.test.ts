@@ -425,6 +425,37 @@ describe('drawRedactions', () => {
     expect(context.imageSmoothingEnabled).toBe(true)
   })
 
+  it('gives a region exactly N blocks wide N blocks, not N+1 (float dust)', () => {
+    const { context } = recordingContext()
+    const { createCanvas, made } = bufferCanvas()
+    // 0.4 → 0.6 of a 320 px source is 64 px, but the fraction arithmetic
+    // lands on 64.00000000000003, and a bare ceiling turns that into two
+    // blocks. The extra sliver is visible where the source changes colour
+    // at the boundary — measured on the export in #492, where a region
+    // meant to be one flat block came out as a green block and a blue one.
+    drawRedactions({
+      ...base,
+      context,
+      createCanvas,
+      sourceWidth: 320,
+      sourceHeight: 180,
+      drawRect: { x: 0, y: 0, width: 320, height: 180 },
+      regions: [
+        region({
+          left: 0.4,
+          top: 0.4,
+          width: 0.2,
+          height: 0.2,
+          style: 'pixelate',
+          color: undefined,
+          blockSize: 64,
+        }),
+      ],
+    })
+    // 0.2 × 320 = 64 px across, so exactly one block.
+    expect(made[0]).toMatchObject({ width: 1 })
+  })
+
   it('blurs clipped to the region, scaling the source-pixel radius to the drawn size', () => {
     const { context, calls } = recordingContext()
     drawRedactions({
