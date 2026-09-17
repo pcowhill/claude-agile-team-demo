@@ -1,7 +1,26 @@
+/* The shell is exactly as tall as the window (#524). `min-height: 100vh`
+   was not itself wrong — with little content the document did fit — but it
+   left `.app-body`'s height *indefinite*, so nothing inside could size
+   itself against "the room under the header" and had to say `100vh`
+   instead. That is how the guide panel came to be a whole viewport tall
+   starting a header-height down the page (see `.user-guide` below), and why
+   a busy timeline's overflow went to the page and put the timeline below the
+   window. Both are the customer's report (#519).
+
+   A definite height fixes the cause rather than either symptom: flex now
+   hands `.app-body` exactly what the header leaves, so `max-height: 100%`
+   and an internally scrolling column mean what they say. It also needs no
+   measuring — `.app-header` wraps as the window narrows (92 px at 1280,
+   146 px at 360, measured), so no `calc(100vh - <constant>)` could have
+   stood in for it and a `ResizeObserver` would have been the alternative.
+
+   `dvh` rather than `vh`: `vh` is the *large* viewport on mobile browsers —
+   the height the page has once the URL bar has scrolled away — so it would
+   put the shell's own bottom under the bar whenever it is showing. */
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
 }
 
 .app-drag-target {
@@ -35,6 +54,11 @@
    grid re-flows into the rest, rather than the panel covering anything. */
 .app-body {
   flex: 1;
+  /* Off, or the body keeps its content-based minimum height and grows back
+     past the space flex just gave it — `min-height: auto` on a flex item is
+     what makes it refuse to shrink below its content, and it would undo the
+     definite height above. */
+  min-height: 0;
   display: flex;
   align-items: stretch;
   min-width: 0;
@@ -48,9 +72,15 @@
 .user-guide {
   flex: 0 0 24rem;
   min-width: 0;
-  max-height: 100vh;
-  position: sticky;
-  top: 0;
+  /* The height of the column it sits in, and no more (#524). This was
+     `max-height: 100vh` with `position: sticky; top: 0`: at the top of a
+     scrollable page the panel began at its static position under the header
+     and was allowed a whole viewport below that, so it ended a header-height
+     past the bottom of the window with the lower end of its own scrollbar
+     off-screen — and scrolling down "slightly" fixed it, because sticking at
+     `top: 0` made the two agree again (#519). Sticky goes with it: the page
+     no longer scrolls, so there is nothing left to stick to. */
+  max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   border-left: 1px solid #333;
@@ -81,13 +111,24 @@
 .app-main {
   flex: 1;
   min-width: 0;
+  /* The editor scrolls inside its own column instead of scrolling the page
+     (#524). The overflow a busy timeline produces has to go somewhere; sent
+     to the page it put the bottom of the timeline below the window, which is
+     the second half of what the customer reported. Sent here it cannot: the
+     column is exactly the height the window leaves, so every panel is either
+     on screen or reachable by scrolling this box, and the header stays put.
+     `min-height: 0` for the same reason as `.app-body` above. */
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   grid-template-columns: 1fr 2fr;
   /* The top row (library + preview) never shrinks below a genuinely usable
      height (#128, customer-approved in #126): a busy timeline pushes the
-     page into vertical scrolling instead of crushing the preview toward a
-     sliver. 40vh leaves the stage a real picture after panel chrome. */
-  grid-template-rows: minmax(40vh, 1fr) minmax(160px, auto);
+     column into vertical scrolling instead of crushing the preview toward a
+     sliver. 40dvh leaves the stage a real picture after panel chrome; it
+     read 40vh until #524 moved that scrolling from the page into this
+     column and made every viewport unit here a dynamic one. */
+  grid-template-rows: minmax(40dvh, 1fr) minmax(160px, auto);
   gap: 1rem;
   padding: 1rem 1.5rem;
 }
