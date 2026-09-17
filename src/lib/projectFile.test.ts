@@ -37,6 +37,7 @@ import {
   IMAGE_OVERLAYS_SCHEMA_VERSION,
   RENAMED_CLIPS_SCHEMA_VERSION,
   MARKERS_SCHEMA_VERSION,
+  REDACTION_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1120,8 +1121,10 @@ describe('project file versioning', () => {
     // version 14 added entry background fill (#259); version 15 added
     // overlay shape masks (#266); version 16 added the project's canvas
     // preset (#273); version 17 added image overlay layers (#294); version
-    // 18 added renamed library clips with their original filename (#404).
-    expect(PROJECT_SCHEMA_VERSION).toBe(19)
+    // 18 added renamed library clips with their original filename (#404);
+    // version 19 added chapter markers (#487); version 20 added entry and
+    // overlay redaction regions (#492).
+    expect(PROJECT_SCHEMA_VERSION).toBe(20)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1141,6 +1144,7 @@ describe('project file versioning', () => {
     expect(IMAGE_OVERLAYS_SCHEMA_VERSION).toBe(17)
     expect(RENAMED_CLIPS_SCHEMA_VERSION).toBe(18)
     expect(MARKERS_SCHEMA_VERSION).toBe(19)
+    expect(REDACTION_SCHEMA_VERSION).toBe(20)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3682,6 +3686,220 @@ describe('chapter markers in project files (#487, schema version 19)', () => {
       await gzipJson(withMarkers([{ id: 'm', time: 1, name: 'X' }, { id: 'm', time: 2, name: 'Y' }])),
       'timeline.markers[1].id "m" is duplicated',
     )
+  })
+})
+
+// Redaction regions (#492, schema version 20). The rules every optional
+// element field obeys: the key is written only while any exist, a
+// redaction-free project stays byte-identical at its lower version, a
+// malformed region is refused by name. What is different here is that
+// nothing clamps on open — a region that silently moved would no longer
+// cover what it was drawn over.
+describe('redaction regions in project files (#492, schema version 20)', () => {
+  const solid = {
+    id: 'rd1',
+    left: 0.1,
+    top: 0.2,
+    width: 0.3,
+    height: 0.25,
+    start: 1,
+    end: 4,
+    style: 'solid' as const,
+    color: '#000000',
+  }
+  const pixelated = {
+    id: 'rd2',
+    left: 0.5,
+    top: 0.5,
+    width: 0.2,
+    height: 0.2,
+    start: 0,
+    end: 2,
+    style: 'pixelate' as const,
+    blockSize: 16,
+  }
+  const blurred = {
+    id: 'rd3',
+    left: 0,
+    top: 0,
+    width: 0.4,
+    height: 0.1,
+    start: 2,
+    end: 3,
+    style: 'blur' as const,
+    strength: 12,
+  }
+  const redacted: TimelineState = {
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], redactions: [solid, pixelated] },
+      ...timeline.entries.slice(1),
+    ],
+  }
+
+  it('round-trips every style at the new version, in paint order', async () => {
+    const bytes = await serializeProject(library, redacted)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(REDACTION_SCHEMA_VERSION)
+    const entries = (document.timeline as Record<string, unknown>).entries as Record<
+      string,
+      unknown
+    >[]
+    expect(entries[0].redactions).toEqual([solid, pixelated])
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries[0].redactions).toEqual([solid, pixelated])
+    // Order is paint order, so it survives exactly.
+    expect(result.project.timeline.entries[0].redactions?.map((each) => each.id)).toEqual([
+      'rd1',
+      'rd2',
+    ])
+  })
+
+  it('round-trips a blur region on a video overlay too, embedded and references-only', async () => {
+    const withOverlay: TimelineState = {
+      ...timeline,
+      videoOverlays: [
+        {
+          id: 'ov1',
+          clipId: 'c2',
+          name: 'city.webm',
+          duration: 4,
+          url: 'blob:session/c2',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 4,
+          x: 0.6,
+          y: 0.6,
+          width: 0.3,
+          height: 0.3,
+          redactions: [blurred],
+        },
+      ],
+    }
+    // Both save modes: the regions live on the element, so neither the
+    // references-only nor the embedded path may treat them differently.
+    for (const media of [undefined, fixtureMedia()]) {
+      const bytes = await serializeProject(library, withOverlay, media)
+      const result = await deserializeProject(bytes)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.project.timeline.videoOverlays?.[0].redactions).toEqual([blurred])
+    }
+  })
+
+  it('writes no key and no version bump for a project with no regions', async () => {
+    const without = await serializeProject(library, timeline)
+    const explicitlyEmpty = await serializeProject(library, {
+      ...timeline,
+      entries: [{ ...timeline.entries[0], redactions: [] }, ...timeline.entries.slice(1)],
+    })
+    // The reducer never stores `[]`, but a foreign state must still write
+    // the same bytes as one that never had a region.
+    expect(new Uint8Array(explicitlyEmpty)).toEqual(new Uint8Array(without))
+    const document = await gunzipJson(without)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    const entries = (document.timeline as Record<string, unknown>).entries as Record<
+      string,
+      unknown
+    >[]
+    expect(entries[0]).not.toHaveProperty('redactions')
+  })
+
+  it('opens a file without the key as an entry with no regions', async () => {
+    const result = await deserializeProject(await serializeProject(library, timeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.entries[0]).not.toHaveProperty('redactions')
+  })
+
+  it('refuses a malformed region by path', async () => {
+    const withRegions = (list: unknown[]) => {
+      const document = validDocument()
+      document.schemaVersion = REDACTION_SCHEMA_VERSION
+      ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].redactions = list
+      return document
+    }
+    // A fraction outside the source frame.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, left: 1.2 }])),
+      'timeline.entries[0].redactions[0].left',
+    )
+    // A rectangle that runs off the edge, each fraction legal on its own.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, left: 0.9, width: 0.5 }])),
+      'timeline.entries[0].redactions[0]',
+    )
+    // An empty window.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, start: 3, end: 3 }])),
+      'timeline.entries[0].redactions[0].end',
+    )
+    // An unknown style.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, style: 'smudge' }])),
+      'timeline.entries[0].redactions[0].style',
+    )
+    // A negative strength.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...blurred, strength: -4 }])),
+      'timeline.entries[0].redactions[0].strength',
+    )
+    // A non-hex colour.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, color: 'black' }])),
+      'timeline.entries[0].redactions[0].color',
+    )
+    // A missing id, and a duplicated one.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, id: undefined }])),
+      'timeline.entries[0].redactions[0].id',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([solid, { ...pixelated, id: solid.id }])),
+      'timeline.entries[0].redactions[1].id "rd1" is duplicated',
+    )
+  })
+
+  it("refuses a style parameter belonging to another style, rather than dropping it", async () => {
+    const withRegions = (list: unknown[]) => {
+      const document = validDocument()
+      document.schemaVersion = REDACTION_SCHEMA_VERSION
+      ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].redactions = list
+      return document
+    }
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...solid, strength: 4 }])),
+      'timeline.entries[0].redactions[0].strength',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...blurred, color: '#ffffff' }])),
+      'timeline.entries[0].redactions[0].color',
+    )
+  })
+
+  it('refuses a region on a slate — a flat colour has nothing to hide', async () => {
+    const document = validDocument()
+    document.schemaVersion = REDACTION_SCHEMA_VERSION
+    const entries = document.timeline.entries as unknown as Record<string, unknown>[]
+    entries[0] = {
+      id: 'sl1',
+      name: 'Slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      kind: 'slate',
+      color: '#ff0000',
+      redactions: [solid],
+    }
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].redactions')
+  })
+
+  it('refuses an empty stored list — absence already means no redaction', async () => {
+    const document = validDocument()
+    document.schemaVersion = REDACTION_SCHEMA_VERSION
+    ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].redactions = []
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].redactions')
   })
 })
 

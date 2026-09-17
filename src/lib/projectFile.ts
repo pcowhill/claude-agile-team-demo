@@ -44,6 +44,8 @@ import type { Orientation, OrientationRotation } from './orientation'
 import { normalizeOrientation, ORIENTATION_ROTATIONS } from './orientation'
 import type { Crop } from './crop'
 import { normalizeCrop } from './crop'
+import type { RedactionRegion, RedactionStyle } from './redaction'
+import { MAX_REDACTION_STRENGTH, normalizeRedactions } from './redaction'
 import type { BackgroundFill } from './backgroundFill'
 import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
@@ -248,7 +250,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 19
+export const PROJECT_SCHEMA_VERSION = 20
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -287,6 +289,8 @@ export const IMAGE_OVERLAYS_SCHEMA_VERSION = 17
 export const RENAMED_CLIPS_SCHEMA_VERSION = 18
 /** Chapter markers on the timeline (#487): `timeline.markers`. */
 export const MARKERS_SCHEMA_VERSION = 19
+/** The version any entry/overlay redaction region forces, whichever the save mode (#492). */
+export const REDACTION_SCHEMA_VERSION = 20
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -470,6 +474,20 @@ function storedCrop({ left, right, top, bottom }: Crop): Crop {
 }
 
 /**
+ * A redaction region as stored (#492): fixed key order, and exactly the one
+ * style parameter the style uses — the state is already normalized (see
+ * redaction.ts), so this only fixes the order, and the same region always
+ * serializes to the same bytes.
+ */
+function storedRedaction(region: RedactionRegion): RedactionRegion {
+  const { id, left, top, width, height, start, end, style } = region
+  const base = { id, left, top, width, height, start, end, style }
+  if (style === 'blur') return { ...base, strength: region.strength }
+  if (style === 'pixelate') return { ...base, blockSize: region.blockSize }
+  return { ...base, color: region.color }
+}
+
+/**
  * A background fill as stored (#259): fixed key order (kind, then color for
  * the color kind), exactly the normalized state's own fields, so the same
  * fill always serializes to the same bytes.
@@ -585,6 +603,12 @@ export async function serializeProject(
   const hasCrop =
     timeline.entries.some((entry) => entry.crop !== undefined) ||
     videoOverlaysOf(timeline).some((overlay) => overlay.crop !== undefined)
+  // Length-based, like markers (#487): the reducer never stores an empty
+  // list, but a foreign state carrying one must write the same bytes as one
+  // that never had a region — absence and emptiness mean the same thing.
+  const hasRedactions =
+    timeline.entries.some((entry) => (entry.redactions?.length ?? 0) > 0) ||
+    videoOverlaysOf(timeline).some((overlay) => (overlay.redactions?.length ?? 0) > 0)
   const hasSubtitles = textsOf(timeline).some((text) => text.subtitle === true)
   const hasDucking = audioTracksOf(timeline).some((track) => track.duck === true)
   const hasOrientation =
@@ -610,7 +634,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasMarkers
+    schemaVersion: hasRedactions
+      ? REDACTION_SCHEMA_VERSION
+      : hasMarkers
       ? MARKERS_SCHEMA_VERSION
       : hasRenamedClips
       ? RENAMED_CLIPS_SCHEMA_VERSION
@@ -686,7 +712,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill, redactions }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -721,6 +747,12 @@ export async function serializeProject(
           ...(backgroundFill === undefined
             ? {}
             : { backgroundFill: storedBackgroundFill(backgroundFill) }),
+          // Redaction regions (#492) are written only when any exist — an
+          // empty list is no key at all, so redaction-free projects stay
+          // byte-identical to earlier output.
+          ...(redactions === undefined || redactions.length === 0
+            ? {}
+            : { redactions: redactions.map(storedRedaction) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -842,7 +874,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -875,6 +907,10 @@ export async function serializeProject(
                 // rectangle is no key at all, so mask-free projects stay
                 // byte-identical to earlier output.
                 ...(shapeMask === undefined ? {} : { shapeMask: storedShapeMask(shapeMask) }),
+                // Redaction regions (#492), exactly as on a sequence entry.
+                ...(redactions === undefined || redactions.length === 0
+                  ? {}
+                  : { redactions: redactions.map(storedRedaction) }),
               }),
             ),
           }),
@@ -1078,6 +1114,98 @@ const asCrop = (value: unknown, path: string): Crop | undefined => {
     top: edge('top'),
     bottom: edge('bottom'),
   })
+}
+
+/**
+ * Stored redaction regions (#492): every field required and in range, a
+ * known style carrying exactly its own parameter, and no two regions
+ * sharing an id — anything else is refused by name. Nothing here clamps,
+ * unlike `asCrop`: a region that silently moved or resized on open would no
+ * longer cover what it was drawn over, and a redaction that is a little bit
+ * wrong is a redaction that has failed. A stored empty list cannot occur
+ * (absence means none), so any array here must hold real regions.
+ */
+const asRedactions = (value: unknown, path: string): RedactionRegion[] | undefined => {
+  const raw = asArray(value, path)
+  if (raw.length === 0) throw new Error(`${path} is empty, but absence already means no redaction`)
+  const ids = new Set<string>()
+  const regions = raw.map((item, index) => {
+    const each = `${path}[${index}]`
+    const record = asRecord(item, each)
+    const id = asString(record.id, `${each}.id`)
+    if (id === '') throw new Error(`${each}.id must not be empty`)
+    if (ids.has(id)) throw new Error(`${each}.id "${id}" is duplicated`)
+    ids.add(id)
+    const fraction = (key: 'left' | 'top' | 'width' | 'height'): number => {
+      const numeric = asFinite(record[key], `${each}.${key}`)
+      if (numeric < 0 || numeric > 1) {
+        throw new Error(`${each}.${key} must be a fraction between 0 and 1`)
+      }
+      return numeric
+    }
+    const left = fraction('left')
+    const top = fraction('top')
+    const width = fraction('width')
+    const height = fraction('height')
+    if (width <= 0 || height <= 0) {
+      throw new Error(`${each} must have a width and height above zero`)
+    }
+    if (left + width > 1 || top + height > 1) {
+      throw new Error(`${each} extends past the edge of the source frame`)
+    }
+    const start = asFinite(record.start, `${each}.start`)
+    const end = asFinite(record.end, `${each}.end`)
+    if (start < 0) throw new Error(`${each}.start must not be negative`)
+    if (end <= start) throw new Error(`${each}.end must be after ${each}.start`)
+    const style = asString(record.style, `${each}.style`)
+    if (style !== 'blur' && style !== 'pixelate' && style !== 'solid') {
+      throw new Error(`${each}.style "${style}" is not a redaction style`)
+    }
+    const region: RedactionRegion = {
+      id,
+      left,
+      top,
+      width,
+      height,
+      start,
+      end,
+      style: style as RedactionStyle,
+    }
+    // Exactly the style's own parameter: a stray one from a foreign writer
+    // is refused rather than dropped, since it would mean the file was
+    // written by something that disagrees about what the region does.
+    if (style === 'blur') {
+      const strength = asFinite(record.strength, `${each}.strength`)
+      if (strength < 0 || strength > MAX_REDACTION_STRENGTH) {
+        throw new Error(`${each}.strength must be between 0 and ${MAX_REDACTION_STRENGTH}`)
+      }
+      region.strength = strength
+    } else if (record.strength !== undefined) {
+      throw new Error(`${each}.strength is set on a ${style} redaction, but it applies to blur only`)
+    }
+    if (style === 'pixelate') {
+      const blockSize = asFinite(record.blockSize, `${each}.blockSize`)
+      if (blockSize < 1 || blockSize > MAX_REDACTION_STRENGTH) {
+        throw new Error(`${each}.blockSize must be between 1 and ${MAX_REDACTION_STRENGTH}`)
+      }
+      region.blockSize = blockSize
+    } else if (record.blockSize !== undefined) {
+      throw new Error(
+        `${each}.blockSize is set on a ${style} redaction, but it applies to pixelate only`,
+      )
+    }
+    if (style === 'solid') {
+      const color = asString(record.color, `${each}.color`)
+      if (!/^#[0-9a-f]{6}$/.test(color)) {
+        throw new Error(`${each}.color "${color}" is not a lowercase #rrggbb color`)
+      }
+      region.color = color
+    } else if (record.color !== undefined) {
+      throw new Error(`${each}.color is set on a ${style} redaction, but it applies to solid only`)
+    }
+    return region
+  })
+  return normalizeRedactions(regions)
 }
 
 /**
@@ -1335,6 +1463,19 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const crop = asCrop(raw.crop, `${path}.crop`)
       if (crop !== undefined) entry.crop = crop
+    }
+    // Redaction regions (#492): absent in files saved before them, and on
+    // every unredacted entry since, meaning nothing is hidden.
+    if (raw.redactions !== undefined) {
+      if (entry.kind === 'slate') {
+        // A flat colour has nothing to hide: a redacted slate could only
+        // come from a foreign writer.
+        throw new Error(
+          `${path}.redactions is set on a slate entry, but redaction applies to video and image entries only`,
+        )
+      }
+      const redactions = asRedactions(raw.redactions, `${path}.redactions`)
+      if (redactions !== undefined) entry.redactions = redactions
     }
     // Background fill (#259): absent in files saved before it, and on every
     // fill-free entry since, meaning none — today's black bars.
@@ -1773,6 +1914,11 @@ function validateProject(document: Record<string, unknown>): Project {
       // mask-free overlay since, meaning the hard rectangle.
       if (raw.shapeMask !== undefined) {
         overlay.shapeMask = asShapeMask(raw.shapeMask, `${path}.shapeMask`)
+      }
+      // Redaction regions (#492), exactly as on a sequence entry.
+      if (raw.redactions !== undefined) {
+        const redactions = asRedactions(raw.redactions, `${path}.redactions`)
+        if (redactions !== undefined) overlay.redactions = redactions
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)
