@@ -2,10 +2,12 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import type { ReactNode } from 'react'
 import { exportFormats, mediaRecorderSupports, supportedExportFormats } from '../lib/exportFormats'
 import {
+  COUNTDOWN_CHOICES,
   LARGE_STEP_CHOICES,
   SESSION_RESTORE_CHOICES,
   STEP_CHOICES,
   STILL_DURATION_CHOICES,
+  countdownLabel,
   formatSeconds,
   sessionRestoreLabel,
 } from '../lib/settings'
@@ -231,6 +233,26 @@ export function SettingsControl({
                   >
                     <option value="on">On</option>
                     <option value="off">Off</option>
+                  </select>
+                )}
+              </SettingRow>
+              <SettingRow
+                label="Countdown before recording"
+                hint="Record ▾ counts 3 · 2 · 1 after the sources are granted, so a take never begins with your hand still on the mouse. Start now skips it; Off starts recording at once."
+              >
+                {(describedBy) => (
+                  <select
+                    value={String(settings.countdownSeconds)}
+                    aria-describedby={describedBy}
+                    onChange={(event) =>
+                      onChange({ ...settings, countdownSeconds: Number(event.target.value) })
+                    }
+                  >
+                    {COUNTDOWN_CHOICES.map((choice) => (
+                      <option key={choice} value={String(choice)}>
+                        {countdownLabel(choice)}
+                      </option>
+                    ))}
                   </select>
                 )}
               </SettingRow>

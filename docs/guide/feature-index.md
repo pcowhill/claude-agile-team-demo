@@ -62,6 +62,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Contrast** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 - **Copy chapter list** — the export dialog's Range group; the markers in the exported span, as text. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
 - **Copy settings** — a timeline row's ⋯ menu. [Timeline › Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+- **Countdown before recording** — Settings; 3 s or Off. [Settings › Countdown before recording](settings.md#countdown-before-recording)
 - **Crop bottom** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop left** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop right** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
@@ -164,6 +165,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## P
 
 - **Pause** — + Effect ▾ on a sequence entry; holds a frame for a while. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
+- **Pause recording** — the recording dialog; pauses the capture, and reads Resume recording while paused. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Picture** — an expanded video or image row; the disclosure holding the picture treatments. [Timeline › Picture ▸](timeline.md#picture)
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
@@ -192,6 +194,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Reset default subtitle style** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Reset orientation** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Restore size** — the preview header, once expanded; gives the width back. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
+- **Resume recording** — the recording dialog, while paused; carries on into the same clip. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Rotate** — an expanded video or image row › Picture ▸; each press turns the source 90°. [Editing video › Orientation](editing-video.md#orientation)
 
 ## S
@@ -212,6 +215,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Space** — plays or pauses the preview. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
 - **Speed segment** — + Effect ▾ on a sequence entry. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Split at playhead** — Frame ▾. [Editing video › Split at playhead](editing-video.md#split-at-playhead)
+- **Start now** — the recording dialog, during the countdown; skips it. [Recording › The countdown](recording.md#the-countdown)
 - **Start time** — an expanded overlay, text or audio row; the second of the video it begins at. [Timeline › A row](timeline.md#a-row)
 - **Subtitle style** — under the timeline header, once the timeline holds a text overlay. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Subtitles from .srt file…** — Add ▾. [Text and subtitles › Subtitles from an .srt file](text-and-subtitles.md#subtitles-from-an-srt-file)

@@ -89,6 +89,7 @@ describe('settings dialog (#286)', () => {
     expect(within(dialog).getByLabelText('Playhead jump (Shift + ← / →)')).toHaveValue('1')
     expect(within(dialog).getByLabelText('New still or slate duration')).toHaveValue('5')
     expect(within(dialog).getByLabelText('When a previous session is found')).toHaveValue('ask')
+    expect(within(dialog).getByLabelText('Countdown before recording')).toHaveValue('3')
     // Exactly the values the product used before it had settings, read from
     // an empty store — the "a fresh visitor sees today's behaviour" promise,
     // observed through the UI rather than only in the module's own tests.

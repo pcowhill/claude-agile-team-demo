@@ -1,6 +1,6 @@
 # Recording
 
-Record straight into the media library — a voice-over from the [microphone](#microphone), the [screen](#screen), the [webcam](#webcam), or [screen and camera together](#screen-camera) — and the result is an ordinary clip: placeable, trimmable, mixable and exportable like any imported file, and kept by the autosave. Everything starts from the [Record ▾](#record) menu, runs in the [recording dialog](#the-recording-dialog), and [lands in the library](#where-recordings-land) under a numbered name. Read [Permissions and failures](#permissions-and-failures) if a source is missing or a recording did not start, and [Recordings and project files](#recordings-and-project-files) before saving a project with references only.
+Record straight into the media library — a voice-over from the [microphone](#microphone), the [screen](#screen), the [webcam](#webcam), or [screen and camera together](#screen-camera) — and the result is an ordinary clip: placeable, trimmable, mixable and exportable like any imported file, and kept by the autosave. Everything starts from the [Record ▾](#record) menu, runs in the [recording dialog](#the-recording-dialog) after a short [countdown](#the-countdown), can be [paused and resumed](#pause-and-resume) into one clip, and [lands in the library](#where-recordings-land) under a numbered name. Read [Permissions and failures](#permissions-and-failures) if a source is missing or a recording did not start, and [Recordings and project files](#recordings-and-project-files) before saving a project with references only.
 
 ## Record ▾
 
@@ -60,9 +60,31 @@ Stopping — the Stop button or the browser's *stop sharing* — delivers two cl
 
 **What it does.** Shows the capture while it runs and offers the two ways to end it.
 
-**Details.** The heading names what is recording — *Recording voice-over*, *Recording screen*, *Recording webcam*, *Recording screen + camera*. A video source shows a live, muted view of the capture; the paired take shows the screen and the camera self-view. A recording indicator and the elapsed time count up beneath. **Stop recording** ends the capture and hands the clip to the library through the same path an imported file takes. **Cancel** discards the capture entirely — nothing reaches the library and the microphone, camera or shared surface is released. Closing the page mid-recording discards it too.
+**Details.** The heading names what is recording — *Recording voice-over*, *Recording screen*, *Recording webcam*, *Recording screen + camera*. A video source shows a live, muted view of the capture; the paired take shows the screen and the camera self-view. Beneath, the dialog first [counts down](#the-countdown), then a recording indicator and the **recorded time** count up — the time that will be in the clip, so a [pause](#pause-and-resume) does not add to it. **Pause recording** and **Resume recording** sit beside **Stop recording**, which ends the capture and hands the clip to the library through the same path an imported file takes. **Cancel** discards the capture entirely — nothing reaches the library and the microphone, camera or shared surface is released. Closing the page mid-recording discards it too.
 
-**Related.** [Record ▾](#record) · [Where recordings land](#where-recordings-land)
+**Related.** [Record ▾](#record) · [The countdown](#the-countdown) · [Pause and resume](#pause-and-resume) · [Where recordings land](#where-recordings-land)
+
+## The countdown
+
+**Where to find it.** The recording dialog, the moment the sources are granted.
+
+**What it does.** Counts **3 · 2 · 1** before the recorder starts, so a take never begins with your hand still on the mouse or the permission prompt still on screen.
+
+**Details.** The countdown lasts {{RECORDING_COUNTDOWN_SECONDS}} s and each number is announced for screen readers. The live view is already showing, but nothing is recorded until it reaches zero — the clip starts clean. **Start now** skips the rest of the count and begins at once; **Cancel** during the count releases the microphone, camera or shared surface and records nothing, with no entry in the failure list. For a screen or screen + camera take, the browser's own *stop sharing* during the count cancels the same way. Turn the countdown off for good in [Settings › Countdown before recording](settings.md#countdown-before-recording); the dialog then starts recording the moment the sources are granted, as it did before there was a countdown.
+
+**Related.** [The recording dialog](#the-recording-dialog) · [Countdown before recording](settings.md#countdown-before-recording)
+
+## Pause and resume
+
+**Where to find it.** The recording dialog: **Pause recording**, which becomes **Resume recording** while paused. **Space** does the same while the dialog is open.
+
+**What it does.** Pauses the capture and carries on later **into the same clip**: the paused stretch is simply absent from the recording, so a thought, a notification or a look-up never has to be cut out afterwards.
+
+**Details.** While paused the indicator stops pulsing, the status reads *Paused*, the live view stays and the recorded time stands still; on Resume it counts on from where it stopped. The clip that lands is one continuous file whose length is the recorded time, not the time the dialog was open. **Stop recording** works while paused too. A screen + camera take pauses and resumes both recorders together on the one button, so the two clips stay aligned. Space is the dialog's own shortcut, not the transport's: it toggles Pause / Resume wherever the focus is inside the dialog — even on Stop or Cancel, which Space never activates there; Enter does — and it does nothing during the countdown. The button appears only where the browser's recorder can pause, which every browser that can record does.
+
+**Related.** [The recording dialog](#the-recording-dialog) · [Split at playhead](editing-video.md#split-at-playhead)
+
+**Shortcuts.** Space, while the recording dialog is open.
 
 ## Permissions and failures
 

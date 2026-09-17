@@ -11,6 +11,9 @@ import {
   parseSettings,
   saveSettings,
   sessionRestoreLabel,
+  COUNTDOWN_CHOICES,
+  DEFAULT_COUNTDOWN_SECONDS,
+  countdownLabel,
 } from './settings'
 import type { AppSettings } from './settings'
 import { DEFAULT_STILL_DURATION } from './timeline'
@@ -51,6 +54,7 @@ describe('settings defaults (#286)', () => {
       sessionRestore: 'ask',
       exportFormat: 'webm',
       visualEditors: true,
+      countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
     })
   })
 
@@ -61,6 +65,7 @@ describe('settings defaults (#286)', () => {
     expect(LARGE_STEP_CHOICES).toContain(DEFAULT_SETTINGS.largeStepSeconds)
     expect(STILL_DURATION_CHOICES).toContain(DEFAULT_SETTINGS.stillDurationSeconds)
     expect(SESSION_RESTORE_CHOICES).toContain(DEFAULT_SETTINGS.sessionRestore)
+    expect(COUNTDOWN_CHOICES).toContain(DEFAULT_SETTINGS.countdownSeconds)
   })
 
   it('labels each choice for the dialog', () => {
@@ -71,6 +76,8 @@ describe('settings defaults (#286)', () => {
       'Always restore',
       'Never restore',
     ])
+    // The countdown is on (its length) or off — the two choices #494 named.
+    expect(COUNTDOWN_CHOICES.map(countdownLabel)).toEqual(['3 s', 'Off'])
   })
 })
 
@@ -82,6 +89,7 @@ describe('settings validation (#286)', () => {
     sessionRestore: 'never',
     exportFormat: 'mp4',
     visualEditors: false,
+    countdownSeconds: 0,
   }
 
   it('keeps every recognized stored value', () => {
@@ -115,7 +123,22 @@ describe('settings validation (#286)', () => {
       sessionRestore: DEFAULT_SETTINGS.sessionRestore,
       exportFormat: 'mp4',
       visualEditors: DEFAULT_SETTINGS.visualEditors,
+      countdownSeconds: DEFAULT_SETTINGS.countdownSeconds,
     })
+  })
+
+  it('reads the countdown, and a store from before it existed means on (#514)', () => {
+    expect(parseSettings({ ...stored, countdownSeconds: 0 }).countdownSeconds).toBe(0)
+    expect(parseSettings({ ...stored, countdownSeconds: 3 }).countdownSeconds).toBe(3)
+    const { countdownSeconds: _dropped, ...older } = stored
+    expect(parseSettings(older).countdownSeconds).toBe(DEFAULT_COUNTDOWN_SECONDS)
+    // Only the offered lengths: a stored 10 is not a countdown this version has.
+    expect(parseSettings({ ...stored, countdownSeconds: 10 }).countdownSeconds).toBe(
+      DEFAULT_COUNTDOWN_SECONDS,
+    )
+    expect(parseSettings({ ...stored, countdownSeconds: 'off' }).countdownSeconds).toBe(
+      DEFAULT_COUNTDOWN_SECONDS,
+    )
   })
 
   it('reads the visual-editors switch, and a store from before it existed means on (#413)', () => {
