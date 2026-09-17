@@ -3,6 +3,7 @@ import { colorAdjustmentsEqual } from './colorAdjustments'
 import type { Orientation } from './orientation'
 import { orientationsEqual } from './orientation'
 import type { Crop } from './crop'
+import type { RedactionRegion } from './redaction'
 import { cropsEqual } from './crop'
 import type { ShapeMask } from './shapeMask'
 import { shapeMasksEqual } from './shapeMask'
@@ -120,6 +121,16 @@ export interface VideoOverlay {
    * orientation.
    */
   crop?: Crop
+  /**
+   * Redaction regions (#492), exactly as on a sequence entry: rectangles
+   * hiding part of the picture for a window of the overlay's own source
+   * time. Absent means none (normalized by the
+   * `video-overlay-redactions-set` reducer case). The rectangles are
+   * fractions of the source frame, before orientation and crop, so an
+   * overlay that is turned, cropped or re-placed keeps its masks on the
+   * pixels they were drawn over.
+   */
+  redactions?: RedactionRegion[]
   /**
    * Shape mask (#266): clips the placed rectangle to an inscribed ellipse
    * or a rounded rectangle. Absent behaves as the hard rectangle — today's

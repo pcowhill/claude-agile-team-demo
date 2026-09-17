@@ -2986,7 +2986,7 @@ describe('copy and paste settings (#315)', () => {
       within(dialog)
         .getAllByRole('checkbox')
         .map((box) => box.closest('label')?.textContent),
-    ).toEqual(['Color', 'Orientation', 'Crop', 'Background fill', 'Audio'])
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Background fill', 'Redact', 'Audio'])
     expect(within(dialog).getAllByRole('checkbox').every((box) => (box as HTMLInputElement).checked)).toBe(
       true,
     )
@@ -3029,7 +3029,7 @@ describe('copy and paste settings (#315)', () => {
       within(screen.getByRole('dialog'))
         .getAllByRole('checkbox')
         .map((box) => box.closest('label')?.textContent),
-    ).toEqual(['Color', 'Orientation', 'Crop', 'Audio'])
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Redact', 'Audio'])
   })
 
   it('clip→text: no compatible group — the dialog says so instead of a checklist', async () => {
@@ -3938,7 +3938,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await chooseRowAction('overlay logo.png at position 1', PASTE_SETTINGS)
     // A still is soundless: no Audio checkbox, and no Background fill either
     // (no overlay of either kind holds one).
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact'])
   })
 
   it('a video overlay target still offers Audio — the control for the fix', async () => {
@@ -3949,7 +3949,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
 
     await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
     await chooseRowAction('overlay a.mp4 at position 1', PASTE_SETTINGS)
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Audio'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact', 'Audio'])
   })
 
   it("copying a still overlay and pasting onto a clip cannot touch the clip's audio", async () => {
@@ -3967,7 +3967,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await chooseRowAction('overlay logo.png at position 1', COPY_SETTINGS)
     await chooseRowAction('a.mp4 at position 1', PASTE_SETTINGS)
     // The checklist a still offers a clip: no Audio to leave checked.
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact'])
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
 
     expect(

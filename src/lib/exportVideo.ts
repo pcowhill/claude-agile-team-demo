@@ -38,6 +38,8 @@ import {
 import { orientationTransform, orientedDimensions } from './orientation'
 import type { Orientation } from './orientation'
 import { croppedDimensions, cropSourceRect } from './crop'
+import type { RedactionRegion } from './redaction'
+import { drawRedactions, hasBlurRedaction } from './redaction'
 import type { Crop } from './crop'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backgroundFill'
 import type { BackgroundFill } from './backgroundFill'
@@ -408,6 +410,13 @@ export function activeTextDraws(
  * all. An adjustment-free timeline must export exactly as before #195,
  * filter-capable browser or not.
  */
+export function timelineHasBlurRedaction(timeline: TimelineState): boolean {
+  return (
+    timeline.entries.some((entry) => hasBlurRedaction(entry.redactions)) ||
+    videoOverlaysOf(timeline).some((overlay) => hasBlurRedaction(overlay.redactions))
+  )
+}
+
 export function timelineHasColorAdjustments(timeline: TimelineState): boolean {
   return (
     timeline.entries.some((entry) => entry.colorAdjustments !== undefined) ||
@@ -707,6 +716,22 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   let backdropBlurSupported: boolean | null = null
 
   /**
+   * Whether this context can blur, for redaction regions (#492) — the same
+   * one-feature probe as the colour filter, memoized so a frame with
+   * several blur regions probes once. The export and the frame snapshot
+   * refuse a blur-carrying timeline up front where this is false, so this
+   * exists for the paths that reach a draw anyway: `drawRedactions` fills
+   * such a region solid rather than leaving it readable.
+   */
+  let redactionBlurSupportedMemo: boolean | null = null
+  const redactionBlurSupported = (): boolean => {
+    if (redactionBlurSupportedMemo === null) {
+      redactionBlurSupportedMemo = canvasSupportsColorFilter(context)
+    }
+    return redactionBlurSupportedMemo
+  }
+
+  /**
    * An entry's background-fill backdrop (#260): what the preview renders as
    * the layer card's first child (#259), drawn here under the fitted media.
    * The backdrop is the card's own face — the full frame mapped through the
@@ -726,6 +751,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     transitionScale: number,
     offsetX: number,
     offsetY: number,
+    redactions: readonly RedactionRegion[] | undefined,
   ) => {
     if (fill === undefined) return
     if (fitted.width >= width - 0.001 && fitted.height >= height - 0.001) return
@@ -773,6 +799,22 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         layer.sourceHeight,
         drawRect,
       )
+      // The backdrop is a cover-fit copy of this entry's own picture (#259),
+      // so an unredacted one would show — softened, but shown — exactly what
+      // the region in front of it hides (#492). It is redacted at the same
+      // point in the same chain as the fitted media below.
+      drawRedactions({
+        context: bufferContext,
+        source: layer.source,
+        regions: redactions,
+        sourceTime: layer.time,
+        crop,
+        sourceWidth: layer.sourceWidth,
+        sourceHeight: layer.sourceHeight,
+        drawRect,
+        createCanvas,
+        blurSupported: backdropBlurSupported ?? true,
+      })
     })
     if (backdropBlurSupported === null) {
       backdropBlurSupported = canvasSupportsColorFilter(context)
@@ -973,6 +1015,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       spec?.outgoingScale ?? 1,
       (spec?.outgoingOffsetXFraction ?? 0) * width,
       (spec?.outgoingOffsetYFraction ?? 0) * height,
+      timeline.entries[entryIndex]?.redactions,
     )
     // Pushes (#181) move the outgoing layer off the frame; every other type
     // has zero outgoing offsets, drawing exactly as before.
@@ -998,6 +1041,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             layer.sourceHeight,
             drawRect,
           )
+          // Redactions (#492) paint over the picture inside the same
+          // orientation transform and the same colour filter, so they ride
+          // every zoom, transition and rotation the layer does.
+          drawRedactions({
+            context,
+            source: layer.source,
+            regions: timeline.entries[entryIndex]?.redactions,
+            sourceTime: layer.time,
+            crop: outgoingCrop,
+            sourceWidth: layer.sourceWidth,
+            sourceHeight: layer.sourceHeight,
+            drawRect,
+            createCanvas,
+            blurSupported: redactionBlurSupported(),
+          })
         },
       )
     })
@@ -1129,6 +1187,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           incomingScale,
           spec.incomingOffsetXFraction * width,
           spec.incomingOffsetYFraction * height,
+          timeline.entries[overlay.index]?.redactions,
         )
         withLayerOrientation(
           context,
@@ -1148,6 +1207,18 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               overlay.layer.sourceHeight,
               drawRect,
             )
+            drawRedactions({
+              context,
+              source: overlay.layer.source,
+              regions: timeline.entries[overlay.index]?.redactions,
+              sourceTime: overlay.layer.time,
+              crop: incomingCrop,
+              sourceWidth: overlay.layer.sourceWidth,
+              sourceHeight: overlay.layer.sourceHeight,
+              drawRect,
+              createCanvas,
+              blurSupported: redactionBlurSupported(),
+            })
           },
         )
       })
@@ -1218,6 +1289,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
                 picture.height,
                 drawRect,
               )
+              // The overlay's own source clock — the same one that decided
+              // it is on screen at all (`audioTrackPlaybackAt`), so a
+              // window is read identically here and in the preview.
+              drawRedactions({
+                context: target,
+                source: picture.source,
+                regions: layer.redactions,
+                sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
+                crop: layer.crop,
+                sourceWidth: picture.width,
+                sourceHeight: picture.height,
+                drawRect,
+                createCanvas,
+                blurSupported: redactionBlurSupported(),
+              })
             })
           })
         }
@@ -2162,6 +2248,19 @@ export async function exportTimeline(
     throw new ExportUnsupportedError(
       'This browser cannot render color adjustments when exporting (canvas filters are unsupported). ' +
         'Reset the color adjustments, or export from a browser that supports canvas filters.',
+    )
+  }
+  // The same rule for a blur redaction (#492), and it matters more: an
+  // export that quietly dropped a blur would publish the very thing the
+  // user marked to hide. Pixelate and solid need no filter, so a browser
+  // without one can still export them — only blur refuses, and only when
+  // the timeline actually carries one.
+  if (timelineHasBlurRedaction(timeline) && !canvasSupportsColorFilter(context)) {
+    await releaseAll()
+    throw new ExportUnsupportedError(
+      'This browser cannot render a blurred redaction when exporting (canvas filters are ' +
+        'unsupported). Switch the redaction to Pixelate or Solid, or export from a browser that ' +
+        'supports canvas filters.',
     )
   }
 

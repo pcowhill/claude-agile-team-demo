@@ -72,6 +72,7 @@ describe('heldSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'redaction',
       'audio',
     ])
     // A still image is soundless (#220): the visual groups only.
@@ -80,6 +81,7 @@ describe('heldSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'redaction',
     ])
     // A slate holds nothing: its color is set directly (#143).
     expect(heldSettingsGroups('entry', slateEntry('s1'))).toEqual([])
@@ -89,6 +91,7 @@ describe('heldSettingsGroups (#315)', () => {
       'color',
       'orientation',
       'crop',
+      'redaction',
       'audio',
     ])
     expect(heldSettingsGroups('text', text())).toEqual(['text-style'])
@@ -109,6 +112,7 @@ describe('copyElementSettings (#315)', () => {
       orientation: { orientation: undefined },
       crop: { crop: { left: 0.1 } },
       'background-fill': { fill: undefined },
+      redaction: { redactions: undefined },
       audio: { volume: 0.5, muted: true, fadeIn: 1, fadeOut: 0 },
     })
     // An untouched entry copies pure identity — pasting it is a reset.
@@ -117,6 +121,7 @@ describe('copyElementSettings (#315)', () => {
       orientation: { orientation: undefined },
       crop: { crop: undefined },
       'background-fill': { fill: undefined },
+      redaction: { redactions: undefined },
       audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
     })
   })
@@ -138,6 +143,7 @@ describe('copyElementSettings (#315)', () => {
       color: { adjustments: undefined },
       orientation: { orientation: { rotation: 90 } },
       crop: { crop: undefined },
+      redaction: { redactions: undefined },
       audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
     })
     expect(
@@ -167,12 +173,14 @@ describe('compatibleSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'redaction',
       'audio',
     ])
     expect(compatibleSettingsGroups(fromClip, 'video-overlay', overlay())).toEqual([
       'color',
       'orientation',
       'crop',
+      'redaction',
       'audio',
     ])
     expect(compatibleSettingsGroups(fromClip, 'audio-track', track())).toEqual(['audio'])
@@ -182,6 +190,7 @@ describe('compatibleSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'redaction',
     ])
   })
 
@@ -216,6 +225,7 @@ describe('filterSettings (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'redaction',
       'audio',
       'text-style',
     ])
@@ -232,11 +242,13 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'redaction',
     ])
     expect(heldSettingsGroups('video-overlay', overlay())).toEqual([
       'color',
       'orientation',
       'crop',
+      'redaction',
       'audio',
     ])
   })
@@ -247,6 +259,7 @@ describe('still overlays hold no audio group (#332)', () => {
       color: { adjustments: undefined },
       orientation: { orientation: undefined },
       crop: { crop: undefined },
+      redaction: { redactions: undefined },
     })
     // Not merely absent-valued: the key itself must not exist, or the paste
     // would treat it as "apply the identity", which is the reset.
@@ -271,6 +284,7 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'redaction',
     ])
     // Pasting a still overlay's settings onto anything: it never carried an
     // audio group to offer — including onto an audio track, which holds
@@ -279,11 +293,13 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'redaction',
     ])
     expect(compatibleSettingsGroups(fromStill, 'video-overlay', overlay())).toEqual([
       'color',
       'orientation',
       'crop',
+      'redaction',
     ])
     expect(compatibleSettingsGroups(fromStill, 'audio-track', track())).toEqual([])
   })
