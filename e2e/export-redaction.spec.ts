@@ -272,9 +272,38 @@ test('a region lands on the same source pixels through a rotation and a crop (#4
     colour: '#ff0000',
   })
 
+  // First a crop alone: trim the left 20 % of the source away. The region
+  // sat at source x 5–30 %, so its left third is now off-picture and what
+  // remains is the first eighth of the kept width — the mask is trimmed to
+  // the part still shown rather than sliding along with the crop.
+  await page
+    .getByRole('spinbutton', { name: `Crop left of ${POSITION} (percent)` })
+    .fill('20')
+  await page.getByRole('spinbutton', { name: `Crop left of ${POSITION} (percent)` }).blur()
+  const cropped = await exportProject(page)
+  expect(
+    (await sampleExportedFrame(page, cropped, 1, { x: 0, y: 0, width: 1, height: 1 })).width,
+  ).toBe(256)
+  const keptEdge = await sampleExportedFrame(page, cropped, 1, {
+    x: 0.02,
+    y: 0.15,
+    width: 0.08,
+    height: 0.2,
+  })
+  expect(keptEdge.r).toBeGreaterThan(150)
+  expect(keptEdge.g).toBeLessThan(90)
+  // Just past the region's kept eighth, the picture is its own green again.
+  const pastRegion = await sampleExportedFrame(page, cropped, 1, {
+    x: 0.18,
+    y: 0.15,
+    width: 0.08,
+    height: 0.2,
+  })
+  expect(pastRegion.g).toBeGreaterThan(pastRegion.r + 60)
+
   // Quarter-turn the clip. The stored rectangle does not move — it names
   // source pixels — so the mask turns with the picture and the frame
-  // transposes to 180×320.
+  // transposes to the cropped source's transpose.
   await page
     .getByRole('button', {
       name: `Rotate ${POSITION} 90 degrees clockwise (currently 0 degrees)`,
@@ -282,17 +311,18 @@ test('a region lands on the same source pixels through a rotation and a crop (#4
     .click()
 
   const exported = await exportProject(page)
+  // The cropped 256×180 picture, quarter-turned, is a 180×256 frame.
   expect((await sampleExportedFrame(page, exported, 1, { x: 0, y: 0, width: 1, height: 1 })).width)
     .toBe(180)
 
-  // Under a 90° clockwise turn the source's top-left corner is drawn at the
-  // frame's top-right: source (x, y) → frame (1 − y, x). The region spans
-  // source x 5–30 %, y 10–40 %, so it lands at frame x 60–90 %, y 5–30 %.
+  // Composed: crop puts the visible part of the region at kept-space
+  // u 0–0.125, v 0.1–0.4, and a 90° clockwise turn maps (u, v) to
+  // (1 − v, u) — so it lands at frame x 60–90 %, y 0–12.5 %.
   const turned = await sampleExportedFrame(page, exported, 1, {
-    x: 0.68,
-    y: 0.12,
-    width: 0.12,
-    height: 0.12,
+    x: 0.66,
+    y: 0.02,
+    width: 0.16,
+    height: 0.08,
   })
   expect(turned.r).toBeGreaterThan(150)
   expect(turned.g).toBeLessThan(90)
