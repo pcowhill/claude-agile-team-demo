@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { chromium, expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
+import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
 import { chooseClipAction, openClipMenu } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
 import { openPicture } from './pictureDisclosure'
 import { ADD_SLATE, ADD_TEXT, openAddMenu, subtitleStyleToggle } from './timelineMenu'
-import { openEffectMenu, openRowMenu } from './timelineRowMenu'
+import { chooseEffect, openEffectMenu, openRowMenu } from './timelineRowMenu'
 import { sineWav } from './sineWav'
 
 /**
@@ -31,23 +33,57 @@ import { sineWav } from './sineWav'
  *   on each of its formats
  * - the keyboard cheat sheet, for the shortcut combos, together with the
  *   shortcut hints the menus show
+ * - the five visual editors (#507): Crop, Zoom, Overlay, Text and
+ *   Redaction, each from the Adjust visually… button on the row it edits
+ * - the recording dialog, in all three of its states (#514) — counting
+ *   down, recording, and paused
+ * - the Save mode dialog, and the Open project dialog it writes the file
+ *   for, both before and after its clips are re-linked
  *
  * Several controls exist only under a condition (`troubleshooting.md`, *A
  * control is missing*), so the walk creates the condition: it adds a
  * transition between two entries, enables both plugins, turns Duck others
- * on, sets the export marks, and expands the preview.
+ * on, sets the export marks, expands the preview, and — since #507 — adds a
+ * zoom and a redaction region, because neither a zoom's fields nor a
+ * region's exist until one has been made.
  *
- * **What it deliberately does not open** — and so cannot check: the visual
- * editors (Crop, Zoom, Overlay, Text, Redaction, Frame), the recording dialog behind
- * Record ▾'s sources, the Open project and Save mode dialogs, and the user
- * guide panel itself. Their controls may be indexed; the walk neither
- * requires nor forbids an entry for them, and it never fails for an entry it
- * did not meet, so extra entries are allowed by design.
+ * **What it deliberately does not open** — and so cannot check:
+ *
+ * - the **discard guard** (*Discard unsaved changes?*, with *Discard and
+ *   open* / *Discard and start new*), which needs an unsaved edit standing
+ *   when a project is opened or started. Its controls are indexed nowhere
+ *   today, which is the same gap this walk closed for the four surfaces
+ *   above; tracked separately rather than widened into #507.
+ * - the **screen, webcam and screen + camera** recording sources. The
+ *   display-capture prompt cannot be auto-answered the way the fake
+ *   microphone can, and the dialog's own controls are the same three
+ *   states whichever source filled it.
+ * - the **user guide panel** itself, which is documentation rather than
+ *   product surface (#485's own decision).
+ *
+ * Their controls may be indexed; the walk neither requires nor forbids an
+ * entry for them, and it never fails for an entry it did not meet, so extra
+ * entries are allowed by design.
  *
  * **What it does not judge**: whether a page explains a feature well. It
  * checks that an index entry exists. The explaining is the content PRs' job
  * and the reviewer's.
  */
+
+/**
+ * Chromium's fake media device, so the walk can open the recording dialog
+ * (#507): `getUserMedia` delivers a generated tone and the permission is
+ * auto-granted, which is the idiom `record-voice-over.spec.ts` and the other
+ * recording specs use. The executable resolution mirrors playwright.config.ts,
+ * which per-file launch options would otherwise drop.
+ */
+const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
+test.use({
+  launchOptions: {
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    ...(executablePath === undefined ? {} : { executablePath }),
+  },
+})
 
 /** Stands in for a clip, row or section name while a label is normalized. */
 const ELEMENT = '‹element›'
@@ -95,9 +131,9 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: 'a transition button names the two entries it sits between',
   },
   {
-    pattern: new RegExp(`\\b(?:of|for|on) ${ELEMENT}`, 'g'),
+    pattern: new RegExp(`\\b(?:of|for|on|from) ${ELEMENT}`, 'g'),
     replacement: '',
-    why: 'the element a row control acts on, with the preposition that introduces it',
+    why: 'the element a row control acts on, with the preposition that introduces it (Remove zoom 1 *from* ‹element›)',
   },
   {
     pattern: new RegExp(ELEMENT, 'g'),
@@ -108,6 +144,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     pattern: / region \d+/,
     replacement: ' region',
     why: "a redaction control names which of an element's regions it edits, which is a position in a list rather than part of the control (#492)",
+  },
+  {
+    pattern: /\b([Zz])oom \d+/g,
+    replacement: '$1oom',
+    why: "the same shape one effect up: a zoom control names which of an entry's zooms it edits, a position in a list rather than part of the control (#421). Both cases, because Remove says it in lower case",
   },
   {
     pattern: /^(Expand|Collapse) all .*elements$/,
@@ -176,6 +217,60 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Adjust Redaction region visually',
     to: 'Adjust visually…',
     why: 'as above — the redaction editor (#493), same button text; the shape rule above lifted the region number out',
+  },
+  {
+    from: 'Adjust Zoom visually',
+    to: 'Adjust visually…',
+    why: 'as above — the zoom editor (#413), same button text; the shape rule above lifted the zoom number out',
+  },
+  // The five visual editors' own controls (#507). Each is drawn once, in
+  // five editors, and a reader looking one up has seen the word on screen —
+  // so five accessible names collapse onto the one entry the reader would
+  // search for, exactly as the row controls above do.
+  {
+    from: 'Close the crop editor',
+    to: '✕ (close a visual editor)',
+    why: "an editor's close is the ✕ glyph with no words; its accessible name says which editor's it is",
+  },
+  {
+    from: 'Close the placement editor',
+    to: '✕ (close a visual editor)',
+    why: 'as above — the overlay and text editors share this one, both placing something',
+  },
+  {
+    from: 'Close the redaction editor',
+    to: '✕ (close a visual editor)',
+    why: 'as above — the redaction editor (#493)',
+  },
+  {
+    from: 'Close the Zoom editor',
+    to: '✕ (close a visual editor)',
+    why: 'as above — the zoom editor, whose name is capitalised because the zoom it edits is "Zoom 1"',
+  },
+  {
+    from: 'Preview time of Zoom',
+    to: 'Preview',
+    why: 'the scrub slider is labelled "Preview"; the accessible name says whose time it scrubs',
+  },
+  {
+    from: 'Preview time of Redaction region',
+    to: 'Preview',
+    why: 'as above — the same slider in the redaction editor (#493)',
+  },
+  {
+    from: 'Loop the hold of Zoom',
+    to: '↻ Loop',
+    why: 'the toggle reads "↻ Loop"; the accessible name says what it plays',
+  },
+  {
+    from: 'Loop the window of Redaction region',
+    to: '↻ Loop',
+    why: 'as above — the same toggle in the redaction editor, over a region\'s window',
+  },
+  {
+    from: 'Reset crop in the editor',
+    to: 'Reset crop',
+    why: 'the editor\'s button reads "Reset" and clears the same crop the row\'s own Reset does; one control name, two places',
   },
   {
     from: 'Remove from timeline',
@@ -384,6 +479,14 @@ function indexEntries(): Set<string> {
 test('every control in the app has a Feature Index entry (#485)', async ({ page }, testInfo) => {
   test.setTimeout(180_000)
   await page.setViewportSize({ width: 1280, height: 900 })
+  // Force the download path for Save (the `save.spec.ts` idiom): with the
+  // File System Access picker present, Save As… opens a native dialog no
+  // driver can answer, and this walk needs the file it writes to reach the
+  // Open project dialog. It changes where the bytes go, not which controls
+  // the Save mode dialog offers.
+  await page.addInitScript(() => {
+    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker
+  })
   await page.goto('./')
 
   const collected = new Map<string, string>()
@@ -559,6 +662,134 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await page.keyboard.press('Escape')
   await expect(cheatSheet).toHaveCount(0)
 
+  // ── The five visual editors (#507) ──────────────────────────────────
+  //
+  // Each draws under the row it edits, behind an Adjust visually… button
+  // that is a toggle, so the same button closes what it opened; the
+  // Settings switch that gates them all is on by default. Two have to have
+  // their subject made first — a zoom before it can be adjusted, and a
+  // redaction region before it can be dragged — and making the region is
+  // what brings the Redact fields themselves into the walk, which is a
+  // sixth surface of exactly this kind for one button click (#507).
+  const openEditors = timeline.getByRole('dialog')
+  const walkEditor = async (trigger: Locator, surface: string) => {
+    await trigger.click()
+    const editor = openEditors.first()
+    await expect(editor).toBeVisible()
+    await record(surface, editor)
+    await trigger.click()
+    await expect(openEditors).toHaveCount(0)
+  }
+
+  // A zoom on the first sequence entry, which is also the first entry's own
+  // zoom fields — neither exists until an effect is added.
+  const [firstEntry] = positions
+  await chooseEffect(page, firstEntry, 'Zoom')
+  await expect(timeline.getByRole('spinbutton', { name: `Zoom 1 scale of ${firstEntry}` })).toBeVisible()
+  await record('an entry with a zoom', timeline)
+  await walkEditor(
+    timeline.getByRole('button', { name: `Adjust Zoom 1 of ${firstEntry} visually`, exact: true }),
+    'the zoom editor',
+  )
+
+  // A redaction region on the same entry: the region's own fields, then the
+  // editor that drags it.
+  await timeline.getByRole('button', { name: `Add a redaction region on ${firstEntry}`, exact: true }).click()
+  await expect(timeline.getByRole('combobox', { name: `Redaction region 1 style of ${firstEntry}` })).toBeVisible()
+  await record('an element with a redaction region', timeline)
+  await walkEditor(
+    timeline.getByRole('button', {
+      name: `Adjust Redaction region 1 of ${firstEntry} visually`,
+      exact: true,
+    }),
+    'the redaction editor',
+  )
+
+  // The crop editor, on the same entry's Picture group.
+  await walkEditor(
+    timeline.getByRole('button', { name: `Adjust the crop of ${firstEntry} visually`, exact: true }),
+    'the crop editor',
+  )
+
+  // The placement editor, on every row that offers one — an overlay's
+  // rectangle and a text overlay's centre share the button's name but not
+  // their editors' contents, so both are walked rather than the first only.
+  for (const position of positions) {
+    const adjust = timeline.getByRole('button', {
+      name: `Adjust the placement of ${position} visually`,
+      exact: true,
+    })
+    if ((await adjust.count()) === 0) continue
+    await walkEditor(adjust, `the placement editor of ${position}`)
+  }
+
+  // ── The recording dialog (#507) ─────────────────────────────────────
+  //
+  // Three states since #514, each with controls of its own: counting down
+  // (Start now), recording (Pause, Stop) and paused (Resume). Chromium's
+  // fake device — the launch flags at the top of this file, the idiom every
+  // recording spec uses — grants the microphone with no prompt, so the
+  // dialog really opens. Microphone rather than a screen source: the
+  // display-capture prompt cannot be auto-answered the same way, and the
+  // dialog's controls are the same three states whatever the source.
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Microphone', exact: true }).click()
+  const recordDialog = page.getByRole('dialog', { name: 'Recording voice-over' })
+  await expect(recordDialog).toBeVisible()
+  await record('the recording dialog, counting down', recordDialog)
+
+  await recordDialog.getByRole('button', { name: 'Start now', exact: true }).click()
+  await expect(recordDialog.getByTestId('record-phase')).toContainText('Recording')
+  await record('the recording dialog, recording', recordDialog)
+
+  await recordDialog.getByRole('button', { name: 'Pause recording', exact: true }).click()
+  await expect(recordDialog.getByTestId('record-phase')).toContainText('Paused')
+  await record('the recording dialog, paused', recordDialog)
+
+  // Cancel, not Stop: a delivered clip would land in the library and change
+  // the project this walk is about to save.
+  await recordDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(recordDialog).toHaveCount(0)
+
+  // ── The Save mode and Open project dialogs (#507) ───────────────────
+  //
+  // Last of all, because opening a project replaces the timeline every
+  // surface above was collected from. Saving references-only is also what
+  // produces the file the Open project dialog needs: its re-link step
+  // exists precisely because a references-only file carries no media (#77),
+  // so the two surfaces are walked with one save between them.
+  await chooseFromFileMenu(page, 'Save As…')
+  const saveMode = page.getByRole('dialog', { name: 'Save project' })
+  await expect(saveMode).toBeVisible()
+  await record('the Save mode dialog', saveMode)
+
+  await saveMode.getByRole('radio', { name: 'Store references only', exact: true }).check()
+  const downloading = page.waitForEvent('download')
+  await saveMode.getByRole('button', { name: 'Save…', exact: true }).click()
+  const projectBytes = await readFile((await (await downloading).path())!)
+  await expect(saveMode).toHaveCount(0)
+
+  await page
+    .getByTestId('project-file-input')
+    .setInputFiles([
+      { name: 'walk.bvep', mimeType: 'application/gzip', buffer: projectBytes },
+    ])
+  const openDialog = page.getByRole('dialog', { name: 'Open walk.bvep' })
+  await expect(openDialog).toBeVisible()
+  await record('the Open project dialog', openDialog)
+
+  // Re-linked as well as missing: the dialog's own list gains a per-clip
+  // state, and Open project only becomes usable once every clip is linked.
+  await page.getByTestId('relink-file-input').setInputFiles([
+    { name: 'clip.webm', mimeType: 'video/webm', buffer: webm },
+    { name: 'picture.png', mimeType: 'image/png', buffer: png },
+    { name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(2) },
+  ])
+  await expect(openDialog.getByRole('button', { name: 'Open project', exact: true })).toBeEnabled()
+  await record('the Open project dialog, every clip re-linked', openDialog)
+  await openDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(openDialog).toHaveCount(0)
+
   const elementNames = [...positions, 'clip.webm', 'picture.png', 'tone.wav']
   const wanted = new Map<string, string>()
   for (const [row, surface] of collected) {
@@ -589,6 +820,9 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     'every control the walk met is an entry in docs/guide/feature-index.md',
   ).toEqual([])
   // A guard on the walk itself: a collection that silently stopped finding
-  // controls would otherwise pass with an empty missing list.
-  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(150)
+  // controls would otherwise pass with an empty missing list. Raised with
+  // the widening (#507) — 165 before it, 194 after — keeping roughly the
+  // slack the original 150-against-162 left, so a surface that stops
+  // opening is caught while an ordinary control being retired is not.
+  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(185)
 })
