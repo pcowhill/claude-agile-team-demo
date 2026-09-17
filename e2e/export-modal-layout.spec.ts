@@ -182,6 +182,48 @@ test('the Output row keeps Width, Height and Frame rate inside the dialog at bot
   }
 })
 
+test('a dialog taller than the viewport can still be scrolled to its actions (#488)', async ({
+  page,
+}) => {
+  // The defect this pins was latent until the export dialog grew: the
+  // overlay centred its child with `align-items: center` and had no
+  // `overflow`, so a dialog taller than the viewport was clipped off BOTH
+  // ends with nothing to scroll — Cancel and Export simply unreachable.
+  // Adding the Copy chapter list row and its note (#488) pushed the
+  // dialog's tallest state past 720px and turned that into a real failure:
+  // e2e/export-redaction.spec.ts's blur-refusal case timed out clicking
+  // Cancel, deterministically, with "element is outside of the viewport".
+  await page.goto('./')
+  await chooseFromAddMenu(page, ADD_SLATE)
+  // Short enough that the dialog cannot fit however its content changes
+  // later, so this keeps testing the overflow case rather than quietly
+  // becoming a test of a dialog that happens to fit.
+  await page.setViewportSize({ width: 1280, height: 400 })
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Export project' })
+  await expect(dialog).toBeVisible()
+  const box = await boxOf(dialog)
+  expect(box.height, 'the dialog is taller than the viewport').toBeGreaterThan(400)
+
+  // The top is REACHABLE, which is the half `align-items: center` took away:
+  // it centred the overflow, putting the dialog's head above the viewport
+  // with no scroll to bring it back. Measured on this page before the fix,
+  // the top sat at −137px and scrolling the overlay did nothing; it now
+  // lands at the overlay's padding. Opening the dialog focuses Export, which
+  // scrolls the overlay to the bottom, so this scrolls back first.
+  const top = await dialog.evaluate((node) => {
+    const overlay = node.parentElement!
+    overlay.scrollTop = 0
+    return node.getBoundingClientRect().top
+  })
+  expect(top, 'the dialog top can be scrolled into view').toBeGreaterThanOrEqual(-1)
+
+  // And the proof a user would recognise: the click lands. Reaching the
+  // actions at all means the overlay scrolls rather than clipping them away.
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
 test('the Range fieldset keeps its typed fields and error line inside the dialog (#400)', async ({
   page,
 }, testInfo) => {
