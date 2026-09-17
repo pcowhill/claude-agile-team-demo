@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
-import { totalDuration } from '../lib/timeline'
+import { markersOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
 import type { ExportRange } from '../lib/exportVideo'
+import { INTRO_CHAPTER_NAME, formatChapterList } from '../lib/chapterList'
 import { formatDuration } from '../lib/mediaLibrary'
 import { customExportRange, formatTimeInput } from '../lib/exportRangeInput'
 import {
@@ -127,6 +128,15 @@ export function ExportControl({
   const [scope, setScope] = useState<'whole' | 'range' | 'custom'>('whole')
   const [rangeStartDraft, setRangeStartDraft] = useState('0:00')
   const [rangeEndDraft, setRangeEndDraft] = useState('0:00')
+  /**
+   * The last Copy chapter list attempt (#488), carrying the exact text it
+   * was made for. Comparing that text against the list the current range
+   * yields is what expires the outcome: change the range and the "copied"
+   * line disappears by itself, because it is no longer true of what the
+   * button would now write. Cheaper and harder to get wrong than resetting
+   * it from each of the controls that can change the range.
+   */
+  const [chapterCopy, setChapterCopy] = useState<{ text: string; failed: boolean } | null>(null)
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
@@ -198,6 +208,8 @@ export function ExportControl({
     setScope('whole')
     setRangeStartDraft(formatTimeInput(range?.start ?? 0))
     setRangeEndDraft(formatTimeInput(range?.end ?? totalDuration(timeline)))
+    // A previous run's copy outcome does not belong to this one either.
+    setChapterCopy(null)
     setWidthDraft(String(FALLBACK_FRAME.width))
     setHeightDraft(String(FALLBACK_FRAME.height))
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
@@ -247,6 +259,51 @@ export function ExportControl({
   // output settings are hidden while it is selected — and their drafts,
   // valid or not, neither gate nor parameterize the export.
   const audioOnly = formats.find((spec) => spec.id === format)?.audioOnly === true
+
+  /**
+   * The span Copy chapter list (#488) writes its times against: whatever
+   * this export would cover. Null only while the typed range is not yet a
+   * range — Export is disabled then too, and a list offset to a range that
+   * cannot be exported would be a list of wrong times.
+   */
+  const chapterRange: ExportRange | null =
+    scope === 'custom'
+      ? customRange.range
+      : scope === 'range' && range !== null
+        ? range
+        : { start: 0, end: totalDuration(timeline) }
+  const chapterList =
+    chapterRange === null ? '' : formatChapterList(markersOf(timeline), chapterRange)
+  /** Why the button is disabled, on the button itself (#488). */
+  const chapterListTitle =
+    chapterRange === null
+      ? 'Set a range that can be exported first.'
+      : chapterList === ''
+        ? 'No chapter markers in the exported range.'
+        : undefined
+  // The outcome is shown only while it still describes what the button
+  // would write — see `chapterCopy`.
+  const chapterOutcome =
+    chapterCopy !== null && chapterCopy.text === chapterList ? chapterCopy : null
+
+  /**
+   * Writes the list to the clipboard, and on refusal shows it instead
+   * (#488). The clipboard is denied often enough — an insecure origin, a
+   * permissions policy, a browser that has no `navigator.clipboard` at all —
+   * that failing silently would leave the user with no list and no reason,
+   * and the list is short enough to select by hand. The property access is
+   * inside the `try` deliberately: a missing `clipboard` throws there.
+   */
+  const copyChapterList = async () => {
+    const text = chapterList
+    if (text === '') return
+    try {
+      await navigator.clipboard.writeText(text)
+      setChapterCopy({ text, failed: false })
+    } catch {
+      setChapterCopy({ text, failed: true })
+    }
+  }
 
   /** A manual field edit puts the selector into its Custom state (#179). */
   const editField = (set: (value: string) => void) => (value: string) => {
@@ -485,6 +542,48 @@ export function ExportControl({
                 <p className="export-format-note export-range-error" data-testid="export-range-error">
                   {customRange.error} Times are m:ss or seconds.
                 </p>
+              )}
+              {/* Copy chapter list (#488, part 2 of the approved #461): the
+                  chapter markers inside the exported span, as the plain-text
+                  list players parse. It belongs to the Range group because
+                  the range is what decides both which markers appear and
+                  what their times are. */}
+              <div className="export-chapter-row">
+                <button
+                  type="button"
+                  data-testid="export-copy-chapters"
+                  disabled={exporting || chapterList === ''}
+                  title={chapterListTitle}
+                  onClick={() => void copyChapterList()}
+                >
+                  Copy chapter list
+                </button>
+                {/* The live region is always in the DOM and only its text
+                    changes: a `role="status"` element inserted at the moment
+                    it has something to say is not reliably announced. */}
+                <span className="export-chapter-copied" role="status">
+                  {chapterOutcome !== null && !chapterOutcome.failed ? 'Chapter list copied' : ''}
+                </span>
+              </div>
+              <p className="export-format-note">
+                A “mm:ss Name” list of the chapter markers in the exported span, with the times
+                offset to its start. Players need a chapter at the very start, so a first line
+                “00:00 {INTRO_CHAPTER_NAME}” is added when no marker sits there.
+              </p>
+              {chapterOutcome !== null && chapterOutcome.failed && (
+                <>
+                  <p className="export-format-note export-range-error" role="alert">
+                    The clipboard refused the copy. Select the list below and copy it by hand.
+                  </p>
+                  <textarea
+                    className="export-chapter-fallback"
+                    aria-label="Chapter list"
+                    data-testid="export-chapter-fallback"
+                    readOnly
+                    rows={Math.min(8, chapterOutcome.text.split('\n').length)}
+                    value={chapterOutcome.text}
+                  />
+                </>
               )}
             </fieldset>
             {!audioOnly && (

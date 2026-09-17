@@ -42,6 +42,18 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **Related.** [Time on the timeline](concepts.md#time-on-the-timeline)
 
+## Copying a chapter list
+
+**Where to find it.** The dialog's **Range** group, below the range options: **Copy chapter list**.
+
+**What it does.** Puts the [chapter markers](preview-and-playback.md#chapter-markers) inside the exported span on the clipboard, as the plain-text `mm:ss Name` list YouTube and most players read — ready to paste into a video's description.
+
+**Details.** The times are **offset to the span's start**, so a partial export gets a correct list: with the range set to 1:00–1:45, a marker at 1:30 is written `00:30`. Markers outside the span are left out, including any sitting past the end of the sequence. Players only recognise a list that begins at the very start, so when no marker sits there a first line **00:00 Intro** is added for you; the note beside the button says so. Once any line reaches an hour every line grows an hours field (`h:mm:ss`), so the times stay a column. Two markers in the same second get a line each, in their timeline order.
+
+The times are rounded **down**, so a chapter never starts after the moment you marked — which is why a marker the timeline labels *0:03* can appear as `00:02`. The button is disabled, and says why, while the exported span holds no markers. If the browser refuses the clipboard, the list appears in a read-only field below the button instead of the copy failing silently.
+
+**Related.** [The Range line](#the-range-line) · [Chapter markers](preview-and-playback.md#chapter-markers)
+
 ## Audio only: WebM/Opus and MP3
 
 **Where to find it.** **Format** › **Audio only (WebM/Opus)** or **Audio only (MP3)**.

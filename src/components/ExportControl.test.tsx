@@ -680,6 +680,119 @@ describe('export range option (#385)', () => {
   })
 })
 
+describe('Copy chapter list (#488)', () => {
+  const marked: TimelineState = {
+    ...timeline,
+    markers: [
+      { id: 'm1', time: 2, name: 'First look' },
+      { id: 'm2', time: 5.5, name: 'The demo' },
+    ],
+  }
+  const WHOLE_LIST = '00:00 Intro\n00:02 First look\n00:05 The demo'
+  const copyButton = () => screen.getByRole('button', { name: 'Copy chapter list' })
+
+  /**
+   * Replaces whatever clipboard the environment has — user-event installs
+   * its own stub in `setup()`, so this is defined after it and wins.
+   */
+  const stubClipboard = (writeText: () => Promise<void>) => {
+    const spy = vi.fn(writeText)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: spy },
+      configurable: true,
+    })
+    return spy
+  }
+
+  it('copies the markers in the exported span, with the inserted first line', async () => {
+    const user = userEvent.setup()
+    const writeText = stubClipboard(() => Promise.resolve())
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.click(copyButton())
+    // 5.5 s floors to 00:05, and no marker sits at zero, so Intro is added.
+    expect(writeText).toHaveBeenCalledWith(WHOLE_LIST)
+    expect(await screen.findByText('Chapter list copied')).toBeInTheDocument()
+  })
+
+  it('offsets the times to the marked range, and drops what lies outside it', async () => {
+    const user = userEvent.setup()
+    const writeText = stubClipboard(() => Promise.resolve())
+    render(
+      <ExportControl
+        timeline={marked}
+        range={{ start: 2, end: 8.5 }}
+        isTypeSupported={recordsEverything}
+      />,
+    )
+    await user.click(openButton())
+    await user.click(screen.getByTestId('export-scope-range'))
+    await user.click(copyButton())
+    // The marker AT the range start becomes 00:00, so nothing is inserted;
+    // 5.5 − 2 = 3.5 s floors to 00:03.
+    expect(writeText).toHaveBeenCalledWith('00:00 First look\n00:03 The demo')
+  })
+
+  it('shows the list in a read-only field when the clipboard refuses', async () => {
+    const user = userEvent.setup()
+    stubClipboard(() => Promise.reject(new Error('denied')))
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.click(copyButton())
+    // Failing silently would leave the user with no list and no reason.
+    const field = await screen.findByLabelText('Chapter list')
+    expect(field).toHaveValue(WHOLE_LIST)
+    expect(field).toHaveAttribute('readonly')
+    expect(screen.queryByText('Chapter list copied')).not.toBeInTheDocument()
+  })
+
+  it('survives a browser with no clipboard at all, by the same path', async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.click(copyButton())
+    expect(await screen.findByLabelText('Chapter list')).toHaveValue(WHOLE_LIST)
+  })
+
+  it('is disabled, saying why, when the range holds no markers', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={timeline} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(copyButton()).toBeDisabled()
+    expect(copyButton()).toHaveAttribute('title', 'No chapter markers in the exported range.')
+  })
+
+  it('is disabled while the typed range is not a range', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.clear(screen.getByTestId('export-range-end'))
+    await user.type(screen.getByTestId('export-range-end'), 'nonsense')
+    expect(copyButton()).toBeDisabled()
+    expect(copyButton()).toHaveAttribute('title', 'Set a range that can be exported first.')
+  })
+
+  it('stops confirming once the range would write a different list', async () => {
+    const user = userEvent.setup()
+    stubClipboard(() => Promise.resolve())
+    render(
+      <ExportControl
+        timeline={marked}
+        range={{ start: 2, end: 8.5 }}
+        isTypeSupported={recordsEverything}
+      />,
+    )
+    await user.click(openButton())
+    await user.click(copyButton())
+    expect(await screen.findByText('Chapter list copied')).toBeInTheDocument()
+    // The confirmation described the whole-project list; the marked range
+    // writes a different one, so it is no longer true of this button.
+    await user.click(screen.getByTestId('export-scope-range'))
+    expect(screen.queryByText('Chapter list copied')).not.toBeInTheDocument()
+  })
+})
+
 describe('format-note layout structure (#268)', () => {
   // jsdom computes no layout, so the geometry itself (the note below the
   // radio rows, everything inside the dialog) is evidenced by

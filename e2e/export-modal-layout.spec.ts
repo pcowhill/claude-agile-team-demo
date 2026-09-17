@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectWithin } from './layout'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseFromFrameMenu } from './frameMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Locator = import('@playwright/test').Locator
@@ -67,6 +68,58 @@ test('the format note sits below the radios and the picker stays inside the dial
     // The note itself stays inside the dialog too — the half #265's
     // screenshot showed hanging out of it.
     await expectWithin(noteText, dialog, { axis: 'x', what: `${radio} note` })
+  }
+})
+
+test('the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', async ({
+  page,
+}) => {
+  // Reaching the widest state the row can be in: the button with the
+  // confirmation beside it. Granted per-test rather than for the file, so
+  // the other cases here keep the default permissions.
+  await page.context().grantPermissions(['clipboard-write'])
+  await page.goto('./')
+  await chooseFromAddMenu(page, ADD_SLATE)
+  // One marker, so the button is enabled and can be pressed.
+  await chooseFromFrameMenu(page, 'preview-add-marker')
+  await page.keyboard.press('Enter')
+
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Export project' })
+  const row = dialog.locator('.export-chapter-row')
+  const button = dialog.getByRole('button', { name: 'Copy chapter list' })
+  await expect(button).toBeEnabled()
+  await button.click()
+  const copied = dialog.getByText('Chapter list copied')
+  await expect(copied).toBeVisible()
+  const note = dialog.getByText(/A “mm:ss Name” list of the chapter markers/)
+
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 800, height: 1100 },
+  ]) {
+    await page.setViewportSize(viewport)
+    const where = `at ${viewport.width}px`
+    // Horizontal only, for the reason the Output case gives below: the
+    // dialog scrolls vertically on purpose.
+    await expectWithin(row, dialog, { axis: 'x', what: `chapter-list row ${where}` })
+    await expectWithin(button, dialog, { axis: 'x', what: `Copy chapter list ${where}` })
+    await expectWithin(copied, dialog, { axis: 'x', what: `the confirmation ${where}` })
+    await expectWithin(note, dialog, { axis: 'x', what: `the chapter-list note ${where}` })
+
+    // The note is a paragraph of its own below the row, never squeezed in
+    // beside the button — #268's failure, in the group #400 built.
+    const rowBox = await boxOf(row)
+    const noteBox = await boxOf(note)
+    expect(noteBox.y, `the note sits below the row ${where}`).toBeGreaterThanOrEqual(
+      rowBox.y + rowBox.height - 1,
+    )
+    // And the confirmation stays on the button's line rather than pushing
+    // the row into a second one, which is what the row's width is for.
+    const buttonBox = await boxOf(button)
+    expect(rowBox.height, `the row is one line ${where}`).toBeLessThanOrEqual(
+      buttonBox.height + 2,
+    )
   }
 })
 
