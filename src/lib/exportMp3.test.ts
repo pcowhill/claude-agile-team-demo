@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { MP3_KBPS } from './mp3Bitrate'
 import {
-  MP3_KBPS,
   MP3_MIME_TYPE,
   createMp3AudioSink,
   encodeMp3,
