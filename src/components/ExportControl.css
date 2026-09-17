@@ -117,3 +117,30 @@
   color: #aaa;
   font-size: 0.8rem;
 }
+
+/* Copy chapter list (#488): its own full-width row inside the Range group,
+   so the button and the note below it never share a line and push each
+   other out of the dialog (#268's lesson). */
+.export-chapter-row {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.export-chapter-copied {
+  font-size: 0.85rem;
+  color: #8fd18f;
+}
+
+/* The fallback when the clipboard refuses (#488): a read-only field to
+   select by hand. Full width and border-box, so a long chapter name cannot
+   widen the dialog. */
+.export-chapter-fallback {
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}

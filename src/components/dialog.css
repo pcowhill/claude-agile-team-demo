@@ -5,8 +5,19 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
-  align-items: center;
+  /* `align-items: center` centres a dialog that fits and CLIPS one that does
+     not — off both ends, with nothing to scroll, so its actions become
+     unreachable. `flex-start` plus the child's `margin: auto` centres it the
+     same way while free space lasts, and lets it start at the top and scroll
+     once it runs out. The scrollbar sits here rather than inside the dialog,
+     so the dialog's own content width is unchanged and the containment
+     assertions in e2e/export-modal-layout.spec.ts still measure what they
+     did. Latent until the export dialog grew past 720px (#488); that spec
+     pins it. */
+  align-items: flex-start;
+  overflow-y: auto;
   justify-content: center;
+  padding: 1rem 0;
   z-index: 10;
 }
 
@@ -17,6 +28,8 @@
   padding: 1rem 1.25rem;
   max-width: 24rem;
   width: calc(100% - 2rem);
+  /* Centres vertically while the overlay has room to spare; see above. */
+  margin: auto;
 }
 
 .dialog h3 {
