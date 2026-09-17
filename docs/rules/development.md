@@ -192,8 +192,13 @@ An implementation issue is Done only when **all** of the following hold:
 - the implementation received independent review (different session)
 - blocking review feedback is resolved
 - the PR is merged
-- associated documentation (README, ADRs, user-facing docs) is updated where
-  appropriate
+- associated documentation is updated where appropriate — `docs/guide/` is
+  the user-facing documentation (the bullet below says when it is not
+  optional), ADRs carry decisions, and the README is the project overview:
+  the experiment, the stack, how to build and test, and a link to the
+  guide. The README stopped describing features in #486; a feature
+  paragraph added back to it is a second description of the app that
+  nothing checks, which is the drift that change removed
 - for a **user-facing change** — a control, a menu item, a setting, a
   dialog, a shortcut, or a behaviour the user can observe — `docs/guide/`
   is updated **in the same PR**: the feature's page or passage for a
