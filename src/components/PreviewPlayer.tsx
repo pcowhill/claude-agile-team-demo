@@ -51,7 +51,9 @@ import {
   backdropRect,
 } from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
-import { drawLayerSource, withLayerOrientation } from '../lib/exportVideo'
+import { drawLayerSource, fitRect, withLayerOrientation } from '../lib/exportVideo'
+import type { RedactionRegion } from '../lib/redaction'
+import { drawRedactions } from '../lib/redaction'
 import { transitionLabel, transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
@@ -435,6 +437,101 @@ function BlurBackdrop({
 }
 
 /**
+ * A layer's redaction regions (#492), rendered as a canvas in FRONT of the
+ * fitted media element — the mirror of `BlurBackdrop` behind it, and for
+ * the same reason: it paints through the export's own shared rules
+ * (`fitRect`, `withLayerOrientation`, `drawRedactions`) on its own rAF
+ * loop, sampling the element the user is already watching. Parity with the
+ * export is then structural rather than something two implementations have
+ * to keep agreeing about (#66) — the pixels come from the same source, the
+ * geometry from the same functions.
+ *
+ * The canvas is the card's box, so the card's zoom and transition
+ * transforms carry it exactly as they carry the media. Its buffer is the
+ * element box in device-independent pixels: a redaction must resolve what
+ * it hides, so unlike the backdrop this cannot use a low-resolution buffer.
+ *
+ * A video clocks itself from `currentTime` — the frame on screen is the
+ * frame being judged — while a still takes the entry's source time as a
+ * prop, kept in a ref so the loop reads the current value without
+ * re-subscribing every frame.
+ */
+function RedactionOverlay({
+  sourceRef,
+  crop,
+  orientation,
+  regions,
+  sourceTime,
+  testId,
+}: {
+  sourceRef: RefObject<HTMLVideoElement | HTMLImageElement | null>
+  crop: Crop | undefined
+  orientation: Orientation | undefined
+  regions: readonly RedactionRegion[] | undefined
+  /** The element's own source time, for sources that do not clock themselves. */
+  sourceTime: number
+  testId: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const timeRef = useRef(sourceTime)
+  timeRef.current = sourceTime
+  useEffect(() => {
+    if (regions === undefined || regions.length === 0) return
+    let frame = 0
+    const paint = () => {
+      frame = requestAnimationFrame(paint)
+      const canvas = canvasRef.current
+      const source = sourceRef.current
+      if (canvas === null || source === null) return
+      if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return
+      const isVideo = source instanceof HTMLVideoElement
+      if (isVideo && source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+      const sourceWidth = isVideo ? source.videoWidth : source.naturalWidth
+      const sourceHeight = isVideo ? source.videoHeight : source.naturalHeight
+      if (sourceWidth <= 0 || sourceHeight <= 0) return
+      const width = Math.round(canvas.clientWidth)
+      const height = Math.round(canvas.clientHeight)
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const context = canvas.getContext('2d')
+      if (context === null) return
+      context.clearRect(0, 0, width, height)
+      // The media element contain-fits the oriented, cropped picture in this
+      // same box, so the export's own fit rule lands the regions exactly
+      // where the pixels they cover are being shown.
+      const dims = orientedDimensions(
+        croppedDimensions({ width: sourceWidth, height: sourceHeight }, crop),
+        orientation,
+      )
+      const rect = fitRect(dims.width, dims.height, width, height)
+      withLayerOrientation(context, orientation, rect, (drawRect) => {
+        drawRedactions({
+          context,
+          source,
+          regions,
+          sourceTime: isVideo ? source.currentTime : timeRef.current,
+          crop,
+          sourceWidth,
+          sourceHeight,
+          drawRect,
+        })
+      })
+    }
+    frame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(frame)
+  }, [sourceRef, crop, orientation, regions])
+  if (regions === undefined || regions.length === 0) return null
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-redactions"
+      data-testid={testId}
+      aria-hidden="true"
+    />
+  )
+}
+
+/**
  * An entry's background-fill backdrop (#259), rendered as its layer card's
  * first child so the fitted media element paints above it and the bars the
  * fit leaves show it: a flat color as a plain div, blur as the sampled
@@ -718,6 +815,22 @@ export function PreviewPlayer({
   // One <video> element per overlay layer (#145), keyed by overlay id —
   // rendered inside the stage at its rectangle, synced like an audio track.
   const overlayRefs = useRef(new Map<string, HTMLVideoElement | null>())
+  /**
+   * A stable ref object per overlay for its *media* element of either kind
+   * (#492) — `overlayRefs` above holds video elements only, because it
+   * exists to drive playback, and a still overlay has nothing to drive.
+   * `RedactionOverlay` needs whichever element is showing, so it gets its
+   * own map, created lazily and kept for the overlay's lifetime so the
+   * canvas's effect does not re-subscribe on every render.
+   */
+  const overlayMediaRefs = useRef(new Map<string, RefObject<HTMLVideoElement | HTMLImageElement | null>>())
+  const overlayMediaRef = (id: string) => {
+    const existing = overlayMediaRefs.current.get(id)
+    if (existing !== undefined) return existing
+    const created: RefObject<HTMLVideoElement | HTMLImageElement | null> = { current: null }
+    overlayMediaRefs.current.set(id, created)
+    return created
+  }
   // Duck windows (#241), resolved once per timeline change: every gain
   // assignment below multiplies in the shared duck factor, exactly as the
   // export mix does, so the two renders duck identically.
@@ -1804,7 +1917,12 @@ export function PreviewPlayer({
     const slotVideoRef = isA ? videoARef : videoBRef
     if (isPrimary) {
       if (stillPrimary) {
-        return { card: { className: 'preview-video preview-video-idle' }, media: {}, backdrop: null }
+        return {
+          card: { className: 'preview-video preview-video-idle' },
+          media: {},
+          backdrop: null,
+          redactions: null,
+        }
       }
       return {
         card: {
@@ -1825,6 +1943,17 @@ export function PreviewPlayer({
           ),
         },
         backdrop: entryBackdrop(location?.entry, slotVideoRef),
+        redactions:
+          location === null ? null : (
+            <RedactionOverlay
+              sourceRef={slotVideoRef}
+              crop={location.entry.crop}
+              orientation={location.entry.orientation}
+              regions={location.entry.redactions}
+              sourceTime={location.sourceTime}
+              testId="preview-redactions"
+            />
+          ),
       }
     }
     const videoOverlap = overlap !== undefined && !stillIncoming
@@ -1849,6 +1978,17 @@ export function PreviewPlayer({
         'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
       },
       backdrop: videoOverlap ? entryBackdrop(overlap.entry, slotVideoRef) : null,
+      redactions:
+        videoOverlap ? (
+          <RedactionOverlay
+            sourceRef={slotVideoRef}
+            crop={overlap.entry.crop}
+            orientation={overlap.entry.orientation}
+            regions={overlap.entry.redactions}
+            sourceTime={overlap.sourceTime}
+            testId="preview-redactions-incoming"
+          />
+        ) : null,
     }
   }
   const slotA = videoSlotProps(true)
@@ -1904,10 +2044,12 @@ export function PreviewPlayer({
               <div {...slotA.card}>
                 {slotA.backdrop}
                 <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
+                {slotA.redactions}
               </div>
               <div {...slotB.card}>
                 {slotB.backdrop}
                 <video ref={videoBRef} playsInline preload="auto" className="preview-media" {...slotB.media} />
+                {slotB.redactions}
               </div>
               {/* Still layers (#140): an <img> in the same stacked slot,
                   sharing the video layers' classes so transitions and zooms
@@ -1948,6 +2090,14 @@ export function PreviewPlayer({
                         ),
                         location.entry.colorAdjustments,
                       )}
+                    />
+                    <RedactionOverlay
+                      sourceRef={stillImageRef}
+                      crop={location.entry.crop}
+                      orientation={location.entry.orientation}
+                      regions={location.entry.redactions}
+                      sourceTime={location.sourceTime}
+                      testId="preview-redactions-still"
                     />
                   </div>
                 )
@@ -2042,6 +2192,9 @@ export function PreviewPlayer({
                         it through, since the card paints no background. */}
                     {isImageOverlay(overlay) ? (
                       <img
+                        ref={(element) => {
+                          overlayMediaRef(overlay.id).current = element
+                        }}
                         src={overlay.url}
                         alt=""
                         className="preview-media"
@@ -2060,6 +2213,7 @@ export function PreviewPlayer({
                       <video
                         ref={(element) => {
                           overlayRefs.current.set(overlay.id, element)
+                          overlayMediaRef(overlay.id).current = element
                         }}
                         src={overlay.url}
                         preload="auto"
@@ -2077,6 +2231,14 @@ export function PreviewPlayer({
                         )}
                       />
                     )}
+                    <RedactionOverlay
+                      sourceRef={overlayMediaRef(overlay.id)}
+                      crop={overlay.crop}
+                      orientation={overlay.orientation}
+                      regions={overlay.redactions}
+                      sourceTime={audioTrackPlaybackAt(overlay, sequenceTime).sourceTime}
+                      testId={`preview-overlay-redactions-${index}`}
+                    />
                   </div>
                 )
               })}

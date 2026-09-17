@@ -25,6 +25,16 @@ import type { CropSubject } from '../lib/frameEditor'
 import { DEFAULT_FILL_COLOR } from '../lib/backgroundFill'
 import type { BackgroundFill, BackgroundFillInput } from '../lib/backgroundFill'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../lib/shapeMask'
+import type { RedactionRegion, RedactionStyle } from '../lib/redaction'
+import {
+  DEFAULT_BLUR_STRENGTH,
+  DEFAULT_PIXELATE_BLOCK,
+  DEFAULT_REDACTION_COLOR,
+  DEFAULT_REDACTION_STYLE,
+  DEFAULT_REGION_RECT,
+  MAX_REDACTION_STRENGTH,
+  MIN_WINDOW_SECONDS,
+} from '../lib/redaction'
 import type { ShapeMask, ShapeMaskInput } from '../lib/shapeMask'
 import {
   DEFAULT_TRANSITION_DURATION,
@@ -188,7 +198,11 @@ interface TimelineProps {
   onSetVideoOverlayOrientation: (id: string, orientation: Orientation) => void
   /** Sets a video/image entry's crop whole (#255); `{}` resets. */
   onSetEntryCrop: (id: string, crop: Crop) => void
+  /** Commits an entry's whole redaction list (#492); `[]` clears it. */
+  onSetEntryRedactions: (id: string, redactions: RedactionRegion[]) => void
   onSetVideoOverlayCrop: (id: string, crop: Crop) => void
+  /** Commits a video overlay's whole redaction list (#492); `[]` clears it. */
+  onSetVideoOverlayRedactions: (id: string, redactions: RedactionRegion[]) => void
   /** Sets a video overlay's shape mask whole (#266);
    * `{ kind: 'rectangle' }` resets. */
   onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
@@ -691,6 +705,222 @@ function CropControls({ position, crop, onCommit, adjust }: CropControlsProps) {
   )
 }
 
+interface RedactionControlsProps {
+  /** The accessible name of the row's owner. */
+  position: string
+  regions: readonly RedactionRegion[] | undefined
+  /** The element's trim, which a fresh region's window defaults to (#492). */
+  inPoint: number
+  outPoint: number
+  /** The source's length — the furthest a window can reach. */
+  duration: number
+  /** Receives the full list on every edit; an empty list resets (#492). */
+  onCommit: (regions: RedactionRegion[]) => void
+}
+
+/**
+ * Per-element redaction controls (#492): the list of regions, a button that
+ * adds one, and per region its rectangle (percent of the source frame), its
+ * window (seconds into the source), its style and that style's own
+ * parameter, plus Remove.
+ *
+ * Every edit commits the WHOLE list, exactly as the crop and orientation
+ * controls commit a whole value — so adding, editing and removing are one
+ * reducer action apiece and therefore one undo step apiece, with no partial
+ * region ever reaching the model. A fresh region covers the middle of the
+ * frame and the element's current trim, which is the common case (a whole
+ * clip's header bar) and is trivially narrowed.
+ */
+function RedactionControls({
+  position,
+  regions,
+  inPoint,
+  outPoint,
+  duration,
+  onCommit,
+}: RedactionControlsProps) {
+  const list = regions ?? []
+  const percent = (value: number) => value * 100
+  const replace = (index: number, change: Partial<RedactionRegion>) => {
+    const next = list.map((region, at) => (at === index ? { ...region, ...change } : region))
+    onCommit(next)
+  }
+  const add = () => {
+    onCommit([
+      ...list,
+      {
+        id: `rd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        ...DEFAULT_REGION_RECT,
+        start: inPoint,
+        // A zero-length element cannot happen, but a window must outlast its
+        // start whatever the trim is.
+        end: Math.max(outPoint, inPoint + MIN_WINDOW_SECONDS),
+        style: DEFAULT_REDACTION_STYLE,
+        blockSize: DEFAULT_PIXELATE_BLOCK,
+      },
+    ])
+  }
+  /** Switching style swaps in that style's own parameter and drops the rest. */
+  const restyle = (index: number, style: RedactionStyle) => {
+    const region = list[index]
+    if (region === undefined || region.style === style) return
+    const base = {
+      id: region.id,
+      left: region.left,
+      top: region.top,
+      width: region.width,
+      height: region.height,
+      start: region.start,
+      end: region.end,
+    }
+    const next: RedactionRegion =
+      style === 'blur'
+        ? { ...base, style, strength: DEFAULT_BLUR_STRENGTH }
+        : style === 'pixelate'
+          ? { ...base, style, blockSize: DEFAULT_PIXELATE_BLOCK }
+          : { ...base, style, color: DEFAULT_REDACTION_COLOR }
+    onCommit(list.map((each, at) => (at === index ? next : each)))
+  }
+  return (
+    <div className="timeline-redactions">
+      <div className="timeline-entry-color">
+        <span>Redact</span>
+        <button type="button" aria-label={`Add a redaction region to ${position}`} onClick={add}>
+          + Add region
+        </button>
+        {list.length === 0 && <span className="timeline-hint">Nothing hidden</span>}
+      </div>
+      {list.map((region, index) => {
+        // Regions are addressed by their position in the list, which is what
+        // the user sees; ids are stable but meaningless to read aloud.
+        const which = `region ${index + 1} of ${position}`
+        return (
+          <div className="timeline-redaction" key={region.id}>
+            <div className="timeline-entry-color">
+              <span>Area</span>
+              <SecondsField
+                label={`Redaction ${which}: left (percent)`}
+                value={percent(region.left)}
+                min={0}
+                max={99}
+                step={1}
+                onCommit={(value) => replace(index, { left: value / 100 })}
+              />
+              <span>top</span>
+              <SecondsField
+                label={`Redaction ${which}: top (percent)`}
+                value={percent(region.top)}
+                min={0}
+                max={99}
+                step={1}
+                onCommit={(value) => replace(index, { top: value / 100 })}
+              />
+              <span>width</span>
+              <SecondsField
+                label={`Redaction ${which}: width (percent)`}
+                value={percent(region.width)}
+                min={1}
+                max={100}
+                step={1}
+                onCommit={(value) => replace(index, { width: value / 100 })}
+              />
+              <span>height</span>
+              <SecondsField
+                label={`Redaction ${which}: height (percent)`}
+                value={percent(region.height)}
+                min={1}
+                max={100}
+                step={1}
+                onCommit={(value) => replace(index, { height: value / 100 })}
+              />
+              <span>%</span>
+            </div>
+            <div className="timeline-entry-color">
+              <span>Shows from</span>
+              <SecondsField
+                label={`Redaction ${which}: start (seconds)`}
+                value={region.start}
+                min={0}
+                max={duration}
+                step={0.1}
+                onCommit={(value) => replace(index, { start: value })}
+              />
+              <span>to</span>
+              <SecondsField
+                label={`Redaction ${which}: end (seconds)`}
+                value={region.end}
+                min={0}
+                max={duration}
+                step={0.1}
+                onCommit={(value) => replace(index, { end: value })}
+              />
+              <span>s</span>
+            </div>
+            <div className="timeline-entry-color">
+              <span>Style</span>
+              <select
+                aria-label={`Redaction ${which}: style`}
+                value={region.style}
+                onChange={(event) => restyle(index, event.target.value as RedactionStyle)}
+              >
+                <option value="blur">Blur</option>
+                <option value="pixelate">Pixelate</option>
+                <option value="solid">Solid</option>
+              </select>
+              {region.style === 'blur' && (
+                <>
+                  <span>strength</span>
+                  <SecondsField
+                    label={`Redaction ${which}: blur strength (source pixels)`}
+                    value={region.strength ?? DEFAULT_BLUR_STRENGTH}
+                    min={0}
+                    max={MAX_REDACTION_STRENGTH}
+                    step={1}
+                    slider
+                    onCommit={(value) => replace(index, { strength: value })}
+                  />
+                </>
+              )}
+              {region.style === 'pixelate' && (
+                <>
+                  <span>block size</span>
+                  <SecondsField
+                    label={`Redaction ${which}: block size (source pixels)`}
+                    value={region.blockSize ?? DEFAULT_PIXELATE_BLOCK}
+                    min={1}
+                    max={MAX_REDACTION_STRENGTH}
+                    step={1}
+                    slider
+                    onCommit={(value) => replace(index, { blockSize: value })}
+                  />
+                </>
+              )}
+              {region.style === 'solid' && (
+                <input
+                  type="color"
+                  aria-label={`Redaction ${which}: colour`}
+                  value={region.color ?? DEFAULT_REDACTION_COLOR}
+                  onChange={(event) => replace(index, { color: event.target.value })}
+                />
+              )}
+              <button
+                type="button"
+                aria-label={`Remove redaction ${which}`}
+                onClick={() => onCommit(list.filter((_, at) => at !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            <p className="timeline-hint">
+              Blur can be partly reversed on small text; Pixelate and Solid cannot.
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 interface ShapeMaskControlsProps {
   /** The accessible name of the row's owner (a video overlay). */
   position: string
@@ -1047,7 +1277,9 @@ export function Timeline({
   onSetEntryOrientation,
   onSetVideoOverlayOrientation,
   onSetEntryCrop,
+  onSetEntryRedactions,
   onSetVideoOverlayCrop,
+  onSetVideoOverlayRedactions,
   onSetVideoOverlayMask,
   onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
@@ -1968,6 +2200,20 @@ export function Timeline({
                         />
                       ),
                     },
+                    {
+                      name: 'Redact',
+                      applied: entry.redactions !== undefined,
+                      controls: (
+                        <RedactionControls
+                          position={position}
+                          regions={entry.redactions}
+                          inPoint={entry.inPoint}
+                          outPoint={entry.outPoint}
+                          duration={entry.duration}
+                          onCommit={(regions) => onSetEntryRedactions(entry.id, regions)}
+                        />
+                      ),
+                    },
                   ])}
                 {(() => {
                   // An entry carries any number of non-overlapping zooms
@@ -2746,6 +2992,22 @@ export function Timeline({
                           position={position}
                           mask={overlay.shapeMask}
                           onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Redact',
+                      applied: overlay.redactions !== undefined,
+                      controls: (
+                        <RedactionControls
+                          position={position}
+                          regions={overlay.redactions}
+                          inPoint={overlay.inPoint}
+                          outPoint={overlay.outPoint}
+                          duration={overlay.duration}
+                          onCommit={(regions) =>
+                            onSetVideoOverlayRedactions(overlay.id, regions)
+                          }
                         />
                       ),
                     },
