@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   RECORDING_KEYFRAME_INTERVAL_MS,
+  pausedClock,
   recordedClipName,
+  recordedSeconds,
   recordingFileExtension,
+  resumedClock,
   screenRecordingName,
+  startedClock,
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
@@ -47,11 +51,15 @@ function fakeRecordingWorld(options?: {
   supportedTypes?: string[]
   denyMicrophone?: Error
   failConstruction?: Error
+  /** A recorder without pause / resume, for the feature-detection case (#514). */
+  withoutPause?: boolean
 }) {
   const stopTrack = vi.fn()
   const stream = {
     getTracks: () => [{ stop: stopTrack }, { stop: stopTrack }],
   } as unknown as MediaStream
+  /** Every recorder method called, in order (#514). */
+  const calls: string[] = []
   let recorder:
     | (RecorderLike & {
         started: boolean
@@ -78,10 +86,22 @@ function fakeRecordingWorld(options?: {
         onerror: null,
         start() {
           this.started = true
+          calls.push('start')
         },
         stop() {
+          calls.push('stop')
           queueMicrotask(() => this.onstop?.())
         },
+        ...(options?.withoutPause
+          ? {}
+          : {
+              pause() {
+                calls.push('pause')
+              },
+              resume() {
+                calls.push('resume')
+              },
+            }),
       }
       return recorder
     },
@@ -90,6 +110,7 @@ function fakeRecordingWorld(options?: {
   return {
     dependencies,
     stopTrack,
+    calls,
     recorder: () => {
       if (recorder === null) throw new Error('recorder was never constructed')
       return recorder
@@ -345,10 +366,14 @@ function fakeScreenCameraWorld(options?: {
   denyCombinedCamera?: Error
   denyVideoOnlyCamera?: Error
   failCameraRecorder?: Error
+  /** The camera's recorder cannot pause, so the pair cannot (#514). */
+  cameraWithoutPause?: boolean
 }) {
   const stopScreenTrack = vi.fn()
   const stopCameraTrack = vi.fn()
   const endedListeners: (() => void)[] = []
+  /** Every recorder method called, tagged with its stream, in order (#514). */
+  const calls: string[] = []
   const screenVideoTrack = {
     stop: stopScreenTrack,
     addEventListener: (name: string, listener: () => void) => {
@@ -389,6 +414,7 @@ function fakeScreenCameraWorld(options?: {
     }),
     createRecorder: (stream: MediaStream, recorderOptions: RecorderOptions) => {
       if (stream === cameraStream && options?.failCameraRecorder) throw options.failCameraRecorder
+      const tag = stream === screenStream ? 'screen' : 'camera'
       const recorder = {
         started: false,
         forStream: stream,
@@ -399,10 +425,22 @@ function fakeScreenCameraWorld(options?: {
         onerror: null,
         start() {
           this.started = true
+          calls.push(`${tag}.start`)
         },
         stop() {
+          calls.push(`${tag}.stop`)
           queueMicrotask(() => this.onstop?.())
         },
+        ...(tag === 'camera' && options?.cameraWithoutPause
+          ? {}
+          : {
+              pause() {
+                calls.push(`${tag}.pause`)
+              },
+              resume() {
+                calls.push(`${tag}.resume`)
+              },
+            }),
       }
       recorders.push(recorder)
       return recorder
@@ -413,6 +451,7 @@ function fakeScreenCameraWorld(options?: {
     dependencies,
     stopScreenTrack,
     stopCameraTrack,
+    calls,
     cameraRequests,
     screenStream,
     cameraStream,
@@ -602,6 +641,150 @@ describe('webcam recording names (#226)', () => {
         'webm',
       ),
     ).toBe('Webcam recording 3.webm')
+  })
+})
+
+describe('the recorded-time clock (#514)', () => {
+  it('counts recorded time only: a pause banks the run and a resume starts a new one', () => {
+    // Record 2 s, pause 5 s, resume 1 s → 3 s recorded, not 8 s of wall time.
+    let clock = startedClock(10_000)
+    expect(recordedSeconds(clock, 12_000)).toBe(2)
+    clock = pausedClock(clock, 12_000)
+    expect(recordedSeconds(clock, 17_000)).toBe(2)
+    clock = resumedClock(clock, 17_000)
+    expect(recordedSeconds(clock, 18_000)).toBe(3)
+    // Reading while paused stands still; reading while running moves.
+    expect(recordedSeconds(pausedClock(clock, 18_000), 99_000)).toBe(3)
+  })
+
+  it('is idempotent at the edges: pausing a paused clock or resuming a running one changes nothing', () => {
+    const running = startedClock(0)
+    expect(resumedClock(running, 500)).toBe(running)
+    const paused = pausedClock(running, 1000)
+    expect(pausedClock(paused, 5000)).toBe(paused)
+    // A clock read before its own start reads zero rather than negative.
+    expect(recordedSeconds(startedClock(1000), 500)).toBe(0)
+  })
+})
+
+describe('deferred start, pause and resume (#514)', () => {
+  it('with deferStart the recorder is created but not started until begin, and begin runs once', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies, { deferStart: true })
+    // The device is granted and the recorder exists — the previews can go
+    // live — but nothing is captured yet.
+    expect(world.recorder().started).toBe(false)
+    expect(world.calls).toEqual([])
+    session.begin()
+    session.begin()
+    expect(world.calls).toEqual(['start'])
+  })
+
+  it('cancel before begin releases the device and never stops a recorder that did not run', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies, { deferStart: true })
+    session.cancel()
+    expect(world.stopTrack).toHaveBeenCalledTimes(2)
+    // `MediaRecorder.stop()` on an inactive recorder throws; it is not called.
+    expect(world.calls).toEqual([])
+    // Nor can a begin after cancel start a take nobody wants.
+    session.begin()
+    expect(world.calls).toEqual([])
+    await expect(session.stop('Voice-over 1.webm')).rejects.toThrow('already concluded')
+  })
+
+  it('stop before begin refuses, releasing the device, rather than delivering an empty take', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies, { deferStart: true })
+    await expect(session.stop('Voice-over 1.webm')).rejects.toThrow('had not started')
+    expect(world.stopTrack).toHaveBeenCalledTimes(2)
+    expect(world.calls).toEqual([])
+  })
+
+  it('pause and resume reach the recorder once each, and repeats are no-ops', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies)
+    expect(session.canPause).toBe(true)
+    session.pause()
+    session.pause()
+    session.resume()
+    session.resume()
+    // Resume without a pause, pause after conclusion: nothing reaches the recorder.
+    session.resume()
+    expect(world.calls).toEqual(['start', 'pause', 'resume'])
+    world.recorder().ondataavailable?.({ data: new Blob(['aud'], { type: 'audio/webm' }) })
+    await session.stop('Voice-over 1.webm')
+    session.pause()
+    expect(world.calls).toEqual(['start', 'pause', 'resume', 'stop'])
+  })
+
+  it('pause before begin is a no-op: a recorder that has not started cannot be paused', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies, { deferStart: true })
+    session.pause()
+    session.resume()
+    expect(world.calls).toEqual([])
+  })
+
+  it('a recorder without pause / resume reports canPause false and ignores both', async () => {
+    const world = fakeRecordingWorld({ withoutPause: true })
+    const session = await startMicrophoneRecording(world.dependencies)
+    expect(session.canPause).toBe(false)
+    expect(() => {
+      session.pause()
+      session.resume()
+    }).not.toThrow()
+    expect(world.calls).toEqual(['start'])
+  })
+
+  it('a paired take defers both recorders and begins them back to back, then pauses and resumes both in one task', async () => {
+    const world = fakeScreenCameraWorld()
+    const session = await startScreenCameraRecording(() => {}, world.dependencies, {
+      deferStart: true,
+    })
+    expect(world.recorders).toHaveLength(2)
+    expect(world.recorders.every((recorder) => recorder.started)).toBe(false)
+    expect(session.canPause).toBe(true)
+    session.begin()
+    // Adjacent, screen first — the alignment #388 relies on, kept through
+    // the countdown (#514).
+    expect(world.calls).toEqual(['screen.start', 'camera.start'])
+    session.pause()
+    session.pause()
+    expect(world.calls).toEqual(['screen.start', 'camera.start', 'screen.pause', 'camera.pause'])
+    session.resume()
+    expect(world.calls.slice(-2)).toEqual(['screen.resume', 'camera.resume'])
+  })
+
+  it('a paired take cannot pause when either recorder cannot, and offers neither', async () => {
+    const world = fakeScreenCameraWorld({ cameraWithoutPause: true })
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(session.canPause).toBe(false)
+    session.pause()
+    session.resume()
+    // Neither half paused: a screen clip paused alone would drift from a
+    // camera clip that kept running.
+    expect(world.calls).toEqual(['screen.start', 'camera.start'])
+  })
+
+  it('a paired take cancelled during the countdown releases both devices and starts nothing', async () => {
+    const world = fakeScreenCameraWorld()
+    const session = await startScreenCameraRecording(() => {}, world.dependencies, {
+      deferStart: true,
+    })
+    session.cancel()
+    expect(world.stopScreenTrack).toHaveBeenCalledTimes(2)
+    expect(world.stopCameraTrack).toHaveBeenCalledTimes(2)
+    expect(world.calls).toEqual([])
+  })
+
+  it('without deferStart every start function begins at once, as before', async () => {
+    const mic = fakeRecordingWorld()
+    await startMicrophoneRecording(mic.dependencies)
+    expect(mic.calls).toEqual(['start'])
+    const pair = fakeScreenCameraWorld()
+    await startScreenCameraRecording(() => {}, pair.dependencies)
+    expect(pair.calls).toEqual(['screen.start', 'camera.start'])
   })
 })
 

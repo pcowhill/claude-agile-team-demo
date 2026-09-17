@@ -1,6 +1,6 @@
 # Settings
 
-Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
+Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
 
 ## Opening Settings
 
@@ -52,6 +52,16 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **Related.** [Turning the editors on and off](visual-editors.md#turning-the-editors-on-and-off)
 
+## Countdown before recording
+
+**Where to find it.** Settings › **Countdown before recording**, **{{RECORDING_COUNTDOWN_SECONDS}} s** or **Off**.
+
+**What it does.** Decides whether the recording dialog counts 3 · 2 · 1 before the recorder starts.
+
+**Details.** On by default, at {{RECORDING_COUNTDOWN_SECONDS}} s. The hint says what it is for: *Record ▾ counts 3 · 2 · 1 after the sources are granted, so a take never begins with your hand still on the mouse. Start now skips it; Off starts recording at once.* Off is for people who never want the pause; anyone else can skip a single countdown with **Start now** in the dialog. Like every setting, it is a preference for this browser and never part of a project.
+
+**Related.** [The countdown](recording.md#the-countdown) · [The recording dialog](recording.md#the-recording-dialog)
+
 ## Default export format
 
 **Where to find it.** Settings › **Default export format**.
@@ -68,6 +78,6 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **What it does.** Says what settings are, and are not.
 
-**Details.** Settings describe how you like to work — the arrow steps, a new still's length, the restore offer, the export format, the visual editors — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
+**Details.** Settings describe how you like to work — the arrow steps, a new still's length, the restore offer, the export format, the visual editors, the recording countdown — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
 
 **Related.** [What is saved where](concepts.md#what-is-saved-where) · [What is never in a project file](projects.md#what-is-never-in-a-project-file)

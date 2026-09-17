@@ -1,12 +1,17 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import {
   isRecordingSupported,
   isScreenCameraRecordingSupported,
   isScreenRecordingSupported,
+  pausedClock,
+  recordedSeconds,
   recordingFileExtension,
+  resumedClock,
   screenRecordingName,
+  startedClock,
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
@@ -15,8 +20,13 @@ import {
   voiceOverName,
   webcamRecordingName,
 } from '../lib/recording'
-import type { RecordingSession, ScreenCameraRecordingSession } from '../lib/recording'
+import type {
+  RecordingClock,
+  RecordingSession,
+  ScreenCameraRecordingSession,
+} from '../lib/recording'
 import { formatDuration } from '../lib/mediaLibrary'
+import { DEFAULT_SETTINGS } from '../lib/settings'
 import './dialog.css'
 import './RecordControl.css'
 
@@ -71,6 +81,16 @@ type ActiveCapture =
   | { kind: 'single'; source: RecordingSource; session: RecordingSession }
   | { kind: 'pair'; session: ScreenCameraRecordingSession }
 
+/**
+ * Where a take is (#514): counting down before the recorder starts, or
+ * recording, or paused inside the same file. Concluding (Stop / Cancel)
+ * leaves all three.
+ */
+type Phase = 'countdown' | 'recording' | 'paused'
+
+/** How often the recorded-time readout is refreshed while recording. */
+const ELAPSED_TICK_MS = 250
+
 interface RecordControlProps {
   /** The current library clip names — numbers the next recording's name. */
   existingNames: readonly string[]
@@ -84,6 +104,13 @@ interface RecordControlProps {
   onRecordedPair?: (files: { screen: File; camera: File }) => void
   /** Receives a recording failure for the library's failure list (#224). */
   onFailed: (reason: string) => void
+  /**
+   * Seconds counted down between the sources being granted and the
+   * recorder starting (#514); 0 starts at once. The Settings value
+   * (`countdownSeconds`) in the app, and its default here so the dialog
+   * behaves the same wherever it is rendered.
+   */
+  countdownSeconds?: number
   /** Injectable for tests: jsdom has no getUserMedia or MediaRecorder. */
   startRecording?: typeof startMicrophoneRecording
   supported?: boolean
@@ -101,7 +128,7 @@ interface RecordControlProps {
 /**
  * The Record control in the media library header (#224): a source menu —
  * Microphone (#224), Screen (#225), Webcam (#226), and Screen + camera
- * (#388) — and, while capturing, a small modal dialog with the elapsed
+ * (#388) — and, while capturing, a small modal dialog with the recorded
  * time, a recording indicator, live preview(s) for video sources (the
  * capture itself for the screen, a self-view for the webcam, both for the
  * paired take), and Stop / Cancel. Stop hands the capture to the ordinary
@@ -114,12 +141,32 @@ interface RecordControlProps {
  * library's dismissible failure list exactly like a failed import. The
  * browser's own "stop sharing" UI ends a screen or paired capture cleanly,
  * exactly as the Stop button does.
+ *
+ * #514 (from the approved #494) adds two things around the take. A
+ * **countdown**: the sources are acquired and the previews go live at
+ * once, but the recorder starts only after 3 · 2 · 1 — announced through a
+ * live region — so the take never opens on the hand leaving the mouse;
+ * **Start now** skips it and Cancel during it records nothing. **Pause /
+ * Resume**: `MediaRecorder.pause()` / `resume()` produce one continuous
+ * file with the paused span simply absent, so the gap never exists and
+ * nothing needs trimming; the readout shows **recorded** time
+ * (`RecordingClock`), which is what the file will be, not wall time; Space
+ * toggles it while the dialog has focus (the transport is inert under a
+ * modal already, #203); and a paired take pauses both recorders on the one
+ * button. The button is offered only where the recorder can pause
+ * (`canPause`, #224's feature-detection rule).
+ *
+ * The heading keeps naming the source through the countdown — *Recording
+ * screen* — so the dialog's accessible name is stable from the moment it
+ * opens; the status line beneath is what says *Starting in 3…*, then
+ * *Recording — 0:04*, then *Paused — 0:04*.
  */
 export function RecordControl({
   existingNames,
   onRecorded,
   onRecordedPair,
   onFailed,
+  countdownSeconds = DEFAULT_SETTINGS.countdownSeconds,
   startRecording = startMicrophoneRecording,
   supported = isRecordingSupported(),
   startScreenCapture = startScreenRecording,
@@ -129,6 +176,10 @@ export function RecordControl({
   screenCameraSupported = isScreenCameraRecordingSupported(),
 }: RecordControlProps) {
   const [capture, setCapture] = useState<ActiveCapture | null>(null)
+  const [phase, setPhase] = useState<Phase>('recording')
+  const [countdownLeft, setCountdownLeft] = useState(0)
+  // The recorded-time clock (#514) and the seconds it currently reads.
+  const [clock, setClock] = useState<RecordingClock | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [stopping, setStopping] = useState(false)
   const captureRef = useRef<ActiveCapture | null>(null)
@@ -138,6 +189,8 @@ export function RecordControl({
   const stopRef = useRef<() => void>(() => {})
   const previewRef = useRef<HTMLVideoElement | null>(null)
   const cameraPreviewRef = useRef<HTMLVideoElement | null>(null)
+  const startNowRef = useRef<HTMLButtonElement | null>(null)
+  const pauseRef = useRef<HTMLButtonElement | null>(null)
   const headingId = useId()
 
   // A capture never outlives the control: unmounting cancels it so the
@@ -149,14 +202,50 @@ export function RecordControl({
     [],
   )
 
-  // The dialog's elapsed readout, ticking only while recording.
+  /** Starts the recorder(s) and the recorded-time clock — the end of the countdown, or Start now. */
+  const startTake = useCallback((active: ActiveCapture) => {
+    active.session.begin()
+    setClock(startedClock(Date.now()))
+    setElapsed(0)
+    setPhase('recording')
+  }, [])
+
+  // The countdown (#514): one number a second, then the take begins. The
+  // interval lives for exactly as long as the phase does, so Start now or
+  // Cancel mid-count simply unmounts it.
+  useEffect(() => {
+    if (capture === null || phase !== 'countdown') return
+    const timer = setInterval(() => setCountdownLeft((left) => left - 1), 1000)
+    return () => clearInterval(timer)
+  }, [capture, phase])
+  useEffect(() => {
+    if (capture === null || phase !== 'countdown' || countdownLeft > 0) return
+    startTake(capture)
+  }, [capture, phase, countdownLeft, startTake])
+
+  // The recorded-time readout, ticking only while recording: paused, the
+  // clock has no running span and the last reading stands (#514).
+  useEffect(() => {
+    if (capture === null || clock === null) return
+    const read = () => setElapsed(recordedSeconds(clock, Date.now()))
+    read()
+    if (phase !== 'recording') return
+    const timer = setInterval(read, ELAPSED_TICK_MS)
+    return () => clearInterval(timer)
+  }, [capture, clock, phase])
+
+  // Focus follows the phase, so Space reaches the dialog's own handler
+  // rather than the menu button that opened it: Start now while counting
+  // down, then Pause once recording. Both are the action the phase is for.
   useEffect(() => {
     if (capture === null) return
-    const startedAt = Date.now()
-    setElapsed(0)
-    const timer = setInterval(() => setElapsed((Date.now() - startedAt) / 1000), 250)
-    return () => clearInterval(timer)
-  }, [capture])
+    if (phase === 'countdown') startNowRef.current?.focus()
+    else if (phase === 'recording' && clock !== null && elapsed === 0) pauseRef.current?.focus()
+    // `elapsed` is deliberately part of the condition rather than a
+    // dependency: the focus move happens once, on the first reading of a
+    // fresh take, not on every tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capture, phase, clock])
 
   // The live previews (#225/#226/#388): the dialog's <video> elements play
   // the capture streams themselves, muted — what is recorded (screen) or a
@@ -190,7 +279,15 @@ export function RecordControl({
       const next = await start()
       captureRef.current = next
       setStopping(false)
+      setClock(null)
+      setElapsed(0)
       setCapture(next)
+      if (countdownSeconds > 0) {
+        setCountdownLeft(countdownSeconds)
+        setPhase('countdown')
+      } else {
+        startTake(next)
+      }
     } catch (error) {
       onFailed(
         error instanceof Error && error.message !== ''
@@ -203,12 +300,25 @@ export function RecordControl({
   const conclude = () => {
     captureRef.current = null
     setCapture(null)
+    setClock(null)
+    setPhase('recording')
     setStopping(false)
+  }
+
+  const handleCancel = () => {
+    captureRef.current?.session.cancel()
+    conclude()
   }
 
   const handleStop = async () => {
     if (captureRef.current === null || stopping) return
     const current = captureRef.current
+    // A Stop that arrives during the countdown — the browser's own "stop
+    // sharing" — concludes a take that never began: nothing to deliver.
+    if (phase === 'countdown') {
+      handleCancel()
+      return
+    }
     setStopping(true)
     if (current.kind === 'pair') {
       try {
@@ -250,9 +360,36 @@ export function RecordControl({
   }
   stopRef.current = () => void handleStop()
 
-  const handleCancel = () => {
-    capture?.session.cancel()
-    conclude()
+  /** Pause / Resume (#514): the recorder and the clock move together. */
+  const togglePause = () => {
+    if (capture === null || clock === null || stopping || !capture.session.canPause) return
+    if (phase === 'recording') {
+      capture.session.pause()
+      setClock(pausedClock(clock, Date.now()))
+      setPhase('paused')
+    } else if (phase === 'paused') {
+      capture.session.resume()
+      setClock(resumedClock(clock, Date.now()))
+      setPhase('recording')
+    }
+  }
+
+  // Space toggles Pause / Resume anywhere in the dialog (#514). Handled
+  // here and defaulted away rather than left to a focused button's native
+  // activation, so Space never fires twice on the Pause button and never
+  // stops or cancels a take from a focused Stop or Cancel — Enter still
+  // activates those. Both key events are caught: a button activates on the
+  // key-up of Space, so preventing only the key-down would leave the click.
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== ' ' || phase === 'countdown') return
+    event.preventDefault()
+    event.stopPropagation()
+    if (!event.repeat) togglePause()
+  }
+  const handleKeyUp = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== ' ' || phase === 'countdown') return
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   const heading =
@@ -262,7 +399,10 @@ export function RecordControl({
 
   // The source menu (#224), on the shared Menu component (#412): each item
   // starts its capture; the menu closes itself on selection and on Escape,
-  // and each source is offered only where the platform supports it.
+  // and each source is offered only where the platform supports it. Every
+  // start defers the recorder (#514): the dialog begins the take itself,
+  // after the countdown or at once.
+  const deferred = { deferStart: true }
   const sources: MenuItem[] = []
   if (supported) {
     sources.push({
@@ -273,7 +413,7 @@ export function RecordControl({
           async () => ({
             kind: 'single',
             source: 'microphone',
-            session: await startRecording(),
+            session: await startRecording(undefined, deferred),
           }),
           SOURCE_LABELS.microphone.failure,
         ),
@@ -291,7 +431,7 @@ export function RecordControl({
           async () => ({
             kind: 'single',
             source: 'screen',
-            session: await startScreenCapture(() => stopRef.current()),
+            session: await startScreenCapture(() => stopRef.current(), undefined, deferred),
           }),
           SOURCE_LABELS.screen.failure,
         ),
@@ -306,7 +446,7 @@ export function RecordControl({
           async () => ({
             kind: 'single',
             source: 'webcam',
-            session: await startWebcamCapture(),
+            session: await startWebcamCapture(undefined, deferred),
           }),
           SOURCE_LABELS.webcam.failure,
         ),
@@ -320,19 +460,28 @@ export function RecordControl({
         void begin(
           async () => ({
             kind: 'pair',
-            session: await startScreenCameraCapture(() => stopRef.current()),
+            session: await startScreenCameraCapture(() => stopRef.current(), undefined, deferred),
           }),
           PAIR_LABELS.failure,
         ),
     })
   }
 
+  const canPause = capture?.session.canPause === true
+
   return (
     <>
       <Menu label="Record" menuLabel="Recording sources" items={sources} className="record-control" />
       {capture !== null && (
         <div className="dialog-overlay">
-          <div role="dialog" aria-modal="true" aria-labelledby={headingId} className="dialog">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={headingId}
+            className="dialog record-dialog"
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+          >
             <h3 id={headingId}>{heading}</h3>
             {(capture.kind === 'pair' || SOURCE_LABELS[capture.source].preview) && (
               // Muted live preview of the capture itself (#225/#226) — the
@@ -363,17 +512,66 @@ export function RecordControl({
                 </p>
               </>
             )}
-            <p className="record-status">
-              <span className="record-indicator" aria-hidden="true" />
-              Recording — <span data-testid="record-elapsed">{formatDuration(elapsed)}</span>
-            </p>
+            {phase === 'countdown' ? (
+              // Assertive, and always in the DOM while counting: each number
+              // is announced as it changes, which a status inserted at the
+              // moment it has something to say is not reliably.
+              <p className="record-status" role="status" aria-live="assertive">
+                Starting in{' '}
+                <span className="record-countdown" data-testid="record-countdown">
+                  {countdownLeft}
+                </span>
+                …
+              </p>
+            ) : (
+              <p className="record-status" data-testid="record-phase">
+                <span
+                  className={
+                    phase === 'paused'
+                      ? 'record-indicator record-indicator-paused'
+                      : 'record-indicator'
+                  }
+                  aria-hidden="true"
+                />
+                {phase === 'paused' ? 'Paused' : 'Recording'} —{' '}
+                <span data-testid="record-elapsed">{formatDuration(elapsed)}</span>
+              </p>
+            )}
             <div className="dialog-actions">
               <button type="button" onClick={handleCancel} disabled={stopping}>
                 Cancel
               </button>
-              <button type="button" onClick={() => void handleStop()} disabled={stopping}>
-                Stop recording
-              </button>
+              {phase === 'countdown' ? (
+                <button
+                  type="button"
+                  ref={startNowRef}
+                  onClick={() => startTake(capture)}
+                  title="Skip the countdown and start recording"
+                >
+                  Start now
+                </button>
+              ) : (
+                <>
+                  {canPause && (
+                    <button
+                      type="button"
+                      ref={pauseRef}
+                      onClick={togglePause}
+                      disabled={stopping}
+                      title={
+                        phase === 'paused'
+                          ? 'Carry on recording into the same clip (Space)'
+                          : 'Pause the recording; the paused span is left out of the clip (Space)'
+                      }
+                    >
+                      {phase === 'paused' ? 'Resume recording' : 'Pause recording'}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => void handleStop()} disabled={stopping}>
+                    Stop recording
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

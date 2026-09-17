@@ -59,7 +59,18 @@ export interface AppSettings {
    * crop (#423) and text (#424) editors joined it (#453).
    */
   visualEditors: boolean
+  /**
+   * Seconds counted down in the recording dialog before the recorder starts
+   * (#514, from the approved #494): `DEFAULT_COUNTDOWN_SECONDS`, or 0 for
+   * off. On by default because the first-take problem — a hand still on
+   * the mouse, the permission prompt still on screen — is the common one;
+   * off is for people who never want it, and Start now skips it once.
+   */
+  countdownSeconds: number
 }
+
+/** The countdown's length when it is on, in seconds (#514). */
+export const DEFAULT_COUNTDOWN_SECONDS = 3
 
 /**
  * The choices each numeric setting offers, in the order the dialog lists
@@ -78,6 +89,8 @@ export const STEP_CHOICES: readonly number[] = [0.05, STEP_SECONDS, 0.25, 0.5]
 export const LARGE_STEP_CHOICES: readonly number[] = [0.5, LARGE_STEP_SECONDS, 2, 5]
 export const STILL_DURATION_CHOICES: readonly number[] = [2, 3, DEFAULT_STILL_DURATION, 10]
 export const SESSION_RESTORE_CHOICES: readonly SessionRestoreMode[] = ['ask', 'always', 'never']
+/** On (three seconds) or off — the two the customer's suggestion named (#494). */
+export const COUNTDOWN_CHOICES: readonly number[] = [DEFAULT_COUNTDOWN_SECONDS, 0]
 
 /** Exactly today's behaviour, so a first visit changes nothing. */
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -87,6 +100,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sessionRestore: 'ask',
   exportFormat: 'webm',
   visualEditors: true,
+  countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
 }
 
 /** The slice of Storage this needs; injectable so tests stay deterministic. */
@@ -140,6 +154,12 @@ export function parseSettings(stored: unknown): AppSettings {
     // A store written before the switch existed has no key: on, as before.
     visualEditors:
       typeof raw.visualEditors === 'boolean' ? raw.visualEditors : DEFAULT_SETTINGS.visualEditors,
+    // A store from before the countdown existed has no key: on, the default.
+    countdownSeconds: pickNumber(
+      raw.countdownSeconds,
+      COUNTDOWN_CHOICES,
+      DEFAULT_SETTINGS.countdownSeconds,
+    ),
   }
 }
 
@@ -171,6 +191,11 @@ export function saveSettings(
 /** How the dialog labels a duration choice: "0.1 s", "1 s", "10 s". */
 export function formatSeconds(seconds: number): string {
   return `${seconds} s`
+}
+
+/** How the dialog labels a countdown choice (#514): its length, or Off. */
+export function countdownLabel(seconds: number): string {
+  return seconds === 0 ? 'Off' : formatSeconds(seconds)
 }
 
 /** How the dialog labels a session-restore choice. */

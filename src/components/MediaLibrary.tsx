@@ -26,6 +26,8 @@ interface MediaLibraryProps {
    * predating the paired source keep compiling; without it the source is
    * simply not offered. */
   onRecordedPair?: (files: { screen: File; camera: File }) => void
+  /** The recording dialog's countdown, in seconds; 0 is off (#514, a setting). */
+  countdownSeconds?: number
   /** Routes a recording failure into the library's failure list (#224). */
   onRecordingFailed: (reason: string) => void
   onDismissFailures: () => void
@@ -106,6 +108,7 @@ export function MediaLibrary({
   library,
   onImportFiles,
   onRecordedPair,
+  countdownSeconds,
   onRecordingFailed,
   onDismissFailures,
   onAddToTimeline,
@@ -481,6 +484,7 @@ export function MediaLibrary({
           onRecorded={(file) => onImportFiles([file])}
           onRecordedPair={onRecordedPair}
           onFailed={onRecordingFailed}
+          {...(countdownSeconds === undefined ? {} : { countdownSeconds })}
         />
         <input
           ref={inputRef}

@@ -70,6 +70,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'AUTOSAVE_DEBOUNCE_SECONDS',
   /** How often a video recording asks for a keyframe, in seconds (#468). */
   'RECORDING_KEYFRAME_INTERVAL_SECONDS',
+  /** The recording dialog's countdown when it is on, in seconds (#514). */
+  'RECORDING_COUNTDOWN_SECONDS',
   /** Re-linking tolerates this much duration difference, as a percentage (#77). */
   'RELINK_DURATION_TOLERANCE_PERCENT',
   /** …and never less than this many seconds of difference. */

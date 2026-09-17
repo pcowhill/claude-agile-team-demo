@@ -12,14 +12,72 @@
  * `getUserMedia`/`getDisplayMedia` nor `MediaRecorder`.
  */
 
-/** The slice of MediaRecorder this module uses; injectable for tests. */
+/**
+ * The slice of MediaRecorder this module uses; injectable for tests.
+ * `pause` / `resume` (#514) are optional on the slice because their absence
+ * is a state the dialog must handle — the Pause button is offered only when
+ * the created recorder has them (`RecordingSession.canPause`), per #224's
+ * feature-detection rule — even though every browser with `MediaRecorder`
+ * ships both.
+ */
 export interface RecorderLike {
   start(): void
   stop(): void
+  pause?(): void
+  resume?(): void
   ondataavailable: ((event: { data: Blob }) => void) | null
   onstop: (() => void) | null
   onerror: ((event: unknown) => void) | null
   readonly mimeType: string
+}
+
+/**
+ * How a capture is started (#514). By default a session's recorder starts
+ * inside the `start…Recording` call, as it always has. With `deferStart`
+ * the streams are acquired and the recorder created but **not started**
+ * until the caller's `begin()` — the countdown's whole mechanism: the
+ * permission prompts are behind the user, the previews are live, and the
+ * take begins on a later tick. A deferred session that is cancelled before
+ * `begin()` releases every track and records nothing.
+ */
+export interface StartOptions {
+  deferStart?: boolean
+}
+
+/**
+ * The recorded-time clock (#514): how much of a take has actually been
+ * captured, **excluding paused spans** — which is what the file will be,
+ * and not the wall time since the dialog opened. Pure values over a
+ * millisecond timestamp (`Date.now()` in the dialog, a number in a test):
+ * `banked` is the recorded time of every finished run, `runningSince` the
+ * start of the current one, or null while paused.
+ */
+export interface RecordingClock {
+  readonly bankedMs: number
+  readonly runningSince: number | null
+}
+
+/** A clock that started recording at `now`. */
+export function startedClock(now: number): RecordingClock {
+  return { bankedMs: 0, runningSince: now }
+}
+
+/** The clock after a pause at `now`: the current run is banked, and nothing runs. */
+export function pausedClock(clock: RecordingClock, now: number): RecordingClock {
+  if (clock.runningSince === null) return clock
+  return { bankedMs: clock.bankedMs + Math.max(0, now - clock.runningSince), runningSince: null }
+}
+
+/** The clock after a resume at `now`: a new run begins; the paused span is simply absent. */
+export function resumedClock(clock: RecordingClock, now: number): RecordingClock {
+  if (clock.runningSince !== null) return clock
+  return { bankedMs: clock.bankedMs, runningSince: now }
+}
+
+/** Seconds recorded so far, read at `now`. */
+export function recordedSeconds(clock: RecordingClock, now: number): number {
+  const running = clock.runningSince === null ? 0 : Math.max(0, now - clock.runningSince)
+  return (clock.bankedMs + running) / 1000
 }
 
 /**
@@ -168,6 +226,17 @@ export interface RecordingSession {
   readonly mimeType: string
   /** The live captured stream, for an in-dialog preview (#225). */
   readonly stream: MediaStream
+  /** Whether the recorder can pause and resume (#514); false hides the button. */
+  readonly canPause: boolean
+  /** Starts the recorder, once; a no-op after that. Called for the caller
+   * by `start…Recording` unless it asked for `deferStart` (#514). */
+  begin(): void
+  /** Pauses the capture (#514): the paused span is simply absent from the
+   * one continuous file. A no-op before `begin`, while paused, after
+   * conclusion, or where `canPause` is false. */
+  pause(): void
+  /** Resumes a paused capture into the same file; a no-op otherwise. */
+  resume(): void
   /** Concludes the capture and resolves the recorded bytes as a `File`
    * named `fileName`, ready for the ordinary import path. */
   stop(fileName: string): Promise<File>
@@ -190,6 +259,7 @@ function recordStream(
   fallbackMimeType: string,
   recorderFailure: string,
   recorderOptions: RecorderOptions = {},
+  deferStart = false,
 ): RecordingSession {
   const releaseStream = () => {
     for (const track of stream.getTracks()) track.stop()
@@ -216,16 +286,42 @@ function recordStream(
   recorder.onerror = () => {
     failure = new Error('The recorder failed while recording.')
   }
-  recorder.start()
 
+  let started = false
+  let paused = false
   let concluded = false
+  const canPause = typeof recorder.pause === 'function' && typeof recorder.resume === 'function'
   const sessionMimeType = recorder.mimeType || mimeType || fallbackMimeType
-  return {
+  const session: RecordingSession = {
     mimeType: sessionMimeType,
     stream,
+    canPause,
+    begin(): void {
+      if (started || concluded) return
+      started = true
+      recorder.start()
+    },
+    pause(): void {
+      // MediaRecorder throws on a pause while inactive or already paused;
+      // the guards make every call from the dialog safe to repeat.
+      if (!canPause || !started || paused || concluded) return
+      paused = true
+      recorder.pause?.()
+    },
+    resume(): void {
+      if (!canPause || !started || !paused || concluded) return
+      paused = false
+      recorder.resume?.()
+    },
     stop(fileName: string): Promise<File> {
       if (concluded) return Promise.reject(new Error('The recording is already concluded.'))
       concluded = true
+      if (!started) {
+        // Nothing was ever captured: releasing is all there is to do, and
+        // `MediaRecorder.stop()` on an inactive recorder would throw.
+        releaseStream()
+        return Promise.reject(new Error('The recording had not started.'))
+      }
       return new Promise<File>((resolve, reject) => {
         recorder.onstop = () => {
           releaseStream()
@@ -244,10 +340,18 @@ function recordStream(
       // The discard rule (#224): nothing reaches the library, whatever the
       // recorder still delivers after stop.
       recorder.ondataavailable = null
+      if (!started) {
+        // Cancelled during the countdown (#514): the recorder never ran, so
+        // there is nothing to stop — only devices to release.
+        releaseStream()
+        return
+      }
       recorder.onstop = () => releaseStream()
       recorder.stop()
     },
   }
+  if (!deferStart) session.begin()
+  return session
 }
 
 /**
@@ -259,6 +363,7 @@ function recordStream(
  */
 export async function startMicrophoneRecording(
   dependencies: RecordingDependencies | null = defaultDependencies(),
+  options: StartOptions = {},
 ): Promise<RecordingSession> {
   if (dependencies === null) {
     throw new Error('Recording is not supported in this browser or context.')
@@ -270,6 +375,8 @@ export async function startMicrophoneRecording(
     AUDIO_MIME_CANDIDATES,
     'audio/webm',
     'The audio recorder could not start.',
+    {},
+    options.deferStart === true,
   )
 }
 
@@ -336,6 +443,7 @@ export function isScreenRecordingSupported(): boolean {
 export async function startScreenRecording(
   onShareEnded: () => void,
   dependencies: ScreenRecordingDependencies | null = defaultScreenDependencies(),
+  options: StartOptions = {},
 ): Promise<RecordingSession> {
   if (dependencies === null) {
     throw new Error('Screen recording is not supported in this browser or context.')
@@ -348,6 +456,7 @@ export async function startScreenRecording(
     'video/webm',
     'The screen recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
+    options.deferStart === true,
   )
   // The browser's "stop sharing" control ends the video track outside our
   // dialog; concluding through the session first makes the later hook a
@@ -372,6 +481,16 @@ export interface ScreenCameraRecordingSession {
   readonly cameraMimeType: string
   readonly screenStream: MediaStream
   readonly cameraStream: MediaStream
+  /** Whether both recorders can pause (#514); the button needs both. */
+  readonly canPause: boolean
+  /** Starts both recorders back to back, once — the same gesture, so the
+   * two captures stay aligned (#388); a no-op after that. */
+  begin(): void
+  /** Pauses both recorders in the same task (#514), so the paused spans
+   * absent from the two files begin on the same tick. */
+  pause(): void
+  /** Resumes both recorders in the same task. */
+  resume(): void
   /** Concludes both captures; both conclude even if one recorder failed
    * (the failure then surfaces after the other resolved). */
   stop(screenFileName: string, cameraFileName: string): Promise<{ screen: File; camera: File }>
@@ -432,6 +551,7 @@ export function isScreenCameraRecordingSupported(): boolean {
 export async function startScreenCameraRecording(
   onShareEnded: () => void,
   dependencies: ScreenCameraRecordingDependencies | null = defaultScreenCameraDependencies(),
+  options: StartOptions = {},
 ): Promise<ScreenCameraRecordingSession> {
   if (dependencies === null) {
     throw new Error('Screen + camera recording is not supported in this browser or context.')
@@ -455,6 +575,9 @@ export async function startScreenCameraRecording(
     throw error
   }
 
+  // Both recorders are created un-started and begun together below, so
+  // the two `start()` calls are adjacent whether the take begins now or
+  // after a countdown (#514) — the alignment #388 relies on.
   const screenSession = recordStream(
     screenStream,
     dependencies,
@@ -462,6 +585,7 @@ export async function startScreenCameraRecording(
     'video/webm',
     'The screen recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
+    true,
   )
   let cameraSession: RecordingSession
   try {
@@ -472,6 +596,7 @@ export async function startScreenCameraRecording(
       'video/webm',
       'The camera recorder could not start.',
       VIDEO_RECORDER_OPTIONS,
+      true,
     )
   } catch (error) {
     // recordStream released the camera stream before throwing; the started
@@ -485,11 +610,26 @@ export async function startScreenCameraRecording(
   }
 
   let concluded = false
-  return {
+  const pair: ScreenCameraRecordingSession = {
     screenMimeType: screenSession.mimeType,
     cameraMimeType: cameraSession.mimeType,
     screenStream,
     cameraStream,
+    canPause: screenSession.canPause && cameraSession.canPause,
+    begin(): void {
+      screenSession.begin()
+      cameraSession.begin()
+    },
+    pause(): void {
+      if (!pair.canPause) return
+      screenSession.pause()
+      cameraSession.pause()
+    },
+    resume(): void {
+      if (!pair.canPause) return
+      screenSession.resume()
+      cameraSession.resume()
+    },
     async stop(screenFileName: string, cameraFileName: string) {
       if (concluded) throw new Error('The recording is already concluded.')
       concluded = true
@@ -511,6 +651,8 @@ export async function startScreenCameraRecording(
       cameraSession.cancel()
     },
   }
+  if (options.deferStart !== true) pair.begin()
+  return pair
 }
 
 /**
@@ -527,6 +669,7 @@ export async function startScreenCameraRecording(
  */
 export async function startWebcamRecording(
   dependencies: RecordingDependencies | null = defaultDependencies(),
+  options: StartOptions = {},
 ): Promise<RecordingSession> {
   if (dependencies === null) {
     throw new Error('Webcam recording is not supported in this browser or context.')
@@ -544,5 +687,6 @@ export async function startWebcamRecording(
     'video/webm',
     'The webcam recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
+    options.deferStart === true,
   )
 }

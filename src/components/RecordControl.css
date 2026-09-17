@@ -55,3 +55,26 @@
     opacity: 0.35;
   }
 }
+
+/* Paused (#514): the dot stops pulsing and goes grey, so the state reads
+   at a glance; the text beside it says "Paused". */
+.record-indicator-paused {
+  background: #888;
+  animation: none;
+}
+
+/* The countdown's number (#514): large enough to read from across the
+   room, tabular so 3 → 2 → 1 does not shift the ellipsis. */
+.record-countdown {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 1.2em;
+  text-align: center;
+}
+
+/* Three actions in the dialog (#514): they wrap onto a second line rather
+   than pushing each other out of the dialog at a narrow width. */
+.record-dialog .dialog-actions {
+  flex-wrap: wrap;
+}

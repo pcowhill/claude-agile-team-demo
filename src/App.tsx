@@ -556,6 +556,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           library={library}
           onImportFiles={handleImportFiles}
           onRecordedPair={handleRecordedPair}
+          countdownSeconds={settings.countdownSeconds}
           onRecordingFailed={(reason) =>
             dispatch({
               type: 'import-failed',

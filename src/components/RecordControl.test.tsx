@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { RecordControl } from './RecordControl'
 import { probeMediaFile } from '../lib/probeMedia'
+import { SETTINGS_KEY } from '../lib/settings'
 import {
   isRecordingSupported,
   isScreenCameraRecordingSupported,
@@ -47,9 +48,14 @@ const screenCameraSupportedMock = vi.mocked(isScreenCameraRecordingSupported)
 const fakeSession = (
   mimeType = 'audio/webm;codecs=opus',
   fileType = 'audio/webm',
+  canPause = true,
 ): RecordingSession => ({
   mimeType,
   stream: {} as MediaStream,
+  canPause,
+  begin: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
   stop: vi.fn(async (fileName: string) => new File(['aud'], fileName, { type: fileType })),
   cancel: vi.fn(),
 })
@@ -59,6 +65,15 @@ beforeEach(() => {
   supportedMock.mockReturnValue(true)
   screenSupportedMock.mockReturnValue(true)
   screenCameraSupportedMock.mockReturnValue(true)
+  // The countdown (#514) is on by default and is its own describe below;
+  // everything else here is about the take itself, so the store the app
+  // reads its settings from turns it off — the way a user who never wants
+  // it would.
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ countdownSeconds: 0 }))
+})
+
+afterEach(() => {
+  localStorage.clear()
 })
 
 describe('voice-over recording (#224)', () => {
@@ -106,6 +121,10 @@ describe('voice-over recording (#224)', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Recording voice-over' })
     expect(dialog).toHaveTextContent('Recording')
     expect(screen.getByTestId('record-elapsed')).toHaveTextContent('0:00')
+    // The dialog asked for a deferred start and began the take itself —
+    // at once, with the countdown off (#514).
+    expect(startMock).toHaveBeenCalledWith(undefined, { deferStart: true })
+    expect(session.begin).toHaveBeenCalledTimes(1)
 
     await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
     expect(session.stop).toHaveBeenCalledWith('Voice-over 1.webm')
@@ -287,6 +306,10 @@ describe('screen + camera recording (#388)', () => {
     cameraMimeType: 'video/webm;codecs=vp9,opus',
     screenStream,
     cameraStream,
+    canPause: true,
+    begin: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
     stop: vi.fn(async (screenFileName: string, cameraFileName: string) => ({
       screen: new File(['scr'], screenFileName, { type: 'video/webm' }),
       camera: new File(['cam'], cameraFileName, { type: 'video/webm' }),
@@ -452,6 +475,249 @@ describe('screen + camera recording (#388)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Record' }))
     expect(screen.getByRole('menuitem', { name: 'Screen' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Screen + camera' })).not.toBeInTheDocument()
+  })
+})
+
+describe('countdown, Pause / Resume and Space (#514)', () => {
+  const openMicrophone = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Microphone' }))
+    return screen.findByRole('dialog', { name: 'Recording voice-over' })
+  }
+  const elapsed = () => screen.getByTestId('record-elapsed')
+  const pauseButton = () => screen.getByRole('button', { name: 'Pause recording' })
+  const resumeButton = () => screen.getByRole('button', { name: 'Resume recording' })
+  /** Moves the faked clock and lets the intervals it fires commit. */
+  const advance = async (ms: number) => {
+    await act(async () => {
+      vi.advanceTimersByTime(ms)
+    })
+  }
+
+  beforeEach(() => {
+    // The default store: countdown on, 3 s.
+    localStorage.clear()
+    // Faked timers that also move with real time, so the async helpers
+    // (userEvent, findBy) still resolve while the countdown and the
+    // readout are driven deterministically by `advance`.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('counts 3 · 2 · 1 in a live region, with no readout, and then begins the take', async () => {
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+
+    // The sources are granted and the recorder exists, but nothing runs yet.
+    expect(session.begin).not.toHaveBeenCalled()
+    const status = within(dialog).getByRole('status')
+    expect(status).toHaveAttribute('aria-live', 'assertive')
+    expect(status).toHaveTextContent('Starting in 3')
+    expect(screen.queryByTestId('record-elapsed')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop recording' })).not.toBeInTheDocument()
+    // Start now is focused, so Enter or Space skips the count.
+    expect(screen.getByRole('button', { name: 'Start now' })).toHaveFocus()
+
+    await advance(1000)
+    expect(status).toHaveTextContent('Starting in 2')
+    expect(session.begin).not.toHaveBeenCalled()
+    await advance(1000)
+    expect(status).toHaveTextContent('Starting in 1')
+    await advance(1000)
+    expect(session.begin).toHaveBeenCalledTimes(1)
+    expect(dialog).toHaveTextContent('Recording')
+    expect(elapsed()).toHaveTextContent('0:00')
+    expect(screen.queryByRole('button', { name: 'Start now' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop recording' })).toBeInTheDocument()
+    // Once recording, the readout counts from the take's start, not the dialog's.
+    await advance(2000)
+    expect(elapsed()).toHaveTextContent('0:02')
+  })
+
+  it('Start now skips the rest of the countdown', async () => {
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+    await advance(1000)
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Starting in 2')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+    expect(session.begin).toHaveBeenCalledTimes(1)
+    expect(dialog).toHaveTextContent('Recording')
+    // The interval died with the phase: no later tick can start a second take.
+    await advance(3000)
+    expect(session.begin).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cancel during the countdown releases everything and records nothing', async () => {
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    await openMicrophone()
+    await advance(1000)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(session.cancel).toHaveBeenCalledTimes(1)
+    expect(session.begin).not.toHaveBeenCalled()
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await advance(3000)
+    expect(session.begin).not.toHaveBeenCalled()
+    expect(probeMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it("the browser's stop-sharing during a screen countdown concludes it as a cancel", async () => {
+    const session = fakeSession('video/webm;codecs=vp9,opus', 'video/webm')
+    let shareEnded: () => void = () => {}
+    startScreenMock.mockImplementation(async (onShareEnded) => {
+      shareEnded = onShareEnded
+      return session
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen' }))
+    await screen.findByRole('dialog', { name: 'Recording screen' })
+    expect(startScreenMock).toHaveBeenCalledWith(expect.any(Function), undefined, {
+      deferStart: true,
+    })
+
+    act(() => shareEnded())
+    expect(session.cancel).toHaveBeenCalledTimes(1)
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('Pause and Resume reach the session once each, and the readout shows recorded time, not wall time', async () => {
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    probeMock.mockResolvedValue({ duration: 3, url: 'blob:rec', kind: 'audio' })
+    render(<App />)
+    const dialog = await openMicrophone()
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+    // Pause takes the focus once the take runs, so Space lands in the dialog.
+    expect(pauseButton()).toHaveFocus()
+
+    // Record 2 s.
+    await advance(2000)
+    expect(elapsed()).toHaveTextContent('0:02')
+
+    // Pause 5 s: the recorder pauses once, the readout stands, the dot stops.
+    fireEvent.click(pauseButton())
+    expect(session.pause).toHaveBeenCalledTimes(1)
+    expect(dialog).toHaveTextContent('Paused')
+    expect(dialog.querySelector('.record-indicator-paused')).not.toBeNull()
+    await advance(5000)
+    expect(elapsed()).toHaveTextContent('0:02')
+    expect(resumeButton()).toBeInTheDocument()
+
+    // Resume 1 s: 3 s recorded, not the 8 s on the wall.
+    fireEvent.click(resumeButton())
+    expect(session.resume).toHaveBeenCalledTimes(1)
+    expect(dialog).toHaveTextContent('Recording')
+    await advance(1000)
+    expect(elapsed()).toHaveTextContent('0:03')
+
+    // Stop while paused still delivers the clip through the import path.
+    fireEvent.click(pauseButton())
+    expect(session.pause).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(session.stop).toHaveBeenCalledWith('Voice-over 1.webm')
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('Voice-over 1.webm')
+  })
+
+  it('Space toggles Pause / Resume in the dialog and never fires a focused Stop or Cancel', async () => {
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+
+    // From the Pause button itself: one toggle, not two.
+    fireEvent.keyDown(pauseButton(), { key: ' ' })
+    fireEvent.keyUp(resumeButton(), { key: ' ' })
+    expect(session.pause).toHaveBeenCalledTimes(1)
+    expect(session.resume).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('Paused')
+
+    // From a focused Stop: Space resumes rather than stopping.
+    const stop = screen.getByRole('button', { name: 'Stop recording' })
+    stop.focus()
+    fireEvent.keyDown(stop, { key: ' ' })
+    fireEvent.keyUp(stop, { key: ' ' })
+    expect(session.resume).toHaveBeenCalledTimes(1)
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('Recording')
+
+    // A held key repeats the key-down; only the first press toggles.
+    fireEvent.keyDown(dialog, { key: ' ', repeat: true })
+    expect(session.pause).toHaveBeenCalledTimes(1)
+
+    // And the transport underneath stayed inert: no preview started playing.
+    expect(screen.queryByRole('button', { name: 'Pause preview' })).not.toBeInTheDocument()
+  })
+
+  it('offers no Pause where the recorder cannot pause, and Space does nothing', async () => {
+    const session = fakeSession('audio/webm;codecs=opus', 'audio/webm', false)
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+    expect(screen.queryByRole('button', { name: 'Pause recording' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop recording' })).toBeInTheDocument()
+    fireEvent.keyDown(dialog, { key: ' ' })
+    expect(session.pause).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('Recording')
+  })
+
+  it('a paired take pauses and resumes both recorders through the one button', async () => {
+    const session: ScreenCameraRecordingSession = {
+      screenMimeType: 'video/webm;codecs=vp9,opus',
+      cameraMimeType: 'video/webm;codecs=vp9,opus',
+      screenStream: {} as MediaStream,
+      cameraStream: {} as MediaStream,
+      canPause: true,
+      begin: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(async (screenFileName: string, cameraFileName: string) => ({
+        screen: new File(['scr'], screenFileName, { type: 'video/webm' }),
+        camera: new File(['cam'], cameraFileName, { type: 'video/webm' }),
+      })),
+      cancel: vi.fn(),
+    }
+    startScreenCameraMock.mockResolvedValue(session)
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    await screen.findByRole('dialog', { name: 'Recording screen + camera' })
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+    expect(session.begin).toHaveBeenCalledTimes(1)
+    fireEvent.click(pauseButton())
+    fireEvent.click(resumeButton())
+    expect(session.pause).toHaveBeenCalledTimes(1)
+    expect(session.resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('the Settings switch turns the countdown off, and the dialog then records at once', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ countdownSeconds: 0 }))
+    const session = fakeSession()
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+    expect(session.begin).toHaveBeenCalledTimes(1)
+    expect(dialog).toHaveTextContent('Recording')
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start now' })).not.toBeInTheDocument()
   })
 })
 
