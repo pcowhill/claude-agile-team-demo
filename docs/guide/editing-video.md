@@ -92,6 +92,29 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **Related.** [Orientation](#orientation) · [Background fill](#background-fill) · [Visual editors](visual-editors.md)
 
+## Redact a region
+
+**Where to find it.** An expanded video or image row › **Picture ▸** › **Redact**, on sequence entries and overlays alike.
+
+**What it does.** Hides part of the picture for a stretch of the clip — an address bar, a name in a chat sidebar, a key in a terminal — by blurring it, pixelating it, or covering it with a solid colour.
+
+**Details.** **+ Add region** puts a rectangle in the middle of the frame, showing for the whole of the clip's current trim. Each region has:
+
+- **Area** — *left*, *top*, *width* and *height*, in percent of the **source** frame, before any crop or rotation. A region names the pixels of the recording it hides, so cropping, turning or re-trimming the clip afterwards leaves the mask on the thing it was put over.
+- **Shows from … to …** — the window, in seconds into the source, like the In and Out fields. Outside it the picture is untouched.
+- **Style** — **Blur** (a *strength*, in source pixels), **Pixelate** (a *block size*, in source pixels, {{DEFAULT_PIXELATE_BLOCK}} to start with) or **Solid** (a colour, black to start with). A new region is a Pixelate.
+- **Remove** takes the region away.
+
+A clip can hold any number of regions, and they may overlap. Every change is one undo step.
+
+**Which style to use.** Blur can be partly reversed on small text, so it is the one to avoid for anything that matters; Pixelate and Solid cannot be. Blur starts at {{DEFAULT_BLUR_STRENGTH}} source pixels of radius.
+
+The region shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu) and an [Animated GIF](plugins.md#gif-export) alike — including behind a [blurred background fill](#background-fill), which is a copy of the same picture. There are no soft edges: a mask that faded in would show what it hides while it faded.
+
+**If a blurred region cannot be drawn.** A browser without canvas filters refuses the export and the saved frame outright, naming the redaction, rather than writing out the thing you meant to hide — the same rule [colour adjustments](#colour-adjustments) follow. Switching that region to Pixelate or Solid exports anywhere, since neither needs the filter.
+
+**Related.** [Crop](#crop) · [Background fill](#background-fill) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+
 ## Background fill
 
 **Where to find it.** An expanded sequence entry › **Picture ▸** › **Background**.

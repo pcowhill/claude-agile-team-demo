@@ -1,6 +1,7 @@
 import type { ColorAdjustments } from './colorAdjustments'
 import type { Orientation } from './orientation'
 import type { Crop } from './crop'
+import type { RedactionRegion } from './redaction'
 import type { BackgroundFill } from './backgroundFill'
 import type { TextFontId } from './textOverlay'
 import type { AudioTrack, TimelineEntry, TextOverlay } from './timeline'
@@ -33,6 +34,7 @@ export const SETTINGS_GROUPS = [
   { id: 'orientation', label: 'Orientation' },
   { id: 'crop', label: 'Crop' },
   { id: 'background-fill', label: 'Background fill' },
+  { id: 'redaction', label: 'Redact' },
   { id: 'audio', label: 'Audio' },
   { id: 'text-style', label: 'Text style' },
 ] as const
@@ -82,6 +84,15 @@ export interface CopiedSettings {
   orientation?: { orientation: Orientation | undefined }
   crop?: { crop: Crop | undefined }
   'background-fill'?: { fill: BackgroundFill | undefined }
+  /**
+   * The redaction regions (#492), copied whole. Like every other group this
+   * carries the source's *effective* value, so a source with no regions
+   * copies "nothing hidden" and pasting the group clears the target's
+   * regions — the exact-match rule the module comment states. Region ids
+   * travel with the list; they identify a region within one element's list,
+   * so two elements holding the same ids is not a collision.
+   */
+  redaction?: { redactions: readonly RedactionRegion[] | undefined }
   audio?: AudioSettings
   'text-style'?: TextStyleSettings
 }
@@ -106,7 +117,13 @@ export function heldSettingsGroups(
     case 'entry': {
       const entry = element as TimelineEntry
       if (isSlateEntry(entry)) return []
-      const visual: SettingsGroup[] = ['color', 'orientation', 'crop', 'background-fill']
+      const visual: SettingsGroup[] = [
+        'color',
+        'orientation',
+        'crop',
+        'background-fill',
+        'redaction',
+      ]
       return isStillEntry(entry) ? visual : [...visual, 'audio']
     }
     case 'audio-track':
@@ -116,7 +133,7 @@ export function heldSettingsGroups(
       // judged from the element here too: a still overlay is soundless
       // (#220), exactly as a still entry is above (#332).
       const overlay = element as VideoOverlay
-      const visual: SettingsGroup[] = ['color', 'orientation', 'crop']
+      const visual: SettingsGroup[] = ['color', 'orientation', 'crop', 'redaction']
       return isImageOverlay(overlay) ? visual : [...visual, 'audio']
     }
     case 'text':
@@ -142,6 +159,7 @@ export function copyElementSettings(
         orientation: { orientation: entry.orientation },
         crop: { crop: entry.crop },
         'background-fill': { fill: entry.backgroundFill },
+        redaction: { redactions: entry.redactions },
       }
       if (isStillEntry(entry)) return visual
       return {
@@ -172,6 +190,7 @@ export function copyElementSettings(
         color: { adjustments: overlay.colorAdjustments },
         orientation: { orientation: overlay.orientation },
         crop: { crop: overlay.crop },
+        redaction: { redactions: overlay.redactions },
       }
       // A still overlay carries no audio at all (#294), so there is nothing
       // to copy — and no audio group to hand a target. Copying identity
@@ -235,6 +254,8 @@ export function filterSettings(
   if (keep.has('crop') && copied.crop !== undefined) filtered.crop = copied.crop
   if (keep.has('background-fill') && copied['background-fill'] !== undefined)
     filtered['background-fill'] = copied['background-fill']
+  if (keep.has('redaction') && copied.redaction !== undefined)
+    filtered.redaction = copied.redaction
   if (keep.has('audio') && copied.audio !== undefined) filtered.audio = copied.audio
   if (keep.has('text-style') && copied['text-style'] !== undefined)
     filtered['text-style'] = copied['text-style']

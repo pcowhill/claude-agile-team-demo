@@ -35,6 +35,7 @@ import type { RemapEffect, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect 
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import { zoomAt } from './zoom'
 import { copyElementSettings } from './settingsClipboard'
+import type { RedactionRegion } from './redaction'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -4638,6 +4639,182 @@ describe('chapter markers (#487)', () => {
     expect(normalizedTimelineState([], [], [], [], [], [], [], undefined, undefined, [])).not.toHaveProperty(
       'markers',
     )
+  })
+})
+
+describe('redaction regions (#492)', () => {
+  const region = (over: Partial<RedactionRegion> = {}): RedactionRegion => ({
+    id: 'rd1',
+    left: 0.2,
+    top: 0.2,
+    width: 0.4,
+    height: 0.3,
+    start: 1,
+    end: 4,
+    style: 'pixelate',
+    blockSize: 16,
+    ...over,
+  })
+
+  it('stores the whole list, normalized, and clears it with an empty one', () => {
+    const state = stateOf(['e1'])
+    const set = timelineReducer(state, {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region()],
+    })
+    expect(set.entries[0].redactions).toEqual([region()])
+    // An empty list is the reset, and leaves no key behind — the rule that
+    // keeps redaction-free saved files byte-identical.
+    const cleared = timelineReducer(set, {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [],
+    })
+    expect(cleared.entries[0]).not.toHaveProperty('redactions')
+  })
+
+  it('normalizes an out-of-range rectangle and an inverted window rather than refusing', () => {
+    const state = timelineReducer(stateOf(['e1']), {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region({ left: 0.9, width: 0.5, start: 5, end: 2 })],
+    })
+    const stored = state.entries[0].redactions?.[0]
+    expect(stored?.left).toBeCloseTo(0.5, 10)
+    expect(stored?.width).toBeCloseTo(0.5, 10)
+    expect(stored?.end).toBeGreaterThan(stored?.start ?? 0)
+  })
+
+  it('refuses a list with a duplicate id — ids address a region within its element', () => {
+    const state = stateOf(['e1'])
+    const next = timelineReducer(state, {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region({ id: 'same' }), region({ id: 'same', top: 0.5 })],
+    })
+    expect(next).toBe(state)
+  })
+
+  it('is a same-reference no-op when the list is unchanged — edits stop playback', () => {
+    const set = timelineReducer(stateOf(['e1']), {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region()],
+    })
+    expect(
+      timelineReducer(set, { type: 'entry-redactions-set', id: 'e1', redactions: [region()] }),
+    ).toBe(set)
+    // And clearing an entry that has none is equally not an edit.
+    const empty = stateOf(['e1'])
+    expect(timelineReducer(empty, { type: 'entry-redactions-set', id: 'e1', redactions: [] })).toBe(
+      empty,
+    )
+  })
+
+  it('leaves a slate alone — a flat colour has nothing to hide', () => {
+    const withSlate = timelineReducer(stateOf(['e1']), {
+      type: 'entry-added',
+      entry: slateEntry('s1'),
+    })
+    expect(
+      timelineReducer(withSlate, {
+        type: 'entry-redactions-set',
+        id: 's1',
+        redactions: [region()],
+      }),
+    ).toBe(withSlate)
+  })
+
+  it('sets and clears a video overlay\'s regions the same way', () => {
+    const overlay: VideoOverlay = {
+      id: 'ov1',
+      clipId: 'clip-e1',
+      name: 'pip.mp4',
+      duration: 8,
+      url: 'blob:pip',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    }
+    const added = timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay })
+    const set = timelineReducer(added, {
+      type: 'video-overlay-redactions-set',
+      id: 'ov1',
+      redactions: [region({ style: 'solid', blockSize: undefined, color: '#000000' })],
+    })
+    expect(set.videoOverlays?.[0].redactions).toHaveLength(1)
+    expect(set.videoOverlays?.[0].redactions?.[0].color).toBe('#000000')
+    const cleared = timelineReducer(set, {
+      type: 'video-overlay-redactions-set',
+      id: 'ov1',
+      redactions: [],
+    })
+    expect(cleared.videoOverlays?.[0]).not.toHaveProperty('redactions')
+  })
+
+  it('Duplicate carries the regions onto the copy (#314)', () => {
+    const set = timelineReducer(stateOf(['e1']), {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region()],
+    })
+    const duplicated = timelineReducer(set, {
+      type: 'element-duplicated',
+      kind: 'entry',
+      id: 'e1',
+      newId: 'e1-copy',
+    })
+    expect(duplicated.entries[1].id).toBe('e1-copy')
+    expect(duplicated.entries[1].redactions).toEqual([region()])
+    // Editing one copy never touches the other.
+    const edited = timelineReducer(duplicated, {
+      type: 'entry-redactions-set',
+      id: 'e1-copy',
+      redactions: [],
+    })
+    expect(edited.entries[0].redactions).toEqual([region()])
+    expect(edited.entries[1]).not.toHaveProperty('redactions')
+  })
+
+  it('Copy settings → Paste settings carries regions, and leaves the audio group alone (#315/#332)', () => {
+    const base = timelineReducer(stateOf(['e1'], ['e2']), {
+      type: 'entry-redactions-set',
+      id: 'e1',
+      redactions: [region()],
+    })
+    // Dial the target's volume down, so a reset would be visible.
+    const quiet = timelineReducer(base, { type: 'entry-volume-set', id: 'e2', volume: 0.25 })
+    const copied = copyElementSettings('entry', quiet.entries[0])
+    expect(copied?.redaction).toEqual({ redactions: [region()] })
+    const pasted = timelineReducer(quiet, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'e2',
+      settings: { redaction: copied?.redaction },
+    })
+    expect(pasted.entries[1].redactions).toEqual([region()])
+    expect(pasted.entries[1].volume).toBe(0.25)
+  })
+
+  it('pasting an unredacted source clears the target — copy means "look like this"', () => {
+    const withRegion = timelineReducer(stateOf(['e1'], ['e2']), {
+      type: 'entry-redactions-set',
+      id: 'e2',
+      redactions: [region()],
+    })
+    const copied = copyElementSettings('entry', withRegion.entries[0])
+    const pasted = timelineReducer(withRegion, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'e2',
+      settings: { redaction: copied?.redaction },
+    })
+    expect(pasted.entries[1]).not.toHaveProperty('redactions')
   })
 })
 

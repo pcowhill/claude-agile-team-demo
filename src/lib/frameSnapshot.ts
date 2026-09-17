@@ -3,6 +3,7 @@ import {
   activeVideoOverlays,
   canvasSupportsColorFilter,
   createFrameComposer,
+  timelineHasBlurRedaction,
   timelineHasColorAdjustments,
 } from './exportVideo'
 import type { LayerFrame, OverlayFrame } from './exportVideo'
@@ -299,6 +300,15 @@ async function renderFrame(
     throw new ExportUnsupportedError(
       'This browser cannot render color adjustments when saving a frame (canvas filters are ' +
         'unsupported). Reset the color adjustments, or save from a browser that supports canvas filters.',
+    )
+  }
+  // The export's blur-redaction refusal (#492): a frame the preview shows
+  // redacted must never save readable.
+  if (timelineHasBlurRedaction(timeline) && !canvasSupportsColorFilter(context)) {
+    throw new ExportUnsupportedError(
+      'This browser cannot render a blurred redaction when saving a frame (canvas filters are ' +
+        'unsupported). Switch the redaction to Pixelate or Solid, or save from a browser that ' +
+        'supports canvas filters.',
     )
   }
 

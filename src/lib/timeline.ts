@@ -3,6 +3,12 @@ import type { Orientation } from './orientation'
 import { isValidOrientation, normalizeOrientation, orientationsEqual } from './orientation'
 import type { Crop } from './crop'
 import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
+import type { RedactionRegion } from './redaction'
+import {
+  areAcceptableRedactionInputs,
+  normalizeRedactions,
+  redactionsEqual,
+} from './redaction'
 import type { ShapeMaskInput } from './shapeMask'
 import { isValidShapeMaskInput, normalizeShapeMask, shapeMasksEqual } from './shapeMask'
 import type { BackgroundFill, BackgroundFillInput } from './backgroundFill'
@@ -161,6 +167,17 @@ export interface TimelineEntry {
    * construction, exactly as it carries no crop.
    */
   backgroundFill?: BackgroundFill
+  /**
+   * Redaction regions on a video/image entry (#492): rectangles that hide
+   * part of the picture for a window of the entry's own source time. Absent
+   * means none — the `crop` shape (#255) — so pre-redaction states and files
+   * stay valid and redaction-free files stay byte-identical. The rectangles
+   * are fractions of the SOURCE frame, before orientation and crop, and the
+   * windows are in source seconds, so turning, cropping or retrimming the
+   * entry never slides a mask off what it hides. Slates carry none: a flat
+   * colour has nothing to redact, exactly as it has no crop.
+   */
+  redactions?: RedactionRegion[]
 }
 
 /**
@@ -767,6 +784,20 @@ export type TimelineAction =
   | { type: 'video-overlay-crop-set'; id: string; crop: Crop }
   | {
       /**
+       * Sets a video/image entry's redaction regions whole (#492), the
+       * `entry-crop-set` idiom: the action carries the full list and the
+       * reducer stores the normalized form — an empty list normalizes to no
+       * `redactions` key at all, so `[]` is the reset. One action per commit
+       * is what makes each field edit a single undo step, and adding,
+       * editing and removing a region all reduce to "here is the new list".
+       */
+      type: 'entry-redactions-set'
+      id: string
+      redactions: RedactionRegion[]
+    }
+  | { type: 'video-overlay-redactions-set'; id: string; redactions: RedactionRegion[] }
+  | {
+      /**
        * Sets a video overlay's shape mask whole (#266), the
        * `video-overlay-crop-set` idiom: the action carries the full mask
        * and the reducer stores the normalized form — `{ kind: 'rectangle' }`
@@ -1281,6 +1312,7 @@ interface PastedVisualSettings {
   orientation?: Orientation
   crop?: Crop
   backgroundFill?: BackgroundFill
+  redactions?: RedactionRegion[]
 }
 
 /**
@@ -1327,6 +1359,20 @@ function withPastedVisualSettings<T extends PastedVisualSettings>(
       const target = draft()
       if (normalized === undefined) delete target.orientation
       else target.orientation = normalized
+    }
+  }
+  if (settings.redaction !== undefined) {
+    const regions = settings.redaction.redactions
+    // A copied list is already normalized (it came off an element), but it
+    // arrives through an action like any other input, so it is validated
+    // before it is stored — the strict check, since a region that is out of
+    // range no longer covers what it was drawn over (#492).
+    if (regions !== undefined && !areAcceptableRedactionInputs(regions)) return undefined
+    const normalized = normalizeRedactions(regions)
+    if (!redactionsEqual(normalized, element.redactions)) {
+      const target = draft()
+      if (normalized === undefined) delete target.redactions
+      else target.redactions = normalized
     }
   }
   if (settings.crop !== undefined) {
@@ -2650,6 +2696,42 @@ function reduceTimelineCollections(
       else next.crop = normalized
       entries[index] = next
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'entry-redactions-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no redactions (#492): a flat colour has nothing to
+      // hide, exactly as it carries no crop (#255).
+      if (isSlateEntry(entry)) return state
+      if (!areAcceptableRedactionInputs(action.redactions)) return state
+      const normalized = normalizeRedactions(action.redactions)
+      // Compare normalized against stored (stored is always normalized), so
+      // re-committing the same list — or clearing an entry that has none —
+      // is a no-op, not an edit (edits stop preview playback).
+      if (redactionsEqual(normalized, entry.redactions)) return state
+      const entries = [...state.entries]
+      // None means no key at all, never `[]` — what keeps redaction-free
+      // saved files byte-identical (see redaction.ts).
+      const next = { ...entry }
+      if (normalized === undefined) delete next.redactions
+      else next.redactions = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'video-overlay-redactions-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!areAcceptableRedactionInputs(action.redactions)) return state
+      const normalized = normalizeRedactions(action.redactions)
+      if (redactionsEqual(normalized, overlay.redactions)) return state
+      const overlays = [...videoOverlays]
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.redactions
+      else next.redactions = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }
     case 'entry-background-fill-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)

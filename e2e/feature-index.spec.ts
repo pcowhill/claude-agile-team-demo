@@ -105,6 +105,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: 'the element named anywhere else in the label (Move ‹element› up)',
   },
   {
+    pattern: / region \d+/,
+    replacement: ' region',
+    why: "a redaction control names which of an element's regions it edits, which is a position in a list rather than part of the control (#492)",
+  },
+  {
     pattern: /^(Expand|Collapse) all .*elements$/,
     replacement: '$1 all',
     why: 'the fold-all pair names the section or the whole timeline it folds',

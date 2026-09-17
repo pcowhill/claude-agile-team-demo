@@ -120,6 +120,21 @@
   pointer-events: none;
 }
 
+/* Redaction regions (#492): the mirror of `.preview-backfill`, and the last
+   child of the card rather than the first, so it paints ABOVE the media
+   element it hides. It fills the same box, so the card's zoom and
+   transition transforms carry it with the picture; the canvas's own buffer
+   is the box in CSS pixels, because a mask that is not resolved is a mask
+   that is not hiding. Never interactive — the regions are edited from the
+   timeline row, and in the visual editor #493 adds. */
+.preview-redactions {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 /* During a transition the incoming clip renders on top of the outgoing one,
    styled per-frame (opacity for crossfade, transform for slide). */
 .preview-video-incoming {

@@ -702,11 +702,17 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             dispatchTimeline({ type: 'video-overlay-orient-set', id, orientation })
           }
           onSetEntryCrop={(id, crop) => dispatchTimeline({ type: 'entry-crop-set', id, crop })}
+          onSetEntryRedactions={(id, redactions) =>
+            dispatchTimeline({ type: 'entry-redactions-set', id, redactions })
+          }
           onSetEntryBackgroundFill={(id, fill) =>
             dispatchTimeline({ type: 'entry-background-fill-set', id, fill })
           }
           onSetVideoOverlayCrop={(id, crop) =>
             dispatchTimeline({ type: 'video-overlay-crop-set', id, crop })
+          }
+          onSetVideoOverlayRedactions={(id, redactions) =>
+            dispatchTimeline({ type: 'video-overlay-redactions-set', id, redactions })
           }
           onSetVideoOverlayMask={(id, mask) =>
             dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
