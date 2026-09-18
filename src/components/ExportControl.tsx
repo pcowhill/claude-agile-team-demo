@@ -514,6 +514,13 @@ export function ExportControl({
     }
     releaseResult()
     setResult(null)
+    // A per-chapter run leaves the dialog open on its completion list, and
+    // from there the user can pick another Range and export again (#541).
+    // That list describes a run the user is no longer doing, so it goes
+    // when any export starts — here as well as in the chapter path — rather
+    // than sitting finished-looking under a bar that has not finished, or
+    // reappearing under an error if this export fails.
+    setChapterRun(null)
     const controller = new AbortController()
     abortRef.current = controller
     // Captured now so the finished download keeps this export's name even if
@@ -712,7 +719,8 @@ export function ExportControl({
                     checked={scope === 'chapters'}
                     onChange={() => setScope('chapters')}
                   />
-                  Each chapter ({chapterRunSpans.length} files)
+                  Each chapter ({chapterRunSpans.length}{' '}
+                  {chapterRunSpans.length === 1 ? 'file' : 'files'})
                 </label>
               )}
               {scope === 'chapters' && (
