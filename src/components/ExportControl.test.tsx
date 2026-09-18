@@ -793,6 +793,201 @@ describe('Copy chapter list (#488)', () => {
   })
 })
 
+describe('Each chapter export (#529)', () => {
+  const marked: TimelineState = {
+    ...timeline,
+    markers: [
+      { id: 'm1', time: 2, name: 'First look' },
+      { id: 'm2', time: 5.5, name: 'The demo' },
+    ],
+  }
+  // The whole project is 10 s, so the markers split it into Intro [0, 2),
+  // First look [2, 5.5) and The demo [5.5, 10).
+  const SPANS = [
+    { start: 0, end: 2 },
+    { start: 2, end: 5.5 },
+    { start: 5.5, end: 10 },
+  ]
+  const chapterRadio = () => screen.getByTestId('export-scope-chapters')
+
+  /** Captures what each download anchor was told to save the blob as. */
+  const captureDownloads = () => {
+    const names: string[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download)
+    })
+    return names
+  }
+
+  /** A doExport whose n-th call the test resolves by hand. */
+  const deferredExport = () => {
+    const resolvers: ((blob: Blob) => void)[] = []
+    const doExport = vi.fn<DoExport>(
+      () => new Promise<Blob>((resolve) => resolvers.push(resolve)),
+    )
+    return { doExport, resolvers }
+  }
+
+  const finish = async (resolve: (blob: Blob) => void) => {
+    await act(async () => {
+      resolve(new Blob(['chapter']))
+      await Promise.resolve()
+    })
+  }
+
+  it('offers the option only when the project has a chapter marker', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <ExportControl timeline={timeline} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    expect(screen.queryByTestId('export-scope-chapters')).not.toBeInTheDocument()
+    unmount()
+
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(chapterRadio()).toBeInTheDocument()
+    // The count is on the label, so the choice says how many files it means.
+    expect(screen.getByText('Each chapter (3 files)')).toBeInTheDocument()
+  })
+
+  it('exports one file per chapter, in order, over the spans the markers make', async () => {
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    const doExport = vi.fn<DoExport>(() => Promise.resolve(new Blob(['chapter'])))
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+
+    await waitFor(() => expect(doExport).toHaveBeenCalledTimes(3))
+    expect(doExport.mock.calls.map((call) => call[1].range)).toEqual(SPANS)
+    expect(names).toEqual(['01 Intro.webm', '02 First look.webm', '03 The demo.webm'])
+  })
+
+  it('sends every chapter the same output settings', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const doExport = vi.fn<DoExport>(() => Promise.resolve(new Blob(['chapter'])))
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.selectOptions(screen.getByLabelText('Export size preset'), 'hd')
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+
+    await waitFor(() => expect(doExport).toHaveBeenCalledTimes(3))
+    const hd = { width: 1280, height: 720 }
+    // One chapter recorded at a different size from its neighbours is the
+    // bug nobody would think to look for, so this pins all three.
+    expect(doExport.mock.calls.map((call) => call[1].frame)).toEqual([hd, hd, hd])
+  })
+
+  it('names the chapter and the count while the run is in flight', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const { doExport, resolvers } = deferredExport()
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+
+    expect(await screen.findByTestId('export-chapter-progress')).toHaveTextContent(
+      'Chapter 1 of 3: Intro',
+    )
+    await finish(resolvers[0])
+    await waitFor(() =>
+      expect(screen.getByTestId('export-chapter-progress')).toHaveTextContent(
+        'Chapter 2 of 3: First look',
+      ),
+    )
+  })
+
+  it('lists every file it produced when the run finishes, and stays open to show it', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const doExport = vi.fn<DoExport>(() => Promise.resolve(new Blob(['chapter'])))
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+
+    const results = await screen.findByTestId('export-chapter-results')
+    expect(within(results).getByRole('heading', { name: 'Exported 3 files' })).toBeInTheDocument()
+    const rows = within(results).getAllByRole('listitem')
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toHaveTextContent('1. Intro')
+    expect(rows[0]).toHaveTextContent('01 Intro.webm')
+    // 0:02, 0:04 (3.5 s rounds) and 0:05 (4.5 s rounds) — the spans' lengths.
+    expect(rows[0]).toHaveTextContent('0:02')
+    expect(rows[2]).toHaveTextContent('3. The demo')
+    expect(rows[2]).toHaveTextContent('03 The demo.webm')
+    // The dialog stays up: the list is the point of the run.
+    expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
+  })
+
+  it('stops between chapters when cancelled, keeping the files already saved', async () => {
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    const { doExport, resolvers } = deferredExport()
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    await waitFor(() => expect(doExport).toHaveBeenCalledTimes(1))
+
+    // Cancel lands while chapter 1 is still recording; the first file then
+    // finishes and is saved, and the loop stops before chapter 2 starts —
+    // which is the gap the signal check at the top of the loop exists for.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await finish(resolvers[0])
+
+    await waitFor(() => expect(names).toEqual(['01 Intro.webm']))
+    expect(doExport).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // And a second export can start: the dialog reopens on Whole project.
+    await user.click(openButton())
+    expect(screen.getByTestId('export-scope-whole')).toBeChecked()
+    expect(screen.queryByTestId('export-chapter-results')).not.toBeInTheDocument()
+    expect(exportButton()).toBeEnabled()
+  })
+
+  it('reports the files that were written when a chapter fails', async () => {
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    let call = 0
+    const doExport = vi.fn<DoExport>(() => {
+      call += 1
+      return call === 2
+        ? Promise.reject(new Error('The encoder gave up.'))
+        : Promise.resolve(new Blob(['chapter']))
+    })
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The encoder gave up.')
+    expect(names).toEqual(['01 Intro.webm'])
+    const results = screen.getByTestId('export-chapter-results')
+    expect(within(results).getByRole('heading', { name: 'Exported 1 file' })).toBeInTheDocument()
+  })
+})
+
 describe('format-note layout structure (#268)', () => {
   // jsdom computes no layout, so the geometry itself (the note below the
   // radio rows, everything inside the dialog) is evidenced by

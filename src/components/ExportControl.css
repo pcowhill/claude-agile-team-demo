@@ -144,3 +144,69 @@
   font-size: 0.85rem;
   resize: vertical;
 }
+
+/* Which chapter a per-chapter run is recording (#529). Above the bar, which
+   shows that one file's fraction. */
+.export-chapter-progress {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: #ccc;
+  overflow-wrap: anywhere;
+}
+
+/* What the run produced (#529). The dialog is `max-width: 24rem`, so every
+   rule here is about a chapter name or a filename never being the thing that
+   widens it — #268's lesson, which the export dialog has already paid for
+   once. */
+.export-chapter-results {
+  margin: 0 0 1rem;
+}
+
+.export-chapter-results h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+
+.export-chapter-results ul {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  /* A long run stays a list rather than a page: the overlay would scroll the
+     whole dialog otherwise and push Cancel and Export far below the fold. */
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.export-chapter-results li {
+  display: grid;
+  /* Name and duration share the first line; the filename takes its own
+     below, so neither column has to shrink to fit the other. */
+  grid-template-columns: 1fr auto;
+  gap: 0 0.75rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #333;
+  font-size: 0.85rem;
+}
+
+.export-chapter-results li:last-child {
+  border-bottom: none;
+}
+
+.export-chapter-result-name {
+  overflow-wrap: anywhere;
+}
+
+/* Never wraps: it is short, and a duration broken across two lines reads as
+   two numbers. */
+.export-chapter-result-duration {
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.export-chapter-result-file {
+  grid-column: 1 / -1;
+  color: #8fd18f;
+  font-size: 0.8rem;
+  /* The one string a user has no control over the length of. */
+  overflow-wrap: anywhere;
+}
