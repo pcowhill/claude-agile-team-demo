@@ -229,6 +229,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'as above — the redaction editor (#493), same button text; the shape rule above lifted the region number out',
   },
   {
+    from: 'Adjust Spotlight region visually',
+    to: 'Adjust visually…',
+    why: 'as above — the spotlight editor (#533), same button text; the shape rule above lifted the region number out',
+  },
+  {
     from: 'Adjust Zoom visually',
     to: 'Adjust visually…',
     why: 'as above — the zoom editor (#413), same button text; the shape rule above lifted the zoom number out',
@@ -253,6 +258,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'as above — the redaction editor (#493)',
   },
   {
+    from: 'Close the spotlight editor',
+    to: '✕ (close a visual editor)',
+    why: 'as above — the spotlight editor (#533)',
+  },
+  {
     from: 'Close the Zoom editor',
     to: '✕ (close a visual editor)',
     why: 'as above — the zoom editor, whose name is capitalised because the zoom it edits is "Zoom 1"',
@@ -268,6 +278,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'as above — the same slider in the redaction editor (#493)',
   },
   {
+    from: 'Preview time of Spotlight region',
+    to: 'Preview',
+    why: 'as above — the same slider in the spotlight editor (#533)',
+  },
+  {
     from: 'Loop the hold of Zoom',
     to: '↻ Loop',
     why: 'the toggle reads "↻ Loop"; the accessible name says what it plays',
@@ -276,6 +291,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Loop the window of Redaction region',
     to: '↻ Loop',
     why: 'as above — the same toggle in the redaction editor, over a region\'s window',
+  },
+  {
+    from: 'Loop the window of Spotlight region',
+    to: '↻ Loop',
+    why: 'as above — the same toggle in the spotlight editor (#533)',
   },
   {
     from: 'Reset crop in the editor',
@@ -718,7 +738,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   // A spotlight region on the same entry (#532): its own fields, added
   // here rather than trusted, because a region's controls exist only once
   // the region does — the gap #536 records for the chapter-marker surface.
-  // It has no visual editor; that is #533.
+  // Its visual editor is walked just below (#533).
   await timeline
     .getByRole('button', { name: `Add a spotlight region on ${firstEntry}`, exact: true })
     .click()
@@ -726,6 +746,14 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     timeline.getByRole('combobox', { name: `Spotlight region 1 shape of ${firstEntry}` }),
   ).toBeVisible()
   await record('an element with a spotlight region', timeline)
+  // …and the editor that drags it (#533), the redaction editor's twin.
+  await walkEditor(
+    timeline.getByRole('button', {
+      name: `Adjust Spotlight region 1 of ${firstEntry} visually`,
+      exact: true,
+    }),
+    'the spotlight editor',
+  )
 
   // The crop editor, on the same entry's Picture group.
   await walkEditor(

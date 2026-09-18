@@ -47,7 +47,7 @@ import { normalizeCrop } from './crop'
 import type { RedactionRegion, RedactionStyle } from './redaction'
 import { MAX_REDACTION_STRENGTH, normalizeRedactions } from './redaction'
 import type { SpotlightRegion, SpotlightShape } from './spotlight'
-import { normalizeSpotlights } from './spotlight'
+import { MAX_SPOTLIGHT_SOFTEN, normalizeSpotlights, softenOf } from './spotlight'
 import type { BackgroundFill } from './backgroundFill'
 import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
@@ -252,7 +252,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 21
+export const PROJECT_SCHEMA_VERSION = 22
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -295,6 +295,14 @@ export const MARKERS_SCHEMA_VERSION = 19
 export const REDACTION_SCHEMA_VERSION = 20
 /** The version any entry/overlay spotlight region forces, whichever the save mode (#532). */
 export const SPOTLIGHT_SCHEMA_VERSION = 21
+/**
+ * The version a spotlight region with a soft edge forces (#533). A region
+ * whose `soften` is 0 writes no key and stays at 21, so a #532 build opens
+ * every file this build writes that it could have written itself; one it
+ * could not — a soft edge it would silently draw hard — it refuses by
+ * version instead.
+ */
+export const SOFT_SPOTLIGHT_SCHEMA_VERSION = 22
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -499,7 +507,10 @@ function storedRedaction(region: RedactionRegion): RedactionRegion {
  */
 function storedSpotlight(region: SpotlightRegion): SpotlightRegion {
   const { id, left, top, width, height, start, end, shape, dim } = region
-  return { id, left, top, width, height, start, end, shape, dim }
+  const soften = softenOf(region)
+  // A hard edge writes no key (#533): absent means 0 on open, and a region
+  // that never asked for a soft edge serializes to the bytes #532 wrote.
+  return { id, left, top, width, height, start, end, shape, dim, ...(soften > 0 ? { soften } : {}) }
 }
 
 /**
@@ -628,6 +639,13 @@ export async function serializeProject(
   const hasSpotlights =
     timeline.entries.some((entry) => (entry.spotlights?.length ?? 0) > 0) ||
     videoOverlaysOf(timeline).some((overlay) => (overlay.spotlights?.length ?? 0) > 0)
+  // A soft edge (#533) is the one spotlight field a #532 build would drop
+  // silently, so it alone forces the newer version.
+  const hasSoftSpotlights =
+    timeline.entries.some((entry) => (entry.spotlights ?? []).some((each) => softenOf(each) > 0)) ||
+    videoOverlaysOf(timeline).some((overlay) =>
+      (overlay.spotlights ?? []).some((each) => softenOf(each) > 0),
+    )
   const hasSubtitles = textsOf(timeline).some((text) => text.subtitle === true)
   const hasDucking = audioTracksOf(timeline).some((track) => track.duck === true)
   const hasOrientation =
@@ -653,7 +671,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasSpotlights
+    schemaVersion: hasSoftSpotlights
+      ? SOFT_SPOTLIGHT_SCHEMA_VERSION
+      : hasSpotlights
       ? SPOTLIGHT_SCHEMA_VERSION
       : hasRedactions
       ? REDACTION_SCHEMA_VERSION
@@ -1291,6 +1311,18 @@ const asSpotlights = (value: unknown, path: string): SpotlightRegion[] | undefin
     if (dim < 0 || dim > 1) {
       throw new Error(`${each}.dim must be a fraction between 0 and 1`)
     }
+    // The soft edge (#533): optional, absent meaning the hard edge every
+    // file before it has; present, it is refused by name outside its range
+    // rather than clamped, like every other stored fraction here.
+    let soften: number | undefined
+    if (record.soften !== undefined) {
+      soften = asFinite(record.soften, `${each}.soften`)
+      if (soften < 0 || soften > MAX_SPOTLIGHT_SOFTEN) {
+        throw new Error(
+          `${each}.soften must be a fraction between 0 and ${MAX_SPOTLIGHT_SOFTEN}`,
+        )
+      }
+    }
     return {
       id,
       left,
@@ -1301,6 +1333,7 @@ const asSpotlights = (value: unknown, path: string): SpotlightRegion[] | undefin
       end,
       shape: shape as SpotlightShape,
       dim,
+      ...(soften === undefined ? {} : { soften }),
     } satisfies SpotlightRegion
   })
   return normalizeSpotlights(regions)

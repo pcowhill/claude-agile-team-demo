@@ -7,6 +7,7 @@ import {
   DEFAULT_SPOTLIGHT_SHAPE,
   drawSpotlights,
   hasSpotlight,
+  MAX_SPOTLIGHT_SOFTEN,
   isAcceptableSpotlightInput,
   isValidSpotlightRegion,
   normalizeSpotlightRegion,
@@ -205,7 +206,7 @@ describe('spotlightRects (#532)', () => {
  */
 function recordingContext() {
   const ops: Op[] = []
-  const state = { filter: 'none', fillStyle: '' }
+  const state = { filter: 'none', fillStyle: '', composite: 'source-over' }
   const context = {
     get filter() {
       return state.filter
@@ -231,8 +232,29 @@ function recordingContext() {
     clip: (rule?: string) => ops.push({ kind: 'clip', rule: rule ?? 'nonzero' }),
     fillRect: (x: number, y: number, width: number, height: number) =>
       ops.push({ kind: 'fillRect', x, y, width, height }),
+    // The soft path's operations (#533): recorded, never replayed — the
+    // ramp is the browser's blur, which a replay cannot honestly model.
+    get globalCompositeOperation() {
+      return state.composite
+    },
+    set globalCompositeOperation(value: string) {
+      state.composite = value
+      ops.push({ kind: 'composite', value })
+    },
+    clearRect: (x: number, y: number, width: number, height: number) =>
+      ops.push({ kind: 'clearRect', x, y, width, height }),
+    fill: () => ops.push({ kind: 'fill' }),
+    drawImage: (image: unknown, x: number, y: number, width: number, height: number) =>
+      ops.push({ kind: 'drawImage', image, x, y, width, height }),
   }
   return { context: context as unknown as CanvasRenderingContext2D, ops }
+}
+
+/** A canvas whose 2d context records, for the soft path's offscreen mask (#533). */
+function recordingCanvas() {
+  const recorded = recordingContext()
+  const canvas = { width: 0, height: 0, getContext: () => recorded.context }
+  return { canvas: canvas as unknown as HTMLCanvasElement, ops: recorded.ops }
 }
 
 type Op =
@@ -245,6 +267,10 @@ type Op =
   | { kind: 'ellipse'; x: number; y: number; radiusX: number; radiusY: number }
   | { kind: 'clip'; rule: string }
   | { kind: 'fillRect'; x: number; y: number; width: number; height: number }
+  | { kind: 'composite'; value: string }
+  | { kind: 'clearRect'; x: number; y: number; width: number; height: number }
+  | { kind: 'fill' }
+  | { kind: 'drawImage'; image: unknown; x: number; y: number; width: number; height: number }
 
 type Subpath = Extract<Op, { kind: 'rect' } | { kind: 'ellipse' }>
 
@@ -457,6 +483,141 @@ describe('drawSpotlights (#532)', () => {
     // The dim is not part of the picture being graded, but whatever draws
     // next still is.
     expect(context.filter).toBe('grayscale(100%)')
+  })
+})
+
+describe('the soft edge (#533)', () => {
+  const base = {
+    sourceTime: 2,
+    crop: undefined,
+    sourceWidth: 1000,
+    sourceHeight: 500,
+    drawRect: { x: 0, y: 0, width: 1000, height: 500 },
+  }
+  /** A factory the hard path must never call. */
+  const noCanvas = () => {
+    throw new Error('the hard edge asked for a mask')
+  }
+
+  it('is absent by default, dropped at zero, and clamped to its ceiling', () => {
+    expect(normalizeSpotlightRegion(region())).not.toHaveProperty('soften')
+    expect(normalizeSpotlightRegion(region({ soften: 0 }))).not.toHaveProperty('soften')
+    expect(normalizeSpotlightRegion(region({ soften: -1 }))).not.toHaveProperty('soften')
+    expect(normalizeSpotlightRegion(region({ soften: 0.2 })).soften).toBe(0.2)
+    expect(normalizeSpotlightRegion(region({ soften: 4 })).soften).toBe(MAX_SPOTLIGHT_SOFTEN)
+  })
+
+  it('validates it as a fraction up to the ceiling, and refuses what cannot be repaired', () => {
+    expect(isValidSpotlightRegion(region({ soften: 0 }))).toBe(true)
+    expect(isValidSpotlightRegion(region({ soften: MAX_SPOTLIGHT_SOFTEN }))).toBe(true)
+    expect(isValidSpotlightRegion(region({ soften: MAX_SPOTLIGHT_SOFTEN + 0.01 }))).toBe(false)
+    expect(isValidSpotlightRegion(region({ soften: -0.01 }))).toBe(false)
+    expect(isValidSpotlightRegion(region({ soften: Number.NaN }))).toBe(false)
+    expect(isAcceptableSpotlightInput(region({ soften: 9 }))).toBe(true)
+    expect(isAcceptableSpotlightInput(region({ soften: Number.NaN }))).toBe(false)
+    expect(isAcceptableSpotlightInput(region({ soften: '5%' as never }))).toBe(false)
+  })
+
+  it('reads absent and zero as the same hard edge', () => {
+    expect(spotlightsEqual([region()], [region({ soften: 0 })])).toBe(true)
+    expect(spotlightsEqual([region()], [region({ soften: 0.1 })])).toBe(false)
+  })
+
+  it('draws exactly #532’s operations while every soften is zero or absent, and asks for no mask', () => {
+    const before = recordingContext()
+    drawSpotlights({ ...base, context: before.context, regions: [region()], createCanvas: noCanvas })
+    const after = recordingContext()
+    drawSpotlights({
+      ...base,
+      context: after.context,
+      regions: [region({ soften: 0 })],
+      createCanvas: noCanvas,
+    })
+    expect(after.ops).toEqual(before.ops)
+    expect(before.ops.some((op) => op.kind === 'clip')).toBe(true)
+    expect(before.ops.some((op) => op.kind === 'drawImage')).toBe(false)
+  })
+
+  it('draws a soft edge through an offscreen mask: filled at the dim, each region erased through a blur, drawn once', () => {
+    const { context, ops } = recordingContext()
+    const mask = recordingCanvas()
+    drawSpotlights({
+      ...base,
+      context,
+      regions: [
+        // 20% of the picture's shorter side (500) is a 100px feather, so a
+        // 50px blur; the second region keeps a hard edge inside the same mask.
+        region({ id: 'a', soften: 0.2, dim: 0.5 }),
+        // Exact binary fractions, so the recorded geometry is exact too.
+        region({ id: 'b', left: 0.5, top: 0.5, width: 0.25, height: 0.25, shape: 'oval', dim: 0.3 }),
+      ],
+      createCanvas: () => mask.canvas,
+    })
+    expect(mask.canvas.width).toBe(1000)
+    expect(mask.canvas.height).toBe(500)
+    // The strongest dim fills the mask; the regions are erased from it.
+    expect(mask.ops).toContainEqual({ kind: 'fillStyle', value: 'rgba(0, 0, 0, 0.5)' })
+    expect(mask.ops).toContainEqual({ kind: 'fillRect', x: 0, y: 0, width: 1000, height: 500 })
+    const erase = mask.ops.findIndex((op) => op.kind === 'composite' && op.value === 'destination-out')
+    expect(erase).toBeGreaterThan(-1)
+    const erased = mask.ops.slice(erase)
+    expect(erased).toContainEqual({ kind: 'filter', value: 'blur(50px)' })
+    expect(erased).toContainEqual({ kind: 'rect', x: 250, y: 125, width: 500, height: 250 })
+    expect(erased).toContainEqual({ kind: 'ellipse', x: 625, y: 312.5, radiusX: 125, radiusY: 62.5 })
+    expect(erased.filter((op) => op.kind === 'fill')).toHaveLength(2)
+    // The hard-edged sibling is erased without a blur.
+    const ovalAt = erased.findIndex((op) => op.kind === 'ellipse')
+    const lastFilterBeforeOval = erased.slice(0, ovalAt).reverse().find((op) => op.kind === 'filter')
+    expect(lastFilterBeforeOval).toEqual({ kind: 'filter', value: 'none' })
+    // Onto the picture: one draw of the mask over the draw rectangle, no clip.
+    expect(ops.some((op) => op.kind === 'clip')).toBe(false)
+    expect(ops).toContainEqual({
+      kind: 'drawImage',
+      image: mask.canvas,
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 500,
+    })
+  })
+
+  it('draws the edge hard, not nothing, where the context cannot blur', () => {
+    const { context, ops } = recordingContext()
+    const mask = recordingCanvas()
+    drawSpotlights({
+      ...base,
+      context,
+      regions: [region({ soften: 0.2 })],
+      createCanvas: () => mask.canvas,
+      blurSupported: false,
+    })
+    expect(mask.ops.filter((op) => op.kind === 'filter').every((op) => op.value === 'none')).toBe(
+      true,
+    )
+    expect(ops.some((op) => op.kind === 'drawImage')).toBe(true)
+  })
+
+  it('places the holes as fractions of the draw rectangle, so a mirrored layer flips the finished mask', () => {
+    const { context, ops } = recordingContext()
+    const mask = recordingCanvas()
+    drawSpotlights({
+      ...base,
+      drawRect: { x: 1000, y: 0, width: -1000, height: 500 },
+      context,
+      regions: [region({ soften: 0.1 })],
+      createCanvas: () => mask.canvas,
+    })
+    // The region's left quarter is the mask's left quarter, whichever way
+    // the layer is drawn; the flip is the drawImage's negative width.
+    expect(mask.ops).toContainEqual({ kind: 'rect', x: 250, y: 125, width: 500, height: 250 })
+    expect(ops).toContainEqual({
+      kind: 'drawImage',
+      image: mask.canvas,
+      x: 1000,
+      y: 0,
+      width: -1000,
+      height: 500,
+    })
   })
 })
 

@@ -4851,6 +4851,26 @@ describe('spotlight regions (#532)', () => {
     expect(cleared.entries[0]).not.toHaveProperty('spotlights')
   })
 
+  it('clamps a soft edge to its ceiling, and stores a hard one as no key at all (#533)', () => {
+    const softened = timelineReducer(stateOf(['e1']), {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region({ soften: 0.9 })],
+    })
+    expect(softened.entries[0].spotlights?.[0].soften).toBe(0.5)
+    // Back to 0 drops the key: the region is #532's value again, and a
+    // re-commit of the same hard edge is a no-op rather than an edit.
+    const hardened = timelineReducer(softened, {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region({ soften: 0 })],
+    })
+    expect(hardened.entries[0].spotlights?.[0]).not.toHaveProperty('soften')
+    expect(
+      timelineReducer(hardened, { type: 'entry-spotlights-set', id: 'e1', spotlights: [region()] }),
+    ).toBe(hardened)
+  })
+
   it('normalizes an out-of-range rectangle, window and dim rather than refusing', () => {
     const state = timelineReducer(stateOf(['e1']), {
       type: 'entry-spotlights-set',

@@ -38,6 +38,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_BLUR_STRENGTH',
   /** The dim a new spotlight region starts at, as a percentage (#532). */
   'DEFAULT_SPOTLIGHT_DIM_PERCENT',
+  /** The widest soft edge a spotlight region can ask for, as a percentage of the picture's shorter side (#533). */
+  'MAX_SPOTLIGHT_SOFTEN_PERCENT',
   /** The colour dials' range, in percent; 100 is unchanged (#192). */
   'COLOR_ADJUSTMENT_MIN',
   'COLOR_ADJUSTMENT_MAX',

@@ -126,6 +126,15 @@ interface FrameEditorProps {
    */
   shade?: boolean
   /**
+   * The hole the shade leaves (#533). `rect` — the default and every
+   * earlier editor — cuts the rectangle itself out of the shade. `ellipse`
+   * cuts the ellipse inscribed in it, for an effect whose lit area really is
+   * that ellipse: a spotlight drawn as an oval dims the rectangle's own
+   * corners, and a shade that left them bright would show a different
+   * picture from the one Show result and the export paint.
+   */
+  shadeHole?: 'rect' | 'ellipse'
+  /**
    * Other rectangles of the same kind on this picture, drawn as inert
    * outlines so the user sees what is already placed (#493's sibling
    * regions). They take no pointer and no key: a drag on one falls through
@@ -178,6 +187,7 @@ export function FrameEditor({
   handles = DEFAULT_HANDLES,
   silhouette,
   shade = true,
+  shadeHole = 'rect',
   outlines,
   fallbackAspect = 16 / 9,
   onFrame,
@@ -500,8 +510,16 @@ export function FrameEditor({
             {shade && (
               <path
                 className="frame-editor-shade"
+                data-testid="frame-editor-shade"
+                data-hole={shadeHole}
                 fillRule="evenodd"
-                d={`M0 0H${size.width}V${size.height}H0Z M${px.x} ${px.y}h${px.width}v${px.height}h${-px.width}Z`}
+                d={`M0 0H${size.width}V${size.height}H0Z ${
+                  shadeHole === 'ellipse'
+                    ? // Two half-turn arcs make the inscribed ellipse a closed
+                      // subpath, which even-odd then cuts out of the frame.
+                      `M${toPx(ellipse.cx - ellipse.rx)} ${toPx(ellipse.cy)}a${toPx(ellipse.rx)} ${toPx(ellipse.ry)} 0 1 0 ${toPx(ellipse.rx * 2)} 0a${toPx(ellipse.rx)} ${toPx(ellipse.ry)} 0 1 0 ${toPx(-ellipse.rx * 2)} 0Z`
+                    : `M${px.x} ${px.y}h${px.width}v${px.height}h${-px.width}Z`
+                }`}
               />
             )}
             {/* Siblings (#493): the other rectangles already on this picture,

@@ -1,6 +1,6 @@
 # Visual editors
 
-Five places on the timeline where a value can be dragged into place on a picture instead of typed: a zoom's region, an overlay's rectangle, a crop's kept region, a text block and a redaction region. Each opens from an **Adjust visually…** button beside the fields it stands in for, draws under the row it edits, and commits through the same fields, so the two never disagree. This page covers [turning them on and off](#turning-the-editors-on-and-off), [what each editor shows](#what-each-editor-shows), [dragging](#dragging), [snapping and guides](#snapping-and-guides), [keyboard nudges](#keyboard-nudges), the zoom and redaction editors' [Preview slider](#the-preview-slider), [Loop](#loop) and [Show result](#show-result), the crop editor's [Reset](#reset), and [what commits as an edit](#what-commits-as-an-edit). The values themselves are explained on [Editing video](editing-video.md).
+Six places on the timeline where a value can be dragged into place on a picture instead of typed: a zoom's region, an overlay's rectangle, a crop's kept region, a text block, a redaction region and a spotlight region. Each opens from an **Adjust visually…** button beside the fields it stands in for, draws under the row it edits, and commits through the same fields, so the two never disagree. This page covers [turning them on and off](#turning-the-editors-on-and-off), [what each editor shows](#what-each-editor-shows), [dragging](#dragging), [snapping and guides](#snapping-and-guides), [keyboard nudges](#keyboard-nudges), the zoom, redaction and spotlight editors' [Preview slider](#the-preview-slider), [Loop](#loop) and [Show result](#show-result), the crop editor's [Reset](#reset), and [what commits as an edit](#what-commits-as-an-edit). The values themselves are explained on [Editing video](editing-video.md).
 
 ## Turning the editors on and off
 
@@ -14,7 +14,7 @@ Five places on the timeline where a value can be dragged into place on a picture
 
 ## What each editor shows
 
-**Where to find it.** The **Adjust visually…** button beside a zoom's fields, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, or a redaction region's fields in Picture ▸ › Redact.
+**Where to find it.** The **Adjust visually…** button beside a zoom's fields, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, a redaction region's fields in Picture ▸ › Redact, or a spotlight region's fields in Picture ▸ › Spotlight.
 
 **What it does.** Opens a still under the row with the thing being placed drawn on it.
 
@@ -25,10 +25,11 @@ Five places on the timeline where a value can be dragged into place on a picture
 - **Crop** — the element's **own source**, alone, uncropped and filling the frame, with the kept region drawn and the trimmed margins dimmed. A crop is a fraction of the source, not of the composed frame, so this picture makes a crop percentage a fraction of what you see; it is also what lets an overlay be cropped on its whole picture rather than inside the small rectangle it sits in.
 - **Text** — the frame at the middle of the overlay's window with the text **drawn**, since the text is what is being placed; a committed drag re-renders the still with the block in its new place. The block's box is measured from the text under its font, not stored, so the handle sits on the text you see.
 - **Redaction** — the element's **own source**, alone, uncropped and filling the frame — the crop editor's picture, for the same reason: a region names a fraction of the source, before any crop or rotation. The region is drawn as a rectangle with corners and edges, and nothing around it is dimmed, since a redaction hides the *inside* and a dimmed outside would read as a crop. The element's other regions show as thin dashed outlines that cannot be dragged, so you see what is already covered; each region has its own **Adjust visually…**, and opening one closes another. On a rotated or flipped clip the picture is shown turned and the region is stored before that, so the edge you drag may move a different stored value; the readout under the still names the stored one.
+- **Spotlight** — the same picture as the redaction editor's, for the same reason, and the same handles on the region's box. What differs is what the effect does: the outside of the region **is** dimmed here, because that is the effect, and the dimmed area is cut to the region's own shape — an oval region shows the ellipse inscribed in its box with the box's corners dark, exactly as the frame will have them, and a square box shows a circle. The handles stay on the box, since that is what the fields store. The element's other spotlights show as dashed outlines of their boxes; the shape, dim and soften stay in the fields.
 
 Close, Escape, or the row's button again dismisses the editor.
 
-**Related.** [Zooms](editing-video.md#zooms) · [Crop](editing-video.md#crop) · [Shape mask](editing-video.md#shape-mask) · [Redact a region](editing-video.md#redact-a-region)
+**Related.** [Zooms](editing-video.md#zooms) · [Crop](editing-video.md#crop) · [Shape mask](editing-video.md#shape-mask) · [Redact a region](editing-video.md#redact-a-region) · [Spotlight a region](editing-video.md#spotlight-a-region)
 
 ## Dragging
 
@@ -42,7 +43,8 @@ Close, Escape, or the row's button again dismisses the editor.
 - an **overlay's** rectangle has corners and edges: a corner resizes both dimensions and an edge one, each holding the opposite side fixed. Hold **Shift** on a corner to keep the rectangle's proportions;
 - a **crop's** region has edges: drag one to trim it, with the trimmed margin dimmed; hold **Shift** to trim the opposite edge as far; drag inside to pan the kept region without resizing. Drags land on whole percents; hold **Alt** for finer values — every digit the fields can show;
 - a **text** block has one corner, which scales the block about its centre — both dimensions follow one size — and it never grows off the frame;
-- a **redaction region** has corners and edges like an overlay's rectangle, and the same Shift on a corner to keep its proportions; it never leaves the source frame and never shrinks below {{REDACTION_MIN_REGION_PERCENT}} % of either side. The region's window and style stay in the fields — the drag changes only its area.
+- a **redaction region** has corners and edges like an overlay's rectangle, and the same Shift on a corner to keep its proportions; it never leaves the source frame and never shrinks below {{REDACTION_MIN_REGION_PERCENT}} % of either side. The region's window and style stay in the fields — the drag changes only its area;
+- a **spotlight region** is dragged and sized exactly as a redaction region is, by its box — an oval's handles sit on the box it fills, so dragging a corner reshapes the oval with it. Its window, shape, dim and soften stay in the fields.
 
 A zoom's region takes drags only across its hold, where it is the zoom's own region; part-way through a ramp it is drawn dashed and read-only, because a drag there has no single stored zoom it could mean.
 
@@ -54,7 +56,7 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 **What it does.** Pulls the rectangle onto the frame's centre, thirds and edges, and shows a guide line for the alignment being held.
 
-**Details.** A zoom's centre snaps onto the frame centre and the thirds. An overlay's, text block's or redaction region's rectangle also snaps flush to the frame's own borders, since an overlay is more often parked in a corner than placed in the middle. The guide line shows which alignment is held. Hold **Alt** while dragging to ignore the guides — the same bypass the playhead's own snapping uses. In the crop editor Alt means fine values instead, and the crop's snapping is to whole percents.
+**Details.** A zoom's centre snaps onto the frame centre and the thirds. An overlay's, text block's, redaction region's or spotlight region's rectangle also snaps flush to the frame's own borders, since an overlay is more often parked in a corner than placed in the middle. The guide line shows which alignment is held. Hold **Alt** while dragging to ignore the guides — the same bypass the playhead's own snapping uses. In the crop editor Alt means fine values instead, and the crop's snapping is to whole percents.
 
 **Related.** [Dragging](#dragging)
 
@@ -64,7 +66,7 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 **What it does.** Moves and resizes the value by fixed steps, each press its own undo step.
 
-**Details.** The arrow keys nudge the rectangle by {{EDITOR_NUDGE_PERCENT}} % of the frame, or {{EDITOR_NUDGE_LARGE_PERCENT}} % with Shift; a nudge never snaps, since it is already a deliberate amount. **+** and **−** change what the editor sizes: a zoom's magnification by {{ZOOM_SCALE_STEP}}, an overlay's, a crop's or a redaction region's rectangle by {{RECT_SIZE_STEP_PERCENT}} % of the frame, a text block's size by {{TEXT_SIZE_STEP}} — the text size field's own step.
+**Details.** The arrow keys nudge the rectangle by {{EDITOR_NUDGE_PERCENT}} % of the frame, or {{EDITOR_NUDGE_LARGE_PERCENT}} % with Shift; a nudge never snaps, since it is already a deliberate amount. **+** and **−** change what the editor sizes: a zoom's magnification by {{ZOOM_SCALE_STEP}}, an overlay's, a crop's, a redaction region's or a spotlight region's rectangle by {{RECT_SIZE_STEP_PERCENT}} % of the frame, a text block's size by {{TEXT_SIZE_STEP}} — the text size field's own step.
 
 **Related.** [Dragging](#dragging)
 
@@ -72,19 +74,19 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 ## The Preview slider
 
-**Where to find it.** Under the zoom editor's still, and under the redaction editor's.
+**Where to find it.** Under the zoom editor's still, and under the redaction and spotlight editors'.
 
-**What it does.** Scrubs the zoom's whole envelope — from where it begins to where it has finished ramping out — so the motion is visible without playing anything. In the redaction editor it scrubs the region's own **window**, in seconds into the source, so you see the picture on the frames the region covers.
+**What it does.** Scrubs the zoom's whole envelope — from where it begins to where it has finished ramping out — so the motion is visible without playing anything. In the redaction and spotlight editors it scrubs the region's own **window**, in seconds into the source, so you see the picture on the frames the region covers.
 
-**Details.** The still is re-rendered at the instant you stop on, and the region is drawn at the size the zoom actually has there: the whole frame at either end, part-way through a ramp, the full region across the hold. Each instant is rendered once and kept while the editor is open; the previous still stays on screen while the next one draws; and a quick drag across the slider renders where it stops, not every stop it passed. The clip stays loaded for as long as the editor is open, so a new instant is a seek rather than a reload. The redaction editor opens in the middle of the window; changing the window in the fields moves the slider's ends and keeps your place inside them.
+**Details.** The still is re-rendered at the instant you stop on, and the region is drawn at the size the zoom actually has there: the whole frame at either end, part-way through a ramp, the full region across the hold. Each instant is rendered once and kept while the editor is open; the previous still stays on screen while the next one draws; and a quick drag across the slider renders where it stops, not every stop it passed. The clip stays loaded for as long as the editor is open, so a new instant is a seek rather than a reload. The redaction and spotlight editors open in the middle of the window; changing the window in the fields moves the slider's ends and keeps your place inside them.
 
 **Related.** [Loop](#loop) · [Show result](#show-result)
 
 ## Loop
 
-**Where to find it.** The **↻ Loop** toggle in the zoom editor's scrub row, and in the redaction editor's.
+**Where to find it.** The **↻ Loop** toggle in the zoom editor's scrub row, and in the redaction and spotlight editors'.
 
-**What it does.** Plays the zoom's hold — or the redaction region's window — on repeat inside the editor, in real time.
+**What it does.** Plays the zoom's hold — or a redaction or spotlight region's window — on repeat inside the editor, in real time.
 
 **Details.** The loop rests {{LOOP_REST_SECONDS}} s on the span's first and last frame so the ends are easy to see, then goes round again. The Preview slider follows and cannot be dragged while the loop drives it; the region stays draggable over the moving picture, since the loop never leaves the span. Pause it to scrub by hand again — the slider stays where the loop stopped, showing that instant. With Show result on, it is the finished frame that loops. Closing the editor stops the clock.
 
@@ -92,9 +94,9 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 ## Show result
 
-**Where to find it.** The **Show result** toggle in the zoom editor, and in the redaction editor.
+**Where to find it.** The **Show result** toggle in the zoom editor, and in the redaction and spotlight editors.
 
-**What it does.** Swaps the picture for the frame the viewer gets at that instant — the zoom applied rather than bypassed, with no region drawn over it. In the redaction editor it draws every region on the element in its own style — blurred, pixelated or filled — through the same rule the preview and the export use, so what you see masked is what ships.
+**What it does.** Swaps the picture for the frame the viewer gets at that instant — the zoom applied rather than bypassed, with no region drawn over it. In the redaction editor it draws every region on the element in its own style — blurred, pixelated or filled — through the same rule the preview and the export use, so what you see masked is what ships. In the spotlight editor it lights every region on the element at its dim, in its shape and with its soft edge, through the same rule again.
 
 **Details.** Turn it off to adjust the region again. The values it draws from are the committed ones.
 
@@ -114,6 +116,6 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 **What it does.** Makes each gesture one undo step through the row's own fields.
 
-**Details.** A drag commits once, on release, whatever it passed through — one edit, one undo step; the fields mirror the drag live and settle on the committed value. Each key press is its own edit. A release without movement changes nothing and records no step. On a rotated or flipped clip the crop and redaction editors name the stored edge the displayed one corresponds to, since both apply before orientation, rather than quietly renaming it. A redaction region's drag commits the element's whole list of regions as one edit, exactly as its fields do. Nothing is committed by scrubbing, looping or toggling Show result.
+**Details.** A drag commits once, on release, whatever it passed through — one edit, one undo step; the fields mirror the drag live and settle on the committed value. Each key press is its own edit. A release without movement changes nothing and records no step. On a rotated or flipped clip the crop, redaction and spotlight editors name the stored edge the displayed one corresponds to, since all three apply before orientation, rather than quietly renaming it. A redaction or spotlight region's drag commits the element's whole list of regions as one edit, exactly as its fields do. Nothing is committed by scrubbing, looping or toggling Show result.
 
 **Related.** [Edits and everything else](concepts.md#edits-and-everything-else)

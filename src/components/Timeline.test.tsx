@@ -4002,6 +4002,27 @@ describe('spotlight regions on a row (#532)', () => {
     await userEvent.tab()
     expect(field(`${which} dim of ${position} (percent)`)).toHaveValue(100)
   })
+
+  it('starts with a hard edge, clamps soften to its ceiling, and offers Adjust visually… (#533)', async () => {
+    await openRow()
+    await userEvent.click(addButton())
+    // Soften defaults off (#531), and a value past the ceiling clamps, as
+    // every other field here does.
+    expect(field(`${which} soften of ${position} (percent)`)).toHaveValue(0)
+    const soften = field(`${which} soften of ${position} (percent)`)
+    await userEvent.clear(soften)
+    await userEvent.type(soften, '80')
+    await userEvent.tab()
+    expect(field(`${which} soften of ${position} (percent)`)).toHaveValue(50)
+    // Back to 0 is one undo step, and the region keeps its other values.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(field(`${which} soften of ${position} (percent)`)).toHaveValue(0)
+    expect(field(`${which} dim of ${position} (percent)`)).toHaveValue(55)
+    // The editor's toggle, beside Remove, closed until asked.
+    expect(
+      screen.getByRole('button', { name: `Adjust ${which} of ${position} visually` }),
+    ).toHaveAttribute('aria-expanded', 'false')
+  })
 })
 
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {

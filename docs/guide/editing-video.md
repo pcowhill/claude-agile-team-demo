@@ -128,7 +128,9 @@ The region shows in the preview as you play, and is drawn into the export, a [sa
 - **Shows from … to …** — the window, in seconds into the source, like the In and Out fields. Outside it nothing is dimmed.
 - **Shape** — **Rectangle**, or **Oval** inscribed in the same box. Switching between them moves and resizes nothing, so an area that is square in the picture draws a circle.
 - **dim** — how far the outside drops, in percent: 0 leaves the picture alone, 100 takes everything outside the region to black. A new region starts at {{DEFAULT_SPOTLIGHT_DIM_PERCENT}} %.
+- **soften** — how wide the edge is, in percent of the picture's shorter side, up to {{MAX_SPOTLIGHT_SOFTEN_PERCENT}} %. At 0 — where a new region starts — the edge is a hard line. Above it the dim ramps in across a band centred on the region's edge, half of it lighting outside the box and half dimming inside, so a softened region reads as a pool of light rather than a cut-out. The ramp is drawn by the same rule in the preview, the export, a saved frame and a GIF, in proportion to the picture, so it looks the same at every size.
 - **Remove** takes the region away.
+- **Adjust visually…** opens the [spotlight editor](visual-editors.md#what-each-editor-shows) under the region: drag it into place on a still of the source, drawn in its own shape with the outside dimmed, with the other regions outlined and a Preview slider across its window.
 
 A clip can hold any number of regions, and they may overlap. **Overlapping regions stay bright together** — a second spotlight never dims the first — and where several are showing at once, the outside is dimmed by the strongest of their dims. Every change is one undo step.
 
@@ -138,7 +140,7 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **A redaction always wins.** Where a spotlight and a [redaction](#redact-a-region) overlap on the same clip, the redaction is drawn last and stays hiding what it hides, however bright the spotlight around it.
 
-**Related.** [Redact a region](#redact-a-region) · [Zooms](#zooms) · [Crop](#crop) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+**Related.** [Redact a region](#redact-a-region) · [Zooms](#zooms) · [Crop](#crop) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Visual editors](visual-editors.md)
 
 ## Background fill
 
