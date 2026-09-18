@@ -64,8 +64,12 @@ const lineSeconds = (time: number, start: number) => Math.floor(time - start)
  * pure function over someone's data and the output format is line-based:
  * one newline in a name would silently split a chapter into two malformed
  * ones, so whitespace runs collapse to a single space.
+ *
+ * Exported because `chapterExport.ts` names the same chapters (#529): the
+ * two must show a marker's name identically, and sharing the one function is
+ * how they cannot drift apart.
  */
-const lineName = (name: string) => name.replace(/\s+/g, ' ').trim()
+export const lineName = (name: string) => name.replace(/\s+/g, ' ').trim()
 
 /**
  * The chapter list for `range`, or an empty string when the range holds no

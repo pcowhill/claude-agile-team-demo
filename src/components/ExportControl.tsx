@@ -4,6 +4,7 @@ import type { TimelineState } from '../lib/timeline'
 import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
 import type { ExportRange } from '../lib/exportVideo'
 import { INTRO_CHAPTER_NAME, formatChapterList } from '../lib/chapterList'
+import { chapterFileName, chapterSpans } from '../lib/chapterExport'
 import { formatDuration } from '../lib/mediaLibrary'
 import { customExportRange, formatTimeInput } from '../lib/exportRangeInput'
 import {
@@ -78,9 +79,29 @@ interface ExportControlProps {
  */
 type SizeMode = 'auto' | 'custom' | (typeof EXPORT_SIZE_PRESETS)[number]['id']
 
+/**
+ * Which chapter a per-chapter run (#529) is on. Present only for that run,
+ * so the single-file path's progress is unchanged — the bar still shows one
+ * export's fraction, and this says which of how many that export is.
+ */
+interface ChapterProgress {
+  index: number
+  count: number
+  name: string
+}
+
+/** One file a per-chapter run produced, recorded as it was written. */
+interface ChapterFile {
+  index: number
+  name: string
+  /** What the browser was actually told to save it as, not recomputed after. */
+  fileName: string
+  duration: number
+}
+
 type ExportStatus =
   | { kind: 'idle' }
-  | { kind: 'exporting'; fraction: number }
+  | { kind: 'exporting'; fraction: number; chapter?: ChapterProgress }
   | { kind: 'error'; message: string }
 
 /**
@@ -125,7 +146,7 @@ export function ExportControl({
   // option is offered only while the marks form a range; Custom always is,
   // pre-filled from the marks when they form one and from the whole
   // sequence otherwise, so a span can be exported with no marks set at all.
-  const [scope, setScope] = useState<'whole' | 'range' | 'custom'>('whole')
+  const [scope, setScope] = useState<'whole' | 'range' | 'custom' | 'chapters'>('whole')
   const [rangeStartDraft, setRangeStartDraft] = useState('0:00')
   const [rangeEndDraft, setRangeEndDraft] = useState('0:00')
   /**
@@ -137,6 +158,15 @@ export function ExportControl({
    * it from each of the controls that can change the range.
    */
   const [chapterCopy, setChapterCopy] = useState<{ text: string; failed: boolean } | null>(null)
+  /**
+   * What a finished per-chapter run wrote (#529), or null when none has run
+   * in this open. It is the run's *mitigation*, not a flourish: browsers
+   * treat a burst of downloads as suspicious and may prompt once or quietly
+   * drop later files, and a chapter missing from the folder looks exactly
+   * like a successful export. Listing what was asked for is what makes a
+   * dropped file visible.
+   */
+  const [chapterRun, setChapterRun] = useState<ChapterFile[] | null>(null)
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
@@ -165,11 +195,25 @@ export function ExportControl({
   const [result, setResult] = useState<{ url: string; fileName: string } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const resultUrlRef = useRef<string | null>(null)
+  /**
+   * The object URLs a per-chapter run created (#529). The single path keeps
+   * one alive until the next export because the anchor that downloads it
+   * outlives the dialog; a chapter run makes one per file and holds them the
+   * same way rather than revoking at the click, which would race a download
+   * the browser has not started reading yet.
+   */
+  const chapterUrlsRef = useRef<string[]>([])
   const downloadRef = useRef<HTMLAnchorElement>(null)
   const exportRef = useRef<HTMLButtonElement>(null)
   const headingId = useId()
 
+  const releaseChapterUrls = () => {
+    for (const url of chapterUrlsRef.current) URL.revokeObjectURL(url)
+    chapterUrlsRef.current = []
+  }
+
   const releaseResult = () => {
+    releaseChapterUrls()
     if (resultUrlRef.current !== null) {
       URL.revokeObjectURL(resultUrlRef.current)
       resultUrlRef.current = null
@@ -208,8 +252,10 @@ export function ExportControl({
     setScope('whole')
     setRangeStartDraft(formatTimeInput(range?.start ?? 0))
     setRangeEndDraft(formatTimeInput(range?.end ?? totalDuration(timeline)))
-    // A previous run's copy outcome does not belong to this one either.
+    // A previous run's copy outcome does not belong to this one either,
+    // and neither does a previous run's list of files (#529).
     setChapterCopy(null)
+    setChapterRun(null)
     setWidthDraft(String(FALLBACK_FRAME.width))
     setHeightDraft(String(FALLBACK_FRAME.height))
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
@@ -258,7 +304,24 @@ export function ExportControl({
   // An audio-only format (#245) records no video track, so the video-only
   // output settings are hidden while it is selected — and their drafts,
   // valid or not, neither gate nor parameterize the export.
-  const audioOnly = formats.find((spec) => spec.id === format)?.audioOnly === true
+  const selectedSpec = formats.find((spec) => spec.id === format)
+  const audioOnly = selectedSpec?.audioOnly === true
+
+  /**
+   * The spans an Each chapter run would produce (#529). Always against the
+   * **whole project**: the Range group is exclusive, so combining chapters
+   * with a marked or typed range would need a second control and #523 did
+   * not ask for one.
+   *
+   * Empty means the project has no chapter marker to split on, which is what
+   * the option is offered on — the same thing that makes Copy chapter list
+   * worth pressing.
+   */
+  const chapterRunSpans = chapterSpans(markersOf(timeline), {
+    start: 0,
+    end: totalDuration(timeline),
+  })
+  const canExportChapters = chapterRunSpans.length > 0
 
   /**
    * The span Copy chapter list (#488) writes its times against: whatever
@@ -271,7 +334,9 @@ export function ExportControl({
       ? customRange.range
       : scope === 'range' && range !== null
         ? range
-        : { start: 0, end: totalDuration(timeline) }
+        : // Whole project, and Each chapter too: that run covers everything,
+          // so the list it would copy is the whole project's.
+          { start: 0, end: totalDuration(timeline) }
   const chapterList =
     chapterRange === null ? '' : formatChapterList(markersOf(timeline), chapterRange)
   /** Why the button is disabled, on the button itself (#488). */
@@ -345,7 +410,108 @@ export function ExportControl({
     setOpen(false)
   }
 
+  /**
+   * The encode options every export sends, whatever its range: the picked
+   * format's frame and rate, or nothing at all for an audio-only format.
+   * Factored out because the per-chapter run below has to send exactly the
+   * same ones — a chapter exported at different settings from its
+   * neighbours would be a bug nobody would think to look for.
+   */
+  const encodeOptions = () =>
+    audioOnly
+      ? {}
+      : {
+          ...(sizeMode === 'auto'
+            ? {}
+            : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
+          frameRate: parsedSettings.frameRate,
+        }
+
+  /**
+   * Saves one finished blob under `fileName`, the way the single-file path's
+   * hidden anchor does — created, clicked and dropped, with the object URL
+   * kept alive until the run is released.
+   */
+  const downloadChapter = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob)
+    chapterUrlsRef.current.push(url)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  }
+
+  /**
+   * Each chapter, one file at a time (#529). The pipeline is the single
+   * export's, run once per span — there is no new rendering path here, which
+   * is why a boundary inside a transition exports exactly what the preview
+   * shows, as it already did for a typed range.
+   *
+   * The dialog **stays open** when the run finishes, unlike a single export
+   * which closes on its download: the completion list is the point, and a
+   * dialog that closed would take it away at the moment it becomes useful.
+   */
+  const startChapterExport = async () => {
+    releaseResult()
+    setResult(null)
+    setChapterRun(null)
+    const controller = new AbortController()
+    abortRef.current = controller
+    const spans = chapterRunSpans
+    const extension = selectedSpec?.extension ?? 'webm'
+    // What was actually written, recorded as each file goes out rather than
+    // recomputed at the end — the same discipline that captures the single
+    // path's name before its run.
+    const produced: ChapterFile[] = []
+    try {
+      for (const span of spans) {
+        // Cancel between chapters, not only within one: the signal is
+        // checked before each export starts, so a Cancel that lands in the
+        // gap between two files stops the run rather than being ignored
+        // until the next chapter has recorded.
+        if (controller.signal.aborted) throw new ExportCanceledError()
+        const chapter = { index: span.index, count: spans.length, name: span.name }
+        const fileName = chapterFileName(span, spans.length, extension)
+        setStatus({ kind: 'exporting', fraction: 0, chapter })
+        const blob = await doExport(timeline, {
+          format,
+          ...encodeOptions(),
+          range: span.range,
+          signal: controller.signal,
+          onProgress: (fraction) => setStatus({ kind: 'exporting', fraction, chapter }),
+        })
+        downloadChapter(blob, fileName)
+        produced.push({
+          index: span.index,
+          name: span.name,
+          fileName,
+          duration: span.range.end - span.range.start,
+        })
+      }
+      setStatus({ kind: 'idle' })
+      setChapterRun(produced)
+    } catch (error) {
+      // Whatever ended the run, the files already saved are saved: they are
+      // downloads, not a transaction, so the list still reports them.
+      if (produced.length > 0) setChapterRun(produced)
+      if (error instanceof ExportCanceledError) {
+        setStatus({ kind: 'idle' })
+      } else {
+        setStatus({
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Export failed unexpectedly.',
+        })
+      }
+    }
+  }
+
   const startExport = async () => {
+    if (scope === 'chapters') {
+      await startChapterExport()
+      return
+    }
     releaseResult()
     setResult(null)
     const controller = new AbortController()
@@ -360,15 +526,8 @@ export function ExportControl({
         // Auto sends no frame override — the export derives the frame from
         // the sources exactly as before (#179); anything else exports at
         // what the fields say. An audio-only format (#245) has no frame or
-        // frame rate to send at all.
-        ...(audioOnly
-          ? {}
-          : {
-              ...(sizeMode === 'auto'
-                ? {}
-                : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
-              frameRate: parsedSettings.frameRate,
-            }),
+        // frame rate to send at all. Shared with the per-chapter run (#529).
+        ...encodeOptions(),
         // The marked range (#385) or the typed one (#400), when this export
         // is scoped to either. Read at the click: the dialog is modal, so the
         // marks cannot change under an open dialog, and the pipeline
@@ -538,6 +697,30 @@ export function ExportControl({
                   onChange={(event) => editRangeField(setRangeEndDraft)(event.target.value)}
                 />
               </div>
+              {/* Each chapter (#529, from the approved #523): one file per
+                  chapter marker instead of one file for the run. Offered
+                  only when there is a marker to split on — with none, the
+                  option would produce a single file under a chapter's name,
+                  which is the whole-project export wearing a disguise. */}
+              {canExportChapters && (
+                <label className="export-format-option">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    data-testid="export-scope-chapters"
+                    disabled={exporting}
+                    checked={scope === 'chapters'}
+                    onChange={() => setScope('chapters')}
+                  />
+                  Each chapter ({chapterRunSpans.length} files)
+                </label>
+              )}
+              {scope === 'chapters' && (
+                <p className="export-format-note">
+                  One file per chapter, named “NN Name”, covering the whole project. Your browser
+                  may ask to allow several downloads.
+                </p>
+              )}
               {scope === 'custom' && customRange.error !== null && (
                 <p className="export-format-note export-range-error" data-testid="export-range-error">
                   {customRange.error} Times are m:ss or seconds.
@@ -659,6 +842,19 @@ export function ExportControl({
               )}
             </fieldset>
             )}
+            {/* Which chapter is recording (#529). This is the one export
+                where "how far along" needs two numbers: the bar below shows
+                the current file's fraction, and a run of seven chapters
+                would otherwise appear to restart six times. */}
+            {exporting && status.chapter !== undefined && (
+              <p
+                className="export-chapter-progress"
+                data-testid="export-chapter-progress"
+                role="status"
+              >
+                Chapter {status.chapter.index} of {status.chapter.count}: {status.chapter.name}
+              </p>
+            )}
             {exporting ? (
               <div className="export-progress-row">
                 <progress
@@ -682,6 +878,35 @@ export function ExportControl({
                 {status.message}
               </p>
             )}
+            {/* What the run produced (#529). Not a flourish — it is the
+                mitigation for the one risk this feature has: a browser that
+                prompts once and quietly drops the rest leaves a folder that
+                looks plausible, and only a list of what was asked for makes
+                the gap visible. Hence the count in the heading. */}
+            {chapterRun !== null && (
+              <div className="export-chapter-results" data-testid="export-chapter-results">
+                <h4>
+                  Exported {chapterRun.length} {chapterRun.length === 1 ? 'file' : 'files'}
+                </h4>
+                <ul aria-label="Exported chapters">
+                  {chapterRun.map((file) => (
+                    <li key={file.index}>
+                      <span className="export-chapter-result-name">
+                        {file.index}. {file.name}
+                      </span>
+                      <span className="export-chapter-result-duration">
+                        {formatDuration(file.duration)}
+                      </span>
+                      <span className="export-chapter-result-file">{file.fileName}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="export-format-note">
+                  Check your downloads folder holds all {chapterRun.length}. A browser that asks
+                  to allow several downloads may drop the rest if it is refused.
+                </p>
+              </div>
+            )}
             <div className="dialog-actions">
               <button type="button" onClick={cancel}>
                 Cancel
@@ -692,7 +917,8 @@ export function ExportControl({
                 disabled={
                   exporting ||
                   (!audioOnly && !settingsValid) ||
-                  (scope === 'custom' && customRange.range === null)
+                  (scope === 'custom' && customRange.range === null) ||
+                  (scope === 'chapters' && !canExportChapters)
                 }
                 onClick={() => void startExport()}
               >

@@ -40,7 +40,21 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **Details.** **Whole project** is every export's starting point. **Marked range** appears only while the preview's in and out marks form a range, and names it — *Marked range (0:04 – 0:12)*. **Custom range** takes a start and an end typed as `m:ss` or plain seconds — `1:30`, `90`, `0:08.5` and `h:mm:ss` are all read — and typing into either field selects it; the fields start out filled with the marks, or with the whole sequence. The end must lie within the sequence and the start before the end, or the dialog says what is wrong and disables Export. The range narrows every format alike, GIF and the audio-only ones included, and a boundary inside a transition or an effect exports exactly what the preview shows at that instant — mid-blend if that is where it falls, with no snapping.
 
-**Related.** [Time on the timeline](concepts.md#time-on-the-timeline)
+**Related.** [Time on the timeline](concepts.md#time-on-the-timeline) · [Exporting each chapter as its own file](#exporting-each-chapter-as-its-own-file)
+
+## Exporting each chapter as its own file
+
+**Where to find it.** The dialog's **Range** group: **Each chapter**, which appears once the project has at least one [chapter marker](preview-and-playback.md#chapter-markers) and says how many files it would write — *Each chapter (4 files)*.
+
+**What it does.** Runs the export once per chapter and saves each one as its own file, so a long sectioned recording becomes a series of videos in a single pass instead of one custom range typed and named by hand per chapter.
+
+**Details.** The chapters are the same ones [Copy chapter list](#copying-a-chapter-list) writes: each one runs from its marker up to the next, the last reaches the end of the project, and when no marker sits at the very start a leading **Intro** chapter covers the span before the first one. Each file is named `NN Name` — the chapter's number, zero-padded so a folder sorts in order, then the marker's name with any character a filesystem would reject replaced by a space. A chapter whose name survives none of that keeps the number alone. Every file uses the format and output settings chosen in the dialog, exactly as a single export would.
+
+**Each chapter always covers the whole project**, so it cannot be combined with a marked or typed range — the Range options are a choice of one. While the run is going the dialog says which chapter is recording and how many there are, *Chapter 3 of 7: Installing the CLI*, and the progress bar shows that one file.
+
+**Your browser may ask to allow several downloads.** That is worth knowing before you start: a browser that asks and is refused can quietly drop every file after the first. When the run finishes the dialog stays open and lists what it wrote — each chapter's number, name, filename and length — so you can check the list against your downloads folder rather than discovering a missing chapter later. **Cancel** stops the run; files already saved stay saved.
+
+**Related.** [The Range line](#the-range-line) · [Copying a chapter list](#copying-a-chapter-list) · [Chapter markers](preview-and-playback.md#chapter-markers)
 
 ## Copying a chapter list
 
@@ -52,7 +66,7 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 The times are rounded **down**, so a chapter never starts after the moment you marked — which is why a marker the timeline labels *0:03* can appear as `00:02`. The button is disabled, and says why, while the exported span holds no markers. If the browser refuses the clipboard, the list appears in a read-only field below the button instead of the copy failing silently.
 
-**Related.** [The Range line](#the-range-line) · [Chapter markers](preview-and-playback.md#chapter-markers)
+**Related.** [The Range line](#the-range-line) · [Exporting each chapter as its own file](#exporting-each-chapter-as-its-own-file) · [Chapter markers](preview-and-playback.md#chapter-markers)
 
 ## Audio only: WebM/Opus and MP3
 

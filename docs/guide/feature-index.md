@@ -57,6 +57,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Centre X** — an expanded text row; the block's centre across the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Centre Y** — an expanded text row; the block's centre down the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Chapter list** — the export dialog's Range group; the read-only field a refused copy falls back to. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
+- **Chapter progress** — the export dialog, during an Each chapter run; which chapter is recording and how many there are. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Choose media files…** — the re-link dialog, opening a references-only project; picks the original files to match against the project’s clips. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Close** — the Settings and Plugins dialogs. [Settings › Opening Settings](settings.md#opening-settings)
 - **Color** — an expanded text row, and a colour slate's row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Timeline › The header](timeline.md#the-header)
@@ -99,6 +100,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## E
 
+- **Each chapter** — the export dialog's Range group, once the project has a chapter marker; one file per chapter instead of one for the whole run. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Embed media in the project file** — the Save project dialog; one self-contained file with the media data in it. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
@@ -110,6 +112,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Export Project…** — the header. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
 - **Export size preset** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export width** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
+- **Exported chapters** — the export dialog, after an Each chapter run; the list of files it wrote, with each one's number, name, filename and length. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Extract audio** — a media library row's ⋯ menu. [Audio › Extract audio](audio.md#extract-audio)
 
 ## F
