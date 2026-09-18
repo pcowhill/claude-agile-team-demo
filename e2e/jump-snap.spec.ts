@@ -151,7 +151,11 @@ test('a committed pointer seek snaps onto the cut with a tick; Alt or distance b
   await expect(tick).toHaveCount(0)
 
   // A release far from every boundary stands as dragged: no snap, no tick.
+  // The landing value is a pixel estimate, so it is not asserted directly;
+  // the click has committed once the field has left the 4.94 asserted above,
+  // and only then is the one-shot read safe (quality-and-ci.md, #449, #552).
   await page.mouse.click(thumbX(2.5), y)
+  await expect(seek).not.toHaveValue('4.94')
   const free = Number(await seek.inputValue())
   expect(free).toBeGreaterThan(1.5)
   expect(free).toBeLessThan(3.5)

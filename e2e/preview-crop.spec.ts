@@ -172,9 +172,16 @@ test('a crop deeper than the floor clamps to keep a tenth of the axis', async ({
   await right.fill('50')
   await right.blur()
   // The reducer scales the pair back so 10% survives; the fields show the
-  // stored (clamped) state — the clamp is visible, not silent.
+  // stored (clamped) state — the clamp is visible, not silent. The two
+  // values must agree with each other, so the sum is polled with both reads
+  // inside one poll (quality-and-ci.md, #449, #552): a bare read after the
+  // blur can see the render before the clamp, where the pair still sums to
+  // 60 + whatever the right field held. Once the sum reads 90 the clamped
+  // render is up, and the one-shot reads for the ratio are of that render.
+  await expect
+    .poll(async () => Number(await left.inputValue()) + Number(await right.inputValue()))
+    .toBeCloseTo(90, 1)
   const leftValue = Number(await left.inputValue())
   const rightValue = Number(await right.inputValue())
-  expect(leftValue + rightValue).toBeCloseTo(90, 1)
   expect(leftValue / rightValue).toBeCloseTo(60 / 50, 2)
 })
