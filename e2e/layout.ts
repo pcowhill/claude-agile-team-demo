@@ -52,6 +52,64 @@ export async function expectNoHorizontalScroll(page: Page, when = ''): Promise<v
 }
 
 /**
+ * The page lays out within its viewport instead of scrolling *down* (#524's
+ * guard, and the half of #347 that was missing).
+ *
+ * `expectNoHorizontalScroll` above existed and this did not, so every recent
+ * UI PR asserted the app did not overflow sideways — because that is the
+ * assertion that existed — and none asserted it fitted down the page. The
+ * guide panel shipped `max-height: 100vh` under a header (#478) and CI was
+ * green; the customer found it (#519) and measured the over-run themselves.
+ * A shared assertion is what stops the next full-height surface depending on
+ * a session remembering.
+ *
+ * Measured against `clientHeight` for the same reason as its horizontal
+ * twin: it excludes a horizontal scrollbar, which is the height content
+ * actually has to fit into.
+ *
+ * The 1px tolerance is sub-pixel layout, not slack: `scrollHeight` is an
+ * integer and `100dvh` on an odd viewport height rounds, so an exact
+ * comparison rejects a shell that fits. A real over-run is a control, a row
+ * or a panel — tens of pixels, and the header-height 92px in #524's case.
+ */
+export async function expectNoVerticalPageScroll(page: Page, when = ''): Promise<void> {
+  const { scrollHeight, clientHeight, innerHeight } = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    clientHeight: document.documentElement.clientHeight,
+    innerHeight: window.innerHeight,
+  }))
+  expect(
+    scrollHeight,
+    `page scrollHeight ${scrollHeight}px exceeds clientHeight ${clientHeight}px ` +
+      `at a ${innerHeight}px viewport${when ? ` (${when})` : ''}`,
+  ).toBeLessThanOrEqual(clientHeight + 1)
+}
+
+/**
+ * The element's bottom edge is at or above the bottom of the window (#524).
+ *
+ * Distinct from `expectWithin` because the container is the viewport rather
+ * than another box, and from `toBeInViewport`, which passes on any
+ * intersection at all — a panel hanging a header's height below the fold
+ * intersects the viewport perfectly well, and that is exactly the defect
+ * this names.
+ */
+export async function expectBottomWithinViewport(
+  locator: Locator,
+  page: Page,
+  what = 'element',
+): Promise<void> {
+  const box = await boxOf(locator, what)
+  const innerHeight = await page.evaluate(() => window.innerHeight)
+  const bottom = box.y + box.height
+  expect(
+    bottom,
+    `${what} ends ${Math.round(bottom)}px down a ${innerHeight}px window ` +
+      `(top ${Math.round(box.y)}px, height ${Math.round(box.height)}px)`,
+  ).toBeLessThanOrEqual(innerHeight + 1)
+}
+
+/**
  * The child's box lies inside the container's — the check that fails when a
  * dialog's content hangs outside it (#268).
  *

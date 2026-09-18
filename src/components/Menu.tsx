@@ -269,12 +269,28 @@ function MenuPanel({
   // popup does, rather than leaving the panel afloat over a row that has
   // moved out from under it (#416). Focus is not restored: the wheel or
   // scrollbar the user is on is what they are doing now.
+  // "Has moved" is measured, not assumed (#524). A scroll *event* is
+  // dispatched asynchronously — at most once a frame, after the scrolling is
+  // done — so the one a browser performs to bring a trigger into view before
+  // clicking it can arrive after the panel that click opened has mounted and
+  // lifted, and closing on it shuts the menu the click just opened. That was
+  // unreachable while only small boxes scrolled; it became reachable the
+  // moment the editor column did. Comparing the trigger's position with
+  // where it sat when the panel was lifted keeps the rule above exactly —
+  // close when the row has moved out from under the panel — while ignoring
+  // an event that moved nothing.
   useEffect(() => {
     if (lifted === null) return
     const anchor = ref.current?.parentElement
     if (anchor === undefined || anchor === null) return
+    const liftedAt = anchor.getBoundingClientRect()
     const onScroll = (event: Event) => {
-      if (event.target instanceof Node && event.target.contains(anchor)) onCloseAll(false)
+      if (!(event.target instanceof Node) || !event.target.contains(anchor)) return
+      const now = anchor.getBoundingClientRect()
+      // A pixel of tolerance: sub-pixel layout, not slack — a scroll that
+      // genuinely moves a row moves it by a row.
+      if (Math.abs(now.top - liftedAt.top) <= 1 && Math.abs(now.left - liftedAt.left) <= 1) return
+      onCloseAll(false)
     }
     document.addEventListener('scroll', onScroll, { capture: true, passive: true })
     return () => document.removeEventListener('scroll', onScroll, { capture: true })

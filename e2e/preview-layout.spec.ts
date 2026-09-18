@@ -94,11 +94,16 @@ test('a busy timeline scrolls the page instead of crushing the preview (#128 A)'
   const stage = (await page.getByTestId('preview-video').boundingBox())!
   expect(stage.height).toBeGreaterThanOrEqual(180)
 
-  // The overflow went to the page, and the timeline is reachable by scroll.
-  const scrolls = await page.evaluate(
-    () => document.documentElement.scrollHeight > window.innerHeight,
-  )
-  expect(scrolls).toBe(true)
+  // The overflow went to the editor column, and the timeline is reachable by
+  // scrolling it. It went to the *page* until #524 gave the shell the
+  // window's own height: what #126 approved is that the preview keeps its
+  // floor and everything below it stays reachable, not which box carries the
+  // scrollbar — and a page that scrolled was how the timeline came to sit
+  // below the window in the first place (#519).
+  const scrolls = await page
+    .getByRole('main')
+    .evaluate((column) => column.scrollHeight > column.clientHeight)
+  expect(scrolls, 'the editor column does not scroll').toBe(true)
   const lastEntry = page.getByRole('list', { name: 'Sequence' }).getByRole('listitem').last()
   await lastEntry.scrollIntoViewIfNeeded()
   await expect(lastEntry).toBeInViewport()
