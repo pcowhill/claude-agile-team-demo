@@ -5,6 +5,7 @@ import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
 import type { ExportRange } from '../lib/exportVideo'
 import { INTRO_CHAPTER_NAME, formatChapterList } from '../lib/chapterList'
 import { chapterFileName, chapterSpans } from '../lib/chapterExport'
+import type { ChapterSpan } from '../lib/chapterExport'
 import { formatDuration } from '../lib/mediaLibrary'
 import { customExportRange, formatTimeInput } from '../lib/exportRangeInput'
 import {
@@ -99,6 +100,41 @@ interface ChapterFile {
   duration: number
 }
 
+/** Why a per-chapter run stopped before its last chapter (#530). */
+type ChapterStop = { kind: 'cancelled' } | { kind: 'error'; message: string }
+
+/**
+ * The encode options a per-chapter run was started with — `encodeOptions()`
+ * below, captured once so a resume sends what the first chapters got.
+ */
+interface ChapterEncodeOptions {
+  frame?: { width: number; height: number }
+  frameRate?: number
+}
+
+/**
+ * A per-chapter run (#529): what it wrote, and — once it can stop early and
+ * be carried on (#530) — everything a resume has to **reuse rather than
+ * recompute**. The spans are the chapters as the markers stood when the
+ * run started, so a resumed file keeps the number, the padding and the
+ * boundaries the first run gave it; the format and encode options are the
+ * ones the first chapters were recorded with, whatever the dialog's
+ * controls have been set to since; and the timeline is the project the run
+ * was started against, which is how a project that changed under the open
+ * dialog is told apart from one that did not.
+ */
+interface ChapterRun {
+  spans: ChapterSpan[]
+  format: string
+  extension: string
+  encode: ChapterEncodeOptions
+  timeline: TimelineState
+  /** What has been written so far, in order, across every resume. */
+  files: ChapterFile[]
+  /** Null once every span has been written. */
+  stopped: ChapterStop | null
+}
+
 type ExportStatus =
   | { kind: 'idle' }
   | { kind: 'exporting'; fraction: number; chapter?: ChapterProgress }
@@ -159,14 +195,16 @@ export function ExportControl({
    */
   const [chapterCopy, setChapterCopy] = useState<{ text: string; failed: boolean } | null>(null)
   /**
-   * What a finished per-chapter run wrote (#529), or null when none has run
-   * in this open. It is the run's *mitigation*, not a flourish: browsers
-   * treat a burst of downloads as suspicious and may prompt once or quietly
-   * drop later files, and a chapter missing from the folder looks exactly
-   * like a successful export. Listing what was asked for is what makes a
-   * dropped file visible.
+   * The last per-chapter run of this open (#529) — finished, or stopped
+   * early (#530) — or null while none has run or one is running. Its list of
+   * files is the run's *mitigation*, not a flourish: browsers treat a burst
+   * of downloads as suspicious and may prompt once or quietly drop later
+   * files, and a chapter missing from the folder looks exactly like a
+   * successful export. Listing what was asked for is what makes a dropped
+   * file visible. A stopped run additionally carries what a resume needs
+   * (see `ChapterRun`).
    */
-  const [chapterRun, setChapterRun] = useState<ChapterFile[] | null>(null)
+  const [chapterRun, setChapterRun] = useState<ChapterRun | null>(null)
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
@@ -405,6 +443,18 @@ export function ExportControl({
 
   /** Closes the dialog, abandoning any export still recording. */
   const cancel = () => {
+    // Cancel during a per-chapter run stops the run and **keeps the dialog**
+    // (#530): the stopped state is where the files already saved are listed
+    // and where Resume lives, and a dialog that closed would take both away
+    // at the moment they become useful — the same reason a finished run
+    // stays open. The abort ends the run through `runChapters`'s catch,
+    // which records the stop; Cancel again, on the stopped dialog, closes
+    // it. A single export's Cancel is unchanged: its abort has nothing to
+    // list, so it closes.
+    if (exporting && status.chapter !== undefined) {
+      abortRef.current?.abort()
+      return
+    }
     abortRef.current?.abort()
     setStatus({ kind: 'idle' })
     setOpen(false)
@@ -452,38 +502,41 @@ export function ExportControl({
    * The dialog **stays open** when the run finishes, unlike a single export
    * which closes on its download: the completion list is the point, and a
    * dialog that closed would take it away at the moment it becomes useful.
+   *
+   * One loop serves a fresh run and a resume (#530): it writes the spans
+   * after the files the run already has, and everything it sends comes from
+   * the run record rather than from the dialog's current controls, so a
+   * resumed chapter is recorded exactly as the first chapters were. Whatever
+   * ends it, the files already saved are saved — they are downloads, not a
+   * transaction — so the record keeps them, and a stop records where and
+   * why so the dialog can offer to carry on.
    */
-  const startChapterExport = async () => {
-    releaseResult()
-    setResult(null)
-    setChapterRun(null)
+  const runChapters = async (run: ChapterRun) => {
     const controller = new AbortController()
     abortRef.current = controller
-    const spans = chapterRunSpans
-    const extension = selectedSpec?.extension ?? 'webm'
-    // What was actually written, recorded as each file goes out rather than
-    // recomputed at the end — the same discipline that captures the single
-    // path's name before its run.
-    const produced: ChapterFile[] = []
+    const files = [...run.files]
     try {
-      for (const span of spans) {
+      for (const span of run.spans.slice(files.length)) {
         // Cancel between chapters, not only within one: the signal is
         // checked before each export starts, so a Cancel that lands in the
         // gap between two files stops the run rather than being ignored
         // until the next chapter has recorded.
         if (controller.signal.aborted) throw new ExportCanceledError()
-        const chapter = { index: span.index, count: spans.length, name: span.name }
-        const fileName = chapterFileName(span, spans.length, extension)
+        const chapter = { index: span.index, count: run.spans.length, name: span.name }
+        const fileName = chapterFileName(span, run.spans.length, run.extension)
         setStatus({ kind: 'exporting', fraction: 0, chapter })
         const blob = await doExport(timeline, {
-          format,
-          ...encodeOptions(),
+          format: run.format,
+          ...run.encode,
           range: span.range,
           signal: controller.signal,
           onProgress: (fraction) => setStatus({ kind: 'exporting', fraction, chapter }),
         })
         downloadChapter(blob, fileName)
-        produced.push({
+        // Recorded as each file goes out rather than recomputed at the end —
+        // the same discipline that captures the single path's name before
+        // its run.
+        files.push({
           index: span.index,
           name: span.name,
           fileName,
@@ -491,21 +544,72 @@ export function ExportControl({
         })
       }
       setStatus({ kind: 'idle' })
-      setChapterRun(produced)
+      setChapterRun({ ...run, files, stopped: null })
     } catch (error) {
-      // Whatever ended the run, the files already saved are saved: they are
-      // downloads, not a transaction, so the list still reports them.
-      if (produced.length > 0) setChapterRun(produced)
-      if (error instanceof ExportCanceledError) {
-        setStatus({ kind: 'idle' })
-      } else {
-        setStatus({
-          kind: 'error',
-          message: error instanceof Error ? error.message : 'Export failed unexpectedly.',
-        })
-      }
+      // The reason lives on the run's own stopped line rather than in
+      // `status`: it belongs beside the chapter it stopped at and the files
+      // that did land, and the status error is the single export's, which
+      // has neither.
+      setStatus({ kind: 'idle' })
+      setChapterRun({
+        ...run,
+        files,
+        stopped:
+          error instanceof ExportCanceledError
+            ? { kind: 'cancelled' }
+            : {
+                kind: 'error',
+                message: error instanceof Error ? error.message : 'Export failed unexpectedly.',
+              },
+      })
     }
   }
+
+  const startChapterExport = async () => {
+    releaseResult()
+    setResult(null)
+    setChapterRun(null)
+    await runChapters({
+      spans: chapterRunSpans,
+      format,
+      extension: selectedSpec?.extension ?? 'webm',
+      encode: encodeOptions(),
+      timeline,
+      files: [],
+      stopped: null,
+    })
+  }
+
+  /**
+   * Carry a stopped run on from the chapter it stopped at (#530). Offered
+   * only while the run is resumable (see `resumableRun` below); the record
+   * is cleared for the duration, as a fresh run's is, and comes back with
+   * the resumed files appended, so the final list is the whole set.
+   */
+  const resumeChapterExport = async () => {
+    if (chapterRun === null || chapterRun.stopped === null) return
+    releaseResult()
+    setResult(null)
+    const run = chapterRun
+    setChapterRun(null)
+    await runChapters(run)
+  }
+
+  /**
+   * A stopped run can be resumed only against the project it was started
+   * on (#530): its spans and names came from the markers as they stood then,
+   * and a resume renders against the timeline as it stands now, so if the
+   * two differ the offer is withdrawn and the dialog says so rather than
+   * exporting a different film under the first run's names. The timeline is
+   * reducer state — a new object on every edit, the same one otherwise — so
+   * identity is the honest test. The dialog is modal, but not everything is
+   * behind it: Ctrl/Cmd+Z reaches the reducer while it is open (App.tsx),
+   * so this is a state the user can reach.
+   */
+  const stoppedRun = chapterRun !== null && chapterRun.stopped !== null ? chapterRun : null
+  const resumableRun = stoppedRun !== null && stoppedRun.timeline === timeline ? stoppedRun : null
+  /** The chapter a stopped run would carry on from: the first one not written. */
+  const nextSpan = stoppedRun === null ? null : stoppedRun.spans[stoppedRun.files.length]
 
   const startExport = async () => {
     if (scope === 'chapters') {
@@ -568,12 +672,19 @@ export function ExportControl({
   }, [result])
 
   // Same hand-rolled modal idiom as SaveModeDialog: focus starts on the
-  // confirm action, Escape cancels from anywhere.
+  // confirm action, Escape cancels from anywhere. Through a ref, because the
+  // listener is registered once per open and `cancel` now reads the status
+  // (#530): the closure the effect captured would still see the idle dialog
+  // it opened on, and Escape during a chapter run would close the dialog
+  // instead of stopping the run. `npm run lint`'s --deny-warnings (#550)
+  // is what caught the stale closure.
+  const cancelRef = useRef(cancel)
+  cancelRef.current = cancel
   useEffect(() => {
     if (!open) return
     exportRef.current?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') cancel()
+      if (event.key === 'Escape') cancelRef.current()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -894,31 +1005,73 @@ export function ExportControl({
             {chapterRun !== null && (
               <div className="export-chapter-results" data-testid="export-chapter-results">
                 <h4>
-                  Exported {chapterRun.length} {chapterRun.length === 1 ? 'file' : 'files'}
+                  {chapterRun.stopped === null
+                    ? `Exported ${chapterRun.files.length} ${chapterRun.files.length === 1 ? 'file' : 'files'}`
+                    : `Exported ${chapterRun.files.length} of ${chapterRun.spans.length} files`}
                 </h4>
-                <ul aria-label="Exported chapters">
-                  {chapterRun.map((file) => (
-                    <li key={file.index}>
-                      <span className="export-chapter-result-name">
-                        {file.index}. {file.name}
-                      </span>
-                      <span className="export-chapter-result-duration">
-                        {formatDuration(file.duration)}
-                      </span>
-                      <span className="export-chapter-result-file">{file.fileName}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="export-format-note">
-                  Check your downloads folder holds all {chapterRun.length}. A browser that asks
-                  to allow several downloads may drop the rest if it is refused.
-                </p>
+                {/* Where and why a run stopped (#530): the chapter it did not
+                    write, and the export's own error text or "cancelled". An
+                    error is an alert, as the single export's is; a cancel is
+                    the user's own doing and is announced as status. */}
+                {stoppedRun !== null && nextSpan !== undefined && nextSpan !== null && (
+                  <p
+                    className={
+                      stoppedRun.stopped?.kind === 'error' ? 'export-error' : 'export-chapter-stopped'
+                    }
+                    role={stoppedRun.stopped?.kind === 'error' ? 'alert' : 'status'}
+                    data-testid="export-chapter-stopped"
+                  >
+                    Stopped at chapter {nextSpan.index} of {stoppedRun.spans.length}: {nextSpan.name}{' '}
+                    — {stoppedRun.stopped?.kind === 'error' ? stoppedRun.stopped.message : 'cancelled.'}
+                  </p>
+                )}
+                {chapterRun.files.length > 0 && (
+                  <ul aria-label="Exported chapters">
+                    {chapterRun.files.map((file) => (
+                      <li key={file.index}>
+                        <span className="export-chapter-result-name">
+                          {file.index}. {file.name}
+                        </span>
+                        <span className="export-chapter-result-duration">
+                          {formatDuration(file.duration)}
+                        </span>
+                        <span className="export-chapter-result-file">{file.fileName}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {chapterRun.stopped === null ? (
+                  <p className="export-format-note">
+                    Check your downloads folder holds all {chapterRun.files.length}. A browser that
+                    asks to allow several downloads may drop the rest if it is refused.
+                  </p>
+                ) : resumableRun !== null && nextSpan !== undefined && nextSpan !== null ? (
+                  <p className="export-format-note" data-testid="export-chapter-resume-note">
+                    Resume from chapter {nextSpan.index} writes the{' '}
+                    {resumableRun.spans.length - resumableRun.files.length === 1
+                      ? 'one file'
+                      : `${resumableRun.spans.length - resumableRun.files.length} files`}{' '}
+                    still missing, with the format and output settings this run started with; the{' '}
+                    {resumableRun.files.length === 1 ? 'file' : 'files'} already saved{' '}
+                    {resumableRun.files.length === 1 ? 'stays' : 'stay'} saved.
+                  </p>
+                ) : (
+                  <p className="export-format-note" data-testid="export-chapter-resume-withdrawn">
+                    The project changed while this dialog was open, so this run cannot be carried on
+                    against it. Export runs every chapter again, from the project as it is now.
+                  </p>
+                )}
               </div>
             )}
-            <div className="dialog-actions">
+            <div className="dialog-actions export-dialog-actions">
               <button type="button" onClick={cancel}>
                 Cancel
               </button>
+              {resumableRun !== null && nextSpan !== undefined && nextSpan !== null && (
+                <button type="button" onClick={() => void resumeChapterExport()}>
+                  Resume from chapter {nextSpan.index}
+                </button>
+              )}
               <button
                 type="button"
                 ref={exportRef}

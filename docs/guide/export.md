@@ -54,6 +54,8 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **Your browser may ask to allow several downloads.** That is worth knowing before you start: a browser that asks and is refused can quietly drop every file after the first. When the run finishes the dialog stays open and lists what it wrote — each chapter's number, name, filename and length — so you can check the list against your downloads folder rather than discovering a missing chapter later. **Cancel** stops the run; files already saved stay saved.
 
+**If a run stops early** — you pressed **Cancel**, or a chapter failed to export — the dialog stays open and says which chapter it stopped at and why, *Stopped at chapter 3 of 7: Installing the CLI — cancelled*, above the list of files it did write. **Resume from chapter N** carries on from that chapter with the format and output settings the run started with, whatever the dialog's controls have been set to since, and writes only the chapters still missing: files already saved are not written again, and the list grows to cover the whole set. Cancel during a resumed run stops it the same way, and you can resume again. The offer lasts as long as the dialog stays open; if the project changes underneath it — an undo, say — the dialog says so and withdraws it, and **Export** starts a fresh run from the project as it is now.
+
 **Related.** [The Range line](#the-range-line) · [Copying a chapter list](#copying-a-chapter-list) · [Chapter markers](preview-and-playback.md#chapter-markers)
 
 ## Copying a chapter list

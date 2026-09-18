@@ -61,6 +61,14 @@
   font-size: 0.9rem;
 }
 
+/* Three actions once a run has stopped — Cancel, Resume from chapter N,
+   Export (#530). They fit the dialog's 21.5rem of content width with room
+   to spare; the wrap is for the day a fourth arrives or the number grows,
+   so the row never widens the dialog (#268). */
+.export-dialog-actions {
+  flex-wrap: wrap;
+}
+
 /* The dialog's shared p margin applies to .export-note already. */
 .export-note {
   color: #888;
@@ -165,6 +173,16 @@
 .export-chapter-results h4 {
   margin: 0 0 0.35rem;
   font-size: 0.9rem;
+}
+
+/* Where and why a run stopped (#530): one line under the heading, above the
+   files that did land. The export's own error text can be long, so it wraps
+   rather than widening the dialog. */
+.export-chapter-stopped {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+  overflow-wrap: anywhere;
 }
 
 .export-chapter-results ul {
