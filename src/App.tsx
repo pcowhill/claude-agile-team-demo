@@ -25,6 +25,7 @@ import {
   videoOverlayFromClip,
 } from './lib/timeline'
 import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
+import { modalDialogOpen } from './lib/transport'
 import { DEFAULT_TEXT } from './lib/textOverlay'
 import { parseSrt, subtitleOverlaySpec } from './lib/srt'
 import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
@@ -463,7 +464,13 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
 
   // Ctrl/Cmd+Z undoes and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes (#189) —
   // except inside text-editing fields, where the browser's own text undo
-  // must keep working (see targetEditsText).
+  // must keep working (see targetEditsText), and while a modal dialog is
+  // open (#559): the transport keys already wait behind a dialog (#203,
+  // modalDialogOpen), and undo reaching the reducer underneath one let a
+  // dialog describe a project that was no longer there — an export range
+  // pre-filled from a total that had shrunk, a confirmation for a row undo
+  // had already removed. A dialog now sees the project it opened on for as
+  // long as it stays open.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return
@@ -471,7 +478,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       const undo = key === 'z' && !event.shiftKey
       const redo = (key === 'z' && event.shiftKey) || key === 'y'
       if (!undo && !redo) return
-      if (targetEditsText(event.target)) return
+      if (targetEditsText(event.target) || modalDialogOpen(document)) return
       event.preventDefault()
       dispatchTimeline({ type: undo ? 'edit-undone' : 'edit-redone' })
     }

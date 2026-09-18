@@ -326,6 +326,68 @@ describe('chapter markers through the app (#487)', () => {
   })
 })
 
+describe('undo and redo wait behind a modal dialog (#559)', () => {
+  const chord = (key: string, shiftKey = false) =>
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey, cancelable: true }),
+      )
+    })
+
+  it('Ctrl+Z and Ctrl+Shift+Z do nothing while a dialog is open, and work again once it closes', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /^Add$/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Color slate' }))
+    const slate = () => screen.queryByRole('list', { name: 'Sequence' })
+    expect(slate()).not.toBeNull()
+
+    // The removal confirmation (#178) is a modal like the export dialog —
+    // role="dialog" with aria-modal — and the one that opens in jsdom
+    // without media. Under it, the undo chord leaves the edit standing:
+    // undo would have emptied the sequence.
+    await user.click(
+      screen.getByRole('button', { name: 'Remove Color slate at position 1 from timeline' }),
+    )
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    chord('z')
+    expect(slate()).not.toBeNull()
+    expect(screen.getByRole('dialog')).toBe(dialog)
+
+    // Closed, the same chord undoes the add, and the redo chord restores it.
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    chord('z')
+    expect(slate()).toBeNull()
+    chord('z', true)
+    expect(slate()).not.toBeNull()
+  })
+
+  it('redo through Ctrl+Y waits behind a dialog too', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /^Add$/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Color slate' }))
+    // Undo the add through the toolbar, so there is a step to redo, then
+    // open a dialog over the empty timeline: the cheat sheet, the one
+    // modal that needs no row. Ctrl+Y under it restores nothing.
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', cancelable: true }))
+    })
+    const sheet = await screen.findByRole('dialog', { name: /shortcuts/i })
+    expect(sheet).toHaveAttribute('aria-modal', 'true')
+    chord('y')
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    chord('y')
+    expect(screen.getByRole('list', { name: 'Sequence' })).toBeInTheDocument()
+  })
+})
+
 describe('preview expansion (#128)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))
