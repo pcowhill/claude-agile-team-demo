@@ -119,4 +119,4 @@ An audio clip's menu holds only Rename… and Remove, since it has no picture to
 
 ## When the list grows
 
-The library stops growing at about half the window's height. Past that, the list of clips scrolls on its own while the title, Import clips, Record ▾, View ▾ and the selection controls stay at the top, so a large import never pushes the timeline far down the page. A small gap separates the rows from the scrollbar while the list scrolls.
+The list of clips never grows past its own panel. Once it would — at about half the window's height, or sooner when the window is short — it scrolls on its own while the title, Import clips, Record ▾, View ▾ and the selection controls stay at the top, so a large import never pushes the timeline down the page or spills over it. A small gap separates the rows from the scrollbar while the list scrolls.
