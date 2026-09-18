@@ -46,6 +46,8 @@ import type { Crop } from './crop'
 import { normalizeCrop } from './crop'
 import type { RedactionRegion, RedactionStyle } from './redaction'
 import { MAX_REDACTION_STRENGTH, normalizeRedactions } from './redaction'
+import type { SpotlightRegion, SpotlightShape } from './spotlight'
+import { normalizeSpotlights } from './spotlight'
 import type { BackgroundFill } from './backgroundFill'
 import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
@@ -250,7 +252,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 20
+export const PROJECT_SCHEMA_VERSION = 21
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -291,6 +293,8 @@ export const RENAMED_CLIPS_SCHEMA_VERSION = 18
 export const MARKERS_SCHEMA_VERSION = 19
 /** The version any entry/overlay redaction region forces, whichever the save mode (#492). */
 export const REDACTION_SCHEMA_VERSION = 20
+/** The version any entry/overlay spotlight region forces, whichever the save mode (#532). */
+export const SPOTLIGHT_SCHEMA_VERSION = 21
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -488,6 +492,17 @@ function storedRedaction(region: RedactionRegion): RedactionRegion {
 }
 
 /**
+ * A spotlight region as stored (#532): fixed key order, exactly the
+ * normalized state's own fields — the state is already normalized (see
+ * spotlight.ts), so this only fixes the order, and the same region always
+ * serializes to the same bytes.
+ */
+function storedSpotlight(region: SpotlightRegion): SpotlightRegion {
+  const { id, left, top, width, height, start, end, shape, dim } = region
+  return { id, left, top, width, height, start, end, shape, dim }
+}
+
+/**
  * A background fill as stored (#259): fixed key order (kind, then color for
  * the color kind), exactly the normalized state's own fields, so the same
  * fill always serializes to the same bytes.
@@ -609,6 +624,10 @@ export async function serializeProject(
   const hasRedactions =
     timeline.entries.some((entry) => (entry.redactions?.length ?? 0) > 0) ||
     videoOverlaysOf(timeline).some((overlay) => (overlay.redactions?.length ?? 0) > 0)
+  // Length-based for the same reason as redactions above (#532).
+  const hasSpotlights =
+    timeline.entries.some((entry) => (entry.spotlights?.length ?? 0) > 0) ||
+    videoOverlaysOf(timeline).some((overlay) => (overlay.spotlights?.length ?? 0) > 0)
   const hasSubtitles = textsOf(timeline).some((text) => text.subtitle === true)
   const hasDucking = audioTracksOf(timeline).some((track) => track.duck === true)
   const hasOrientation =
@@ -634,7 +653,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasRedactions
+    schemaVersion: hasSpotlights
+      ? SPOTLIGHT_SCHEMA_VERSION
+      : hasRedactions
       ? REDACTION_SCHEMA_VERSION
       : hasMarkers
       ? MARKERS_SCHEMA_VERSION
@@ -712,7 +733,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill, redactions }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill, redactions, spotlights }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -753,6 +774,12 @@ export async function serializeProject(
           ...(redactions === undefined || redactions.length === 0
             ? {}
             : { redactions: redactions.map(storedRedaction) }),
+          // Spotlight regions (#532), on the same terms: written only when
+          // any exist, so spotlight-free projects stay byte-identical to
+          // earlier output.
+          ...(spotlights === undefined || spotlights.length === 0
+            ? {}
+            : { spotlights: spotlights.map(storedSpotlight) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -874,7 +901,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -911,6 +938,10 @@ export async function serializeProject(
                 ...(redactions === undefined || redactions.length === 0
                   ? {}
                   : { redactions: redactions.map(storedRedaction) }),
+                // Spotlight regions (#532), exactly as on a sequence entry.
+                ...(spotlights === undefined || spotlights.length === 0
+                  ? {}
+                  : { spotlights: spotlights.map(storedSpotlight) }),
               }),
             ),
           }),
@@ -1209,6 +1240,73 @@ const asRedactions = (value: unknown, path: string): RedactionRegion[] | undefin
 }
 
 /**
+ * Stored spotlight regions (#532): `asRedactions`'s rules over this
+ * feature's own fields — every field required and in range, a known shape,
+ * and no two regions sharing an id, anything else refused by name.
+ *
+ * Nothing clamps here either, and for a related reason to redaction's: a
+ * region that silently moved or resized on open would point at something
+ * other than what it was drawn over, so the picture would be teaching the
+ * wrong thing rather than merely looking different. A stored empty list
+ * cannot occur (absence means none), so any array here must hold real
+ * regions.
+ */
+const asSpotlights = (value: unknown, path: string): SpotlightRegion[] | undefined => {
+  const raw = asArray(value, path)
+  if (raw.length === 0) throw new Error(`${path} is empty, but absence already means no spotlight`)
+  const ids = new Set<string>()
+  const regions = raw.map((item, index) => {
+    const each = `${path}[${index}]`
+    const record = asRecord(item, each)
+    const id = asString(record.id, `${each}.id`)
+    if (id === '') throw new Error(`${each}.id must not be empty`)
+    if (ids.has(id)) throw new Error(`${each}.id "${id}" is duplicated`)
+    ids.add(id)
+    const fraction = (key: 'left' | 'top' | 'width' | 'height'): number => {
+      const numeric = asFinite(record[key], `${each}.${key}`)
+      if (numeric < 0 || numeric > 1) {
+        throw new Error(`${each}.${key} must be a fraction between 0 and 1`)
+      }
+      return numeric
+    }
+    const left = fraction('left')
+    const top = fraction('top')
+    const width = fraction('width')
+    const height = fraction('height')
+    if (width <= 0 || height <= 0) {
+      throw new Error(`${each} must have a width and height above zero`)
+    }
+    if (left + width > 1 || top + height > 1) {
+      throw new Error(`${each} extends past the edge of the source frame`)
+    }
+    const start = asFinite(record.start, `${each}.start`)
+    const end = asFinite(record.end, `${each}.end`)
+    if (start < 0) throw new Error(`${each}.start must not be negative`)
+    if (end <= start) throw new Error(`${each}.end must be after ${each}.start`)
+    const shape = asString(record.shape, `${each}.shape`)
+    if (shape !== 'rectangle' && shape !== 'oval') {
+      throw new Error(`${each}.shape "${shape}" is not a spotlight shape`)
+    }
+    const dim = asFinite(record.dim, `${each}.dim`)
+    if (dim < 0 || dim > 1) {
+      throw new Error(`${each}.dim must be a fraction between 0 and 1`)
+    }
+    return {
+      id,
+      left,
+      top,
+      width,
+      height,
+      start,
+      end,
+      shape: shape as SpotlightShape,
+      dim,
+    } satisfies SpotlightRegion
+  })
+  return normalizeSpotlights(regions)
+}
+
+/**
  * A stored background fill (#259): a known kind, and for `color` a storable
  * lowercase `#rrggbb` value — unknown kinds and malformed colors are
  * refused by name (silently dropping one would open the file rendering
@@ -1476,6 +1574,19 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const redactions = asRedactions(raw.redactions, `${path}.redactions`)
       if (redactions !== undefined) entry.redactions = redactions
+    }
+    // Spotlight regions (#532): absent in files saved before them, and on
+    // every unspotlit entry since, meaning nothing is dimmed.
+    if (raw.spotlights !== undefined) {
+      if (entry.kind === 'slate') {
+        // A flat colour has no part worth pointing at: a spotlit slate
+        // could only come from a foreign writer.
+        throw new Error(
+          `${path}.spotlights is set on a slate entry, but spotlight applies to video and image entries only`,
+        )
+      }
+      const spotlights = asSpotlights(raw.spotlights, `${path}.spotlights`)
+      if (spotlights !== undefined) entry.spotlights = spotlights
     }
     // Background fill (#259): absent in files saved before it, and on every
     // fill-free entry since, meaning none — today's black bars.
@@ -1919,6 +2030,11 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.redactions !== undefined) {
         const redactions = asRedactions(raw.redactions, `${path}.redactions`)
         if (redactions !== undefined) overlay.redactions = redactions
+      }
+      // Spotlight regions (#532), exactly as on a sequence entry.
+      if (raw.spotlights !== undefined) {
+        const spotlights = asSpotlights(raw.spotlights, `${path}.spotlights`)
+        if (spotlights !== undefined) overlay.spotlights = spotlights
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

@@ -2,6 +2,7 @@ import type { ColorAdjustments } from './colorAdjustments'
 import type { Orientation } from './orientation'
 import type { Crop } from './crop'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
 import type { BackgroundFill } from './backgroundFill'
 import type { TextFontId } from './textOverlay'
 import type { AudioTrack, TimelineEntry, TextOverlay } from './timeline'
@@ -34,6 +35,7 @@ export const SETTINGS_GROUPS = [
   { id: 'orientation', label: 'Orientation' },
   { id: 'crop', label: 'Crop' },
   { id: 'background-fill', label: 'Background fill' },
+  { id: 'spotlight', label: 'Spotlight' },
   { id: 'redaction', label: 'Redact' },
   { id: 'audio', label: 'Audio' },
   { id: 'text-style', label: 'Text style' },
@@ -93,6 +95,12 @@ export interface CopiedSettings {
    * so two elements holding the same ids is not a collision.
    */
   redaction?: { redactions: readonly RedactionRegion[] | undefined }
+  /**
+   * The spotlight regions (#532), copied whole — the redaction group's rule
+   * exactly, including the effective value: a source with no regions copies
+   * "nothing spotlit" and pasting the group clears the target's regions.
+   */
+  spotlight?: { spotlights: readonly SpotlightRegion[] | undefined }
   audio?: AudioSettings
   'text-style'?: TextStyleSettings
 }
@@ -122,6 +130,7 @@ export function heldSettingsGroups(
         'orientation',
         'crop',
         'background-fill',
+        'spotlight',
         'redaction',
       ]
       return isStillEntry(entry) ? visual : [...visual, 'audio']
@@ -133,7 +142,7 @@ export function heldSettingsGroups(
       // judged from the element here too: a still overlay is soundless
       // (#220), exactly as a still entry is above (#332).
       const overlay = element as VideoOverlay
-      const visual: SettingsGroup[] = ['color', 'orientation', 'crop', 'redaction']
+      const visual: SettingsGroup[] = ['color', 'orientation', 'crop', 'spotlight', 'redaction']
       return isImageOverlay(overlay) ? visual : [...visual, 'audio']
     }
     case 'text':
@@ -159,6 +168,7 @@ export function copyElementSettings(
         orientation: { orientation: entry.orientation },
         crop: { crop: entry.crop },
         'background-fill': { fill: entry.backgroundFill },
+        spotlight: { spotlights: entry.spotlights },
         redaction: { redactions: entry.redactions },
       }
       if (isStillEntry(entry)) return visual
@@ -190,6 +200,7 @@ export function copyElementSettings(
         color: { adjustments: overlay.colorAdjustments },
         orientation: { orientation: overlay.orientation },
         crop: { crop: overlay.crop },
+        spotlight: { spotlights: overlay.spotlights },
         redaction: { redactions: overlay.redactions },
       }
       // A still overlay carries no audio at all (#294), so there is nothing
@@ -254,6 +265,8 @@ export function filterSettings(
   if (keep.has('crop') && copied.crop !== undefined) filtered.crop = copied.crop
   if (keep.has('background-fill') && copied['background-fill'] !== undefined)
     filtered['background-fill'] = copied['background-fill']
+  if (keep.has('spotlight') && copied.spotlight !== undefined)
+    filtered.spotlight = copied.spotlight
   if (keep.has('redaction') && copied.redaction !== undefined)
     filtered.redaction = copied.redaction
   if (keep.has('audio') && copied.audio !== undefined) filtered.audio = copied.audio

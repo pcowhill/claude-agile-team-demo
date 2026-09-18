@@ -2,6 +2,7 @@ import { AUTOSAVE_DEBOUNCE_MS } from '../autosave'
 import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
+import { DEFAULT_SPOTLIGHT_DIM } from '../spotlight'
 import {
   LOOP_PAUSE_MS,
   MAX_EDITOR_ZOOM_SCALE,
@@ -70,6 +71,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     LARGE_STEP_SECONDS: String(settings.largeStepSeconds),
     CROP_MIN_KEPT_PERCENT: percent(MIN_KEPT_FRACTION),
     DEFAULT_PIXELATE_BLOCK: String(DEFAULT_PIXELATE_BLOCK),
+    DEFAULT_SPOTLIGHT_DIM_PERCENT: percent(DEFAULT_SPOTLIGHT_DIM),
     DEFAULT_BLUR_STRENGTH: String(DEFAULT_BLUR_STRENGTH),
     COLOR_ADJUSTMENT_MIN: String(COLOR_ADJUSTMENT_MIN),
     COLOR_ADJUSTMENT_MAX: String(COLOR_ADJUSTMENT_MAX),

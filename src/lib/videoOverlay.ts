@@ -4,6 +4,7 @@ import type { Orientation } from './orientation'
 import { orientationsEqual } from './orientation'
 import type { Crop } from './crop'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
 import { cropsEqual } from './crop'
 import type { ShapeMask } from './shapeMask'
 import { shapeMasksEqual } from './shapeMask'
@@ -131,6 +132,16 @@ export interface VideoOverlay {
    * pixels they were drawn over.
    */
   redactions?: RedactionRegion[]
+  /**
+   * Spotlight regions (#532), exactly as on a sequence entry: rectangles or
+   * ovals that dim everything outside them for a window of the overlay's
+   * own source time. Absent means none (normalized by the
+   * `video-overlay-spotlights-set` reducer case), and the rectangles are
+   * fractions of the source frame, before orientation and crop, so an
+   * overlay that is turned, cropped or re-placed keeps its spotlights on
+   * the pixels they were drawn over.
+   */
+  spotlights?: SpotlightRegion[]
   /**
    * Shape mask (#266): clips the placed rectangle to an inscribed ellipse
    * or a rounded rectangle. Absent behaves as the hard rectangle — today's

@@ -61,6 +61,8 @@ import { maskClipPath } from '../lib/shapeMask'
 import { drawLayerSource, fitRect, withLayerOrientation } from '../lib/exportVideo'
 import type { RedactionRegion } from '../lib/redaction'
 import { drawRedactions } from '../lib/redaction'
+import type { SpotlightRegion } from '../lib/spotlight'
+import { drawSpotlights } from '../lib/spotlight'
 import { transitionLabel, transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
@@ -444,14 +446,19 @@ function BlurBackdrop({
 }
 
 /**
- * A layer's redaction regions (#492), rendered as a canvas in FRONT of the
- * fitted media element — the mirror of `BlurBackdrop` behind it, and for
- * the same reason: it paints through the export's own shared rules
- * (`fitRect`, `withLayerOrientation`, `drawRedactions`) on its own rAF
- * loop, sampling the element the user is already watching. Parity with the
- * export is then structural rather than something two implementations have
- * to keep agreeing about (#66) — the pixels come from the same source, the
- * geometry from the same functions.
+ * A layer's region effects — redactions (#492) and spotlights (#532) —
+ * rendered as one canvas in FRONT of the fitted media element, the mirror
+ * of `BlurBackdrop` behind it and for the same reason: it paints through
+ * the export's own shared rules (`fitRect`, `withLayerOrientation`,
+ * `drawSpotlights`, `drawRedactions`) on its own rAF loop, sampling the
+ * element the user is already watching. Parity with the export is then
+ * structural rather than something two implementations have to keep
+ * agreeing about (#66) — the pixels come from the same source, the geometry
+ * from the same functions, and the draw ORDER from the same line of code.
+ *
+ * One canvas rather than one per kind: the spotlight's dim must land under
+ * the redaction's mask (#532), and two stacked canvases would leave that
+ * order to CSS instead of to the call sequence the export uses.
  *
  * The canvas is the card's box, so the card's zoom and transition
  * transforms carry it exactly as they carry the media. Its buffer is the
@@ -463,11 +470,12 @@ function BlurBackdrop({
  * prop, kept in a ref so the loop reads the current value without
  * re-subscribing every frame.
  */
-function RedactionOverlay({
+function RegionOverlay({
   sourceRef,
   crop,
   orientation,
   regions,
+  spotlights,
   sourceTime,
   testId,
 }: {
@@ -475,6 +483,7 @@ function RedactionOverlay({
   crop: Crop | undefined
   orientation: Orientation | undefined
   regions: readonly RedactionRegion[] | undefined
+  spotlights: readonly SpotlightRegion[] | undefined
   /** The element's own source time, for sources that do not clock themselves. */
   sourceTime: number
   testId: string
@@ -482,8 +491,11 @@ function RedactionOverlay({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const timeRef = useRef(sourceTime)
   timeRef.current = sourceTime
+  const nothingToDraw =
+    (regions === undefined || regions.length === 0) &&
+    (spotlights === undefined || spotlights.length === 0)
   useEffect(() => {
-    if (regions === undefined || regions.length === 0) return
+    if (nothingToDraw) return
     let frame = 0
     const paint = () => {
       frame = requestAnimationFrame(paint)
@@ -512,11 +524,25 @@ function RedactionOverlay({
       )
       const rect = fitRect(dims.width, dims.height, width, height)
       withLayerOrientation(context, orientation, rect, (drawRect) => {
+        const at = isVideo ? source.currentTime : timeRef.current
+        // Spotlight first, redaction second — the export's order (#532).
+        // Here the dim lands on the canvas's own transparency and the video
+        // shows through the holes; in the export it lands on the picture.
+        // Same function, same holes, same result.
+        drawSpotlights({
+          context,
+          regions: spotlights,
+          sourceTime: at,
+          crop,
+          sourceWidth,
+          sourceHeight,
+          drawRect,
+        })
         drawRedactions({
           context,
           source,
           regions,
-          sourceTime: isVideo ? source.currentTime : timeRef.current,
+          sourceTime: at,
           crop,
           sourceWidth,
           sourceHeight,
@@ -526,8 +552,8 @@ function RedactionOverlay({
     }
     frame = requestAnimationFrame(paint)
     return () => cancelAnimationFrame(frame)
-  }, [sourceRef, crop, orientation, regions])
-  if (regions === undefined || regions.length === 0) return null
+  }, [sourceRef, crop, orientation, regions, spotlights, nothingToDraw])
+  if (nothingToDraw) return null
   return (
     <canvas
       ref={canvasRef}
@@ -836,7 +862,7 @@ export function PreviewPlayer({
    * A stable ref object per overlay for its *media* element of either kind
    * (#492) — `overlayRefs` above holds video elements only, because it
    * exists to drive playback, and a still overlay has nothing to drive.
-   * `RedactionOverlay` needs whichever element is showing, so it gets its
+   * `RegionOverlay` needs whichever element is showing, so it gets its
    * own map, created lazily and kept for the overlay's lifetime so the
    * canvas's effect does not re-subscribe on every render.
    */
@@ -2005,11 +2031,12 @@ export function PreviewPlayer({
         backdrop: entryBackdrop(location?.entry, slotVideoRef),
         redactions:
           location === null ? null : (
-            <RedactionOverlay
+            <RegionOverlay
               sourceRef={slotVideoRef}
               crop={location.entry.crop}
               orientation={location.entry.orientation}
               regions={location.entry.redactions}
+              spotlights={location.entry.spotlights}
               sourceTime={location.sourceTime}
               testId="preview-redactions"
             />
@@ -2040,11 +2067,12 @@ export function PreviewPlayer({
       backdrop: videoOverlap ? entryBackdrop(overlap.entry, slotVideoRef) : null,
       redactions:
         videoOverlap ? (
-          <RedactionOverlay
+          <RegionOverlay
             sourceRef={slotVideoRef}
             crop={overlap.entry.crop}
             orientation={overlap.entry.orientation}
             regions={overlap.entry.redactions}
+            spotlights={overlap.entry.spotlights}
             sourceTime={overlap.sourceTime}
             testId="preview-redactions-incoming"
           />
@@ -2151,11 +2179,12 @@ export function PreviewPlayer({
                         location.entry.colorAdjustments,
                       )}
                     />
-                    <RedactionOverlay
+                    <RegionOverlay
                       sourceRef={stillImageRef}
                       crop={location.entry.crop}
                       orientation={location.entry.orientation}
                       regions={location.entry.redactions}
+                      spotlights={location.entry.spotlights}
                       sourceTime={location.sourceTime}
                       testId="preview-redactions-still"
                     />
@@ -2291,11 +2320,12 @@ export function PreviewPlayer({
                         )}
                       />
                     )}
-                    <RedactionOverlay
+                    <RegionOverlay
                       sourceRef={overlayMediaRef(overlay.id)}
                       crop={overlay.crop}
                       orientation={overlay.orientation}
                       regions={overlay.redactions}
+                      spotlights={overlay.spotlights}
                       sourceTime={audioTrackPlaybackAt(overlay, sequenceTime).sourceTime}
                       testId={`preview-overlay-redactions-${index}`}
                     />

@@ -94,7 +94,8 @@ export interface RedactionRegion {
 /**
  * The smallest fraction of either axis a region may cover. A region smaller
  * than this hides nothing legible and is almost always a mis-drag; the
- * clamping idiom is crop's `MIN_KEPT_FRACTION`.
+ * clamping idiom is crop's `MIN_KEPT_FRACTION`. Shared with spotlight
+ * regions (#532) through `normalizeRegionBox` below.
  */
 export const MIN_REGION_FRACTION = 0.01
 
@@ -121,7 +122,8 @@ export const MAX_REDACTION_STRENGTH = 400
  * The shortest window a stored region may have. A region whose end is
  * dragged back past its start collapses to this rather than to nothing, so
  * it stays visible and editable instead of vanishing from the picture while
- * still listed in the fields.
+ * still listed in the fields. Shared with spotlight regions (#532) through
+ * `normalizeRegionBox` below.
  */
 export const MIN_WINDOW_SECONDS = 0.01
 
@@ -154,14 +156,29 @@ export interface RedactionRect {
 }
 
 /**
- * Whether a region is acceptable as **stored** input — the strict check the
- * project-file path refuses by (#492), as distinct from the reducer's
- * clamping (`normalizeRedactionRegion`). A file is someone else's data and
- * a silently clamped redaction is a redaction that may no longer cover what
- * it was drawn over, so a malformed one is refused rather than repaired;
- * the editing path clamps instead, like every other adjustment.
+ * The fields every per-element region carries: an identity, a rectangle in
+ * source fractions, and a window in source seconds. Redaction regions
+ * (#492) and spotlight regions (#532) differ in what they *do* with that
+ * box and in nothing else about it, so the three functions below are the
+ * one place those rules live — the alternative is two copies that agree
+ * until somebody fixes only one of them.
  */
-export function isValidRedactionRegion(region: RedactionRegion): boolean {
+export interface RegionBox {
+  id: string
+  left: number
+  top: number
+  width: number
+  height: number
+  start: number
+  end: number
+}
+
+/**
+ * Whether a region's box is acceptable as **stored** input: inside the
+ * source frame, with real extent, and a window that is ordered and
+ * non-empty. The strict half of the split the module comment describes.
+ */
+export function isValidRegionBox(region: RegionBox): boolean {
   if (typeof region.id !== 'string' || region.id === '') return false
   const fractions = [region.left, region.top, region.width, region.height]
   if (!fractions.every((value) => typeof value === 'number' && Number.isFinite(value))) return false
@@ -170,7 +187,50 @@ export function isValidRedactionRegion(region: RedactionRegion): boolean {
   if (region.left + region.width > 1 || region.top + region.height > 1) return false
   if (typeof region.start !== 'number' || !Number.isFinite(region.start)) return false
   if (typeof region.end !== 'number' || !Number.isFinite(region.end)) return false
-  if (region.start < 0 || region.end <= region.start) return false
+  return region.start >= 0 && region.end > region.start
+}
+
+/**
+ * Whether a region's box is acceptable as **editing** input: an id and
+ * seven finite numbers. Ranges are not rejected — they clamp in
+ * `normalizeRegionBox`, because a dragged handle or a typed percent
+ * routinely overshoots and snapping back is the established behaviour of
+ * every other adjustment.
+ */
+export function isAcceptableRegionBox(region: RegionBox): boolean {
+  if (typeof region.id !== 'string' || region.id === '') return false
+  const numbers = [region.left, region.top, region.width, region.height, region.start, region.end]
+  return numbers.every((value) => typeof value === 'number' && Number.isFinite(value))
+}
+
+/**
+ * The canonical stored box: clamped inside the source frame at no less than
+ * `MIN_REGION_FRACTION` on each axis, and the window ordered and at least
+ * `MIN_WINDOW_SECONDS` long — an inverted or empty window would do nothing,
+ * and the floor keeps a region that exists visible for at least an instant
+ * rather than silently vanishing from the picture while still listed in the
+ * fields.
+ */
+export function normalizeRegionBox(region: RegionBox): RegionBox {
+  const width = clamp(region.width, MIN_REGION_FRACTION, 1)
+  const height = clamp(region.height, MIN_REGION_FRACTION, 1)
+  const left = clamp(region.left, 0, 1 - width)
+  const top = clamp(region.top, 0, 1 - height)
+  const start = Math.max(0, region.start)
+  const end = Math.max(region.end, start + MIN_WINDOW_SECONDS)
+  return { id: region.id, left, top, width, height, start, end }
+}
+
+/**
+ * Whether a region is acceptable as **stored** input — the strict check the
+ * project-file path refuses by (#492), as distinct from the reducer's
+ * clamping (`normalizeRedactionRegion`). A file is someone else's data and
+ * a silently clamped redaction is a redaction that may no longer cover what
+ * it was drawn over, so a malformed one is refused rather than repaired;
+ * the editing path clamps instead, like every other adjustment.
+ */
+export function isValidRedactionRegion(region: RedactionRegion): boolean {
+  if (!isValidRegionBox(region)) return false
   if (region.style !== 'blur' && region.style !== 'pixelate' && region.style !== 'solid') {
     return false
   }
@@ -204,9 +264,7 @@ export function areValidRedactions(regions: readonly RedactionRegion[]): boolean
  * region that silently moved on open would no longer cover what it hides.
  */
 export function isAcceptableRedactionInput(region: RedactionRegion): boolean {
-  if (typeof region.id !== 'string' || region.id === '') return false
-  const numbers = [region.left, region.top, region.width, region.height, region.start, region.end]
-  if (!numbers.every((value) => typeof value === 'number' && Number.isFinite(value))) return false
+  if (!isAcceptableRegionBox(region)) return false
   if (region.style !== 'blur' && region.style !== 'pixelate' && region.style !== 'solid') {
     return false
   }
@@ -231,16 +289,7 @@ export function areAcceptableRedactionInputs(regions: readonly RedactionRegion[]
  * reappear later.
  */
 export function normalizeRedactionRegion(region: RedactionRegion): RedactionRegion {
-  const width = clamp(region.width, MIN_REGION_FRACTION, 1)
-  const height = clamp(region.height, MIN_REGION_FRACTION, 1)
-  const left = clamp(region.left, 0, 1 - width)
-  const top = clamp(region.top, 0, 1 - height)
-  const start = Math.max(0, region.start)
-  // An inverted or empty window would hide nothing; the floor keeps a
-  // region that exists visible for at least an instant rather than
-  // silently doing nothing.
-  const end = Math.max(region.end, start + MIN_WINDOW_SECONDS)
-  const base = { id: region.id, left, top, width, height, start, end, style: region.style }
+  const base = { ...normalizeRegionBox(region), style: region.style }
   switch (region.style) {
     case 'blur':
       return {
@@ -333,7 +382,10 @@ export function hasBlurRedaction(regions: readonly RedactionRegion[] | undefined
  * them are no longer shown.
  */
 export function redactionRects(
-  region: RedactionRegion,
+  // Only the rectangle is read, so this takes just the rectangle: spotlight
+  // regions (#532) are placed in the same space against the same crop and
+  // reuse this rather than carrying a second copy of the reconciliation.
+  region: Pick<RedactionRegion, 'left' | 'top' | 'width' | 'height'>,
   crop: Crop | undefined,
   sourceWidth: number,
   sourceHeight: number,

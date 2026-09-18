@@ -35,6 +35,12 @@ import {
   MAX_REDACTION_STRENGTH,
   MIN_WINDOW_SECONDS,
 } from '../lib/redaction'
+import type { SpotlightRegion, SpotlightShape } from '../lib/spotlight'
+import {
+  DEFAULT_SPOTLIGHT_DIM,
+  DEFAULT_SPOTLIGHT_RECT,
+  DEFAULT_SPOTLIGHT_SHAPE,
+} from '../lib/spotlight'
 import type { ShapeMask, ShapeMaskInput } from '../lib/shapeMask'
 import {
   DEFAULT_TRANSITION_DURATION,
@@ -204,6 +210,12 @@ interface TimelineProps {
   onSetVideoOverlayCrop: (id: string, crop: Crop) => void
   /** Commits a video overlay's whole redaction list (#492); `[]` clears it. */
   onSetVideoOverlayRedactions: (id: string, redactions: RedactionRegion[]) => void
+
+  /** Commits an entry's whole spotlight list (#532); `[]` clears it. */
+  onSetEntrySpotlights: (id: string, spotlights: SpotlightRegion[]) => void
+
+  /** Commits a video overlay's whole spotlight list (#532); `[]` clears it. */
+  onSetVideoOverlaySpotlights: (id: string, spotlights: SpotlightRegion[]) => void
   /** Sets a video overlay's shape mask whole (#266);
    * `{ kind: 'rectangle' }` resets. */
   onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
@@ -970,6 +982,182 @@ function RedactionControls({
   )
 }
 
+interface SpotlightControlsProps {
+  /** The accessible name of the row's owner. */
+  position: string
+  regions: readonly SpotlightRegion[] | undefined
+  /** The element's trim, which a fresh region's window defaults to (#532). */
+  inPoint: number
+  outPoint: number
+  /** The source's length — the furthest a window can reach. */
+  duration: number
+  /** Receives the full list on every edit; an empty list resets (#532). */
+  onCommit: (regions: SpotlightRegion[]) => void
+}
+
+/**
+ * Per-element spotlight controls (#532): the list of regions, a button that
+ * adds one, and per region its rectangle (percent of the source frame), its
+ * window (seconds into the source), its shape and its dim, plus Remove.
+ *
+ * `RedactionControls` above is the model — same commit-the-whole-list rule,
+ * so adding, editing and removing are one reducer action and therefore one
+ * undo step apiece, with no partial region ever reaching the model; same
+ * fresh-region rectangle and window, which is the common case and trivially
+ * narrowed. What differs is the two controls the feature actually has:
+ * Shape, which changes only the drawn edge, and Dim, which is the one
+ * number saying how far the outside drops.
+ *
+ * There is no `Adjust visually…` here: the visual editor is #533, exactly
+ * as #493 followed #492 rather than shipping with it.
+ */
+function SpotlightControls({
+  position,
+  regions,
+  inPoint,
+  outPoint,
+  duration,
+  onCommit,
+}: SpotlightControlsProps) {
+  const list = regions ?? []
+  const percent = (value: number) => value * 100
+  const replace = (index: number, change: Partial<SpotlightRegion>) => {
+    onCommit(list.map((region, at) => (at === index ? { ...region, ...change } : region)))
+  }
+  const add = () => {
+    onCommit([
+      ...list,
+      {
+        id: `sp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        ...DEFAULT_SPOTLIGHT_RECT,
+        start: inPoint,
+        // A zero-length element cannot happen, but a window must outlast
+        // its start whatever the trim is.
+        end: Math.max(outPoint, inPoint + MIN_WINDOW_SECONDS),
+        shape: DEFAULT_SPOTLIGHT_SHAPE,
+        dim: DEFAULT_SPOTLIGHT_DIM,
+      },
+    ])
+  }
+  return (
+    <div className="timeline-spotlights">
+      <div className="timeline-entry-color">
+        <span>Spotlight</span>
+        <button type="button" aria-label={`Add a spotlight region on ${position}`} onClick={add}>
+          + Add region
+        </button>
+        {list.length === 0 && <span className="timeline-hint">Nothing spotlit</span>}
+      </div>
+      {list.map((region, index) => {
+        // The region's place in the list, which is what the user sees; ids
+        // are stable but meaningless to read aloud. The number sits where
+        // the Feature Index walk's shape rules can lift it out, so every
+        // region's controls normalize to one entry name.
+        const which = `Spotlight region ${index + 1}`
+        return (
+          <div className="timeline-spotlight" key={region.id}>
+            <div className="timeline-entry-color">
+              <span>Area</span>
+              <SecondsField
+                label={`${which} left of ${position} (percent)`}
+                value={percent(region.left)}
+                min={0}
+                max={99}
+                step={1}
+                onCommit={(value) => replace(index, { left: value / 100 })}
+              />
+              <span>top</span>
+              <SecondsField
+                label={`${which} top of ${position} (percent)`}
+                value={percent(region.top)}
+                min={0}
+                max={99}
+                step={1}
+                onCommit={(value) => replace(index, { top: value / 100 })}
+              />
+              <span>width</span>
+              <SecondsField
+                label={`${which} width of ${position} (percent)`}
+                value={percent(region.width)}
+                min={1}
+                max={100}
+                step={1}
+                onCommit={(value) => replace(index, { width: value / 100 })}
+              />
+              <span>height</span>
+              <SecondsField
+                label={`${which} height of ${position} (percent)`}
+                value={percent(region.height)}
+                min={1}
+                max={100}
+                step={1}
+                onCommit={(value) => replace(index, { height: value / 100 })}
+              />
+              <span>%</span>
+            </div>
+            <div className="timeline-entry-color">
+              <span>Shows from</span>
+              <SecondsField
+                label={`${which} start of ${position} in seconds`}
+                value={region.start}
+                min={0}
+                max={duration}
+                step={0.1}
+                onCommit={(value) => replace(index, { start: value })}
+              />
+              <span>to</span>
+              <SecondsField
+                label={`${which} end of ${position} in seconds`}
+                value={region.end}
+                min={0}
+                max={duration}
+                step={0.1}
+                onCommit={(value) => replace(index, { end: value })}
+              />
+              <span>s</span>
+            </div>
+            <div className="timeline-entry-color">
+              <span>Shape</span>
+              <select
+                aria-label={`${which} shape of ${position}`}
+                value={region.shape}
+                onChange={(event) =>
+                  replace(index, { shape: event.target.value as SpotlightShape })
+                }
+              >
+                <option value="rectangle">Rectangle</option>
+                <option value="oval">Oval</option>
+              </select>
+              <span>dim</span>
+              <SecondsField
+                label={`${which} dim of ${position} (percent)`}
+                value={percent(region.dim)}
+                min={0}
+                max={100}
+                step={1}
+                slider
+                onCommit={(value) => replace(index, { dim: value / 100 })}
+              />
+              <span>%</span>
+              <button
+                type="button"
+                aria-label={`Remove ${which.toLowerCase()} of ${position}`}
+                onClick={() => onCommit(list.filter((_, at) => at !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            <p className="timeline-hint">
+              An oval fills the same box — a square area draws a circle. Overlapping regions stay
+              bright together.
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 interface ShapeMaskControlsProps {
   /** The accessible name of the row's owner (a video overlay). */
   position: string
@@ -1327,8 +1515,10 @@ export function Timeline({
   onSetVideoOverlayOrientation,
   onSetEntryCrop,
   onSetEntryRedactions,
+  onSetEntrySpotlights,
   onSetVideoOverlayCrop,
   onSetVideoOverlayRedactions,
+  onSetVideoOverlaySpotlights,
   onSetVideoOverlayMask,
   onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
@@ -2250,6 +2440,20 @@ export function Timeline({
                       ),
                     },
                     {
+                      name: 'Spotlight',
+                      applied: entry.spotlights !== undefined,
+                      controls: (
+                        <SpotlightControls
+                          position={position}
+                          regions={entry.spotlights}
+                          inPoint={entry.inPoint}
+                          outPoint={entry.outPoint}
+                          duration={entry.duration}
+                          onCommit={(regions) => onSetEntrySpotlights(entry.id, regions)}
+                        />
+                      ),
+                    },
+                    {
                       name: 'Redact',
                       applied: entry.redactions !== undefined,
                       controls: (
@@ -3043,6 +3247,22 @@ export function Timeline({
                           position={position}
                           mask={overlay.shapeMask}
                           onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Spotlight',
+                      applied: overlay.spotlights !== undefined,
+                      controls: (
+                        <SpotlightControls
+                          position={position}
+                          regions={overlay.spotlights}
+                          inPoint={overlay.inPoint}
+                          outPoint={overlay.outPoint}
+                          duration={overlay.duration}
+                          onCommit={(regions) =>
+                            onSetVideoOverlaySpotlights(overlay.id, regions)
+                          }
                         />
                       ),
                     },
