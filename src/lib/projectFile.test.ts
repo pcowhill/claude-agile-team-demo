@@ -39,6 +39,7 @@ import {
   MARKERS_SCHEMA_VERSION,
   REDACTION_SCHEMA_VERSION,
   SPOTLIGHT_SCHEMA_VERSION,
+  SOFT_SPOTLIGHT_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1125,8 +1126,9 @@ describe('project file versioning', () => {
     // 18 added renamed library clips with their original filename (#404);
     // version 19 added chapter markers (#487); version 20 added entry and
     // overlay redaction regions (#492); version 21 added entry and overlay
-    // spotlight regions (#532).
-    expect(PROJECT_SCHEMA_VERSION).toBe(21)
+    // spotlight regions (#532); version 22 added a spotlight region's soft
+    // edge (#533).
+    expect(PROJECT_SCHEMA_VERSION).toBe(22)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1148,6 +1150,7 @@ describe('project file versioning', () => {
     expect(MARKERS_SCHEMA_VERSION).toBe(19)
     expect(REDACTION_SCHEMA_VERSION).toBe(20)
     expect(SPOTLIGHT_SCHEMA_VERSION).toBe(21)
+    expect(SOFT_SPOTLIGHT_SCHEMA_VERSION).toBe(22)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3954,6 +3957,72 @@ describe('spotlight regions in project files (#532, schema version 21)', () => {
       'sp1',
       'sp2',
     ])
+  })
+
+  it('writes a soft edge only when it is set, and only then moves to version 22 (#533)', async () => {
+    // Hard edges — absent and an explicit 0 alike — write no key and stay at
+    // 21: the same bytes #532 wrote, which a #532 build opens.
+    const hard: TimelineState = {
+      ...timeline,
+      entries: [
+        { ...timeline.entries[0], spotlights: [rectangle, { ...oval, soften: 0 }] },
+        ...timeline.entries.slice(1),
+      ],
+    }
+    const hardBytes = await serializeProject(library, hard)
+    const plainBytes = await serializeProject(library, spotlit)
+    expect(hardBytes.length).toBe(plainBytes.length)
+    expect(hardBytes.every((byte, index) => byte === plainBytes[index])).toBe(true)
+    expect((await gunzipJson(hardBytes)).schemaVersion).toBe(SPOTLIGHT_SCHEMA_VERSION)
+
+    // A soft edge writes its key and forces 22, on an entry or an overlay.
+    const soft: TimelineState = {
+      ...timeline,
+      entries: [
+        { ...timeline.entries[0], spotlights: [{ ...rectangle, soften: 0.2 }, oval] },
+        ...timeline.entries.slice(1),
+      ],
+    }
+    const bytes = await serializeProject(library, soft)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(SOFT_SPOTLIGHT_SCHEMA_VERSION)
+    const entries = (document.timeline as Record<string, unknown>).entries as Record<
+      string,
+      unknown
+    >[]
+    expect(entries[0].spotlights).toEqual([{ ...rectangle, soften: 0.2 }, oval])
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries[0].spotlights).toEqual([
+      { ...rectangle, soften: 0.2 },
+      oval,
+    ])
+  })
+
+  it('refuses a soft edge outside its range by path, and reads an absent one as hard (#533)', async () => {
+    const withRegions = (list: unknown[]) => {
+      const document = validDocument()
+      document.schemaVersion = SOFT_SPOTLIGHT_SCHEMA_VERSION
+      ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].spotlights = list
+      return document
+    }
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, soften: 0.6 }])),
+      'timeline.entries[0].spotlights[0].soften',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, soften: -0.1 }])),
+      'timeline.entries[0].spotlights[0].soften',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, soften: 'wide' }])),
+      'timeline.entries[0].spotlights[0].soften',
+    )
+    const opened = await deserializeProject(await gzipJson(withRegions([rectangle])))
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    expect(opened.project.timeline.entries[0].spotlights?.[0]).not.toHaveProperty('soften')
   })
 
   it('round-trips a region on a video overlay too, embedded and references-only', async () => {

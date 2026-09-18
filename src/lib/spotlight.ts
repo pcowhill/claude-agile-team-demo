@@ -58,6 +58,21 @@
  * `drawRedactions` on the same layer, so a region that must be hidden stays
  * hidden even when a spotlight brightens around it. A privacy feature must
  * not lose to a decorative one (#532).
+ *
+ * **A soft edge is a second path, not a change to the first (#533).** With
+ * every active region's `soften` at 0 — the default, and every region #532
+ * ever stored — the draw is the clip-and-fill above, operation for
+ * operation. Only when a region asks for a soft edge does the dim go
+ * through an offscreen mask: the mask is filled at the dim, each region's
+ * shape is erased from it (`destination-out`) through a `blur()` filter
+ * whose radius is the region's `soften` as a fraction of the drawn
+ * picture's shorter side, and the mask is drawn over the picture once. The
+ * two paths agree exactly where the first applies, which is what #531 asked
+ * for: the hard edge's correctness is never routed through the gradient.
+ * The ramp is centred on the region's edge — half of it lights outside the
+ * box, half dims inside — and where the browser cannot filter a canvas the
+ * edge stays hard rather than the dim being skipped, since a spotlight
+ * hides nothing and a wrong-edged one is still the right picture.
  */
 
 import type { Crop } from './crop'
@@ -108,6 +123,15 @@ export interface SpotlightRegion {
    * fractional field in the model is one; the row's field shows percent.
    */
   dim: number
+  /**
+   * How wide the edge's ramp is (#533), as a fraction of the drawn picture's
+   * shorter side, in [0, `MAX_SPOTLIGHT_SOFTEN`]. **Absent means 0** — a hard
+   * edge, which is what every region stored before #533 has and what a new
+   * region starts with (#531: Soften defaults off). `normalizeSpotlightRegion`
+   * keeps a 0 absent rather than writing it, so a hard-edged region is one
+   * value, one file and one draw.
+   */
+  soften?: number
 }
 
 /** A new region's shape: the rectangle, per #532. */
@@ -123,6 +147,16 @@ export const DEFAULT_SPOTLIGHT_DIM = 0.55
 
 /** Where a freshly added region starts: redaction's centred rectangle. */
 export const DEFAULT_SPOTLIGHT_RECT = { left: 0.35, top: 0.4, width: 0.3, height: 0.2 }
+
+/**
+ * The widest ramp a region may ask for (#533): half the picture's shorter
+ * side, at which point a centred region has no hard-lit middle left. The
+ * row's field shows it as a percent, 0 to 50.
+ */
+export const MAX_SPOTLIGHT_SOFTEN = 0.5
+
+/** A region's soften as stored, absent reading as the hard edge. */
+export const softenOf = (region: Pick<SpotlightRegion, 'soften'>): number => region.soften ?? 0
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
@@ -142,7 +176,10 @@ export function isValidSpotlightRegion(region: SpotlightRegion): boolean {
   if (!isValidRegionBox(region)) return false
   if (!isShape(region.shape)) return false
   if (typeof region.dim !== 'number' || !Number.isFinite(region.dim)) return false
-  return region.dim >= 0 && region.dim <= 1
+  if (region.dim < 0 || region.dim > 1) return false
+  if (region.soften === undefined) return true
+  if (typeof region.soften !== 'number' || !Number.isFinite(region.soften)) return false
+  return region.soften >= 0 && region.soften <= MAX_SPOTLIGHT_SOFTEN
 }
 
 /** Whether every region is valid and no two share an id. */
@@ -160,6 +197,9 @@ export function areValidSpotlights(regions: readonly SpotlightRegion[]): boolean
 export function isAcceptableSpotlightInput(region: SpotlightRegion): boolean {
   if (!isAcceptableRegionBox(region)) return false
   if (typeof region.dim !== 'number' || !Number.isFinite(region.dim)) return false
+  if (region.soften !== undefined) {
+    if (typeof region.soften !== 'number' || !Number.isFinite(region.soften)) return false
+  }
   return isShape(region.shape)
 }
 
@@ -175,7 +215,12 @@ export function areAcceptableSpotlightInputs(regions: readonly SpotlightRegion[]
  * visible result is never stored two ways.
  */
 export function normalizeSpotlightRegion(region: SpotlightRegion): SpotlightRegion {
-  return { ...normalizeRegionBox(region), shape: region.shape, dim: clamp(region.dim, 0, 1) }
+  const base = { ...normalizeRegionBox(region), shape: region.shape, dim: clamp(region.dim, 0, 1) }
+  const soften = clamp(softenOf(region), 0, MAX_SPOTLIGHT_SOFTEN)
+  // A hard edge is stored as no key at all (#533), so a region that never
+  // asked for a soft edge is the same value — and the same bytes — it was
+  // under #532.
+  return soften > 0 ? { ...base, soften } : base
 }
 
 /**
@@ -214,7 +259,8 @@ export function spotlightsEqual(
       region.start === other.start &&
       region.end === other.end &&
       region.shape === other.shape &&
-      region.dim === other.dim
+      region.dim === other.dim &&
+      softenOf(region) === softenOf(other)
     )
   })
 }
@@ -294,6 +340,19 @@ export interface DrawSpotlightsOptions {
   sourceHeight: number
   /** Where the layer's picture was just drawn — `drawLayerSource`'s rect. */
   drawRect: RedactionRect
+  /**
+   * Injected for tests, as the export's own buffers are (#492); used only
+   * when a region has a soft edge (#533), so the hard-edge draw never asks
+   * for one.
+   */
+  createCanvas?: () => HTMLCanvasElement
+  /**
+   * Whether the context can blur. A soft edge needs the canvas `filter`;
+   * where it is missing the edge is drawn hard rather than the dim being
+   * skipped — a spotlight hides nothing, so a wrong-edged one is still the
+   * right picture, which is the opposite of redaction's call.
+   */
+  blurSupported?: boolean
 }
 
 /**
@@ -330,6 +389,18 @@ export function drawSpotlights(options: DrawSpotlightsOptions): void {
   if (lit.length === 0) return
   const dim = Math.max(...lit.map(({ region }) => region.dim))
   if (!(dim > 0)) return
+  // The soft path (#533) is taken only when a lit region asks for it, so
+  // with every soften at 0 — or absent — the operations below are #532's,
+  // one for one; `spotlight.test.ts` pins that by recording both.
+  if (lit.some(({ region }) => softenOf(region) > 0)) {
+    const mask = makeMask(options.createCanvas ?? (() => document.createElement('canvas')))
+    if (mask !== null) {
+      drawSoftSpotlights(context, lit, dim, drawRect, mask, options.blurSupported ?? true)
+      return
+    }
+    // A canvas that grants one 2d context and refuses another is not a
+    // real case; falling through draws the hard edge rather than nothing.
+  }
   const previousFilter = context.filter
   context.save()
   try {
@@ -347,6 +418,95 @@ export function drawSpotlights(options: DrawSpotlightsOptions): void {
     }
     context.fillStyle = `rgba(0, 0, 0, ${dim})`
     context.fillRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+  } finally {
+    context.restore()
+    context.filter = previousFilter
+  }
+}
+
+/** The largest side an edge mask is given, so a huge layer cannot ask for a huge buffer. */
+const MAX_MASK_SIDE = 4096
+
+interface Mask {
+  canvas: HTMLCanvasElement
+  context: CanvasRenderingContext2D
+}
+
+function makeMask(createCanvas: () => HTMLCanvasElement): Mask | null {
+  const canvas = createCanvas()
+  const context = canvas.getContext('2d')
+  if (context === null) return null
+  return { canvas, context }
+}
+
+/**
+ * The soft-edged dim (#533): built on an offscreen mask the size of the
+ * drawn picture, then drawn over it once.
+ *
+ * The mask is filled black at the strongest dim, and every lit region is
+ * erased from it — `destination-out`, so two overlapping regions erase
+ * their union exactly as two clips intersected to it — through a `blur()`
+ * whose radius is the region's `soften` as a fraction of the mask's shorter
+ * side. A fraction of the *drawn* picture rather than a pixel count is what
+ * makes the preview's card-sized canvas and the export's frame agree: the
+ * same region gets the same ramp relative to the picture on both. The
+ * region's positions inside the mask are fractions of `drawRect`, so a
+ * mirrored layer (negative extent) is handled by `drawImage` flipping the
+ * finished mask, and the picture's own transform carries it as it carries
+ * the picture. The blur's standard deviation is half the feather, so the
+ * visible ramp is about the width the field names.
+ */
+function drawSoftSpotlights(
+  context: CanvasRenderingContext2D,
+  lit: readonly { region: SpotlightRegion; dest: RedactionRect }[],
+  dim: number,
+  drawRect: RedactionRect,
+  mask: Mask,
+  blurSupported: boolean,
+): void {
+  const fit = Math.min(
+    1,
+    MAX_MASK_SIDE / Math.max(1, Math.abs(drawRect.width), Math.abs(drawRect.height)),
+  )
+  const width = Math.max(1, Math.round(Math.abs(drawRect.width) * fit))
+  const height = Math.max(1, Math.round(Math.abs(drawRect.height) * fit))
+  const { canvas, context: maskContext } = mask
+  if (canvas.width !== width) canvas.width = width
+  if (canvas.height !== height) canvas.height = height
+  maskContext.save()
+  try {
+    maskContext.globalCompositeOperation = 'source-over'
+    maskContext.filter = 'none'
+    maskContext.clearRect(0, 0, width, height)
+    maskContext.fillStyle = `rgba(0, 0, 0, ${dim})`
+    maskContext.fillRect(0, 0, width, height)
+    maskContext.globalCompositeOperation = 'destination-out'
+    maskContext.fillStyle = '#000'
+    for (const { region, dest } of lit) {
+      // Into the mask's own space: fractions of the draw rectangle, which
+      // are positive whichever way the layer is mirrored.
+      const hole = {
+        x: ((dest.x - drawRect.x) / drawRect.width) * width,
+        y: ((dest.y - drawRect.y) / drawRect.height) * height,
+        width: (dest.width / drawRect.width) * width,
+        height: (dest.height / drawRect.height) * height,
+      }
+      const feather = softenOf(region) * Math.min(width, height)
+      const radius = feather / 2
+      maskContext.filter = blurSupported && radius > 0 ? `blur(${radius}px)` : 'none'
+      maskContext.beginPath()
+      traceSpotlightShape(maskContext, region.shape, hole)
+      maskContext.fill()
+    }
+  } finally {
+    maskContext.restore()
+  }
+  const previousFilter = context.filter
+  context.save()
+  try {
+    // The dim is not part of the picture being graded (see the hard path).
+    context.filter = 'none'
+    context.drawImage(canvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
   } finally {
     context.restore()
     context.filter = previousFilter

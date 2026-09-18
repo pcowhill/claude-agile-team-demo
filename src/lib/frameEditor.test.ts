@@ -77,10 +77,15 @@ import {
   zoomIsFullAt,
   zoomRect,
   zoomRectAt,
+  spotlightFrameKey,
+  spotlightResultFrameKey,
+  spotlightResultTimeline,
+  spotlightSourceTimeline,
 } from './frameEditor'
 import { MIN_KEPT_FRACTION, cropsEqual, normalizeCrop } from './crop'
 import { DEFAULT_REGION_RECT, MIN_REGION_FRACTION } from './redaction'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
 import { DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
 import { DEFAULT_ZOOM, timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
@@ -1597,6 +1602,50 @@ describe('the redaction rectangle: a region on the source picture (#493)', () =>
       before,
     )
     expect(before.startsWith(redactionFrameKey(subject))).toBe(true)
+  })
+})
+
+describe('the spotlight editor’s stills (#533)', () => {
+  const region: SpotlightRegion = {
+    id: 'sp1',
+    ...DEFAULT_REGION_RECT,
+    start: 1,
+    end: 3,
+    shape: 'oval',
+    dim: 0.55,
+  }
+  const subject: CropSubject = {
+    id: 'e1',
+    clipId: 'clip-e1',
+    name: 'talk.mp4',
+    duration: 8,
+    url: 'blob:talk',
+    inPoint: 2,
+    outPoint: 6,
+    crop: { right: 0.2 },
+  }
+
+  it('shares the redaction editor’s picture, and lights the regions on the result still only', () => {
+    expect(spotlightSourceTimeline).toBe(redactionSourceTimeline)
+    const still = spotlightSourceTimeline({ ...subject, spotlights: [region] } as CropSubject)
+    expect(still.entries[0].spotlights).toBeUndefined()
+    expect(still.entries[0].inPoint).toBe(0)
+    expect(still.entries[0].outPoint).toBe(8)
+    const result = spotlightResultTimeline(subject, [region])
+    expect(result.entries[0].spotlights).toEqual([region])
+    expect(result.entries[0].crop).toBeUndefined()
+    expect(spotlightResultTimeline(subject, []).entries[0].spotlights).toBeUndefined()
+  })
+
+  it('keys the editing still on the element only, and the result still on every region value, the soft edge included', () => {
+    expect(spotlightFrameKey(subject)).toBe(`${cropFrameKey(subject)}#spotlight`)
+    expect(spotlightFrameKey(subject)).not.toBe(redactionFrameKey(subject))
+    const before = spotlightResultFrameKey(subject, [region])
+    expect(spotlightResultFrameKey(subject, [{ ...region, shape: 'rectangle' }])).not.toBe(before)
+    expect(spotlightResultFrameKey(subject, [{ ...region, dim: 0.3 }])).not.toBe(before)
+    expect(spotlightResultFrameKey(subject, [{ ...region, soften: 0.2 }])).not.toBe(before)
+    expect(spotlightResultFrameKey(subject, [{ ...region, left: 0.2 }])).not.toBe(before)
+    expect(before.startsWith(spotlightFrameKey(subject))).toBe(true)
   })
 })
 

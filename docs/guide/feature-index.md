@@ -15,7 +15,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **↑ (move up)** — a row's main line; moves the element up within its section. [Timeline › A row](timeline.md#a-row)
 - **↑ / ↓** — jumps the playhead to the previous or next cut, transition edge or chapter marker. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
 - **↓ (move down)** — a row's main line; moves the element down within its section. [Timeline › A row](timeline.md#a-row)
-- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold or the redaction region’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
+- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold or a redaction or spotlight region’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
 - **⇤ Mark out** — the preview transport; marks the export range's end at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⇥ Mark in** — the preview transport; marks the export range's start at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⋯ menu** — a timeline row's main line, and a media library row. [Timeline › The ⋯ menu](timeline.md#the-menu) · [Media library › The ⋯ menu](media-library.md#the-menu)
@@ -38,7 +38,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add as overlay** — a media library row's ⋯ menu. [Media library › The ⋯ menu](media-library.md#the-menu)
 - **Add chapter marker at playhead** — Frame ▾. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
-- **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields and a redaction region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
+- **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Audio fade-out** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
@@ -183,7 +183,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
-- **Preview** — the slider under a visual editor’s still; scrubs the zoom’s envelope or the redaction region’s window. [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
+- **Preview** — the slider under a visual editor’s still; scrubs the zoom’s envelope or a redaction or spotlight region’s window. [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
 
 ## R
 
@@ -245,6 +245,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Spotlight region height** — a spotlight region; its height, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region left** — a spotlight region; its left edge, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region shape** — a spotlight region; Rectangle or Oval. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
+- **Spotlight region soften** — a spotlight region; how wide the edge's ramp is, in percent of the picture's shorter side; 0 is a hard edge. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region start** — a spotlight region; where its window begins, in seconds into the source. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region top** — a spotlight region; its top edge, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region width** — a spotlight region; its width, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)

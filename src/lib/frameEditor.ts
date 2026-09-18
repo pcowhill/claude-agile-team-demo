@@ -4,6 +4,7 @@ import { textCanvasFont } from './exportVideo'
 import type { Orientation } from './orientation'
 import { MIN_REGION_FRACTION, MIN_WINDOW_SECONDS } from './redaction'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
 import { sequenceTimeAt } from './playback'
 import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
@@ -1383,6 +1384,74 @@ export function redactionResultFrameKey(
     )
     .join(';')
   return `${redactionFrameKey(subject)}:result:${drawn}`
+}
+
+/**
+ * ── Spotlight: the same rectangle, lit instead of hidden (#533) ──────────
+ *
+ * A spotlight region (`spotlight.ts`) stores the rectangle a redaction
+ * region stores — the same four source fractions, the same window in source
+ * seconds (#532 built it on `RegionBox` for exactly this reason) — so the
+ * editor is the redaction editor's geometry with nothing re-derived:
+ * `redactionRect`, `regionFromRect`, `redactionAfterGesture`,
+ * `redactionAfterKeyStep`, `REDACTION_HANDLES`, `redactionWindow` and
+ * `redactionWindowMidpoint` all take the rectangle or the window and never
+ * the style, and `redactionSourceTimeline` is the picture. What is the
+ * spotlight's own is the result still and its key, because the values that
+ * make the picture differ: a shape, a dim and a soft edge rather than a
+ * style. `spotlightSourceTimeline` is exported under its own name so the
+ * component reads in the feature's terms, as `spotlightRects` does.
+ */
+
+/** The picture a spotlight is placed on: the redaction editor's, exactly. */
+export const spotlightSourceTimeline = redactionSourceTimeline
+
+/**
+ * The still for **Show result**: the same picture with every spotlight on
+ * the element drawn through `drawSpotlights` — the export's own painter,
+ * since the snapshot is the export's own composer — so the dim, the shape
+ * and the soft edge shown are the ones shipped. All regions, because the
+ * union is what the viewer gets.
+ */
+export function spotlightResultTimeline(
+  subject: CropSubject,
+  regions: readonly SpotlightRegion[],
+): TimelineState {
+  const base = spotlightSourceTimeline(subject)
+  const [entry] = base.entries
+  if (entry === undefined || regions.length === 0) return base
+  return { ...base, entries: [{ ...entry, spotlights: [...regions] }] }
+}
+
+/** The editing still's cache key: the crop editor's, under this editor's name. */
+export function spotlightFrameKey(subject: CropSubject): string {
+  return `${cropFrameKey(subject)}#spotlight`
+}
+
+/**
+ * The result still's cache key: the editing key plus every region's stored
+ * values, the soft edge included — there the regions *are* the picture.
+ */
+export function spotlightResultFrameKey(
+  subject: CropSubject,
+  regions: readonly SpotlightRegion[],
+): string {
+  const drawn = regions
+    .map((region) =>
+      [
+        region.left,
+        region.top,
+        region.width,
+        region.height,
+        region.start,
+        region.end,
+        region.shape,
+        region.dim,
+        region.soften ?? '',
+      ].join(','),
+    )
+    .join(';')
+  return `${spotlightFrameKey(subject)}:result:${drawn}`
 }
 
 /**

@@ -1053,6 +1053,8 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             sourceWidth: layer.sourceWidth,
             sourceHeight: layer.sourceHeight,
             drawRect,
+            createCanvas,
+            blurSupported: redactionBlurSupported(),
           })
           // Redactions (#492) paint over the picture inside the same
           // orientation transform and the same colour filter, so they ride
@@ -1228,6 +1230,8 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               sourceWidth: overlay.layer.sourceWidth,
               sourceHeight: overlay.layer.sourceHeight,
               drawRect,
+              createCanvas,
+              blurSupported: redactionBlurSupported(),
             })
             drawRedactions({
               context,
@@ -1322,6 +1326,8 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
                 sourceWidth: picture.width,
                 sourceHeight: picture.height,
                 drawRect,
+                createCanvas,
+                blurSupported: redactionBlurSupported(),
               })
               drawRedactions({
                 context: target,

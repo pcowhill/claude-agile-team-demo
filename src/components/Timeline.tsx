@@ -40,6 +40,8 @@ import {
   DEFAULT_SPOTLIGHT_DIM,
   DEFAULT_SPOTLIGHT_RECT,
   DEFAULT_SPOTLIGHT_SHAPE,
+  MAX_SPOTLIGHT_SOFTEN,
+  softenOf,
 } from '../lib/spotlight'
 import type { ShapeMask, ShapeMaskInput } from '../lib/shapeMask'
 import {
@@ -92,6 +94,7 @@ import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CropEditor } from './CropEditor'
 import { RedactionEditor } from './RedactionEditor'
+import { SpotlightEditor } from './SpotlightEditor'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
@@ -986,6 +989,14 @@ interface SpotlightControlsProps {
   /** The accessible name of the row's owner. */
   position: string
   regions: readonly SpotlightRegion[] | undefined
+  /**
+   * The element the regions sit on, for the visual editor's still (#533) —
+   * an entry or a video overlay, which carry the same source description
+   * under the same names (`CropSubject`).
+   */
+  subject: CropSubject
+  /** Whether the Visual editors setting offers `Adjust visually…` (#413). */
+  visualEditors: boolean
   /** The element's trim, which a fresh region's window defaults to (#532). */
   inPoint: number
   outPoint: number
@@ -1008,18 +1019,25 @@ interface SpotlightControlsProps {
  * Shape, which changes only the drawn edge, and Dim, which is the one
  * number saying how far the outside drops.
  *
- * There is no `Adjust visually…` here: the visual editor is #533, exactly
- * as #493 followed #492 rather than shipping with it.
+ * `Adjust visually…` (#533) opens the spotlight editor under the region's
+ * rows, exactly as #493 followed #492; **soften** (#533) is the width of
+ * the edge's ramp, a percent of the picture's shorter side, off at 0.
  */
 function SpotlightControls({
   position,
   regions,
+  subject,
+  visualEditors,
   inPoint,
   outPoint,
   duration,
   onCommit,
 }: SpotlightControlsProps) {
   const list = regions ?? []
+  // Which region's visual editor is open (#533), by the region's stable id
+  // so a Remove above it does not shift the panel onto a neighbour. One at
+  // a time, as the other editors are: the button is a toggle.
+  const [editingId, setEditingId] = useState<string | null>(null)
   const percent = (value: number) => value * 100
   const replace = (index: number, change: Partial<SpotlightRegion>) => {
     onCommit(list.map((region, at) => (at === index ? { ...region, ...change } : region)))
@@ -1139,6 +1157,17 @@ function SpotlightControls({
                 onCommit={(value) => replace(index, { dim: value / 100 })}
               />
               <span>%</span>
+              <span>soften</span>
+              <SecondsField
+                label={`${which} soften of ${position} (percent)`}
+                value={percent(softenOf(region))}
+                min={0}
+                max={percent(MAX_SPOTLIGHT_SOFTEN)}
+                step={1}
+                slider
+                onCommit={(value) => replace(index, { soften: value / 100 })}
+              />
+              <span>%</span>
               <button
                 type="button"
                 aria-label={`Remove ${which.toLowerCase()} of ${position}`}
@@ -1146,11 +1175,37 @@ function SpotlightControls({
               >
                 Remove
               </button>
+              {visualEditors && (
+                // A toggle, so the same button closes what it opened — the
+                // zoom's rule (#413); the editor draws under this region's
+                // rows (#533).
+                <button
+                  type="button"
+                  className="timeline-adjust-button"
+                  aria-label={`Adjust ${which} of ${position} visually`}
+                  aria-expanded={editingId === region.id}
+                  title="Drag the region on a still of the source"
+                  onClick={() => setEditingId(editingId === region.id ? null : region.id)}
+                >
+                  Adjust visually…
+                </button>
+              )}
             </div>
             <p className="timeline-hint">
               An oval fills the same box — a square area draws a circle. Overlapping regions stay
-              bright together.
+              bright together. Soften widens the edge into a gradient; 0 is a hard edge.
             </p>
+            {visualEditors && editingId === region.id && (
+              <SpotlightEditor
+                subject={subject}
+                regions={list}
+                index={index}
+                regionName={which}
+                position={position}
+                onCommit={onCommit}
+                onClose={() => setEditingId(null)}
+              />
+            )}
           </div>
         )
       })}
@@ -2446,6 +2501,8 @@ export function Timeline({
                         <SpotlightControls
                           position={position}
                           regions={entry.spotlights}
+                          subject={entry}
+                          visualEditors={visualEditors}
                           inPoint={entry.inPoint}
                           outPoint={entry.outPoint}
                           duration={entry.duration}
@@ -3257,6 +3314,8 @@ export function Timeline({
                         <SpotlightControls
                           position={position}
                           regions={overlay.spotlights}
+                          subject={overlay}
+                          visualEditors={visualEditors}
                           inPoint={overlay.inPoint}
                           outPoint={overlay.outPoint}
                           duration={overlay.duration}
