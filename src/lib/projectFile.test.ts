@@ -22,6 +22,10 @@ import fixtureV15ShapeMaskReferencesBase64 from './fixtures/project-v15-shape-ma
 import fixtureV16CanvasPresetReferencesBase64 from './fixtures/project-v16-canvas-preset-references.bvep.base64?raw'
 import fixtureV17ImageOverlayReferencesBase64 from './fixtures/project-v17-image-overlay-references.bvep.base64?raw'
 import fixtureV18RenamedClipReferencesBase64 from './fixtures/project-v18-renamed-clip-references.bvep.base64?raw'
+import fixtureV19MarkersReferencesBase64 from './fixtures/project-v19-markers-references.bvep.base64?raw'
+import fixtureV20RedactionReferencesBase64 from './fixtures/project-v20-redaction-references.bvep.base64?raw'
+import fixtureV21SpotlightReferencesBase64 from './fixtures/project-v21-spotlight-references.bvep.base64?raw'
+import fixtureV22SoftSpotlightReferencesBase64 from './fixtures/project-v22-soft-spotlight-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -3693,6 +3697,21 @@ describe('chapter markers in project files (#487, schema version 19)', () => {
       'timeline.markers[1].id "m" is duplicated',
     )
   })
+
+  it('deserializes the committed v19 markers fixture', async () => {
+    // The never-rewrite contract, as for every fixture before it. Generated
+    // from the current build (#544) — the #487 build that wrote version 19
+    // is gone — so it pins the reader against bytes that cannot drift with
+    // the writer from here on, which is the property worth having.
+    const bytes = Uint8Array.from(atob(fixtureV19MarkersReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: { clips: expectedProject.clips, timeline: { ...expectedProject.timeline, markers } },
+    })
+  })
 })
 
 // Redaction regions (#492, schema version 20). The rules every optional
@@ -3906,6 +3925,30 @@ describe('redaction regions in project files (#492, schema version 20)', () => {
     document.schemaVersion = REDACTION_SCHEMA_VERSION
     ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].redactions = []
     await expectRefusal(await gzipJson(document), 'timeline.entries[0].redactions')
+  })
+
+  it('deserializes the committed v20 redaction fixture, one region of each style', async () => {
+    // The never-rewrite contract, as for every fixture before it. Generated
+    // from the current build (#544), like the v19 one: the #492 build is
+    // gone. All three styles with their parameters — the colour, the block
+    // size, the strength — since each is the field the reader checks by name.
+    const bytes = Uint8Array.from(atob(fixtureV20RedactionReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          ...expectedProject.timeline,
+          entries: [
+            { ...expectedProject.timeline.entries[0], redactions: [solid, pixelated, blurred] },
+            ...expectedProject.timeline.entries.slice(1),
+          ],
+        },
+      },
+    })
   })
 })
 
@@ -4176,6 +4219,108 @@ describe('spotlight regions in project files (#532, schema version 21)', () => {
     document.schemaVersion = SPOTLIGHT_SCHEMA_VERSION
     ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].spotlights = []
     await expectRefusal(await gzipJson(document), 'timeline.entries[0].spotlights')
+  })
+
+  it('deserializes the committed v21 spotlight fixture, a rectangle and an oval', async () => {
+    // The never-rewrite contract, as for every fixture before it. Generated
+    // from the current build (#544), like the v19 and v20 ones: the #532
+    // build is gone. Both shapes with their dims, hard-edged, so the file
+    // is one a #532 build wrote — no `soften` key anywhere in it.
+    const bytes = Uint8Array.from(atob(fixtureV21SpotlightReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          ...expectedProject.timeline,
+          entries: [
+            { ...expectedProject.timeline.entries[0], spotlights: [rectangle, oval] },
+            ...expectedProject.timeline.entries.slice(1),
+          ],
+        },
+      },
+    })
+  })
+
+  it('deserializes the committed v22 soft-spotlight fixture (#533)', async () => {
+    // The never-rewrite contract. Generated from the build that introduced
+    // the version, for once (#544 was fixed in the same period as #533).
+    // The one thing version 22 records is a `soften` above 0, so that is
+    // what the fixture holds: the rectangle softened, the oval hard.
+    const bytes = Uint8Array.from(atob(fixtureV22SoftSpotlightReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: {
+          ...expectedProject.timeline,
+          entries: [
+            {
+              ...expectedProject.timeline.entries[0],
+              spotlights: [{ ...rectangle, soften: 0.2 }, oval],
+            },
+            ...expectedProject.timeline.entries.slice(1),
+          ],
+        },
+      },
+    })
+  })
+})
+
+// Every shipped schema version keeps a fixture (#544). `projectFile.ts` has
+// promised this in its module comment since #71, and versions 19, 20 and 21
+// each shipped without one — every PR noticed, said so, and the fixture still
+// did not get written, because a sentence nothing checks is not a gate. So
+// the promise is a test: the fixture directory is enumerated, every version
+// from 1 to `PROJECT_SCHEMA_VERSION` must have a file, every file must open,
+// and each must hold the version its name claims. The version that ships
+// without its fixture now fails here, by number, rather than being noticed
+// by a later reader of the comment. Sits before the file's last `describe`
+// so a later block appended there does not collide with it (development.md).
+describe('every shipped schema version keeps a fixture (#544)', () => {
+  // Vite's glob import, so a new fixture is picked up by being committed —
+  // there is no list here to forget to extend.
+  const fixtures = import.meta.glob('./fixtures/project-v*.bvep.base64', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>
+  const versionOf = (path: string): number => Number(/project-v(\d+)/.exec(path)![1])
+  const bytesOf = (base64: string): Uint8Array<ArrayBuffer> =>
+    Uint8Array.from(atob(base64.trim()), (char) => char.charCodeAt(0))
+
+  it('has a fixture for every version from 1 to PROJECT_SCHEMA_VERSION', () => {
+    const present = new Set(Object.keys(fixtures).map(versionOf))
+    const missing = Array.from({ length: PROJECT_SCHEMA_VERSION }, (_, index) => index + 1).filter(
+      (version) => !present.has(version),
+    )
+    expect(
+      missing,
+      `schema version${missing.length === 1 ? '' : 's'} ${missing.join(', ')} ` +
+        `ship${missing.length === 1 ? 's' : ''} without a fixture under src/lib/fixtures/ — every shipped version keeps one ` +
+        '(projectFile.ts, #71, #544): serialize a project that forces the version and commit ' +
+        'its base64 as project-v<N>-<what>.bvep.base64',
+    ).toEqual([])
+  })
+
+  it('opens every committed fixture, and each holds the version its name claims', async () => {
+    expect(Object.keys(fixtures).length).toBeGreaterThan(0)
+    for (const [path, base64] of Object.entries(fixtures)) {
+      const bytes = bytesOf(base64)
+      const result = await deserializeProject(bytes)
+      expect(result.ok, `${path}: ${result.ok ? 'opens' : result.error}`).toBe(true)
+      // A fixture misnamed for its version would satisfy the count above
+      // while pinning nothing about the version it is named for.
+      expect((await gunzipJson(bytes)).schemaVersion, `${path} holds the version its name says`).toBe(
+        versionOf(path),
+      )
+    }
   })
 })
 

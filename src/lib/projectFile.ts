@@ -248,7 +248,10 @@ import { isCanvasPreset } from './frameSize'
  * ignored, so additive evolution does not need a version bump. Every
  * shipped version keeps a fixture under `src/lib/fixtures/` that the test
  * suite must always deserialize — that is what makes "older saved files
- * still open" (#71) checkable forever.
+ * still open" (#71) checkable forever. `projectFile.test.ts` enumerates
+ * that directory and fails, naming the version, when any version up to
+ * `PROJECT_SCHEMA_VERSION` has no fixture (#544: three versions shipped
+ * without one while this was only a sentence).
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
