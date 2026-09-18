@@ -37,18 +37,45 @@ async function boxOf(locator: Locator, what: string) {
  * excludes the vertical scrollbar, which is the width content actually has
  * to fit into. Using `innerWidth` would let an overflow narrower than the
  * scrollbar pass unnoticed.
+ *
+ * **The editor column is measured too (#534).** #524 made `.app-main` its
+ * own scroll container, and a box with `overflow-y: auto` computes
+ * `overflow-x` to `auto` as well — so a panel wider than the column now
+ * scrolls *the column* sideways while the page reads zero. Measured at
+ * 360×640 with three slates on the timeline: page overflow 0, column
+ * overflow 133px, every panel 109px past the column's right edge. The
+ * page-level check above had quietly stopped covering the editor, the same
+ * shape as #524 itself (a horizontal assertion and no vertical one). So the
+ * one shared assertion measures whichever box actually scrolls: the page,
+ * and the column when it exists. Callers change nothing.
+ *
+ * The column's 1px tolerance is the vertical twin's: `scrollWidth` is an
+ * integer and a sub-pixel content edge rounds up, so an exact comparison
+ * rejects a column that fits. A real over-run is a panel — the 109px above.
  */
 export async function expectNoHorizontalScroll(page: Page, when = ''): Promise<void> {
-  const { scrollWidth, clientWidth, innerWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-    innerWidth: window.innerWidth,
-  }))
+  const { scrollWidth, clientWidth, innerWidth, column } = await page.evaluate(() => {
+    const main = document.querySelector('main')
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      innerWidth: window.innerWidth,
+      column:
+        main === null ? null : { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+    }
+  })
+  const where = `at a ${innerWidth}px viewport${when ? ` (${when})` : ''}`
   expect(
     scrollWidth,
-    `page scrollWidth ${scrollWidth}px exceeds clientWidth ${clientWidth}px ` +
-      `at a ${innerWidth}px viewport${when ? ` (${when})` : ''}`,
+    `page scrollWidth ${scrollWidth}px exceeds clientWidth ${clientWidth}px ${where}`,
   ).toBeLessThanOrEqual(clientWidth)
+  if (column !== null) {
+    expect(
+      column.scrollWidth,
+      `the editor column's scrollWidth ${column.scrollWidth}px exceeds its clientWidth ` +
+        `${column.clientWidth}px ${where} — a panel is wider than the column (#534)`,
+    ).toBeLessThanOrEqual(column.clientWidth + 1)
+  }
 }
 
 /**
