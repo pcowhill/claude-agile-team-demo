@@ -986,6 +986,87 @@ describe('Each chapter export (#529)', () => {
     const results = screen.getByTestId('export-chapter-results')
     expect(within(results).getByRole('heading', { name: 'Exported 1 file' })).toBeInTheDocument()
   })
+
+  /** A finished per-chapter run, its completion list showing, dialog still open. */
+  const finishedChapterRun = async (
+    user: ReturnType<typeof userEvent.setup>,
+    resolvers: ((blob: Blob) => void)[],
+  ) => {
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    for (let index = 0; index < 3; index += 1) {
+      await waitFor(() => expect(resolvers.length).toBeGreaterThan(index))
+      await finish(resolvers[index])
+    }
+    await screen.findByTestId('export-chapter-results')
+  }
+
+  it('clears the completion list when another export starts from the same open dialog (#541)', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const { doExport, resolvers } = deferredExport()
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await finishedChapterRun(user, resolvers)
+
+    // Whole project from the same open dialog: the moment its progress is
+    // up, the previous run's list is gone — not sitting finished-looking
+    // under a bar that has not finished.
+    await user.click(screen.getByTestId('export-scope-whole'))
+    await user.click(exportButton())
+    expect(await screen.findByTestId('export-progress-text')).toBeInTheDocument()
+    expect(screen.queryByTestId('export-chapter-results')).not.toBeInTheDocument()
+    expect(doExport).toHaveBeenCalledTimes(4)
+    await finish(resolvers[3])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('shows a failed second export with no completion list under it (#541)', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const resolvers: ((blob: Blob) => void)[] = []
+    let call = 0
+    const doExport = vi.fn<DoExport>(() => {
+      call += 1
+      // The three chapters are resolved by hand; the fourth call — the
+      // single export started afterwards — fails.
+      return call === 4
+        ? Promise.reject(new Error('The encoder gave up.'))
+        : new Promise<Blob>((resolve) => resolvers.push(resolve))
+    })
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await finishedChapterRun(user, resolvers)
+
+    await user.click(screen.getByTestId('export-scope-whole'))
+    await user.click(exportButton())
+    expect(await screen.findByRole('alert')).toHaveTextContent('The encoder gave up.')
+    expect(screen.queryByTestId('export-chapter-results')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
+  })
+
+  it('says "1 file" when the markers make one chapter, and "files" otherwise (#541)', async () => {
+    const user = userEvent.setup()
+    // A single marker inside the first second floors to 0:00, gets no Intro,
+    // and makes exactly one span (#529's own tested case).
+    const oneChapter: TimelineState = {
+      ...timeline,
+      markers: [{ id: 'm1', time: 0, name: 'Everything' }],
+    }
+    const { unmount } = render(
+      <ExportControl timeline={oneChapter} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    expect(screen.getByText('Each chapter (1 file)')).toBeInTheDocument()
+    unmount()
+
+    render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(screen.getByText('Each chapter (3 files)')).toBeInTheDocument()
+  })
 })
 
 describe('format-note layout structure (#268)', () => {
