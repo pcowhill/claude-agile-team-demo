@@ -114,6 +114,14 @@ test('a volume slider drag commits the value its number field then shows, in one
   // the field reads exactly that: a step of the field's own 0.05 grid,
   // strictly between the ends.
   await dragSliderTo(page, volume, 0.25)
+  // The value the thumb reached is not known in advance, so it cannot be
+  // asserted with a retrying matcher directly — but the drag has committed
+  // once the field has left the '1' it was just undone back to, and only
+  // then is a one-shot read of that render safe (quality-and-ci.md, #449).
+  // `mouse.up` resolves when the event is dispatched, not when React has
+  // committed; read bare, this line read the previous render's 1 in CI
+  // (#552).
+  await expect(field).not.toHaveValue('1')
   const landed = Number(await field.inputValue())
   expect(landed, `the drag committed ${landed}, not a middle value`).toBeGreaterThan(0)
   expect(landed).toBeLessThan(1)
