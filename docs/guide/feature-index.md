@@ -53,7 +53,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## C
 
-- **Cancel** — the export dialog; closes it without exporting. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
+- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
 - **Centre X** — an expanded text row; the block's centre across the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Centre Y** — an expanded text row; the block's centre down the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
@@ -113,7 +113,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Export Project…** — the header. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
 - **Export size preset** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export width** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
-- **Exported chapters** — the export dialog, after an Each chapter run; the list of files it wrote, with each one's number, name, filename and length. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
+- **Exported chapters** — the export dialog, after an Each chapter run has finished or stopped; the list of files it wrote, with each one's number, name, filename and length. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Extract audio** — a media library row's ⋯ menu. [Audio › Extract audio](audio.md#extract-audio)
 
 ## F
@@ -213,6 +213,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Reset default subtitle style** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Reset orientation** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Restore size** — the preview header, once expanded; gives the width back. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
+- **Resume from chapter N** — the export dialog, once an Each chapter run has stopped early; carries on from that chapter with the run's own settings, writing only the files still missing. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Resume recording** — the recording dialog, while paused; carries on into the same clip. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Review speed** — the preview transport; how fast the preview plays, at 0.5×, 1×, 1.5× or 2×. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **Rotate** — an expanded video or image row › Picture ▸; each press turns the source 90°. [Editing video › Orientation](editing-video.md#orientation)

@@ -935,7 +935,7 @@ describe('Each chapter export (#529)', () => {
     expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
   })
 
-  it('stops between chapters when cancelled, keeping the files already saved', async () => {
+  it('stops between chapters when cancelled, keeping the files already saved and the dialog open on where it stopped (#530)', async () => {
     const user = userEvent.setup()
     const names = captureDownloads()
     const { doExport, resolvers } = deferredExport()
@@ -955,13 +955,60 @@ describe('Each chapter export (#529)', () => {
 
     await waitFor(() => expect(names).toEqual(['01 Intro.webm']))
     expect(doExport).toHaveBeenCalledTimes(1)
+
+    // The dialog stays (#530): which chapter it stopped at and why, the file
+    // that did land, and the offer to carry on. A cancel is the user's own
+    // doing, so the line is status rather than an alert.
+    const dialog = screen.getByRole('dialog', { name: 'Export project' })
+    const results = within(dialog).getByTestId('export-chapter-results')
+    expect(
+      within(results).getByRole('heading', { name: 'Exported 1 of 3 files' }),
+    ).toBeInTheDocument()
+    const stopped = screen.getByTestId('export-chapter-stopped')
+    expect(stopped).toHaveTextContent('Stopped at chapter 2 of 3: First look — cancelled.')
+    expect(stopped).toHaveAttribute('role', 'status')
+    expect(within(results).getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Resume from chapter 2' })).toBeEnabled()
+    expect(screen.getByTestId('export-chapter-resume-note')).toHaveTextContent(
+      'Resume from chapter 2 writes the 2 files still missing',
+    )
+    expect(exportButton()).toBeEnabled()
+
+    // Cancel on the stopped dialog closes it, as it always closed an idle one.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
-    // And a second export can start: the dialog reopens on Whole project.
+    // And a second export can start: the dialog reopens on Whole project,
+    // with no stopped run to resume — the offer lives in the open dialog.
     await user.click(openButton())
     expect(screen.getByTestId('export-scope-whole')).toBeChecked()
     expect(screen.queryByTestId('export-chapter-results')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Resume from chapter/ })).not.toBeInTheDocument()
     expect(exportButton()).toBeEnabled()
+  })
+
+  it('Escape during a run stops it the way Cancel does, and leaves the dialog open (#530)', async () => {
+    // The Escape listener is registered once per open; had it captured the
+    // cancel of the render it opened on, Escape mid-run would close the
+    // dialog and lose the stopped state. This is the test that fails then.
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    const { doExport, resolvers } = deferredExport()
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    await waitFor(() => expect(doExport).toHaveBeenCalledTimes(1))
+    await user.keyboard('{Escape}')
+    await finish(resolvers[0])
+    await waitFor(() => expect(names).toEqual(['01 Intro.webm']))
+    expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Resume from chapter 2' })).toBeInTheDocument()
+    // Escape on the stopped dialog closes it.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('reports the files that were written when a chapter fails', async () => {
@@ -981,10 +1028,20 @@ describe('Each chapter export (#529)', () => {
     await user.click(chapterRadio())
     await user.click(exportButton())
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The encoder gave up.')
+    // The reason is an alert, as a single export's failure is, and it names
+    // the chapter that did not get written (#530).
+    const stopped = await screen.findByRole('alert')
+    expect(stopped).toHaveTextContent('Stopped at chapter 2 of 3: First look — The encoder gave up.')
+    expect(stopped).toHaveAttribute('data-testid', 'export-chapter-stopped')
     expect(names).toEqual(['01 Intro.webm'])
     const results = screen.getByTestId('export-chapter-results')
-    expect(within(results).getByRole('heading', { name: 'Exported 1 file' })).toBeInTheDocument()
+    expect(
+      within(results).getByRole('heading', { name: 'Exported 1 of 3 files' }),
+    ).toBeInTheDocument()
+    expect(within(results).getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Resume from chapter 2' })).toBeEnabled()
+    // The dialog stays up on the stopped state, as it does on a finished one.
+    expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
   })
 
   /** A finished per-chapter run, its completion list showing, dialog still open. */
@@ -1066,6 +1123,169 @@ describe('Each chapter export (#529)', () => {
     render(<ExportControl timeline={marked} isTypeSupported={recordsEverything} />)
     await user.click(openButton())
     expect(screen.getByText('Each chapter (3 files)')).toBeInTheDocument()
+  })
+
+  // Resuming a stopped run (#530, the second half of the approved #523).
+
+  /** A doExport whose second call fails, so the run stops at chapter 2 with one file written. */
+  const failingSecondChapter = () => {
+    let call = 0
+    return vi.fn<DoExport>(() => {
+      call += 1
+      return call === 2
+        ? Promise.reject(new Error('The encoder gave up.'))
+        : Promise.resolve(new Blob(['chapter']))
+    })
+  }
+
+  it('Resume from chapter N writes only the missing chapters, with the settings the run started with, and the list then names them all (#530)', async () => {
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    const doExport = failingSecondChapter()
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.selectOptions(screen.getByLabelText('Export size preset'), 'hd')
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    const resume = await screen.findByRole('button', { name: 'Resume from chapter 2' })
+    expect(names).toEqual(['01 Intro.webm'])
+
+    // The dialog's controls move on; the run's settings must not. A resumed
+    // chapter recorded at the size the picker now shows would be the one
+    // file in the set that differs from its neighbours.
+    await user.selectOptions(screen.getByLabelText('Export size preset'), 'fullhd')
+    await user.click(resume)
+
+    await waitFor(() => expect(doExport).toHaveBeenCalledTimes(4))
+    const hd = { width: 1280, height: 720 }
+    // Calls 3 and 4 are the two spans the first run did not write — chapter
+    // 1 is not re-exported — at the frame the run started with.
+    expect(doExport.mock.calls.slice(2).map((call) => call[1].range)).toEqual([SPANS[1], SPANS[2]])
+    expect(doExport.mock.calls.slice(2).map((call) => call[1].frame)).toEqual([hd, hd])
+    await waitFor(() =>
+      expect(names).toEqual(['01 Intro.webm', '02 First look.webm', '03 The demo.webm']),
+    )
+
+    // The list is the whole set, in order, and reads as a finished run.
+    const results = await screen.findByTestId('export-chapter-results')
+    await waitFor(() =>
+      expect(within(results).getByRole('heading', { name: 'Exported 3 files' })).toBeInTheDocument(),
+    )
+    const rows = within(results).getAllByRole('listitem')
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('1. Intro'),
+      expect.stringContaining('2. First look'),
+      expect.stringContaining('3. The demo'),
+    ])
+    expect(rows[1]).toHaveTextContent('02 First look.webm')
+    expect(screen.queryByTestId('export-chapter-stopped')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Resume from chapter/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Export project' })).toBeInTheDocument()
+  })
+
+  it('Cancel during a resumed run stops it as it stops a first run, and the list keeps accumulating (#530)', async () => {
+    const user = userEvent.setup()
+    const names = captureDownloads()
+    // Honours the abort, as the real pipeline does: a cancelled chapter
+    // rejects with ExportCanceledError rather than finishing.
+    const resolvers: ((blob: Blob) => void)[] = []
+    const doExport = vi.fn<DoExport>(
+      (_timeline, options) =>
+        new Promise<Blob>((resolve, reject) => {
+          options.signal?.addEventListener('abort', () => reject(new ExportCanceledError()))
+          resolvers.push(resolve)
+        }),
+    )
+    render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    await waitFor(() => expect(resolvers.length).toBe(1))
+    await finish(resolvers[0])
+    await waitFor(() => expect(resolvers.length).toBe(2))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const firstResume = await screen.findByRole('button', { name: 'Resume from chapter 2' })
+    expect(names).toEqual(['01 Intro.webm'])
+
+    // Resume, let chapter 2 land, cancel inside chapter 3: stopped again,
+    // one chapter further on, with both files listed.
+    await user.click(firstResume)
+    await waitFor(() => expect(resolvers.length).toBe(3))
+    await finish(resolvers[2])
+    await waitFor(() => expect(resolvers.length).toBe(4))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const secondResume = await screen.findByRole('button', { name: 'Resume from chapter 3' })
+    expect(screen.getByTestId('export-chapter-stopped')).toHaveTextContent(
+      'Stopped at chapter 3 of 3: The demo — cancelled.',
+    )
+    const results = screen.getByTestId('export-chapter-results')
+    expect(
+      within(results).getByRole('heading', { name: 'Exported 2 of 3 files' }),
+    ).toBeInTheDocument()
+    expect(within(results).getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByTestId('export-chapter-resume-note')).toHaveTextContent(
+      'writes the one file still missing',
+    )
+    expect(names).toEqual(['01 Intro.webm', '02 First look.webm'])
+
+    // And a second resume finishes the set. The block is re-queried: a run
+    // in flight unmounts it, and the finished one is a new element.
+    await user.click(secondResume)
+    await waitFor(() => expect(resolvers.length).toBe(5))
+    await finish(resolvers[4])
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('export-chapter-results')).getByRole('heading', {
+          name: 'Exported 3 files',
+        }),
+      ).toBeInTheDocument(),
+    )
+    expect(names).toEqual(['01 Intro.webm', '02 First look.webm', '03 The demo.webm'])
+    expect(doExport).toHaveBeenCalledTimes(5)
+  })
+
+  it('withdraws the offer when the project changes while the dialog is open, and says so (#530)', async () => {
+    const user = userEvent.setup()
+    captureDownloads()
+    const doExport = failingSecondChapter()
+    const { rerender } = render(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    await user.click(openButton())
+    await user.click(chapterRadio())
+    await user.click(exportButton())
+    await screen.findByRole('button', { name: 'Resume from chapter 2' })
+
+    // The dialog is modal, but Ctrl/Cmd+Z still reaches the reducer while it
+    // is open (App.tsx), so the timeline can change underneath a stopped
+    // run. A new timeline object is what an edit produces.
+    rerender(
+      <ExportControl
+        timeline={{ ...marked, markers: [...marked.markers!, { id: 'm3', time: 8, name: 'Outro' }] }}
+        doExport={doExport}
+        isTypeSupported={recordsEverything}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /^Resume from chapter/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('export-chapter-resume-withdrawn')).toHaveTextContent(
+      'The project changed while this dialog was open, so this run cannot be carried on against it.',
+    )
+    // What did happen stays on record, and Export runs against the project as
+    // it is now — four chapters, not the stopped run's three.
+    expect(screen.getByTestId('export-chapter-stopped')).toBeInTheDocument()
+    expect(screen.getByText('Each chapter (4 files)')).toBeInTheDocument()
+    expect(exportButton()).toBeEnabled()
+
+    // Undone back to the very object the run started on, the offer returns:
+    // the project is what it was.
+    rerender(
+      <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
+    )
+    expect(screen.getByRole('button', { name: 'Resume from chapter 2' })).toBeInTheDocument()
   })
 })
 

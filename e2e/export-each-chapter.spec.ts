@@ -23,6 +23,10 @@ type Download = import('@playwright/test').Download
  *
  * Kept to 8 s of sequence because exports run in real time and this test
  * records the whole thing four times over, once per chapter.
+ *
+ * Resuming a stopped run (#530) is covered here too, on the same project: a
+ * run cancelled after two files, then carried on, must deliver exactly the
+ * two that were missing.
  */
 
 const FULL: Record<string, SampleRect> = { full: { x: 0, y: 0, width: 1, height: 1 } }
@@ -182,7 +186,15 @@ test('Cancel stops a per-chapter run and leaves the files already saved (#529)',
   // or inside the second, and either way must stop.
   await expect.poll(() => downloads.length, { timeout: 60_000 }).toBe(1)
   await dialog(page).getByRole('button', { name: 'Cancel' }).click()
-  await expect(dialog(page)).toHaveCount(0)
+
+  // The dialog stays (#530), saying where the run stopped and why, above the
+  // file that did land, and offers to carry on from there.
+  await expect(page.getByTestId('export-chapter-stopped')).toHaveText(
+    'Stopped at chapter 2 of 4: Red — cancelled.',
+  )
+  await expect(results(page).getByRole('heading')).toHaveText('Exported 1 of 4 files')
+  await expect(results(page).getByRole('listitem')).toHaveCount(1)
+  await expect(dialog(page).getByRole('button', { name: 'Resume from chapter 2' })).toBeVisible()
 
   // Nothing more arrives. Waited out rather than asserted instantly: a run
   // that had not stopped would deliver chapter 2 within a chapter's length.
@@ -192,12 +204,129 @@ test('Cancel stops a per-chapter run and leaves the files already saved (#529)',
   // The file that did land is intact — cancelling a run is not a rollback.
   expect((await readFile((await downloads[0].path())!)).byteLength).toBeGreaterThan(500)
 
-  // And a second export can start: the dialog reopens on Whole project with
-  // no stale completion list, and Export is live.
+  // An edit under the open dialog withdraws the offer (#530). The dialog is
+  // modal, but Ctrl+Z reaches the undo history while it is open, so this is
+  // a state the user can reach: the last marker is undone, the project is
+  // no longer the one the run started on, and the dialog says so rather
+  // than resuming against changed chapters.
+  await page.keyboard.press('Control+z')
+  await expect(dialog(page).getByRole('button', { name: /^Resume from chapter/ })).toHaveCount(0)
+  await expect(page.getByTestId('export-chapter-resume-withdrawn')).toContainText(
+    'The project changed while this dialog was open',
+  )
+  await expect(dialog(page).getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
+
+  // Cancel on the stopped dialog closes it; a second export can then start:
+  // the dialog reopens on Whole project with no stale list, and Export is
+  // live.
+  await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog(page)).toHaveCount(0)
   await page.getByRole('button', { name: 'Export Project…' }).click()
   await expect(page.getByTestId('export-scope-whole')).toBeChecked()
   await expect(results(page)).toHaveCount(0)
   await expect(dialog(page).getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
+})
+
+test('Resume from the chapter a run stopped at writes only the missing files, as the first run would have (#530)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000)
+  await sequenceWithChapters(page)
+
+  const downloads: Download[] = []
+  page.on('download', (download) => void downloads.push(download))
+
+  await chooseEachChapter(page)
+  await dialog(page).getByRole('button', { name: 'Export', exact: true }).click()
+
+  // Cancel once two files have landed: the run is between chapters 2 and 3
+  // or inside the third, and stops at chapter 3 either way.
+  await expect.poll(() => downloads.length, { timeout: 90_000 }).toBe(2)
+  await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+  const stopped = page.getByTestId('export-chapter-stopped')
+  await expect(stopped).toHaveText('Stopped at chapter 3 of 4: Blue — cancelled.')
+  await expect(results(page).getByRole('heading')).toHaveText('Exported 2 of 4 files')
+  const resume = dialog(page).getByRole('button', { name: 'Resume from chapter 3' })
+  await expect(resume).toBeVisible()
+
+  // The stopped state is a new visible surface (development.md): its controls
+  // inside the dialog, the Resume label on one line, the three actions on one
+  // row, and no page scroll either way, at both widths.
+  for (const width of [1280, 800]) {
+    await page.setViewportSize({ width, height: 720 })
+    const where = `the stopped run at ${width}px`
+    await expectWithin(resume, dialog(page), { what: `Resume ${where}` })
+    await expectWithin(stopped, dialog(page), { what: `the stopped line ${where}` })
+    await expectWithin(results(page), dialog(page), { what: `the completion block ${where}` })
+    expect(
+      await resume.evaluate((node) => node.scrollWidth <= node.clientWidth),
+      `Resume's label wraps ${where}`,
+    ).toBe(true)
+    const tops = await Promise.all(
+      ['Cancel', 'Resume from chapter 3', 'Export'].map(
+        async (name) =>
+          (await dialog(page).getByRole('button', { name, exact: true }).boundingBox())!.y,
+      ),
+    )
+    for (const top of tops) {
+      expect(Math.abs(top - tops[0]), `the actions share a row ${where}: ${tops.join(', ')}`).toBeLessThanOrEqual(1)
+    }
+    await expectNoHorizontalScroll(page, where)
+    await expectNoVerticalPageScroll(page, where)
+  }
+  // The screenshot is taken in a window tall enough for the whole dialog:
+  // the overlay scrolls a dialog taller than the viewport (#488), and an
+  // element screenshot of one shows only the part above the fold.
+  await page.setViewportSize({ width: 1280, height: 1100 })
+  await dialog(page).screenshot({ path: testInfo.outputPath('export-chapter-run-stopped.png') })
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  await resume.click()
+  // The resumed run reports its place in the whole run, not in the remainder.
+  await expect(page.getByTestId('export-chapter-progress')).toHaveText(/Chapter [34] of 4: /)
+  await expect.poll(() => downloads.length, { timeout: 90_000 }).toBe(CHAPTERS.length)
+
+  // Exactly the four files, in order: chapters 1 and 2 from the first run,
+  // 3 and 4 from the resume, and neither of the first two delivered again.
+  expect(downloads.map((download) => download.suggestedFilename())).toEqual(
+    CHAPTERS.map((chapter) => chapter.file),
+  )
+  // The resumed files are the ones the first run would have produced: the
+  // names above, and each one's own span — its length within the criterion's
+  // 0.3 s, and its own colour rather than a neighbour's.
+  for (const index of [2, 3]) {
+    const chapter = CHAPTERS[index]
+    const bytes = await readFile((await downloads[index].path())!)
+    expect(bytes.byteLength, `${chapter.file} is empty`).toBeGreaterThan(500)
+    const scan = await scanExportedFrames(page, bytes, FULL)
+    expect(
+      Math.abs(scan.duration - CHAPTER_SECONDS),
+      `${chapter.file} is ${scan.duration.toFixed(3)}s, not ${CHAPTER_SECONDS}s`,
+    ).toBeLessThan(0.3)
+    const average = scan.frames[Math.floor(scan.frames.length / 2)].bands.full
+    expect(average[chapter.channel], `${chapter.file} is not its own colour`).toBeGreaterThan(
+      DOMINANT,
+    )
+    if (chapter.name === 'Blue') {
+      expect(average.g, `${chapter.file} carries the green slate`).toBeLessThan(ABSENT)
+    }
+    if (chapter.name === 'Yellow') {
+      expect(average.g, `${chapter.file} is not yellow`).toBeGreaterThan(DOMINANT)
+    }
+  }
+
+  // The completion list after a resume is the whole set, in order, and the
+  // dialog reads as a finished run: no stopped line, no Resume.
+  await expect(results(page).getByRole('heading')).toHaveText('Exported 4 files')
+  const rows = results(page).getByRole('listitem')
+  await expect(rows).toHaveCount(CHAPTERS.length)
+  for (const [index, chapter] of CHAPTERS.entries()) {
+    await expect(rows.nth(index)).toContainText(`${index + 1}. ${chapter.name}`)
+    await expect(rows.nth(index)).toContainText(chapter.file)
+  }
+  await expect(stopped).toHaveCount(0)
+  await expect(dialog(page).getByRole('button', { name: /^Resume from chapter/ })).toHaveCount(0)
+  await expect(dialog(page)).toBeVisible()
 })
 
 test('the completion list lays out inside the dialog at both widths (#529)', async ({ page }) => {
