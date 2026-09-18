@@ -20,7 +20,15 @@ PRs should be protected by checks appropriate to the stack, typically:
 - accessibility or other quality checks, where appropriate
 
 Grow the gates with the product; add a check when its absence has bitten or
-clearly will. Tests must provide independent evidence of correctness — a test
+clearly will. **Lint warnings fail the build** (`npm run lint` is
+`oxlint --deny-warnings`, #550): a warning here is a decision — the one
+rule set to `warn` in `.oxlintrc.json` and the deliberate hook-dependency
+omissions each carry a disable comment — so a tree meant to be silent
+fails when it is not, and a session that meets a warning writes the
+disable comment or fixes the cause rather than re-running. It has bitten:
+#517's branch carried the repository's only warning under a green "Lint"
+step and an honest "`oxlint` exit 0", and only a reviewer reading the
+output found it. Tests must provide independent evidence of correctness — a test
 that merely mirrors the implementation or exists to satisfy a checklist is
 worse than no test, because it manufactures false confidence.
 
