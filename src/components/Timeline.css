@@ -112,6 +112,27 @@
   gap: 0.75rem;
 }
 
+/* Every row's main line may wrap (#534). The line is a nowrap flex row —
+   toggle, thumbnail, a name floored at 5rem, the duration and the 140px
+   action cluster — whose min-content is about 390px, and a grid `1fr`
+   track floors at its content's min-content, so below the 700px breakpoint
+   the whole editor column grew to fit the row instead: measured at 360×640
+   with three slates, every panel 445px wide in a 360px column, 109px of it
+   off-screen until the user scrolled sideways — and, since #524 made the
+   column its own scroll container, invisible to a page-level guard. With
+   wrap the cluster drops to a second line, whole (#416's lesson: loose
+   buttons wrap one by one and a lone ⋯ reads as unrelated), and its
+   `margin-left: auto` keeps it at the right edge there. Above 700px the
+   panel is full width and the line has the room, so nothing wraps and the
+   default layout is untouched; this is the library row's rule (#208)
+   applied to the timeline's four row kinds. */
+.timeline-entry-main,
+.audio-track-main,
+.text-overlay-main,
+.video-overlay-main {
+  flex-wrap: wrap;
+}
+
 /* Row thumbnails (#193): a fixed tiny still so entries are recognizable at
    a glance. Fixed box whatever the source; a swatch for slates. */
 .clip-thumbnail {

@@ -43,7 +43,7 @@ A section with nothing in it shows a short hint instead of rows. Anything that w
 
 **What it does.** Shows where the element plays and holds every control that adjusts it.
 
-**Details.** The **main line** carries the row's **▾** (expand or collapse), its name — double-click it to rename where renaming is offered — a thumbnail, **↑** and **↓** to move it within its section, **✕** to take it off the timeline, and the **⋯** menu. Removing asks for confirmation first; the clip stays in the library.
+**Details.** The **main line** carries the row's **▾** (expand or collapse), its name — double-click it to rename where renaming is offered — a thumbnail, **↑** and **↓** to move it within its section, **✕** to take it off the timeline, and the **⋯** menu. Removing asks for confirmation first; the clip stays in the library. In a window too narrow for all of that on one line, the **↑ ↓ ⋯ ✕** cluster moves to a second line together, so the row never widens the editor past the window.
 
 Under the main line runs the **coverage bar**: where the element plays within the video, drawn against the sequence's whole length, each section in its own colour, with anything past the video's end clamped since it never plays. A sound-bearing bar — an audio track, a video entry, a video overlay — draws its clip's waveform; stills, slates and clips whose sound cannot be decoded keep a plain bar.
 
