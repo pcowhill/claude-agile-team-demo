@@ -1,3 +1,20 @@
+/* The panel is a flex column so the list below can be bounded by the room
+   the panel actually has (#546, from the customer's #545). Since #524 the
+   shell has a definite height and the top grid row (App.css) is the height
+   the window leaves, not the height of its content — so the panel is
+   exactly as tall as that row, and anything inside taller than the room
+   under the header paints straight past the panel's border onto the
+   timeline. A flex column lets the list shrink to what is left after the
+   header, the selection controls and any import errors; those keep their
+   own height and stay put. `min-height: 0` is the flex-column idiom the
+   shell itself uses (`.app-body`, `.app-main`): a grid item's automatic
+   minimum is its content's, and the row, not the list, is the bound. */
+.library-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .library-header {
   display: flex;
   align-items: center;
@@ -49,6 +66,20 @@
      put while the list scrolls with no sticky positioning. */
   max-height: 50vh;
   overflow-y: auto;
+  /* …and never taller than the room its panel has (#546). The cap above
+     was chosen when the panel always grew to fit it; since #524 the
+     panel's row is the height the window leaves, and at ordinary window
+     heights the header, Select all and the padding have used a share of
+     it before the list starts — at 720px high the row is about 420px and
+     the 50vh list 360px, which is 24px past the panel's bottom border.
+     `flex: 0 1 auto` keeps a short list exactly its rows' height (it does
+     not grow into spare room — #308's second half) and lets a long one
+     shrink; `min-height: 0` is what allows the shrink below its content.
+     Where the row is content-sized instead (below 700px and with the
+     preview expanded, `grid-auto-rows: max-content`), the panel grows to
+     the list and the 50vh cap is still what bounds it. */
+  flex: 0 1 auto;
+  min-height: 0;
 }
 
 /* A small gap between the items and the scrollbar (#460, feedback #457),
@@ -246,6 +277,15 @@
   /* The column tracks own the layout; the flex properties would not apply
      anyway, but align-content keeps a short grid from stretching its rows. */
   align-content: start;
+  /* Content-sized rows, said explicitly, for the reason App.css gives at
+     `.app-main-preview-expanded`: once the list is a flex item that the
+     panel can shrink (#546), the grid's own height is definite, and in a
+     definite-height grid an `auto` implicit row sizes its aspect-ratio
+     cards against the container rather than their content. Measured at
+     1280x720 with three cards: the two rows came to exactly the 319px of
+     room, `scrollHeight === clientHeight`, and the pictures had shrunk to
+     make it so — where the list should have scrolled. */
+  grid-auto-rows: max-content;
 }
 
 .clip-item-card {

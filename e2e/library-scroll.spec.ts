@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
 import { chooseView } from './clipMenu'
-import { expectNoHorizontalScroll } from './layout'
+import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
 
 /**
@@ -126,6 +126,101 @@ test('a large library scrolls internally and stops pushing the timeline down (#3
   await expectNoHorizontalScroll(page, '30 cards with the scrollbar and its gap')
   await list.screenshot({ path: testInfo.outputPath('library-thumbnails-scrollbar-gap.png') })
   await chooseView(page, 'List')
+})
+
+/**
+ * The list stays inside its panel (#546, from the customer's #545).
+ *
+ * #308's cap is `max-height: 50vh`, chosen when the shell's height was
+ * indefinite and the panel always grew to fit its list. #524 gave the shell
+ * a definite height: the top grid row is the height the window leaves, the
+ * panel is exactly that tall, and a list capped against the *viewport* can
+ * be taller than the room under the panel's header. The test above could
+ * not see it — it asserts the timeline's `top` does not move, which stayed
+ * true while the list painted over the timeline's heading. Measured on
+ * `main` before the fix at 1280×720 with 14 rows: list bottom **552px**,
+ * panel bottom **528px**. So this asserts containment in the panel's own
+ * content box, at the window heights the cap alone did not fit, in both
+ * views and both layouts — and that the list still scrolls there.
+ */
+test('the list stays inside its panel and scrolls there, at window heights the 50vh cap alone did not fit (#546)', async ({
+  page,
+}) => {
+  const panel = page.getByRole('region', { name: 'Media library' })
+  const list = page.getByRole('list', { name: 'Imported clips' })
+  const rows = list.getByRole('listitem')
+  const timeline = page.getByRole('region', { name: 'Timeline' })
+  const importButton = page.getByRole('button', { name: 'Import clips' })
+  const input = page.getByTestId('clip-file-input')
+
+  /** The list ends inside the panel's content box — its padding is not room. */
+  const expectInsidePanel = async (when: string) => {
+    const edges = await panel.evaluate((node) => {
+      const style = getComputedStyle(node)
+      const box = node.getBoundingClientRect()
+      const listBox = node.querySelector('.clip-list')!.getBoundingClientRect()
+      return {
+        contentBottom:
+          box.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth),
+        listBottom: listBox.bottom,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+      }
+    })
+    expect(
+      edges.listBottom,
+      `the list ends ${edges.listBottom - edges.contentBottom}px past the panel's content box ${when}`,
+    ).toBeLessThanOrEqual(edges.contentBottom + 1)
+    expect(edges.scrollHeight, `the panel overflows ${when}`).toBeLessThanOrEqual(
+      edges.clientHeight + 1,
+    )
+    await expectWithin(list, panel, { axis: 'y', what: `the clip list ${when}` })
+  }
+  const scrolls = () => list.evaluate((node) => node.scrollHeight > node.clientHeight + 1)
+
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('./')
+  await input.setInputFiles(wavs(1, 14))
+  await expect(rows).toHaveCount(14)
+  await expectInsidePanel('at 1280×720 with 14 rows')
+  // Bounded by the panel means scrolling inside it — with #460's gap.
+  expect(await scrolls(), 'the list scrolls at 1280×720 with 14 rows').toBe(true)
+  await expect(list).toHaveClass(/clip-list-scrolls/)
+  // The customer's screenshot: rows over the Timeline heading.
+  const timelineBox = (await timeline.boundingBox())!
+  const listBox = (await list.boundingBox())!
+  expect(listBox.y + listBox.height, 'the list reaches the timeline').toBeLessThanOrEqual(
+    timelineBox.y + 1,
+  )
+  // Scrolling the list leaves the header where it was and shows the last row.
+  const importBox = await importButton.boundingBox()
+  await list.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect(rows.last()).toBeInViewport()
+  expect(await importButton.boundingBox()).toEqual(importBox)
+
+  await chooseView(page, 'Thumbnails')
+  await expect(list).toHaveClass(/clip-list-thumbnails/)
+  await expectInsidePanel('at 1280×720 with 14 cards')
+  await chooseView(page, 'List')
+
+  // The expanded-preview layout sizes its rows to their content, so here
+  // the 50vh cap is still what bounds the list; it must fit either way.
+  await page.getByRole('button', { name: 'Expand preview' }).click()
+  await expectInsidePanel('at 1280×720 with the preview expanded')
+  await page.getByRole('button', { name: 'Restore preview size' }).click()
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await input.setInputFiles(wavs(15, 16))
+  await expect(rows).toHaveCount(30)
+  await expectInsidePanel('at 1440×900 with 30 rows')
+  expect(await scrolls(), 'the list scrolls at 1440×900 with 30 rows').toBe(true)
+
+  // Below 700px the panels stack in content-sized rows: the other layout.
+  await page.setViewportSize({ width: 360, height: 640 })
+  await expectInsidePanel('at 360×640 with 30 rows')
+  expect(await scrolls(), 'the list scrolls at 360×640 with 30 rows').toBe(true)
 })
 
 test('a small library does not scroll and reserves no space (#308)', async ({ page }) => {

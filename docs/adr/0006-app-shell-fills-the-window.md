@@ -68,6 +68,16 @@ itself against its container rather than the viewport. `e2e/layout.ts`'s
 PR asserted the app did not overflow *sideways* — that being the assertion
 that existed.
 
+**A viewport-sized cap inside the shell is now the wrong unit.** The media
+library's list was bounded at `max-height: 50vh` (#308), chosen when the
+panel always grew to fit it; once the top row was the height the window
+leaves rather than the height of its content, half the viewport could be
+more than the room under the panel's header, and the list painted past the
+panel onto the timeline (#545, fixed under #546 by bounding the list with a
+flex column on the panel). The general form of the previous paragraph: a
+surface inside the shell sizes itself against its container, and a `vh`
+or `dvh` figure there is at best a second cap.
+
 **Menus inside the editor are now lifted.** `overflow-y: auto` makes
 `.app-main` a clipping ancestor, so `Menu.tsx` lifts a panel opened inside it
 to `position: fixed` (#416) — better, in that the column can no longer cut a

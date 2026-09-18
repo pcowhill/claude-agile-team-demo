@@ -470,7 +470,7 @@ export function MediaLibrary({
   )
 
   return (
-    <section className="panel" aria-label="Media library">
+    <section className="panel library-panel" aria-label="Media library">
       <div className="library-header">
         <h2>Media Library</h2>
         <button type="button" onClick={() => inputRef.current?.click()}>
