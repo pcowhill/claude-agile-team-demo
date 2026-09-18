@@ -114,7 +114,31 @@ The region shows in the preview as you play, and is drawn into the export, a [sa
 
 **If a blurred region cannot be drawn.** A browser without canvas filters refuses the export and the saved frame outright, naming the redaction, rather than writing out the thing you meant to hide — the same rule [colour adjustments](#colour-adjustments) follow. Switching that region to Pixelate or Solid exports anywhere, since neither needs the filter.
 
-**Related.** [Crop](#crop) · [Background fill](#background-fill) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Visual editors](visual-editors.md)
+**Related.** [Spotlight a region](#spotlight-a-region) · [Crop](#crop) · [Background fill](#background-fill) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Visual editors](visual-editors.md)
+
+## Spotlight a region
+
+**Where to find it.** An expanded video or image row › **Picture ▸** › **Spotlight**, on sequence entries and overlays alike.
+
+**What it does.** Points at part of the picture for a stretch of the clip by **dimming everything outside it** — the button you are telling the viewer to click, without taking the rest of the frame away.
+
+**Details.** **+ Add region** puts a rectangle in the middle of the frame, showing for the whole of the clip's current trim. Each region has:
+
+- **Area** — *left*, *top*, *width* and *height*, in percent of the **source** frame, before any crop or rotation, exactly as a [redaction region](#redact-a-region) is placed. Cropping, turning or re-trimming the clip afterwards leaves the spotlight on the thing it was put over.
+- **Shows from … to …** — the window, in seconds into the source, like the In and Out fields. Outside it nothing is dimmed.
+- **Shape** — **Rectangle**, or **Oval** inscribed in the same box. Switching between them moves and resizes nothing, so an area that is square in the picture draws a circle.
+- **dim** — how far the outside drops, in percent: 0 leaves the picture alone, 100 takes everything outside the region to black. A new region starts at {{DEFAULT_SPOTLIGHT_DIM_PERCENT}} %.
+- **Remove** takes the region away.
+
+A clip can hold any number of regions, and they may overlap. **Overlapping regions stay bright together** — a second spotlight never dims the first — and where several are showing at once, the outside is dimmed by the strongest of their dims. Every change is one undo step.
+
+The dimming shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu) and an [Animated GIF](plugins.md#gif-export) alike. It does **not** dim a [blurred or coloured background fill](#background-fill) behind the clip: that backdrop is an enlarged copy of the same picture, and lighting a second hole in it would put a second spotlight on screen.
+
+**Spotlight or zoom?** A [zoom](#zooms) removes the context — the viewer sees the button and nothing else, and loses where on the screen it is. A spotlight keeps the whole frame and points into it, which is usually what a tutorial wants. They combine: a spotlight rides a zoom like any other part of the picture.
+
+**A redaction always wins.** Where a spotlight and a [redaction](#redact-a-region) overlap on the same clip, the redaction is drawn last and stays hiding what it hides, however bright the spotlight around it.
+
+**Related.** [Redact a region](#redact-a-region) · [Zooms](#zooms) · [Crop](#crop) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
 
 ## Background fill
 

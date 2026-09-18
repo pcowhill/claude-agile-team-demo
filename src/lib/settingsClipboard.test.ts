@@ -72,6 +72,7 @@ describe('heldSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'spotlight',
       'redaction',
       'audio',
     ])
@@ -81,6 +82,7 @@ describe('heldSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'spotlight',
       'redaction',
     ])
     // A slate holds nothing: its color is set directly (#143).
@@ -91,6 +93,7 @@ describe('heldSettingsGroups (#315)', () => {
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
       'audio',
     ])
@@ -112,6 +115,7 @@ describe('copyElementSettings (#315)', () => {
       orientation: { orientation: undefined },
       crop: { crop: { left: 0.1 } },
       'background-fill': { fill: undefined },
+      spotlight: { spotlights: undefined },
       redaction: { redactions: undefined },
       audio: { volume: 0.5, muted: true, fadeIn: 1, fadeOut: 0 },
     })
@@ -121,6 +125,7 @@ describe('copyElementSettings (#315)', () => {
       orientation: { orientation: undefined },
       crop: { crop: undefined },
       'background-fill': { fill: undefined },
+      spotlight: { spotlights: undefined },
       redaction: { redactions: undefined },
       audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
     })
@@ -143,6 +148,7 @@ describe('copyElementSettings (#315)', () => {
       color: { adjustments: undefined },
       orientation: { orientation: { rotation: 90 } },
       crop: { crop: undefined },
+      spotlight: { spotlights: undefined },
       redaction: { redactions: undefined },
       audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
     })
@@ -173,6 +179,7 @@ describe('compatibleSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'spotlight',
       'redaction',
       'audio',
     ])
@@ -180,6 +187,7 @@ describe('compatibleSettingsGroups (#315)', () => {
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
       'audio',
     ])
@@ -190,6 +198,7 @@ describe('compatibleSettingsGroups (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'spotlight',
       'redaction',
     ])
   })
@@ -225,10 +234,50 @@ describe('filterSettings (#315)', () => {
       'orientation',
       'crop',
       'background-fill',
+      'spotlight',
       'redaction',
       'audio',
       'text-style',
     ])
+  })
+})
+
+describe('the spotlight group (#532)', () => {
+  const spotlight = {
+    id: 'sp1',
+    left: 0.2,
+    top: 0.2,
+    width: 0.3,
+    height: 0.3,
+    start: 0,
+    end: 4,
+    shape: 'oval' as const,
+    dim: 0.7,
+  }
+
+  it('copies a region list off an entry and off an overlay', () => {
+    expect(copyElementSettings('entry', videoEntry({ spotlights: [spotlight] }))).toMatchObject({
+      spotlight: { spotlights: [spotlight] },
+    })
+    expect(
+      copyElementSettings('video-overlay', overlay({ spotlights: [spotlight] })),
+    ).toMatchObject({ spotlight: { spotlights: [spotlight] } })
+  })
+
+  it('offers the group between any two rows that hold a picture', () => {
+    const fromClip = copyElementSettings('entry', videoEntry({ spotlights: [spotlight] }))!
+    expect(compatibleSettingsGroups(fromClip, 'video-overlay', overlay())).toContain('spotlight')
+    expect(compatibleSettingsGroups(fromClip, 'audio-track', track())).not.toContain('spotlight')
+    // A slate holds no picture at all, so it is not a target for it.
+    expect(heldSettingsGroups('entry', slateEntry('s1'))).not.toContain('spotlight')
+  })
+
+  it('survives a filter that keeps it, and is dropped by one that does not', () => {
+    const copied = copyElementSettings('entry', videoEntry({ spotlights: [spotlight] }))!
+    expect(filterSettings(copied, ['spotlight'])).toEqual({
+      spotlight: { spotlights: [spotlight] },
+    })
+    expect(filterSettings(copied, ['crop'])).not.toHaveProperty('spotlight')
   })
 })
 
@@ -242,12 +291,14 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
     ])
     expect(heldSettingsGroups('video-overlay', overlay())).toEqual([
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
       'audio',
     ])
@@ -259,6 +310,7 @@ describe('still overlays hold no audio group (#332)', () => {
       color: { adjustments: undefined },
       orientation: { orientation: undefined },
       crop: { crop: undefined },
+      spotlight: { spotlights: undefined },
       redaction: { redactions: undefined },
     })
     // Not merely absent-valued: the key itself must not exist, or the paste
@@ -284,6 +336,7 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
     ])
     // Pasting a still overlay's settings onto anything: it never carried an
@@ -293,12 +346,14 @@ describe('still overlays hold no audio group (#332)', () => {
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
     ])
     expect(compatibleSettingsGroups(fromStill, 'video-overlay', overlay())).toEqual([
       'color',
       'orientation',
       'crop',
+      'spotlight',
       'redaction',
     ])
     expect(compatibleSettingsGroups(fromStill, 'audio-track', track())).toEqual([])

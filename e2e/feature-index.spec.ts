@@ -143,7 +143,7 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
   {
     pattern: / region \d+/,
     replacement: ' region',
-    why: "a redaction control names which of an element's regions it edits, which is a position in a list rather than part of the control (#492)",
+    why: "a redaction or spotlight control names which of an element's regions it edits, which is a position in a list rather than part of the control (#492, #532). The stem keeps the feature's own word — Spotlight region dim, not Region dim — because Spotlight is what the Picture ▸ group is called",
   },
   {
     pattern: /\b([Zz])oom \d+/g,
@@ -715,6 +715,18 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     'the redaction editor',
   )
 
+  // A spotlight region on the same entry (#532): its own fields, added
+  // here rather than trusted, because a region's controls exist only once
+  // the region does — the gap #536 records for the chapter-marker surface.
+  // It has no visual editor; that is #533.
+  await timeline
+    .getByRole('button', { name: `Add a spotlight region on ${firstEntry}`, exact: true })
+    .click()
+  await expect(
+    timeline.getByRole('combobox', { name: `Spotlight region 1 shape of ${firstEntry}` }),
+  ).toBeVisible()
+  await record('an element with a spotlight region', timeline)
+
   // The crop editor, on the same entry's Picture group.
   await walkEditor(
     timeline.getByRole('button', { name: `Adjust the crop of ${firstEntry} visually`, exact: true }),
@@ -878,8 +890,9 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   // controls would otherwise pass with an empty missing list. Raised with
   // each widening — 162 originally, 194 with #507's four surfaces, 205 with
   // #520's discard guard and #525's speed segment and pause (the other two
-  // came from #527's transport control and its key) — keeping roughly the
-  // slack the original 150-against-162 left, so a surface that stops
-  // opening is caught while an ordinary control being retired is not.
-  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(196)
+  // came from #527's transport control and its key), 215 with #532's
+  // spotlight region's ten — keeping roughly the slack the original
+  // 150-against-162 left, so a surface that stops opening is caught while
+  // an ordinary control being retired is not.
+  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(206)
 })

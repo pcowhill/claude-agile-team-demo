@@ -38,6 +38,7 @@ import {
   RENAMED_CLIPS_SCHEMA_VERSION,
   MARKERS_SCHEMA_VERSION,
   REDACTION_SCHEMA_VERSION,
+  SPOTLIGHT_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1123,8 +1124,9 @@ describe('project file versioning', () => {
     // preset (#273); version 17 added image overlay layers (#294); version
     // 18 added renamed library clips with their original filename (#404);
     // version 19 added chapter markers (#487); version 20 added entry and
-    // overlay redaction regions (#492).
-    expect(PROJECT_SCHEMA_VERSION).toBe(20)
+    // overlay redaction regions (#492); version 21 added entry and overlay
+    // spotlight regions (#532).
+    expect(PROJECT_SCHEMA_VERSION).toBe(21)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1145,6 +1147,7 @@ describe('project file versioning', () => {
     expect(RENAMED_CLIPS_SCHEMA_VERSION).toBe(18)
     expect(MARKERS_SCHEMA_VERSION).toBe(19)
     expect(REDACTION_SCHEMA_VERSION).toBe(20)
+    expect(SPOTLIGHT_SCHEMA_VERSION).toBe(21)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -3900,6 +3903,210 @@ describe('redaction regions in project files (#492, schema version 20)', () => {
     document.schemaVersion = REDACTION_SCHEMA_VERSION
     ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].redactions = []
     await expectRefusal(await gzipJson(document), 'timeline.entries[0].redactions')
+  })
+})
+
+describe('spotlight regions in project files (#532, schema version 21)', () => {
+  const rectangle = {
+    id: 'sp1',
+    left: 0.1,
+    top: 0.2,
+    width: 0.3,
+    height: 0.25,
+    start: 1,
+    end: 4,
+    shape: 'rectangle' as const,
+    dim: 0.55,
+  }
+  const oval = {
+    id: 'sp2',
+    left: 0.5,
+    top: 0.5,
+    width: 0.2,
+    height: 0.2,
+    start: 0,
+    end: 2,
+    shape: 'oval' as const,
+    dim: 0.8,
+  }
+  const spotlit: TimelineState = {
+    ...timeline,
+    entries: [
+      { ...timeline.entries[0], spotlights: [rectangle, oval] },
+      ...timeline.entries.slice(1),
+    ],
+  }
+
+  it('round-trips both shapes at the new version, in list order', async () => {
+    const bytes = await serializeProject(library, spotlit)
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(SPOTLIGHT_SCHEMA_VERSION)
+    const entries = (document.timeline as Record<string, unknown>).entries as Record<
+      string,
+      unknown
+    >[]
+    expect(entries[0].spotlights).toEqual([rectangle, oval])
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries[0].spotlights).toEqual([rectangle, oval])
+    expect(result.project.timeline.entries[0].spotlights?.map((each) => each.id)).toEqual([
+      'sp1',
+      'sp2',
+    ])
+  })
+
+  it('round-trips a region on a video overlay too, embedded and references-only', async () => {
+    const withOverlay: TimelineState = {
+      ...timeline,
+      videoOverlays: [
+        {
+          id: 'ov1',
+          clipId: 'c2',
+          name: 'city.webm',
+          duration: 4,
+          url: 'blob:session/c2',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 4,
+          x: 0.6,
+          y: 0.6,
+          width: 0.3,
+          height: 0.3,
+          spotlights: [oval],
+        },
+      ],
+    }
+    for (const media of [undefined, fixtureMedia()]) {
+      const bytes = await serializeProject(library, withOverlay, media)
+      const result = await deserializeProject(bytes)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.project.timeline.videoOverlays?.[0].spotlights).toEqual([oval])
+    }
+  })
+
+  it('carries a redaction and a spotlight on one element without either disturbing the other', async () => {
+    const both: TimelineState = {
+      ...timeline,
+      entries: [
+        {
+          ...timeline.entries[0],
+          spotlights: [rectangle],
+          redactions: [
+            {
+              id: 'rd1',
+              left: 0.6,
+              top: 0.1,
+              width: 0.2,
+              height: 0.2,
+              start: 0,
+              end: 3,
+              style: 'solid' as const,
+              color: '#000000',
+            },
+          ],
+        },
+        ...timeline.entries.slice(1),
+      ],
+    }
+    const result = await deserializeProject(await serializeProject(library, both))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.entries[0].spotlights).toEqual([rectangle])
+    expect(result.project.timeline.entries[0].redactions).toHaveLength(1)
+  })
+
+  it('writes no key and no version bump for a project with no regions', async () => {
+    const without = await serializeProject(library, timeline)
+    const explicitlyEmpty = await serializeProject(library, {
+      ...timeline,
+      entries: [{ ...timeline.entries[0], spotlights: [] }, ...timeline.entries.slice(1)],
+    })
+    // The reducer never stores `[]`, but a foreign state must still write
+    // the same bytes as one that never had a region.
+    expect(new Uint8Array(explicitlyEmpty)).toEqual(new Uint8Array(without))
+    const document = await gunzipJson(without)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    const entries = (document.timeline as Record<string, unknown>).entries as Record<
+      string,
+      unknown
+    >[]
+    expect(entries[0]).not.toHaveProperty('spotlights')
+  })
+
+  it('opens a file without the key as an entry with no regions', async () => {
+    const result = await deserializeProject(await serializeProject(library, timeline))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline.entries[0]).not.toHaveProperty('spotlights')
+  })
+
+  it('refuses a malformed region by path', async () => {
+    const withRegions = (list: unknown[]) => {
+      const document = validDocument()
+      document.schemaVersion = SPOTLIGHT_SCHEMA_VERSION
+      ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].spotlights = list
+      return document
+    }
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, left: 1.2 }])),
+      'timeline.entries[0].spotlights[0].left',
+    )
+    // A rectangle that runs off the edge, each fraction legal on its own.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, left: 0.9, width: 0.5 }])),
+      'timeline.entries[0].spotlights[0]',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, start: 3, end: 3 }])),
+      'timeline.entries[0].spotlights[0].end',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, shape: 'diamond' }])),
+      'timeline.entries[0].spotlights[0].shape',
+    )
+    // The dim is a fraction, not a percent: a file saying 55 is a file a
+    // different build wrote, and opening it would black the frame out.
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, dim: 55 }])),
+      'timeline.entries[0].spotlights[0].dim',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, dim: -0.1 }])),
+      'timeline.entries[0].spotlights[0].dim',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([{ ...rectangle, id: undefined }])),
+      'timeline.entries[0].spotlights[0].id',
+    )
+    await expectRefusal(
+      await gzipJson(withRegions([rectangle, { ...oval, id: rectangle.id }])),
+      'timeline.entries[0].spotlights[1].id "sp1" is duplicated',
+    )
+  })
+
+  it('refuses a region on a slate — a flat colour has no part worth pointing at', async () => {
+    const document = validDocument()
+    document.schemaVersion = SPOTLIGHT_SCHEMA_VERSION
+    const entries = document.timeline.entries as unknown as Record<string, unknown>[]
+    entries[0] = {
+      id: 'sl1',
+      name: 'Slate',
+      duration: 5,
+      inPoint: 0,
+      outPoint: 5,
+      kind: 'slate',
+      color: '#ff0000',
+      spotlights: [rectangle],
+    }
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].spotlights')
+  })
+
+  it('refuses an empty stored list — absence already means no spotlight', async () => {
+    const document = validDocument()
+    document.schemaVersion = SPOTLIGHT_SCHEMA_VERSION
+    ;(document.timeline.entries as unknown as Record<string, unknown>[])[0].spotlights = []
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].spotlights')
   })
 })
 

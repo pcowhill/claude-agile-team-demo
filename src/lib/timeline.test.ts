@@ -36,6 +36,7 @@ import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } fr
 import { zoomAt } from './zoom'
 import { copyElementSettings } from './settingsClipboard'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: 'clip-1',
@@ -4815,6 +4816,151 @@ describe('redaction regions (#492)', () => {
       settings: { redaction: copied?.redaction },
     })
     expect(pasted.entries[1]).not.toHaveProperty('redactions')
+  })
+})
+
+describe('spotlight regions (#532)', () => {
+  const region = (over: Partial<SpotlightRegion> = {}): SpotlightRegion => ({
+    id: 'sp1',
+    left: 0.2,
+    top: 0.2,
+    width: 0.4,
+    height: 0.3,
+    start: 1,
+    end: 4,
+    shape: 'rectangle',
+    dim: 0.55,
+    ...over,
+  })
+
+  it('stores the whole list, normalized, and clears it with an empty one', () => {
+    const state = stateOf(['e1'])
+    const set = timelineReducer(state, {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region()],
+    })
+    expect(set.entries[0].spotlights).toEqual([region()])
+    // An empty list is the reset, and leaves no key behind — the rule that
+    // keeps spotlight-free saved files byte-identical.
+    const cleared = timelineReducer(set, {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [],
+    })
+    expect(cleared.entries[0]).not.toHaveProperty('spotlights')
+  })
+
+  it('normalizes an out-of-range rectangle, window and dim rather than refusing', () => {
+    const state = timelineReducer(stateOf(['e1']), {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region({ left: 0.9, width: 0.5, start: 5, end: 2, dim: 4 })],
+    })
+    const stored = state.entries[0].spotlights?.[0]
+    expect(stored?.left).toBeCloseTo(0.5, 10)
+    expect(stored?.width).toBeCloseTo(0.5, 10)
+    expect(stored?.end).toBeGreaterThan(stored?.start ?? 0)
+    expect(stored?.dim).toBe(1)
+  })
+
+  it('refuses a list with a duplicate id, or an unknown shape', () => {
+    const state = stateOf(['e1'])
+    expect(
+      timelineReducer(state, {
+        type: 'entry-spotlights-set',
+        id: 'e1',
+        spotlights: [region({ id: 'same' }), region({ id: 'same', top: 0.5 })],
+      }),
+    ).toBe(state)
+    expect(
+      timelineReducer(state, {
+        type: 'entry-spotlights-set',
+        id: 'e1',
+        spotlights: [region({ shape: 'diamond' as never })],
+      }),
+    ).toBe(state)
+  })
+
+  it('is a same-reference no-op when the list is unchanged — edits stop playback', () => {
+    const set = timelineReducer(stateOf(['e1']), {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region()],
+    })
+    expect(
+      timelineReducer(set, { type: 'entry-spotlights-set', id: 'e1', spotlights: [region()] }),
+    ).toBe(set)
+  })
+
+  it('leaves a slate alone — a flat colour has no part worth pointing at', () => {
+    const withSlate = timelineReducer(stateOf(['e1']), {
+      type: 'entry-added',
+      entry: slateEntry('s1'),
+    })
+    expect(
+      timelineReducer(withSlate, {
+        type: 'entry-spotlights-set',
+        id: 's1',
+        spotlights: [region()],
+      }),
+    ).toBe(withSlate)
+  })
+
+  it('stores a video overlay’s regions on the same terms', () => {
+    const overlay: VideoOverlay = {
+      id: 'ov1',
+      clipId: 'clip-e1',
+      name: 'pip.mp4',
+      duration: 8,
+      url: 'blob:pip',
+      offset: 0,
+      inPoint: 0,
+      outPoint: 8,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    }
+    const added = timelineReducer(stateOf(['e1']), { type: 'video-overlay-added', overlay })
+    const set = timelineReducer(added, {
+      type: 'video-overlay-spotlights-set',
+      id: 'ov1',
+      spotlights: [region({ shape: 'oval' })],
+    })
+    expect(set.videoOverlays?.[0].spotlights).toEqual([region({ shape: 'oval' })])
+    const cleared = timelineReducer(set, {
+      type: 'video-overlay-spotlights-set',
+      id: 'ov1',
+      spotlights: [],
+    })
+    expect(cleared.videoOverlays?.[0]).not.toHaveProperty('spotlights')
+  })
+
+  it('Duplicate carries the regions onto the copy, and Paste settings carries them across', () => {
+    const base = timelineReducer(stateOf(['e1'], ['e2']), {
+      type: 'entry-spotlights-set',
+      id: 'e1',
+      spotlights: [region({ shape: 'oval', dim: 0.8 })],
+    })
+    const duplicated = timelineReducer(base, {
+      type: 'element-duplicated',
+      kind: 'entry',
+      id: 'e1',
+      newId: 'e1-copy',
+    })
+    expect(duplicated.entries[1].spotlights).toEqual([region({ shape: 'oval', dim: 0.8 })])
+    // The settings clipboard (#315) carries the group between elements.
+    const copied = copyElementSettings('entry', base.entries[0])
+    expect(copied?.spotlight?.spotlights).toEqual([region({ shape: 'oval', dim: 0.8 })])
+    const pasted = timelineReducer(base, {
+      type: 'settings-pasted',
+      kind: 'entry',
+      id: 'e2',
+      settings: { spotlight: copied?.spotlight },
+    })
+    const target = pasted.entries.find((entry) => entry.id === 'e2')
+    expect(target?.spotlights).toEqual([region({ shape: 'oval', dim: 0.8 })])
   })
 })
 

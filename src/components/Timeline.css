@@ -686,6 +686,27 @@
   background: #171717;
 }
 
+/* The Spotlight group (#532): the Redact group's shape exactly — the add
+   button's row, then one boxed block per region — with its own left-border
+   colour so the two groups are distinguishable at a glance when an element
+   carries both. Amber hides; blue points. */
+.timeline-spotlights {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.timeline-spotlight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #2c2c2c;
+  border-left: 3px solid #5aa9e6;
+  border-radius: 4px;
+  background: #171717;
+}
+
 /* A one-line note under a control — the style hint, and the "Nothing
    hidden" placeholder beside the add button. Wraps rather than ellipsizes:
    it is a sentence, and a truncated warning about what blur does not hide

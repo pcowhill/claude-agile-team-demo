@@ -40,6 +40,7 @@ import type { Orientation } from './orientation'
 import { croppedDimensions, cropSourceRect } from './crop'
 import type { RedactionRegion } from './redaction'
 import { drawRedactions, hasBlurRedaction } from './redaction'
+import { drawSpotlights } from './spotlight'
 import type { Crop } from './crop'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backgroundFill'
 import type { BackgroundFill } from './backgroundFill'
@@ -1041,6 +1042,18 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             layer.sourceHeight,
             drawRect,
           )
+          // Spotlights (#532) dim around their regions inside the same
+          // transform, BEFORE the redactions below: a region that must be
+          // hidden stays hidden even when a spotlight brightens around it.
+          drawSpotlights({
+            context,
+            regions: timeline.entries[entryIndex]?.spotlights,
+            sourceTime: layer.time,
+            crop: outgoingCrop,
+            sourceWidth: layer.sourceWidth,
+            sourceHeight: layer.sourceHeight,
+            drawRect,
+          })
           // Redactions (#492) paint over the picture inside the same
           // orientation transform and the same colour filter, so they ride
           // every zoom, transition and rotation the layer does.
@@ -1207,6 +1220,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               overlay.layer.sourceHeight,
               drawRect,
             )
+            drawSpotlights({
+              context,
+              regions: timeline.entries[overlay.index]?.spotlights,
+              sourceTime: overlay.layer.time,
+              crop: incomingCrop,
+              sourceWidth: overlay.layer.sourceWidth,
+              sourceHeight: overlay.layer.sourceHeight,
+              drawRect,
+            })
             drawRedactions({
               context,
               source: overlay.layer.source,
@@ -1292,6 +1314,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               // The overlay's own source clock — the same one that decided
               // it is on screen at all (`audioTrackPlaybackAt`), so a
               // window is read identically here and in the preview.
+              drawSpotlights({
+                context: target,
+                regions: layer.spotlights,
+                sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
+                crop: layer.crop,
+                sourceWidth: picture.width,
+                sourceHeight: picture.height,
+                drawRect,
+              })
               drawRedactions({
                 context: target,
                 source: picture.source,

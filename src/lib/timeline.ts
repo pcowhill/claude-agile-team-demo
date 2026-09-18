@@ -4,6 +4,12 @@ import { isValidOrientation, normalizeOrientation, orientationsEqual } from './o
 import type { Crop } from './crop'
 import { cropsEqual, isValidCrop, normalizeCrop } from './crop'
 import type { RedactionRegion } from './redaction'
+import type { SpotlightRegion } from './spotlight'
+import {
+  areAcceptableSpotlightInputs,
+  normalizeSpotlights,
+  spotlightsEqual,
+} from './spotlight'
 import {
   areAcceptableRedactionInputs,
   normalizeRedactions,
@@ -178,6 +184,18 @@ export interface TimelineEntry {
    * colour has nothing to redact, exactly as it has no crop.
    */
   redactions?: RedactionRegion[]
+  /**
+   * Spotlight regions on a video/image entry (#532): rectangles or ovals
+   * that dim everything outside them for a window of the entry's own source
+   * time. Absent means none — the `redactions` shape exactly (#492) — so
+   * pre-spotlight states and files stay valid and spotlight-free files stay
+   * byte-identical. The rectangles are fractions of the SOURCE frame,
+   * before orientation and crop, and the windows are in source seconds, so
+   * turning, cropping or retrimming the entry never slides a spotlight off
+   * what it points at. Slates carry none: a flat colour has no part worth
+   * pointing at, exactly as it has nothing to redact.
+   */
+  spotlights?: SpotlightRegion[]
 }
 
 /**
@@ -798,6 +816,18 @@ export type TimelineAction =
   | { type: 'video-overlay-redactions-set'; id: string; redactions: RedactionRegion[] }
   | {
       /**
+       * Sets a video/image entry's spotlight regions whole (#532), the
+       * `entry-redactions-set` idiom exactly: the action carries the full
+       * list, the reducer stores the normalized form, and an empty list
+       * normalizes to no `spotlights` key at all, so `[]` is the reset.
+       */
+      type: 'entry-spotlights-set'
+      id: string
+      spotlights: SpotlightRegion[]
+    }
+  | { type: 'video-overlay-spotlights-set'; id: string; spotlights: SpotlightRegion[] }
+  | {
+      /**
        * Sets a video overlay's shape mask whole (#266), the
        * `video-overlay-crop-set` idiom: the action carries the full mask
        * and the reducer stores the normalized form — `{ kind: 'rectangle' }`
@@ -1313,6 +1343,7 @@ interface PastedVisualSettings {
   crop?: Crop
   backgroundFill?: BackgroundFill
   redactions?: RedactionRegion[]
+  spotlights?: SpotlightRegion[]
 }
 
 /**
@@ -1373,6 +1404,19 @@ function withPastedVisualSettings<T extends PastedVisualSettings>(
       const target = draft()
       if (normalized === undefined) delete target.redactions
       else target.redactions = normalized
+    }
+  }
+  if (settings.spotlight !== undefined) {
+    // The redaction group's rule, for the same reason: a copied list is
+    // already normalized, but it arrives through an action like any other
+    // input, so it is checked before it is stored (#532).
+    const regions = settings.spotlight.spotlights
+    if (regions !== undefined && !areAcceptableSpotlightInputs(regions)) return undefined
+    const normalized = normalizeSpotlights(regions)
+    if (!spotlightsEqual(normalized, element.spotlights)) {
+      const target = draft()
+      if (normalized === undefined) delete target.spotlights
+      else target.spotlights = normalized
     }
   }
   if (settings.crop !== undefined) {
@@ -2730,6 +2774,41 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (normalized === undefined) delete next.redactions
       else next.redactions = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'entry-spotlights-set': {
+      const index = state.entries.findIndex((entry) => entry.id === action.id)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      // Slates carry no spotlights (#532): a flat colour has no part worth
+      // pointing at, exactly as it has nothing to redact (#492).
+      if (isSlateEntry(entry)) return state
+      if (!areAcceptableSpotlightInputs(action.spotlights)) return state
+      const normalized = normalizeSpotlights(action.spotlights)
+      // Normalized against stored (stored is always normalized), so
+      // re-committing the same list is a no-op rather than an edit.
+      if (spotlightsEqual(normalized, entry.spotlights)) return state
+      const entries = [...state.entries]
+      // None means no key at all, never `[]` — what keeps spotlight-free
+      // saved files byte-identical (see spotlight.ts).
+      const next = { ...entry }
+      if (normalized === undefined) delete next.spotlights
+      else next.spotlights = normalized
+      entries[index] = next
+      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+    }
+    case 'video-overlay-spotlights-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!areAcceptableSpotlightInputs(action.spotlights)) return state
+      const normalized = normalizeSpotlights(action.spotlights)
+      if (spotlightsEqual(normalized, overlay.spotlights)) return state
+      const overlays = [...videoOverlays]
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.spotlights
+      else next.spotlights = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

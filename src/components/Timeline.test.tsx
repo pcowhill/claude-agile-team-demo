@@ -2986,7 +2986,7 @@ describe('copy and paste settings (#315)', () => {
       within(dialog)
         .getAllByRole('checkbox')
         .map((box) => box.closest('label')?.textContent),
-    ).toEqual(['Color', 'Orientation', 'Crop', 'Background fill', 'Redact', 'Audio'])
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Background fill', 'Spotlight', 'Redact', 'Audio'])
     expect(within(dialog).getAllByRole('checkbox').every((box) => (box as HTMLInputElement).checked)).toBe(
       true,
     )
@@ -3029,7 +3029,7 @@ describe('copy and paste settings (#315)', () => {
       within(screen.getByRole('dialog'))
         .getAllByRole('checkbox')
         .map((box) => box.closest('label')?.textContent),
-    ).toEqual(['Color', 'Orientation', 'Crop', 'Redact', 'Audio'])
+    ).toEqual(['Color', 'Orientation', 'Crop', 'Spotlight', 'Redact', 'Audio'])
   })
 
   it('clip→text: no compatible group — the dialog says so instead of a checklist', async () => {
@@ -3906,6 +3906,104 @@ describe('range sliders beside the single-number fields (#426)', () => {
   })
 })
 
+describe('spotlight regions on a row (#532)', () => {
+  const position = 'a.mp4 at position 1'
+  const which = 'Spotlight region 1'
+  const addButton = () =>
+    screen.getByRole('button', { name: `Add a spotlight region on ${position}` })
+  const field = (label: string) => screen.getByRole('spinbutton', { name: label })
+  const shapeSelect = () => screen.getByRole('combobox', { name: `${which} shape of ${position}` })
+
+  const openRow = async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await openPicture(position)
+  }
+
+  it('offers the group with no region, and adds one at the documented defaults', async () => {
+    await openRow()
+    expect(screen.getByText('Nothing spotlit')).toBeInTheDocument()
+
+    await userEvent.click(addButton())
+    // The centred rectangle redaction uses, the element's own trim as the
+    // window, and 55% dim — the values the guide states.
+    expect(field(`${which} left of ${position} (percent)`)).toHaveValue(35)
+    expect(field(`${which} top of ${position} (percent)`)).toHaveValue(40)
+    expect(field(`${which} width of ${position} (percent)`)).toHaveValue(30)
+    expect(field(`${which} height of ${position} (percent)`)).toHaveValue(20)
+    expect(field(`${which} start of ${position} in seconds`)).toHaveValue(0)
+    expect(field(`${which} end of ${position} in seconds`)).toHaveValue(10)
+    expect(field(`${which} dim of ${position} (percent)`)).toHaveValue(55)
+    expect(shapeSelect()).toHaveValue('rectangle')
+    expect(screen.queryByText('Nothing spotlit')).not.toBeInTheDocument()
+  })
+
+  it('switches a region to an oval without moving or resizing it', async () => {
+    await openRow()
+    await userEvent.click(addButton())
+    await userEvent.clear(field(`${which} width of ${position} (percent)`))
+    await userEvent.type(field(`${which} width of ${position} (percent)`), '20')
+    await userEvent.tab()
+
+    await userEvent.selectOptions(shapeSelect(), 'oval')
+    expect(shapeSelect()).toHaveValue('oval')
+    // The customer's requirement (#531): the oval has the same width and
+    // height as the rectangle it replaced.
+    expect(field(`${which} width of ${position} (percent)`)).toHaveValue(20)
+    expect(field(`${which} height of ${position} (percent)`)).toHaveValue(20)
+    expect(field(`${which} left of ${position} (percent)`)).toHaveValue(35)
+    expect(field(`${which} top of ${position} (percent)`)).toHaveValue(40)
+  })
+
+  it('holds several regions, numbered, and removes one without disturbing the rest', async () => {
+    await openRow()
+    await userEvent.click(addButton())
+    await userEvent.selectOptions(shapeSelect(), 'oval')
+    await userEvent.click(addButton())
+    expect(
+      screen.getByRole('combobox', { name: `Spotlight region 2 shape of ${position}` }),
+    ).toHaveValue('rectangle')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: `Remove spotlight region 1 of ${position}` }),
+    )
+    // The survivor renumbers to 1 and is the one that was second.
+    expect(shapeSelect()).toHaveValue('rectangle')
+    expect(
+      screen.queryByRole('combobox', { name: `Spotlight region 2 shape of ${position}` }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('is one undo step per edit, and removing the last region clears the group', async () => {
+    await openRow()
+    await userEvent.click(addButton())
+    await userEvent.selectOptions(shapeSelect(), 'oval')
+    await userEvent.click(
+      screen.getByRole('button', { name: `Remove spotlight region 1 of ${position}` }),
+    )
+    expect(screen.getByText('Nothing spotlit')).toBeInTheDocument()
+
+    const undo = screen.getByRole('button', { name: 'Undo last timeline edit' })
+    await userEvent.click(undo)
+    expect(shapeSelect()).toHaveValue('oval')
+    await userEvent.click(undo)
+    expect(shapeSelect()).toHaveValue('rectangle')
+    await userEvent.click(undo)
+    expect(screen.getByText('Nothing spotlit')).toBeInTheDocument()
+  })
+
+  it('clamps a dim typed past 100 rather than refusing it', async () => {
+    await openRow()
+    await userEvent.click(addButton())
+    const dim = field(`${which} dim of ${position} (percent)`)
+    await userEvent.clear(dim)
+    await userEvent.type(dim, '400')
+    await userEvent.tab()
+    expect(field(`${which} dim of ${position} (percent)`)).toHaveValue(100)
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({
@@ -3938,7 +4036,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await chooseRowAction('overlay logo.png at position 1', PASTE_SETTINGS)
     // A still is soundless: no Audio checkbox, and no Background fill either
     // (no overlay of either kind holds one).
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Spotlight', 'Redact'])
   })
 
   it('a video overlay target still offers Audio — the control for the fix', async () => {
@@ -3949,7 +4047,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
 
     await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
     await chooseRowAction('overlay a.mp4 at position 1', PASTE_SETTINGS)
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact', 'Audio'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Spotlight', 'Redact', 'Audio'])
   })
 
   it("copying a still overlay and pasting onto a clip cannot touch the clip's audio", async () => {
@@ -3967,7 +4065,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await chooseRowAction('overlay logo.png at position 1', COPY_SETTINGS)
     await chooseRowAction('a.mp4 at position 1', PASTE_SETTINGS)
     // The checklist a still offers a clip: no Audio to leave checked.
-    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Redact'])
+    expect(groupsInDialog()).toEqual(['Color', 'Orientation', 'Crop', 'Spotlight', 'Redact'])
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
 
     expect(

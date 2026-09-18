@@ -706,6 +706,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetEntryRedactions={(id, redactions) =>
             dispatchTimeline({ type: 'entry-redactions-set', id, redactions })
           }
+          onSetEntrySpotlights={(id, spotlights) =>
+            dispatchTimeline({ type: 'entry-spotlights-set', id, spotlights })
+          }
           onSetEntryBackgroundFill={(id, fill) =>
             dispatchTimeline({ type: 'entry-background-fill-set', id, fill })
           }
@@ -714,6 +717,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           onSetVideoOverlayRedactions={(id, redactions) =>
             dispatchTimeline({ type: 'video-overlay-redactions-set', id, redactions })
+          }
+          onSetVideoOverlaySpotlights={(id, spotlights) =>
+            dispatchTimeline({ type: 'video-overlay-spotlights-set', id, spotlights })
           }
           onSetVideoOverlayMask={(id, mask) =>
             dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
