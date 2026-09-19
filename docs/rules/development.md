@@ -190,7 +190,7 @@ does. Do not write ADRs for trivial or easily reversed choices.
   the worked example: it changed the undo chords to wait behind a modal
   dialog, its author found and corrected three passages saying the chords
   pause *only* inside text fields, and a fourth — `timeline.md:30`, the
-  same rule in different words — shipped contradicting them, until the
+  same rule in different words — was left contradicting them. The
   reviewing session ran one grep, got four hits against the PR's three,
   and aligned the fourth in a one-line commit before merging. This is the
   `git grep` the review rule asks for on widened kinds, pointed at the
