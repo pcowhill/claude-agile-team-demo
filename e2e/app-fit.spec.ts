@@ -5,6 +5,7 @@ import {
   expectNoVerticalPageScroll,
   expectWithin,
 } from './layout'
+import { sineWav } from './sineWav'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
@@ -31,6 +32,13 @@ type Page = import('@playwright/test').Page
  * 360×640 is deliberate: it is the width at which `.app-header` wraps to
  * three lines, so a fix that subtracted a constant header height would pass
  * every other case here and fail this one.
+ *
+ * The shell is measured on a **populated** project (#549): fourteen clips in
+ * the library as well as rows on the timeline, because an empty panel cannot
+ * overflow — #545's list painted 24px over the Timeline heading with 14
+ * clips and 0 with 3, under reviews that had measured the shell on an empty
+ * library. The empty-project cases stay for what they are about (the shell
+ * on load, the header's wrap); each is followed by the populated one.
  */
 
 const guidePanel = (page: Page) => page.getByRole('complementary', { name: 'User guide' })
@@ -38,6 +46,11 @@ const editorColumn = (page: Page) => page.getByRole('main')
 const timelinePanel = (page: Page) => page.getByRole('region', { name: 'Timeline' })
 const sequenceRows = (page: Page) =>
   page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')
+const libraryPanel = (page: Page) => page.getByRole('region', { name: 'Media library' })
+const libraryList = (page: Page) => page.getByRole('list', { name: 'Imported clips' })
+
+/** Enough clips to make the library's list scroll at every size here (#545: 14 overflowed, 3 did not). */
+const LIBRARY_CLIPS = 14
 
 async function openGuide(page: Page) {
   await page.getByRole('button', { name: 'Help', exact: true }).click()
@@ -52,6 +65,36 @@ async function openGuide(page: Page) {
 async function fillTimeline(page: Page, rows: number) {
   for (let i = 0; i < rows; i += 1) await chooseFromAddMenu(page, ADD_SLATE)
   await expect(sequenceRows(page)).toHaveCount(rows)
+}
+
+/** A library with more clips than its list has room for — tiny WAVs, imported in one go. */
+async function fillLibrary(page: Page, clips = LIBRARY_CLIPS) {
+  await page.getByTestId('clip-file-input').setInputFiles(
+    Array.from({ length: clips }, (_, i) => ({
+      name: `clip-${String(i + 1).padStart(2, '0')}.wav`,
+      mimeType: 'audio/wav',
+      buffer: sineWav(0.2),
+    })),
+  )
+  await expect(libraryList(page).getByRole('listitem')).toHaveCount(clips)
+}
+
+/** Both panels that grow with content, grown (#549). */
+async function populate(page: Page, rows: number) {
+  await fillLibrary(page)
+  await fillTimeline(page, rows)
+}
+
+/**
+ * The shell's guard on the library (#545): its list stays inside its panel
+ * however many clips it holds. The page-fit assertions cannot see this one —
+ * the list painted over the Timeline heading while the page read zero.
+ */
+async function expectLibraryListInsidePanel(page: Page, where: string) {
+  await expectWithin(libraryList(page), libraryPanel(page), {
+    axis: 'y',
+    what: `the clip list, ${where}`,
+  })
 }
 
 test('the editor fits the window on load at every supported width, header wrapped or not (#524)', async ({
@@ -70,10 +113,20 @@ test('the editor fits the window on load at every supported width, header wrappe
     await expectNoVerticalPageScroll(page, where)
     await expectNoHorizontalScroll(page, where)
 
+    // Then populated (#549): fourteen clips and six rows, more than either
+    // panel can show, because an empty panel cannot overflow and the two
+    // defects this file guards against were both invisible on an empty app.
+    await populate(page, 6)
+    const populated = `populated project at ${size.width}×${size.height}`
+    await expectNoVerticalPageScroll(page, populated)
+    await expectNoHorizontalScroll(page, populated)
+    await expectLibraryListInsidePanel(page, populated)
+
     await openGuide(page)
-    await expectNoVerticalPageScroll(page, `${where}, guide open`)
-    await expectNoHorizontalScroll(page, `${where}, guide open`)
-    await expectBottomWithinViewport(guidePanel(page), page, `the guide panel, ${where}`)
+    await expectNoVerticalPageScroll(page, `${populated}, guide open`)
+    await expectNoHorizontalScroll(page, `${populated}, guide open`)
+    await expectBottomWithinViewport(guidePanel(page), page, `the guide panel, ${populated}`)
+    await expectLibraryListInsidePanel(page, `${populated}, guide open`)
   }
 })
 
@@ -106,14 +159,15 @@ test('the guide panel ends at the bottom of the window and scrolls on its own (#
   // which is the state the panel over-ran in: unscrolled, the panel began
   // under the header and was still allowed a whole viewport.
   await page.goto('./')
-  await fillTimeline(page, 6)
+  await populate(page, 6)
   await openGuide(page)
 
   // The panel's own edge first: it is the defect the customer reported, and
   // it read 812px down a 720px window before the fix, so a failure here
   // should say so rather than be pre-empted by the page-scroll assertion.
   await expectBottomWithinViewport(guidePanel(page), page, 'the guide panel over a tall project')
-  await expectNoVerticalPageScroll(page, 'six slates, guide open')
+  await expectNoVerticalPageScroll(page, 'fourteen clips, six slates, guide open')
+  await expectLibraryListInsidePanel(page, 'fourteen clips, six slates, guide open')
 
   // On a long section, so the panel really has more than it can show: the
   // Feature Index is hundreds of entries at any window size, while the
@@ -192,9 +246,10 @@ test('a project taller than the window stays reachable — in the editor column,
   // gave, measured where it now lives.
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('./')
-  await fillTimeline(page, 8)
+  await populate(page, 8)
 
-  await expectNoVerticalPageScroll(page, 'eight slates')
+  await expectNoVerticalPageScroll(page, 'fourteen clips, eight slates')
+  await expectLibraryListInsidePanel(page, 'fourteen clips, eight slates')
   const column = editorColumn(page)
   const overflow = await column.evaluate((node) => ({
     scrollHeight: node.scrollHeight,
@@ -231,7 +286,7 @@ test('the preview panel keeps its picture inside it, expanded and at narrow widt
   // Expanded, at a desktop size (#128 option B, customer-approved in #126).
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('./')
-  await fillTimeline(page, 6)
+  await populate(page, 6)
   await page.getByRole('button', { name: 'Expand preview' }).click()
   await expect(page.getByRole('button', { name: 'Restore preview size' })).toBeVisible()
   await expectWithin(picture, previewPanel, {
@@ -249,9 +304,10 @@ test('the preview panel keeps its picture inside it, expanded and at narrow widt
   // from its width too — no expanding needed, just a clip on the timeline.
   await page.setViewportSize({ width: 360, height: 640 })
   await page.goto('./')
-  await fillTimeline(page, 3)
+  await populate(page, 3)
   await expectWithin(picture, previewPanel, {
     axis: 'y',
     what: 'the preview picture in the single-column layout',
   })
+  await expectLibraryListInsidePanel(page, 'the single-column layout')
 })

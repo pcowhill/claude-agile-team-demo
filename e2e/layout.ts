@@ -18,6 +18,15 @@ type Page = import('@playwright/test').Page
  * These are assertions, not predicates: each throws through Playwright's
  * `expect` with the measured numbers in the message, so a failure names the
  * geometry rather than saying `false !== true`.
+ *
+ * **Measure on a populated project (#549).** A panel's overflow is a
+ * function of its content, so every one of these reads zero on an empty
+ * app whatever the viewport: #534 (the editor's panels 109px past the
+ * column at 360px, with three slates on the timeline) and #545 (the
+ * library's list 24px past its panel at 1280×720, with 14 clips) were both
+ * swept at zero on an empty project first. Put clips in the library and
+ * rows on the timeline — whatever the panel under test holds — before
+ * calling any of these; `app-fit.spec.ts` shows the shape.
  */
 
 /** A locator's box, failing loudly rather than returning null. */

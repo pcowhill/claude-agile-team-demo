@@ -163,7 +163,19 @@ does. Do not write ADRs for trivial or easily reversed choices.
   unaffected. Two layout defects reached the customer under green CI for
   want of this — the export modal's overflowing format note (#268, fixed in
   #270) and the cheat sheet's mid-combo wrap (#287, fixed in #289) — both
-  reported by the customer with screenshots (#264, #282).
+  reported by the customer with screenshots (#264, #282). **A layout
+  measurement is taken on a populated project** — clips in the library, rows
+  on the timeline, whatever the panel under test holds — because an empty
+  panel cannot overflow. A panel's overflow is a function of its content,
+  and the natural measurement (load the app, sweep the viewports) is taken
+  on the one state in which no panel can. #534 and #545 are both overflows
+  an empty sweep reported as zero: #526's review swept 1440 → 360 on an
+  empty project and found nothing, and the next review, with three slates
+  on the timeline, read every panel 109px past the column at 360px; the
+  library's list at 1280×720 ends 302px inside its panel with 3 clips and
+  24px past it with 14, and that one reached the customer under green CI
+  (#545, five hours after the merge). `e2e/layout-width.spec.ts`'s 360px
+  case (#554) and `e2e/app-fit.spec.ts` (#549) are the populated shape.
 - **The user guide is user-facing documentation and is updated with the
   change, not after it.** A PR that adds, changes or removes something the
   user can see or do carries its `docs/guide/` update (see "Definition of
