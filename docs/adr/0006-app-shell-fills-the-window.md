@@ -60,6 +60,12 @@ screen or reachable by scrolling `.app-main`, and the header stays put. Code
 or specs that ask `documentElement.scrollHeight > window.innerHeight` to mean
 "there is more below" must ask `main` instead — `e2e/preview-layout.spec.ts`
 is the one that did, and it now reads the same guarantee off the column.
+The same holds for a *pin*: `window.scrollTo(0, 0)` now moves nothing, so a
+spec that reset the page before sampling screen coordinates was resetting
+the wrong box — `e2e/preview-transitions.spec.ts` carried four such calls,
+green because nothing in it happened to scroll the column, and now pins
+`main` (#535). The search that found the first case looked for the
+comparison, not for `window.scrollTo`, which is how the second was missed.
 
 **A full-height surface added later inherits the fix** as long as it sizes
 itself against its container rather than the viewport. `e2e/layout.ts`'s

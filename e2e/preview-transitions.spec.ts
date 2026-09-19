@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+
+type Page = import('@playwright/test').Page
 
 /**
  * Preview rendering of transitions (#42): during an overlap the outgoing
@@ -7,6 +10,26 @@ import { expect, test } from '@playwright/test'
  * player has genuinely decodable video, and entries are trimmed to exactly
  * 1s so overlap arithmetic is deterministic.
  */
+
+/**
+ * Pins the scroll of the box that can move the preview out from under the
+ * coordinates the samples below reuse: the **editor column** (`main`). Since
+ * ADR 0006 (#526) `.app` is `100dvh` and `.app-main` is the scroll
+ * container, so the page cannot scroll and the `window.scrollTo(0, 0)` this
+ * spec used to call moved nothing — four inert pins, holding while nothing
+ * happened to scroll the column (#535). Taken before the stage is measured
+ * and again after each seek (see `seekAndSettle`), as the old pin was; the
+ * test at the end of this file is the one that fails if it stops doing
+ * anything. Fails loudly if the column is gone, since a pin on a box that
+ * is not there would be the same silent no-op again.
+ */
+async function pinScroll(page: Page) {
+  await page.evaluate(() => {
+    const column = document.querySelector('main')
+    if (column === null) throw new Error('no editor column (main) to pin the scroll of — did the shell change?')
+    column.scrollTo(0, 0)
+  })
+}
 async function recordWebm(page: import('@playwright/test').Page): Promise<Buffer> {
   const webmBase64 = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
@@ -338,11 +361,11 @@ test('a crossfade between different aspect ratios fades the uncovered margins to
 
   // Both elements fill the stage with object-fit: contain, so each clip's
   // painted box is the aspect-fit of its source size into the stage box.
-  // The timeline's per-entry rows can scroll the page while editing; every
-  // sample below reuses coordinates measured here, so pin the scroll to the
-  // top (where the preview lives) before measuring and keep it there after
-  // each seek (see seekAndSettle).
-  await page.evaluate(() => window.scrollTo(0, 0))
+  // Editing the timeline's rows can scroll the editor column; every sample
+  // below reuses coordinates measured here, so pin the column to its top
+  // (where the preview lives) before measuring and keep it there after each
+  // seek (see seekAndSettle, and pinScroll for which box scrolls).
+  await pinScroll(page)
   const stage = (await page.getByTestId('preview-video').boundingBox())!
   const contain = (sourceWidth: number, sourceHeight: number) => {
     const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
@@ -391,7 +414,7 @@ test('a crossfade between different aspect ratios fades the uncovered margins to
         )
         .toBeGreaterThanOrEqual(2)
     }
-    await page.evaluate(() => window.scrollTo(0, 0))
+    await pinScroll(page)
   }
   const marginRedAt = async (time: string) => {
     await seekAndSettle(time)
@@ -465,11 +488,11 @@ test('a slide between different aspect ratios slides a black card over the margi
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
   await expect(seek).toHaveAttribute('max', '1.5')
 
-  // The timeline's per-entry rows can scroll the page while editing; every
-  // sample below reuses coordinates measured here, so pin the scroll to the
-  // top (where the preview lives) before measuring and keep it there after
-  // each seek (see seekAndSettle).
-  await page.evaluate(() => window.scrollTo(0, 0))
+  // Editing the timeline's rows can scroll the editor column; every sample
+  // below reuses coordinates measured here, so pin the column to its top
+  // (where the preview lives) before measuring and keep it there after each
+  // seek (see seekAndSettle, and pinScroll for which box scrolls).
+  await pinScroll(page)
   const stage = (await page.getByTestId('preview-video').boundingBox())!
   const contain = (sourceWidth: number, sourceHeight: number) => {
     const scale = Math.min(stage.width / sourceWidth, stage.height / sourceHeight)
@@ -515,7 +538,7 @@ test('a slide between different aspect ratios slides a black card over the margi
   const overlapTime = (progress: number) => String(Math.round((0.5 + 0.5 * progress) * 100) / 100)
 
   /** Seeks (paused), waits for decodable frames on both live elements, and
-   * re-pins the scroll so the measured coordinates stay valid to sample. */
+   * re-pins the column's scroll so the measured coordinates stay valid to sample. */
   const seekAndSettle = async (time: string) => {
     await seek.fill(time)
     await expect
@@ -532,7 +555,7 @@ test('a slide between different aspect ratios slides a black card over the margi
         )
         .toBeGreaterThanOrEqual(2)
     }
-    await page.evaluate(() => window.scrollTo(0, 0))
+    await pinScroll(page)
   }
 
   // Solo: both strips show the outgoing clip at full brightness.
@@ -620,6 +643,67 @@ test('seeking into a slide-from-above overlap renders the mid-effect state', asy
   await seek.fill('0.25')
   await expect(page.getByTestId('preview-video-incoming')).toHaveCount(0)
   await expect(page.getByTestId('preview-now-playing')).toHaveText('Clip 1 of 2: first.webm')
+})
+
+test('the scroll pin resets the box that actually moves the preview, so a scrolled column no longer breaks a sample (#535)', async ({
+  page,
+}) => {
+  // The pin this spec's samples depend on used to be `window.scrollTo(0, 0)`,
+  // which stopped doing anything when ADR 0006 made the editor column the
+  // scroll container; the spec stayed green only because nothing in it
+  // scrolled the column. This is the test that shows the pin now pins: the
+  // column is scrolled deliberately, the preview leaves the place its
+  // coordinates were measured at, the old pin moves nothing back, and the
+  // new one does — after which the same rectangle samples the same picture.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('./')
+  // Enough rows that the column overflows at this size (app-fit.spec.ts
+  // asserts the same with eight); the first slate is what the preview shows.
+  for (let i = 0; i < 8; i += 1) await chooseFromAddMenu(page, ADD_SLATE)
+  await expect(page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')).toHaveCount(8)
+  const column = page.getByRole('main')
+  await expect
+    .poll(() => column.evaluate((node) => node.scrollHeight - node.clientHeight), {
+      message: 'the editor column has more than it can show',
+    })
+    .toBeGreaterThan(0)
+
+  const frame = page.getByTestId('preview-frame')
+  await pinScroll(page)
+  const pinned = (await frame.boundingBox())!
+  const probe = {
+    x: pinned.x + pinned.width * 0.4,
+    y: pinned.y + pinned.height * 0.4,
+    width: pinned.width * 0.2,
+    height: pinned.height * 0.2,
+  }
+  const before = await sampleScreenRect(page, probe)
+
+  // Scroll the column to its end: the preview moves, and the old pin leaves
+  // it there — `window.scrollY` was 0 before and is 0 after, which is all it
+  // ever changed.
+  await column.evaluate((node) => node.scrollTo(0, node.scrollHeight))
+  await expect
+    .poll(() => frame.boundingBox().then((box) => box!.y), {
+      message: 'scrolling the column moved the preview',
+    })
+    .not.toBe(pinned.y)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  expect((await frame.boundingBox())!.y, 'window.scrollTo moved the preview back').not.toBe(pinned.y)
+  expect(await page.evaluate(() => window.scrollY), 'the page itself scrolled').toBe(0)
+
+  // The pin puts the preview back where the coordinates were measured, and
+  // the probe rectangle samples the same picture as before.
+  await pinScroll(page)
+  await expect
+    .poll(() => frame.boundingBox().then((box) => box!.y), {
+      message: 'the pin brought the preview back to where it was measured',
+    })
+    .toBe(pinned.y)
+  const after = await sampleScreenRect(page, probe)
+  for (const channel of ['r', 'g', 'b'] as const) {
+    expect(Math.abs(after[channel] - before[channel]), `${channel} after the pin`).toBeLessThan(2)
+  }
 })
 
 test('seeking into each other slide direction renders the mid-effect transform (#62)', async ({
