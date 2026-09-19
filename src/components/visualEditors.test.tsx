@@ -107,6 +107,24 @@ describe("the visual editors' lazy loader (#537, #568)", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('takes focus on ✕ and closes on Escape, as its own tooltip promises', async () => {
+    const { load } = flakyLoader()
+    const { Editor } = lazyEditor('crop', load)
+    const onClose = vi.fn()
+    render(<Editor onClose={onClose} />)
+
+    await screen.findByRole('dialog', { name: 'The crop editor could not load' })
+    // The ✕ reads `Close (Esc)`, copied from the six editors — whose own
+    // Escape handlers are inside the chunk that just failed to arrive. Found
+    // in review of #570: the tooltip named a key nothing listened for. Focus
+    // is half of it, because the handler is on the dialog.
+    const close = screen.getByRole('button', { name: 'Close the crop editor' })
+    expect(close).toHaveFocus()
+
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('renders nothing while the load is still in flight', () => {
     let settle: (component: ComponentType<Props>) => void = () => {}
     const load = vi.fn(

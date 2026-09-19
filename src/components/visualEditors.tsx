@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { ComponentType } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ComponentType, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import './visualEditors.css'
 
 /**
@@ -32,7 +32,11 @@ import './visualEditors.css'
  * rejection clears the slot rather than being cached, the rejection is
  * handled, and the failure renders as a dialog of its own.
  * `props.onClose` is why the generic asks for it: without a way out, a
- * failure dialog is a worse dead end than the blank it replaces.
+ * failure dialog is a worse dead end than the blank it replaces. The panel
+ * also takes focus on the ✕ and answers Escape, as the six editors do: its
+ * ✕ reads `Close (Esc)`, and the editors' own Escape handlers are inside the
+ * chunk that failed to arrive, so without a handler here the tooltip named a
+ * key that did nothing — found in review of #570.
  *
  * **It borrows no class from the editors**, for the reason `visualEditors.css`
  * gives at length: their stylesheet ships inside the very chunk that failed
@@ -84,6 +88,7 @@ export function lazyEditor<P extends { onClose: () => void }>(
   function LazyEditor(props: P) {
     const [ready, setReady] = useState(Loaded !== null)
     const [failed, setFailed] = useState(false)
+    const closeRef = useRef<HTMLButtonElement>(null)
     useEffect(() => {
       if (Loaded !== null) {
         setReady(true)
@@ -105,6 +110,24 @@ export function lazyEditor<P extends { onClose: () => void }>(
         cancelled = true
       }
     }, [])
+    // Focus starts on the safe action, as it does in every other dialog here
+    // (ConfirmDialog, the editors' own ✕) — and it is what puts Escape within
+    // reach: the handler below is on the dialog, so something inside it has to
+    // hold focus for the key to arrive. ✕ rather than Reload the page, because
+    // the reload is the one that discards unsaved in-memory state.
+    useEffect(() => {
+      if (failed) closeRef.current?.focus()
+    }, [failed])
+
+    const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      // Ours, not a dialog's underneath — the editors' own handlers do the
+      // same, and they are what this panel stands in for.
+      event.stopPropagation()
+      props.onClose()
+    }
+
     if (ready && Loaded !== null) return <Loaded {...props} />
     if (!failed) return null
     return (
@@ -113,6 +136,7 @@ export function lazyEditor<P extends { onClose: () => void }>(
         aria-label={`The ${name} editor could not load`}
         className="visual-editor-failed"
         data-testid="visual-editor-failed"
+        onKeyDown={handleKeyDown}
       >
         <div className="visual-editor-failed-body">
           <span role="alert" className="visual-editor-failed-message">
@@ -122,6 +146,7 @@ export function lazyEditor<P extends { onClose: () => void }>(
             Reload the page
           </button>
           <button
+            ref={closeRef}
             type="button"
             aria-label={`Close the ${name} editor`}
             title="Close (Esc)"

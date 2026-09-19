@@ -26,7 +26,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **▶ Play** — the preview transport. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **▾ (expand a row)** — a row's main line; shows the element's fields. [Timeline › A row](timeline.md#a-row)
 - **▾ (fold a section)** — a section heading; folds that whole section away. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
-- **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
+- **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was, Escape included. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
 - **✕ Marks** — the preview transport, once a mark is set; clears both. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 

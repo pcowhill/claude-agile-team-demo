@@ -124,7 +124,7 @@ test('a visual editor whose chunk fails to load says so, instead of nothing (#56
 
   // The message is the wide part and the buttons are fixed-width, so the
   // regression to guard is the sentence forcing them out of the box rather
-  // than wrapping — `.effect-editor-failed` gives the text `min-width: 0`
+  // than wrapping — `.visual-editor-failed-message` gives the text `min-width: 0`
   // for exactly this, which is the shape that overflowed in #268.
   for (const name of ['Reload the page', 'Close the crop editor']) {
     await expectWithin(failed.getByRole('button', { name }), failed, {
@@ -192,6 +192,30 @@ test('reloading after a failed chunk is what brings the editor back (#568)', asy
   await expect(realDialog(page).getByTestId('frame-editor-image')).toBeVisible()
   await expect(failedDialog(page)).toHaveCount(0)
   expect(state.continued, 'the reload refetched the module').toBeGreaterThan(0)
+})
+
+test('Escape dismisses the failure panel, and ✕ holds focus — as the tooltip says (#568)', async ({
+  page,
+}) => {
+  const state = await blockCropEditorModule(page)
+  await projectWithAnImage(page)
+  await adjustButton(page).click()
+
+  const failed = failedDialog(page)
+  await expect(failed).toBeVisible()
+
+  // The ✕ reads `Close (Esc)`, copied from the six editors this panel stands
+  // in for — whose own Escape handlers ship inside the chunk that just failed
+  // to arrive. Found in review of #570, where the tooltip named a key nothing
+  // listened for. Focus on the ✕ is the other half: the handler is on the
+  // dialog, so the key only reaches it from inside, and ✕ rather than Reload
+  // the page because the reload is what discards unsaved work.
+  await expect(failed.getByRole('button', { name: 'Close the crop editor' })).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(failed).toHaveCount(0)
+  await expect(adjustButton(page)).toBeVisible()
+  expect(state.aborted, 'the route actually blocked the editor module').toBeGreaterThan(0)
 })
 
 test('a second attempt without reloading never reaches the network — why there is no Retry (#568)', async ({
