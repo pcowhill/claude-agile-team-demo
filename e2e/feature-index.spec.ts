@@ -6,6 +6,7 @@ import type { Locator, Page } from '@playwright/test'
 import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
 import { chooseClipAction, openClipMenu } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
+import { chooseFromFrameMenu } from './frameMenu'
 import { openPicture } from './pictureDisclosure'
 import { ADD_SLATE, ADD_TEXT, openAddMenu, subtitleStyleToggle } from './timelineMenu'
 import { chooseEffect, openEffectMenu, openRowMenu } from './timelineRowMenu'
@@ -24,7 +25,9 @@ import { sineWav } from './sineWav'
  * - the header: File ▾ (and its Export ▸ submenu), Help ▾, Save, Export
  *   Project…
  * - the media library: its own controls, Record ▾, View ▾, and a row's ⋯
- * - the preview: the transport, Frame ▾
+ * - the preview: the transport, Frame ▾, and — since #536 — a chapter
+ *   marker: the preview while its name field is open, the badge under the
+ *   seek bar, and the badge's own menu
  * - the timeline: the header controls and the Canvas preset, each section's
  *   heading controls, and for every row — expanded — its inline controls,
  *   its Picture disclosure, its ⋯ menu and its + Effect ▾ menu
@@ -50,7 +53,11 @@ import { sineWav } from './sineWav'
  * zoom and a redaction region, because neither a zoom's fields nor a
  * region's exist until one has been made. Since #525 it adds the other two
  * + Effect ▾ effects for the same reason: a speed segment's three fields
- * and a pause's two exist only once the effect does.
+ * and a pause's two exist only once the effect does. Since #536 it adds a
+ * chapter marker before the export dialog is opened, because a marker's
+ * badge, its menu and its naming field exist only once a marker does — and
+ * so does the export dialog's Each chapter option (#529), which is how the
+ * gap was found.
  *
  * **What it deliberately does not open** — and so cannot check:
  *
@@ -124,6 +131,21 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     pattern: / \(\d+:\d\d(?:\.\d+)? – \d+:\d\d(?:\.\d+)?\)$/,
     replacement: '',
     why: "the Marked range option names the marks' own times, which move with them",
+  },
+  {
+    pattern: /^Chapter marker .+ at \d+:\d\d(?:\.\d+)?$/,
+    replacement: 'Chapter marker',
+    why: "a marker's badge names the marker and its own time (Chapter marker Intro at 0:03), neither of which is part of the control (#536)",
+  },
+  {
+    pattern: /^Name of chapter marker at \d+:\d\d(?:\.\d+)?$/,
+    replacement: 'Name of chapter marker',
+    why: 'the naming field says which marker it names, by the time it sits at (#536)',
+  },
+  {
+    pattern: / \(\d+ files?\)$/,
+    replacement: '',
+    why: "Each chapter says how many files the run would write — the project's marker count, not the control's name (#529, #536)",
   },
   {
     pattern: /between position \d+ and \d+/,
@@ -574,6 +596,33 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     await expect(menu).toHaveCount(0)
   }
 
+  // ── A chapter marker (#536) ─────────────────────────────────────────
+  //
+  // Frame ▾ › Add chapter marker at playhead, which the rows above enable
+  // (the item is disabled on an empty timeline). A new marker opens its
+  // name field focused, so the preview is recorded while the field is
+  // there, then Enter commits the default name and the walk moves on. The
+  // badge under the seek bar is a menu of its own — Rename…, Move to
+  // playhead, Remove — and the export dialog below offers Each chapter only
+  // once a marker exists, which is how #529 found this gap. Before the
+  // marks are set, so the marker sits at 0:00 and inside whatever range the
+  // export dialog is later asked about.
+  await chooseFromFrameMenu(page, 'preview-add-marker')
+  const markerName = preview.getByRole('textbox', { name: /^Name of chapter marker at / })
+  await expect(markerName).toBeFocused()
+  await record('the preview, naming a new chapter marker', preview)
+  await page.keyboard.press('Enter')
+  await expect(markerName).toHaveCount(0)
+  const markerBadge = preview.getByRole('button', { name: /^Chapter marker Chapter 1 at / })
+  await expect(markerBadge).toBeVisible()
+  await record('the preview with a chapter marker', preview)
+  await markerBadge.click()
+  const markerMenu = page.getByRole('menu', { name: 'Chapter marker Chapter 1' })
+  await expect(markerMenu).toBeVisible()
+  await record("a chapter marker's menu", markerMenu)
+  await page.keyboard.press('Escape')
+  await expect(markerMenu).toHaveCount(0)
+
   await page.getByRole('button', { name: 'File', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
   const exportSubmenu = page.getByRole('menu', { name: 'Export' })
@@ -677,6 +726,8 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   const exportDialog = page.getByRole('dialog', { name: 'Export project' })
   await expect(exportDialog).toBeVisible()
   // Each format in turn: the Output group changes with the format chosen.
+  // The Range group's radios are in the same list, Each chapter among them
+  // now that the project has a marker (#536).
   for (const format of await exportDialog.getByRole('radio').all()) {
     await format.check()
     await record('the Export project dialog', exportDialog)
@@ -737,7 +788,8 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
 
   // A spotlight region on the same entry (#532): its own fields, added
   // here rather than trusted, because a region's controls exist only once
-  // the region does — the gap #536 records for the chapter-marker surface.
+  // the region does — the same gap #536 closed for the chapter-marker
+  // surface above.
   // Its visual editor is walked just below (#533).
   await timeline
     .getByRole('button', { name: `Add a spotlight region on ${firstEntry}`, exact: true })
@@ -919,8 +971,10 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   // each widening — 162 originally, 194 with #507's four surfaces, 205 with
   // #520's discard guard and #525's speed segment and pause (the other two
   // came from #527's transport control and its key), 215 with #532's
-  // spotlight region's ten — keeping roughly the slack the original
-  // 150-against-162 left, so a surface that stops opening is caught while
-  // an ordinary control being retired is not.
-  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(206)
+  // spotlight region's ten, 220 with #536's chapter marker (its badge, menu
+  // item and naming field, and the Each chapter option the marker reveals)
+  // — keeping roughly the slack the original 150-against-162 left, so a
+  // surface that stops opening is caught while an ordinary control being
+  // retired is not.
+  expect(wanted.size, 'the walk collected the whole app').toBeGreaterThan(210)
 })
