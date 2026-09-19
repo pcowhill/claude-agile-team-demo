@@ -1,0 +1,56 @@
+/*
+ * The visual editors' load-failure dialog (#568).
+ *
+ * This file exists — rather than the rules living beside the editors' own
+ * in `FrameEditor.css` — because that stylesheet is *inside the lazy chunk*.
+ * `FrameEditor.tsx` is its only importer and `FrameEditor.tsx` ships with
+ * the six editors (#537), so a build emits it as `FrameEditor-*.css` and
+ * loads it with the chunk. A dialog that appears precisely when that chunk
+ * failed to arrive cannot be styled by a stylesheet that arrives with it:
+ * the first draft of this dialog reused `.effect-editor` and rendered
+ * completely unstyled — no border, no padding, no width bound — and the
+ * screenshot looked plausible enough that only checking the computed colour
+ * showed it. So the failure dialog carries its own self-contained rules and
+ * borrows no class from the editors it stands in for. `visualEditors.tsx`
+ * is in the entry bundle, so importing this from there puts it on the
+ * first-paint stylesheet, where it is a few hundred bytes.
+ */
+
+.visual-editor-failed {
+  display: flex;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.5rem;
+  background: #1a1a1a;
+  border: 1px solid #6b3a3a;
+  border-radius: 6px;
+  max-width: 30rem;
+}
+
+.visual-editor-failed-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+/* The message is the wide part and the buttons are fixed-width, so the text
+   takes the slack: without `min-width: 0` a flex item refuses to shrink
+   below its content and pushes the buttons past the box's own edge, which
+   is how the export modal's format note overflowed (#268) and the cheat
+   sheet wrapped mid-combo (#287). The box grows taller instead. */
+.visual-editor-failed-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The only visual cue that this is a failure: the box is otherwise the
+     same dark strip as an editor that opened. Warm enough to carry meaning,
+     not so saturated it reads as a blocking error — the editor is
+     unavailable, the project is fine. */
+  color: #e8a0a0;
+}
+
+.visual-editor-failed-body button {
+  flex: 0 0 auto;
+  min-width: 2rem;
+}
