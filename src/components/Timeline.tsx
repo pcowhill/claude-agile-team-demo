@@ -92,15 +92,18 @@ import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
-import { CropEditor } from './CropEditor'
-import { RedactionEditor } from './RedactionEditor'
-import { SpotlightEditor } from './SpotlightEditor'
+// The six visual editors are lazy chunks (#537): see visualEditors.tsx.
+import {
+  CropEditor,
+  OverlayEditor,
+  RedactionEditor,
+  SpotlightEditor,
+  TextEditor,
+  ZoomEditor,
+} from './visualEditors'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
-import { OverlayEditor } from './OverlayEditor'
-import { TextEditor } from './TextEditor'
-import { ZoomEditor } from './ZoomEditor'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
 import './dialog.css'

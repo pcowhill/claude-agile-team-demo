@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
+import { preloadVisualEditors } from './visualEditors'
 import { probeMediaFile } from '../lib/probeMedia'
 import { createSnapshotSession, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { SETTINGS_KEY } from '../lib/settings'
@@ -80,6 +81,10 @@ const drag = (
   }
   fireEvent.pointerUp(handles(), { pointerId: 1, clientX: to.x, clientY: to.y })
 }
+
+// The editors are lazy chunks (#537); loaded once here, they render
+// synchronously below, so a test can open one and read it on the next line.
+beforeAll(preloadVisualEditors)
 
 describe('visual Zoom editor (#413)', () => {
   beforeEach(() => {
