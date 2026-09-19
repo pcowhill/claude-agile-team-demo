@@ -179,7 +179,22 @@ does. Do not write ADRs for trivial or easily reversed choices.
 - **The user guide is user-facing documentation and is updated with the
   change, not after it.** A PR that adds, changes or removes something the
   user can see or do carries its `docs/guide/` update (see "Definition of
-  Done" below); the PR template's checkbox records which applied.
+  Done" below); the PR template's checkbox records which applied. When the
+  change alters a behaviour the guide already **states**, grep
+  `docs/guide/` for the old wording — the phrase a reader would have read,
+  not the feature's name — and account for every hit in the PR: changed,
+  or left and why. The guide describes one behaviour from several pages by
+  design (the feature's own page, the shortcuts page, the page for the
+  surface it sits on), so a behaviour change always has more than one
+  passage to find, and reading for them is how one gets missed. #561 is
+  the worked example: it changed the undo chords to wait behind a modal
+  dialog, its author found and corrected three passages saying the chords
+  pause *only* inside text fields, and a fourth — `timeline.md:30`, the
+  same rule in different words — was left contradicting them. The
+  reviewing session ran one grep, got four hits against the PR's three,
+  and aligned the fourth in a one-line commit before merging. This is the
+  `git grep` the review rule asks for on widened kinds, pointed at the
+  guide instead of at `src/`.
 - Opening the PR is the handoff: the authoring session must not review,
   approve, or merge it (`review.md`), and must not arrange to resume itself
   afterwards — no self-check-ins, PR-activity subscriptions, or other
