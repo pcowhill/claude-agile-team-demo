@@ -38,6 +38,34 @@ test('toolbar undo/redo walk real edits back and forward', async ({ page }) => {
   await expect(redo).toBeDisabled()
 })
 
+test('the undo chord waits while a dialog is open, and works again once it closes (#559)', async ({
+  page,
+}) => {
+  await page.goto('./')
+  await chooseFromAddMenu(page, ADD_SLATE)
+  const sequence = page.getByRole('list', { name: 'Sequence' })
+  await expect(sequence).toBeAttached()
+
+  // The export dialog is modal (#203), and the transport keys already wait
+  // behind it; the undo chord now does too, so a dialog describes the
+  // project it opened on for as long as it is open. "Nothing happened" is
+  // not something a retrying assertion can wait for, so the Escape that
+  // follows is the commit that is waited on: keydowns are handled in
+  // order, and once the dialog has gone any undo the chord had caused
+  // would have rendered as well — the sequence is read from that render.
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Export project' })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(sequence).toBeAttached()
+
+  // With the dialog closed the same chord undoes the add.
+  await page.keyboard.press('Control+z')
+  await expect(sequence).not.toBeAttached()
+})
+
 test('keyboard shortcuts undo a confirmed removal and redo it', async ({ page }) => {
   await page.goto('./')
 

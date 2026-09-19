@@ -11,4 +11,4 @@ The transport keys are explained on the Preview and playback page; Undo and Redo
 
 ## When the shortcuts pause
 
-The keys do nothing while you are typing in a text field, while a button, slider, drop-down or link has focus and would answer the key itself, and while any dialog is open — the export dialog, a confirmation, the project dialogs, the cheat sheet itself. Move focus off the control, or close the dialog, and they are back. The undo chords pause only inside text fields, where Ctrl+Z stays the browser's own text undo.
+The keys do nothing while you are typing in a text field, while a button, slider, drop-down or link has focus and would answer the key itself, and while any dialog is open — the export dialog, a confirmation, the project dialogs, the cheat sheet itself. Move focus off the control, or close the dialog, and they are back. The undo chords wait behind a dialog too, but not behind a focused control — Ctrl+Z works over a button or a slider — and inside text fields Ctrl+Z is the browser's own text undo.

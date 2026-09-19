@@ -8,7 +8,7 @@ Every edit to the timeline can be taken back, and taken back again. This page co
 
 **What it does.** Walks the history of timeline edits one step back, or one step forward again.
 
-**Details.** Each button is disabled while there is nothing in its direction. The keys work wherever you are on the page — over a button, a slider, a checkbox — except while typing in a text field, where Ctrl+Z stays the browser's own text undo for what you are typing. A new edit after an Undo discards the steps that could have been redone, the standard rule. Undo restores exactly the state before the edit: a removed element comes back with every setting, a renamed row gets its old name.
+**Details.** Each button is disabled while there is nothing in its direction. The keys work wherever you are on the page — over a button, a slider, a checkbox — with two exceptions: while typing in a text field, where Ctrl+Z stays the browser's own text undo for what you are typing; and while a dialog is open — the export dialog, a confirmation, the project dialogs, the cheat sheet — where the keys wait, like every other shortcut, so a dialog always describes the project it opened on. Close the dialog and they are back. A new edit after an Undo discards the steps that could have been redone, the standard rule. Undo restores exactly the state before the edit: a removed element comes back with every setting, a renamed row gets its old name.
 
 **Related.** [What is an edit](#what-is-an-edit) · [Keyboard control](preview-and-playback.md#keyboard-control)
 

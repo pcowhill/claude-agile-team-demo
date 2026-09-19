@@ -142,6 +142,6 @@ It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segme
 
 **What it does.** Keeps a key from doing two things at once.
 
-**Details.** The transport keys do nothing while you are typing in a text field — a space belongs to the sentence — and while a button, slider, drop-down or link has focus and would answer the key itself: Space presses a focused button, the arrows move a focused slider. They also do nothing while any dialog is open — the export dialog, a removal confirmation, the project dialogs, the cheat sheet. Move focus off the control, or close the dialog, and the keys are back. Ctrl+Z and Ctrl+Shift+Z pause only inside text fields.
+**Details.** The transport keys do nothing while you are typing in a text field — a space belongs to the sentence — and while a button, slider, drop-down or link has focus and would answer the key itself: Space presses a focused button, the arrows move a focused slider. They also do nothing while any dialog is open — the export dialog, a removal confirmation, the project dialogs, the cheat sheet. Move focus off the control, or close the dialog, and the keys are back. Ctrl+Z and Ctrl+Shift+Z wait behind a dialog like every other key; inside text fields they are the browser's own text undo.
 
 **Related.** [Keyboard control](#keyboard-control) · [Undo and Redo](undo-redo.md#undo-and-redo)

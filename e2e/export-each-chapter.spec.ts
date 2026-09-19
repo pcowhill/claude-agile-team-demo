@@ -204,26 +204,28 @@ test('Cancel stops a per-chapter run and leaves the files already saved (#529)',
   // The file that did land is intact — cancelling a run is not a rollback.
   expect((await readFile((await downloads[0].path())!)).byteLength).toBeGreaterThan(500)
 
-  // An edit under the open dialog withdraws the offer (#530). The dialog is
-  // modal, but Ctrl+Z reaches the undo history while it is open, so this is
-  // a state the user can reach: the last marker is undone, the project is
-  // no longer the one the run started on, and the dialog says so rather
-  // than resuming against changed chapters.
+  // Undo does not reach the project while the dialog is open (#559), so the
+  // stopped run's offer stands: the undo chord under the dialog leaves the
+  // project, and with it the offer, as they were. The withdrawal itself — a
+  // timeline that is no longer the run's — is unit-tested on the component
+  // (#530), since the timeline is a prop. "Nothing changed" cannot be
+  // waited for, so the Cancel click that follows is the commit waited on:
+  // input events are handled in order, and once the dialog has gone any
+  // undo the chord had caused would have rendered too. The project's last
+  // edit was naming the marker at 0:06 "Yellow", so that badge is what an
+  // undo that got through would have changed (to "Chapter 4").
   await page.keyboard.press('Control+z')
-  await expect(dialog(page).getByRole('button', { name: /^Resume from chapter/ })).toHaveCount(0)
-  await expect(page.getByTestId('export-chapter-resume-withdrawn')).toContainText(
-    'The project changed while this dialog was open',
-  )
-  await expect(dialog(page).getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
 
   // Cancel on the stopped dialog closes it; a second export can then start:
-  // the dialog reopens on Whole project with no stale list, and Export is
-  // live.
+  // the dialog reopens on Whole project with no stale list, still offering
+  // all four chapters, and Export is live.
   await dialog(page).getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Chapter marker Yellow at 0:06' })).toBeVisible()
   await page.getByRole('button', { name: 'Export Project…' }).click()
   await expect(page.getByTestId('export-scope-whole')).toBeChecked()
   await expect(results(page)).toHaveCount(0)
+  await expect(dialog(page).getByText('Each chapter (4 files)')).toBeVisible()
   await expect(dialog(page).getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
 })
 
