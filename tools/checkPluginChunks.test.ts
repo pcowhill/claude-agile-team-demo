@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { LAZY_MODULE_RULES, entryStaticClosure, findLazyChunkProblems } from './checkPluginChunks.ts'
 import type { Manifest } from './checkPluginChunks.ts'
 
+const EDITORS = ['Crop', 'Overlay', 'Redaction', 'Spotlight', 'Text', 'Zoom']
+
 /** A healthy build: the entry statically pulls shared code; the plugin
- * module and the user guide are their own chunks, reached only through a
- * dynamic import. */
+ * module, the user guide and the six visual editors are their own chunks,
+ * reached only through a dynamic import. The editors pull the unnamed chunk
+ * Rollup makes of their shared `FrameEditor.tsx` (#571). */
 const healthyManifest = (): Manifest => ({
   'index.html': {
     file: 'assets/index-abc.js',
@@ -23,7 +26,19 @@ const healthyManifest = (): Manifest => ({
     src: 'src/guide/UserGuide.tsx',
     imports: ['_shared-def.js'],
   },
+  ...Object.fromEntries(
+    EDITORS.map((name) => [
+      `src/components/${name}Editor.tsx`,
+      {
+        file: `assets/${name}Editor-mno.js`,
+        src: `src/components/${name}Editor.tsx`,
+        imports: ['_shared-def.js', '_FrameEditor-pqr.js'],
+      },
+    ]),
+  ),
+  '_FrameEditor-pqr.js': { file: 'assets/FrameEditor-pqr.js', imports: ['_shared-def.js'] },
 })
+const EDITOR_KEYS = EDITORS.map((name) => `src/components/${name}Editor.tsx`)
 
 /** The plugin rule alone, for the tests written against it before #478. */
 const PLUGIN_RULES = LAZY_MODULE_RULES.filter((rule) => rule.label === 'plugin')
@@ -50,6 +65,7 @@ describe('findLazyChunkProblems (#197)', () => {
     expect(lazyKeys).toEqual({
       plugin: ['src/plugins/gif/index.ts'],
       'user guide': ['src/guide/UserGuide.tsx'],
+      'visual editors': EDITOR_KEYS,
     })
   })
 
@@ -82,6 +98,69 @@ describe('findLazyChunkProblems (#197)', () => {
     const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
     expect(problems).toEqual([])
     expect(lazyKeys).toEqual({ plugin: ['src/plugins/gif/index.ts'] })
+  })
+})
+
+describe('findLazyChunkProblems: the six visual editors (#571)', () => {
+  it('fails when an editor is statically reachable from the entry', () => {
+    const manifest = healthyManifest()
+    // The accident this rule exists for: `import { CropEditor } from
+    // './CropEditor'` re-added on the entry path (#537, #565). Before #571
+    // the only signal was Vite's chunk-size warning, which does not fail
+    // the build.
+    manifest['index.html'].imports = ['_shared-def.js', 'src/components/CropEditor.tsx']
+    const { problems } = findLazyChunkProblems(manifest)
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('visual editors module "src/components/CropEditor.tsx"')
+    expect(problems[0]).toContain('statically reachable')
+    expect(problems[0]).toContain('visualEditors.tsx')
+  })
+
+  it('fails when one editor has no chunk of its own while its siblings stay lazy', () => {
+    const manifest = healthyManifest()
+    // What a static import actually does to the manifest: the merged module
+    // has no key at all, so a pattern over the keys never sees it and the
+    // five siblings satisfy "at least one chunk". Measured on the real build
+    // for #571 — the pattern-only rule printed "5 chunk(s) outside the
+    // entry bundle" and exited 0. The `expected` set is what fails it.
+    delete manifest['src/components/CropEditor.tsx']
+    const { lazyKeys, problems } = findLazyChunkProblems(manifest)
+    expect(lazyKeys['visual editors']).toHaveLength(5)
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('visual editors module "src/components/CropEditor.tsx"')
+    expect(problems[0]).toContain('not emitted as its own chunk')
+    expect(problems[0]).toContain('visualEditors.tsx')
+  })
+
+  it('fails when no editor chunk was emitted at all', () => {
+    const manifest = healthyManifest()
+    for (const key of EDITOR_KEYS) delete manifest[key]
+    const { problems } = findLazyChunkProblems(manifest)
+    // The area-level "none found" plus one per named module.
+    expect(problems).toHaveLength(1 + EDITOR_KEYS.length)
+    expect(problems[0]).toContain('no visual editors chunk was emitted')
+    for (const key of EDITOR_KEYS) expect(problems.join('\n')).toContain(`"${key}"`)
+  })
+
+  it('matches exactly the six editors, not the rest of src/components/', () => {
+    const manifest = healthyManifest()
+    // Timeline.tsx is entry code and imports the loader; FrameEditor.tsx
+    // ships as an unnamed chunk the six pull in. Neither is an editor, and
+    // a manifest with the first in the entry closure is healthy.
+    manifest['src/components/Timeline.tsx'] = {
+      file: 'assets/Timeline-stu.js',
+      src: 'src/components/Timeline.tsx',
+    }
+    manifest['index.html'].imports = ['_shared-def.js', 'src/components/Timeline.tsx']
+    const { lazyKeys, problems } = findLazyChunkProblems(manifest)
+    expect(problems).toEqual([])
+    expect(lazyKeys['visual editors']).toEqual(EDITOR_KEYS)
+
+    const rule = LAZY_MODULE_RULES.find((candidate) => candidate.label === 'visual editors')!
+    expect(rule.expected).toEqual(EDITOR_KEYS)
+    for (const key of EDITOR_KEYS) expect(rule.pattern.test(key)).toBe(true)
+    for (const other of ['FrameEditor', 'Timeline', 'visualEditors', 'CropEditor.test'])
+      expect(rule.pattern.test(`src/components/${other}.tsx`)).toBe(false)
   })
 })
 

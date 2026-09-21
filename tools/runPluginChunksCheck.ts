@@ -1,8 +1,9 @@
 /**
- * CLI for the lazy-chunk bundle-discipline check (#197, #478): `npm run
- * check:bundle`, run in CI after `npm run build`. Reads the Vite manifest
- * the build emitted and fails loudly when plugin code or the user guide
- * leaks into the entry bundle — see checkPluginChunks.ts for the rules.
+ * CLI for the lazy-chunk bundle-discipline check (#197, #478, #571): `npm
+ * run check:bundle`, run in CI after `npm run build`. Reads the Vite
+ * manifest the build emitted and fails loudly when plugin code, the user
+ * guide or one of the six visual editors leaks into the entry bundle — see
+ * checkPluginChunks.ts for the rules.
  */
 
 import { readFileSync } from 'node:fs'
