@@ -52,7 +52,7 @@ export type Manifest = Record<string, ManifestChunk>
 
 /** One lazily loaded area of the source tree and how its code is meant to load. */
 export interface LazyModuleRule {
-  /** For messages: "plugin", "user guide". */
+  /** For messages: "plugin", "user guide", "visual editors". */
   label: string
   /** Matches the area's modules by manifest key (or `src`). */
   pattern: RegExp
