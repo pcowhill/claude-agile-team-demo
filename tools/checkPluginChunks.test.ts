@@ -4,10 +4,13 @@ import type { Manifest } from './checkPluginChunks.ts'
 
 const EDITORS = ['Crop', 'Overlay', 'Redaction', 'Spotlight', 'Text', 'Zoom']
 
-/** A healthy build: the entry statically pulls shared code; the plugin
- * module, the user guide and the six visual editors are their own chunks,
+/** A healthy build: the entry statically pulls shared code; the two plugin
+ * modules, the user guide and the six visual editors are their own chunks,
  * reached only through a dynamic import. The editors pull the unnamed chunk
- * Rollup makes of their shared `FrameEditor.tsx` (#571). */
+ * Rollup makes of their shared `FrameEditor.tsx` (#571). Both plugins are
+ * listed because the real build emits both, and the plugin rule now names
+ * them (#573) — a fixture carrying one would make the rule's own `expected`
+ * check fail on a manifest that is supposed to be healthy. */
 const healthyManifest = (): Manifest => ({
   'index.html': {
     file: 'assets/index-abc.js',
@@ -19,6 +22,11 @@ const healthyManifest = (): Manifest => ({
   'src/plugins/gif/index.ts': {
     file: 'assets/index-ghi.js',
     src: 'src/plugins/gif/index.ts',
+    imports: ['_shared-def.js'],
+  },
+  'src/plugins/shapedWipes/index.ts': {
+    file: 'assets/index-stu.js',
+    src: 'src/plugins/shapedWipes/index.ts',
     imports: ['_shared-def.js'],
   },
   'src/guide/UserGuide.tsx': {
@@ -39,6 +47,7 @@ const healthyManifest = (): Manifest => ({
   '_FrameEditor-pqr.js': { file: 'assets/FrameEditor-pqr.js', imports: ['_shared-def.js'] },
 })
 const EDITOR_KEYS = EDITORS.map((name) => `src/components/${name}Editor.tsx`)
+const PLUGIN_KEYS = ['src/plugins/gif/index.ts', 'src/plugins/shapedWipes/index.ts']
 
 /** The plugin rule alone, for the tests written against it before #478. */
 const PLUGIN_RULES = LAZY_MODULE_RULES.filter((rule) => rule.label === 'plugin')
@@ -63,7 +72,7 @@ describe('findLazyChunkProblems (#197)', () => {
     const { lazyKeys, problems } = findLazyChunkProblems(healthyManifest())
     expect(problems).toEqual([])
     expect(lazyKeys).toEqual({
-      plugin: ['src/plugins/gif/index.ts'],
+      plugin: PLUGIN_KEYS,
       'user guide': ['src/guide/UserGuide.tsx'],
       'visual editors': EDITOR_KEYS,
     })
@@ -80,10 +89,42 @@ describe('findLazyChunkProblems (#197)', () => {
 
   it('fails when no plugin chunk was emitted at all', () => {
     const manifest = healthyManifest()
-    delete manifest['src/plugins/gif/index.ts']
+    for (const key of PLUGIN_KEYS) delete manifest[key]
     const { problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
-    expect(problems).toHaveLength(1)
+    // The area-level "none found" plus one per named module (#573).
+    expect(problems).toHaveLength(1 + PLUGIN_KEYS.length)
     expect(problems[0]).toContain('no plugin chunk was emitted')
+    for (const key of PLUGIN_KEYS) expect(problems.join('\n')).toContain(`"${key}"`)
+  })
+
+  it('fails when one plugin is merged into the entry while the other stays lazy', () => {
+    const manifest = healthyManifest()
+    // The gap #573 was filed for, and the reason the area-level checks above
+    // are not enough. A static import merges the module into the entry, where
+    // it is no longer a chunk and so has no manifest key at all: the pattern
+    // check never sees it, and shapedWipes staying lazy satisfies "at least
+    // one". Measured on the real build at 47b5dfe with
+    // `import * as X from './gif/index'` added to catalog.ts — check:bundle
+    // printed "1 chunk(s) outside the entry bundle
+    // (src/plugins/shapedWipes/index.ts)" and exited 0, with the gif code in
+    // the entry bundle.
+    delete manifest['src/plugins/gif/index.ts']
+    const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
+    expect(lazyKeys.plugin).toEqual(['src/plugins/shapedWipes/index.ts'])
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('plugin module "src/plugins/gif/index.ts"')
+    expect(problems[0]).toContain('not emitted as its own chunk')
+    expect(problems[0]).toContain('src/plugins/catalog.ts')
+  })
+
+  it("pins the plugin rule's expected list, and the pattern that must match it", () => {
+    // The list is written out here as well as in the tool, so editing one
+    // without the other fails. It does not — and cannot — check the list
+    // against the catalog: see PLUGIN_CHUNKS's comment for what a plugin
+    // missing from the list does and does not cost.
+    const rule = LAZY_MODULE_RULES.find((candidate) => candidate.label === 'plugin')!
+    expect(rule.expected).toEqual(PLUGIN_KEYS)
+    for (const key of PLUGIN_KEYS) expect(rule.pattern.test(key)).toBe(true)
   })
 
   it('exempts the top-level wiring in src/plugins/ (catalog, runtime)', () => {
@@ -97,7 +138,7 @@ describe('findLazyChunkProblems (#197)', () => {
     manifest['index.html'].imports = ['_shared-def.js', 'src/plugins/catalog.ts']
     const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
     expect(problems).toEqual([])
-    expect(lazyKeys).toEqual({ plugin: ['src/plugins/gif/index.ts'] })
+    expect(lazyKeys).toEqual({ plugin: PLUGIN_KEYS })
   })
 })
 
