@@ -127,8 +127,28 @@
      column into vertical scrolling instead of crushing the preview toward a
      sliver. 40dvh leaves the stage a real picture after panel chrome; it
      read 40vh until #524 moved that scrolling from the page into this
-     column and made every viewport unit here a dynamic one. */
-  grid-template-rows: minmax(40dvh, 1fr) minmax(160px, auto);
+     column and made every viewport unit here a dynamic one.
+
+     The timeline's row is `max-content`, not the `minmax(160px, auto)` it
+     read until #576, and the difference is the whole of that bug: once #524
+     gave this column a definite height, a track whose *minimum* is a fixed
+     length can only ever take the space left over in the window, because
+     maximizing tracks distributes free space and never grows one past the
+     container. The row resolved to `429.781px` — column `857.781` less the
+     `380` top row, the `16` gap and `32` of padding — while the timeline
+     needed `856`, so the rows painted through the panel's bottom border and
+     the outline stopped 427px above them (the customer's #575). A
+     content-based minimum is the fix and a fixed one cannot be:
+     `minmax(160px, max-content)` was measured at the same broken `430px`.
+     This is the same medicine, for the same reason, that #526 already gave
+     the two rules below — and those two are why the defect only showed in
+     this layout.
+
+     The `160px` floor went with the fixed minimum: an empty timeline panel
+     is now its content height, measured 160px → 116px at 1880×950, still
+     enclosing what it holds. The rules below have never had a floor, so the
+     three layouts now agree rather than differ. */
+  grid-template-rows: minmax(40dvh, 1fr) max-content;
   gap: 1rem;
   padding: 1rem 1.5rem;
 }
