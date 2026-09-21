@@ -33,7 +33,12 @@
  *   above never sees it, and its siblings satisfy "at least one". Measured
  *   for #571 with a static import of `CropEditor` added to `Timeline.tsx`:
  *   the pattern-only rule printed "5 chunk(s) outside the entry bundle" and
- *   exited 0.
+ *   exited 0. The plugin rule carries one for the same reason (#573): with
+ *   the gif plugin statically imported from `catalog.ts` it printed
+ *   "1 chunk(s) outside the entry bundle (src/plugins/shapedWipes/index.ts)"
+ *   and exited 0, with the gif code sitting in the entry bundle. The user
+ *   guide needs none: it is a single module, so merging it leaves no guide
+ *   chunk and the "at least one" check above fires.
  *
  * The pure logic lives here (unit-tested in checkPluginChunks.test.ts); the
  * CLI wrapper is runPluginChunksCheck.ts, wired as `npm run check:bundle`
@@ -69,6 +74,22 @@ export interface LazyModuleRule {
   expected?: readonly string[]
 }
 
+/**
+ * The built-in plugins, each an `import()` edge in `catalog.ts`'s `load()`
+ * (#198, #199). Hand-written rather than derived from `builtInPlugins`:
+ * deriving it would keep the two in step automatically, but it would make a
+ * build-time tool import product code, and that is the harder direction to
+ * reverse (#573).
+ *
+ * What the hand-written list does NOT do: a plugin added to the catalog but
+ * not added here is simply not named, and nothing fails. It is still covered
+ * by the two checks above — not statically reachable, and the area is not
+ * empty — so the only gap is a new plugin that is merged into the entry from
+ * its first commit. Adding a line here is therefore a step in adding a
+ * plugin, not something CI can remind anyone of.
+ */
+const PLUGIN_CHUNKS = ['src/plugins/gif/index.ts', 'src/plugins/shapedWipes/index.ts']
+
 /** The six visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565). */
 const VISUAL_EDITORS = ['Crop', 'Overlay', 'Redaction', 'Spotlight', 'Text', 'Zoom'].map(
   (name) => `src/components/${name}Editor.tsx`,
@@ -80,6 +101,7 @@ export const LAZY_MODULE_RULES: readonly LazyModuleRule[] = [
     // Plugin code (`src/plugins/<dir>/…`), not the top-level wiring.
     pattern: /^src\/plugins\/[^/]+\//,
     loadedBy: "the catalog's dynamic import() (src/plugins/catalog.ts)",
+    expected: PLUGIN_CHUNKS,
   },
   {
     label: 'user guide',
