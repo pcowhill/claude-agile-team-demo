@@ -78,7 +78,7 @@ npm run test:e2e   # browser tests (Playwright — see "Browser tests" below)
 npm run lint       # oxlint
 npm run typecheck  # tsc -b
 npm run build      # production build to dist/
-npm run check:bundle  # after build: plugin and user-guide chunks stay out of the entry bundle (#197, #478)
+npm run check:bundle  # after build: plugin, user-guide and visual-editor chunks stay out of the entry bundle (#197, #478, #571)
 ```
 
 The user guide's text lives in `docs/guide/` — see

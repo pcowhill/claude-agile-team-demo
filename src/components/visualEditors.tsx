@@ -9,8 +9,9 @@ import './visualEditors.css'
  * 25 kB into the entry bundle — the bytes that carried it past Vite's 500 kB
  * warning when #529 landed. The shape is the guide's (`App.tsx`, ADR 0003):
  * `import()` is the only edge to these modules, so a static import added
- * back anywhere in the entry graph would pull them in again silently, which
- * is what `npm run build`'s warning is now the guard against.
+ * back anywhere in the entry graph would pull them in again silently;
+ * `npm run check:bundle` fails on that (#571) — `npm run build`'s
+ * chunk-size warning would show it too, but a warning does not fail CI.
  * (`lib/frameEditor` itself stays in the entry: the guide's constants read
  * its limits.)
  *
