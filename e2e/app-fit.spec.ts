@@ -268,6 +268,57 @@ test('a project taller than the window stays reachable — in the editor column,
   expect(await page.evaluate(() => window.scrollY), 'the page scrolled').toBe(0)
 })
 
+test('the timeline panel encloses its rows, however many there are (#576)', async ({ page }) => {
+  // The customer's #575: the outline around the Timeline stopped partway
+  // down while the clip rows carried on below it. Same cause as the preview
+  // defect below — #524's definite-height column changing what a grid row
+  // can do — but the opposite symptom, and nothing here caught it: the rows
+  // stayed reachable by scrolling the column, so every page-fit and
+  // column-scroll assertion in this file was green while the panel's own
+  // border was drawn 427px above its content.
+  //
+  // Measured on `main` at `370d78a`, 1880×950 with five slates: the panel
+  // 430px tall holding 856px of rows, `.sequence-lane` ending at 1361px
+  // against a panel bottom of 934px. Both assertions below fail on that
+  // tree and pass with the row sized `max-content`.
+  const sequenceList = page.getByRole('list', { name: 'Sequence' })
+
+  for (const size of [
+    // The customer's own window, and a desktop size this file already uses
+    // where six rows overflow the row the grid gives them.
+    { width: 1880, height: 950, rows: 5 },
+    { width: 1280, height: 720, rows: 6 },
+  ]) {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await page.goto('./')
+    await populate(page, size.rows)
+    const where = `${size.rows} rows at ${size.width}×${size.height}`
+
+    // The panel holds no more than it can show. Both numbers are read inside
+    // one poll so they come from the same render (`quality-and-ci.md`), and
+    // this is the general statement: any child painting through the bottom
+    // border fails it, not just the sequence lane.
+    await expect
+      .poll(
+        () =>
+          timelinePanel(page).evaluate((node) => node.scrollHeight - node.clientHeight),
+        { message: `the timeline panel's content overflows its border box, ${where}` },
+      )
+      .toBeLessThanOrEqual(1)
+
+    // And the rows by name, so a failure says which material is outside.
+    await expectWithin(sequenceList, timelinePanel(page), {
+      axis: 'y',
+      what: `the timeline's rows, ${where}`,
+    })
+
+    // #524's guarantee is what the fix must not buy this with: the column
+    // still scrolls, the page still does not.
+    await expectNoVerticalPageScroll(page, where)
+    await expectNoHorizontalScroll(page, where)
+  }
+})
+
 test('the preview panel keeps its picture inside it, expanded and at narrow widths (#524)', async ({
   page,
 }) => {
