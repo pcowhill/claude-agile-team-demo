@@ -1,6 +1,6 @@
 # Visual editors
 
-Six places on the timeline where a value can be dragged into place on a picture instead of typed: a zoom's region, an overlay's rectangle, a crop's kept region, a text block, a redaction region and a spotlight region. Each opens from an **Adjust visually…** button beside the fields it stands in for, draws under the row it edits, and commits through the same fields, so the two never disagree. This page covers [turning them on and off](#turning-the-editors-on-and-off), [what each editor shows](#what-each-editor-shows), [dragging](#dragging), [snapping and guides](#snapping-and-guides), [keyboard nudges](#keyboard-nudges), the zoom, redaction and spotlight editors' [Preview slider](#the-preview-slider), [Loop](#loop) and [Show result](#show-result), the crop editor's [Reset](#reset), and [what commits as an edit](#what-commits-as-an-edit). The values themselves are explained on [Editing video](editing-video.md).
+Six places on the timeline where a value can be dragged into place on a picture instead of typed: a zoom's region, an overlay's rectangle, a crop's kept region, a text block, a redaction region and a spotlight region. Each opens from an **Adjust visually…** button beside the fields it stands in for, draws under the row it edits, and commits through the same fields, so the two never disagree. This page covers [turning them on and off](#turning-the-editors-on-and-off), [what each editor shows](#what-each-editor-shows), [dragging](#dragging), [snapping and guides](#snapping-and-guides), [keyboard nudges](#keyboard-nudges), the zoom, redaction and spotlight editors' [Preview slider](#the-preview-slider), [Loop](#loop) and [Show result](#show-result), the crop editor's [Reset](#reset), [when an editor cannot load](#when-an-editor-cannot-load), and [what commits as an edit](#what-commits-as-an-edit). The values themselves are explained on [Editing video](editing-video.md).
 
 ## Turning the editors on and off
 
@@ -109,6 +109,16 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 **What it does.** Clears the crop, exactly as the row's own Reset does.
 
 **Related.** [Crop](editing-video.md#crop)
+
+## When an editor cannot load
+
+**Where to find it.** In place of the editor, after pressing *Adjust visually…*.
+
+**What it does.** Says that the editor could not load, and offers **Reload the page**.
+
+**Details.** Each editor is fetched the first time you open it, rather than with the rest of the app, so the app starts faster. That fetch can fail — a connection that dropped, or a new version of the app published while this tab stayed open. When it does, a short panel appears where the editor would have been, saying so in place of showing nothing. **Reload the page** is the remedy, and it is the one that works: a browser remembers that a piece of code failed to arrive and will not ask for it again on its own, so pressing *Adjust visually…* a second time shows the same panel. Reloading starts the page afresh and fetches the editor again. **✕** — or Escape, as in the editors themselves — dismisses the panel and leaves the row as it was. The fields the editor stands in for keep working throughout — nothing about the clip or the project is affected, and an editor that has already opened once this session is unaffected.
+
+**Related.** [Turning the editors on and off](#turning-the-editors-on-and-off) · [Autosave and Restore last session](projects.md#autosave-and-restore-last-session)
 
 ## What commits as an edit
 

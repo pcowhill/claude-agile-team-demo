@@ -26,7 +26,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **▶ Play** — the preview transport. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **▾ (expand a row)** — a row's main line; shows the element's fields. [Timeline › A row](timeline.md#a-row)
 - **▾ (fold a section)** — a section heading; folds that whole section away. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
-- **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
+- **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was, Escape included. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
 - **✕ Marks** — the preview transport, once a mark is set; clears both. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 
@@ -203,6 +203,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Redaction region top** — a redaction region; its top edge, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region width** — a redaction region; its width, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redo** — the timeline header. [Undo and redo](undo-redo.md#undo-and-redo)
+- **Reload the page** — the panel shown when a visual editor could not load; fetches the app again, which is what brings the editor back. [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **Remove** — a media library row's ⋯ menu, taking the clip off the shelf; and a chapter marker's menu, taking the marker away. [Media library › Removing a clip](media-library.md#removing-a-clip) · [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Remove pause** — a pause on an expanded video entry; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Remove redaction region** — a redaction region; takes it away. [Editing video › Redact a region](editing-video.md#redact-a-region)
