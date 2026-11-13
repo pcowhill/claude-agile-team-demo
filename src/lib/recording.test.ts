@@ -210,11 +210,19 @@ describe('screen recording names and extensions (#225)', () => {
   })
 })
 
+/**
+ * What the fakes' `isTypeSupported` answers by default: Chromium's first
+ * choices with an audio track and without one (#579).
+ */
+const CHROMIUM_LIKE_TYPES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp9']
+
 /** A controllable display capture standing in for the browser (#225). */
 function fakeScreenWorld(options?: {
   supportedTypes?: string[]
   denyCapture?: Error
   failConstruction?: Error
+  /** The browser grants no tab/system audio — Firefox, always (#579). */
+  withoutAudio?: boolean
 }) {
   const stopTrack = vi.fn()
   // Collected so a test can simulate the browser's own "stop sharing" UI
@@ -228,9 +236,11 @@ function fakeScreenWorld(options?: {
     },
   }
   const audioTrack = { stop: stopTrack }
+  const audioTracks = options?.withoutAudio ? [] : [audioTrack]
   const stream = {
-    getTracks: () => [videoTrack, audioTrack],
+    getTracks: () => [videoTrack, ...audioTracks],
     getVideoTracks: () => [videoTrack],
+    getAudioTracks: () => audioTracks,
   } as unknown as MediaStream
   let recorder:
     | (RecorderLike & {
@@ -265,7 +275,7 @@ function fakeScreenWorld(options?: {
       return recorder
     },
     isTypeSupported: (mimeType) =>
-      (options?.supportedTypes ?? ['video/webm;codecs=vp9,opus']).includes(mimeType),
+      (options?.supportedTypes ?? CHROMIUM_LIKE_TYPES).includes(mimeType),
   }
   return {
     dependencies,
@@ -368,6 +378,8 @@ function fakeScreenCameraWorld(options?: {
   failCameraRecorder?: Error
   /** The camera's recorder cannot pause, so the pair cannot (#514). */
   cameraWithoutPause?: boolean
+  /** The browser grants no tab/system audio — Firefox, always (#579). */
+  screenWithoutAudio?: boolean
 }) {
   const stopScreenTrack = vi.fn()
   const stopCameraTrack = vi.fn()
@@ -381,12 +393,21 @@ function fakeScreenCameraWorld(options?: {
       endedListeners.push(listener)
     },
   }
+  const screenAudioTracks = options?.screenWithoutAudio ? [] : [{ stop: stopScreenTrack }]
   const screenStream = {
-    getTracks: () => [screenVideoTrack, { stop: stopScreenTrack }],
+    getTracks: () => [screenVideoTrack, ...screenAudioTracks],
     getVideoTracks: () => [screenVideoTrack],
+    getAudioTracks: () => screenAudioTracks,
   } as unknown as MediaStream
+  const cameraAudioTrack = { stop: stopCameraTrack }
   const cameraStream = {
-    getTracks: () => [{ stop: stopCameraTrack }, { stop: stopCameraTrack }],
+    getTracks: () => [{ stop: stopCameraTrack }, cameraAudioTrack],
+    getAudioTracks: () => [cameraAudioTrack],
+  } as unknown as MediaStream
+  /** What the video-only fallback (#226) is granted: the camera, no microphone. */
+  const cameraOnlyStream = {
+    getTracks: () => [{ stop: stopCameraTrack }],
+    getAudioTracks: () => [],
   } as unknown as MediaStream
   const cameraRequests: MediaStreamConstraints[] = []
   const recorders: (RecorderLike & {
@@ -410,10 +431,10 @@ function fakeScreenCameraWorld(options?: {
       }
       return options?.denyVideoOnlyCamera
         ? Promise.reject(options.denyVideoOnlyCamera)
-        : Promise.resolve(cameraStream)
+        : Promise.resolve(cameraOnlyStream)
     }),
     createRecorder: (stream: MediaStream, recorderOptions: RecorderOptions) => {
-      if (stream === cameraStream && options?.failCameraRecorder) throw options.failCameraRecorder
+      if (stream !== screenStream && options?.failCameraRecorder) throw options.failCameraRecorder
       const tag = stream === screenStream ? 'screen' : 'camera'
       const recorder = {
         started: false,
@@ -445,7 +466,7 @@ function fakeScreenCameraWorld(options?: {
       recorders.push(recorder)
       return recorder
     },
-    isTypeSupported: (mimeType: string) => mimeType === 'video/webm;codecs=vp9,opus',
+    isTypeSupported: (mimeType: string) => CHROMIUM_LIKE_TYPES.includes(mimeType),
   }
   return {
     dependencies,
@@ -527,7 +548,8 @@ describe('startScreenCameraRecording (#388)', () => {
       { video: true, audio: true },
       { video: true },
     ])
-    expect(session.cameraMimeType).toBe('video/webm;codecs=vp9,opus')
+    // No microphone, so no audio codec in the type: Firefox stalls on one (#579).
+    expect(session.cameraMimeType).toBe('video/webm;codecs=vp9')
     expect(world.recorders).toHaveLength(2)
   })
 
@@ -577,8 +599,15 @@ function fakeWebcamWorld(options?: {
   const stopTrack = vi.fn()
   /** Every getUserMedia constraints object, in request order. */
   const requests: MediaStreamConstraints[] = []
+  const audioTrack = { stop: stopTrack }
   const stream = {
-    getTracks: () => [{ stop: stopTrack }, { stop: stopTrack }],
+    getTracks: () => [{ stop: stopTrack }, audioTrack],
+    getAudioTracks: () => [audioTrack],
+  } as unknown as MediaStream
+  /** What the video-only fallback is granted: the camera, no microphone (#579). */
+  const videoOnlyStream = {
+    getTracks: () => [{ stop: stopTrack }],
+    getAudioTracks: () => [],
   } as unknown as MediaStream
   let recorder:
     | (RecorderLike & {
@@ -597,7 +626,7 @@ function fakeWebcamWorld(options?: {
       }
       return options?.denyVideoOnly
         ? Promise.reject(options.denyVideoOnly)
-        : Promise.resolve(stream)
+        : Promise.resolve(videoOnlyStream)
     }),
     createRecorder: (_stream, recorderOptions) => {
       if (options?.failConstruction) throw options.failConstruction
@@ -619,7 +648,7 @@ function fakeWebcamWorld(options?: {
       return recorder
     },
     isTypeSupported: (mimeType) =>
-      (options?.supportedTypes ?? ['video/webm;codecs=vp9,opus']).includes(mimeType),
+      (options?.supportedTypes ?? CHROMIUM_LIKE_TYPES).includes(mimeType),
   }
   return {
     dependencies,
@@ -785,6 +814,55 @@ describe('deferred start, pause and resume (#514)', () => {
     const pair = fakeScreenCameraWorld()
     await startScreenCameraRecording(() => {}, pair.dependencies)
     expect(pair.calls).toEqual(['screen.start', 'camera.start'])
+  })
+})
+
+describe('the recorder type follows the tracks the capture has (#579)', () => {
+  /** What Firefox 155's `isTypeSupported` answers yes to among the candidates. */
+  const FIREFOX_TYPES = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp8', 'video/webm']
+
+  it('Firefox screen capture: video-only, so the recorder is never asked for Opus', async () => {
+    const world = fakeScreenWorld({ supportedTypes: FIREFOX_TYPES, withoutAudio: true })
+    const session = await startScreenRecording(() => {}, world.dependencies)
+    expect(world.recorder().requestedMime).toBe('video/webm;codecs=vp8')
+    expect(session.mimeType).toBe('video/webm;codecs=vp8')
+    session.cancel()
+  })
+
+  it('a screen capture with granted audio still prefers VP9 + Opus, then VP8 + Opus', async () => {
+    const chromium = fakeScreenWorld()
+    await startScreenRecording(() => {}, chromium.dependencies)
+    expect(chromium.recorder().requestedMime).toBe('video/webm;codecs=vp9,opus')
+
+    const noVp9 = fakeScreenWorld({ supportedTypes: FIREFOX_TYPES })
+    await startScreenRecording(() => {}, noVp9.dependencies)
+    expect(noVp9.recorder().requestedMime).toBe('video/webm;codecs=vp8,opus')
+  })
+
+  it('a video-only capture with no codec-specific type supported falls back to the container', async () => {
+    const world = fakeScreenWorld({
+      supportedTypes: ['video/webm;codecs=vp9,opus', 'video/webm'],
+      withoutAudio: true,
+    })
+    await startScreenRecording(() => {}, world.dependencies)
+    expect(world.recorder().requestedMime).toBe('video/webm')
+  })
+
+  it("screen + camera: the screen half's type drops Opus, the camera half keeps it", async () => {
+    const world = fakeScreenCameraWorld({ screenWithoutAudio: true })
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(world.recorders[0].requestedOptions.mimeType).toBe('video/webm;codecs=vp9')
+    expect(world.recorders[1].requestedOptions.mimeType).toBe('video/webm;codecs=vp9,opus')
+    expect(session.screenMimeType).toBe('video/webm;codecs=vp9')
+    expect(session.cameraMimeType).toBe('video/webm;codecs=vp9,opus')
+    session.cancel()
+  })
+
+  it("the webcam's video-only fallback is recorded without an audio codec", async () => {
+    const world = fakeWebcamWorld({ denyCombined: new Error('Requested device not found') })
+    const session = await startWebcamRecording(world.dependencies)
+    expect(world.recorder().requestedMime).toBe('video/webm;codecs=vp9')
+    session.cancel()
   })
 })
 
