@@ -393,6 +393,33 @@ const VIDEO_MIME_CANDIDATES = [
   'video/mp4',
 ]
 
+/**
+ * The same preference for a capture with **no audio track** (#579): no
+ * candidate names an audio codec. Firefox's screen capture never carries
+ * audio, and a Firefox recorder told `codecs=vp8,opus` for a video-only
+ * stream starts and stops without ever delivering data or firing `stop` —
+ * no error either — so the take could never conclude. Measured on Firefox
+ * 155: `vp8,opus` stalled for 10 s, `video/webm` recorded 33 kB in 1 s.
+ * Chromium drops the absent codec on its own, so for it this changes only
+ * the type string it is asked for, not what it records.
+ */
+const VIDEO_ONLY_MIME_CANDIDATES = [
+  'video/webm;codecs=vp9',
+  'video/webm;codecs=vp8',
+  'video/webm',
+  'video/mp4',
+]
+
+/**
+ * The video candidates matching the tracks a capture actually has (#579).
+ * What was requested is no guide: `getDisplayMedia({ audio: true })`
+ * resolves video-only where the browser grants no audio, and the webcam's
+ * fallback is video-only by design (#226).
+ */
+export function videoMimeCandidates(stream: MediaStream): readonly string[] {
+  return stream.getAudioTracks().length > 0 ? VIDEO_MIME_CANDIDATES : VIDEO_ONLY_MIME_CANDIDATES
+}
+
 /** The getDisplayMedia slice the screen source uses; injectable for tests. */
 export interface ScreenRecordingDependencies {
   getDisplayMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>
@@ -452,7 +479,7 @@ export async function startScreenRecording(
   const session = recordStream(
     stream,
     dependencies,
-    VIDEO_MIME_CANDIDATES,
+    videoMimeCandidates(stream),
     'video/webm',
     'The screen recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
@@ -581,7 +608,7 @@ export async function startScreenCameraRecording(
   const screenSession = recordStream(
     screenStream,
     dependencies,
-    VIDEO_MIME_CANDIDATES,
+    videoMimeCandidates(screenStream),
     'video/webm',
     'The screen recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
@@ -592,7 +619,7 @@ export async function startScreenCameraRecording(
     cameraSession = recordStream(
       cameraStream,
       dependencies,
-      VIDEO_MIME_CANDIDATES,
+      videoMimeCandidates(cameraStream),
       'video/webm',
       'The camera recorder could not start.',
       VIDEO_RECORDER_OPTIONS,
@@ -683,7 +710,7 @@ export async function startWebcamRecording(
   return recordStream(
     stream,
     dependencies,
-    VIDEO_MIME_CANDIDATES,
+    videoMimeCandidates(stream),
     'video/webm',
     'The webcam recorder could not start.',
     VIDEO_RECORDER_OPTIONS,
