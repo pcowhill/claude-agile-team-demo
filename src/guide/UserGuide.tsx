@@ -63,6 +63,14 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
     searchRef.current?.focus()
   }, [])
 
+  // Every click on a link is an arrival, even at the place already showing
+  // (#590): following the Contents link for the heading you scrolled away
+  // from must take you back to it. The place itself does not change then —
+  // `useGuideLocation` keeps the same location and writes no hash, so Back
+  // still walks distinct places — so the scroll below keys on this count as
+  // well as on the place.
+  const [arrivals, setArrivals] = useState(0)
+
   // Arriving somewhere shows it: the heading for a deep link, the top of the
   // section otherwise. `scrollIntoView` is missing in jsdom, hence the guard.
   useEffect(() => {
@@ -75,10 +83,11 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
       }
     }
     if (panelRef.current !== null) panelRef.current.scrollTop = 0
-  }, [section.id, location.anchor, searching])
+  }, [section.id, location.anchor, searching, arrivals])
 
   const go = (target: GuideLinkTarget) => {
     setQuery('')
+    setArrivals((count) => count + 1)
     onNavigate(target)
   }
 

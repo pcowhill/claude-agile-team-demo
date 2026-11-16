@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
@@ -268,6 +268,55 @@ describe('search (#478 §5)', () => {
     render(<App />)
     const guide = await panel()
     expect(within(guide).getByRole('article')).toHaveTextContent('step the playhead by 0.1 s, or 1 s with Shift')
+  })
+})
+
+describe('a link to the place already showing goes there again (#590)', () => {
+  // jsdom has no scrollIntoView; a spy stands in for it so each arrival at a
+  // heading can be counted. The panel's scrollTop is a plain settable number
+  // in jsdom, which is enough to see a return to the section's top.
+  const scrolled: string[] = []
+  beforeEach(() => {
+    scrolled.length = 0
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+      scrolled.push(this.id)
+    })
+  })
+  afterEach(() => {
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+  })
+
+  it('a Contents heading link scrolls to its heading every time it is clicked', async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, '', `${window.location.pathname}#guide/concepts/what-is-saved-where`)
+    render(<App />)
+    const guide = await panel()
+    const target = 'guide-concepts-what-is-saved-where'
+    await waitFor(() => expect(scrolled).toEqual([target]))
+    const historyBefore = window.history.length
+
+    const contents = within(guide).getByRole('navigation', { name: 'Contents' })
+    const link = within(contents).getByRole('link', { name: 'What is saved where' })
+    await user.click(link)
+    await waitFor(() => expect(scrolled).toEqual([target, target]))
+    await user.click(link)
+    await waitFor(() => expect(scrolled).toEqual([target, target, target]))
+
+    // Same place: no new hash, so no new history entry for Back to walk.
+    expect(window.location.hash).toBe('#guide/concepts/what-is-saved-where')
+    expect(window.history.length).toBe(historyBefore)
+  })
+
+  it('the Contents link for the current section returns to its top', async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, '', `${window.location.pathname}#guide/concepts`)
+    render(<App />)
+    const guide = await panel()
+    guide.scrollTop = 400
+    const contents = within(guide).getByRole('navigation', { name: 'Contents' })
+    await user.click(within(contents).getByRole('link', { name: 'Concepts' }))
+    await waitFor(() => expect(guide.scrollTop).toBe(0))
+    expect(window.location.hash).toBe('#guide/concepts')
   })
 })
 
