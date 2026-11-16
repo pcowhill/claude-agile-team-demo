@@ -231,6 +231,95 @@ test('a zoom magnifies its region in the preview, easing in and out (#64)', asyn
   expect(afterRight.g).toBeLessThan(40)
 })
 
+test('a corner zoom keeps the corner in the corner through both ramps (#583)', async ({
+  page,
+}, testInfo) => {
+  // #582: a zoom into the top-left corner looked like a zoom into the middle
+  // followed by a pan, because the centre and the scale were interpolated
+  // independently. The preview card's transformed box shows where the
+  // frame's corner is drawn: frame point (0, 0) lands at the box's top-left,
+  // so for a corner zoom that box must stay pinned to the stage's top-left
+  // (and the far corner to the far corner) at every ramp instant. Under the
+  // old interpolation it sat 1/16 of the stage width up and to the left of
+  // the stage at the ramp-in midpoint of a ×2 zoom: ~40px at this viewport.
+  await page.goto('./')
+  const banded = await recordBandedWebm(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'banded.webm', mimeType: 'video/webm', buffer: banded }])
+  await page.getByRole('button', { name: 'Add banded.webm to timeline' }).click()
+  const outField = page.getByRole('spinbutton', {
+    name: 'Trim out point of banded.webm at position 1 in seconds',
+  })
+  await outField.fill('1.4')
+  await outField.blur()
+
+  // Window [0.2, 1.2]: 0.4 s ramps around a 0.2 s hold, ×2 on the top-left
+  // corner — the centre the reducer's clamp allows for ×2 is 1/(2·2) = 0.25.
+  await chooseEffect(page, 'banded.webm at position 1', 'Zoom')
+  const fillZoomField = async (label: string, value: string) => {
+    const field = page.getByRole('spinbutton', { name: label })
+    await field.fill(value)
+    await field.blur()
+  }
+  const zoomField = (what: string) => `Zoom 1 ${what} of banded.webm at position 1`
+  await fillZoomField(`${zoomField('start')} in seconds`, '0.2')
+  await fillZoomField(`${zoomField('ramp-in')} in seconds`, '0.4')
+  await fillZoomField(`${zoomField('hold')} in seconds`, '0.2')
+  await fillZoomField(`${zoomField('ramp-out')} in seconds`, '0.4')
+  await fillZoomField(zoomField('scale'), '2')
+
+  const video = page.getByTestId('preview-video')
+  const videoCard = page.getByTestId('preview-video-card')
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  const stage = (await video.boundingBox())!
+
+  // Ramp instants on both sides of the hold, the midpoints included.
+  const rampTimes = ['0.25', '0.4', '0.5', '0.9', '1', '1.15']
+  const checkCorner = async (corner: 'top-left' | 'bottom-right') => {
+    for (const time of rampTimes) {
+      await seek.fill(time)
+      // One poll reads the whole box, so every edge comes from one render
+      // (quality-and-ci.md), and it waits for the zoom's transform to land.
+      await expect
+        .poll(
+          async () => {
+            const box = await videoCard.evaluate((el) => {
+              const r = el.getBoundingClientRect()
+              return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }
+            })
+            const magnification = box.width / stage.width
+            // Mid-ramp: magnified, but not yet at ×2.
+            const midRamp = magnification > 1.02 && magnification < 1.98
+            const pinned =
+              corner === 'top-left'
+                ? Math.abs(box.left - stage.x) <= 1 && Math.abs(box.top - stage.y) <= 1
+                : Math.abs(box.right - (stage.x + stage.width)) <= 1 &&
+                  Math.abs(box.bottom - (stage.y + stage.height)) <= 1
+            return { midRamp, pinned }
+          },
+          { message: `${corner} corner pinned at ${time} s` },
+        )
+        .toEqual({ midRamp: true, pinned: true })
+    }
+  }
+
+  await fillZoomField(`${zoomField('centre X')} (0 to 1)`, '0.25')
+  await fillZoomField(`${zoomField('centre Y')} (0 to 1)`, '0.25')
+  await checkCorner('top-left')
+  // The ramp-in midpoint, kept for the record: the corner of the picture
+  // sits in the corner of the stage while the zoom is half way in.
+  await seek.fill('0.4')
+  await expect.poll(() => videoCard.evaluate((el) => el.style.transform)).toContain('scale(1.5)')
+  await page.getByTestId('preview-video').screenshot({
+    path: testInfo.outputPath('corner-zoom-mid-ramp.png'),
+  })
+
+  await fillZoomField(`${zoomField('centre X')} (0 to 1)`, '0.75')
+  await fillZoomField(`${zoomField('centre Y')} (0 to 1)`, '0.75')
+  await checkCorner('bottom-right')
+})
+
 test('two zooms on one clip each magnify their own window, identity between (#129)', async ({
   page,
 }) => {
