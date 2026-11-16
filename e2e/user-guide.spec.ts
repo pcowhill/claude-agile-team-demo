@@ -436,6 +436,43 @@ test('Feature Index (#485): the customer’s own query lands, and every entry is
   await panel.screenshot({ path: testInfo.outputPath('user-guide-feature-index-1280.png') })
 })
 
+test('a Contents link to the heading already showing scrolls back to it (#590)', async ({ page }) => {
+  // #587: a Contents link scrolled to its heading once; scrolling back up
+  // and clicking the same link again did nothing, because the place had not
+  // changed. The panel is the scroll container, so "in view" is the
+  // heading's top inside the panel's upper half — the same measure the
+  // deep-link test uses.
+  await page.goto('./#guide/editing-video')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = guide(page)
+  await expect(panel.getByRole('heading', { level: 2, name: 'Editing video' })).toBeVisible()
+  const link = panel.getByRole('navigation', { name: 'Contents' }).getByRole('link', { name: 'Zooms', exact: true })
+  const heading = panel.getByRole('article').getByRole('heading', { name: 'Zooms', exact: true })
+  const headingTopInPanel = async () => {
+    const [panelBox, headingBox] = await Promise.all([panel.boundingBox(), heading.boundingBox()])
+    return (headingBox!.y - panelBox!.y) / panelBox!.height
+  }
+  const inView = async () => {
+    const top = await headingTopInPanel()
+    return top >= -0.01 && top < 0.5
+  }
+
+  await link.click()
+  await expect.poll(inView, { message: 'first click scrolls to the heading' }).toBe(true)
+  expect(new URL(page.url()).hash).toBe('#guide/editing-video/zooms')
+
+  // Back to the top of the panel, where the Contents list is: the heading
+  // is now well below the panel's visible box.
+  await panel.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  await expect.poll(headingTopInPanel, { message: 'scrolled away from the heading' }).toBeGreaterThan(1)
+
+  await link.click()
+  await expect.poll(inView, { message: 'the same link scrolls to the heading again' }).toBe(true)
+  expect(new URL(page.url()).hash).toBe('#guide/editing-video/zooms')
+})
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })
