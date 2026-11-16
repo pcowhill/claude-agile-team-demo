@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineEntry, TimelineState } from './timeline'
-import { IDENTITY_ZOOM, smoothstep, zoomAt } from './zoom'
+import { IDENTITY_ZOOM, smoothstep, zoomAt, zoomStateAt } from './zoom'
 
 const entry: TimelineEntry = {
   id: 'e1',
@@ -163,6 +163,99 @@ describe('zoomAt', () => {
   })
 })
 
+describe('a zoom ramp pushes in on one fixed point (#583)', () => {
+  // A ramp of 1 s in, 1 s hold, 1 s out; the instants sampled are strictly
+  // inside the two ramps, where the old interpolation drifted.
+  const timing = { rampIn: 1, hold: 1, rampOut: 1 }
+  const rampInstants: number[] = []
+  for (let t = 0.05; t < 1; t += 0.05) rampInstants.push(t, 3 - t)
+
+  /** The visible region's edges on one axis: centre ± 1/(2·scale). */
+  const edges = (centre: number, scale: number) => ({
+    near: centre - 1 / (2 * scale),
+    far: centre + 1 / (2 * scale),
+  })
+
+  it('keeps a corner zoom on its corner through both ramps, for every corner', () => {
+    // #582: a zoom into the top-left corner must keep the top-left corner of
+    // the picture in the top-left of the preview at every instant, not drift
+    // toward the middle and back.
+    for (const scale of [1.25, 2, 3, 6]) {
+      const lo = 1 / (2 * scale)
+      const hi = 1 - lo
+      const corners = [
+        { cx: lo, cy: lo, x: 'near', y: 'near' },
+        { cx: hi, cy: lo, x: 'far', y: 'near' },
+        { cx: lo, cy: hi, x: 'near', y: 'far' },
+        { cx: hi, cy: hi, x: 'far', y: 'far' },
+      ] as const
+      for (const corner of corners) {
+        const zoom = { ...timing, scale, centerX: corner.cx, centerY: corner.cy }
+        for (const t of rampInstants) {
+          const state = zoomStateAt(zoom, t)
+          expect(state.scale, `mid-ramp at t=${t}`).toBeGreaterThan(1)
+          expect(state.scale).toBeLessThan(scale)
+          const x = edges(state.centerX, state.scale)[corner.x]
+          const y = edges(state.centerY, state.scale)[corner.y]
+          const want = (side: 'near' | 'far') => (side === 'near' ? 0 : 1)
+          expect(x, `×${scale} ${corner.x}/${corner.y} corner, x edge at t=${t}`).toBeCloseTo(want(corner.x), 9)
+          expect(y, `×${scale} ${corner.x}/${corner.y} corner, y edge at t=${t}`).toBeCloseTo(want(corner.y), 9)
+        }
+      }
+    }
+  })
+
+  it('holds one frame point still on screen for any zoom, and keeps every region inside the frame', () => {
+    // The point a state leaves in place: a frame coordinate x shows at
+    // (x − near)·scale on screen, so the fixed point solves x = (x − near)·scale.
+    // Read off each sampled state independently; all must agree with the one
+    // read off the hold.
+    const fixedPoint = (centre: number, scale: number) => {
+      const near = edges(centre, scale).near
+      return (near * scale) / (scale - 1)
+    }
+    for (const scale of [1.1, 1.5, 2, 4, 8]) {
+      const lo = 1 / (2 * scale)
+      for (let k = 0; k <= 10; k++) {
+        const centre = lo + ((1 - 2 * lo) * k) / 10
+        const zoom = { ...timing, scale, centerX: centre, centerY: 1 - centre }
+        const heldX = fixedPoint(zoom.centerX, scale)
+        const heldY = fixedPoint(zoom.centerY, scale)
+        for (const t of rampInstants) {
+          const state = zoomStateAt(zoom, t)
+          expect(fixedPoint(state.centerX, state.scale), `×${scale} c=${centre} t=${t}`).toBeCloseTo(heldX, 9)
+          expect(fixedPoint(state.centerY, state.scale), `×${scale} c=${1 - centre} t=${t}`).toBeCloseTo(heldY, 9)
+          for (const c of [state.centerX, state.centerY]) {
+            const { near, far } = edges(c, state.scale)
+            expect(near).toBeGreaterThanOrEqual(-1e-12)
+            expect(far).toBeLessThanOrEqual(1 + 1e-12)
+          }
+        }
+      }
+    }
+  })
+
+  it('leaves a centred zoom centred, and returns the stored zoom exactly across the hold', () => {
+    const centred = { ...timing, scale: 3, centerX: 0.5, centerY: 0.5 }
+    for (const t of rampInstants) {
+      const state = zoomStateAt(centred, t)
+      expect(state.centerX).toBeCloseTo(0.5, 12)
+      expect(state.centerY).toBeCloseTo(0.5, 12)
+    }
+    const offCentre = { ...timing, scale: 2.5, centerX: 0.3, centerY: 0.72 }
+    for (const t of [1, 1.5, 2]) {
+      expect(zoomStateAt(offCentre, t)).toEqual({ scale: 2.5, centerX: 0.3, centerY: 0.72 })
+    }
+  })
+
+  it('leaves the magnification schedule as it was: scale = 1 + (S − 1)·smoothstep', () => {
+    const zoom = { ...timing, scale: 4, centerX: 0.125, centerY: 0.875 }
+    for (const t of [0.1, 0.25, 0.5, 0.9]) {
+      expect(zoomStateAt(zoom, t).scale).toBeCloseTo(1 + 3 * smoothstep(t), 12)
+    }
+  })
+})
+
 describe('zoomAt with two zooms on one entry (#129)', () => {
   // Non-overlapping windows within the 8s trimmed range (inPoint 2):
   // zA spans trim [1, 4] → source [3, 6]; zB spans trim [5, 7] → source
@@ -213,7 +306,13 @@ describe('zoomAt with two zooms on one entry (#129)', () => {
       expect(combined).toEqual(alone)
     }
     // Spot-check one exact mid-ramp value: zB's ramp-in midpoint (source
-    // 7.25) has g = smoothstep(0.5) = 0.5 → scale 1.5, centre halfway.
-    expect(zoomAt(both, 0, 7.25)).toEqual({ scale: 1.5, centerX: 0.4, centerY: 0.55 })
+    // 7.25) has g = smoothstep(0.5) = 0.5 → scale 1.5. The centre is the
+    // anchored one (#583), not halfway: zB pushes in on x = (0.3·2 − 0.5)/1
+    // = 0.1 and y = (0.6·2 − 0.5)/1 = 0.7, so at ×1.5 the centre is
+    // 0.1 + 0.4/1.5 and 0.7 − 0.2/1.5.
+    const mid = zoomAt(both, 0, 7.25)
+    expect(mid.scale).toBe(1.5)
+    expect(mid.centerX).toBeCloseTo(0.1 + 0.4 / 1.5, 12)
+    expect(mid.centerY).toBeCloseTo(0.7 - 0.2 / 1.5, 12)
   })
 })
