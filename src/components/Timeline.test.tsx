@@ -4025,6 +4025,53 @@ describe('spotlight regions on a row (#532)', () => {
   })
 })
 
+describe('a number field changed while not focused commits at once (#593)', () => {
+  // Firefox's spinner arrows step a number field without focusing it: the
+  // click fires input and change, never focus or blur, so a field that
+  // commits only on blur never applied the stepped value (#591). jsdom
+  // reproduces the event shape exactly: fireEvent.change on a field that is
+  // not the active element. The sequence length — the seek slider's max —
+  // is the stored state, so it shows whether a commit happened.
+  const seekMax = () =>
+    screen.getByRole('slider', { name: 'Seek within sequence' }).getAttribute('max')
+  const outPoint = () =>
+    screen.getByRole('spinbutton', { name: 'Trim out point of a.mp4 at position 1 in seconds' })
+
+  const addVideoEntry = async () => {
+    render(<App />)
+    await importClip('a.mp4', 30)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(seekMax()).toBe('30')
+  }
+
+  it('applies a value stepped while the field is not focused, as one undo step', async () => {
+    await addVideoEntry()
+    expect(document.activeElement).not.toBe(outPoint())
+    fireEvent.change(outPoint(), { target: { value: '20' } })
+    expect(seekMax()).toBe('20')
+    expect(outPoint()).toHaveValue(20)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(seekMax()).toBe('30')
+    expect(outPoint()).toHaveValue(30)
+  })
+
+  it('still holds typing as a draft until blur while the field is focused', async () => {
+    await addVideoEntry()
+    const field = outPoint()
+    field.focus()
+    expect(document.activeElement).toBe(field)
+    // A half-typed value is never committed mid-typing…
+    fireEvent.change(field, { target: { value: '1' } })
+    expect(seekMax()).toBe('30')
+    fireEvent.change(field, { target: { value: '12' } })
+    expect(seekMax()).toBe('30')
+    // …only the finished one, when the field is left.
+    fireEvent.blur(field)
+    expect(seekMax()).toBe('12')
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({
