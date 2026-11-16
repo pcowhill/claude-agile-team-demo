@@ -420,13 +420,14 @@ function SecondsField({
     setDraft(formatSeconds(value))
   }, [value])
 
-  const commit = () => {
-    const parsed = Number(draft)
-    if (draft.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
+  const commitText = (text: string) => {
+    const parsed = Number(text)
+    if (text.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
     // If the reducer rejected (or clamped to) the same value, no prop change
     // arrives — reset the draft to the current state explicitly.
     setDraft(formatSeconds(value))
   }
+  const commit = () => commitText(draft)
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') event.currentTarget.blur()
@@ -447,7 +448,18 @@ function SecondsField({
       max={max}
       aria-label={label}
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        // Firefox's spinner arrows step the value without focusing the field
+        // (#593): the click fires input and change but never focus or blur,
+        // so a draft waiting for blur would never commit, and the field would
+        // show a number the timeline does not have. A change that arrives
+        // while the field is not focused is no typing in progress — it is a
+        // whole gesture of its own, so it commits at once. Chromium focuses
+        // the field on a spinner click, so there this never fires and the
+        // arrows commit on blur exactly as before.
+        if (document.activeElement !== event.currentTarget) commitText(event.target.value)
+        else setDraft(event.target.value)
+      }}
       onBlur={commit}
       onKeyDown={handleKeyDown}
     />
