@@ -29,7 +29,8 @@ itself and acts:
 2. Inspect repository state (code, docs, recent commits).
 3. Inspect open Issues.
 4. Inspect open Pull Requests.
-5. Inspect relevant CI / check status.
+5. Inspect relevant CI / check status, including the run count on any
+   open `flake-watch` issue (`docs/rules/quality-and-ci.md`).
 6. Count the implementation PRs merged since the newest retrospective. Ten
    or more means one is due — priority 7, not an emergency, but not
    optional. `docs/rules/process-improvement.md` has the command and says
