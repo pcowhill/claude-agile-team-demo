@@ -27,17 +27,23 @@ async function openGuide(page: Page): Promise<Locator> {
   return panel
 }
 
-/** Every element of a locator lays its text on one line (no mid-word wrap). */
+/**
+ * Every element of a locator lays its text on one line (no mid-word wrap).
+ *
+ * Counted as line boxes: an inline element gets one client rect per line it
+ * spans. The check used to compare `scrollWidth` with `clientWidth`, which
+ * the CSSOM defines only for boxes that have them. These are inline links,
+ * whose `clientWidth` is 0, and Chromium reports their `scrollWidth` as 0
+ * too, so `0 <= 0` passed whatever the layout. Firefox reports the text's
+ * width there, and the first Firefox run failed every entry (#586).
+ */
 async function expectNoWrap(items: Locator, what: string) {
   for (const item of await items.all()) {
-    const overflow = await item.evaluate((node) => ({
-      scrollWidth: node.scrollWidth,
-      clientWidth: node.clientWidth,
+    const layout = await item.evaluate((node) => ({
+      lines: node.getClientRects().length,
       text: node.textContent,
     }))
-    expect(overflow.scrollWidth, `${what} "${overflow.text}" overflows its box`).toBeLessThanOrEqual(
-      overflow.clientWidth,
-    )
+    expect(layout.lines, `${what} "${layout.text}" wraps onto more than one line`).toBe(1)
   }
 }
 
