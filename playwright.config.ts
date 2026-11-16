@@ -45,6 +45,18 @@ export default defineConfig({
         ...(executablePath === undefined ? {} : { launchOptions: { executablePath } }),
       },
     },
+    {
+      name: 'firefox',
+      use: {
+        ...devices['Desktop Firefox'],
+        launchOptions: {
+          firefoxUserPrefs: {
+            'media.navigator.streams.fake': true,
+            'media.navigator.permission.disabled': true,
+          },
+        },
+      },
+    },
   ],
   webServer: {
     command: `npm run dev -- --port ${PORT} --strictPort`,
