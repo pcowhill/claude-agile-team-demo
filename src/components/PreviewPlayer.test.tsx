@@ -553,14 +553,17 @@ describe('PreviewPlayer', () => {
       render(<PreviewPlayer timeline={withZoomOnFirst} />)
       const video = screen.getByTestId('preview-video-card')
 
-      // Ramp-in midpoint: g = smoothstep(0.5) = 0.5, so scale 1.5 and the
-      // centre halfway from 0.5 to 0.25 — exactly zoomAt's output.
+      // Ramp-in midpoint: g = smoothstep(0.5) = 0.5, so scale 1.5. The zoom
+      // (×2 on x = 0.25) has its region's left edge on the frame's, so it
+      // pushes in on x = 0 (#583): at ×1.5 the centre is 0.5/1.5 = 1/3 and
+      // the translate is 0.5 − 1/3 = 16.67% — exactly zoomAt's output.
+      // (Before #583 the centre went halfway, 0.375, a 12.5% translate.)
       seekTo('1.5')
-      expect(video.style.transform).toBe('scale(1.5) translate(12.5%, 0%)')
+      expect(video.style.transform).toMatch(/^scale\(1\.5\) translate\(16\.6666+\d*%, 0%\)$/)
 
       // Ramp-out midpoint mirrors it.
       seekTo('3.5')
-      expect(video.style.transform).toBe('scale(1.5) translate(12.5%, 0%)')
+      expect(video.style.transform).toMatch(/^scale\(1\.5\) translate\(16\.6666+\d*%, 0%\)$/)
     })
 
     it('composes a zoom with a slide transition on either side of the overlap', () => {

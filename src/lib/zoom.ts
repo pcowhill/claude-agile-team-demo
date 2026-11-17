@@ -30,17 +30,7 @@ export function smoothstep(u: number): number {
  * The zoom state of `entries[entryIndex]` at `sourceTime` (the entry's
  * source-clip clock, as a <video> element reports it — the same convention
  * the playback and export loops use). Identity outside the zoom window;
- * inside it, both the scale and the centre are interpolated by the eased
- * ramp fraction `g`:
- *
- *   scale(g)  = 1 + (zoom.scale − 1)·g
- *   centre(g) = 0.5 + (zoom.centre − 0.5)·g
- *
- * Interpolating the centre through the SAME `g` keeps the visible region
- * inside the frame at every instant: the region extends 1 / (2·scale(g))
- * from centre(g), and since the reducer clamps the full-zoom centre to
- * |centre − 0.5| ≤ (1 − 1/S) / 2, the mid-ramp offset g·(1 − 1/S)/2 never
- * exceeds the mid-ramp allowance (1 − 1/scale(g))/2 for any g ∈ [0, 1].
+ * inside it, see `zoomStateAt`.
  */
 export function zoomAt(state: TimelineState, entryIndex: number, sourceTime: number): ZoomState {
   const entry = state.entries[entryIndex]
@@ -68,11 +58,46 @@ export function zoomAt(state: TimelineState, entryIndex: number, sourceTime: num
 export function zoomStateAt(zoom: ZoomSpecLike, t: number): ZoomState {
   const g = rampFraction(zoom, t)
   if (g <= 0) return IDENTITY_ZOOM
+  // The hold is the stored zoom exactly, not a value recomputed through the
+  // anchor below and off by a rounding error.
+  if (g >= 1) return { scale: zoom.scale, centerX: zoom.centerX, centerY: zoom.centerY }
+  const scale = 1 + (zoom.scale - 1) * g
   return {
-    scale: 1 + (zoom.scale - 1) * g,
-    centerX: 0.5 + (zoom.centerX - 0.5) * g,
-    centerY: 0.5 + (zoom.centerY - 0.5) * g,
+    scale,
+    centerX: centreAt(zoomAnchor(zoom.centerX, zoom.scale), scale),
+    centerY: centreAt(zoomAnchor(zoom.centerY, zoom.scale), scale),
   }
+}
+
+/**
+ * The point a zoom pushes in on, on one axis, as a fraction of the frame
+ * (#583). A ramp is a pure magnification about this point: it stays where
+ * it is on screen at every instant, and the visible region at scale `s` is
+ * `[P − P/s, P + (1 − P)/s]`. It is the point the full-zoom region and the
+ * whole frame share — solving `L = P·(1 − 1/S)` for the full-zoom region's
+ * near edge `L = C − 1/(2S)`:
+ *
+ *   P = (C·S − 0.5) / (S − 1)
+ *
+ * A zoom into a corner (`L = 0`) anchors on the corner, so the corner stays
+ * in the corner throughout; a centred zoom anchors on 0.5. The reducer
+ * keeps `C` within `[1/(2S), 1 − 1/(2S)]`, which puts P in [0, 1], so every
+ * ramp region lies inside the frame. `scale` is always above 1 (the reducer
+ * rejects anything else), so the division is safe.
+ *
+ * Before #583 the centre was interpolated on its own, `0.5 + (C − 0.5)·g`.
+ * That kept the region in the frame but anchored nothing: a corner zoom's
+ * region moved toward the middle and back while its magnification ran
+ * ahead of the pan, so it looked like a zoom into the middle followed by a
+ * pan to the corner (#582).
+ */
+function zoomAnchor(centre: number, scale: number): number {
+  return (centre * scale - 0.5) / (scale - 1)
+}
+
+/** The centre of the region at scale `s` about the anchor `anchor`. */
+function centreAt(anchor: number, s: number): number {
+  return anchor + (0.5 - anchor) / s
 }
 
 /**
