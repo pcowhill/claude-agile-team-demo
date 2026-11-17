@@ -102,6 +102,18 @@ The override wins over both, and must point at the browser binary rather
 than the directory holding it. See [`tools/chromiumExecutable.ts`](tools/chromiumExecutable.ts)
 for the resolution order and issue #24 for the failure it replaces.
 
+The suite also runs under **Firefox** (#586). CI always runs it, in the same
+job as Chromium. Locally it is opt-in, because a machine with only Chromium
+would fail it at launch:
+
+```bash
+npx playwright install firefox
+E2E_FIREFOX=1 npx playwright test --project=firefox
+```
+
+What the Firefox project does not run yet, and the issue that owns each
+entry, is listed at the top of [`playwright.config.ts`](playwright.config.ts).
+
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, and build on
 every PR and push to `main`; merged changes deploy to GitHub Pages via
 `.github/workflows/deploy.yml`. CI installs the pinned revision, so it takes

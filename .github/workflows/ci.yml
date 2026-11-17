@@ -44,9 +44,12 @@ jobs:
   e2e:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest
-    # The suite itself runs in ~30s; the browser install dominates and has
-    # hung silently for over an hour before (#68).
-    timeout-minutes: 20
+    # Both browsers' suites run here (#586): Firefox is part of this required
+    # job rather than a job of its own, so it gates merges without a change
+    # to branch protection. The browser install has hung silently for over an
+    # hour before (#68), hence a bound at all; it is 30 minutes now that the
+    # job runs two suites back to back.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +70,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          # The browser set is part of the key: a cache saved when only
+          # Chromium was installed would otherwise hit and skip Firefox's
+          # install (#586).
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium-firefox
 
       # The runner image ships an apt source for Google Chrome, and
       # `install-deps` runs `apt-get update`, so every Playwright job depends
@@ -104,7 +110,7 @@ jobs:
         id: install-system-deps
         timeout-minutes: 4
         continue-on-error: true
-        run: npx playwright install-deps chromium
+        run: npx playwright install-deps chromium firefox
 
       # A step timeout kills only the step's leader process: a timed-out
       # first attempt leaves its apt-get orphaned and still holding the apt
@@ -119,14 +125,21 @@ jobs:
           sudo pkill -9 -x apt-get || true
           sudo pkill -9 -x apt || true
           sudo dpkg --configure -a
-          npx playwright install-deps chromium
+          npx playwright install-deps chromium firefox
 
-      - name: Install Playwright browser
+      - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium
+        run: npx playwright install chromium firefox
 
-      - name: Browser tests
-        run: npm run test:e2e
+      # Two steps rather than one `playwright test` over both projects, so the
+      # job's log shows each browser's duration and summary separately.
+      - name: Browser tests (Chromium)
+        run: npm run test:e2e -- --project=chromium
+
+      - name: Browser tests (Firefox)
+        # Run even when Chromium's step failed, so one run reports both.
+        if: ${{ !cancelled() }}
+        run: npm run test:e2e -- --project=firefox
 
       - uses: actions/upload-artifact@v4
         if: failure()
