@@ -80,7 +80,6 @@ const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'spotlight.spec.ts', why: '#600: export or audio hangs with no audio device' },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
-  { title: 'deep links: a #guide URL opens the panel on its heading', why: '#597: product defect, the panel is not scrolled to the heading' },
   { title: 'a drag commits the percent the fields read, Shift trims both edges', why: '#598: the press lands on the editor, not the handle' },
   { title: 'Alt gives finer values than the whole-percent snap, and Reset clears the crop', why: '#598: as above' },
   { title: 'an overlay is cropped on its own source, not inside its placement rectangle', why: '#598: as above' },

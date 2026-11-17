@@ -59,8 +59,15 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
   // Opening moves focus into the panel, on the search field: the first thing
   // a reader who came here to look something up wants, and a control that
   // claims the editor's keys so typing never drives the transport.
+  //
+  // Without scrolling (#597): the field sits at the top of a panel that has
+  // just opened, so focus never needs to scroll to it. Firefox applies a
+  // focus's scroll-into-view lazily, at its next layout flush, which lands
+  // after the arrival effect below has scrolled to a deep link's heading,
+  // and put the panel back near the top (measured: scrollTop 2885 right
+  // after the arrival's scroll, 68 one frame later).
   useEffect(() => {
-    searchRef.current?.focus()
+    searchRef.current?.focus({ preventScroll: true })
   }, [])
 
   // Every click on a link is an arrival, even at the place already showing
