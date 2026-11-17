@@ -524,6 +524,85 @@ test('opening a search hit, by click or by Enter, shows its heading and keeps fo
   await expect(searchField(page)).toBeFocused()
 })
 
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 800, height: 720 },
+]) {
+  test(`after a search hit opens, the search field stays in view, clear of the heading, and so do the next query's results, at ${viewport.width}×${viewport.height} (#638)`, async ({
+    page,
+  }) => {
+    // #638: opening a hit scrolls the panel to the hit's heading and puts
+    // focus back on the search field. The field used to scroll away with the
+    // article, so the next query was typed into a field nobody could see.
+    // It is sticky now; the panel's scroll padding keeps the heading below
+    // it. 800 wide is the narrow-window sheet, a separate layout.
+    await page.goto('./')
+    await page.setViewportSize(viewport)
+    const panel = await openGuide(page)
+    const field = searchField(page)
+    const band = panel.getByRole('search')
+    const heading = panel.getByRole('article').getByRole('heading', { level: 3, name: 'What is saved where' })
+    const results = panel.getByRole('list', { name: 'Search results' })
+
+    await field.fill('saved where')
+    await expect(results.getByRole('button').first().locator('.user-guide-hit-where')).toContainText(
+      'What is saved where',
+    )
+    await results.getByRole('button').first().click()
+    await expect(results).toHaveCount(0)
+
+    // Read together in one poll, so all three boxes come from one render.
+    const geometry = async () => {
+      const [panelBox, bandBox, fieldBox, headingBox] = await Promise.all([
+        panel.boundingBox(),
+        band.boundingBox(),
+        field.boundingBox(),
+        heading.boundingBox(),
+      ])
+      return {
+        // The field lies inside the panel's visible box. 1px: the field's
+        // border box against the panel's, both rounded by layout.
+        fieldInView:
+          fieldBox!.y >= panelBox!.y - 1 && fieldBox!.y + fieldBox!.height <= panelBox!.y + panelBox!.height + 1,
+        // The heading starts at or below the sticky band, so nothing covers
+        // it, and inside the panel's upper half, as #616's test measures.
+        headingClear: headingBox!.y >= bandBox!.y + bandBox!.height - 1,
+        headingInUpperHalf: (headingBox!.y - panelBox!.y) / panelBox!.height < 0.5,
+        // The panel really did scroll: the field would be in view anyway at
+        // the top, which would prove nothing.
+        scrolled: (await panel.evaluate((el) => el.scrollTop)) > 200,
+      }
+    }
+    await expect
+      .poll(geometry, { message: 'after the hit: field in view, heading clear of it and in the upper half' })
+      .toEqual({ fieldInView: true, headingClear: true, headingInUpperHalf: true, scrolled: true })
+    await expect(field).toBeFocused()
+
+    // The next query, typed straight away: the field is still in view, and
+    // so is the start of what it found.
+    await page.keyboard.type('trim')
+    await expect(field).toHaveValue('trim')
+    await expect(results.getByRole('button').first()).toBeVisible()
+    await expect
+      .poll(
+        async () => {
+          const [panelBox, fieldBox, hitBox] = await Promise.all([
+            panel.boundingBox(),
+            field.boundingBox(),
+            results.getByRole('button').first().boundingBox(),
+          ])
+          const bottom = panelBox!.y + panelBox!.height
+          return {
+            fieldInView: fieldBox!.y >= panelBox!.y - 1 && fieldBox!.y + fieldBox!.height <= bottom + 1,
+            firstHitInView: hitBox!.y >= panelBox!.y - 1 && hitBox!.y < bottom,
+          }
+        },
+        { message: 'typing the next query: field and first result in view' },
+      )
+      .toEqual({ fieldInView: true, firstHitInView: true })
+  })
+}
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })
