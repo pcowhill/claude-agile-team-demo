@@ -1,4 +1,5 @@
 import type { MediaKind } from './mediaLibrary'
+import { withWebmCues } from './webmCues'
 
 export interface ProbedMedia {
   /** Duration in seconds. Finite and > 0 for video/audio; 0 for images (#137). */
@@ -50,19 +51,34 @@ export function detectMediaKind(file: File): MediaKind {
  * object URL for later playback; the URL is revoked automatically on
  * failure but kept alive on success.
  *
- * `createElement` and `createImage` are injectable for tests (jsdom never
- * fires media or image load events).
+ * The URL a video or audio probe resolves with is for `playable(file)`
+ * rather than the file itself when that differs: a WebM with no seek index
+ * gets one there, because Firefox cannot seek it otherwise (#584,
+ * `webmCues.ts`). It runs alongside the probe, which reads the duration
+ * from the file as it came; the index does not change the duration.
+ *
+ * `createElement`, `createImage` and `playable` are injectable for tests
+ * (jsdom never fires media or image load events).
  */
 export function probeMediaFile(
   file: File,
   createElement: (kind: MediaKind) => HTMLMediaElement = (kind) =>
     document.createElement(kind === 'audio' ? 'audio' : 'video'),
   createImage: () => HTMLImageElement = () => new Image(),
+  playable: (file: File) => Promise<Blob> = withWebmCues,
 ): Promise<ProbedMedia> {
   const kind = detectMediaKind(file)
   if (kind === 'image') return probeImageFile(file, createImage)
   const url = URL.createObjectURL(file)
   const media = createElement(kind)
+  // Started now, so it overlaps the probe; a failure plays the file as is.
+  const source = playable(file).catch(() => file)
+  const withPlayableUrl = async (probed: ProbedMedia): Promise<ProbedMedia> => {
+    const blob = await source
+    if (blob === file) return probed
+    URL.revokeObjectURL(url)
+    return { ...probed, url: URL.createObjectURL(blob) }
+  }
 
   return new Promise<ProbedMedia>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -78,7 +94,7 @@ export function probeMediaFile(
         URL.revokeObjectURL(url)
         reject(result)
       } else {
-        resolve(result)
+        resolve(withPlayableUrl(result))
       }
     }
 

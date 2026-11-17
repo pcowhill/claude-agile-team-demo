@@ -150,6 +150,36 @@ describe('probeMediaFile', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
   })
 
+  it('resolves with a URL for the playable blob when it differs from the file (#584)', async () => {
+    // A cue-less WebM gets a seek index in `playable`; the clip must play
+    // that blob, and the URL the probe loaded the file under is released.
+    const fake = new FakeMedia()
+    const indexed = new Blob(['indexed'], { type: 'video/webm' })
+    createObjectURL.mockImplementation(((blob: Blob) =>
+      blob === indexed ? 'blob:indexed' : 'blob:probe-test') as () => string)
+    const playable = vi.fn(async () => indexed)
+    const promise = probeMediaFile(file, asMedia(fake), undefined, playable)
+    // The probe itself loads the file as it came.
+    expect(fake.src).toBe('blob:probe-test')
+    fake.duration = 3
+    fake.onloadedmetadata?.()
+    await expect(promise).resolves.toEqual({ duration: 3, url: 'blob:indexed', kind: 'video' })
+    expect(playable).toHaveBeenCalledExactlyOnceWith(file)
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:probe-test')
+    createObjectURL.mockImplementation(() => 'blob:probe-test')
+  })
+
+  it('keeps the file URL when making it playable fails (#584)', async () => {
+    const fake = new FakeMedia()
+    const promise = probeMediaFile(file, asMedia(fake), undefined, () =>
+      Promise.reject(new Error('unreadable')),
+    )
+    fake.duration = 3
+    fake.onloadedmetadata?.()
+    await expect(promise).resolves.toEqual({ duration: 3, url: 'blob:probe-test', kind: 'video' })
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+  })
+
   it('rejects and revokes the object URL when metadata never arrives', async () => {
     vi.useFakeTimers()
     const fake = new FakeMedia()

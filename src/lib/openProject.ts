@@ -2,6 +2,7 @@ import { clipFileName } from './mediaLibrary'
 import type { LibraryClip, MediaKind } from './mediaLibrary'
 import type { ClipMedia, Project, ProjectClip } from './projectFile'
 import { normalizedTimelineState } from './timeline'
+import { webmBlobWithCues } from './webmCues'
 import type { TimelineState } from './timeline'
 
 /**
@@ -215,7 +216,9 @@ export function restoreEmbeddedProject(
     }
     urls.set(
       clip.id,
-      createUrl(new Blob([clipMedia.bytes as BlobPart], { type: clipMedia.mimeType ?? '' })),
+      // A cue-less WebM gets a seek index on the way, as an import does
+      // (#584): projects saved before that fix carry the bytes without one.
+      createUrl(webmBlobWithCues(clipMedia.bytes, clipMedia.mimeType ?? '')),
     )
   }
   return restoreProject(project, urls)
