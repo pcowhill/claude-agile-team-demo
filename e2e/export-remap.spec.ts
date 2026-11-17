@@ -12,13 +12,34 @@ import { chooseEffect } from './timelineRowMenu'
  */
 
 /** Records a real WebM in-browser so the export has decodable video. */
-async function recordWebm(page: import('@playwright/test').Page): Promise<Buffer> {
-  const webmBase64 = await page.evaluate(async () => {
+async function recordWebm(
+  page: import('@playwright/test').Page,
+  { withTone = false }: { withTone?: boolean } = {},
+): Promise<Buffer> {
+  const webmBase64 = await page.evaluate(async (withTone) => {
     const canvas = document.createElement('canvas')
     canvas.width = 320
     canvas.height = 180
     const ctx = canvas.getContext('2d')!
-    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' })
+    const stream = canvas.captureStream(30)
+    // A 440 Hz tone from the start (#611), as in export-audio-mix.spec.ts.
+    let audio: AudioContext | null = null
+    if (withTone) {
+      audio = new AudioContext()
+      if (audio.state === 'suspended') await audio.resume()
+      const destination = audio.createMediaStreamDestination()
+      const gain = audio.createGain()
+      gain.gain.value = 0.5
+      const oscillator = audio.createOscillator()
+      oscillator.frequency.value = 440
+      oscillator.connect(gain)
+      gain.connect(destination)
+      oscillator.start()
+      stream.addTrack(destination.stream.getAudioTracks()[0])
+    }
+    const recorder = new MediaRecorder(stream, {
+      mimeType: withTone ? 'video/webm;codecs=vp8,opus' : 'video/webm',
+    })
     const chunks: Blob[] = []
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data)
@@ -32,18 +53,19 @@ async function recordWebm(page: import('@playwright/test').Page): Promise<Buffer
       const draw = () => {
         ctx.fillStyle = `hsl(${((performance.now() - start) / 5) % 360}, 70%, 50%)`
         ctx.fillRect(0, 0, canvas.width, canvas.height)
-        if (performance.now() - start > 1500) resolve()
+        if (performance.now() - start > (withTone ? 2600 : 1500)) resolve()
         else requestAnimationFrame(draw)
       }
       draw()
     })
     recorder.stop()
     await stopped
+    await audio?.close()
     const buffer = await new Blob(chunks, { type: 'video/webm' }).arrayBuffer()
     let binary = ''
     for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
     return btoa(binary)
-  })
+  }, withTone)
   return Buffer.from(webmBase64, 'base64')
 }
 
@@ -117,6 +139,78 @@ test('a speed segment stretches the exported file to the remapped total', async 
   const duration = await probeDuration(page, exported)
   expect(duration).toBeGreaterThan(2 * 0.7)
   expect(duration).toBeLessThan(2 + 1)
+})
+
+/** The loudest sample of the exported file's audio in a window, in seconds. */
+async function peakBetween(
+  page: import('@playwright/test').Page,
+  media: Buffer,
+  fromSeconds: number,
+  toSeconds: number,
+): Promise<number> {
+  return await page.evaluate(
+    async ({ base64, fromSeconds, toSeconds }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const context = new AudioContext()
+      try {
+        const buffer = await context.decodeAudioData(bytes.buffer)
+        const samples = buffer.getChannelData(0)
+        const end = Math.min(samples.length, Math.ceil(toSeconds * buffer.sampleRate))
+        let peak = 0
+        for (let index = Math.floor(fromSeconds * buffer.sampleRate); index < end; index++) {
+          peak = Math.max(peak, Math.abs(samples[index]))
+        }
+        return peak
+      } finally {
+        await context.close()
+      }
+    },
+    { base64: media.toString('base64'), fromSeconds, toSeconds },
+  )
+}
+
+test('the clip keeps its sound at 1× around a speed segment, and the segment keeps its length (#611)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  // A click first: the user activation an AudioContext needs.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  const webm = await recordWebm(page, { withTone: true })
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  const out = page.getByRole('spinbutton', {
+    name: 'Trim out point of clip.webm at position 1 in seconds',
+  })
+  await out.fill('2')
+  await out.blur()
+
+  // [0, 1] at 0.5×, then 1 s at 1×: 2 s of output, then 1 s, 3 s in all.
+  await chooseEffect(page, 'clip.webm at position 1', 'Speed segment')
+  const end = page.getByRole('spinbutton', {
+    name: 'Speed segment 1 end of clip.webm at position 1 in seconds',
+  })
+  await end.fill('1')
+  await end.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:03')
+
+  const exported = await exportSequence(page)
+  const duration = await probeDuration(page, exported)
+  expect(duration).toBeGreaterThan(3 * 0.8)
+  expect(duration).toBeLessThan(3 + 1)
+
+  // The 1× tail carries the clip's tone in every browser. In Firefox that
+  // sound comes through the audio twin, because the replay is kept out of
+  // the audio graph there so that its picture can play at 0.5×.
+  expect(await peakBetween(page, exported, 2.3, 2.8), 'the 1× tail is audible').toBeGreaterThan(0.05)
+  // Inside the slowed span, Chromium plays the sound slowed. Firefox cannot
+  // play a captured element at another rate, so its export is silent there
+  // rather than out of step (docs/guide/editing-video.md says so).
+  const slowed = await peakBetween(page, exported, 0.4, 1.6)
+  if (testInfo.project.name === 'firefox') expect(slowed, 'silent while slowed').toBeLessThan(0.01)
+  else expect(slowed, 'audible while slowed').toBeGreaterThan(0.05)
 })
 
 test('a pause records as held frames for the configured duration', async ({ page }) => {
