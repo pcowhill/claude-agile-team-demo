@@ -59,6 +59,7 @@ const constants: GuideConstants = {
   GIF_FPS: '10',
   GIF_MAX_PX: '480',
   MP3_KBPS: '192',
+  AUDIO_START_TIMEOUT_SECONDS: '5',
   DEFAULT_STEP_SECONDS: '0.1',
   DEFAULT_LARGE_STEP_SECONDS: '1',
   STEP_CHOICES: '0.05 s, 0.1 s',

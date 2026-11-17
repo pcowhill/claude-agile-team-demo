@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   activeTextDraws,
   activeVideoOverlays,
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
+  AUDIO_START_TIMEOUT_MS,
+  type AudioCapture,
   canvasSupportsColorFilter,
   createAudioCapture,
   createFrameComposer,
@@ -293,6 +295,70 @@ describe('createAudioCapture', () => {
       createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
     ).resolves.toBeNull()
     expect(fake.context.closed).toBe(true)
+  })
+
+  describe('a context that cannot start (#596)', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('stops waiting at the bound and falls back to null, even if close never settles either', async () => {
+      // A browser with no usable audio output leaves resume() pending
+      // forever; unbounded, the export sat at 0% with no message.
+      vi.useFakeTimers()
+      const fake = fakeAudioContext('suspended')
+      fake.context.resume = () => {
+        fake.context.resumeCount++
+        return new Promise<void>(() => {})
+      }
+      fake.context.close = () => {
+        fake.context.closed = true
+        return new Promise<void>(() => {})
+      }
+      let result: AudioCapture | null | undefined
+      void createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)).then(
+        (capture) => {
+          result = capture
+        },
+      )
+      await vi.advanceTimersByTimeAsync(AUDIO_START_TIMEOUT_MS - 1)
+      expect(result, 'still waiting just short of the bound').toBeUndefined()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(result).toBeNull()
+      expect(fake.context.resumeCount).toBe(1)
+      expect(fake.context.closed).toBe(true)
+    })
+
+    it('still captures from a context that starts slowly but within the bound, leaving no timer behind', async () => {
+      vi.useFakeTimers()
+      const fake = fakeAudioContext('suspended')
+      fake.context.resume = () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            fake.context.state = 'running'
+            resolve()
+          }, 1000)
+        })
+      let result: AudioCapture | null | undefined
+      void createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)).then(
+        (capture) => {
+          result = capture
+        },
+      )
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(result?.track).toBe(fake.track)
+      expect(fake.context.closed).toBe(false)
+      expect(vi.getTimerCount(), 'the bound is cleared once the context starts').toBe(0)
+    })
+
+    it('still falls back when resume() rejects inside the bound', async () => {
+      const fake = fakeAudioContext('suspended')
+      fake.context.resume = () => Promise.reject(new Error('NotAllowedError'))
+      await expect(
+        createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)),
+      ).resolves.toBeNull()
+      expect(fake.context.closed).toBe(true)
+    })
   })
 })
 

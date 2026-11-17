@@ -8,7 +8,7 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **What it does.** Opens the *Export project* dialog — on the format Settings chose, or on the one picked from the submenu — and runs the export from there.
 
-**Details.** Both are disabled while the timeline is empty; the button says so on hover (*Add clips to the timeline to export your edit*). The dialog opens on the format from **Settings** › *Default export format* ({{DEFAULT_EXPORT_FORMAT}} unless changed), falling back to a format this browser offers when that one is not available; the **Export ▸** submenu lists every offered format and opens the dialog on the one you pick. **Export** starts it; **Cancel** closes the dialog or stops a running export. An export runs in real time — the dialog says so: a 30-second sequence takes about 30 seconds — with a progress bar and percentage, and the file downloads as *sequence-export* with the format's extension when it finishes. The editor's keys are inert while the dialog is open.
+**Details.** Both are disabled while the timeline is empty; the button says so on hover (*Add clips to the timeline to export your edit*). The dialog opens on the format from **Settings** › *Default export format* ({{DEFAULT_EXPORT_FORMAT}} unless changed), falling back to a format this browser offers when that one is not available; the **Export ▸** submenu lists every offered format and opens the dialog on the one you pick. **Export** starts it; **Cancel** closes the dialog or stops a running export. An export runs in real time — the dialog says so: a 30-second sequence takes about 30 seconds — with a progress bar and percentage, and the file downloads as *sequence-export* with the format's extension when it finishes. If the browser's sound cannot start, as on a machine with no sound device or with its sound service stopped, the bar holds at 0% for up to {{AUDIO_START_TIMEOUT_SECONDS}} seconds while the editor waits for it. A video export then runs without sound, and an audio-only one refuses (below). The editor's keys are inert while the dialog is open.
 
 **Related.** [Export](quick-start.md#7-export) · [Default export format](settings.md#default-export-format)
 
@@ -100,7 +100,7 @@ The times are rounded **down**, so a chapter never starts after the moment you m
 
 - *This browser does not support recording video (MediaRecorder)* or *This browser cannot encode … video* — the format is not one this browser can record; pick another.
 - *This browser cannot render color adjustments when exporting (canvas filters are unsupported)* — the timeline carries a colour adjustment and this browser's canvas cannot apply it; the export refuses rather than silently exporting the picture unadjusted. Reset the colour adjustments or export from another browser. Saving a frame refuses in the same case.
-- *An audio-only export requires captured audio* — the browser's audio engine is unavailable, so there is no mix to record.
+- *This browser cannot capture audio for an audio-only export* — the browser's audio engine is unavailable, or its sound output did not start within {{AUDIO_START_TIMEOUT_SECONDS}} seconds, so there is no mix to record.
 - *This browser cannot draw canvas graphics* or *cannot capture canvas video* — the browser lacks the canvas features every video export composes through.
 
 A project file that names a plugin this browser has disabled is refused at *open* time instead, with an offer to enable the plugin; see [A file that needs plugins](projects.md#a-file-that-needs-plugins).
