@@ -14,19 +14,20 @@ type Page = import('@playwright/test').Page
  * element's readiness. So a stalled base layer looks like it must record
  * black, and #323 was filed on exactly that reading.
  *
- * It does not, and this spec is the evidence plus the guard. A media element
- * that has already decoded a frame paints its **retained** frame while
- * seeking — measured at `readyState` 1 with full alpha, the same behavior a
- * <video> in the DOM has — so the unconditional draw is truthful even
- * mid-stall. Only a never-decoded element paints nothing, and `cueTo` awaits
- * readiness before the first frame composes.
+ * In Chromium it does not: a media element that has already decoded a frame
+ * paints its **retained** frame while seeking — measured at `readyState` 1
+ * with full alpha, the same behavior a <video> in the DOM has. In Firefox it
+ * does: an element at `readyState` 1 mid-seek paints nothing, and the export
+ * recorded black frames there (#635). So the export loop draws the base
+ * through `heldVideoFrame`, which holds a copy of the element's last good
+ * frame while it cannot supply one — the stand-in overlays have had since
+ * #319 — and this spec runs in both browsers.
  *
- * This therefore passes on the code as it stands, by construction. Its job
- * is to keep it that way: a readiness check added to the base layer would
- * turn those frames black, and that check is precisely the "fix" #323
- * proposed. It has teeth — with the element's picture swapped for an empty
- * canvas when it reports unready, this spec fails with 28 black frames of 85
- * presented (#324 records the injection).
+ * Its job is to keep that property. A readiness check that *skips* or blanks
+ * the base would turn those frames black, and that check is precisely the
+ * "fix" #323 proposed. It has teeth — with the element's picture swapped for
+ * an empty canvas when it reports unready, this spec fails with 28 black
+ * frames of 85 presented (#324 records the injection).
  *
  * The provocation is a **real seek**, the way `alignReplayClock` snaps a
  * clock that drifted past `VIDEO_DRIFT_EPSILON`, and never a faked
@@ -47,9 +48,11 @@ type Page = import('@playwright/test').Page
  * at teardown). When no tick fell between that release and the read, it read
  * 0 and failed: in nearly every CI run, hidden by retries.
  *
- * Firefox does not run this test yet (#635). Its seeking element keeps
- * `readyState` 4, and it can paint nothing, so the export records black
- * frames there.
+ * In Firefox a seek does not drop `readyState` synchronously: the element
+ * reports 4 with `seeking` true for a while, and paints normally, then 1,
+ * and paints nothing. The guard counts the second state, which is the one a
+ * frame can be lost in. Measured under Firefox 153 with #635's fix, 40–56
+ * of about 220 composed frames per run, in 12 of 12 runs.
  *
  * Every presented frame of the exported file is scanned (the sampling
  * discipline #276 established) rather than nominal timestamps being probed,
