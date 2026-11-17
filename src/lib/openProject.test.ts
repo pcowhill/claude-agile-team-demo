@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import cuelessClustersBase64 from './fixtures/cueless-clusters.webm.base64?raw'
 import { durationsMatch, matchFileToClip, restoreEmbeddedProject, restoreProject } from './openProject'
 import type { ClipMedia, Project } from './projectFile'
+import { planWebmCues, webmBlobWithCues } from './webmCues'
 
 describe('durationsMatch', () => {
   it('accepts exact and near-exact durations', () => {
@@ -377,6 +379,9 @@ describe('restoreProject', () => {
   })
 })
 
+/** The cue-less WebM fixture webmCues.test.ts describes (#584). */
+const fixtureBytes = () => Uint8Array.from(atob(cuelessClustersBase64.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
+
 describe('restoreEmbeddedProject', () => {
   const project: Project = {
     clips: [
@@ -435,6 +440,27 @@ describe('restoreEmbeddedProject', () => {
     expect(restored.timeline.transitions).toEqual([
       { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
     ])
+  })
+
+  it('gives a cue-less embedded WebM a seek index on the way to its URL (#584)', async () => {
+    // Projects saved before #584's fix embed recordings Firefox cannot seek.
+    const webm = fixtureBytes()
+    const { blobs, createUrl } = recordingCreateUrl()
+    restoreEmbeddedProject(
+      project,
+      new Map<string, ClipMedia>([
+        ['a', media.get('a') as ClipMedia],
+        ['b', { bytes: webm, mimeType: 'video/webm' }],
+      ]),
+      createUrl,
+    )
+    const restored = new Uint8Array(await blobs[1].arrayBuffer())
+    expect(blobs[1].type).toBe('video/webm')
+    expect(restored).toEqual(new Uint8Array(await webmBlobWithCues(webm, 'video/webm').arrayBuffer()))
+    expect(restored).not.toEqual(webm)
+    expect(planWebmCues(restored)).toBeNull()
+    // Bytes that need nothing are passed through as they were.
+    expect(new Uint8Array(await blobs[0].arrayBuffer())).toEqual(Uint8Array.from([1, 2, 3, 4]))
   })
 
   it('throws on a clip without media (deserialization guarantees coverage)', () => {
