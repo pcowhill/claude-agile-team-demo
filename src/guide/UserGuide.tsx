@@ -98,9 +98,15 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
     onNavigate(target)
   }
 
+  // Focus returns to the search field, so the next query is one keystroke
+  // away, but without scrolling (#616), for the reason the opening focus
+  // above gives (#597): Firefox applies a focus's scroll lazily, after the
+  // arrival effect has scrolled to the hit's heading, and so scrolled the
+  // panel back to the field. The field is not sticky, so after the arrival
+  // it sits above the panel's visible box, in Chromium as it did before.
   const openHit = (hit: SearchHit) => {
     go({ section: hit.passage.section, anchor: hit.passage.anchor })
-    searchRef.current?.focus()
+    searchRef.current?.focus({ preventScroll: true })
   }
 
   const close = () => {
