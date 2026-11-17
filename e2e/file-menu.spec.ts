@@ -87,19 +87,23 @@ test('File ▾ is keyboard-operable into Export ▸, which opens the modal on th
   await expect(submenu).toBeVisible()
   await expect(submenu.getByRole('menuitem').first()).toBeFocused()
 
-  // Arrow to MP4 and start it. Which formats exist is the browser's answer,
-  // so find MP4's position rather than assuming it.
+  // Arrow to a format other than the default and start it. Which formats
+  // exist is the browser's answer, so find its position rather than assuming
+  // it. Audio only (MP3) is encoded in the page, so Chromium and Firefox both
+  // offer it; MP4 was used here until Firefox ran this spec (#600), and
+  // Firefox's recorder rightly offers no MP4.
+  const chosen = 'Audio only (MP3)'
   const labels = await submenu.getByRole('menuitem').allInnerTexts()
-  const target = labels.indexOf('MP4')
-  expect(target, `MP4 among ${labels.join(', ')}`).toBeGreaterThanOrEqual(0)
+  const target = labels.indexOf(chosen)
+  expect(target, `${chosen} among ${labels.join(', ')}`).toBeGreaterThan(0)
   for (let step = 0; step < target; step++) await page.keyboard.press('ArrowDown')
-  await expect(submenu.getByRole('menuitem', { name: 'MP4', exact: true })).toBeFocused()
+  await expect(submenu.getByRole('menuitem', { name: chosen, exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
 
   // The export modal is up, on that format, and the whole menu is gone.
   const dialog = page.getByRole('dialog', { name: /export/i })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('radio', { name: 'MP4' })).toBeChecked()
+  await expect(dialog.getByRole('radio', { name: chosen })).toBeChecked()
   await expect(fileMenu(page)).toHaveCount(0)
   await expect(submenu).toHaveCount(0)
 

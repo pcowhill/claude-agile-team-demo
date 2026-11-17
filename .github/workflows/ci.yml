@@ -136,6 +136,23 @@ jobs:
       - name: Browser tests (Chromium)
         run: npm run test:e2e -- --project=chromium
 
+      # Firefox needs an audio output it can open (#600). Without one,
+      # `AudioContext.resume()` never settles: an export waits out #596's
+      # bound and runs without sound, and every audio-asserting spec fails.
+      # Chromium's headless build fakes its own output and does not need this.
+      # A PulseAudio null sink is an output that discards what it is given.
+      # Bounded like the other apt steps (#85), and `e2e/audio-output.spec.ts`
+      # fails first, with a message naming this step, if it does not take.
+      - name: Audio output for Firefox (PulseAudio null sink)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 4
+        run: |
+          sudo apt-get install -y --no-install-recommends pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=e2e_null
+          pactl set-default-sink e2e_null
+          pactl info | grep -E '^(Server Name|Default Sink):'
+
       - name: Browser tests (Firefox)
         # Run even when Chromium's step failed, so one run reports both.
         if: ${{ !cancelled() }}

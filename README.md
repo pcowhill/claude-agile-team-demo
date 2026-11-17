@@ -111,6 +111,19 @@ npx playwright install firefox
 E2E_FIREFOX=1 npx playwright test --project=firefox
 ```
 
+Firefox also needs an **audio output** it can open (#600). On a machine with
+no sound device, such as a session container, its `AudioContext` never
+starts. The export and audio specs then fail on their sound, and
+`e2e/audio-output.spec.ts` fails first and says why. A PulseAudio null sink
+is enough, and it is what CI uses:
+
+```bash
+sudo apt-get install -y pulseaudio   # drop sudo where you are root
+pulseaudio --start --exit-idle-time=-1   # as root: pulseaudio -D --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=e2e_null
+pactl set-default-sink e2e_null
+```
+
 What the Firefox project does not run yet, and the issue that owns each
 entry, is listed at the top of [`playwright.config.ts`](playwright.config.ts).
 

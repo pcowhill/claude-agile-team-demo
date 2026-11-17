@@ -123,7 +123,10 @@ test('a chosen preference survives a reload, in the store and in its effect (#28
   await openSettings(page)
   await select(page, 'Playhead nudge (← / →)').selectOption('0.25')
   await select(page, 'New still or slate duration').selectOption('10')
-  await select(page, 'Default export format').selectOption('mp4')
+  // Audio only (MP3), not the default WebM: a format every browser this suite
+  // runs offers (#600). MP4 was used until Firefox ran this spec, and
+  // Firefox's recorder rightly offers no MP4, so its select has no such option.
+  await select(page, 'Default export format').selectOption('audio-mp3')
   await dialog(page).getByRole('button', { name: 'Close' }).click()
 
   await page.reload()
@@ -134,13 +137,13 @@ test('a chosen preference survives a reload, in the store and in its effect (#28
   expect(JSON.parse(stored as string)).toMatchObject({
     stepSeconds: 0.25,
     stillDurationSeconds: 10,
-    exportFormat: 'mp4',
+    exportFormat: 'audio-mp3',
   })
 
   // …and the dialog comes up on them after the load.
   await openSettings(page)
   await expect(select(page, 'Playhead nudge (← / →)')).toHaveValue('0.25')
-  await expect(select(page, 'Default export format')).toHaveValue('mp4')
+  await expect(select(page, 'Default export format')).toHaveValue('audio-mp3')
   await dialog(page).getByRole('button', { name: 'Close' }).click()
 
   // The effects, after the reload rather than in the session that set them.
@@ -164,7 +167,7 @@ test('a chosen preference survives a reload, in the store and in its effect (#28
   // browser's MediaRecorder (#114).
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const exportModal = page.getByRole('dialog', { name: 'Export project' })
-  await expect(exportModal.getByRole('radio', { name: 'MP4' })).toBeChecked()
+  await expect(exportModal.getByRole('radio', { name: 'Audio only (MP3)' })).toBeChecked()
   // Exact, because "Audio only (WebM/Opus)" also contains "WebM".
   await expect(exportModal.getByRole('radio', { name: 'WebM', exact: true })).not.toBeChecked()
 })
