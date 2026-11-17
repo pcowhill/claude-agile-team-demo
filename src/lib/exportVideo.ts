@@ -1667,6 +1667,75 @@ function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> 
 }
 
 /**
+ * The events after which an element may newly hold a decoded frame at its
+ * position. `loadeddata` fires only the first time a load reaches
+ * `HAVE_CURRENT_DATA`, so an element that already had a frame and dropped
+ * below it (a seek in flight) announces its return with the others.
+ */
+const CURRENT_DATA_EVENTS = ['loadeddata', 'canplay', 'seeked', 'playing'] as const
+
+/**
+ * How long a cue waits for its element's first decoded frame before going
+ * on without it (#612), in ms. A decodable clip gets there in well under a
+ * second; the bound only matters for a source that never does.
+ */
+export const CURRENT_DATA_TIMEOUT_MS = 3000
+
+/**
+ * Resolves once `element` holds a decoded frame at its current position
+ * (`readyState >= HAVE_CURRENT_DATA`), at once if it already does (#612).
+ * Rejects if the element errors, or with `onAbort()`'s error when `signal`
+ * aborts.
+ *
+ * `loadedmetadata` is not enough before an element's first draw. The export
+ * cues each replay before the recorder starts, and a cue that needs no seek
+ * (an overlay or entry starting at 0) used to stop at `loadedmetadata`. That
+ * left the element at `HAVE_METADATA`. Chromium usually decodes the first
+ * frame before the first draw anyway, but Firefox often does not, and
+ * `drawImage` of such an element draws nothing. With no earlier frame to hold
+ * (#319), the first exported frames lost the layer: an overlay blinked in a
+ * frame or two late. Firefox also drops a seek issued at `HAVE_METADATA`
+ * (#615), and a dropped seek fires no `seeked`, so the cue waits for this
+ * before it seeks as well.
+ *
+ * The wait is bounded by `timeoutMs`, after which it resolves anyway: the
+ * export then proceeds as it did before this wait existed, which costs at
+ * most a frame or two of the layer. A source that never yields a frame must
+ * not hold the export at 0% (the same reasoning as #596).
+ */
+export function untilCurrentData(
+  element: HTMLMediaElement,
+  signal?: AbortSignal,
+  onAbort: () => Error = () => new Error('aborted'),
+  timeoutMs = CURRENT_DATA_TIMEOUT_MS,
+): Promise<void> {
+  if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return Promise.resolve()
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => settle(), timeoutMs)
+    const settle = (error?: Error) => {
+      clearTimeout(timer)
+      for (const name of CURRENT_DATA_EVENTS) element.removeEventListener(name, onEvent)
+      element.removeEventListener('error', onError)
+      signal?.removeEventListener('abort', onAborted)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onEvent = () => {
+      if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) settle()
+    }
+    const onError = () => settle(new Error('A source clip failed to load during export.'))
+    const onAborted = () => settle(onAbort())
+    if (signal?.aborted) {
+      settle(onAbort())
+      return
+    }
+    for (const name of CURRENT_DATA_EVENTS) element.addEventListener(name, onEvent)
+    element.addEventListener('error', onError, { once: true })
+    signal?.addEventListener('abort', onAborted, { once: true })
+  })
+}
+
+/**
  * Routes the replay elements' audio — the video replays and one <audio>
  * element per timeline audio track (#105) — into one MediaStream track that
  * can be recorded alongside the canvas video. All elements feed the same
@@ -2264,12 +2333,20 @@ export async function exportTimeline(
     }
   }
 
+  /**
+   * Loads `url` into `element` and leaves it holding a decoded frame at
+   * `sourceTime`, so the first draw from it has a picture (#612). It waits
+   * for that frame before seeking as well as after, because Firefox drops a
+   * seek issued while the element has only metadata (#615).
+   */
   const cueTo = async (element: HTMLVideoElement, url: string, sourceTime: number) => {
     await loadSource(element, url)
+    await untilCurrentData(element, signal, canceled)
     if (Math.abs(element.currentTime - sourceTime) > 0.001) {
       const seeked = waitForEvent(element, 'seeked')
       element.currentTime = sourceTime
       await seeked
+      await untilCurrentData(element, signal, canceled)
     }
   }
 

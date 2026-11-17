@@ -5,6 +5,7 @@ import {
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
   AUDIO_START_TIMEOUT_MS,
+  CURRENT_DATA_TIMEOUT_MS,
   type AudioCapture,
   canvasSupportsColorFilter,
   createAudioCapture,
@@ -33,6 +34,7 @@ import {
   timelineChangesRate,
   textDraw,
   timelineHasColorAdjustments,
+  untilCurrentData,
   withLayerColorFilter,
   withLayerOrientation,
   zoomRect,
@@ -2312,6 +2314,89 @@ describe('export range (#385)', () => {
       expect(location).not.toBeNull()
       expect(location!.sourceTime).toBeCloseTo(initial.relSource, 6)
     })
+  })
+})
+
+describe('untilCurrentData: a cue waits for a decoded frame (#612)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** A detached <video> whose readyState the test sets. */
+  const videoAt = (readyState: number) => {
+    const element = document.createElement('video')
+    let state = readyState
+    Object.defineProperty(element, 'readyState', { get: () => state })
+    return {
+      element,
+      set: (next: number) => {
+        state = next
+      },
+    }
+  }
+
+  /** Whether `promise` has settled after pending microtasks run. */
+  const settledYet = async (promise: Promise<unknown>) => {
+    let settled = false
+    promise.then(
+      () => (settled = true),
+      () => (settled = true),
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    return settled
+  }
+
+  it('resolves at once for an element that already holds a frame', async () => {
+    const { element } = videoAt(HTMLMediaElement.HAVE_CURRENT_DATA)
+    await expect(settledYet(untilCurrentData(element))).resolves.toBe(true)
+  })
+
+  it('waits at HAVE_METADATA, and resolves on loadeddata once a frame is decoded', async () => {
+    // Firefox's state at the export's first draw before #612: metadata only.
+    const video = videoAt(HTMLMediaElement.HAVE_METADATA)
+    const waiting = untilCurrentData(video.element)
+    expect(await settledYet(waiting)).toBe(false)
+    video.set(HTMLMediaElement.HAVE_ENOUGH_DATA)
+    video.element.dispatchEvent(new Event('loadeddata'))
+    await expect(waiting).resolves.toBeUndefined()
+  })
+
+  it('ignores an event that leaves the element still without a frame', async () => {
+    const video = videoAt(HTMLMediaElement.HAVE_METADATA)
+    const waiting = untilCurrentData(video.element)
+    video.element.dispatchEvent(new Event('seeked'))
+    expect(await settledYet(waiting)).toBe(false)
+    // A seek returning to a decoded frame is announced by seeked alone:
+    // loadeddata fires only once per load.
+    video.set(HTMLMediaElement.HAVE_CURRENT_DATA)
+    video.element.dispatchEvent(new Event('seeked'))
+    await expect(waiting).resolves.toBeUndefined()
+  })
+
+  it('rejects when the element errors, and with the abort error when the signal aborts', async () => {
+    const errored = videoAt(HTMLMediaElement.HAVE_METADATA)
+    const failing = untilCurrentData(errored.element)
+    errored.element.dispatchEvent(new Event('error'))
+    await expect(failing).rejects.toThrow('failed to load')
+
+    const controller = new AbortController()
+    const aborted = untilCurrentData(
+      videoAt(HTMLMediaElement.HAVE_METADATA).element,
+      controller.signal,
+      () => new Error('canceled'),
+    )
+    controller.abort()
+    await expect(aborted).rejects.toThrow('canceled')
+  })
+
+  it('goes on without a frame after the bound, so a source that never decodes cannot hang the export', async () => {
+    vi.useFakeTimers()
+    const waiting = untilCurrentData(videoAt(HTMLMediaElement.HAVE_METADATA).element)
+    await vi.advanceTimersByTimeAsync(CURRENT_DATA_TIMEOUT_MS - 1)
+    expect(await settledYet(waiting)).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(waiting).resolves.toBeUndefined()
   })
 })
 
