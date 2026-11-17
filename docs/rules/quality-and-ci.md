@@ -38,6 +38,36 @@ worse than no test, because it manufactures false confidence.
 - A PR with failing required checks is never merged.
 - Flaky tests are bugs: file an issue, and fix or quarantine them
   deliberately — never by deleting coverage to get green.
+- **A flake nobody can reproduce expires after five clean CI runs**
+  (customer-directed, #588). A failure seen once that will not fail again
+  on demand is filed as a `bug` labeled `flake-watch`, naming the test and
+  the CI **job** that runs it — `Build, lint, typecheck, test` for a unit
+  test, `Browser tests (Playwright)` for an e2e spec. A session that
+  orients and finds an open `flake-watch` issue counts its runs (backlog
+  hygiene, priority 7 in `operating-model.md`):
+  - **What counts:** runs of the watched job in `ci.yml`, on any branch
+    and event, created after the last sighting — the issue's creation, or
+    its newest recurrence comment — in which the job reached its test
+    step. A job that failed or was cancelled before running its tests says
+    nothing about the flake and is skipped.
+  - **What recurs:** the watched test failing in such a run on any
+    attempt, including a Playwright test the summary reports `flaky`
+    because a retry passed. Comment the run's link and the failure output;
+    the count restarts from that run.
+  - **How to read it:** `actions_list` with `list_workflow_runs` on
+    `ci.yml` for the runs, `list_workflow_jobs` for each run's jobs, and
+    the tail of `get_job_logs` for a Playwright job or any failed job,
+    where the reporter's summary names the failed and flaky tests. A
+    successful unit job needs no log: vitest does not retry.
+  - **At five clean runs**, close the issue as `not_planned`, listing the
+    five runs. Short of five, comment the count and its runs, but only
+    when it has moved since the last such comment.
+
+  Five is the customer's number. A local sighting starts the count, but
+  only CI runs advance it, because a local run leaves nothing a later
+  session can re-read. The watch existed before this rule as "close it
+  after a few weeks of green suites", and #442 carried that for more than
+  two months: a date judged by feel never arrived, and a count does.
 - **Never read a value once, straight after a synthetic input.** A browser
   driver's `keyboard.press` or `mouse.up` resolves when the event has been
   *dispatched*, not when the framework has committed the render it causes,
