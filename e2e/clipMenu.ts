@@ -14,15 +14,16 @@ type Locator = import('@playwright/test').Locator
  *   The old controls were named "List view", "Thumbnail view" and "Sort by
  *   name"; the items are named for their place in a labelled group, so they
  *   read "List", "Thumbnails", "Name".
- * - **⋯ per row** (`More actions for <name>`) — Add as overlay, Extract
- *   audio, Rename… and Remove.
+ * - **⋯ per row** (`More actions for <name>`) — Preview and Add to
+ *   timeline (which repeat the row's buttons, #621), Add as overlay,
+ *   Extract audio, Rename… and Remove.
  *
  * What the controls do is unchanged, so the specs that exercise them keep
  * their assertions and only change how they reach the control — these
  * helpers are that change, in one place.
  *
- * ▶ Preview, Add and the selection controls are still plain buttons and
- * need nothing here.
+ * ▶ Preview, Add and the selection controls are still plain buttons too,
+ * and the specs that use them click the buttons.
  */
 
 const clipMenuLabel = (clipName: string) => `More actions for ${clipName}`

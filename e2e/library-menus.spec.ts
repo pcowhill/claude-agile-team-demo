@@ -96,14 +96,17 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
   const list = page.getByRole('list', { name: 'Imported clips' })
   const rows = list.getByRole('listitem')
 
-  // A video's ⋯ carries all four; an audio clip's carries only the two that
-  // apply — the per-kind exclusions the buttons expressed by not rendering.
+  // A video's ⋯ carries every item; an audio clip's only those that apply —
+  // the per-kind exclusions the buttons expressed by not rendering. Both
+  // open on the row's own Preview and Add, which the menu repeats (#621).
   // And each is usable in a **two-clip** list, the common state of a library
   // and the one a panel kept inside the list's box can never fit: two rows
   // have room for a four-item panel neither below nor above.
   const shortList = await scrollBox(list)
   const video = await openClipMenu(page, 'clip.webm')
   await expect(video.getByRole('menuitem')).toHaveText([
+    'Preview',
+    'Add to timeline',
     'Add as overlay',
     'Extract audio',
     'Rename…',
@@ -119,7 +122,12 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
   )
   await page.keyboard.press('Escape')
   const audio = await openClipMenu(page, 'tone-0.wav')
-  await expect(audio.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await expect(audio.getByRole('menuitem')).toHaveText([
+    'Preview',
+    'Add to timeline',
+    'Rename…',
+    'Remove',
+  ])
   await expectMenuUsable(
     page,
     list,
@@ -133,15 +141,17 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
   await expect(clipMenuTrigger(page, 'tone-0.wav')).toBeFocused()
 
   // Keyboard only, from the trigger: ArrowDown opens on the first item,
-  // ArrowDown again lands on Remove, Enter selects it, and the confirmation
-  // takes over. Nothing here touches the mouse.
+  // three more land on Remove, Enter selects it, and the confirmation takes
+  // over. Nothing here touches the mouse.
   await clipMenuTrigger(page, 'tone-0.wav').focus()
   await page.keyboard.press('ArrowDown')
   const opened = clipMenu(page, 'tone-0.wav')
   await expect(opened).toBeVisible()
-  await expect(opened.getByRole('menuitem', { name: 'Rename…' })).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(opened.getByRole('menuitem', { name: 'Remove', exact: true })).toBeFocused()
+  await expect(opened.getByRole('menuitem', { name: 'Preview' })).toBeFocused()
+  for (const item of ['Add to timeline', 'Rename…', 'Remove']) {
+    await page.keyboard.press('ArrowDown')
+    await expect(opened.getByRole('menuitem', { name: item, exact: true })).toBeFocused()
+  }
   await page.keyboard.press('Enter')
   const confirmation = page.getByRole('dialog', { name: 'Remove tone-0.wav?' })
   await expect(confirmation).toBeVisible()
@@ -192,6 +202,68 @@ test('View ▾ switches layout and sorts, and remembers the layout across a relo
   // covers the restored layout itself.
   await page.reload()
   await expectViewChecked(page, 'Thumbnails')
+})
+
+test("the ⋯'s Preview and Add to timeline act like the row's buttons, and the longer menu stays usable at 360px (#621)", async ({
+  page,
+}, testInfo) => {
+  // Populated (development.md): a video's ⋯ is the longest menu, and a list
+  // of thirteen clips is the state in which a panel can be cut off.
+  await page.setViewportSize({ width: 360, height: 640 })
+  await page.goto('./')
+  await importClips(page, 12)
+  const list = page.getByRole('list', { name: 'Imported clips' })
+  await expect(list.getByRole('listitem')).toHaveCount(13)
+
+  for (const viewport of [
+    { width: 360, height: 640 },
+    { width: 1280, height: 720 },
+  ]) {
+    await page.setViewportSize(viewport)
+    const label = `${viewport.width}px`
+    await list.evaluate((node) => {
+      node.scrollTop = 0
+    })
+    await clipMenuTrigger(page, 'clip.webm').scrollIntoViewIfNeeded()
+    const before = await scrollBox(list)
+    const menu = await openClipMenu(page, 'clip.webm')
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      'Preview',
+      'Add to timeline',
+      'Add as overlay',
+      'Extract audio',
+      'Rename…',
+      'Remove',
+    ])
+    await expectMenuUsable(
+      page,
+      list,
+      clipMenuTrigger(page, 'clip.webm'),
+      menu,
+      before,
+      `a video's ⋯ in a thirteen-clip list at ${label}`,
+    )
+    await expectNoHorizontalScroll(page, `a video's ⋯ open at ${label}`)
+    if (viewport.width === 360) {
+      // The rendered evidence for #621's PR, re-taken every run.
+      await page.screenshot({ path: testInfo.outputPath('library-video-menu-360.png') })
+    }
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+  }
+
+  // Each item does what its button does: Preview shows the clip alone…
+  await (await openClipMenu(page, 'clip.webm')).getByRole('menuitem', { name: 'Preview' }).click()
+  await expect(page.getByTestId('source-preview-name')).toHaveText('clip.webm')
+  await page.getByRole('button', { name: 'Back to sequence' }).click()
+  await expect(page.getByTestId('source-preview')).toHaveCount(0)
+  // …and Add to timeline places it, once.
+  await (await openClipMenu(page, 'clip.webm'))
+    .getByRole('menuitem', { name: 'Add to timeline' })
+    .click()
+  const sequence = page.getByRole('list', { name: 'Sequence' })
+  await expect(sequence.getByRole('listitem')).toHaveCount(1)
+  await expect(sequence.getByRole('listitem')).toContainText('clip.webm')
 })
 
 test('the row keeps its actions together, and neither panel is clipped by the list or the viewport (#416)', async ({
@@ -382,7 +454,12 @@ test('the row keeps its actions together, and neither panel is clipped by the li
   await clipMenuTrigger(page, lastClip).scrollIntoViewIfNeeded()
   const cardScroll = await scrollBox(list)
   const cardMenu = await openClipMenu(page, lastClip)
-  await expect(cardMenu.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await expect(cardMenu.getByRole('menuitem')).toHaveText([
+    'Preview',
+    'Add to timeline',
+    'Rename…',
+    'Remove',
+  ])
   await expectMenuUsable(
     page,
     list,

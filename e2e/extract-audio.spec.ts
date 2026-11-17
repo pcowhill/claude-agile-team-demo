@@ -111,9 +111,15 @@ test('extracted audio lists as audio, survives removing the video, and exports a
   await expect(extracted).toHaveCount(1)
   await expect(extracted.locator('.clip-kind')).toHaveText('Audio')
   // Audio clips offer no extraction of their own — the item is absent from
-  // the row's ⋯ (#416), where the button used to be absent from the row.
+  // the row's ⋯ (#416), where the button used to be absent from the row. The
+  // menu opens on the row's own Preview and Add, which it repeats (#621).
   const extractedMenu = await openClipMenu(page, 'tone.webm (audio)')
-  await expect(extractedMenu.getByRole('menuitem')).toHaveText(['Rename…', 'Remove'])
+  await expect(extractedMenu.getByRole('menuitem')).toHaveText([
+    'Preview',
+    'Add to timeline',
+    'Rename…',
+    'Remove',
+  ])
   await page.keyboard.press('Escape')
   await expect(extractedMenu).toHaveCount(0)
 
