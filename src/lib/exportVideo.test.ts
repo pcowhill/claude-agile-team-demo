@@ -27,8 +27,10 @@ import {
   overlayDestRect,
   pickExportMimeType,
   recorderStream,
+  syncAudioTwin,
   syncOverlayReplay,
   syncTrackReplay,
+  timelineChangesRate,
   textDraw,
   timelineHasColorAdjustments,
   withLayerColorFilter,
@@ -1137,6 +1139,93 @@ describe('syncOverlayReplay (#146)', () => {
     // element that stopped within the tolerance keeps its own clock, as a
     // playing one does.)
     expect(element.currentTime).toBe(7)
+  })
+})
+
+// Firefox plays a captured element at 1× whatever its playbackRate (#611),
+// so there the base replays stay out of the audio graph and audio twins
+// carry their sound. The rate itself can only be measured in a real browser
+// (e2e/export-remap.spec.ts under the firefox project); these pin the twin's
+// decisions.
+
+describe('syncAudioTwin (#611)', () => {
+  const replay = (overrides: Partial<{ currentSrc: string; currentTime: number; paused: boolean; playbackRate: number; volume: number }> = {}) => ({
+    currentSrc: 'blob:clip',
+    currentTime: 4,
+    paused: false,
+    playbackRate: 1,
+    volume: 0.6,
+    ...overrides,
+  })
+  // Object.assign, not a spread: the fake's play()/pause() update the object
+  // they close over, so a copy would never see its own state change.
+  const twin = ({ src = '', ...overrides }: Parameters<typeof fakeTrackElement>[0] & { src?: string } = {}) =>
+    Object.assign(fakeTrackElement(overrides), { src })
+
+  it('takes the replay source, gain and position, and plays with it at 1×', () => {
+    const element = twin()
+    syncAudioTwin(replay(), element)
+    expect(element.src).toBe('blob:clip')
+    expect(element.volume).toBe(0.6)
+    expect(element.currentTime).toBe(4)
+    expect(element.paused).toBe(false)
+  })
+
+  it('is silent while the replay plays at another rate, so no sound runs at the wrong speed', () => {
+    const element = twin({ src: 'blob:clip', paused: false, currentTime: 4 })
+    syncAudioTwin(replay({ playbackRate: 0.5 }), element)
+    expect(element.paused).toBe(true)
+  })
+
+  it('is silent while the replay is paused, as on a pause plateau', () => {
+    const element = twin({ src: 'blob:clip', paused: false, currentTime: 4 })
+    syncAudioTwin(replay({ paused: true }), element)
+    expect(element.paused).toBe(true)
+  })
+
+  it('picks up again at the replay position when 1× resumes after a slowed span', () => {
+    // The replay covered 1 s of source at 0.5× while the twin stood still.
+    const element = twin({ src: 'blob:clip', paused: true, currentTime: 4 })
+    syncAudioTwin(replay({ currentTime: 5 }), element)
+    expect(element.currentTime).toBe(5)
+    expect(element.paused).toBe(false)
+  })
+
+  it('runs free within the drift tolerance rather than seeking every frame', () => {
+    const element = twin({ src: 'blob:clip', paused: false, currentTime: 4 + AUDIO_DRIFT_EPSILON / 2 })
+    syncAudioTwin(replay(), element)
+    expect(element.currentTime).toBe(4 + AUDIO_DRIFT_EPSILON / 2)
+  })
+
+  it('follows the replay onto the next clip', () => {
+    const element = twin({ src: 'blob:clip', paused: false, currentTime: 4 })
+    syncAudioTwin(replay({ currentSrc: 'blob:next', currentTime: 0 }), element)
+    expect(element.src).toBe('blob:next')
+    expect(element.currentTime).toBe(0)
+  })
+
+  it('leaves the twin alone while the replay has no source yet', () => {
+    const element = twin()
+    syncAudioTwin(replay({ currentSrc: '' }), element)
+    expect(element.src).toBe('')
+    expect(element.playCalls).toBe(0)
+  })
+})
+
+describe('timelineChangesRate (#611)', () => {
+  const speed = (factor: number): RemapEffect => ({ id: 's', entryId: 'e1', kind: 'speed', start: 0, end: 1, factor })
+  const pause = (): RemapEffect => ({ id: 'p', entryId: 'e1', kind: 'pause', at: 0.5, hold: 1 })
+  const state = (remaps?: RemapEffect[]) => ({ entries: [], remaps }) as unknown as TimelineState
+
+  it('is true for a speed segment at other than 1×', () => {
+    expect(timelineChangesRate(state([speed(0.5)]))).toBe(true)
+    expect(timelineChangesRate(state([speed(2)]))).toBe(true)
+  })
+
+  it('is false without one: no remaps, pauses only, or a segment at 1×', () => {
+    expect(timelineChangesRate(state())).toBe(false)
+    expect(timelineChangesRate(state([pause()]))).toBe(false)
+    expect(timelineChangesRate(state([speed(1)]))).toBe(false)
   })
 })
 

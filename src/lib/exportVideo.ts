@@ -1566,6 +1566,11 @@ export interface ExportOptions {
   createImage?: () => HTMLImageElement
   /** Injectable for tests (jsdom has no Web Audio). */
   createAudioContext?: () => AudioContext | null
+  /**
+   * Whether a captured element plays at its playback rate (#611). Absent
+   * means {@link capturedElementsHonourPlaybackRate}; injectable for tests.
+   */
+  capturedRateHonoured?: boolean
 }
 
 /** An audio track to record, plus the teardown for the graph behind it. */
@@ -1831,6 +1836,58 @@ function alignReplayClock(
       element.currentTime = sourceTime
     }
   }
+}
+
+/**
+ * Whether this browser plays a media element at its `playbackRate` once its
+ * audio is captured into Web Audio (#611). Chromium does. Firefox does not:
+ * an element routed through `createMediaElementSource` (or captured with
+ * `mozCaptureStream`) reports the rate it was given and plays at 1× anyway.
+ * Measured in Firefox 153 on a video-only WebM set to 0.5: 0.47× plain, 0.94×
+ * captured, while Chromium plays 0.50× either way. `mozCaptureStream` is the
+ * Gecko marker — the engine with the limitation, not a user-agent string.
+ */
+export function capturedElementsHonourPlaybackRate(): boolean {
+  return typeof HTMLMediaElement === 'undefined' || !('mozCaptureStream' in HTMLMediaElement.prototype)
+}
+
+/** Whether any speed segment on the timeline plays at other than 1× (#611). */
+export function timelineChangesRate(timeline: TimelineState): boolean {
+  return remapsOf(timeline).some((remap) => remap.kind === 'speed' && remap.factor !== 1)
+}
+
+/** The replay element an audio twin follows (#611): its picture and its clock. */
+export interface AudioTwinSource {
+  readonly currentSrc: string
+  readonly currentTime: number
+  readonly paused: boolean
+  readonly playbackRate: number
+  readonly volume: number
+}
+
+/** The captured element that carries a replay's sound in its place (#611). */
+export interface AudioTwinElement extends TrackReplayElement {
+  src: string
+}
+
+/**
+ * Keeps an audio twin in step with its replay element (#611), once a frame.
+ *
+ * Where a captured element cannot change rate (see
+ * {@link capturedElementsHonourPlaybackRate}), the base replays stay out of
+ * the audio graph, so their picture plays at the remapped rate, and each one
+ * gets a twin that is in the graph and carries its sound. The twin follows
+ * the replay's source, gain and clock — within the audio tracks' drift
+ * tolerance, so it is not re-seeked every frame — and plays only while the
+ * replay plays at 1×. A slowed or sped span is silent rather than played at
+ * the wrong speed, which would leave the sound out of step with the picture
+ * for the rest of the entry.
+ */
+export function syncAudioTwin(replay: AudioTwinSource, twin: AudioTwinElement): void {
+  if (replay.currentSrc === '') return
+  if (twin.src !== replay.currentSrc) twin.src = replay.currentSrc
+  twin.volume = replay.volume
+  alignReplayClock(twin, !replay.paused && replay.playbackRate === 1, replay.currentTime)
 }
 
 /**
@@ -2107,6 +2164,22 @@ export async function exportTimeline(
       return { overlay, element }
     })
 
+  // Where a captured element ignores its playback rate (#611), a timeline
+  // with a speed segment keeps the base replays out of the audio graph, so
+  // their picture plays at the remapped rate, and gives each one an audio
+  // twin that joins the graph in its place (see syncAudioTwin). An <audio>
+  // element is enough: it decodes the same file's sound without its frames.
+  const audioTwins =
+    sink === undefined &&
+    !(options.capturedRateHonoured ?? capturedElementsHonourPlaybackRate()) &&
+    timelineChangesRate(timeline)
+      ? replays.map(() => {
+          const twin = createAudio()
+          twin.preload = 'auto'
+          return twin
+        })
+      : []
+
   // A sink-driven export (#198) is soundless (see ExportFrameSink): no audio
   // graph is built, which also leaves the replays muted below — the export
   // never sounds from the speakers.
@@ -2114,7 +2187,7 @@ export async function exportTimeline(
     ? null
     : await createAudioCapture(
         [
-          ...replays,
+          ...(audioTwins.length > 0 ? audioTwins : replays),
           ...overlayReplays.map(({ element }) => element),
           ...trackReplays.map(({ element }) => element),
         ],
@@ -2137,6 +2210,11 @@ export async function exportTimeline(
     // speakers either way: createAudioCapture leaves the graph unconnected.
     replay.muted = audioCapture === null
   }
+  // Twinned replays are outside the graph (#611), so unmuted they would play
+  // from the speakers: their sound reaches the file through the twins. The
+  // twins play only when there is a graph to hold them, for the same reason.
+  for (const replay of audioTwins.length > 0 ? replays : []) replay.muted = true
+  const recordedTwins = audioCapture === null ? [] : audioTwins
   // Without Web Audio there is nothing to record the tracks into — and,
   // unconnected to any graph, playing them would sound from the speakers —
   // so the video-only fallback leaves them untouched.
@@ -2198,6 +2276,7 @@ export async function exportTimeline(
   const releaseVideos = () => {
     for (const replay of [
       ...replays,
+      ...audioTwins,
       ...overlayReplays.map(({ element }) => element),
       ...trackReplays.map(({ element }) => element),
     ]) {
@@ -2738,6 +2817,10 @@ export async function exportTimeline(
               trackDuckFactorAt(recorded.track, ducking, sequenceTime),
             )
           }
+          // The base replays' sound, where it is carried by twins (#611):
+          // after this frame's play/pause/rate and gain decisions above, so
+          // each twin follows what its replay does now.
+          recordedTwins.forEach((twin, i) => syncAudioTwin(replays[i], twin))
           // Progress is measured against the exported window (#385) — for a
           // whole-sequence export that is [0, total], the old fraction.
           reportProgress(exportProgressFraction(sequenceTime, windowStart, windowEnd))
