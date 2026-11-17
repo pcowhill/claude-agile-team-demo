@@ -31,10 +31,25 @@ type Page = import('@playwright/test').Page
  * The provocation is a **real seek**, the way `alignReplayClock` snaps a
  * clock that drifted past `VIDEO_DRIFT_EPSILON`, and never a faked
  * `readyState`: the base path does not read `readyState`, so faking it would
- * provoke nothing and the check would pass vacuously. The seeks are counted
- * and the element's real readiness sampled, and both are asserted, so a
- * machine whose seeks never stall the element fails loudly instead of
- * quietly proving nothing.
+ * provoke nothing and the check would pass vacuously. The seeks are counted,
+ * and the element's real readiness is read **as each frame is composed**,
+ * and both are asserted, so a machine whose seeks never leave a composed
+ * frame without a picture fails loudly instead of quietly proving nothing.
+ *
+ * Why as each frame is composed (#553). This guard used to sample readiness
+ * from its own animation-frame loop, at the start of each tick, before that
+ * tick's seek. In Chromium a seek drops `readyState` to 1 synchronously, and
+ * the composer's frame later in the same animation frame sees it; by the
+ * next tick the seek has finished and the sample reads 4. So the sample
+ * almost never saw the stall the composer drew through: in 7 of 10 local
+ * runs the 54 seeks registered no stall at all, and the guard passed only on
+ * the one it counted after the export released the element (`readyState` 0
+ * at teardown). When no tick fell between that release and the read, it read
+ * 0 and failed: in nearly every CI run, hidden by retries.
+ *
+ * Firefox does not run this test yet (#635). Its seeking element keeps
+ * `readyState` 4, and it can paint nothing, so the export records black
+ * frames there.
  *
  * Every presented frame of the exported file is scanned (the sampling
  * discipline #276 established) rather than nominal timestamps being probed,
@@ -113,19 +128,62 @@ test('the base layer never records a black frame while its element is seeking (#
   // path never reads it (unlike #319's overlay path, whose skip did).
   //
   // The seeks are tiny and forward, so the export clock — read from this
-  // same element — advances normally and the export still finishes. The
-  // stalls they cause are counted by sampling the element's *real* readiness
-  // from this loop, independent of anything the composer does, so the check
-  // cannot pass vacuously on a machine whose seeks never drop readiness.
+  // same element — advances normally and the export still finishes.
+  //
+  // The stalls are counted where they matter: at each frame the composer
+  // composes, reading the element's *real* readiness at that moment (#553).
+  // A frame composed while the element reports less than
+  // `HAVE_CURRENT_DATA` is exactly a frame that a readiness check on the base
+  // would turn black, so the check cannot pass vacuously on a machine whose
+  // seeks never leave a composed frame without a picture. The export canvas
+  // is the one whose `captureStream()` the export records, and `drawFrame`
+  // opens every frame by filling that whole canvas with black. Counting
+  // there, and not at the draw of the element, keeps the count independent
+  // of whatever the composer then chooses to draw.
+  //
+  // The seek must land before the composer's frame in the same animation
+  // frame. It does: this loop is registered inside the element's `play()`,
+  // which the export awaits before it registers its own frame loop, and
+  // callbacks run in the order they were registered, frame after frame.
   await page.evaluate(() => {
-    const probe = { stalls: 0, seeks: 0, ticks: 0, captured: false, source: '' }
+    const probe = { stalls: 0, frames: 0, seeks: 0, ticks: 0, captured: false, source: '' }
     ;(window as unknown as { __probe: typeof probe }).__probe = probe
+    let armed: HTMLMediaElement | null = null
+    const exportCanvases = new WeakSet<HTMLCanvasElement>()
+    const realCaptureStream = HTMLCanvasElement.prototype.captureStream
+    HTMLCanvasElement.prototype.captureStream = function (this: HTMLCanvasElement, ...args) {
+      exportCanvases.add(this)
+      return realCaptureStream.apply(this, args)
+    }
+    const realFillRect = CanvasRenderingContext2D.prototype.fillRect
+    CanvasRenderingContext2D.prototype.fillRect = function (
+      this: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+    ) {
+      const canvas = this.canvas
+      if (
+        armed !== null &&
+        canvas instanceof HTMLCanvasElement &&
+        exportCanvases.has(canvas) &&
+        x === 0 &&
+        y === 0 &&
+        w === canvas.width &&
+        h === canvas.height
+      ) {
+        probe.frames += 1
+        if (armed.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) probe.stalls += 1
+      }
+      return realFillRect.call(this, x, y, w, h)
+    }
     const arm = (element: HTMLMediaElement) => {
       probe.captured = true
       probe.source = element.src
+      armed = element
       const tick = () => {
         probe.ticks += 1
-        if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) probe.stalls += 1
         // Open the seeking window once the element has supplied real frames:
         // `cueTo` awaits readiness before the first frame composes, and a
         // layer that never decoded anything has nothing to fall back to.
@@ -158,18 +216,29 @@ test('the base layer never records a black frame while its element is seeking (#
     () =>
       (
         window as unknown as {
-          __probe: { stalls: number; seeks: number; captured: boolean; source: string }
+          __probe: {
+            stalls: number
+            frames: number
+            seeks: number
+            ticks: number
+            captured: boolean
+            source: string
+          }
         }
       ).__probe,
   )
+  // Printed so a failure says what the probe saw, not only that it failed.
+  const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seeks} seeks, ${probe.ticks} ticks`
   // Without these the check could pass vacuously, having provoked nothing.
   expect(probe.captured, 'the export primary replay element was never captured').toBe(true)
   expect(probe.source, 'the armed element was not playing the clip').toMatch(/^blob:/)
-  expect(probe.seeks, 'the element was never seeked during the export').toBeGreaterThan(0)
-  // The provocation is only evidence if it actually stalled the element.
+  expect(probe.seeks, `the element was never seeked during the export (${seen})`).toBeGreaterThan(0)
+  expect(probe.frames, `no composed frame of the export canvas was seen (${seen})`).toBeGreaterThan(0)
+  // The provocation is only evidence if the composer composed frames while
+  // the element was unable to supply one.
   expect(
     probe.stalls,
-    'the seeks never left the element unable to supply a frame',
+    `the seeks never left the element unable to supply a frame while one was composed (${seen})`,
   ).toBeGreaterThan(0)
 
   // Walk every presented frame of the exported file, sampling the middle of
