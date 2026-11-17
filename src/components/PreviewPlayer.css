@@ -142,9 +142,24 @@
 }
 
 /* The secondary element outside any overlap: keeps its src loaded (the next
-   transition may reuse it) but shows nothing. */
+   transition may reuse it) but shows nothing, and takes no clicks — its card
+   sits above the primary (z-index 1, above).
+
+   Nearly transparent rather than hidden (#641). Firefox stops decoding a
+   video it does not paint once it has gone unpainted for a while, and
+   `visibility: hidden` and `opacity: 0` both count as not painted. Loop
+   pre-cues this element, paused, on the mark-in, and the wrap swaps to it
+   and plays it (#585). An element held out of paint since the clip loaded
+   then jumped to its end on play() — `ended`, at the clip's duration —
+   and the next frame read the sequence end and seeked the element on
+   screen: the stutter #585 removed, on the first wrap of every play.
+   Measured in Firefox 153 on the loop spec's two mid-clip spans: hidden,
+   an element ended in 10 of 10 runs, and at `opacity: 0` in 10 of 10; at
+   0.001 in 0 of 10, and with no hiding at all in 0 of 6. At 0.001 the idle
+   frame shifts a composited pixel by at most 0.255 of an 8-bit level. */
 .preview-video-idle {
-  visibility: hidden;
+  opacity: 0.001;
+  pointer-events: none;
 }
 
 /* A fade-through-color's veil (#181): covers the base and incoming layers
