@@ -10,7 +10,9 @@ type Locator = import('@playwright/test').Locator
  * - **⋯ per row** (`More actions for <position>`) — Duplicate, Copy
  *   settings, Paste settings and Rename…, which were buttons named for the
  *   row ("Duplicate <position>", "Rename <position>", …). ▾ ↑ ↓ ✕ stayed
- *   inline and need nothing from here.
+ *   inline; the ⋯ also repeats them as Move up, Move down (sequence
+ *   entries) and Remove (#622), and the specs that use the buttons click
+ *   the buttons.
  * - **+ Effect ▾** on an expanded sequence entry (`+ Effect on <position>`)
  *   — Zoom, Speed segment and Pause, which were + Zoom, + Speed and
  *   + Pause. Their disabled state moved onto the items, so a spec that read

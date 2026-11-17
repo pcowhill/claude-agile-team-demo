@@ -43,7 +43,7 @@ A section with nothing in it shows a short hint instead of rows. Anything that w
 
 **What it does.** Shows where the element plays and holds every control that adjusts it.
 
-**Details.** The **main line** carries the row's **▾** (expand or collapse), its name — double-click it to rename where renaming is offered — a thumbnail, **↑** and **↓** to move it within its section, **✕** to take it off the timeline, and the **⋯** menu. Removing asks for confirmation first; the clip stays in the library. In a window too narrow for all of that on one line, the **↑ ↓ ⋯ ✕** cluster moves to a second line together, so the row never widens the editor past the window.
+**Details.** The **main line** carries the row's **▾** (expand or collapse), its name — double-click it to rename where renaming is offered — a thumbnail, on a sequence entry **↑** and **↓** to move it up or down the sequence, **✕** to take it off the timeline, and the **⋯** menu. Tracks and overlays have no ↑ and ↓: their start field places them in time instead. Removing asks for confirmation first; the clip stays in the library. In a window too narrow for all of that on one line, the **↑ ↓ ⋯ ✕** cluster moves to a second line together, so the row never widens the editor past the window.
 
 Under the main line runs the **coverage bar**: where the element plays within the video, drawn against the sequence's whole length, each section in its own colour, with anything past the video's end clamped since it never plays. A sound-bearing bar — an audio track, a video entry, a video overlay — draws its clip's waveform; stills, slates and clips whose sound cannot be decoded keep a plain bar.
 
@@ -57,11 +57,18 @@ The **thumbnail** on a video entry or video overlay is the first frame of its tr
 
 **Where to find it.** The **⋯** button on a row's main line, named *More actions for* the row.
 
-**What it does.** Holds the row's actions that are not on its main line.
+**What it does.** Holds a row's actions in one place, including its main line's own move and remove.
 
-**Details.** **Duplicate**, **Copy settings**, **Paste settings** (shown while something is copied) and — on sequence entries, slates, audio tracks and overlays — **Rename…**. Copy and Paste appear only on rows that hold a group the clipboard can carry.
+**Details.** The items, in order, each present only where it applies:
 
-**Related.** [Duplicate](#duplicate) · [Copy settings and Paste settings](#copy-settings-and-paste-settings) · [Rename…](#rename)
+- **Move up** and **Move down** (sequence entries) do what the row's **↑** and **↓** do, and are greyed out where they are: the first entry cannot move up, the last cannot move down.
+- **Duplicate**, **Copy settings** and **Paste settings** (shown while something is copied). Copy and Paste appear only on rows that hold a group the clipboard can carry.
+- **Rename…** on sequence entries, slates, audio tracks and overlays.
+- **Remove** on every row: it asks the same confirmation as the row's **✕**, and removes the element the same way.
+
+A move or a removal from the menu is one undo step, as it is from the button.
+
+**Related.** [A row](#a-row) · [Duplicate](#duplicate) · [Copy settings and Paste settings](#copy-settings-and-paste-settings) · [Rename…](#rename)
 
 ## Duplicate
 

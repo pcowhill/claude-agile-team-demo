@@ -9,8 +9,9 @@ import userEvent from '@testing-library/user-event'
  * were top-level buttons named for the row — "Duplicate <position>", "Copy
  * settings of <position>", "Paste settings onto <position>", "Rename
  * <position>". They are items in that row's ⋯ menu now, named for what
- * they do under a panel named for the row. ▾ ↑ ↓ ✕ are untouched and need
- * nothing from here.
+ * they do under a panel named for the row. ▾ ↑ ↓ ✕ stayed on the row; the
+ * ⋯ also repeats ↑ ↓ (on sequence entries) and ✕ as Move up, Move down and
+ * Remove (#622), but the tests that use those buttons click the buttons.
  *
  * An expanded sequence entry's + Zoom, + Speed and + Pause are likewise
  * items of one "+ Effect ▾" menu — and, being items, they carry their
@@ -32,6 +33,10 @@ export const DUPLICATE = 'Duplicate'
 export const COPY_SETTINGS = 'Copy settings'
 export const PASTE_SETTINGS = 'Paste settings'
 export const RENAME = 'Rename…'
+/** The main line's own buttons, which the ⋯ repeats (#622): ↑ ↓ and ✕. */
+export const MOVE_UP = 'Move up'
+export const MOVE_DOWN = 'Move down'
+export const REMOVE = 'Remove'
 
 /** The + Effect ▾ items, likewise. */
 export const ADD_ZOOM = 'Zoom'

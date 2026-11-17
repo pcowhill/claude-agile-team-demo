@@ -108,6 +108,16 @@ import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
 import './dialog.css'
 
+/**
+ * A removal waiting on its confirmation: a row's ✕ and its ⋯ › Remove (#622)
+ * both set the same one, so the two are indistinguishable after the dialog.
+ */
+interface PendingRemoval {
+  name: string
+  consequence: string
+  action: () => void
+}
+
 interface TimelineProps {
   timeline: TimelineState
   /** Whether an earlier state exists to undo to (#189). */
@@ -1972,11 +1982,7 @@ export function Timeline({
   // Which text overlay's placement editor is open (#424) — session UI like
   // the three above, and one at a time for the same reason.
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
-  const [pendingRemoval, setPendingRemoval] = useState<{
-    name: string
-    consequence: string
-    action: () => void
-  } | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null)
 
   // Copy settings / Paste settings (#315). The copied settings are SESSION
   // state, owned here exactly like the collapse state above: never written
@@ -1992,12 +1998,17 @@ export function Timeline({
   } | null>(null)
   /**
    * A row's ⋯ menu (#419, from the approved redesign #401 / feedback #395).
-   * Everything that is not ▾ ↑ ↓ ✕ lives here, and each item is present
-   * exactly where its button was: Duplicate only where App wires it, Copy
-   * settings only on a row holding at least one settings group (a slate
-   * holds none), Paste only on those same rows once something is copied
-   * (#315), Rename only where the row shows a name to edit — a text
-   * overlay's row shows its content, and had no ✎ either.
+   * Each item is present exactly where its button was: Duplicate only where
+   * App wires it, Copy settings only on a row holding at least one settings
+   * group (a slate holds none), Paste only on those same rows once
+   * something is copied (#315), Rename only where the row shows a name to
+   * edit — a text overlay's row shows its content, and had no ✎ either.
+   *
+   * The menu also repeats the main line's single-operation buttons (#622,
+   * the customer's #619): Move up and Move down where the row has ↑ ↓ (a
+   * sequence entry), disabled exactly where the arrows are, and Remove on
+   * every row. Each goes through the same path as its button — Remove opens
+   * the same confirmation with the same text — and the buttons stay.
    *
    * Items say only what they do and the panel is named for the row, which
    * is what #416 settled: an item labelled for the row as well ("Duplicate
@@ -2008,8 +2019,35 @@ export function Timeline({
     kind: SettingsElementKind,
     element: Parameters<typeof copyElementSettings>[1],
     position: string,
-    { renamable = true }: { renamable?: boolean } = {},
+    {
+      renamable = true,
+      removal,
+      move,
+    }: {
+      renamable?: boolean
+      /** What the row's ✕ asks to confirm; the menu's Remove asks the same. */
+      removal: PendingRemoval
+      /** The row's ↑ ↓, where it has them: which way it can move, and how. */
+      move?: { canMoveUp: boolean; canMoveDown: boolean; onMove: (direction: 'up' | 'down') => void }
+    },
   ) => {
+    const order: MenuItem[] =
+      move === undefined
+        ? []
+        : [
+            {
+              kind: 'action',
+              label: 'Move up',
+              disabled: !move.canMoveUp,
+              onSelect: () => move.onMove('up'),
+            },
+            {
+              kind: 'action',
+              label: 'Move down',
+              disabled: !move.canMoveDown,
+              onSelect: () => move.onMove('down'),
+            },
+          ]
     // Duplicating and the settings clipboard both copy what the row holds,
     // so they group together; renaming edits its identity, which is the
     // grouping the library's ⋯ uses (#416).
@@ -2052,16 +2090,17 @@ export function Timeline({
             },
           ]
         : []
-    // Joined only where both sides exist, so a text overlay's menu opens on
-    // Duplicate rather than on a separator.
-    const items = [copies, identity]
+    // Destructive last, as the library's ⋯ puts it (#416).
+    const remove: MenuItem[] = [
+      { kind: 'action', label: 'Remove', onSelect: () => setPendingRemoval(removal) },
+    ]
+    // Groups are joined only where both sides exist, so no menu opens on a
+    // separator — a text overlay's opens on Duplicate.
+    const items = [order, copies, identity, remove]
       .filter((group) => group.length > 0)
       .flatMap((group, index) =>
         index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
       )
-    // App wires none of these: no ⋯ at all, rather than a trigger that
-    // opens an empty panel.
-    if (items.length === 0) return null
     return (
       <Menu
         label="⋯"
@@ -2257,6 +2296,13 @@ export function Timeline({
         <ol className="timeline-list" aria-label="Sequence">
           {entries.map((entry, index) => {
             const position = `${entry.name} at position ${index + 1}`
+            // One confirmation for the ✕ and the ⋯'s Remove (#622).
+            const entryRemoval: PendingRemoval = {
+              name: position,
+              consequence:
+                'Transitions at its boundaries and any zooms or time remapping on it are removed with it.',
+              action: () => onRemoveEntry(entry.id),
+            }
             return (
               <li key={entry.id} className="timeline-entry">
                 {/* Coverage at a glance (#180), like the audio lane's strip:
@@ -2346,18 +2392,18 @@ export function Timeline({
                     >
                       ↓
                     </button>
-                    {rowActionsMenu('entry', entry, position)}
+                    {rowActionsMenu('entry', entry, position, {
+                      removal: entryRemoval,
+                      move: {
+                        canMoveUp: index > 0,
+                        canMoveDown: index < entries.length - 1,
+                        onMove: (direction) => onMoveEntry(entry.id, direction),
+                      },
+                    })}
                     <button
                       type="button"
                       aria-label={`Remove ${position} from timeline`}
-                      onClick={() =>
-                        setPendingRemoval({
-                          name: position,
-                          consequence:
-                            'Transitions at its boundaries and any zooms or time remapping on it are removed with it.',
-                          action: () => onRemoveEntry(entry.id),
-                        })
-                      }
+                      onClick={() => setPendingRemoval(entryRemoval)}
                     >
                       ✕
                     </button>
@@ -2893,6 +2939,11 @@ export function Timeline({
           <ol className="audio-track-list" aria-label="Audio tracks">
             {audioTracks.map((track, index) => {
               const position = `audio track ${track.name} at position ${index + 1}`
+              const trackRemoval: PendingRemoval = {
+                name: position,
+                consequence: 'The clip itself stays in the media library.',
+                action: () => onRemoveAudioTrack(track.id),
+              }
               const trimmedLength = effectiveDuration(track)
               return (
                 <li key={track.id} className="audio-track">
@@ -2918,17 +2969,11 @@ export function Timeline({
                     {nameCell(track.id, track.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
                     <span className="timeline-row-actions">
-                      {rowActionsMenu('audio-track', track, position)}
+                      {rowActionsMenu('audio-track', track, position, { removal: trackRemoval })}
                       <button
                         type="button"
                         aria-label={`Remove ${position} from timeline`}
-                        onClick={() =>
-                          setPendingRemoval({
-                            name: position,
-                            consequence: 'The clip itself stays in the media library.',
-                            action: () => onRemoveAudioTrack(track.id),
-                          })
-                        }
+                        onClick={() => setPendingRemoval(trackRemoval)}
                       >
                         ✕
                       </button>
@@ -3047,6 +3092,11 @@ export function Timeline({
           <ol className="video-overlay-list" aria-label="Overlay layers">
             {videoOverlays.map((overlay, index) => {
               const position = `overlay ${overlay.name} at position ${index + 1}`
+              const overlayRemoval: PendingRemoval = {
+                name: position,
+                consequence: 'The clip itself stays in the media library.',
+                action: () => onRemoveVideoOverlay(overlay.id),
+              }
               const trimmedLength = effectiveDuration(overlay)
               // A still overlay (#294) has no source to trim and no audio:
               // its window is offset + duration, and the audio controls are
@@ -3104,17 +3154,11 @@ export function Timeline({
                     {nameCell(overlay.id, overlay.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
                     <span className="timeline-row-actions">
-                      {rowActionsMenu('video-overlay', overlay, position)}
+                      {rowActionsMenu('video-overlay', overlay, position, { removal: overlayRemoval })}
                       <button
                         type="button"
                         aria-label={`Remove ${position} from timeline`}
-                        onClick={() =>
-                          setPendingRemoval({
-                            name: position,
-                            consequence: 'The clip itself stays in the media library.',
-                            action: () => onRemoveVideoOverlay(overlay.id),
-                          })
-                        }
+                        onClick={() => setPendingRemoval(overlayRemoval)}
                       >
                         ✕
                       </button>
@@ -3376,6 +3420,11 @@ export function Timeline({
           <ol className="text-overlay-list" aria-label="Text overlays">
             {texts.map((text, index) => {
               const position = `text overlay at position ${index + 1}`
+              const textRemoval: PendingRemoval = {
+                name: position,
+                consequence: 'Its text content is discarded.',
+                action: () => onRemoveText(text.id),
+              }
               const editingText = editingTextId === text.id
               const set = (change: Partial<TextOverlaySpec>) =>
                 onUpdateText(text.id, { ...textSpecOf(text), ...change })
@@ -3409,17 +3458,11 @@ export function Timeline({
                         rather than a name, and carried no ✎ before #419
                         either. */}
                     <span className="timeline-row-actions">
-                      {rowActionsMenu('text', text, position, { renamable: false })}
+                      {rowActionsMenu('text', text, position, { renamable: false, removal: textRemoval })}
                       <button
                         type="button"
                         aria-label={`Remove ${position} from timeline`}
-                        onClick={() =>
-                          setPendingRemoval({
-                            name: position,
-                            consequence: 'Its text content is discarded.',
-                            action: () => onRemoveText(text.id),
-                          })
-                        }
+                        onClick={() => setPendingRemoval(textRemoval)}
                       >
                         ✕
                       </button>

@@ -28,7 +28,7 @@ Words on the picture: titles, captions, labels and imported subtitles, each a **
 - **Size** is the line height as a fraction of the frame's height, from {{MIN_TEXT_SIZE_PERCENT}} % to {{MAX_TEXT_SIZE_PERCENT}} %; a value in the field's step. Lines of a multi-line block are spaced at {{TEXT_LINE_HEIGHT}} × the size.
 - **Color** is any colour, and **Bold** and **Italic** are two toggles.
 
-The number fields commit on Enter or when you leave them; in Firefox, a click on a field's arrows commits at once. The row's ⋯ menu offers [Duplicate](timeline.md#duplicate) — the copy starts where the original ends — and [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings), which carry the *Text style* group (font, size, colour, bold, italic, fades) between text rows.
+The number fields commit on Enter or when you leave them; in Firefox, a click on a field's arrows commits at once. The row's ⋯ menu offers [Duplicate](timeline.md#duplicate) (the copy starts where the original ends), [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings), which carry the *Text style* group (font, size, colour, bold, italic, fades) between text rows, and **Remove**, as the row's ✕ does.
 
 **Related.** [Fade-in and fade-out](#fade-in-and-fade-out) · [Visual editors](visual-editors.md) · [The output frame](concepts.md#the-output-frame)
 

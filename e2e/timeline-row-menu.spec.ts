@@ -11,6 +11,8 @@ import {
 } from './timelineRowMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { expectMenuUsable, scrollBox } from './menuGeometry'
+import { chooseClipAction } from './clipMenu'
+import { sineWav } from './sineWav'
 
 type Page = import('@playwright/test').Page
 
@@ -69,14 +71,23 @@ test('a row is duplicated by keyboard alone, and the buttons the ⋯ replaced ar
   }
 
   const menu = await openRowMenu(page, SLATE_1)
-  // A slate holds no settings group (#315), so its ⋯ is Duplicate + Rename.
-  await expect(menu.getByRole('menuitem')).toHaveText(['Duplicate', 'Rename…'])
+  // A slate holds no settings group (#315), so its ⋯ is Duplicate + Rename,
+  // between the main line's own moves and removal, which it repeats (#622).
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    'Move up',
+    'Move down',
+    'Duplicate',
+    'Rename…',
+    'Remove',
+  ])
   // Escape returns focus to the trigger — the menu-button contract (#412).
   await page.keyboard.press('Escape')
   await expect(rowMenu(page, SLATE_1)).toHaveCount(0)
   await expect(rowMenuTrigger(page, SLATE_1)).toBeFocused()
 
-  // Keyboard only: ArrowDown opens on Duplicate, Enter runs it. The pointer
+  // Keyboard only: ArrowDown opens on Duplicate — the lone entry's Move up
+  // and Move down are disabled, and the arrows skip them — and Enter runs
+  // it. The pointer
   // is parked first, because `Menu`'s hover-follows-focus (#412) would move
   // focus if the layout shifted an item under the resting pointer.
   await page.mouse.move(2, 2)
@@ -131,6 +142,109 @@ test('+ Effect ▾ adds a zoom by keyboard, and a still is offered Zoom alone (#
   // was.
   const again = await openEffectMenu(page, SLATE_1)
   await expect(again.getByRole('menuitem', { name: 'Zoom', exact: true })).toBeDisabled()
+})
+
+/** A small opaque PNG, drawn in the page, for an image overlay. */
+async function makePng(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 36
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = 'rgb(0, 120, 200)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  return Buffer.from(base64, 'base64')
+}
+
+test("every row's ⋯ repeats its ↑ ↓ ✕, and the longer menus stay usable on a populated timeline at 1280 and 360 px (#622)", async ({
+  page,
+}, testInfo) => {
+  // Populated (development.md): three sequence entries, an audio track, an
+  // image overlay and a text overlay — a row of every kind, with rows below
+  // each panel for it to be drawn over.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('./')
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_TEXT)
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page) },
+    { name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(1) },
+  ])
+  await expect(
+    page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem'),
+  ).toHaveCount(2)
+  await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
+  await chooseClipAction(page, 'logo.png', 'Add as overlay')
+  await expect(sequenceRows(page)).toHaveCount(3)
+
+  const rows = [
+    {
+      position: 'Color slate at position 2',
+      lane: 'Sequence',
+      // The middle entry can move both ways, so neither move is disabled.
+      items: ['Move up', 'Move down', 'Duplicate', 'Rename…', 'Remove'],
+    },
+    {
+      position: 'audio track tone.wav at position 1',
+      lane: 'Audio tracks',
+      items: ['Duplicate', 'Copy settings', 'Rename…', 'Remove'],
+    },
+    {
+      position: 'overlay logo.png at position 1',
+      lane: 'Overlay layers',
+      items: ['Duplicate', 'Copy settings', 'Rename…', 'Remove'],
+    },
+    {
+      position: 'text overlay at position 1',
+      lane: 'Text overlays',
+      items: ['Duplicate', 'Copy settings', 'Remove'],
+    },
+  ]
+
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 360, height: 640 },
+  ]) {
+    await page.setViewportSize(viewport)
+    for (const { position, lane, items } of rows) {
+      const label = `${position} ⋯ at ${viewport.width}px`
+      const list = page.getByRole('list', { name: lane })
+      await rowMenuTrigger(page, position).scrollIntoViewIfNeeded()
+      const before = await scrollBox(list)
+      const menu = await openRowMenu(page, position)
+      await expect(menu.getByRole('menuitem')).toHaveText(items)
+      await expectMenuUsable(page, list, rowMenuTrigger(page, position), menu, before, label)
+      await expectNoHorizontalScroll(page, label)
+      if (viewport.width === 360 && lane === 'Sequence') {
+        // The rendered evidence for #622's PR, re-taken every run.
+        await page.screenshot({ path: testInfo.outputPath('timeline-entry-menu-360.png') })
+      }
+      await page.keyboard.press('Escape')
+      await expect(rowMenu(page, position)).toHaveCount(0)
+    }
+  }
+
+  // The first and last entries' moves are disabled where their arrows are.
+  const first = await openRowMenu(page, SLATE_1)
+  await expect(first.getByRole('menuitem', { name: 'Move up', exact: true })).toBeDisabled()
+  await expect(first.getByRole('menuitem', { name: 'Move down', exact: true })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  const last = await openRowMenu(page, 'Color slate at position 3')
+  await expect(last.getByRole('menuitem', { name: 'Move down', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+
+  // And the items act, in a real browser: Remove asks the ✕'s question and
+  // removes the track once confirmed.
+  await chooseRowAction(page, 'audio track tone.wav at position 1', 'Remove')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Remove audio track tone.wav at position 1?')
+  await expect(dialog).toContainText('The clip itself stays in the media library.')
+  await dialog.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('list', { name: 'Audio tracks' })).toHaveCount(0)
 })
 
 test('a collapsed row keeps its header on one line, and both panels are usable where drawn (#419)', async ({

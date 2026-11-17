@@ -19,7 +19,10 @@ import {
   ADD_ZOOM,
   COPY_SETTINGS,
   DUPLICATE,
+  MOVE_DOWN,
+  MOVE_UP,
   PASTE_SETTINGS,
+  REMOVE,
   RENAME,
   chooseEffect,
   chooseRowAction,
@@ -32,6 +35,7 @@ import {
   queryRowMenuTrigger,
   queryEffectItem,
   queryRowAction,
+  openRowMenu,
   rowMenuItems,
   rowMenuTrigger,
 } from '../test/timelineRowMenu'
@@ -2944,7 +2948,13 @@ describe('copy and paste settings (#315)', () => {
     }
     // A slate holds no settings group: neither item is in its ⋯, which
     // still opens for the actions it does have.
-    expect(await rowMenuItems('Color slate at position 2')).toEqual([DUPLICATE, RENAME])
+    expect(await rowMenuItems('Color slate at position 2')).toEqual([
+      MOVE_UP,
+      MOVE_DOWN,
+      DUPLICATE,
+      RENAME,
+      REMOVE,
+    ])
     await closeRowMenu('Color slate at position 2')
 
     await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
@@ -3447,31 +3457,51 @@ describe("a timeline row's ⋯ menu and + Effect ▾ (#419)", () => {
   it('offers each row kind exactly the items its buttons were, and none where it had none', async () => {
     await everyRowKind()
 
-    // Every row that held a settings group offers the same four, in the
-    // same order — Paste only once something is copied, so not yet.
-    for (const position of [
-      'a.mp4 at position 1',
-      'audio track m.mp3 at position 1',
-      'overlay a.mp4 at position 1',
-    ]) {
-      expect(await rowMenuItems(position)).toEqual([DUPLICATE, COPY_SETTINGS, RENAME])
+    // Every row that held a settings group offers the same items, in the
+    // same order — Paste only once something is copied, so not yet — and
+    // ends on the ✕ it repeats (#622). Only a sequence entry has ↑ ↓, so
+    // only it opens on Move up and Move down.
+    expect(await rowMenuItems('a.mp4 at position 1')).toEqual([
+      MOVE_UP,
+      MOVE_DOWN,
+      DUPLICATE,
+      COPY_SETTINGS,
+      RENAME,
+      REMOVE,
+    ])
+    await closeRowMenu('a.mp4 at position 1')
+    for (const position of ['audio track m.mp3 at position 1', 'overlay a.mp4 at position 1']) {
+      expect(await rowMenuItems(position)).toEqual([DUPLICATE, COPY_SETTINGS, RENAME, REMOVE])
       await closeRowMenu(position)
     }
     // A text overlay's row shows its content rather than a name: no Rename.
-    expect(await rowMenuItems('text overlay at position 1')).toEqual([DUPLICATE, COPY_SETTINGS])
+    expect(await rowMenuItems('text overlay at position 1')).toEqual([
+      DUPLICATE,
+      COPY_SETTINGS,
+      REMOVE,
+    ])
     await closeRowMenu('text overlay at position 1')
     // A slate holds no settings group at all (#315).
-    expect(await rowMenuItems('Color slate at position 2')).toEqual([DUPLICATE, RENAME])
+    expect(await rowMenuItems('Color slate at position 2')).toEqual([
+      MOVE_UP,
+      MOVE_DOWN,
+      DUPLICATE,
+      RENAME,
+      REMOVE,
+    ])
     await closeRowMenu('Color slate at position 2')
 
     // Copying puts Paste on every row that can hold it, between Copy and
     // Rename — the order the two buttons sat in.
     await chooseRowAction('a.mp4 at position 1', COPY_SETTINGS)
     expect(await rowMenuItems('a.mp4 at position 1')).toEqual([
+      MOVE_UP,
+      MOVE_DOWN,
       DUPLICATE,
       COPY_SETTINGS,
       PASTE_SETTINGS,
       RENAME,
+      REMOVE,
     ])
     await closeRowMenu('a.mp4 at position 1')
   })
@@ -4069,6 +4099,160 @@ describe('a number field changed while not focused commits at once (#593)', () =
     // …only the finished one, when the field is left.
     fireEvent.blur(field)
     expect(seekMax()).toBe('12')
+  })
+})
+
+/**
+ * The ⋯ repeats the main line's single-operation buttons (#622, the
+ * customer's #619): Remove on every row, Move up and Move down on sequence
+ * entries. Each must be indistinguishable from its button — the same
+ * confirmation and text, the same reorder, the same one undo step — so
+ * each test drives the menu and compares against what the button does.
+ *
+ * Placed before the file's last `describe` per `development.md`.
+ */
+describe("a timeline row's ⋯ repeats ↑ ↓ ✕ (#622)", () => {
+  const undo = () => userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+  /** A lane's rows; a lane emptied by a removal is not rendered at all. */
+  const rowsOf = (lane: string) => {
+    const list = screen.queryByRole('list', { name: lane })
+    // Direct children only: a row may hold lists of its own.
+    return list === null ? [] : [...list.children].filter((child) => child.tagName === 'LI')
+  }
+
+  /** The dialog a removal opens, as the user reads it. */
+  const removalDialogText = () => screen.getByRole('dialog').textContent
+
+  /** One row of every kind: two sequence entries, a track, an overlay, a text. */
+  const everyRowKind = async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importClip('b.mp4', 20)
+    await importAudioClip('m.mp3', 8)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add b.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+    await chooseClipAction('a.mp4', 'Add as overlay')
+    await chooseFromAddMenu(ADD_TEXT)
+  }
+
+  it.each([
+    {
+      kind: 'sequence entry',
+      position: 'a.mp4 at position 1',
+      count: () => sequenceNames().length,
+      before: 2,
+    },
+    {
+      kind: 'audio track',
+      position: 'audio track m.mp3 at position 1',
+      count: () => rowsOf('Audio tracks').length,
+      before: 1,
+    },
+    {
+      kind: 'video overlay',
+      position: 'overlay a.mp4 at position 1',
+      count: () => rowsOf('Overlay layers').length,
+      before: 1,
+    },
+    {
+      kind: 'text overlay',
+      position: 'text overlay at position 1',
+      count: () => rowsOf('Text overlays').length,
+      before: 1,
+    },
+  ])(
+    'on a $kind, Remove asks exactly what ✕ asks, removes the row, and undoes in one step',
+    async ({ position, count, before }) => {
+      await everyRowKind()
+      expect(count()).toBe(before)
+
+      // The ✕'s dialog, read and cancelled: the text the menu must match.
+      await userEvent.click(
+        screen.getByRole('button', { name: `Remove ${position} from timeline` }),
+      )
+      const viaButton = removalDialogText()
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+
+      await chooseRowAction(position, REMOVE)
+      expect(removalDialogText()).toBe(viaButton)
+      expect(viaButton).toContain(`Remove ${position}?`)
+      // Nothing is removed before the confirmation.
+      expect(count()).toBe(before)
+      await confirmRemoval()
+      expect(count()).toBe(before - 1)
+
+      await undo()
+      expect(count()).toBe(before)
+    },
+  )
+
+  it('Move up and Move down reorder the sequence as ↑ ↓ do, are disabled where the arrows are, and undo in one step', async () => {
+    await everyRowKind()
+    expect(sequenceNames()).toEqual(['a.mp4', 'b.mp4'])
+
+    // Disabled exactly where the arrows are: the first entry cannot move
+    // up, the last cannot move down.
+    expect(screen.getByRole('button', { name: 'Move a.mp4 at position 1 up' })).toBeDisabled()
+    expect(await queryRowAction('a.mp4 at position 1', MOVE_UP)).toBeDisabled()
+    expect(await queryRowAction('a.mp4 at position 1', MOVE_DOWN)).toBeEnabled()
+    await closeRowMenu('a.mp4 at position 1')
+    expect(screen.getByRole('button', { name: 'Move b.mp4 at position 2 down' })).toBeDisabled()
+    expect(await queryRowAction('b.mp4 at position 2', MOVE_DOWN)).toBeDisabled()
+    expect(await queryRowAction('b.mp4 at position 2', MOVE_UP)).toBeEnabled()
+    await closeRowMenu('b.mp4 at position 2')
+
+    await chooseRowAction('a.mp4 at position 1', MOVE_DOWN)
+    expect(sequenceNames()).toEqual(['b.mp4', 'a.mp4'])
+    await chooseRowAction('a.mp4 at position 2', MOVE_UP)
+    expect(sequenceNames()).toEqual(['a.mp4', 'b.mp4'])
+
+    // Each menu move is one undo step, as a button move is.
+    await undo()
+    expect(sequenceNames()).toEqual(['b.mp4', 'a.mp4'])
+    await undo()
+    expect(sequenceNames()).toEqual(['a.mp4', 'b.mp4'])
+  })
+
+  it('reaches Move down and Remove by keyboard, skipping the disabled Move up', async () => {
+    await everyRowKind()
+    rowMenuTrigger('a.mp4 at position 1').focus()
+    await userEvent.keyboard('{ArrowDown}')
+    const menu = screen.getByRole('menu', { name: 'More actions for a.mp4 at position 1' })
+    // Move up is disabled on the first entry, so the panel opens on Move down.
+    expect(within(menu).getByRole('menuitem', { name: MOVE_DOWN })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    expect(sequenceNames()).toEqual(['b.mp4', 'a.mp4'])
+
+    // Remove is the last item: End lands on it, Enter opens the confirmation.
+    rowMenuTrigger('b.mp4 at position 1').focus()
+    await userEvent.keyboard('{ArrowDown}')
+    await userEvent.keyboard('{End}')
+    const second = screen.getByRole('menu', { name: 'More actions for b.mp4 at position 1' })
+    expect(within(second).getByRole('menuitem', { name: REMOVE })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getByRole('dialog')).toHaveTextContent('Remove b.mp4 at position 1?')
+  })
+
+  it('opens no menu on a separator, and keeps ↑ ↓ ✕ on the row', async () => {
+    await everyRowKind()
+    for (const position of [
+      'a.mp4 at position 1',
+      'audio track m.mp3 at position 1',
+      'overlay a.mp4 at position 1',
+      'text overlay at position 1',
+    ]) {
+      const menu = await openRowMenu(position)
+      const children = [...menu.children]
+      expect(children[0].getAttribute('role'), position).not.toBe('separator')
+      expect(children[children.length - 1].getAttribute('role'), position).not.toBe('separator')
+      await closeRowMenu(position)
+      expect(
+        screen.getByRole('button', { name: `Remove ${position} from timeline` }),
+      ).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: 'Move a.mp4 at position 1 down' })).toBeEnabled()
   })
 })
 
