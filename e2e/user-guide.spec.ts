@@ -479,6 +479,51 @@ test('a Contents link to the heading already showing scrolls back to it (#590)',
   expect(new URL(page.url()).hash).toBe('#guide/editing-video/zooms')
 })
 
+test('opening a search hit, by click or by Enter, shows its heading and keeps focus on the search field (#616)', async ({
+  page,
+}) => {
+  // #616: in Firefox the panel stayed near the top after a hit opened. Its
+  // focus on the search field scrolled lazily, after the arrival had scrolled
+  // to the heading, and put the panel back. "In view" is the measure the
+  // deep-link and #590 tests use: the heading's top inside the panel's upper
+  // half, polled, since the scroll lands after the click resolves.
+  await page.goto('./')
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const panel = await openGuide(page)
+  const results = panel.getByRole('list', { name: 'Search results' })
+  const heading = panel.getByRole('article').getByRole('heading', { level: 3, name: 'What is saved where' })
+  const headingTopInPanel = async () => {
+    const [panelBox, headingBox] = await Promise.all([panel.boundingBox(), heading.boundingBox()])
+    return (headingBox!.y - panelBox!.y) / panelBox!.height
+  }
+  const inView = async () => {
+    const top = await headingTopInPanel()
+    return top >= -0.01 && top < 0.5
+  }
+
+  // By click.
+  await searchField(page).fill('saved where')
+  const firstHit = results.getByRole('button').first()
+  await expect(firstHit.locator('.user-guide-hit-where')).toContainText('What is saved where')
+  await firstHit.click()
+  await expect(results).toHaveCount(0)
+  await expect.poll(inView, { message: 'a clicked hit scrolls to its heading' }).toBe(true)
+  await expect(searchField(page)).toBeFocused()
+  expect(new URL(page.url()).hash).toBe('#guide/concepts/what-is-saved-where')
+
+  // By Enter, from the top of the panel, where the heading is out of view.
+  await panel.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  await expect.poll(headingTopInPanel, { message: 'scrolled away from the heading' }).toBeGreaterThan(1)
+  await searchField(page).fill('saved where')
+  await expect(firstHit.locator('.user-guide-hit-where')).toContainText('What is saved where')
+  await page.keyboard.press('Enter')
+  await expect(results).toHaveCount(0)
+  await expect.poll(inView, { message: 'Enter on a hit scrolls to its heading' }).toBe(true)
+  await expect(searchField(page)).toBeFocused()
+})
+
 test('F1 opens the guide, and is inert while typing in a field (#478)', async ({ page }) => {
   await page.goto('./')
   await page.setViewportSize({ width: 1280, height: 720 })
