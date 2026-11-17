@@ -37,6 +37,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add a spotlight region** — an expanded video or image row › Picture ▸ › Spotlight; the **+ Add region** button. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Add as overlay** — a media library row's ⋯ menu. [Media library › The ⋯ menu](media-library.md#the-menu)
 - **Add chapter marker at playhead** — Frame ▾. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
+- **Add to timeline** — a media library row's ⋯ menu; the same as the row's **Add**. [Media library › Add](media-library.md#add)
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
@@ -186,7 +187,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
-- **Preview** — the slider under a visual editor’s still; scrubs the zoom’s envelope or a redaction or spotlight region’s window. [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
+- **Preview** — a media library row's ⋯ menu, the same as the row's **▶**; and the slider under a visual editor’s still, which scrubs the zoom’s envelope or a redaction or spotlight region’s window. [Media library › Preview a clip](media-library.md#preview-a-clip) · [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
 
 ## R
 

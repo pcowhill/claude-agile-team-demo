@@ -60,7 +60,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 ## Preview a clip
 
-**Where to find it.** A row's **▶** button, or a double-click on the clip's name or thumbnail.
+**Where to find it.** A row's **▶** button, its [⋯ menu](#the-menu) › **Preview**, or a double-click on the clip's name or thumbnail.
 
 **What it does.** Shows one clip alone in the preview panel — to tell two similarly named songs apart, or to remind yourself what a recording contains — without adding it to the timeline.
 
@@ -72,7 +72,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 ## Add
 
-**Where to find it.** A row's **Add** button — its full name is *Add … to timeline*.
+**Where to find it.** A row's **Add** button — its full name is *Add … to timeline* — or its [⋯ menu](#the-menu) › **Add to timeline**.
 
 **What it does.** Places the clip on the timeline: a video or image is appended to the Sequence, an audio clip becomes an audio track.
 
@@ -84,16 +84,18 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Where to find it.** The **⋯** button at the end of a row or card, named *More actions for* the clip.
 
-**What it does.** Holds everything about a clip that is not Preview or Add.
+**What it does.** Holds a clip's actions in one place, including the row's own Preview and Add.
 
 **Details.** The items, each present only where it applies:
 
+- **Preview** shows the clip alone in the preview panel, exactly as the row's **▶** does; see [Preview a clip](#preview-a-clip).
+- **Add to timeline** places the clip, exactly as the row's **Add** does; see [Add](#add).
 - **Add as overlay** (video and image clips) places the clip above the sequence as an overlay layer — picture-in-picture in the bottom-right corner, {{DEFAULT_OVERLAY_SIZE_PERCENT}} % of the frame wide and high, starting at the beginning of the sequence; a video overlay plays the whole clip and an image overlay shows for the still duration. Reposition, resize and trim it from [its timeline row](timeline.md#a-row).
 - **Extract audio** (video clips) makes a new audio clip from the video's sound, named after the video with *(audio)* appended. It keeps working after the video is removed from the library, and a references-only project re-links it from the video file.
 - **Rename…** opens the name for editing; see [Renaming a clip](#renaming-a-clip).
 - **Remove** asks for confirmation; see [Removing a clip](#removing-a-clip).
 
-An audio clip's menu holds only Rename… and Remove, since it has no picture to overlay and no video to extract from.
+An audio clip's menu has no Add as overlay or Extract audio, since it has no picture to overlay and no video to extract from.
 
 **Related.** [Add](#add) · [A row](timeline.md#a-row) · [Visual editors](visual-editors.md)
 

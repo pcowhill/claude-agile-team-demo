@@ -328,17 +328,26 @@ export function MediaLibrary({
 
   /**
    * A row's ⋯ items (#416, from the approved redesign #401 option L1 /
-   * feedback #395): everything that is not the primary action, grouped
-   * place-in-project · edit-identity · destructive. Each item is present
-   * exactly where its button was — no overlay for audio (it has no
-   * picture), no extract for anything but video (#154), no rename without
-   * App's wiring — and the groups are joined only where both sides exist,
-   * so an audio clip's menu opens on Rename… rather than on a separator.
+   * feedback #395), grouped play-or-place · edit-identity · destructive.
+   * Each item is present exactly where its button was — no overlay for
+   * audio (it has no picture), no extract for anything but video (#154), no
+   * rename without App's wiring — and the groups are joined only where both
+   * sides exist, so no menu opens on a separator.
+   *
+   * The menu also repeats the row's two inline actions, Preview and Add
+   * (#621, the customer's #619): a reader who opens ⋯ looking for what can
+   * be done with a clip finds all of it there. The buttons stay — Preview is
+   * the frequent action #416 kept visible — and each item calls the same
+   * handler as its button.
    */
   const clipMenuItems = (clip: LibraryClip): MenuItem[] => {
+    const place: MenuItem[] = []
+    if (onPreviewClip !== undefined) {
+      place.push({ kind: 'action', label: 'Preview', onSelect: () => onPreviewClip(clip) })
+    }
+    place.push({ kind: 'action', label: 'Add to timeline', onSelect: () => onAddToTimeline(clip) })
     // Video (#145) and images (#294) can layer above the sequence — a
     // picture-in-picture, or a logo, watermark or sticker.
-    const place: MenuItem[] = []
     if (clip.kind !== 'audio') {
       place.push({
         kind: 'action',

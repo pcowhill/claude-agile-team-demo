@@ -1250,8 +1250,11 @@ describe('the row menu and View ▾ (#416)', () => {
     await importAs('b.mp3', 'audio')
     await importAs('c.png', 'image')
 
-    // A video has all three groups, so both rules appear.
+    // A video has every item. The first group plays or places the clip:
+    // the row's own Preview and Add (#621), then the overlay and extract.
     expect(shapeOf(await openClipMenu('a.mp4'))).toEqual([
+      'Preview',
+      'Add to timeline',
       'Add as overlay',
       'Extract audio',
       '—',
@@ -1261,16 +1264,24 @@ describe('the row menu and View ▾ (#416)', () => {
     ])
     // An image can be an overlay but has no audio to pull out.
     expect(shapeOf(await openClipMenu('c.png'))).toEqual([
+      'Preview',
+      'Add to timeline',
       'Add as overlay',
       '—',
       'Rename…',
       '—',
       'Remove',
     ])
-    // Audio has neither, so the menu opens on Rename… rather than on a
-    // separator with nothing above it — the reason the groups are joined
-    // rather than written out with fixed rules between them.
-    expect(shapeOf(await openClipMenu('b.mp3'))).toEqual(['Rename…', '—', 'Remove'])
+    // Audio has neither overlay nor extract, but can still be previewed
+    // and added (to the audio lane).
+    expect(shapeOf(await openClipMenu('b.mp3'))).toEqual([
+      'Preview',
+      'Add to timeline',
+      '—',
+      'Rename…',
+      '—',
+      'Remove',
+    ])
     await closeClipMenu('b.mp3')
   })
 
@@ -1332,6 +1343,76 @@ describe('a gap beside the scrollbar while the list scrolls (#460)', () => {
     await chooseView('Thumbnails')
     expect(clipList()).toHaveClass('clip-list-thumbnails')
     expect(clipList()).toHaveClass('clip-list-scrolls')
+  })
+})
+
+describe("the ⋯ repeats the row's Preview and Add (#621)", () => {
+  const importAs = async (name: string, kind: Kind) => {
+    probeMock.mockResolvedValueOnce(
+      kind === 'image'
+        ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
+        : { duration: 5, url: `blob:${name}`, kind },
+    )
+    await userEvent.upload(screen.getByTestId('clip-file-input'), fileOf(name, kind))
+    await screen.findByRole('button', { name: `Add ${name} to timeline` })
+  }
+
+  it('Add to timeline places a video or image on the sequence and audio on its lane, as Add does', async () => {
+    render(<App />)
+    await importAs('a.mp4', 'video')
+    await importAs('b.mp3', 'audio')
+    await importAs('c.png', 'image')
+
+    await chooseClipAction('a.mp4', 'Add to timeline')
+    await chooseClipAction('c.png', 'Add to timeline')
+    const sequence = screen.getByRole('list', { name: 'Sequence' })
+    expect(within(sequence).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      expect.stringContaining('a.mp4'),
+      expect.stringContaining('c.png'),
+    ])
+    expect(screen.queryByRole('list', { name: 'Audio tracks' })).toBeNull()
+
+    await chooseClipAction('b.mp3', 'Add to timeline')
+    expect(screen.getByRole('list', { name: 'Audio tracks' })).toHaveTextContent('b.mp3')
+    // Each choice added exactly one element, as one click on Add does.
+    expect(within(sequence).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('Preview opens the clip alone in the preview panel, as ▶ does', async () => {
+    render(<App />)
+    await importAs('a.mp4', 'video')
+    expect(screen.queryByTestId('source-preview')).toBeNull()
+
+    await chooseClipAction('a.mp4', 'Preview')
+    const source = screen.getByTestId('source-preview')
+    expect(within(source).getByTestId('source-preview-name')).toHaveTextContent('a.mp4')
+    // Nothing was added to the timeline.
+    expect(screen.queryByRole('list', { name: 'Sequence' })).toBeNull()
+  })
+
+  it('offers both in the thumbnail view too, and keeps the row buttons', async () => {
+    render(<App />)
+    await importAs('a.mp4', 'video')
+    await chooseView('Thumbnails')
+    expect(await clipMenuItem('a.mp4', 'Preview')).toBeInTheDocument()
+    expect(await clipMenuItem('a.mp4', 'Add to timeline')).toBeInTheDocument()
+    await closeClipMenu('a.mp4')
+    expect(screen.getByRole('button', { name: 'Preview a.mp4' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a.mp4 to timeline' })).toBeInTheDocument()
+  })
+
+  it('reaches both from the keyboard: the panel opens on Preview, and Enter acts', async () => {
+    render(<App />)
+    await importAs('a.mp4', 'video')
+    screen.getByRole('button', { name: 'More actions for a.mp4' }).focus()
+    await userEvent.keyboard('{Enter}')
+    const menu = screen.getByRole('menu', { name: 'More actions for a.mp4' })
+    expect(within(menu).getByRole('menuitem', { name: 'Preview' })).toHaveFocus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitem', { name: 'Add to timeline' })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.queryByRole('menu', { name: 'More actions for a.mp4' })).toBeNull()
+    expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('a.mp4')
   })
 })
 

@@ -12,8 +12,9 @@ import userEvent from '@testing-library/user-event'
  *   The old controls were named "List view", "Thumbnail view" and "Sort by
  *   name"; the items are named for their place in a labelled group, so they
  *   read "List", "Thumbnails", "Name".
- * - **⋯ per row** (`More actions for <name>`) — Add as overlay, Extract
- *   audio, Rename… and Remove. Items say only what they do: the panel is
+ * - **⋯ per row** (`More actions for <name>`) — Preview and Add to
+ *   timeline (which repeat the row's buttons, #621), Add as overlay,
+ *   Extract audio, Rename… and Remove. Items say only what they do: the panel is
  *   named for the clip, and a visible "Add as overlay" under an accessible
  *   name of "Add a.mp4 as overlay" would be a name that does not contain
  *   its own label.
@@ -23,8 +24,8 @@ import userEvent from '@testing-library/user-event'
  * helpers are that change, in one place. `userEvent`, because the library
  * suites drive everything with it.
  *
- * ▶ Preview, Add and the selection controls are still plain buttons and
- * need nothing here.
+ * ▶ Preview, Add and the selection controls are still plain buttons too,
+ * and the tests that use them click the buttons.
  */
 
 const clipMenuLabel = (clipName: string) => `More actions for ${clipName}`
