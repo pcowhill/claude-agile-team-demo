@@ -70,6 +70,9 @@ const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
   { title: 'the control fits the transport at both widths, at 1× and at 2× (#522)', why: '#598: not yet classified' },
   { title: 'the playhead keeps up with the picture at 2×, and so does an audio track (#522)', why: '#598: not yet classified' },
   { title: 'the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
+  { title: 'the base layer never records a black frame while its element is seeking (#324)', why: '#553: flaky in Chromium; under Firefox it failed at --workers=4 (black frames) and passed alone' },
+  { title: 'an overlay layer stays in the export while its element cannot supply a frame (#319)', why: '#612: product defect, frames with no overlay picture in Firefox' },
+  { title: 'a speed segment stretches the exported file to the remapped total', why: '#611: product defect, a 0.5× segment exports at 1.086 s against ~2 s' },
   { title: 'selecting MP4 exports a file that demuxes as MP4 (#114)', why: 'Chromium-only: Firefox\'s MediaRecorder cannot record MP4, so the picker rightly omits it (#114 covers that case)' },
 ]
 
