@@ -110,6 +110,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'GIF_MAX_PX',
   /** The MP3 export's bitrate, in kbps (#269). */
   'MP3_KBPS',
+  /** How long an export waits for the browser's sound output to start before exporting without it, in seconds (#596). */
+  'AUDIO_START_TIMEOUT_SECONDS',
   /** The default arrow-key steps before Settings changes them, in seconds (#286). */
   'DEFAULT_STEP_SECONDS',
   'DEFAULT_LARGE_STEP_SECONDS',

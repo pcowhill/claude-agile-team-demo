@@ -13,7 +13,7 @@ When something is not where the guide says, or the browser will not do what you 
 - **Recording** needs the browser's media capture and recorder. Where either is missing — and on a page not served securely, where browsers hide media capture altogether — the **Record ▾** menu is absent. The **Screen** and **Screen + camera** sources need screen capture as well, which most mobile browsers lack; they are left out of the menu while Microphone and Webcam stay. Firefox records the screen without sound, since it shares no tab or system audio.
 - **Export formats** are whatever the browser's recorder can encode: Firefox offers WebM alone, and MP4 needs a recent Chromium or Safari. **Audio only (MP3)** is encoded in the page and needs only the browser's audio engine. **Animated GIF** needs its plugin enabled.
 - **Colour adjustments** render live in every browser's preview, but exporting or saving a frame from an adjusted timeline needs the browser's canvas to apply filters; a browser without them refuses that export rather than producing an unadjusted file (below).
-- **Sound in exports, and the waveforms**, need the browser's audio engine. Without it, video exports run without sound, audio-only exports refuse, and the coverage bars stay plain; the preview still plays.
+- **Sound in exports, and the waveforms**, need the browser's audio engine. Without it, video exports run without sound, audio-only exports refuse, and the coverage bars stay plain; the preview still plays. An engine that is present but cannot start its sound output, as on a machine with no sound device, affects exports the same way. The export waits up to {{AUDIO_START_TIMEOUT_SECONDS}} seconds at 0% for the sound, then a video export runs without it.
 - **Browser storage** holds Settings, the enabled plugins, the library's view, the preview's size and the autosave. A browser that blocks it — a private window, a strict setting — uses the defaults and keeps no autosave, and says so under the header when it matters.
 
 **Related.** [Record ▾](recording.md#record) · [Formats and what decides them](export.md#formats-and-what-decides-them)
@@ -48,7 +48,7 @@ When something is not where the guide says, or the browser will not do what you 
 
 - *This browser does not support recording video (MediaRecorder)* or *This browser cannot encode … video* — pick a format the Format group offers in this browser, or export from another browser.
 - *This browser cannot render color adjustments when exporting (canvas filters are unsupported)* — this browser's canvas cannot apply the colour adjustments the timeline carries, and the editor will not export the picture unadjusted. Reset the colour adjustments (each row's Picture ▸ › Color › Reset), or export from a browser whose canvas can. Saving a frame refuses with the matching message.
-- *An audio-only export requires captured audio* — the browser's audio engine is unavailable, so there is no mix to record; a video format still exports, silent.
+- *This browser cannot capture audio for an audio-only export* — the browser's audio engine is unavailable, or its sound output did not start within {{AUDIO_START_TIMEOUT_SECONDS}} seconds, so there is no mix to record; a video format still exports, silent.
 - *This browser cannot draw canvas graphics* or *cannot capture canvas video* — the browser lacks the features every video export composes through.
 - The **Export** button is disabled — the timeline is empty, a typed size or frame rate is out of bounds, or a custom range does not parse; the dialog says which.
 

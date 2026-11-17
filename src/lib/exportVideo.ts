@@ -1631,6 +1631,37 @@ function defaultAudioContext(): AudioContext | null {
 }
 
 /**
+ * How long `createAudioCapture` waits for a suspended context to start
+ * before it gives up on sound and exports video only (#596), in ms.
+ *
+ * A browser whose audio backend cannot open an output device (a machine
+ * with no sound device, or a sound server that is down) leaves `resume()`
+ * pending forever: it neither resolves nor rejects, so an unbounded wait
+ * held the export at 0% with no message. A context that can start normally
+ * does so before the user notices any wait. The bound is generous on
+ * purpose, to leave room for a slow output device to open: cutting off a
+ * context that would have worked silently drops the export's sound, which
+ * is worse than the wait. And five seconds is still short next to an
+ * export, which runs in real time.
+ */
+export const AUDIO_START_TIMEOUT_MS = 5000
+
+/**
+ * Whether `promise` settles (either way) within `ms`. The timer is cleared
+ * once it does, so a context that starts promptly leaves nothing pending.
+ */
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    const settled = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    promise.then(settled, settled)
+  })
+}
+
+/**
  * Routes the replay elements' audio — the video replays and one <audio>
  * element per timeline audio track (#105) — into one MediaStream track that
  * can be recorded alongside the canvas video. All elements feed the same
@@ -1646,8 +1677,9 @@ function defaultAudioContext(): AudioContext | null {
  * sequence out loud. A source without audio still yields a track — a silent
  * one — so exports stay uniform whether or not the clips have sound.
  *
- * Returns null when Web Audio is unavailable or refuses an element, which
- * the caller treats as "export video only" rather than as a failure.
+ * Returns null when Web Audio is unavailable, refuses an element, or does not
+ * start within AUDIO_START_TIMEOUT_MS (#596). The caller treats that as
+ * "export video only" rather than as a failure.
  */
 export async function createAudioCapture(
   elements: readonly HTMLMediaElement[],
@@ -1676,8 +1708,18 @@ export async function createAudioCapture(
       context.createMediaElementSource(element).connect(mixInto)
     }
     // Autoplay policy starts contexts suspended; a suspended context feeds
-    // the recorder nothing.
-    if (context.state === 'suspended') await context.resume()
+    // the recorder nothing. The wait is bounded (#596): a browser that
+    // cannot start audio never settles resume(), and the export would
+    // otherwise hang at 0%. Past the bound this is the same video-only
+    // fallback as a context that fails outright.
+    if (context.state === 'suspended') {
+      const resuming = context.resume()
+      if (!(await settlesWithin(resuming, AUDIO_START_TIMEOUT_MS))) {
+        throw new Error('The audio context did not start.')
+      }
+      // Settled in time: a rejection still takes the fallback, as before.
+      await resuming
+    }
     const track = destination.stream.getAudioTracks()[0] ?? null
     if (track === null) throw new Error('No audio track was produced.')
     const owned = context
@@ -1693,8 +1735,10 @@ export async function createAudioCapture(
       },
     }
   } catch {
+    // Closed, but not awaited: a context that never started (#596) may
+    // never settle close() either, and the fallback does not depend on it.
     try {
-      await context?.close()
+      context?.close().catch(() => {})
     } catch {
       // Ignore: we are already on the video-only fallback path.
     }
@@ -2084,7 +2128,7 @@ export async function exportTimeline(
   // recording).
   if (audioOnly && audioCapture === null) {
     throw new ExportUnsupportedError(
-      'This browser cannot capture audio for an audio-only export (Web Audio is unavailable).',
+      'This browser cannot capture audio for an audio-only export (Web Audio is unavailable, or its output could not start).',
     )
   }
   for (const replay of [...replays, ...overlayReplays.map(({ element }) => element)]) {
