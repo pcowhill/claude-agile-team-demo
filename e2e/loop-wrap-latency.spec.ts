@@ -104,6 +104,72 @@ async function sampleWhilePlaying(page: Page, ms: number): Promise<{ samples: Sa
   }, ms)
 }
 
+test('the idle element Loop pre-cues shows nothing and takes no clicks (#641)', async ({ page }) => {
+  // #641 keeps the idle element painted at a near-zero opacity, because
+  // Firefox stops decoding a video it does not paint. That must stay
+  // invisible and inert: its card sits above the one on screen (z-index 1).
+  test.setTimeout(90_000)
+  await page.goto('./')
+  const webm = await recordWebm(page, 6200)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect.poll(async () => Number(await seek.getAttribute('max'))).toBeGreaterThan(5.9)
+  await seek.fill('3')
+  await blurActive(page)
+  await page.keyboard.press('i')
+  await seek.fill('4')
+  await blurActive(page)
+  await page.keyboard.press('o')
+  await page.getByRole('button', { name: 'Loop playback' }).click()
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  await expect.poll(async () => Number(await seek.inputValue())).toBeGreaterThan(3.3)
+  await page.getByRole('button', { name: 'Pause preview' }).click()
+
+  // Paused mid-pass: the idle element stands on the mark-in's frame, a
+  // different colour from the frame on screen (the clip changes every frame).
+  const idle = page.locator('.preview-video-idle')
+  await expect(idle).toHaveCount(1)
+  await expect
+    .poll(() => idle.locator('video').evaluate((video: HTMLVideoElement) => !video.seeking && video.readyState >= 2))
+    .toBe(true)
+  const stage = idle.locator('..')
+  const setIdleOpacity = (value: string) =>
+    idle.evaluate((card: HTMLElement, value) => {
+      card.style.opacity = value
+    }, value)
+
+  // Nothing at the stage's centre is inside the idle card.
+  const box = (await stage.boundingBox())!
+  const hitIdle = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest('.preview-video-idle') != null,
+    [box.x + box.width / 2, box.y + box.height / 2],
+  )
+  expect(hitIdle, 'the idle card is hit at the stage centre').toBe(false)
+
+  // The stage as styled is pixel-identical to the stage with the idle card
+  // fully transparent. The control, the card fully opaque, must differ, or
+  // the comparison proves nothing. Firefox can repaint the paused frame on
+  // screen just after the pause, so the stage is first read until two
+  // consecutive reads agree.
+  let asStyled = await stage.screenshot()
+  await expect
+    .poll(async () => {
+      const next = await stage.screenshot()
+      const settled = next.equals(asStyled)
+      asStyled = next
+      return settled
+    })
+    .toBe(true)
+  await setIdleOpacity('0')
+  const transparent = await stage.screenshot()
+  await setIdleOpacity('1')
+  const opaque = await stage.screenshot()
+  await setIdleOpacity('')
+  expect(opaque.equals(transparent), 'control: the idle frame differs from the frame on screen').toBe(false)
+  expect(asStyled.equals(transparent), 'the idle card changes the picture').toBe(true)
+})
+
 // `marks: null` loops the whole sequence, which wraps at the sequence end
 // to 0: the other place the wrap happens. `insideClip`: the span ends well
 // before its clip does, so no element has any reason to reach its end.
