@@ -14,7 +14,18 @@ type Page = import('@playwright/test').Page
  * browser exercise of `Menu`'s flip rule (#430).
  */
 
-/** A one-second silent WebM is enough for a timeline that can be exported. */
+/**
+ * A short silent WebM is enough for a timeline that can be exported.
+ *
+ * The canvas is redrawn on every animation frame while it records (#602).
+ * A canvas stream emits a frame only when the canvas is painted, and this
+ * one used to be painted once, before recording began. Under parallel load
+ * Firefox then recorded a WebM with no usable frames. Its duration never
+ * resolved, so the import failed with *Timed out reading media metadata*,
+ * and the Add button this helper waits for never appeared. Locally at
+ * `--workers=4` that happened in every run (8 of 8, then 4 of 4), and it
+ * failed main's CI run 544 on all three attempts.
+ */
 async function seedTimeline(page: Page) {
   await page.goto('./')
   const bytes = await page.evaluate(async () => {
@@ -22,14 +33,23 @@ async function seedTimeline(page: Page) {
     canvas.width = 160
     canvas.height = 90
     const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#2a6'
-    ctx.fillRect(0, 0, 160, 90)
     const stream = canvas.captureStream(25)
     const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' })
     const chunks: Blob[] = []
     recorder.ondataavailable = (event) => chunks.push(event.data)
     recorder.start()
-    await new Promise((resolve) => setTimeout(resolve, 700))
+    const start = performance.now()
+    await new Promise<void>((resolve) => {
+      let n = 0
+      const draw = () => {
+        n++
+        ctx.fillStyle = n % 2 === 0 ? '#2a6' : '#296'
+        ctx.fillRect(0, 0, 160, 90)
+        if (performance.now() - start > 700) resolve()
+        else requestAnimationFrame(draw)
+      }
+      draw()
+    })
     await new Promise<void>((resolve) => {
       recorder.onstop = () => resolve()
       recorder.stop()
