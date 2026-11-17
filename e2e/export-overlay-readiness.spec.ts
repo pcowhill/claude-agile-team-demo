@@ -177,6 +177,17 @@ test('an overlay layer stays in the export while its element cannot supply a fra
         video.onloadedmetadata = () => resolve()
         video.src = url
       })
+      // Firefox drops a seek issued before the first frame has loaded: at
+      // readyState 1 the assignment can be lost with no seeking event, leaving
+      // currentTime at 0 (#615). Seek only once loadeddata has fired.
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await new Promise<void>((resolve, reject) => {
+          video.addEventListener('loadeddata', () => resolve(), { once: true })
+          video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
+            once: true,
+          })
+        })
+      }
       await new Promise<void>((resolve) => {
         video.onseeked = () => resolve()
         video.currentTime = 0
