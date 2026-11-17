@@ -16,7 +16,7 @@ A file the browser cannot decode is listed under the library with the reason, so
 
 Each library row has an **Add** button — its full name is *Add … to timeline*. Click it to append the clip to the **Sequence**, the top section of the timeline. Add two clips.
 
-Sequence entries play one after another in the order they are listed. Each timeline row has **↑** and **↓** on its main line to move it, and **✕** to take it off the timeline; the clip stays in the library.
+Sequence entries play one after another in the order they are listed. Each sequence entry has **↑** and **↓** on its main line to move it, and every timeline row has **✕** to take it off the timeline; the clip stays in the library. A row's **⋯** menu offers the same moves and removal.
 
 ![The Timeline panel with both clips in the Sequence section: two expanded rows, each with a thumbnail, its name and duration, ↑ ↓ ⋯ ✕, a green coverage bar and its In, Out and Volume fields; + Transition sits between them, and the Total in the header is the two durations added](images/timeline-two-clips.png)
 

@@ -8,7 +8,7 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **What it does.** Plays a sound clip at a start time of your choosing, mixed with the sequence's own sound.
 
-**Details.** A track's row has **Starts at** — the second of the video it begins — and **In** and **Out**, its trim in seconds into the clip, then its [audio fields](#volume-and-mute). Tracks overlap freely and are independent of the sequence's cuts: moving an entry never moves a track. Anything past the end of the sequence is cut off there, like every element. A track's ⋯ menu offers [Duplicate](timeline.md#duplicate) (the copy starts where the original ends), [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) (the *Audio* group), and [Rename…](timeline.md#rename).
+**Details.** A track's row has **Starts at** — the second of the video it begins — and **In** and **Out**, its trim in seconds into the clip, then its [audio fields](#volume-and-mute). Tracks overlap freely and are independent of the sequence's cuts: moving an entry never moves a track. Anything past the end of the sequence is cut off there, like every element. A track's ⋯ menu offers [Duplicate](timeline.md#duplicate) (the copy starts where the original ends), [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) (the *Audio* group), [Rename…](timeline.md#rename), and **Remove**, as the row's ✕ does.
 
 **Related.** [The four sections](timeline.md#the-four-sections) · [Trimming](editing-video.md#trimming) · [Time on the timeline](concepts.md#time-on-the-timeline)
 
