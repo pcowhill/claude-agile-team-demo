@@ -102,6 +102,17 @@ export async function sampleExportedFrame(
           }
           video.src = url
         })
+        // Firefox drops a seek issued before the first frame has loaded: at
+        // readyState 1 the assignment can be lost with no seeking event, leaving
+        // currentTime at 0 (#615). Seek only once loadeddata has fired.
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          await new Promise<void>((resolve, reject) => {
+            video.addEventListener('loadeddata', () => resolve(), { once: true })
+            video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
+              once: true,
+            })
+          })
+        }
         const duration = video.duration
         const target = Math.max(0, duration - fromEndSeconds)
         // Wait for the seek to settle AND the sought frame to be PRESENTED
@@ -237,6 +248,17 @@ export async function sampleExportedGrid(
           }
           video.src = url
         })
+        // Firefox drops a seek issued before the first frame has loaded: at
+        // readyState 1 the assignment can be lost with no seeking event, leaving
+        // currentTime at 0 (#615). Seek only once loadeddata has fired.
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          await new Promise<void>((resolve, reject) => {
+            video.addEventListener('loadeddata', () => resolve(), { once: true })
+            video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
+              once: true,
+            })
+          })
+        }
         const duration = video.duration
         const target = Math.max(0, duration - fromEndSeconds)
         await new Promise<void>((resolve, reject) => {
