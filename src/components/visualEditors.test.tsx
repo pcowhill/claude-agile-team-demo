@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentType } from 'react'
 import { lazyEditor } from './visualEditors'
@@ -118,8 +118,11 @@ describe("the visual editors' lazy loader (#537, #568)", () => {
     // Escape handlers are inside the chunk that just failed to arrive. Found
     // in review of #570: the tooltip named a key nothing listened for. Focus
     // is half of it, because the handler is on the dialog.
+    // The panel focuses ✕ in a passive effect after the commit that shows
+    // it, so findByRole can resolve in between: retry the read rather than
+    // take it once (#624, quality-and-ci.md's "never read a value once").
     const close = screen.getByRole('button', { name: 'Close the crop editor' })
-    expect(close).toHaveFocus()
+    await waitFor(() => expect(close).toHaveFocus())
 
     await userEvent.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
