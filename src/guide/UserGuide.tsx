@@ -80,8 +80,18 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
 
   // Arriving somewhere shows it: the heading for a deep link, the top of the
   // section otherwise. `scrollIntoView` is missing in jsdom, hence the guard.
+  //
+  // Starting a search shows its results from the top (#638). They replace
+  // the article, but the panel keeps its scroll offset, so a search typed
+  // after reading far down a page, or straight after opening a hit, began
+  // with its first results scrolled out of view. This runs when `searching`
+  // turns on, not on every keystroke, so a reader scrolling a long result
+  // list while refining the query keeps their place.
   useEffect(() => {
-    if (searching) return
+    if (searching) {
+      if (panelRef.current !== null) panelRef.current.scrollTop = 0
+      return
+    }
     if (location.anchor !== null) {
       const heading = document.getElementById(headingElementId(section.id, location.anchor))
       if (heading !== null) {
@@ -102,8 +112,8 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
   // away, but without scrolling (#616), for the reason the opening focus
   // above gives (#597): Firefox applies a focus's scroll lazily, after the
   // arrival effect has scrolled to the hit's heading, and so scrolled the
-  // panel back to the field. The field is not sticky, so after the arrival
-  // it sits above the panel's visible box, in Chromium as it did before.
+  // panel back to the field. The field is sticky (#638), so it stays in view
+  // above the heading while the panel scrolls to it.
   const openHit = (hit: SearchHit) => {
     go({ section: hit.passage.section, anchor: hit.passage.anchor })
     searchRef.current?.focus({ preventScroll: true })

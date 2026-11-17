@@ -86,6 +86,11 @@
   border-left: 1px solid #333;
   background: #1f1f1f;
   padding: 0.75rem 1rem 1rem;
+  /* Clear of the guide's sticky search band (#638, UserGuide.css), so a
+     heading an arrival scrolls to lands below it rather than under it. The
+     band measured 53px (3.3rem) tall at 1280×720 in Chromium; the heading's
+     own 0.5rem `scroll-margin-top` adds to this. */
+  scroll-padding-top: 3.5rem;
 }
 
 .user-guide-loading {
