@@ -603,6 +603,8 @@ export interface FrameComposer {
     overlay?: OverlayFrame | null,
   ) => void
   videoFrame: (element: HTMLVideoElement) => LayerFrame
+  /** `videoFrame`, holding the last good picture across a stall (#635). */
+  heldVideoFrame: (element: HTMLVideoElement) => LayerFrame
   stillFrame: (entry: TimelineEntry, time: number) => LayerFrame
 }
 
@@ -611,19 +613,12 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   const createCanvas = options.createCanvas ?? (() => document.createElement('canvas'))
 
   /**
-   * A video layer's frame, drawn from the element itself.
-   *
-   * The base layer needs no stand-in of its own, and #323 established why:
-   * `drawFrame` clears to black before drawing it, so it *looks* like a
-   * stalled element would record a black frame — but a seeking element
-   * paints its retained picture, so it does not. Measured on a real export
-   * whose primary was seeked throughout: 54 of 175 base draws happened with
-   * the element below `HAVE_CURRENT_DATA`, and 0 of 86 presented frames were
-   * black. `e2e/export-base-readiness.spec.ts` holds that property down.
-   *
-   * Do not add a readiness check here. Injecting one is what the black
-   * frames come from: with the element's picture replaced by an empty canvas
-   * when it reports unready, the same export recorded 28 black frames of 85.
+   * A video layer's frame, drawn from the element itself, whatever its
+   * readiness. The single-instant snapshot (`frameSnapshot.ts`) uses this:
+   * it waits for its sought frame to be presented (#276) and re-seeks one
+   * element across renders of different instants, so a held frame from an
+   * earlier render would be the wrong picture there. The real-time export
+   * loop uses `heldVideoFrame` below.
    */
   const videoFrame = (element: HTMLVideoElement): LayerFrame => ({
     source: element,
@@ -631,6 +626,44 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     sourceHeight: element.videoHeight,
     time: element.currentTime,
   })
+
+  /**
+   * The export loop's base or transition layer frame: the element itself
+   * while it can supply a picture, otherwise the last one it did (#635) —
+   * the stand-in overlays have had since #319, through the same
+   * `replayPicture`.
+   *
+   * #323 had concluded the base needed none: `drawFrame` clears to black
+   * before drawing it, but in **Chromium** a seeking element paints its
+   * retained picture, so a stalled base still drew. Measured there on a real
+   * export whose primary was seeked throughout: 54 of 175 base draws had the
+   * element below `HAVE_CURRENT_DATA`, and 0 of 86 presented frames were
+   * black. **Firefox** does not: an element at `readyState` 1 mid-seek paints
+   * nothing, so those frames recorded black. Instrumented under Firefox 153,
+   * every black base draw (11 of 11 and 39 of 39, in two exports) was at
+   * `readyState` 1, and a seeking element at `readyState` 4 painted
+   * normally. `e2e/export-base-readiness.spec.ts` holds the property in both
+   * browsers.
+   *
+   * What #324 warned against still holds: never *skip* or blank the layer
+   * when the element is unready. Replacing its picture with an empty canvas
+   * is what recorded 28 black frames of 85 in Chromium. Only a held copy of
+   * the last good frame is safe.
+   *
+   * An element that has never decoded a frame of its current source has no
+   * stand-in; it is drawn as before, and paints nothing, since there is
+   * nothing truthful to hold.
+   */
+  const heldVideoFrame = (element: HTMLVideoElement): LayerFrame => {
+    const picture = replayPicture(element)
+    if (picture === null) return videoFrame(element)
+    return {
+      source: picture.source,
+      sourceWidth: picture.width,
+      sourceHeight: picture.height,
+      time: element.currentTime,
+    }
+  }
 
   /**
    * A full-frame canvas per slate color (#143), created on first use. Sized
@@ -844,7 +877,8 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   }
 
   /**
-   * The last picture each overlay replay element supplied (#319).
+   * The last picture each replay element supplied: overlays since #319, and
+   * the base and transition layers since #635 (see `heldVideoFrame`).
    *
    * The export used to *skip* an overlay layer whose element was below
    * `HAVE_CURRENT_DATA`, which deleted the layer from that frame's output
@@ -877,11 +911,14 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
    * element that has never decoded anything genuinely does paint nothing.
    *
    * Keyed by element, so a layer's stand-in follows its own replay element
-   * and is re-made if the source's intrinsic size ever changes.
+   * and is re-made if the source's intrinsic size ever changes. The base's
+   * replay element is re-pointed at each sequence entry's source in turn, so
+   * a stand-in also records the source it was copied from and stands in only
+   * for that one: a held frame of the previous clip is not this clip's frame.
    */
-  const overlayStandIns = new Map<
+  const standIns = new Map<
     HTMLVideoElement,
-    { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }
+    { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; src: string }
   >()
 
   /**
@@ -915,7 +952,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   }
 
   /**
-   * What to draw for an overlay layer this frame, with the intrinsic size to
+   * What to draw for a video layer this frame, with the intrinsic size to
    * measure its crop and placement against: the element itself while it can
    * supply a picture, otherwise the last one it did.
    *
@@ -923,7 +960,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
    * the one where `drawImage` really does paint nothing (measured: alpha 0),
    * so there is nothing truthful to draw and skipping remains right.
    */
-  const overlayPicture = (
+  const replayPicture = (
     element: HTMLVideoElement,
   ): { source: CanvasImageSource; width: number; height: number } | null => {
     if (
@@ -934,7 +971,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       // Refresh the stand-in from the frame about to be drawn, so the next
       // frame the element cannot supply one has the true previous picture
       // rather than a stale or empty one.
-      let standIn = overlayStandIns.get(element)
+      let standIn = standIns.get(element)
       if (
         standIn === undefined ||
         standIn.canvas.width !== element.videoWidth ||
@@ -954,14 +991,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             height: element.videoHeight,
           }
         }
-        standIn = { canvas, context: standInContext }
-        overlayStandIns.set(element, standIn)
+        standIn = { canvas, context: standInContext, src: element.currentSrc }
+        standIns.set(element, standIn)
       }
       standIn.context.drawImage(element, 0, 0, standIn.canvas.width, standIn.canvas.height)
+      standIn.src = element.currentSrc
       return { source: element, width: element.videoWidth, height: element.videoHeight }
     }
-    const standIn = overlayStandIns.get(element)
-    if (standIn === undefined) return null
+    const standIn = standIns.get(element)
+    if (standIn === undefined || standIn.src !== element.currentSrc) return null
     return {
       source: standIn.canvas,
       width: standIn.canvas.width,
@@ -1290,7 +1328,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           ? overlayStillPicture(layer)
           : element === null
             ? null
-            : overlayPicture(element)
+            : replayPicture(element)
         if (picture === null) continue
         // The overlay's orientation (#233): the oriented shape letterboxes
         // within the placement rectangle — the preview's swapped media box
@@ -1397,7 +1435,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     }
   }
 
-  return { drawFrame, videoFrame, stillFrame }
+  return { drawFrame, videoFrame, heldVideoFrame, stillFrame }
 }
 
 /**
@@ -2516,7 +2554,7 @@ export async function exportTimeline(
     }
   }
 
-  const { drawFrame, videoFrame, stillFrame } = createFrameComposer({
+  const { drawFrame, heldVideoFrame, stillFrame } = createFrameComposer({
     context,
     width,
     height,
@@ -2679,7 +2717,7 @@ export async function exportTimeline(
           videoEntryGainAt(entry, startInto, outDuration) *
           duckFactorAt(ducking, startTime + startInto)
         // The cue point is `startInto` output seconds into the entry.
-        drawFrame(videoFrame(primary), index, startTime + startInto)
+        drawFrame(heldVideoFrame(primary), index, startTime + startInto)
         sink?.frame(canvas, startTime + startInto)
         if (replayState.hold === null) {
           // The rate at the cue point (#144): 1 for an unremapped entry,
@@ -2854,7 +2892,7 @@ export async function exportTimeline(
                     progress,
                   ) * duck
                 overlayFrame = {
-                  layer: videoFrame(secondary),
+                  layer: heldVideoFrame(secondary),
                   index: index + 1,
                   type: overlap.type,
                   progress,
@@ -2873,7 +2911,7 @@ export async function exportTimeline(
           // A still's layer time is its clock read above (inPoint + output
           // elapsed — stills carry no remaps); a video draws its element.
           drawFrame(
-            still ? stillFrame(entry, entry.inPoint + outputInto) : videoFrame(primary),
+            still ? stillFrame(entry, entry.inPoint + outputInto) : heldVideoFrame(primary),
             index,
             sequenceTime,
             overlayFrame,

@@ -2400,6 +2400,141 @@ describe('untilCurrentData: a cue waits for a decoded frame (#612)', () => {
   })
 })
 
+describe('the export holds a base element\'s last frame across a stall (#635)', () => {
+  // Firefox paints nothing for an element at readyState 1 mid-seek, where
+  // Chromium paints its retained frame, so the base layer recorded black
+  // frames there. The export loop draws the base (and a transition's
+  // incoming layer) through `heldVideoFrame`, which falls back to a copy of
+  // the last frame the element supplied, as overlays have since #319.
+
+  interface FakeBaseElement {
+    tag: string
+    readyState: number
+    videoWidth: number
+    videoHeight: number
+    currentTime: number
+    currentSrc: string
+  }
+  const fakeBaseElement = (): FakeBaseElement => ({
+    tag: 'base-element',
+    readyState: HTMLMediaElement.HAVE_ENOUGH_DATA,
+    videoWidth: 320,
+    videoHeight: 180,
+    currentTime: 1.5,
+    currentSrc: 'blob:first',
+  })
+
+  const composerWith = () => {
+    const buffers: { tag: string; ops: string[]; width: number; height: number }[] = []
+    const composer = createFrameComposer({
+      context: fakeComposerContext().context,
+      width: 320,
+      height: 180,
+      timeline: { entries: [] },
+      stillSources: new Map(),
+      overlayReplays: [],
+      createCanvas: () => {
+        const buffer = fakeComposerContext()
+        const record = { tag: `held-${buffers.length}`, ops: buffer.ops, width: 0, height: 0 }
+        buffers.push(record)
+        return {
+          get tag() {
+            return record.tag
+          },
+          get width() {
+            return record.width
+          },
+          set width(value: number) {
+            record.width = value
+          },
+          get height() {
+            return record.height
+          },
+          set height(value: number) {
+            record.height = value
+          },
+          getContext: () => buffer.context,
+        } as unknown as HTMLCanvasElement
+      },
+    })
+    return { composer, buffers }
+  }
+  const tagOf = (source: CanvasImageSource) => (source as unknown as { tag: string }).tag
+
+  it('draws the live element while it can supply a frame, copying it as it goes', () => {
+    const element = fakeBaseElement()
+    const { composer, buffers } = composerWith()
+
+    const layer = composer.heldVideoFrame(element as unknown as HTMLVideoElement)
+
+    expect(tagOf(layer.source)).toBe('base-element')
+    expect(layer).toMatchObject({ sourceWidth: 320, sourceHeight: 180, time: 1.5 })
+    expect(buffers).toHaveLength(1)
+    expect(buffers[0].ops.filter((op) => op.startsWith('draw('))).toEqual([
+      'draw(base-element, [0, 0, 320, 180], none)',
+    ])
+  })
+
+  it('draws the held copy while the element is below HAVE_CURRENT_DATA, then the element again', () => {
+    const element = fakeBaseElement()
+    const { composer } = composerWith()
+    composer.heldVideoFrame(element as unknown as HTMLVideoElement)
+
+    // A seek in Firefox: readyState 1, and the element would paint nothing.
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    element.currentTime = 1.505
+    const stalled = composer.heldVideoFrame(element as unknown as HTMLVideoElement)
+    expect(tagOf(stalled.source)).toBe('held-0')
+    // Same intrinsic size, so the held frame lands exactly where the live
+    // one did; the layer time is still the element's, for its zoom.
+    expect(stalled).toMatchObject({ sourceWidth: 320, sourceHeight: 180, time: 1.505 })
+
+    element.readyState = HTMLMediaElement.HAVE_ENOUGH_DATA
+    expect(tagOf(composer.heldVideoFrame(element as unknown as HTMLVideoElement).source)).toBe(
+      'base-element',
+    )
+  })
+
+  it('does not hold a frame of the previous source once the element is re-pointed', () => {
+    const element = fakeBaseElement()
+    const { composer } = composerWith()
+    composer.heldVideoFrame(element as unknown as HTMLVideoElement)
+
+    // The next sequence entry: same replay element, new source, not decoded
+    // yet. A frame of the first clip is not this clip's frame.
+    element.currentSrc = 'blob:second'
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    expect(tagOf(composer.heldVideoFrame(element as unknown as HTMLVideoElement).source)).toBe(
+      'base-element',
+    )
+  })
+
+  it('draws an element that has never decoded a frame as before, allocating nothing', () => {
+    const element = fakeBaseElement()
+    element.readyState = HTMLMediaElement.HAVE_NOTHING
+    element.videoWidth = 0
+    element.videoHeight = 0
+    const { composer, buffers } = composerWith()
+
+    expect(tagOf(composer.heldVideoFrame(element as unknown as HTMLVideoElement).source)).toBe(
+      'base-element',
+    )
+    expect(buffers).toEqual([])
+  })
+
+  it('leaves videoFrame, the snapshot\'s path, drawing the element whatever its readiness', () => {
+    const element = fakeBaseElement()
+    const { composer, buffers } = composerWith()
+    composer.videoFrame(element as unknown as HTMLVideoElement)
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+
+    expect(tagOf(composer.videoFrame(element as unknown as HTMLVideoElement).source)).toBe(
+      'base-element',
+    )
+    expect(buffers).toEqual([])
+  })
+})
+
 describe('frame composition of still overlay layers (#295)', () => {
   const baseEntry = {
     id: 'e1',
