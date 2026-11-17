@@ -220,6 +220,29 @@ const AUDIO_DRIFT_EPSILON = 0.25
  */
 const VIDEO_DRIFT_EPSILON = 0.25
 
+/**
+ * Loop's wrap target as the idle secondary element holds it (#585): the
+ * sequence time, the entry there, and the remapped source instant and rate
+ * it was cued to — everything the swap at the wrap needs, so the wrap does
+ * not have to resolve or seek anything.
+ */
+type LoopCue = {
+  element: HTMLVideoElement
+  time: number
+  index: number
+  entry: TimelineEntry
+  outputInto: number
+  sourceTime: number
+  rate: number
+}
+
+/**
+ * The HTMLMediaElement readyState at which the element has the current
+ * frame decoded (HAVE_CURRENT_DATA). A pre-cued element below it would show
+ * nothing when it takes over, so the wrap falls back to the seek.
+ */
+const HAVE_CURRENT_DATA = 2
+
 // The now-playing transition label comes from the registry (#199) via
 // `transitionLabel` — core plus whatever enabled plugins contribute.
 
@@ -766,6 +789,10 @@ export function PreviewPlayer({
   // (#61 — element clocks drift, so that happens routinely at handover).
   const engagedForRef = useRef<number | null>(null)
   const [engagedFor, setEngagedFor] = useState<number | null>(null)
+  // Loop's wrap target, cued paused in the idle secondary element (#585):
+  // the sequence time it stands for and what the swap at the wrap needs to
+  // take over from there. Null while nothing is cued.
+  const loopCueRef = useRef<LoopCue | null>(null)
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
   // The keyboard-shortcut cheat sheet (#203), opened with `?`.
@@ -1010,6 +1037,9 @@ export function PreviewPlayer({
 
   /** Single writer for the engagement, keeping the ref and its state mirror in step. */
   const setEngaged = useCallback((value: number | null) => {
+    // An engaged overlap cues the secondary element to its incoming entry,
+    // so whatever Loop had cued there is gone (#585).
+    if (value !== null) loopCueRef.current = null
     engagedForRef.current = value
     setEngagedFor(value)
   }, [])
@@ -1169,6 +1199,102 @@ export function PreviewPlayer({
   const stopLoop = useCallback(() => {
     cancelAnimationFrame(frameRef.current)
   }, [])
+
+  /**
+   * Loop's pre-cue (#585). A wrap used to seek the playing element back to
+   * the mark-in, and the pass could not resume until that seek completed:
+   * about two frames in Chromium, but 100–170 ms in Firefox (more on a
+   * MediaRecorder WebM, which has no cues). On a short span that froze a
+   * quarter of every pass on the mark-in frame, which is the stutter the
+   * customer saw. So while Loop plays and the secondary element is idle
+   * (no transition engaged), it stands paused on the wrap target, already
+   * seeked and decoded. The wrap then swaps roles and plays it, the way a
+   * transition handover promotes the incoming element, and nothing seeks.
+   *
+   * Cheap when nothing changed: the cue is re-made only when it was
+   * dropped (an overlap engaged the element, an edit) or no longer fits (a
+   * handover swapped roles, the marks moved). A target the idle element
+   * cannot stand on has no cue, and the wrap seeks as before: inside a
+   * transition overlap (the secondary element is the incoming layer
+   * there), on a still (no element), or inside a pause plateau (a hold is
+   * a wall clock, not a frame to pre-roll).
+   */
+  const preCueLoopTarget = useCallback(() => {
+    const secondary = secondaryVideo()
+    if (!secondary || engagedForRef.current !== null) return
+    const span = loopSpanRef.current
+    const target = span === null ? 0 : span.start
+    // Identity, not the element's clock: right after a src switch the
+    // element's currentSrc and currentTime still read the old clip, and
+    // re-cueing on that would restart its load every frame.
+    const held = loopCueRef.current
+    if (held !== null && held.element === secondary && held.time === target) return
+    loopCueRef.current = null
+    const location = locateInSequence(timeline, target)
+    if (location === null || location.transition !== undefined || isStillEntry(location.entry)) return
+    const outputInto = target - entryStartTime(timeline, location.index)
+    const state = remapPlaybackAt(
+      effectiveDuration(location.entry),
+      remapsForEntry(timeline, location.entry.id),
+      outputInto,
+    )
+    if (state.hold !== null) return
+    const sourceTime = location.entry.inPoint + state.sourceTime
+    if (!secondary.paused) secondary.pause()
+    cueElement(secondary, location.entry.url, sourceTime, false, state.rate)
+    loopCueRef.current = {
+      element: secondary,
+      time: target,
+      index: location.index,
+      entry: location.entry,
+      outputInto,
+      sourceTime,
+      rate: state.rate,
+    }
+  }, [cueElement, timeline])
+
+  /**
+   * The wrap through the pre-cue (#585): when the idle secondary element
+   * stands ready on `target`, promote it to primary and play it, then
+   * publish the target, exactly where a seek would have landed. Returns
+   * false, changing nothing, when it is not ready (still seeking, frame
+   * not decoded, or the cue no longer matches), and the caller seeks.
+   */
+  const wrapToLoopCue = useCallback(
+    (target: number): boolean => {
+      const cue = loopCueRef.current
+      const incoming = secondaryVideo()
+      if (cue === null || cue.time !== target || cue.element !== incoming || engagedForRef.current !== null) {
+        return false
+      }
+      if (
+        incoming.currentSrc !== cue.entry.url ||
+        incoming.seeking ||
+        incoming.readyState < HAVE_CURRENT_DATA ||
+        Math.abs(incoming.currentTime - cue.sourceTime) > BOUNDARY_EPSILON
+      ) {
+        return false
+      }
+      primaryVideo()?.pause()
+      loopCueRef.current = null
+      primaryIsARef.current = !primaryIsARef.current
+      setPrimaryIsA(primaryIsARef.current)
+      setIndex(cue.index)
+      holdRef.current = null
+      stillClockRef.current = null
+      lastRelSourceRef.current = cue.sourceTime - cue.entry.inPoint
+      incoming.playbackRate = playedRate(cue.rate)
+      incoming.volume =
+        videoEntryGainAt(cue.entry, cue.outputInto, entryOutputDuration(cue.entry, remapsOf(timeline))) *
+        duckFactorAt(ducking, target)
+      incoming.play().catch(() => {})
+      setSequenceTime(target)
+      syncAudioTracks(target, true)
+      syncVideoOverlays(target, true)
+      return true
+    },
+    [timeline, ducking, playedRate, setIndex, syncAudioTracks, syncVideoOverlays],
+  )
 
   /**
    * Per-frame while playing: publish the current sequence position, run the
@@ -1374,10 +1500,12 @@ export function PreviewPlayer({
       } else if (loopRef.current) {
         // Loop (#459): the sequence end is the end of a pass, not of
         // playback — back to the mark-in (a span ending here loops from its
-        // own start) or to 0, through the same seek a slider drag makes,
-        // so every element re-cues together. The tick carries on.
+        // own start) or to 0. The pre-cued idle element takes over there
+        // when it is ready (#585); otherwise through the same seek a slider
+        // drag makes, so every element re-cues together. The tick carries on.
         const sequenceEnd = totalDuration(timeline)
-        seekRef.current(loopWrapTarget(sequenceEnd, loopSpanRef.current, sequenceEnd) ?? 0)
+        const target = loopWrapTarget(sequenceEnd, loopSpanRef.current, sequenceEnd) ?? 0
+        if (!wrapToLoopCue(target)) seekRef.current(target)
         frameRef.current = requestAnimationFrame(tick)
         return
       } else {
@@ -1395,13 +1523,14 @@ export function PreviewPlayer({
       const time = entryStartTime(timeline, index) + outputInto
       // Loop (#459): a pass ends the moment the published position reaches
       // the mark-out — half-open, so the out-point's frame never shows twice
-      // and nothing past it plays. The wrap is an ordinary seek to the
-      // mark-in while playing, and this frame's remaining work (gain, the
-      // overlap) belongs to a position that is no longer current.
+      // and nothing past it plays. The wrap swaps to the element pre-cued
+      // on the mark-in (#585), or, when that is not ready, seeks there
+      // while playing. This frame's remaining work (gain, the overlap)
+      // belongs to a position that is no longer current.
       if (loopRef.current) {
         const wrap = loopWrapTarget(time, loopSpanRef.current, total)
         if (wrap !== null) {
-          seekRef.current(wrap)
+          if (!wrapToLoopCue(wrap)) seekRef.current(wrap)
           frameRef.current = requestAnimationFrame(tick)
           return
         }
@@ -1487,8 +1616,10 @@ export function PreviewPlayer({
         }
       }
     }
+    // Last, so a frame that engaged an overlap above leaves the element to it.
+    if (loopRef.current) preCueLoopTarget()
     frameRef.current = requestAnimationFrame(tick)
-  }, [timeline, total, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking, playedRate])
+  }, [timeline, total, cueElement, cuePrimary, setEngaged, setIndex, syncAudioTracks, syncVideoOverlays, pauseAudioTracks, pauseVideoOverlays, ducking, playedRate, preCueLoopTarget, wrapToLoopCue])
 
   const play = useCallback(() => {
     // Play from the end restarts the sequence; with Loop on (#459), Play
@@ -1747,6 +1878,8 @@ export function PreviewPlayer({
     pauseAudioTracks()
     pauseVideoOverlays()
     setEngaged(null)
+    // A cue names an entry the edit may have changed or removed (#585).
+    loopCueRef.current = null
     // The played index (#318) is position state like the rest: after an edit
     // the entry it named may be gone or renumbered, so it stops guarding
     // anything until the next cue re-establishes it. Index 0 can never be
