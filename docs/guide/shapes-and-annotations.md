@@ -8,7 +8,7 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 
 **What it does.** Adds a group to the Shapes section, starting at the playhead, with one red ellipse with a clear centre in the middle of the frame.
 
-**Details.** The group shows for {{DEFAULT_SHAPE_GROUP_DURATION}} s from where the playhead stands, or from the end of the video if the playhead is past it. The ellipse has a red border at full opacity, about 6 px thick in a 1080p frame, and no fill. Adding the group is one undo step. Its row is named for what it holds — *Ellipse*, *Ellipse + Rectangle*, *3 ellipses* — and the name follows its shapes as you add and remove them. Take the group off the timeline with the row's **✕**, or **Remove** in its **⋯** menu; both ask first.
+**Details.** The group shows for {{DEFAULT_SHAPE_GROUP_DURATION}} s from where the playhead stands, or from the end of the video if the playhead is past it. The ellipse has a red border at full opacity, about 6 px thick in a 1080p frame, and no fill. Adding the group is one undo step. Its row is named for what it holds — *Ellipse*, *Ellipse + Rectangle*, *3 ellipses* — and the name follows its shapes as you add and remove them, until you give the group a name of its own with **Rename…** (emptying the name goes back to this one). Take the group off the timeline with the row's **✕**, or **Remove** in its **⋯** menu; both ask first. The same menu holds **Duplicate**, which adds a copy starting where the group ends, and **Copy settings** / **Paste settings**, which carry a group's timing and fades onto another group without touching its shapes. See [The ⋯ menu](timeline.md#the-menu).
 
 **Related.** [A group's timing and fades](#a-group-s-timing-and-fades) · [The header](timeline.md#the-header)
 

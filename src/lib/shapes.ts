@@ -166,6 +166,12 @@ export interface ShapeGroupSpec {
   fadeOut?: number
   /** Bottom to top: a later shape draws over an earlier one. Never empty. */
   shapes: Shape[]
+  /**
+   * The group's own name, set by Rename… (#687). Absent means the row shows
+   * the name derived from its shapes (`shapeGroupLabel`), so clearing it
+   * returns to that. When present it is trimmed and never empty.
+   */
+  name?: string
 }
 
 export type ShapeGroup = ShapeGroupSpec & { id: string }
@@ -306,6 +312,12 @@ export function isValidShapeGroupSpec(group: ShapeGroupSpec): boolean {
   if (!finite(group.duration) || group.duration <= 0) return false
   if (group.fadeIn !== undefined && (!finite(group.fadeIn) || group.fadeIn < 0)) return false
   if (group.fadeOut !== undefined && (!finite(group.fadeOut) || group.fadeOut < 0)) return false
+  if (
+    group.name !== undefined &&
+    (typeof group.name !== 'string' || group.name === '' || group.name !== group.name.trim())
+  ) {
+    return false
+  }
   if (!Array.isArray(group.shapes) || group.shapes.length === 0) return false
   const ids = new Set<string>()
   for (const shape of group.shapes) {
@@ -375,6 +387,7 @@ function shapesEqual(a: Shape, b: Shape): boolean {
 export function shapeGroupsEqual(a: ShapeGroup, b: ShapeGroup): boolean {
   return (
     a.id === b.id &&
+    a.name === b.name &&
     a.offset === b.offset &&
     a.duration === b.duration &&
     (a.fadeIn ?? 0) === (b.fadeIn ?? 0) &&
@@ -416,7 +429,8 @@ export function isInvisibleShape(shape: ShapeStyle & { kind?: ShapeKind }): bool
 }
 
 /**
- * The name a group's row shows (#681 §1): its shapes by kind, in first-seen
+ * The name derived from a group's shapes (#681 §1), which its row shows
+ * unless the group has been renamed (`shapeGroupName`): its shapes by kind, in first-seen
  * order, counted — *Ellipse*, *Ellipse + Rectangle*, *3 ellipses*.
  */
 export function shapeGroupLabel(group: ShapeGroupSpec): string {
@@ -427,6 +441,14 @@ export function shapeGroupLabel(group: ShapeGroupSpec): string {
       count === 1 ? SHAPE_KIND_LABELS[kind] : `${count} ${SHAPE_KIND_LABELS[kind].toLowerCase()}s`,
     )
     .join(' + ')
+}
+
+/**
+ * The name a group's row shows: its own, set by Rename… (#687), or else the
+ * one derived from its shapes.
+ */
+export function shapeGroupName(group: ShapeGroupSpec): string {
+  return group.name ?? shapeGroupLabel(group)
 }
 
 /** A fraction of the frame's shorter side in output pixels — what the row shows. */

@@ -897,9 +897,15 @@
 }
 
 /* A shape group's name (#683): derived from its shapes, one line, the
-   row's flexible middle like a sequence entry's name. */
+   row's flexible middle like a sequence entry's name. Since #687 it can be
+   a name of the user's own, of any length. A nowrap string's min-content is
+   the whole string, and `min-width` does not lower it, so a long name set
+   the panel's minimum and widened the editor column to 705px at a 360px
+   window. `width: 0` makes the 5rem floor (`.clip-name`) its minimum, and
+   `flex: 1` still grows it into the row. */
 .shape-group-main .clip-name {
   flex: 1;
+  width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

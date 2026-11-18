@@ -5,6 +5,7 @@ import type { RedactionRegion } from './redaction'
 import type { SpotlightRegion } from './spotlight'
 import type { BackgroundFill } from './backgroundFill'
 import type { TextFontId } from './textOverlay'
+import type { ShapeGroup } from './shapes'
 import type { AudioTrack, TimelineEntry, TextOverlay } from './timeline'
 import { isSlateEntry, isStillEntry } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
@@ -27,8 +28,14 @@ import { isImageOverlay } from './videoOverlay'
  * (identity / none) while the group itself is present.
  */
 
-/** The kind discriminator paste actions carry — the #314 duplicate kinds. */
-export type SettingsElementKind = 'entry' | 'audio-track' | 'video-overlay' | 'text'
+/**
+ * The kind discriminator paste actions carry — the #314 duplicate kinds,
+ * and shape groups since #687.
+ */
+export type SettingsElementKind = 'entry' | 'audio-track' | 'video-overlay' | 'text' | 'shape-group'
+
+/** Any row Copy settings and Paste settings act on. */
+export type SettingsElement = TimelineEntry | AudioTrack | VideoOverlay | TextOverlay | ShapeGroup
 
 export const SETTINGS_GROUPS = [
   { id: 'color', label: 'Color' },
@@ -39,6 +46,7 @@ export const SETTINGS_GROUPS = [
   { id: 'redaction', label: 'Redact' },
   { id: 'audio', label: 'Audio' },
   { id: 'text-style', label: 'Text style' },
+  { id: 'shape-timing', label: 'Timing and fades' },
 ] as const
 
 export type SettingsGroup = (typeof SETTINGS_GROUPS)[number]['id']
@@ -77,6 +85,24 @@ export interface TextStyleSettings {
 }
 
 /**
+ * The shape-timing group (#687, from the approved design #681 §9): a shape
+ * group's window and fades — *Shows at*, *for*, *Fade in* and *out*. Its
+ * shapes are never carried. Only shape groups hold it, so it never meets
+ * another kind's settings: a paste between a shape group and any other row
+ * offers nothing, the rule for kinds that share no group.
+ *
+ * Timing is placement for every other kind, and placement is never a
+ * setting there. A shape group has nothing else to carry, and matching one
+ * annotation's moment and fades to another's is what #681 asked for.
+ */
+export interface ShapeTimingSettings {
+  offset: number
+  duration: number
+  fadeIn: number
+  fadeOut: number
+}
+
+/**
  * What Copy settings holds. A key is present exactly when the source row
  * holds that group; the value inside may be `undefined`, meaning the
  * source's effective value is the identity (see the module comment).
@@ -103,6 +129,7 @@ export interface CopiedSettings {
   spotlight?: { spotlights: readonly SpotlightRegion[] | undefined }
   audio?: AudioSettings
   'text-style'?: TextStyleSettings
+  'shape-timing'?: ShapeTimingSettings
 }
 
 const groupsOf = (settings: CopiedSettings): SettingsGroup[] =>
@@ -119,7 +146,7 @@ const groupsOf = (settings: CopiedSettings): SettingsGroup[] =>
  */
 export function heldSettingsGroups(
   kind: SettingsElementKind,
-  element: TimelineEntry | AudioTrack | VideoOverlay | TextOverlay,
+  element: SettingsElement,
 ): SettingsGroup[] {
   switch (kind) {
     case 'entry': {
@@ -147,6 +174,8 @@ export function heldSettingsGroups(
     }
     case 'text':
       return ['text-style']
+    case 'shape-group':
+      return ['shape-timing']
   }
 }
 
@@ -157,7 +186,7 @@ export function heldSettingsGroups(
  */
 export function copyElementSettings(
   kind: SettingsElementKind,
-  element: TimelineEntry | AudioTrack | VideoOverlay | TextOverlay,
+  element: SettingsElement,
 ): CopiedSettings | undefined {
   switch (kind) {
     case 'entry': {
@@ -234,6 +263,17 @@ export function copyElementSettings(
         },
       }
     }
+    case 'shape-group': {
+      const group = element as ShapeGroup
+      return {
+        'shape-timing': {
+          offset: group.offset,
+          duration: group.duration,
+          fadeIn: group.fadeIn ?? 0,
+          fadeOut: group.fadeOut ?? 0,
+        },
+      }
+    }
   }
 }
 
@@ -246,7 +286,7 @@ export function copyElementSettings(
 export function compatibleSettingsGroups(
   copied: CopiedSettings,
   targetKind: SettingsElementKind,
-  target: TimelineEntry | AudioTrack | VideoOverlay | TextOverlay,
+  target: SettingsElement,
 ): SettingsGroup[] {
   const held = new Set(heldSettingsGroups(targetKind, target))
   return groupsOf(copied).filter((group) => held.has(group))
@@ -272,5 +312,7 @@ export function filterSettings(
   if (keep.has('audio') && copied.audio !== undefined) filtered.audio = copied.audio
   if (keep.has('text-style') && copied['text-style'] !== undefined)
     filtered['text-style'] = copied['text-style']
+  if (keep.has('shape-timing') && copied['shape-timing'] !== undefined)
+    filtered['shape-timing'] = copied['shape-timing']
   return filtered
 }
