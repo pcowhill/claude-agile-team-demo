@@ -11,11 +11,48 @@
   box-sizing: border-box;
 }
 
+/* The page is exactly the window's height, and the app takes whatever the
+   rest of the page leaves it (#652, from the customer's #651). On GitHub
+   Pages `#root` is the body's only child, so that is the whole window, as
+   it was. A host page that puts the app between its own header and footer —
+   siblings of `#root`, the shape the customer embeds it in — needs no CSS of
+   its own: they keep their natural heights and stay on screen, and `#root`
+   gets the rest. Before this the shell claimed `100dvh` itself (#524), so
+   embedded the page was that plus the header plus the footer, and scrolled
+   by exactly their height on an empty project.
+
+   This is a stylesheet the bundle ships, so it styles the host's `<body>`
+   too — deliberately: it is the one element whose height both the host's
+   siblings and `#root` are laid out in, and the app already set its margin
+   and minimum size here.
+
+   `dvh` rather than `vh` for #524's reason: `vh` is the large mobile
+   viewport, the height the page has once the URL bar has scrolled away, so
+   it would put the body's bottom under the bar whenever the bar shows. */
 body {
   margin: 0;
   min-width: 320px;
-  /* Follows `.app`'s own height unit (#524): left at `100vh` this floor is
-     the large mobile viewport, so the body alone would outgrow a shell that
-     fits, and the page would scroll by the height of the URL bar. */
-  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A host page's own siblings of `#root` keep the height they ask for. A
+   flex item may otherwise shrink below a declared height, down to its
+   content, whenever the column is short of room — a header with
+   `height: 80px` and one line of text would give up most of its 80px before
+   `#root` gave up any of its. */
+body > :not(#root) {
+  flex-shrink: 0;
+}
+
+/* The app's mount point takes the body's remaining height and hands it on.
+   `min-height: 0`, or a flex item keeps its content-based minimum and
+   grows back past the space it was given — the same reason `.app-body`
+   carries it in App.css. */
+#root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
