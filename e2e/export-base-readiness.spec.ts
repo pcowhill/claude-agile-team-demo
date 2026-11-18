@@ -156,7 +156,15 @@ test('the base layer never records a black frame while its element is seeking (#
   // leaves the element settled only for the moment between that event and
   // the next seek's drop, however fast its seeks complete.
   await page.evaluate(() => {
-    const probe = { stalls: 0, frames: 0, seeks: 0, ticks: 0, captured: false, source: '' }
+    const probe = {
+      stalls: 0,
+      seekingFrames: 0,
+      frames: 0,
+      seeks: 0,
+      ticks: 0,
+      captured: false,
+      source: '',
+    }
     ;(window as unknown as { __probe: typeof probe }).__probe = probe
     let armed: HTMLMediaElement | null = null
     const exportCanvases = new WeakSet<HTMLCanvasElement>()
@@ -184,6 +192,10 @@ test('the base layer never records a black frame while its element is seeking (#
         h === canvas.height
       ) {
         probe.frames += 1
+        // Counted apart from the stalls (#673), so a failure can tell an
+        // element that was never seeking from one seeking with its picture
+        // still reported ready.
+        if (armed.seeking) probe.seekingFrames += 1
         if (armed.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) probe.stalls += 1
       }
       return realFillRect.call(this, x, y, w, h)
@@ -235,6 +247,7 @@ test('the base layer never records a black frame while its element is seeking (#
         window as unknown as {
           __probe: {
             stalls: number
+            seekingFrames: number
             frames: number
             seeks: number
             ticks: number
@@ -245,7 +258,7 @@ test('the base layer never records a black frame while its element is seeking (#
       ).__probe,
   )
   // Printed so a failure says what the probe saw, not only that it failed.
-  const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seeks} seeks, ${probe.ticks} ticks`
+  const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seekingFrames} composed while seeking, ${probe.seeks} seeks, ${probe.ticks} ticks`
   // Without these the check could pass vacuously, having provoked nothing.
   expect(probe.captured, 'the export primary replay element was never captured').toBe(true)
   expect(probe.source, 'the armed element was not playing the clip').toMatch(/^blob:/)
