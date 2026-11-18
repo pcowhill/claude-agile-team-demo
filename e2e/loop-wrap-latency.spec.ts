@@ -147,27 +147,35 @@ test('the idle element Loop pre-cues shows nothing and takes no clicks (#641)', 
   )
   expect(hitIdle, 'the idle card is hit at the stage centre').toBe(false)
 
-  // The stage as styled is pixel-identical to the stage with the idle card
-  // fully transparent. The control, the card fully opaque, must differ, or
-  // the comparison proves nothing. Firefox can repaint the paused frame on
-  // screen just after the pause, so the stage is first read until two
-  // consecutive reads agree.
-  let asStyled = await stage.screenshot()
-  await expect
-    .poll(async () => {
-      const next = await stage.screenshot()
-      const settled = next.equals(asStyled)
-      asStyled = next
-      return settled
-    })
-    .toBe(true)
+  // The control: the card fully opaque must change the stage, or the
+  // comparison below proves nothing.
   await setIdleOpacity('0')
   const transparent = await stage.screenshot()
   await setIdleOpacity('1')
   const opaque = await stage.screenshot()
   await setIdleOpacity('')
   expect(opaque.equals(transparent), 'control: the idle frame differs from the frame on screen').toBe(false)
-  expect(asStyled.equals(transparent), 'the idle card changes the picture').toBe(true)
+
+  // The stage as styled is pixel-identical to the stage with the idle card
+  // fully transparent, each pair shot back to back and retried. Firefox can
+  // repaint the paused frame on screen well after the pause, even after two
+  // consecutive shots have agreed on the frame before it (#642's review: 3
+  // of 25 runs failed that way, the late shot as styled matching the
+  // transparent one exactly). A repaint costs one attempt here; a card that
+  // shows fails every attempt, since its contribution is in each shot as
+  // styled and in no transparent one.
+  await expect
+    .poll(
+      async () => {
+        const asStyled = await stage.screenshot()
+        await setIdleOpacity('0')
+        const transparentNow = await stage.screenshot()
+        await setIdleOpacity('')
+        return asStyled.equals(transparentNow)
+      },
+      { message: 'the idle card changes the picture' },
+    )
+    .toBe(true)
 })
 
 // `marks: null` loops the whole sequence, which wraps at the sequence end
