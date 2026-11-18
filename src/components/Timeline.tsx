@@ -392,6 +392,30 @@ interface SecondsFieldProps {
    * hour-long clip is neither.
    */
   slider?: boolean
+  /**
+   * The unit drawn inside the box, after the number (#665): `s`, `%`, `px`
+   * or `×`. It is not part of the value — the input stays `type="number"`,
+   * so typing, the spinner, step and min/max work exactly as without it.
+   * Absent for a value that truly is just a number (a 0–1 fraction).
+   */
+  unit?: FieldUnit
+}
+
+/** The units a field can carry (#665). */
+type FieldUnit = 's' | '%' | 'px' | '×'
+
+/**
+ * The word an accessible name uses for each unit. When the field's label
+ * already says it ("in seconds", "(percent)", "in pixels"), the drawn unit
+ * is hidden from assistive technology so it is not read twice; `×` has no
+ * word in today's names, so it stays readable, as the loose `×` span it
+ * replaces was.
+ */
+const UNIT_WORDS: Record<FieldUnit, string | undefined> = {
+  s: 'seconds',
+  '%': 'percent',
+  px: 'pixels',
+  '×': undefined,
 }
 
 /**
@@ -435,6 +459,7 @@ function SecondsField({
   step = 0.1,
   onCommit,
   slider = false,
+  unit,
 }: SecondsFieldProps) {
   const [draft, setDraft] = useState(() => formatSeconds(value))
   // Whether the slider has moved since it last committed (#426). A gesture
@@ -477,6 +502,7 @@ function SecondsField({
       min={min}
       max={max}
       aria-label={label}
+      className={unit === undefined ? undefined : 'timeline-unit-input'}
       value={draft}
       onChange={(event) => {
         // Firefox's spinner arrows step the value without focusing the field
@@ -494,7 +520,25 @@ function SecondsField({
       onKeyDown={handleKeyDown}
     />
   )
-  if (!slider) return number
+  // With a unit, the border belongs to the wrapper and the input sits in it
+  // borderless, right-aligned, so the unit reads directly after the number
+  // inside one box — `[ 0 s]` — rather than as loose text beside the row.
+  const word = unit === undefined ? undefined : UNIT_WORDS[unit]
+  const field =
+    unit === undefined ? (
+      number
+    ) : (
+      <span className="timeline-unit-box">
+        {number}
+        <span
+          className="timeline-unit"
+          aria-hidden={word !== undefined && label.includes(word) ? true : undefined}
+        >
+          {unit}
+        </span>
+      </span>
+    )
+  if (!slider) return field
 
   // A range takes a number or nothing; a half-typed "1." or an emptied
   // field is neither, so the stored value stands in until the field commits
@@ -508,7 +552,7 @@ function SecondsField({
       : value
   return (
     <span className="timeline-field">
-      {number}
+      {field}
       <input
         type="range"
         aria-label={`${label} slider`}
@@ -574,6 +618,7 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
           step={5}
           slider
           onCommit={(value) => commit({ brightness: value })}
+          unit="%"
         />
       </LabelledField>
       <LabelledField text="contrast">
@@ -585,6 +630,7 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
           step={5}
           slider
           onCommit={(value) => commit({ contrast: value })}
+          unit="%"
         />
       </LabelledField>
       <LabelledField text="saturation">
@@ -596,9 +642,9 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
           step={5}
           slider
           onCommit={(value) => commit({ saturation: value })}
+          unit="%"
         />
       </LabelledField>
-      <span>%</span>
       <select
         aria-label={`Look of ${position}`}
         value={look ?? 'none'}
@@ -745,6 +791,7 @@ function CropControls({ position, crop, onCommit, adjust }: CropControlsProps) {
         max={90}
         step={5}
         onCommit={(value) => commit({ [edge]: value })}
+        unit="%"
       />
     </LabelledField>
   )
@@ -755,7 +802,6 @@ function CropControls({ position, crop, onCommit, adjust }: CropControlsProps) {
       {field('right', 'right')}
       {field('top', 'top')}
       {field('bottom', 'bottom')}
-      <span>%</span>
       <button
         type="button"
         aria-label={`Reset crop of ${position}`}
@@ -892,6 +938,7 @@ function RedactionControls({
                   max={99}
                   step={1}
                   onCommit={(value) => replace(index, { left: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="top">
@@ -902,6 +949,7 @@ function RedactionControls({
                   max={99}
                   step={1}
                   onCommit={(value) => replace(index, { top: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="width">
@@ -912,6 +960,7 @@ function RedactionControls({
                   max={100}
                   step={1}
                   onCommit={(value) => replace(index, { width: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="height">
@@ -922,9 +971,9 @@ function RedactionControls({
                   max={100}
                   step={1}
                   onCommit={(value) => replace(index, { height: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
-              <span>%</span>
             </div>
             <div className="timeline-entry-color">
               <span>Shows from</span>
@@ -935,6 +984,7 @@ function RedactionControls({
                 max={duration}
                 step={0.1}
                 onCommit={(value) => replace(index, { start: value })}
+                unit="s"
               />
               <span>to</span>
               <SecondsField
@@ -944,8 +994,8 @@ function RedactionControls({
                 max={duration}
                 step={0.1}
                 onCommit={(value) => replace(index, { end: value })}
+                unit="s"
               />
-              <span>s</span>
             </div>
             <div className="timeline-entry-color">
               <span>Style</span>
@@ -969,6 +1019,7 @@ function RedactionControls({
                     step={1}
                     slider
                     onCommit={(value) => replace(index, { strength: value })}
+                    unit="px"
                   />
                 </>
               )}
@@ -983,6 +1034,7 @@ function RedactionControls({
                     step={1}
                     slider
                     onCommit={(value) => replace(index, { blockSize: value })}
+                    unit="px"
                   />
                 </>
               )}
@@ -1137,6 +1189,7 @@ function SpotlightControls({
                   max={99}
                   step={1}
                   onCommit={(value) => replace(index, { left: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="top">
@@ -1147,6 +1200,7 @@ function SpotlightControls({
                   max={99}
                   step={1}
                   onCommit={(value) => replace(index, { top: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="width">
@@ -1157,6 +1211,7 @@ function SpotlightControls({
                   max={100}
                   step={1}
                   onCommit={(value) => replace(index, { width: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
               <LabelledField text="height">
@@ -1167,9 +1222,9 @@ function SpotlightControls({
                   max={100}
                   step={1}
                   onCommit={(value) => replace(index, { height: value / 100 })}
+                  unit="%"
                 />
               </LabelledField>
-              <span>%</span>
             </div>
             <div className="timeline-entry-color">
               <span>Shows from</span>
@@ -1180,6 +1235,7 @@ function SpotlightControls({
                 max={duration}
                 step={0.1}
                 onCommit={(value) => replace(index, { start: value })}
+                unit="s"
               />
               <span>to</span>
               <SecondsField
@@ -1189,8 +1245,8 @@ function SpotlightControls({
                 max={duration}
                 step={0.1}
                 onCommit={(value) => replace(index, { end: value })}
+                unit="s"
               />
-              <span>s</span>
             </div>
             <div className="timeline-entry-color">
               <span>Shape</span>
@@ -1213,8 +1269,8 @@ function SpotlightControls({
                 step={1}
                 slider
                 onCommit={(value) => replace(index, { dim: value / 100 })}
+                unit="%"
               />
-              <span>%</span>
               <span>soften</span>
               <SecondsField
                 label={`${which} soften of ${position} (percent)`}
@@ -1224,8 +1280,8 @@ function SpotlightControls({
                 step={1}
                 slider
                 onCommit={(value) => replace(index, { soften: value / 100 })}
+                unit="%"
               />
-              <span>%</span>
               <button
                 type="button"
                 aria-label={`Remove ${which.toLowerCase()} of ${position}`}
@@ -1322,8 +1378,8 @@ function ShapeMaskControls({ position, mask, onCommit }: ShapeMaskControlsProps)
             step={5}
             slider
             onCommit={(value) => onCommit({ kind: 'rounded', radius: value / 100 })}
+            unit="%"
           />
-          <span>%</span>
         </>
       )}
     </div>
@@ -2471,8 +2527,8 @@ export function Timeline({
                       min={0.1}
                       max={86400}
                       onCommit={(duration) => onSetStillDuration(entry.id, duration)}
+                      unit="s"
                     />
-                    <span>s</span>
                   </div>
                 ) : (
                   <>
@@ -2483,6 +2539,7 @@ export function Timeline({
                         value={entry.inPoint}
                         max={entry.duration}
                         onCommit={(inPoint) => onTrimEntry(entry.id, inPoint, entry.outPoint)}
+                        unit="s"
                       />
                       <span>Out</span>
                       <SecondsField
@@ -2490,6 +2547,7 @@ export function Timeline({
                         value={entry.outPoint}
                         max={entry.duration}
                         onCommit={(outPoint) => onTrimEntry(entry.id, entry.inPoint, outPoint)}
+                        unit="s"
                       />
                       <span className="timeline-entry-effective">
                         plays {formatSeconds(effectiveDuration(entry))}s of{' '}
@@ -2524,22 +2582,26 @@ export function Timeline({
                       {/* Audio fades (#220), in the audio-track fade-fields
                           idiom (#104) — over the entry's output window, so
                           the max is the remapped duration when remaps exist. */}
-                      <span>Fade in</span>
-                      <SecondsField
-                        label={`Audio fade-in of ${position} in seconds`}
-                        value={entry.fadeIn ?? 0}
-                        max={entryOutputDuration(entry, remapsOf(timeline))}
-                        slider
-                        onCommit={(fadeIn) => onSetEntryFades(entry.id, fadeIn, entry.fadeOut ?? 0)}
-                      />
-                      <span>out</span>
-                      <SecondsField
-                        label={`Audio fade-out of ${position} in seconds`}
-                        value={entry.fadeOut ?? 0}
-                        max={entryOutputDuration(entry, remapsOf(timeline))}
-                        slider
-                        onCommit={(fadeOut) => onSetEntryFades(entry.id, entry.fadeIn ?? 0, fadeOut)}
-                      />
+                      <LabelledField text="Fade in">
+                        <SecondsField
+                          label={`Audio fade-in of ${position} in seconds`}
+                          value={entry.fadeIn ?? 0}
+                          max={entryOutputDuration(entry, remapsOf(timeline))}
+                          slider
+                          onCommit={(fadeIn) => onSetEntryFades(entry.id, fadeIn, entry.fadeOut ?? 0)}
+                          unit="s"
+                        />
+                      </LabelledField>
+                      <LabelledField text="out">
+                        <SecondsField
+                          label={`Audio fade-out of ${position} in seconds`}
+                          value={entry.fadeOut ?? 0}
+                          max={entryOutputDuration(entry, remapsOf(timeline))}
+                          slider
+                          onCommit={(fadeOut) => onSetEntryFades(entry.id, entry.fadeIn ?? 0, fadeOut)}
+                          unit="s"
+                        />
+                      </LabelledField>
                     </div>
                   </>
                 )}
@@ -2647,6 +2709,7 @@ export function Timeline({
                                 value={entryZoom.start}
                                 max={effectiveDuration(entry)}
                                 onCommit={(start) => set({ start })}
+                                unit="s"
                               />
                               <span>in</span>
                               <SecondsField
@@ -2654,6 +2717,7 @@ export function Timeline({
                                 value={entryZoom.rampIn}
                                 max={effectiveDuration(entry)}
                                 onCommit={(rampIn) => set({ rampIn })}
+                                unit="s"
                               />
                               <span>hold</span>
                               <SecondsField
@@ -2661,6 +2725,7 @@ export function Timeline({
                                 value={entryZoom.hold}
                                 max={effectiveDuration(entry)}
                                 onCommit={(hold) => set({ hold })}
+                                unit="s"
                               />
                               <span>out</span>
                               <SecondsField
@@ -2668,6 +2733,7 @@ export function Timeline({
                                 value={entryZoom.rampOut}
                                 max={effectiveDuration(entry)}
                                 onCommit={(rampOut) => set({ rampOut })}
+                                unit="s"
                               />
                               <LabelledField text="scale">
                                 <SecondsField
@@ -2677,9 +2743,9 @@ export function Timeline({
                                   max={10}
                                   step={0.25}
                                   onCommit={(scale) => set({ scale })}
+                                  unit="×"
                                 />
                               </LabelledField>
-                              <span>×</span>
                               <span>centre</span>
                               <LabelledField text="x">
                                 <SecondsField
@@ -2772,6 +2838,7 @@ export function Timeline({
                                     value={effect.start}
                                     max={trimmed}
                                     onCommit={(start) => set({ start })}
+                                    unit="s"
                                   />
                                   <span>to</span>
                                   <SecondsField
@@ -2779,6 +2846,7 @@ export function Timeline({
                                     value={effect.end}
                                     max={trimmed}
                                     onCommit={(end) => set({ end })}
+                                    unit="s"
                                   />
                                   <span>at</span>
                                   <SecondsField
@@ -2788,8 +2856,8 @@ export function Timeline({
                                     max={10}
                                     step={0.25}
                                     onCommit={(factor) => set({ factor })}
+                                    unit="×"
                                   />
-                                  <span>×</span>
                                   <button
                                     type="button"
                                     aria-label={`Remove speed segment ${kindIndex(effect.id, 'speed')} from ${position}`}
@@ -2813,6 +2881,7 @@ export function Timeline({
                                     onCommit={(at) =>
                                       onUpdateRemap(effect.id, { kind: 'pause', at, hold: effect.hold })
                                     }
+                                    unit="s"
                                   />
                                   <span>hold</span>
                                   <SecondsField
@@ -2823,8 +2892,8 @@ export function Timeline({
                                     onCommit={(hold) =>
                                       onUpdateRemap(effect.id, { kind: 'pause', at: effect.at, hold })
                                     }
+                                    unit="s"
                                   />
-                                  <span>s</span>
                                   <button
                                     type="button"
                                     aria-label={`Remove pause ${kindIndex(effect.id, 'pause')} from ${position}`}
@@ -2953,8 +3022,8 @@ export function Timeline({
                               duration,
                             })
                           }
+                          unit="s"
                         />
-                        <span>s</span>
                         <button
                           type="button"
                           aria-label={`Remove transition ${boundary}`}
@@ -3035,6 +3104,7 @@ export function Timeline({
                       // overlay and text start times.
                       max={86400}
                       onCommit={(offset) => onRetimeAudioTrack(track.id, offset)}
+                      unit="s"
                     />
                     <span>In</span>
                     <SecondsField
@@ -3042,6 +3112,7 @@ export function Timeline({
                       value={track.inPoint}
                       max={track.duration}
                       onCommit={(inPoint) => onTrimAudioTrack(track.id, inPoint, track.outPoint)}
+                      unit="s"
                     />
                     <span>Out</span>
                     <SecondsField
@@ -3049,6 +3120,7 @@ export function Timeline({
                       value={track.outPoint}
                       max={track.duration}
                       onCommit={(outPoint) => onTrimAudioTrack(track.id, track.inPoint, outPoint)}
+                      unit="s"
                     />
                     <span className="timeline-entry-effective">
                       plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
@@ -3064,26 +3136,30 @@ export function Timeline({
                       slider
                       onCommit={(volume) => onSetAudioTrackVolume(track.id, volume)}
                     />
-                    <span>Fade in</span>
-                    <SecondsField
-                      label={`Fade-in of ${position} in seconds`}
-                      value={track.fadeIn ?? 0}
-                      max={trimmedLength}
-                      slider
-                      onCommit={(fadeIn) =>
-                        onSetAudioTrackFades(track.id, fadeIn, track.fadeOut ?? 0)
-                      }
-                    />
-                    <span>out</span>
-                    <SecondsField
-                      label={`Fade-out of ${position} in seconds`}
-                      value={track.fadeOut ?? 0}
-                      max={trimmedLength}
-                      slider
-                      onCommit={(fadeOut) =>
-                        onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
-                      }
-                    />
+                    <LabelledField text="Fade in">
+                      <SecondsField
+                        label={`Fade-in of ${position} in seconds`}
+                        value={track.fadeIn ?? 0}
+                        max={trimmedLength}
+                        slider
+                        onCommit={(fadeIn) =>
+                          onSetAudioTrackFades(track.id, fadeIn, track.fadeOut ?? 0)
+                        }
+                        unit="s"
+                      />
+                    </LabelledField>
+                    <LabelledField text="out">
+                      <SecondsField
+                        label={`Fade-out of ${position} in seconds`}
+                        value={track.fadeOut ?? 0}
+                        max={trimmedLength}
+                        slider
+                        onCommit={(fadeOut) =>
+                          onSetAudioTrackFades(track.id, track.fadeIn ?? 0, fadeOut)
+                        }
+                        unit="s"
+                      />
+                    </LabelledField>
                     {/* Auto-ducking (#241): while this track plays, every
                         other sound source drops to the duck level. The level
                         field appears only while the toggle is on — absent
@@ -3216,6 +3292,7 @@ export function Timeline({
                       value={overlay.offset}
                       max={86400}
                       onCommit={(offset) => (isImage ? setImage({ offset }) : set({ offset }))}
+                      unit="s"
                     />
                     {isImage ? (
                       <>
@@ -3228,6 +3305,7 @@ export function Timeline({
                           value={overlay.duration}
                           max={86400}
                           onCommit={(duration) => setImage({ duration })}
+                          unit="s"
                         />
                         <span className="timeline-entry-effective">
                           shows {formatSeconds(overlay.duration)}s
@@ -3241,6 +3319,7 @@ export function Timeline({
                           value={overlay.inPoint}
                           max={overlay.duration}
                           onCommit={(inPoint) => set({ inPoint })}
+                          unit="s"
                         />
                         <span>Out</span>
                         <SecondsField
@@ -3248,6 +3327,7 @@ export function Timeline({
                           value={overlay.outPoint}
                           max={overlay.duration}
                           onCommit={(outPoint) => set({ outPoint })}
+                          unit="s"
                         />
                         <span className="timeline-entry-effective">
                           plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
@@ -3336,22 +3416,26 @@ export function Timeline({
                         </label>
                         {/* Audio fades (#220), in the audio-track fade-fields
                             idiom (#104), over the overlay's trimmed window. */}
-                        <span>Fade in</span>
-                        <SecondsField
-                          label={`Audio fade-in of ${position} in seconds`}
-                          value={overlay.fadeIn ?? 0}
-                          max={trimmedLength}
-                          slider
-                          onCommit={(fadeIn) => set({ fadeIn })}
-                        />
-                        <span>out</span>
-                        <SecondsField
-                          label={`Audio fade-out of ${position} in seconds`}
-                          value={overlay.fadeOut ?? 0}
-                          max={trimmedLength}
-                          slider
-                          onCommit={(fadeOut) => set({ fadeOut })}
-                        />
+                        <LabelledField text="Fade in">
+                          <SecondsField
+                            label={`Audio fade-in of ${position} in seconds`}
+                            value={overlay.fadeIn ?? 0}
+                            max={trimmedLength}
+                            slider
+                            onCommit={(fadeIn) => set({ fadeIn })}
+                            unit="s"
+                          />
+                        </LabelledField>
+                        <LabelledField text="out">
+                          <SecondsField
+                            label={`Audio fade-out of ${position} in seconds`}
+                            value={overlay.fadeOut ?? 0}
+                            max={trimmedLength}
+                            slider
+                            onCommit={(fadeOut) => set({ fadeOut })}
+                            unit="s"
+                          />
+                        </LabelledField>
                       </>
                     )}
                   </div>
@@ -3527,6 +3611,7 @@ export function Timeline({
                       value={text.offset}
                       max={86400}
                       onCommit={(offset) => set({ offset })}
+                      unit="s"
                     />
                     <span>for</span>
                     <SecondsField
@@ -3535,8 +3620,9 @@ export function Timeline({
                       min={0.1}
                       max={86400}
                       onCommit={(duration) => set({ duration })}
+                      unit="s"
                     />
-                    <span>s, centre</span>
+                    <span>centre</span>
                     <LabelledField text="x">
                       <SecondsField
                         label={`Centre X of ${position} (0 to 1)`}
@@ -3570,20 +3656,24 @@ export function Timeline({
                         Adjust visually…
                       </button>
                     )}
-                    <span>Fade in</span>
-                    <SecondsField
-                      label={`Fade-in of ${position} in seconds`}
-                      value={text.fadeIn ?? 0}
-                      max={text.duration}
-                      onCommit={(fadeIn) => set({ fadeIn })}
-                    />
-                    <span>out</span>
-                    <SecondsField
-                      label={`Fade-out of ${position} in seconds`}
-                      value={text.fadeOut ?? 0}
-                      max={text.duration}
-                      onCommit={(fadeOut) => set({ fadeOut })}
-                    />
+                    <LabelledField text="Fade in">
+                      <SecondsField
+                        label={`Fade-in of ${position} in seconds`}
+                        value={text.fadeIn ?? 0}
+                        max={text.duration}
+                        onCommit={(fadeIn) => set({ fadeIn })}
+                        unit="s"
+                      />
+                    </LabelledField>
+                    <LabelledField text="out">
+                      <SecondsField
+                        label={`Fade-out of ${position} in seconds`}
+                        value={text.fadeOut ?? 0}
+                        max={text.duration}
+                        onCommit={(fadeOut) => set({ fadeOut })}
+                        unit="s"
+                      />
+                    </LabelledField>
                   </div>
                   <div className="text-overlay-controls">
                     <select

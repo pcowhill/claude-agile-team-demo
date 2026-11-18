@@ -911,45 +911,60 @@ export function ExportControl({
               <div className="export-settings-row">
                 <label>
                   Width
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    aria-label="Export width in pixels"
-                    min={MIN_EXPORT_DIMENSION}
-                    max={MAX_EXPORT_DIMENSION}
-                    step={1}
-                    disabled={exporting}
-                    value={widthDraft}
-                    onChange={(event) => editField(setWidthDraft)(event.target.value)}
-                  />
+                  <span className="export-unit-box">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      aria-label="Export width in pixels"
+                      min={MIN_EXPORT_DIMENSION}
+                      max={MAX_EXPORT_DIMENSION}
+                      step={1}
+                      disabled={exporting}
+                      value={widthDraft}
+                      onChange={(event) => editField(setWidthDraft)(event.target.value)}
+                    />
+                    <span className="export-unit" aria-hidden="true">
+                      px
+                    </span>
+                  </span>
                 </label>
                 <label>
                   Height
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    aria-label="Export height in pixels"
-                    min={MIN_EXPORT_DIMENSION}
-                    max={MAX_EXPORT_DIMENSION}
-                    step={1}
-                    disabled={exporting}
-                    value={heightDraft}
-                    onChange={(event) => editField(setHeightDraft)(event.target.value)}
-                  />
+                  <span className="export-unit-box">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      aria-label="Export height in pixels"
+                      min={MIN_EXPORT_DIMENSION}
+                      max={MAX_EXPORT_DIMENSION}
+                      step={1}
+                      disabled={exporting}
+                      value={heightDraft}
+                      onChange={(event) => editField(setHeightDraft)(event.target.value)}
+                    />
+                    <span className="export-unit" aria-hidden="true">
+                      px
+                    </span>
+                  </span>
                 </label>
                 <label>
                   Frame rate
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    aria-label="Export frame rate in frames per second"
-                    min={1}
-                    max={MAX_EXPORT_FRAME_RATE}
-                    step={1}
-                    disabled={exporting}
-                    value={frameRateDraft}
-                    onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
-                  />
+                  <span className="export-unit-box">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      aria-label="Export frame rate in frames per second"
+                      min={1}
+                      max={MAX_EXPORT_FRAME_RATE}
+                      step={1}
+                      disabled={exporting}
+                      value={frameRateDraft}
+                      onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
+                    />
+                    <span className="export-unit" aria-hidden="true">
+                      fps
+                    </span>
+                  </span>
                 </label>
               </div>
               {!settingsValid && (
