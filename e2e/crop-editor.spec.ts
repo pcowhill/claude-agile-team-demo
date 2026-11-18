@@ -62,10 +62,29 @@ const expectField = (page: Page, edge: string) =>
     message: `crop ${edge} of ${position}`,
   })
 
-const centreOf = async (locator: Locator) => {
-  const box = (await locator.boundingBox())!
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2, box }
-}
+/**
+ * Where a person presses to grab a handle: the centre of the part of it that
+ * is drawn, not of its bounding box (#598).
+ *
+ * An uncropped region is the whole frame, so each edge handle is centred on
+ * the frame's border, and `.frame-editor-frame { overflow: hidden }` clips
+ * its outer half from paint and from hit-testing alike. The bounding box's
+ * centre is then the clip edge itself (x = 60.6 at 1280×720). Chromium
+ * delivers that fractional press as it is and lands inside; Firefox delivers
+ * pointer coordinates in whole pixels (a press at 60.6 arrives as
+ * `clientX` 60), outside the clip, so the press missed the handle and no
+ * drag began. Every drawn pixel of the handle is grabbable in both browsers.
+ */
+const grabPointOf = async (locator: Locator) =>
+  locator.evaluate((handle) => {
+    const own = handle.getBoundingClientRect()
+    const frame = handle.closest('.frame-editor-frame')!.getBoundingClientRect()
+    const left = Math.max(own.left, frame.left)
+    const right = Math.min(own.right, frame.right)
+    const top = Math.max(own.top, frame.top)
+    const bottom = Math.min(own.bottom, frame.bottom)
+    return { x: (left + right) / 2, y: (top + bottom) / 2 }
+  })
 
 async function dragPointer(
   page: Page,
@@ -120,15 +139,20 @@ test('a drag commits the percent the fields read, Shift trims both edges, and on
   // Two pixels of tolerance, and the reason is the region's own outline:
   // `.frame-editor-rect` is stroked 2px wide and a bounding box is
   // stroke-inclusive, so a rectangle exactly on the frame measures one pixel
-  // proud on each side. Measured, not guessed — it reads exactly 2.
+  // proud on each side. Measured, not guessed — Chromium reads exactly 2.
+  // Firefox rounds that box outward to its 1/60 px layout grid and can read
+  // 2 + 2/60: on the cropped region below, 203.633 tall for a rect whose
+  // `height` attribute is 201.6, the same attribute Chromium draws (#598).
+  // The extra twentieth of a pixel is that rounding, not an offset.
+  const STROKE_TOLERANCE = 2.05
   const whole = (await region.boundingBox())!
-  expect(Math.abs(whole.width - frameBox.width)).toBeLessThanOrEqual(2)
-  expect(Math.abs(whole.height - frameBox.height)).toBeLessThanOrEqual(2)
+  expect(Math.abs(whole.width - frameBox.width)).toBeLessThanOrEqual(STROKE_TOLERANCE)
+  expect(Math.abs(whole.height - frameBox.height)).toBeLessThanOrEqual(STROKE_TOLERANCE)
 
   // The west edge dragged in by a known fraction of the frame: 25 % of the
   // laid-out width has to arrive as 25 in the field, within the one percent
   // the issue allows for a real pointer.
-  await dragPointer(page, await centreOf(editor.getByTestId('frame-editor-edge-w')), {
+  await dragPointer(page, await grabPointOf(editor.getByTestId('frame-editor-edge-w')), {
     x: frameBox.x + frameBox.width * 0.25,
     y: frameBox.y + frameBox.height / 2,
   })
@@ -145,7 +169,7 @@ test('a drag commits the percent the fields read, Shift trims both edges, and on
   // Shift trims the opposite edge as far, so the kept region stays centred.
   await dragPointer(
     page,
-    await centreOf(editor.getByTestId('frame-editor-edge-w')),
+    await grabPointOf(editor.getByTestId('frame-editor-edge-w')),
     { x: frameBox.x + frameBox.width * 0.2, y: frameBox.y + frameBox.height / 2 },
     'Shift',
   )
@@ -166,11 +190,19 @@ test('a drag commits the percent the fields read, Shift trims both edges, and on
   await cropField(page, 'left').press('Enter')
   await cropField(page, 'bottom').fill('20')
   await cropField(page, 'bottom').press('Enter')
-  const kept = (await region.boundingBox())!
-  expect(Math.abs(kept.x - (frameBox.x + frameBox.width * 0.25))).toBeLessThanOrEqual(2)
-  expect(Math.abs(kept.width - frameBox.width * 0.75)).toBeLessThanOrEqual(2)
-  expect(Math.abs(kept.height - frameBox.height * 0.8)).toBeLessThanOrEqual(2)
-  expect(Math.abs(kept.y - frameBox.y)).toBeLessThanOrEqual(2)
+  // Polled, not read once straight after the Enter (quality-and-ci.md): all
+  // four sides from one read, so they come from the same render.
+  await expect
+    .poll(async () => {
+      const kept = (await region.boundingBox())!
+      return {
+        left: Math.abs(kept.x - (frameBox.x + frameBox.width * 0.25)) <= STROKE_TOLERANCE,
+        width: Math.abs(kept.width - frameBox.width * 0.75) <= STROKE_TOLERANCE,
+        height: Math.abs(kept.height - frameBox.height * 0.8) <= STROKE_TOLERANCE,
+        top: Math.abs(kept.y - frameBox.y) <= STROKE_TOLERANCE,
+      }
+    }, { message: 'the kept region against a quarter off the left and a fifth off the bottom' })
+    .toEqual({ left: true, width: true, height: true, top: true })
 
   await editor.screenshot({ path: testInfo.outputPath('crop-editor.png') })
 
@@ -209,13 +241,13 @@ test('Alt gives finer values than the whole-percent snap, and Reset clears the c
   // A pointer landing between two whole percents: snapped it reads a whole
   // number, and Alt keeps the fraction the field can still show.
   const target = { x: frameBox.x + frameBox.width * 0.303, y: frameBox.y + frameBox.height / 2 }
-  await dragPointer(page, await centreOf(edge), target)
+  await dragPointer(page, await grabPointOf(edge), target)
   await expect.poll(async () => valueOf(cropField(page, 'left'))).toBeGreaterThan(0)
   const snapped = await valueOf(cropField(page, 'left'))
   expect(snapped, `snapped to ${snapped}%`).toBe(Math.round(snapped))
   await page.keyboard.press('Control+z')
 
-  await dragPointer(page, await centreOf(edge), target, 'Alt')
+  await dragPointer(page, await grabPointOf(edge), target, 'Alt')
   await expect.poll(async () => valueOf(cropField(page, 'left'))).toBeGreaterThan(0)
   const fine = await valueOf(cropField(page, 'left'))
   expect(Math.abs(fine - snapped)).toBeLessThan(1)
@@ -266,7 +298,7 @@ test("an overlay is cropped on its own source, not inside its placement rectangl
   ).toBeCloseTo(1, 1)
 
   // And it crops: the west edge dragged to a fifth across.
-  await dragPointer(page, await centreOf(editor.getByTestId('frame-editor-edge-w')), {
+  await dragPointer(page, await grabPointOf(editor.getByTestId('frame-editor-edge-w')), {
     x: frameBox.x + frameBox.width * 0.2,
     y: frameBox.y + frameBox.height / 2,
   })

@@ -55,9 +55,6 @@ const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'export-chapter-list.spec.ts', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
-  { title: 'a drag commits the percent the fields read, Shift trims both edges', why: '#598: the press lands on the editor, not the handle' },
-  { title: 'Alt gives finer values than the whole-percent snap, and Reset clears the crop', why: '#598: as above' },
-  { title: 'an overlay is cropped on its own source, not inside its placement rectangle', why: '#598: as above' },
   { title: 'Shift on a corner keeps the proportions, and the mask silhouette is drawn', why: '#598: a ratio 1.7% past its Chromium-measured tolerance' },
   { title: 'a drag moves the region with the fields following, a corner and an edge resize it', why: '#598: a width ratio 1.2% past its tolerance' },
   { title: 'the redaction editor fits its column at both widths', why: '#598: as above' },
