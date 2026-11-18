@@ -267,7 +267,11 @@
 }
 
 .timeline-entry-remap input {
-  width: 3.5rem;
+  /* 4rem, not 3.5, for the zoom row's reason (#665): with the unit drawn
+     beside it, Firefox's always-visible spinner left a speed segment's
+     start of 123.4 s needing 38px against 31px shown, scrolling the value
+     out of sight (field-units.spec, Firefox CI run 44366081192). */
+  width: 4rem;
   padding: 0.15rem 0.3rem;
   border: 1px solid #2c2c2c;
   border-radius: 4px;
@@ -482,8 +486,8 @@
    `[ 0 s]`, `[ 25%]`, `[ 0.5 ×]`. The border, radius and background move
    from the input to this wrapper, and the input sits in it borderless and
    right-aligned, so the number ends where the unit begins. Each row kind's
-   own `input` rule still sizes the input (4.5rem; 4rem in the zoom row,
-   3.5rem in the remap rows); the selector below out-specifies all of them —
+   own `input` rule still sizes the input (4.5rem, or 4rem in the zoom and
+   remap rows); the selector below out-specifies all of them —
    (0,3,0) against their (0,1,1) and (0,2,1) — for the box properties only. */
 .timeline-unit-box {
   display: inline-flex;
