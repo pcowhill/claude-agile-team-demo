@@ -154,8 +154,18 @@ does. Do not write ADRs for trivial or easily reversed choices.
   failed, and only looking found them. Conversely, a screenshot nobody
   re-takes cannot catch what a later change breaks. Geometry assertions are
   claims a browser can measure — a bounding box lying inside its dialog, a
-  label not wrapping (`scrollWidth <= clientWidth`), rows still aligned, the
-  page not scrolling sideways. Give a containment or coverage check an
+  label on one line (the lines its text's client rects occupy, counted as
+  `expectNoWrap` in `e2e/user-guide.spec.ts` does), rows still aligned, the
+  page not scrolling sideways. `scrollWidth <= clientWidth` is **not** a
+  wrap check: it compares boxes, and wrapped text still fits its box. On
+  the guide's 27 Contents links, squeezed to 70px so that 22 wrapped, it
+  failed none in Chromium, and in Firefox it failed all 27 on an unsqueezed
+  layout where none wrapped (#605). **A geometry assertion is shown failing
+  once before it is relied on**: mutate the CSS it guards, report that it
+  fails, and restore the CSS. The comparison above guarded the guide's
+  Contents and the shortcut table's combos from #478 to #601, and passed
+  Chromium CI throughout on both, because nobody had seen it fail. Give a
+  containment or coverage check an
   explicit tolerance and say why: an absolutely positioned `inset: 0` child
   fills the padding box, so it falls a pixel short of a bordered parent's
   border box, and the honest fix is a ratio rather than an exact match. This
