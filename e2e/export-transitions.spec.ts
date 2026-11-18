@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { firstFrame, frameAt, lastFrame, scanExportedFrames } from './decodedFrame'
-import type { ExportScan, SampleRect } from './decodedFrame'
+import type { ExportScan, SampleRect, ScannedFrame } from './decodedFrame'
 
 type Page = import('@playwright/test').Page
 
@@ -421,62 +421,108 @@ test('a slide between different aspect ratios exports a black card sliding over 
   expect(scan.duration).toBeGreaterThan(1.5 * 0.6)
   expect(scan.duration).toBeLessThan(1.5 + 1)
 
-  // Locate the overlap in the file itself (#370). The card's leading edge
-  // is at y = progress·height, so its black backing eats the top quarter's
-  // red over progress [0, 0.25] and the bottom quarter's over [0.75, 1]:
-  // the top quarter's red falling under 80% of its solo level marks
-  // progress ≈ 0.05, and the bottom quarter's red last holding 20% of its
-  // solo level marks progress ≈ 0.95. The window is measured a few percent
-  // inside the true overlap; each assertion below carries at least 0.1 of
-  // progress in margin beyond that.
+  // Read each frame's phase from the frame itself (#674), not from its
+  // time. The incoming clip covers the centre fifth from the top down as
+  // the card slides, so the centre's blue, as a fraction of its solo
+  // level, is how far the card's edge has come in that frame. That band is
+  // disjoint from the margin bands the assertions read, so it measures the
+  // phase without presuming the margins' answer.
+  //
+  // Interpolating a phase from a time window, as this test did until #674,
+  // assumed the file holds a frame every 1/30 s. Firefox's recording holds
+  // frames instead: the edge advanced up to 0.198 of the slide between one
+  // file frame and the next (measured on 10 local runs), so the window's
+  // anchors landed up to a held frame early, and the frame sampled "at 0.95"
+  // was a frame whose own edge stood at 0.70. Its margin read exactly what
+  // a correct slide at 0.70 shows.
   const soloTop = maxOf(scan, 'top-quarter', 'r')
-  const soloBottom = maxOf(scan, 'bottom-quarter', 'r')
+  const soloBlueCenter = maxOf(scan, 'center-fifth', 'b')
   const contentStart = firstFrame(
     scan,
     (frame) => frame.bands['top-quarter'].r > soloTop * 0.8,
     'the red clip starting',
   ).time
-  const overlapStart = firstFrame(
-    scan,
-    (frame) => frame.time > contentStart && frame.bands['top-quarter'].r < soloTop * 0.8,
-    "the card's edge entering the top quarter",
-  ).time
-  const overlapEnd = lastFrame(
-    scan,
-    (frame) => frame.bands['bottom-quarter'].r > soloBottom * 0.2,
-    'the outgoing red surviving in the bottom quarter',
-  ).time
-  const atProgress = (progress: number) =>
-    frameAt(scan, overlapStart + progress * (overlapEnd - overlapStart)).bands
+  const progressOf = (frame: ScannedFrame) => frame.bands['center-fifth'].b / soloBlueCenter
+  // The slide's frames: the card's edge on screen, the handover not yet
+  // reached. The 0.99 excludes the incoming clip's solo frames, whose blue
+  // is the solo level itself.
+  const sliding = scan.frames.filter(
+    (frame) =>
+      frame.time > contentStart &&
+      frame.bands['center-fifth'].b > ABSENT &&
+      progressOf(frame) < 0.99,
+  )
+  expect(sliding.length, 'frames of the slide in the exported file').toBeGreaterThan(3)
+  const firstSliding = sliding[0]
+  const lastSliding = sliding[sliding.length - 1]
 
-  // Ladder: solo, then progress 0.5 (upper margin band passed at 0.3 →
-  // black; lower band, reached at 0.75, still ahead of the edge → undimmed
-  // red), then progress 0.95 (lower band passed → black), then past the
-  // handover.
-  const soloFrame = frameAt(scan, (contentStart + overlapStart) / 2).bands
+  const soloFrame = frameAt(scan, (contentStart + firstSliding.time) / 2).bands
   const soloUpper = soloFrame['margin-upper'].r
   const soloLower = soloFrame['margin-lower'].r
   expect(soloUpper).toBeGreaterThan(120)
   expect(soloLower).toBeGreaterThan(120)
 
-  const mid = atProgress(0.5)
+  // Every frame of the slide, against its own edge: a margin band behind
+  // the edge is the card's black backing, a band ahead of it the outgoing
+  // clip at full brightness, and a band the edge crosses is in proportion.
+  // The upper band is covered once progress >= 0.3, the lower once >= 0.75
+  // (BANDS). A card without its black backing would leave a margin the
+  // outgoing red behind the edge, up to the solo level (~200) away from
+  // this; a correct slide read within 0.7 of it on all 10 runs above, so 20
+  // is a codec allowance, not a fudge.
+  const MARGIN_TOLERANCE = 20
+  const ahead = (band: SampleRect, edge: number) =>
+    Math.min(1, Math.max(0, (band.y + band.height - Math.max(edge, band.y)) / band.height))
+  const wrong: string[] = []
+  for (const frame of sliding) {
+    const edge = progressOf(frame)
+    for (const [name, solo] of [
+      ['margin-upper', soloUpper],
+      ['margin-lower', soloLower],
+    ] as const) {
+      const expected = solo * ahead(BANDS[name], edge)
+      const { r, b } = frame.bands[name]
+      if (Math.abs(r - expected) > MARGIN_TOLERANCE || b > ABSENT) {
+        wrong.push(
+          `${frame.time.toFixed(3)}s, edge at ${edge.toFixed(2)}: ${name} r ${r.toFixed(1)} (want ${expected.toFixed(1)}), b ${b.toFixed(1)}`,
+        )
+      }
+    }
+  }
+  expect(wrong, 'margin bands that disagree with the card edge of their own frame').toEqual([])
+
+  // The check above must have seen both halves of the ladder, or it could
+  // pass having read only frames where the answer is trivial. Each range is
+  // wider than the largest jump between file frames measured above (0.198),
+  // so a held frame cannot step over it.
+  //
+  // Mid-slide: the upper band behind the edge, the lower band ahead of it.
+  const mid = sliding.reduce((best, frame) =>
+    Math.abs(progressOf(frame) - 0.45) < Math.abs(progressOf(best) - 0.45) ? frame : best,
+  )
+  const between = 'a frame of the slide with its edge between the two margin bands'
+  expect(progressOf(mid), between).toBeGreaterThanOrEqual(0.3)
+  expect(progressOf(mid), between).toBeLessThanOrEqual(0.6)
   // Behind the card's edge: the card's black backing, not the outgoing clip
   // dimmed or still bright.
-  expect(mid['margin-upper'].r).toBeLessThan(ABSENT)
-  expect(mid['margin-upper'].b).toBeLessThan(ABSENT)
+  expect(mid.bands['margin-upper'].r).toBeLessThan(ABSENT)
+  expect(mid.bands['margin-upper'].b).toBeLessThan(ABSENT)
   // Ahead of the card's edge: the outgoing clip at full, undimmed brightness.
-  expect(mid['margin-lower'].r).toBeGreaterThan(soloLower * 0.85)
+  expect(mid.bands['margin-lower'].r).toBeGreaterThan(soloLower * 0.85)
+  // Late in the slide: the edge past the lower band's middle, so the check
+  // above read the card's black over most of that band too.
+  expect(
+    progressOf(lastSliding),
+    "a frame of the slide with its edge past the lower band's middle",
+  ).toBeGreaterThan(0.675)
 
-  const lateLower = atProgress(0.95)['margin-lower'].r
-  expect(lateLower).toBeLessThan(ABSENT)
-
-  const after = frameAt(scan, (overlapEnd + scan.duration) / 2).bands
+  const after = frameAt(scan, (lastSliding.time + scan.duration) / 2).bands
   expect(after['margin-upper'].r).toBeLessThan(ABSENT)
   expect(after['margin-lower'].r).toBeLessThan(ABSENT)
 
   // Where the card has arrived, its clip shows: mid-slide the center-fifth
   // carries the incoming blue (top half) and the outgoing red (bottom half).
-  const centerMid = mid['center-fifth']
+  const centerMid = mid.bands['center-fifth']
   expect(centerMid.b).toBeGreaterThan(BLENDED)
   expect(centerMid.r).toBeGreaterThan(BLENDED)
 })
