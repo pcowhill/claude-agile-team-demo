@@ -793,6 +793,9 @@ export function PreviewPlayer({
   // the sequence time it stands for and what the swap at the wrap needs to
   // take over from there. Null while nothing is cued.
   const loopCueRef = useRef<LoopCue | null>(null)
+  // The cue each video element is still waiting to apply on loadedmetadata
+  // (cueElement). At most one per element: a newer cue removes it (#607).
+  const pendingCueRef = useRef(new WeakMap<HTMLVideoElement, () => void>())
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
   // The keyboard-shortcut cheat sheet (#203), opened with `?`.
@@ -1057,6 +1060,15 @@ export function PreviewPlayer({
    * loadedmetadata. `rate` is the remapped playback rate at the cue point
    * (#141) — set with the seek so a cue into a speed segment starts at the
    * segment's speed rather than at whatever the element last played.
+   *
+   * The latest cue wins (#607). A cue still waiting on loadedmetadata is
+   * withdrawn when a newer one arrives for the same element. Otherwise the
+   * old cue runs when metadata lands and overwrites the newer one. The
+   * window is open once the load has begun (currentSrc already reads `url`,
+   * so the newer cue seeks at once) and before metadata arrives. In
+   * Firefox, a paused seek just after adding a clip fell into it: the add's
+   * cue to 0 ran after the seek's cue and left the element on frame 0 under
+   * a playhead at the seek's position.
    */
   const cueElement = useCallback(
     (video: HTMLVideoElement, url: string, sourceTime: number, thenPlay: boolean, rate = 1) => {
@@ -1067,9 +1079,20 @@ export function PreviewPlayer({
         // switch — an expected outcome here, not an error to surface.
         if (thenPlay) video.play().catch(() => {})
       }
+      const pending = pendingCueRef.current
+      const superseded = pending.get(video)
+      if (superseded) {
+        video.removeEventListener('loadedmetadata', superseded)
+        pending.delete(video)
+      }
       if (video.currentSrc !== url) {
         video.src = url
-        video.addEventListener('loadedmetadata', start, { once: true })
+        const deferred = () => {
+          pending.delete(video)
+          start()
+        }
+        pending.set(video, deferred)
+        video.addEventListener('loadedmetadata', deferred, { once: true })
       } else {
         start()
       }
