@@ -85,11 +85,11 @@ A move or a removal from the menu is one undo step, as it is from the button.
 
 **Where to find it.** A row's **⋯** › **Copy settings**, then another row's **⋯** › **Paste settings**.
 
-**What it does.** Carries one row's adjustable settings onto another without touching its media, trim or position.
+**What it does.** Carries one row's adjustable settings onto another without touching its media, trim or position — except on a shape group, whose only settings are its timing (below).
 
 **Details.** Copy remembers the row's settings by group — **Color**, **Orientation**, **Crop**, **Background fill**, **Spotlight**, **Redact**, **Audio**, **Text style**, **Timing and fades**. Paste opens a checklist of the groups both rows can hold, everything checked, so a paste is never a surprise overwrite; a row that shares no group with the copied settings says so. Each value pastes as the source's effective one, identity included — pasting an ungraded clip's Color resets the target's grade. One paste is one undo step.
 
-A shape group's one group is **Timing and fades**: when it shows (*Shows at*), for how long (*for*), and its *Fade in* and *out*, so one annotation can be matched to another's moment. Its shapes are never carried. It is the only exception to "never its position": a shape group has nothing else to carry. No other kind of row holds this group, and a shape group holds no other, so a paste between a shape group and any other row says that nothing applies. The copied settings live only in this session: they are never saved with the project, and a reload starts with nothing copied.
+A shape group's one group is **Timing and fades**: when it shows (*Shows at*), for how long (*for*), and its *Fade in* and *out*, so one annotation can be matched to another's moment. Its shapes are never carried. This is the one paste that moves a row: a shape group has nothing else to carry. No other kind of row holds this group, and a shape group holds no other, so a paste between a shape group and any other row says that nothing applies. The copied settings live only in this session: they are never saved with the project, and a reload starts with nothing copied.
 
 **Related.** [Duplicate](#duplicate) · [What is saved where](concepts.md#what-is-saved-where)
 
