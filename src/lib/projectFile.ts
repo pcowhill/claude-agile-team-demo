@@ -27,7 +27,10 @@ import {
   videoOverlaysOf,
   zoomsOf,
   markersOf,
+  shapeGroupsOf,
 } from './timeline'
+import type { Shape, ShapeGroup } from './shapes'
+import { isShapeKind, isValidShape, MAX_CORNER_RADIUS, MAX_SHAPE_THICKNESS, MIN_SHAPE_SIZE } from './shapes'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
@@ -90,6 +93,11 @@ import { isCanvasPreset } from './frameSize'
  *       "subtitleStyle": { x, y, font, size, color, bold, italic }, // (#250)
  *       "canvasPreset": "16:9" | "9:16" | "1:1" | "4:5",          // (#273)
  *       "markers": [{ id, time, name }],                          // (#487)
+ *       "shapeGroups": [{ id, offset, duration, fadeIn?, fadeOut?,
+ *                         shapes: [{ id, kind, x, y, width, height,
+ *                                    stroke, strokeOpacity, thickness,
+ *                                    fill, fillOpacity,
+ *                                    cornerRadius? }] }],     // (#683)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -255,7 +263,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 22
+export const PROJECT_SCHEMA_VERSION = 23
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -306,6 +314,8 @@ export const SPOTLIGHT_SCHEMA_VERSION = 21
  * version instead.
  */
 export const SOFT_SPOTLIGHT_SCHEMA_VERSION = 22
+/** The version any shape group forces, whichever the save mode (#683). */
+export const SHAPE_GROUPS_SCHEMA_VERSION = 23
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -403,6 +413,11 @@ export interface ProjectTimeline {
    * file carries any, mirroring `TimelineState` where absence means none.
    */
   markers?: ChapterMarker[]
+  /**
+   * Shape groups (#683, schema version 23). Present exactly when the file
+   * carries any, mirroring `TimelineState` where absence means none.
+   */
+  shapeGroups?: ShapeGroup[]
   /**
    * Overlay video layers (#145). Present exactly when the file carries any,
    * additive within a schema version exactly like `remaps`.
@@ -620,6 +635,7 @@ export async function serializeProject(
   // decides, exactly as before images existed.
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
   const hasMarkers = markersOf(timeline).length > 0
+  const hasShapeGroups = shapeGroupsOf(timeline).length > 0
   const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
@@ -674,7 +690,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasSoftSpotlights
+    schemaVersion: hasShapeGroups
+      ? SHAPE_GROUPS_SCHEMA_VERSION
+      : hasSoftSpotlights
       ? SOFT_SPOTLIGHT_SCHEMA_VERSION
       : hasSpotlights
       ? SPOTLIGHT_SCHEMA_VERSION
@@ -898,6 +916,34 @@ export async function serializeProject(
       ...(!hasMarkers
         ? {}
         : { markers: markersOf(timeline).map(({ id, time, name }) => ({ id, time, name })) }),
+      // Shape groups (#683) are written only while any exist, at schema
+      // version 23; every other project stays byte-identical. Fields are
+      // listed, not spread, so state-only keys can never leak into a file.
+      ...(!hasShapeGroups
+        ? {}
+        : {
+            shapeGroups: shapeGroupsOf(timeline).map((group) => ({
+              id: group.id,
+              offset: group.offset,
+              duration: group.duration,
+              ...(group.fadeIn === undefined ? {} : { fadeIn: group.fadeIn }),
+              ...(group.fadeOut === undefined ? {} : { fadeOut: group.fadeOut }),
+              shapes: group.shapes.map((shape) => ({
+                id: shape.id,
+                kind: shape.kind,
+                x: shape.x,
+                y: shape.y,
+                width: shape.width,
+                height: shape.height,
+                stroke: shape.stroke,
+                strokeOpacity: shape.strokeOpacity,
+                thickness: shape.thickness,
+                fill: shape.fill,
+                fillOpacity: shape.fillOpacity,
+                ...(shape.cornerRadius === undefined ? {} : { cornerRadius: shape.cornerRadius }),
+              })),
+            })),
+          }),
       audioTracks: audioTracksOf(timeline).map(
         ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
           id,
@@ -1894,6 +1940,65 @@ function validateProject(document: Record<string, unknown>): Project {
     return marker
   })
 
+  // Shape groups (#683, schema version 23): absent in files saved before
+  // them and in every shape-free file since. Each shape is checked field by
+  // field so the refusal names what is wrong; ids are unique per file
+  // (groups) and per group (shapes). Fades fitting the window is the
+  // reducer's clamp, re-applied when the opened timeline is normalized.
+  const shapeGroupIds = new Set<string>()
+  const shapeGroups = asArray(timelineRaw.shapeGroups ?? [], 'timeline.shapeGroups').map(
+    (value, index): ShapeGroup => {
+      const path = `timeline.shapeGroups[${index}]`
+      const raw = asRecord(value, path)
+      const group: ShapeGroup = {
+        id: asString(raw.id, `${path}.id`),
+        offset: asNonNegative(raw.offset, `${path}.offset`),
+        duration: asFinite(raw.duration, `${path}.duration`),
+        shapes: [],
+      }
+      if (group.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
+      if (raw.fadeIn !== undefined) group.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
+      if (raw.fadeOut !== undefined) group.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
+      if (shapeGroupIds.has(group.id)) throw new Error(`${path}.id "${group.id}" is duplicated`)
+      shapeGroupIds.add(group.id)
+      const shapeIds = new Set<string>()
+      group.shapes = asArray(raw.shapes, `${path}.shapes`).map((shapeValue, shapeIndex) => {
+        const shapePath = `${path}.shapes[${shapeIndex}]`
+        const shapeRaw = asRecord(shapeValue, shapePath)
+        const kind = asString(shapeRaw.kind, `${shapePath}.kind`)
+        if (!isShapeKind(kind)) throw new Error(`${shapePath}.kind "${kind}" is unknown`)
+        const shape: Shape = {
+          id: asString(shapeRaw.id, `${shapePath}.id`),
+          kind,
+          x: asFinite(shapeRaw.x, `${shapePath}.x`),
+          y: asFinite(shapeRaw.y, `${shapePath}.y`),
+          width: asFinite(shapeRaw.width, `${shapePath}.width`),
+          height: asFinite(shapeRaw.height, `${shapePath}.height`),
+          stroke: asString(shapeRaw.stroke, `${shapePath}.stroke`),
+          strokeOpacity: asFinite(shapeRaw.strokeOpacity, `${shapePath}.strokeOpacity`),
+          thickness: asFinite(shapeRaw.thickness, `${shapePath}.thickness`),
+          fill: asString(shapeRaw.fill, `${shapePath}.fill`),
+          fillOpacity: asFinite(shapeRaw.fillOpacity, `${shapePath}.fillOpacity`),
+        }
+        if (shapeRaw.cornerRadius !== undefined) {
+          shape.cornerRadius = asFinite(shapeRaw.cornerRadius, `${shapePath}.cornerRadius`)
+        }
+        if (!isValidShape(shape)) {
+          throw new Error(
+            `${shapePath} is not a valid shape: positions and opacities run 0 to 1, sizes ` +
+              `${MIN_SHAPE_SIZE} to 1, thickness 0 to ${MAX_SHAPE_THICKNESS}, a corner radius ` +
+              `(rectangles only) 0 to ${MAX_CORNER_RADIUS}, and colours are lowercase #rrggbb`,
+          )
+        }
+        if (shapeIds.has(shape.id)) throw new Error(`${shapePath}.id "${shape.id}" is duplicated`)
+        shapeIds.add(shape.id)
+        return shape
+      })
+      if (group.shapes.length === 0) throw new Error(`${path}.shapes must not be empty`)
+      return group
+    },
+  )
+
   // Absent in files saved before #102, which carry no audio tracks.
   const trackIds = new Set<string>()
   const audioTracks = asArray(timelineRaw.audioTracks ?? [], 'timeline.audioTracks').map(
@@ -2093,6 +2198,7 @@ function validateProject(document: Record<string, unknown>): Project {
       ...(subtitleStyle === undefined ? {} : { subtitleStyle }),
       ...(canvasPreset === undefined ? {} : { canvasPreset }),
       ...(markers.length === 0 ? {} : { markers }),
+      ...(shapeGroups.length === 0 ? {} : { shapeGroups }),
       audioTracks,
       ...(videoOverlays.length === 0 ? {} : { videoOverlays }),
     },

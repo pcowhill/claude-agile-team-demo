@@ -25,6 +25,8 @@ import userEvent from '@testing-library/user-event'
 export const ADD_SLATE = 'Color slate'
 export const ADD_TEXT = 'Text overlay'
 export const IMPORT_SUBTITLES = 'Subtitles from .srt file…'
+/** Shape groups (#683), added after the three above. */
+export const ADD_SHAPES = 'Shape group'
 
 /** Opens Add ▾ if it is not already open, and returns its panel. */
 export async function openAddMenu(): Promise<HTMLElement> {

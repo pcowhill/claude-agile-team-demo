@@ -10,6 +10,7 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  shapeGroupsOf,
   textsOf,
   totalDuration,
   isImageOverlay,
@@ -19,6 +20,8 @@ import {
   nextMarkerName,
 } from '../lib/timeline'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
+import { activeShapeGroups, drawShapeGroups } from '../lib/shapes'
+import type { ShapeGroup } from '../lib/shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
 import {
   DEFAULT_REVIEW_RATE,
@@ -143,6 +146,17 @@ interface PreviewPlayerProps {
    */
   markIn?: number | null
   markOut?: number | null
+  /**
+   * Where the playhead stands (#683), written on every published time so a
+   * caller can read it on demand — Add ▾ › Shape group places the new group
+   * there — without re-rendering on every frame, as a prop callback would.
+   */
+  playheadRef?: { current: number }
+  /**
+   * Reports the output frame the preview composes (#683), whenever its size
+   * changes, so the timeline can show shape thickness in px at that frame.
+   */
+  onFrameSize?: (frame: { width: number; height: number }) => void
   onMarkIn?: (time: number) => void
   onMarkOut?: (time: number) => void
   onClearMarks?: () => void
@@ -595,6 +609,54 @@ function RegionOverlay({
 }
 
 /**
+ * The shape groups (#683) visible at the published sequence time, drawn on
+ * one frame-sized canvas by the export's own routine (`drawShapeGroups`),
+ * so the preview and every export draw the same pixels. It sits above the
+ * overlay layers and below text (#681 §4): the overlays' z-index, later in
+ * the DOM, with text's higher z-index above it. Rendered only while a group
+ * is visible, so a shape-free preview is unchanged.
+ */
+function ShapeLayer({ groups, time }: { groups: readonly ShapeGroup[]; time: number }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const visible = activeShapeGroups(groups, time).length > 0
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!visible || canvas === null) return
+    const paint = () => {
+      // Unlaid-out (or jsdom) canvases have no box to draw into.
+      if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return
+      // Device pixels, so a thin border stays crisp; thickness is a
+      // fraction of the shorter side, so the proportion is the export's.
+      const scale = window.devicePixelRatio || 1
+      const width = Math.round(canvas.clientWidth * scale)
+      const height = Math.round(canvas.clientHeight * scale)
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const context = canvas.getContext('2d')
+      if (context === null) return
+      context.clearRect(0, 0, width, height)
+      drawShapeGroups(context, groups, time, width, height)
+    }
+    paint()
+    // A resize while paused (the View ▾ layouts, a window drag) redraws at
+    // the new size rather than leaving the old pixels stretched.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(paint)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [groups, time, visible])
+  if (!visible) return null
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-shapes"
+      data-testid="preview-shapes"
+      aria-hidden="true"
+    />
+  )
+}
+
+/**
  * An entry's background-fill backdrop (#259), rendered as its layer card's
  * first child so the fitted media element paints above it and the bars the
  * fit leaves show it: a flat color as a plain div, blur as the sampled
@@ -761,6 +823,8 @@ export function PreviewPlayer({
   largeStepSeconds,
   markIn = null,
   markOut = null,
+  playheadRef,
+  onFrameSize,
   onMarkIn,
   onMarkOut,
   onClearMarks,
@@ -828,6 +892,9 @@ export function PreviewPlayer({
   const pendingCueRef = useRef(new WeakMap<HTMLVideoElement, () => void>())
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
+  useEffect(() => {
+    if (playheadRef !== undefined) playheadRef.current = sequenceTime
+  }, [playheadRef, sequenceTime])
   // The keyboard-shortcut cheat sheet (#203), opened with `?`.
   const [helpOpen, setHelpOpen] = useState(false)
   // Chapter markers (#487): which marker's inline name field is open, or
@@ -2153,6 +2220,9 @@ export function PreviewPlayer({
     timeline.canvasPreset,
   )
   const previewAspect = frameAspect(frame)
+  useEffect(() => {
+    onFrameSize?.({ width: frame.width, height: frame.height })
+  }, [onFrameSize, frame.width, frame.height])
 
   // A source's own aspect for the crop placement rule (#255), from the same
   // probe that shapes the frame; undefined until (or unless) it reports.
@@ -2517,6 +2587,10 @@ export function PreviewPlayer({
                   </div>
                 )
               })}
+              <ShapeLayer
+                groups={shapeGroupsOf(timeline)}
+                time={Math.min(sequenceTime, total)}
+              />
               {/* Text overlays (#139): items whose window covers the published
                   sequence time, drawn above the composed frame. Stacking order,
                   bottom to top: video/still layers (transitions and zooms apply

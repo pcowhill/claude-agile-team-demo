@@ -40,6 +40,7 @@ import {
   rowMenuTrigger,
 } from '../test/timelineRowMenu'
 import {
+  ADD_SHAPES,
   ADD_SLATE,
   ADD_TEXT,
   IMPORT_SUBTITLES,
@@ -3348,9 +3349,12 @@ describe("the timeline header's Add ▾ menu (#418)", () => {
     }
 
     const menu = await openAddMenu()
+    // Shape group (#683) joined the three later; it sits beside Text
+    // overlay, the other thing drawn over the picture.
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       ADD_SLATE,
       ADD_TEXT,
+      ADD_SHAPES,
       IMPORT_SUBTITLES,
     ])
     // No separators: all three add something, and none is destructive.

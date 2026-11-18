@@ -39,6 +39,8 @@ import {
   remapStart,
 } from './remap'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
+import type { ShapeGroup, ShapeGroupSpec } from './shapes'
+import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
 import {
   DEFAULT_SUBTITLE_STYLE,
   applySubtitleStyle,
@@ -426,6 +428,18 @@ export interface TimelineState {
    * rebuilds the entry-bound collections only.
    */
   markers?: ChapterMarker[]
+  /**
+   * Shape groups (#683, the approved design #681): timed groups of
+   * rectangles and ellipses drawn on the output frame, between the overlay
+   * layers and the text. Anchored to sequence time and never retimed by a
+   * video edit, like text — so they are project-level here, carried across
+   * every other edit by `withProjectFields` exactly as markers are, rather
+   * than rebuilt by `withEffects`. In add order; the order matters only
+   * between groups that start together (later start draws on top, #681 §4).
+   * Optional and written only while any exist, so every earlier state (and
+   * file) stays shaped exactly as before.
+   */
+  shapeGroups?: ShapeGroup[]
 }
 
 /** A chapter marker (#487): a name at a sequence time. */
@@ -715,6 +729,14 @@ export type TimelineAction =
   | { type: 'marker-renamed'; id: string; name: string }
   | { type: 'marker-moved'; id: string; time: number }
   | { type: 'marker-removed'; id: string }
+  /**
+   * Shape groups (#683): add, replace whole (timing, fades and shapes — one
+   * field commit is one edit), remove. Each is refused when malformed and
+   * same-reference when it changes nothing.
+   */
+  | { type: 'shape-group-added'; group: ShapeGroup }
+  | { type: 'shape-group-updated'; id: string; group: ShapeGroupSpec }
+  | { type: 'shape-group-removed'; id: string }
   | {
       /**
        * Sets the project's default subtitle style whole (#250), the
@@ -959,6 +981,11 @@ export function remapsOf(state: TimelineState): RemapEffect[] {
 /** The chapter markers (#487), sorted by time; an absent list is empty. */
 export function markersOf(state: TimelineState): ChapterMarker[] {
   return state.markers ?? []
+}
+
+/** The state's shape groups (#683), tolerating earlier states. */
+export function shapeGroupsOf(state: TimelineState): ShapeGroup[] {
+  return state.shapeGroups ?? []
 }
 
 /**
@@ -1509,6 +1536,7 @@ export function normalizedTimelineState(
   subtitleStyle?: SubtitleStyle,
   canvasPreset?: CanvasPreset,
   markers: ChapterMarker[] = [],
+  shapeGroups: ShapeGroup[] = [],
 ): TimelineState {
   const state = withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
   // The project-level fields (#250, #273) are carried, not normalized — the
@@ -1518,6 +1546,7 @@ export function normalizedTimelineState(
     subtitleStyle,
     canvasPreset,
     ...(markers.length === 0 ? {} : { markers: normalizedMarkers(markers) }),
+    ...(shapeGroups.length === 0 ? {} : { shapeGroups: shapeGroups.map(clampShapeGroup) }),
   })
 }
 
@@ -1533,13 +1562,22 @@ export function normalizedTimelineState(
  */
 function withProjectFields(
   next: TimelineState,
-  fields: { subtitleStyle?: SubtitleStyle; canvasPreset?: CanvasPreset; markers?: ChapterMarker[] },
+  fields: {
+    subtitleStyle?: SubtitleStyle
+    canvasPreset?: CanvasPreset
+    markers?: ChapterMarker[]
+    shapeGroups?: ShapeGroup[]
+  },
 ): TimelineState {
   const carried = {
     ...(fields.subtitleStyle === undefined ? {} : { subtitleStyle: fields.subtitleStyle }),
     ...(fields.canvasPreset === undefined ? {} : { canvasPreset: fields.canvasPreset }),
     // Markers (#487) are project-level too: an empty list is no key.
     ...(fields.markers === undefined || fields.markers.length === 0 ? {} : { markers: fields.markers }),
+    // Shape groups (#683) likewise.
+    ...(fields.shapeGroups === undefined || fields.shapeGroups.length === 0
+      ? {}
+      : { shapeGroups: fields.shapeGroups }),
   }
   return Object.keys(carried).length === 0 ? next : { ...next, ...carried }
 }
@@ -1590,10 +1628,10 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     // Equal to the built-in default means no key at all (#192/#232/#255
     // rule), which is what keeps never-customized files byte-identical.
     const normalized = normalizeSubtitleStyle(clamped)
-    return withProjectFields(next, {
-      subtitleStyle: normalized,
-      canvasPreset: state.canvasPreset,
-    })
+    // Every other project-level field is carried as it stands — markers
+    // (#487) and shape groups (#683) included. Naming the fields one by one
+    // here is how markers came to be dropped by a style change (#694).
+    return withProjectFields(next, { ...state, subtitleStyle: normalized })
   }
   if (
     action.type === 'marker-added' ||
@@ -1610,9 +1648,53 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     const { markers: _replaced, ...rest } = state
     return markers.length === 0 ? rest : { ...rest, markers }
   }
+  if (
+    action.type === 'shape-group-added' ||
+    action.type === 'shape-group-updated' ||
+    action.type === 'shape-group-removed'
+  ) {
+    // Shape groups (#683) are project-level like markers: their own actions
+    // here, carried verbatim through every other edit below.
+    const current = shapeGroupsOf(state)
+    const groups = reduceShapeGroups(current, action)
+    if (groups === current) return state
+    const { shapeGroups: _replaced, ...rest } = state
+    return groups.length === 0 ? rest : { ...rest, shapeGroups: groups }
+  }
   const next = reduceTimelineCollections(state, action)
   if (next === state || action.type === 'timeline-replaced') return next
   return withProjectFields(next, state)
+}
+
+function reduceShapeGroups(
+  groups: ShapeGroup[],
+  action: Extract<
+    TimelineAction,
+    { type: 'shape-group-added' | 'shape-group-updated' | 'shape-group-removed' }
+  >,
+): ShapeGroup[] {
+  switch (action.type) {
+    case 'shape-group-added': {
+      const group = action.group
+      if (typeof group.id !== 'string' || group.id === '') return groups
+      if (groups.some((existing) => existing.id === group.id)) return groups
+      if (!isValidShapeGroupSpec(group)) return groups
+      return [...groups, clampShapeGroup(group)]
+    }
+    case 'shape-group-updated': {
+      const index = groups.findIndex((group) => group.id === action.id)
+      if (index === -1 || !isValidShapeGroupSpec(action.group)) return groups
+      const candidate = clampShapeGroup({ ...action.group, id: action.id })
+      if (shapeGroupsEqual(groups[index], candidate)) return groups
+      const next = [...groups]
+      next[index] = candidate
+      return next
+    }
+    case 'shape-group-removed': {
+      const remaining = groups.filter((group) => group.id !== action.id)
+      return remaining.length === groups.length ? groups : remaining
+    }
+  }
 }
 
 function reduceMarkers(
@@ -1677,6 +1759,9 @@ function reduceTimelineCollections(
     | { type: 'marker-renamed' }
     | { type: 'marker-moved' }
     | { type: 'marker-removed' }
+    | { type: 'shape-group-added' }
+    | { type: 'shape-group-updated' }
+    | { type: 'shape-group-removed' }
   >,
 ): TimelineState {
   const transitions = transitionsOf(state)

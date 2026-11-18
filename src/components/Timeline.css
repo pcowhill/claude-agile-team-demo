@@ -129,6 +129,7 @@
 .timeline-entry-main,
 .audio-track-main,
 .text-overlay-main,
+.shape-group-main,
 .video-overlay-main {
   flex-wrap: wrap;
 }
@@ -406,6 +407,12 @@
   background: #a53a7a;
 }
 
+/* Shape groups (#683): the annotation red of the default shape, darkened
+   to sit with the other lanes' bars. */
+.shape-group-bar {
+  background: #b0413e;
+}
+
 .audio-track-main {
   display: flex;
   align-items: center;
@@ -569,12 +576,14 @@
 
 /* The text lane (#139): shaped like the audio lane above — a heading and a
    card per overlay. */
+.shape-lane,
 .text-lane {
   margin-top: 0.75rem;
   padding-top: 0.5rem;
   border-top: 1px solid #2c2c2c;
 }
 
+.shape-lane-heading,
 .text-lane-heading {
   margin: 0 0 0.4rem;
   font-size: 0.85rem;
@@ -583,6 +592,8 @@
   letter-spacing: 0.04em;
 }
 
+.shape-group-list,
+.shape-list,
 .text-overlay-list {
   list-style: none;
   margin: 0;
@@ -592,6 +603,7 @@
   gap: 0.5rem;
 }
 
+.shape-group,
 .text-overlay {
   border: 1px solid #2c2c2c;
   border-radius: 6px;
@@ -601,6 +613,7 @@
   gap: 0.3rem;
 }
 
+.shape-group-main,
 .text-overlay-main {
   display: flex;
   align-items: flex-start;
@@ -881,4 +894,42 @@
   padding: 0.05rem 0.45rem;
   font-size: 0.75rem;
   line-height: 1.2;
+}
+
+/* A shape group's name (#683): derived from its shapes, one line, the
+   row's flexible middle like a sequence entry's name. */
+.shape-group-main .clip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shape-group-main {
+  align-items: center;
+}
+
+/* One shape's fields inside its group (#683), set in from the group's own
+   timing row so the two levels read apart. */
+.shape-row {
+  border-left: 2px solid #2c2c2c;
+  padding-left: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.shape-row-kind {
+  color: #ddd;
+  font-weight: 600;
+}
+
+.shape-row-remove {
+  margin-left: auto;
+}
+
+.shape-row-warning {
+  margin: 0;
+  color: #e0b050;
+  font-size: 0.8rem;
 }

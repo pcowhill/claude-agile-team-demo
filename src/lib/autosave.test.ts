@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultShapeGroup } from './shapes'
 import {
   createAutosaver,
   planMediaSync,
@@ -119,6 +120,14 @@ describe('sessionIsEmpty (#194)', () => {
       entry: slateEntry('s1'),
     })
     expect(sessionIsEmpty(emptyLibrary, withSlate)).toBe(false)
+  })
+
+  it('counts a shape group alone as content (#683)', () => {
+    const withShapes = timelineReducer(emptyTimeline, {
+      type: 'shape-group-added',
+      group: defaultShapeGroup('g1', 's1', 0),
+    })
+    expect(sessionIsEmpty(emptyLibrary, withShapes)).toBe(false)
   })
 
   it('counts a library-only session as content', () => {

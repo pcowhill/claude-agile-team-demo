@@ -25,6 +25,8 @@ type Locator = import('@playwright/test').Locator
 export const ADD_SLATE = 'Color slate'
 export const ADD_TEXT = 'Text overlay'
 export const IMPORT_SUBTITLES = 'Subtitles from .srt file…'
+/** Shape groups (#683), added beside Text overlay. */
+export const ADD_SHAPES = 'Shape group'
 
 // Exact: "Add" is a substring of the media library's "Add <clip> to
 // timeline" and of the timeline's own "Add transition between 1 and 2".
