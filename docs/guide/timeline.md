@@ -64,7 +64,7 @@ The **thumbnail** on a video entry or video overlay is the first frame of its tr
 
 - **Move up** and **Move down** (sequence entries) do what the row's **↑** and **↓** do, and are greyed out where they are: the first entry cannot move up, the last cannot move down.
 - **Duplicate**, **Copy settings** and **Paste settings** (shown while something is copied). Copy and Paste appear only on rows that hold a group the clipboard can carry.
-- **Rename…** on sequence entries, slates, audio tracks and overlays.
+- **Rename…** on sequence entries, slates, audio tracks, overlays and shape groups.
 - **Remove** on every row: it asks the same confirmation as the row's **✕**, and removes the element the same way.
 
 A move or a removal from the menu is one undo step, as it is from the button.
@@ -77,7 +77,7 @@ A move or a removal from the menu is one undo step, as it is from the button.
 
 **What it does.** Makes an exact copy of the element carrying every adjustable setting, as one undo step.
 
-**Details.** The copy takes the trim, volume and fades, colour, orientation, crop, background fill, speed segments and pauses, zooms, overlay placement and shape mask, or text content and style — whatever the row has. A duplicated sequence entry lands right after the original; its transitions are never copied, since a transition belongs to a boundary, and the transition on the original's next boundary is dropped because the copy now sits there. A duplicated audio track, overlay or text starts where the original ends, so the two never stack.
+**Details.** The copy takes the trim, volume and fades, colour, orientation, crop, background fill, speed segments and pauses, zooms, overlay placement and shape mask, text content and style, or a shape group's shapes, fades and name — whatever the row has. A duplicated sequence entry lands right after the original; its transitions are never copied, since a transition belongs to a boundary, and the transition on the original's next boundary is dropped because the copy now sits there. A duplicated audio track, overlay, text or shape group starts where the original ends, so the two never stack; a shape group's copy is also listed right after the original.
 
 **Related.** [Copy settings and Paste settings](#copy-settings-and-paste-settings)
 
@@ -85,9 +85,11 @@ A move or a removal from the menu is one undo step, as it is from the button.
 
 **Where to find it.** A row's **⋯** › **Copy settings**, then another row's **⋯** › **Paste settings**.
 
-**What it does.** Carries one row's adjustable settings onto another without touching its media, trim or position.
+**What it does.** Carries one row's adjustable settings onto another without touching its media, trim or position — except on a shape group, whose only settings are its timing (below).
 
-**Details.** Copy remembers the row's settings by group — **Color**, **Orientation**, **Crop**, **Background fill**, **Audio**, **Text style**. Paste opens a checklist of the groups both rows can hold, everything checked, so a paste is never a surprise overwrite; a row that shares no group with the copied settings says so. Each value pastes as the source's effective one, identity included — pasting an ungraded clip's Color resets the target's grade. One paste is one undo step. The copied settings live only in this session: they are never saved with the project, and a reload starts with nothing copied.
+**Details.** Copy remembers the row's settings by group — **Color**, **Orientation**, **Crop**, **Background fill**, **Spotlight**, **Redact**, **Audio**, **Text style**, **Timing and fades**. Paste opens a checklist of the groups both rows can hold, everything checked, so a paste is never a surprise overwrite; a row that shares no group with the copied settings says so. Each value pastes as the source's effective one, identity included — pasting an ungraded clip's Color resets the target's grade. One paste is one undo step.
+
+A shape group's one group is **Timing and fades**: when it shows (*Shows at*), for how long (*for*), and its *Fade in* and *out*, so one annotation can be matched to another's moment. Its shapes are never carried. This is the one paste that moves a row: a shape group has nothing else to carry. No other kind of row holds this group, and a shape group holds no other, so a paste between a shape group and any other row says that nothing applies. The copied settings live only in this session: they are never saved with the project, and a reload starts with nothing copied.
 
 **Related.** [Duplicate](#duplicate) · [What is saved where](concepts.md#what-is-saved-where)
 
@@ -95,9 +97,11 @@ A move or a removal from the menu is one undo step, as it is from the button.
 
 **Where to find it.** A row's **⋯** › **Rename…**, or a double-click on the row's name.
 
-**What it does.** Gives a sequence entry, slate, audio track or overlay the name you want on the timeline.
+**What it does.** Gives a sequence entry, slate, audio track, overlay or shape group the name you want on the timeline.
 
 **Details.** The name becomes a field with the current name selected; Enter or clicking away commits, Escape cancels, an empty name reverts. The new name shows everywhere the row is named — its header, its controls' labels, the preview's now-playing line — is one undo step, and saves with the project. It never touches the library clip the row came from: the clip and each element made from it keep their own names. Text overlays are named by their content and are not renamed here.
+
+A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 ellipses + Arrow*). Its new name shows on its row, while its controls stay labelled by position (*shape group at position 1*). To go back to the name taken from its shapes, empty the field and press Enter.
 
 **Related.** [The ⋯ menu](#the-menu) · [Renaming a clip](media-library.md#renaming-a-clip)
 

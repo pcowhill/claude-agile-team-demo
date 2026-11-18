@@ -103,7 +103,7 @@ import { isCanvasPreset } from './frameSize'
  *       "subtitleStyle": { x, y, font, size, color, bold, italic }, // (#250)
  *       "canvasPreset": "16:9" | "9:16" | "1:1" | "4:5",          // (#273)
  *       "markers": [{ id, time, name }],                          // (#487)
- *       "shapeGroups": [{ id, offset, duration, fadeIn?, fadeOut?,
+ *       "shapeGroups": [{ id, name?, offset, duration, fadeIn?, fadeOut?,   // name: #687
  *                         shapes: [{ id, kind, x, y, width, height,
  *                                    stroke, strokeOpacity, thickness,
  *                                    fill, fillOpacity,
@@ -989,6 +989,10 @@ export async function serializeProject(
         : {
             shapeGroups: shapeGroupsOf(timeline).map((group) => ({
               id: group.id,
+              // A name set by Rename… (#687). An additive key: a build
+              // without it ignores the key and shows the derived name, so it
+              // forces no version (see the compatibility contract above).
+              ...(group.name === undefined ? {} : { name: group.name }),
               offset: group.offset,
               duration: group.duration,
               ...(group.fadeIn === undefined ? {} : { fadeIn: group.fadeIn }),
@@ -2009,6 +2013,11 @@ function validateProject(document: Record<string, unknown>): Project {
         shapes: [],
       }
       if (group.duration <= 0) throw new Error(`${path}.duration must be greater than 0`)
+      if (raw.name !== undefined) {
+        // The model holds a trimmed, non-empty name or none (#687).
+        const name = asString(raw.name, `${path}.name`).trim()
+        if (name !== '') group.name = name
+      }
       if (raw.fadeIn !== undefined) group.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
       if (raw.fadeOut !== undefined) group.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
       if (shapeGroupIds.has(group.id)) throw new Error(`${path}.id "${group.id}" is duplicated`)
