@@ -482,8 +482,8 @@
    `[ 0 s]`, `[ 25%]`, `[ 0.5 ×]`. The border, radius and background move
    from the input to this wrapper, and the input sits in it borderless and
    right-aligned, so the number ends where the unit begins. Each row kind's
-   own `input` rule still sizes the input (4.5rem, or 3.5rem in the zoom
-   and remap rows); the selector below out-specifies all of them —
+   own `input` rule still sizes the input (4.5rem; 4rem in the zoom row,
+   3.5rem in the remap rows); the selector below out-specifies all of them —
    (0,3,0) against their (0,1,1) and (0,2,1) — for the box properties only. */
 .timeline-unit-box {
   display: inline-flex;
