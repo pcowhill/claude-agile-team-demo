@@ -680,7 +680,7 @@ export function ProjectControls({
   const helpItems: MenuItem[] | null =
     onOpenGuide !== undefined && onOpenShortcutHelp !== undefined
       ? [
-          { kind: 'action', label: 'User guide…', shortcut: 'F1', onSelect: onOpenGuide },
+          { kind: 'action', label: 'User Guide…', shortcut: 'F1', onSelect: onOpenGuide },
           { kind: 'action', label: 'Keyboard shortcuts…', shortcut: '?', onSelect: onOpenShortcutHelp },
         ]
       : null

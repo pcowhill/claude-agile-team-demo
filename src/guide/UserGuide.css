@@ -18,25 +18,29 @@
   line-height: 1;
 }
 
-/* The search field stays in view while the panel scrolls (#638). Opening a
-   hit scrolls the panel to the hit's heading and puts focus back here, so
-   the next query is one keystroke away; a field that scrolled away with the
-   article left that focus on something the reader could not see. Sticky at
-   the panel's top edge, on the panel's own background so the article
-   scrolls underneath it. The panel's `scroll-padding-top` (App.css) keeps
-   an arrival's heading clear of it. */
-.user-guide-search {
+/* The header — title, ✕ and the search field — stays in view while the
+   panel scrolls. #638 made the search band sticky: opening a hit scrolls
+   the panel to the hit's heading and puts focus back in the field, so the
+   next query is one keystroke away, and a field that scrolled away left
+   that focus on something the reader could not see. #666 put the title and
+   ✕ in the same sticky box, so the guide is always labelled and closable,
+   and one box means they cannot overlap or drift apart (two sticky boxes
+   would each need the other's height as an inset). On the panel's own
+   background, so the article scrolls underneath it. The panel's
+   `scroll-padding-top` (App.css) keeps an arrival's heading clear of it. */
+.user-guide-header {
   position: sticky;
   /* A sticky inset counts from the panel's content edge, inside its
-     0.75rem top padding (App.css); this sticks the band to the panel's
+     0.75rem top padding (App.css); this sticks the header to the panel's
      top edge, so no strip of article shows above it. */
   top: -0.75rem;
   z-index: 1;
-  /* The padding gives the stuck field its band of background; the negative
-     margins cancel it in flow, so the unscrolled panel is laid out exactly
-     as before, and the band spans the panel's full width. */
-  margin: -0.5rem -1rem;
-  padding: 0.5rem 1rem;
+  /* The padding gives the stuck header its band of background, from the
+     panel's top edge to 0.5rem under the field; the negative margins cancel
+     it in flow, so the unscrolled panel is laid out exactly as before, and
+     the band spans the panel's full width. */
+  margin: -0.75rem -1rem -0.5rem;
+  padding: 0.75rem 1rem 0.5rem;
   background: #1f1f1f;
 }
 

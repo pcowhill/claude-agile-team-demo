@@ -149,7 +149,7 @@ test('R reaches the cheat sheet and the guide\'s generated table (#522)', async 
   await expect(sheet).toHaveCount(0)
 
   await page.goto('./#guide/keyboard-shortcuts')
-  const guide = page.getByRole('complementary', { name: 'User guide' })
+  const guide = page.getByRole('complementary', { name: 'User Guide' })
   await expect(guide).toBeVisible()
   await expect(guide).toContainText('Step the review speed')
 })

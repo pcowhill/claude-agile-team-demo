@@ -16,12 +16,12 @@ type Locator = import('@playwright/test').Locator
 const helpTrigger = (page: Page) => page.getByRole('button', { name: 'Help', exact: true })
 const fileTrigger = (page: Page) => page.getByRole('button', { name: 'File', exact: true })
 const helpMenu = (page: Page) => page.getByRole('menu', { name: 'Help menu' })
-const guide = (page: Page) => page.getByRole('complementary', { name: 'User guide' })
+const guide = (page: Page) => page.getByRole('complementary', { name: 'User Guide' })
 const searchField = (page: Page) => guide(page).getByRole('searchbox', { name: 'Search the user guide' })
 
 async function openGuide(page: Page): Promise<Locator> {
   await helpTrigger(page).click()
-  await helpMenu(page).getByRole('menuitem', { name: 'User guide…' }).click()
+  await helpMenu(page).getByRole('menuitem', { name: 'User Guide…' }).click()
   const panel = guide(page)
   await expect(panel).toBeVisible()
   return panel
@@ -94,7 +94,7 @@ test('Help ▾ sits beside File ▾ at its height, is keyboard-operable, and hol
   await page.keyboard.press('ArrowDown')
   await expect(helpMenu(page)).toBeVisible()
   const items = helpMenu(page).getByRole('menuitem')
-  await expect(items).toHaveText(['User guide…F1', 'Keyboard shortcuts…?'])
+  await expect(items).toHaveText(['User Guide…F1', 'Keyboard shortcuts…?'])
   await expect(items.first()).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
@@ -553,7 +553,7 @@ for (const viewport of [
   { width: 1280, height: 720 },
   { width: 800, height: 720 },
 ]) {
-  test(`after a search hit opens, the search field stays in view, clear of the heading, and so do the next query's results, at ${viewport.width}×${viewport.height} (#638)`, async ({
+  test(`after a search hit opens, the search field stays in view, clear of the heading, and so do the next query's results; the title and ✕ stay with it (#666), at ${viewport.width}×${viewport.height} (#638)`, async ({
     page,
   }) => {
     // #638: opening a hit scrolls the panel to the hit's heading and puts
@@ -589,8 +589,10 @@ for (const viewport of [
         // border box against the panel's, both rounded by layout.
         fieldInView:
           fieldBox!.y >= panelBox!.y - 1 && fieldBox!.y + fieldBox!.height <= panelBox!.y + panelBox!.height + 1,
-        // The heading starts at or below the sticky band, so nothing covers
-        // it, and inside the panel's upper half, as #616's test measures.
+        // The heading starts at or below the sticky band — the lowest part
+        // of the sticky header, under the title and ✕ since #666 — so
+        // nothing covers it, and inside the panel's upper half, as #616's
+        // test measures.
         headingClear: headingBox!.y >= bandBox!.y + bandBox!.height - 1,
         headingInUpperHalf: (headingBox!.y - panelBox!.y) / panelBox!.height < 0.5,
         // The panel really did scroll: the field would be in view anyway at
@@ -625,6 +627,64 @@ for (const viewport of [
         { message: 'typing the next query: field and first result in view' },
       )
       .toEqual({ fieldInView: true, firstHitInView: true })
+
+    // #666: the title and ✕ stick with the field. An in-guide link's
+    // arrival lands below all three, and at the very end of a long page the
+    // title, ✕ and field are still in the panel's box, and ✕ — the element
+    // actually under its own centre, not something scrolled over it —
+    // closes the panel.
+    await field.fill('')
+    const title = panel.getByRole('heading', { level: 2, name: 'User Guide' })
+    const close = panel.getByRole('button', { name: 'Close the user guide' })
+    const inPanel = async (box: { y: number; height: number } | null) => {
+      const panelBox = (await panel.boundingBox())!
+      return box !== null && box.y >= panelBox.y - 1 && box.y + box.height <= panelBox.y + panelBox.height + 1
+    }
+    await panel.getByRole('article').getByRole('link', { name: 'colour slate' }).click()
+    const arrival = panel.getByRole('article').getByRole('heading', { level: 3, name: 'The header' })
+    await expect
+      .poll(
+        async () => {
+          const [bandBox, arrivalBox] = await Promise.all([band.boundingBox(), arrival.boundingBox()])
+          return {
+            arrivalClear: arrivalBox!.y >= bandBox!.y + bandBox!.height - 1,
+            arrivalInView: await inPanel(arrivalBox),
+            scrolled: (await panel.evaluate((el) => el.scrollTop)) > 50,
+          }
+        },
+        { message: 'an in-guide link lands its heading below the whole sticky header' },
+      )
+      .toEqual({ arrivalClear: true, arrivalInView: true, scrolled: true })
+
+    await panel.evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+    })
+    await expect
+      .poll(
+        async () => {
+          const [titleBox, closeBox, fieldBox] = await Promise.all([
+            title.boundingBox(),
+            close.boundingBox(),
+            field.boundingBox(),
+          ])
+          const atEnd = await panel.evaluate((el) => el.scrollTop > 200 && el.scrollTop + el.clientHeight >= el.scrollHeight - 1)
+          const closeOnTop = await close.evaluate((button) => {
+            const box = button.getBoundingClientRect()
+            return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button
+          })
+          return {
+            atEnd,
+            titleInView: await inPanel(titleBox),
+            closeInView: await inPanel(closeBox),
+            fieldInView: await inPanel(fieldBox),
+            closeOnTop,
+          }
+        },
+        { message: 'scrolled to the end: title, ✕ and field in view, ✕ on top' },
+      )
+      .toEqual({ atEnd: true, titleInView: true, closeInView: true, fieldInView: true, closeOnTop: true })
+    await close.click()
+    await expect(panel).toHaveCount(0)
   })
 }
 

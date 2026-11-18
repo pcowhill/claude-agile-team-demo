@@ -49,7 +49,7 @@ describe('Help ▾ (#478)', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['User guide…F1', 'Keyboard shortcuts…?'])
+    ).toEqual(['User Guide…F1', 'Keyboard shortcuts…?'])
   })
 
   it('Keyboard shortcuts… opens the same cheat sheet ? does, and ? still works', async () => {
@@ -70,13 +70,13 @@ describe('Help ▾ (#478)', () => {
 })
 
 describe('the user guide panel (#478)', () => {
-  it('opens from User guide… on Quick Start, docked beside the editor, with focus in the search field', async () => {
+  it('opens from User Guide… on Quick Start, docked beside the editor, with focus in the search field', async () => {
     const user = userEvent.setup()
     render(<App />)
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
 
     const menu = await openHelpMenu(user)
-    await user.click(within(menu).getByRole('menuitem', { name: 'User guide…' }))
+    await user.click(within(menu).getByRole('menuitem', { name: 'User Guide…' }))
     const guide = await panel()
     expect(within(guide).getByRole('heading', { level: 2, name: 'Quick Start' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#guide/quick-start')
@@ -92,7 +92,7 @@ describe('the user guide panel (#478)', () => {
     // A modal first: the cheat sheet.
     pressOnWindow('?', { shiftKey: true })
     pressOnWindow('F1')
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
     // A text field: the event's target claims the key.
@@ -100,7 +100,7 @@ describe('the user guide panel (#478)', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Text overlay' }))
     const content = screen.getByRole('textbox', { name: /Content of/ })
     fireEvent.keyDown(content, { key: 'F1', bubbles: true })
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
 
     pressOnWindow('F1')
     expect(await panel()).toBeInTheDocument()
@@ -119,11 +119,11 @@ describe('the user guide panel (#478)', () => {
     screen.getByRole('button', { name: 'Import clips' }).focus()
     expect(screen.getByRole('button', { name: 'Import clips' })).toHaveFocus()
     await user.keyboard('{Escape}')
-    expect(screen.getByRole('complementary', { name: 'User guide' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'User Guide' })).toBeInTheDocument()
 
     search.focus()
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Help' })).toHaveFocus()
     // Closing leaves the URL without the guide's hash.
     expect(window.location.hash).toBe('')
@@ -138,9 +138,9 @@ describe('the user guide panel (#478)', () => {
     await user.type(search, 'proj')
     await user.keyboard('{Escape}')
     expect(search).toHaveValue('')
-    expect(screen.getByRole('complementary', { name: 'User guide' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'User Guide' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
   })
 
   it('the editor keeps working with the panel open: Space still plays', async () => {
@@ -212,7 +212,7 @@ describe('deep links (#478 §4)', () => {
   it('a hash that is not the guide’s leaves the panel closed', () => {
     window.history.replaceState(null, '', `${window.location.pathname}#something-else`)
     render(<App />)
-    expect(screen.queryByRole('complementary', { name: 'User guide' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'User Guide' })).toBeNull()
     expect(window.location.hash).toBe('#something-else')
   })
 })

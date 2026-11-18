@@ -12,7 +12,7 @@ export type GuideLocation = GuideLinkTarget
 
 export const GUIDE_HASH_PREFIX = '#guide'
 
-/** Where "User guide…" and F1 open the panel when it has no place yet. */
+/** Where "User Guide…" and F1 open the panel when it has no place yet. */
 export const DEFAULT_GUIDE_LOCATION: GuideLocation = { section: 'quick-start', anchor: null }
 
 const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

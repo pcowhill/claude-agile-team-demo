@@ -745,7 +745,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         {guide.location !== null && (
           <Suspense
             fallback={
-              <aside className="user-guide user-guide-loading" aria-label="User guide" aria-busy="true">
+              <aside className="user-guide user-guide-loading" aria-label="User Guide" aria-busy="true">
                 Loading the user guide…
               </aside>
             }

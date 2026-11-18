@@ -1113,8 +1113,8 @@ describe('the header File menu (#415)', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['User guide…F1', 'Keyboard shortcuts…?'])
-    await userEvent.click(within(menu).getByRole('menuitem', { name: 'User guide…' }))
+    ).toEqual(['User Guide…F1', 'Keyboard shortcuts…?'])
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'User Guide…' }))
     expect(onOpenGuide).toHaveBeenCalledTimes(1)
     await userEvent.click(screen.getByRole('button', { name: 'Help' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts…' }))

@@ -276,7 +276,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## U
 
 - **Undo** — the timeline header. [Undo and redo](undo-redo.md#undo-and-redo)
-- **User guide…** — Help ▾; opens this guide. [Quick Start](quick-start.md)
+- **User Guide…** — Help ▾; opens this guide. Its title, ✕ and search field stay at the top of the panel however far it scrolls. [Quick Start](quick-start.md)
 
 ## V
 
