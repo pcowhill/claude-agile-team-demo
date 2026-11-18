@@ -112,19 +112,20 @@ jobs:
         continue-on-error: true
         run: npx playwright install-deps chromium firefox
 
-      # A step timeout kills only the step's leader process: a timed-out
-      # first attempt leaves its apt-get orphaned and still holding the apt
-      # lock, which made this retry fail in seconds when it first fired
-      # (#89). Clear the holders and repair dpkg state before reinstalling.
-      # 6 minutes rather than 4 because the observed hang burns ~2¼ minutes
-      # waiting out a dead mirror before apt falls back and makes progress.
+      # A step timeout kills only the step's leader process, so a timed-out
+      # first attempt can leave its apt-get (#89) and the dpkg under it
+      # (#643) running and holding their locks: the retry first failed in
+      # seconds on the one, and then on the other. settle-dpkg.sh stops
+      # apt-get, waits up to 2 minutes for a running dpkg (it may be doing
+      # real work), and repairs dpkg state; its header has the details.
+      # 8 minutes: the 6 this step had before #643 (the observed hang burns
+      # ~2¼ minutes waiting out a dead mirror before apt falls back and makes
+      # progress), plus that 2-minute bound.
       - name: Install Playwright system dependencies (retry)
         if: steps.install-system-deps.outcome != 'success'
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: |
-          sudo pkill -9 -x apt-get || true
-          sudo pkill -9 -x apt || true
-          sudo dpkg --configure -a
+          .github/scripts/settle-dpkg.sh 120
           npx playwright install-deps chromium firefox
 
       - name: Install Playwright browsers
@@ -143,11 +144,18 @@ jobs:
       # A PulseAudio null sink is an output that discards what it is given.
       # Bounded like the other apt steps (#85), and `e2e/audio-output.spec.ts`
       # fails first, with a message naming this step, if it does not take.
+      # It runs even when the system-deps steps failed, so an apt-get or dpkg
+      # they left behind may still hold the locks, or have died part-way and
+      # left dpkg needing repair (#643). settle-dpkg.sh clears both; when
+      # nothing was left behind it finds nothing and returns at once. The
+      # lock timeout covers any other holder, such as a background apt run.
+      # 6 minutes: the 4 this step had before #643, plus the 2-minute wait.
       - name: Audio output for Firefox (PulseAudio null sink)
         if: ${{ !cancelled() }}
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
-          sudo apt-get install -y --no-install-recommends pulseaudio
+          .github/scripts/settle-dpkg.sh 120
+          sudo apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=120 pulseaudio
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=e2e_null
           pactl set-default-sink e2e_null
