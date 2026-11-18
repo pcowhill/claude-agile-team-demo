@@ -144,12 +144,27 @@ test('the base layer never records a black frame while its element is seeking (#
   // there, and not at the draw of the element, keeps the count independent
   // of whatever the composer then chooses to draw.
   //
-  // The seek must land before the composer's frame in the same animation
-  // frame. It does: this loop is registered inside the element's `play()`,
-  // which the export awaits before it registers its own frame loop, and
-  // callbacks run in the order they were registered, frame after frame.
+  // The element is kept seeking for the whole window, not seeked once per
+  // frame (#673). Setting `currentTime` does not lower `readyState` at once:
+  // the drop arrives later as a task, and no task runs between two
+  // animation-frame callbacks, so the composer never sees the seek issued in
+  // its own frame. It sees a stall only while a seek from an earlier frame
+  // is still pending. Measured in Firefox 153, most single seeks settle
+  // within one frame (`seeked` after 11-17 ms) and only some outlive it, so
+  // one seek per frame stalled 24-37 of ~220 composed frames locally and
+  // exactly 0 in about one CI run in four. Re-seeking on every `seeked`
+  // leaves the element settled only for the moment between that event and
+  // the next seek's drop, however fast its seeks complete.
   await page.evaluate(() => {
-    const probe = { stalls: 0, frames: 0, seeks: 0, ticks: 0, captured: false, source: '' }
+    const probe = {
+      stalls: 0,
+      seekingFrames: 0,
+      frames: 0,
+      seeks: 0,
+      ticks: 0,
+      captured: false,
+      source: '',
+    }
     ;(window as unknown as { __probe: typeof probe }).__probe = probe
     let armed: HTMLMediaElement | null = null
     const exportCanvases = new WeakSet<HTMLCanvasElement>()
@@ -177,6 +192,10 @@ test('the base layer never records a black frame while its element is seeking (#
         h === canvas.height
       ) {
         probe.frames += 1
+        // Counted apart from the stalls (#673), so a failure can tell an
+        // element that was never seeking from one seeking with its picture
+        // still reported ready.
+        if (armed.seeking) probe.seekingFrames += 1
         if (armed.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) probe.stalls += 1
       }
       return realFillRect.call(this, x, y, w, h)
@@ -185,15 +204,22 @@ test('the base layer never records a black frame while its element is seeking (#
       probe.captured = true
       probe.source = element.src
       armed = element
+      // Open the seeking window once the element has supplied real frames:
+      // `cueTo` awaits readiness before the first frame composes, and a
+      // layer that never decoded anything has nothing to fall back to.
+      const inWindow = () => probe.ticks > 15 && probe.ticks < 70 && !element.ended
+      const seek = () => {
+        element.currentTime = element.currentTime + 0.005
+        probe.seeks += 1
+      }
+      element.addEventListener('seeked', () => {
+        if (inWindow()) seek()
+      })
       const tick = () => {
         probe.ticks += 1
-        // Open the seeking window once the element has supplied real frames:
-        // `cueTo` awaits readiness before the first frame composes, and a
-        // layer that never decoded anything has nothing to fall back to.
-        if (probe.ticks > 15 && probe.ticks < 70 && !element.ended) {
-          element.currentTime = element.currentTime + 0.005
-          probe.seeks += 1
-        }
+        // Starts the chain, and restarts it should the element ever settle
+        // without a `seeked` of its own.
+        if (inWindow() && !element.seeking) seek()
         requestAnimationFrame(tick)
       }
       requestAnimationFrame(tick)
@@ -221,6 +247,7 @@ test('the base layer never records a black frame while its element is seeking (#
         window as unknown as {
           __probe: {
             stalls: number
+            seekingFrames: number
             frames: number
             seeks: number
             ticks: number
@@ -231,7 +258,7 @@ test('the base layer never records a black frame while its element is seeking (#
       ).__probe,
   )
   // Printed so a failure says what the probe saw, not only that it failed.
-  const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seeks} seeks, ${probe.ticks} ticks`
+  const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seekingFrames} composed while seeking, ${probe.seeks} seeks, ${probe.ticks} ticks`
   // Without these the check could pass vacuously, having provoked nothing.
   expect(probe.captured, 'the export primary replay element was never captured').toBe(true)
   expect(probe.source, 'the armed element was not playing the clip').toMatch(/^blob:/)
