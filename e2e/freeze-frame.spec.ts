@@ -143,8 +143,9 @@ test('freeze frame captures the composed frame and splits & holds at the playhea
   await expect(async () => {
     const max = Number(await seek.getAttribute('max'))
     expect(max).toBeGreaterThan(0.5)
-    // The slider's step is 0.01, and fill refuses off-step values.
-    await seek.fill((Math.round((max / 2) * 100) / 100).toFixed(2))
+    // The slider's step is 0.01, and fill refuses off-step values. String(),
+    // not toFixed(2): "0.80" reads back as "0.8", a malformed value (#670).
+    await seek.fill(String(Math.round((max / 2) * 100) / 100))
   }).toPass()
 
   // Frame ▾ → split & hold (#417 made the placement the item you pick). One

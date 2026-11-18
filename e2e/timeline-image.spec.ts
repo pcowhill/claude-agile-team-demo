@@ -158,7 +158,9 @@ test('a transition into a still previews with the incoming image layer', async (
     expect(max).toBeGreaterThan(4.5)
     const overlapMidpoint = max - 5 + 0.5 // still contributes its last 4s alone
     // The range input's step is 0.01: snap the value to it or fill() refuses.
-    await slider.fill((Math.round(overlapMidpoint * 100) / 100).toFixed(2))
+    // String(), not toFixed(2): a range input reads "1.00" back as "1", and
+    // fill() reports that as a malformed value (#670).
+    await slider.fill(String(Math.round(overlapMidpoint * 100) / 100))
     // A max that settled between the read and the fill lands the seek
     // outside the overlap; the incoming layer's visibility is the check
     // that the coordinates were the settled ones.
