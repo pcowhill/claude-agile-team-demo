@@ -350,7 +350,7 @@ describe('shape groups: arrows and lines (#684)', () => {
 
   it('draws as one filled outline in the border colour and opacity, faded with the group', () => {
     const calls: string[] = []
-    const context = {
+    const recording = {
       fillStyle: '',
       strokeStyle: '',
       lineWidth: 0,
@@ -369,7 +369,8 @@ describe('shape groups: arrows and lines (#684)', () => {
         calls.push(`fill ${this.fillStyle} ${this.globalAlpha.toFixed(3)}`)
       },
       stroke: () => calls.push('stroke'),
-    } as unknown as ShapeContext
+    }
+    const context = recording as unknown as ShapeContext
     const faded = group({
       offset: 0,
       duration: 4,

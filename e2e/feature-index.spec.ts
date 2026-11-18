@@ -584,8 +584,8 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await addMenuAgain.getByRole('menuitem', { name: ADD_TEXT, exact: true }).click()
   await expect(addMenuAgain).toHaveCount(0)
   await expect(timeline.getByRole('button', { name: /^More actions for text overlay/ })).toBeVisible()
-  // A shape group (#683) holding both kinds, so a rectangle's Corners field
-  // exists as well as an ellipse's fields.
+  // A shape group (#683) holding every kind, so a rectangle's Corners field
+  // and an arrow's fields exist as well as an ellipse's fields.
   const addMenuShapes = await openAddMenu(page)
   await addMenuShapes.getByRole('menuitem', { name: ADD_SHAPES, exact: true }).click()
   await expect(addMenuShapes).toHaveCount(0)
@@ -594,6 +594,13 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await record('+ Add shape ▾', addShapeMenu)
   await addShapeMenu.getByRole('menuitem', { name: 'Rectangle', exact: true }).click()
   await expect(addShapeMenu).toHaveCount(0)
+  // And an arrow (#684), for its tail, tip, heads and head-size fields.
+  await timeline.getByRole('button', { name: 'Add a shape to shape group at position 1' }).click()
+  await page
+    .getByRole('menu', { name: 'Add a shape to shape group at position 1' })
+    .getByRole('menuitem', { name: 'Arrow', exact: true })
+    .click()
+  await expect(timeline.getByRole('listitem', { name: 'Arrow 3 of shape group at position 1' })).toBeVisible()
 
   await record('the header', page.locator('header'))
   await record('the media library', library)
@@ -950,10 +957,15 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await expect(openDialog).toHaveCount(0)
 
   // A shape's fields name the shape within its group (#683), e.g.
-  // "Border colour of Ellipse 1 of shape group at position 1".
+  // "Border colour of Ellipse 1 of shape group at position 1"; the walk adds
+  // an arrow third (#684).
   const shapeNames = positions
     .filter((position) => position.startsWith('shape group'))
-    .flatMap((position) => [`Ellipse 1 of ${position}`, `Rectangle 2 of ${position}`])
+    .flatMap((position) => [
+      `Ellipse 1 of ${position}`,
+      `Rectangle 2 of ${position}`,
+      `Arrow 3 of ${position}`,
+    ])
   const elementNames = [...shapeNames, ...positions, 'clip.webm', 'picture.png', 'tone.wav']
   const wanted = new Map<string, string>()
   for (const [row, surface] of collected) {
