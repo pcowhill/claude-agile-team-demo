@@ -132,6 +132,26 @@ every PR and push to `main`; merged changes deploy to GitHub Pages via
 `.github/workflows/deploy.yml`. CI installs the pinned revision, so it takes
 the first branch above and is unaffected by the fallback.
 
+### Embedding the built app in another page
+
+The app fills whatever the page's `<body>` leaves after `#root`'s siblings
+(#652). Its own stylesheet makes `<body>` a column exactly the window's
+height, keeps every sibling of `#root` at its own height, and gives `#root`
+the rest. So a host page puts its header and footer **beside** `#root`, and
+needs no CSS of its own:
+
+```html
+<body>
+  <div class="header">…</div>
+  <div id="root"></div>   <!-- the app mounts here -->
+  <div class="footer">…</div>
+</body>
+```
+
+The header and footer stay on screen, and the page itself does not scroll. A
+project too tall for the space scrolls inside the editor column instead.
+`e2e/embedded-host.spec.ts` builds this page and measures it.
+
 ## How to interact with the team (for the customer)
 
 - **Ask for anything / give feedback:** open an issue using the *Customer

@@ -1,4 +1,11 @@
-/* The shell is exactly as tall as the window (#524). `min-height: 100vh`
+/* The shell is exactly as tall as the room its page gives `#root` — the
+   whole window on GitHub Pages, the space between a host page's header and
+   footer when embedded (#652; `#root` is sized in index.css). It said
+   `height: 100dvh` until then, which is why an embedded app overflowed the
+   page by its host's header and footer. The rest of this comment is #524's
+   reasoning, and holds with "the room `#root` has" for "the window":
+
+   The shell is exactly as tall as the window (#524). `min-height: 100vh`
    was not itself wrong — with little content the document did fit — but it
    left `.app-body`'s height *indefinite*, so nothing inside could size
    itself against "the room under the header" and had to say `100vh`
@@ -20,7 +27,8 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  flex: 1;
+  min-height: 0;
 }
 
 .app-drag-target {
