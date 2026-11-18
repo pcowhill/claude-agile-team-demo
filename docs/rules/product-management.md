@@ -103,6 +103,23 @@ A `customer-question` issue must include:
 Assign the issue to the repository owner when permissions allow. The customer
 answers with a normal comment in any format.
 
+**Asking for a file.** Sessions cannot download GitHub issue attachments.
+The session proxy refuses `github.com/user-attachments/…` with HTTP 403:
+"sessions are bound to their configured repositories". This was measured on
+#584, and again on #632's PR. So a question that needs a file a session
+must *process*, such as a recording or a saved project, asks for it **on a
+branch of this repository**, never as an attachment:
+
+- Give the customer the steps: **Add file → Upload files**, then **"Create
+  a new branch"**, named after the issue (e.g. `customer-files-584`).
+- Say that the branch will not be merged.
+
+A session reads the file with `git fetch origin <branch>`, and the issue
+that used it says when the branch may be deleted. #626 is the worked
+example: its steps worked on the customer's first try, after #617's
+"attach it to this issue" had cost a round trip. A screenshot attached only
+to *show* something is still fine as an attachment.
+
 When a later session finds an answered question: incorporate the answer into
 the affected work, link the decision where it is applied (issue, PR, or ADR),
 and close the question. If a question blocks only one piece of work, label
