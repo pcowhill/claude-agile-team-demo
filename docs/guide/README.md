@@ -3,7 +3,7 @@
 This directory is the user guide's source (#478, from the approved design
 #477 and the customer's request #476). One Markdown file per section;
 `contents.json` lists the sections in reading order. The build compiles the
-files into the app's Help ▾ → User guide… panel (`tools/guide/`), and the
+files into the app's Help ▾ → User Guide… panel (`tools/guide/`), and the
 same compile runs as a unit test, so a broken link or a stray tag fails
 `npm test` and `npm run build` with the file and the offending text.
 
