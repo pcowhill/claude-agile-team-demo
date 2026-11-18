@@ -27,6 +27,7 @@ import fixtureV20RedactionReferencesBase64 from './fixtures/project-v20-redactio
 import fixtureV21SpotlightReferencesBase64 from './fixtures/project-v21-spotlight-references.bvep.base64?raw'
 import fixtureV22SoftSpotlightReferencesBase64 from './fixtures/project-v22-soft-spotlight-references.bvep.base64?raw'
 import fixtureV23ShapeGroupsReferencesBase64 from './fixtures/project-v23-shape-groups-references.bvep.base64?raw'
+import fixtureV24ArrowShapesReferencesBase64 from './fixtures/project-v24-arrow-shapes-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -47,6 +48,7 @@ import {
   SPOTLIGHT_SCHEMA_VERSION,
   SOFT_SPOTLIGHT_SCHEMA_VERSION,
   SHAPE_GROUPS_SCHEMA_VERSION,
+  ARROW_SHAPES_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1134,8 +1136,9 @@ describe('project file versioning', () => {
     // version 19 added chapter markers (#487); version 20 added entry and
     // overlay redaction regions (#492); version 21 added entry and overlay
     // spotlight regions (#532); version 22 added a spotlight region's soft
-    // edge (#533); version 23 added shape groups (#683).
-    expect(PROJECT_SCHEMA_VERSION).toBe(23)
+    // edge (#533); version 23 added shape groups (#683); version 24 added
+    // arrows in shape groups (#684).
+    expect(PROJECT_SCHEMA_VERSION).toBe(24)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1159,6 +1162,7 @@ describe('project file versioning', () => {
     expect(SPOTLIGHT_SCHEMA_VERSION).toBe(21)
     expect(SOFT_SPOTLIGHT_SCHEMA_VERSION).toBe(22)
     expect(SHAPE_GROUPS_SCHEMA_VERSION).toBe(23)
+    expect(ARROW_SHAPES_SCHEMA_VERSION).toBe(24)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4452,6 +4456,135 @@ describe('shape groups in project files (#683, schema version 23)', () => {
     expect(result).toEqual({
       ok: true,
       project: { clips: expectedProject.clips, timeline: { ...expectedProject.timeline, shapeGroups } },
+    })
+  })
+})
+
+// Arrows in shape groups (#684, schema version 24): a group holding an
+// arrow forces 24, a group of boxes alone stays at 23 (so a #683 build
+// still opens it), and an arrow's own fields are refused by name.
+describe('arrows in shape groups in project files (#684, schema version 24)', () => {
+  const arrowGroups: ShapeGroup[] = [
+    {
+      id: 'g1',
+      offset: 1,
+      duration: 3,
+      shapes: [
+        {
+          id: 'a1',
+          kind: 'arrow',
+          tailX: 0.2,
+          tailY: 0.7,
+          tipX: 0.45,
+          tipY: 0.4,
+          heads: 'tip',
+          headSize: 'medium',
+          stroke: '#e53935',
+          strokeOpacity: 1,
+          thickness: 6 / 1080,
+          fill: '#e53935',
+          fillOpacity: 0,
+        },
+        {
+          id: 'a2',
+          kind: 'arrow',
+          tailX: 0.6,
+          tailY: 0.2,
+          tipX: 0.9,
+          tipY: 0.2,
+          heads: 'none',
+          headSize: 'large',
+          stroke: '#ffeb3b',
+          strokeOpacity: 0.5,
+          thickness: 0.01,
+          fill: '#000000',
+          fillOpacity: 0.35,
+        },
+        {
+          id: 's1',
+          kind: 'rectangle',
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.2,
+          stroke: '#000000',
+          strokeOpacity: 1,
+          thickness: 0.004,
+          fill: '#ffffff',
+          fillOpacity: 0,
+          cornerRadius: 0.01,
+        },
+      ],
+    },
+  ]
+  const arrow = arrowGroups[0].shapes[0]
+
+  it('round-trips arrows, lines and box shapes together at version 24', async () => {
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: arrowGroups })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(ARROW_SHAPES_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).shapeGroups).toEqual(arrowGroups)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(arrowGroups)
+  })
+
+  it('keeps a group without arrows at version 23, which a #683 build opens', async () => {
+    const boxesOnly = [{ ...arrowGroups[0], shapes: [arrowGroups[0].shapes[2]] }]
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, shapeGroups: boxesOnly }),
+    )
+    expect(document.schemaVersion).toBe(SHAPE_GROUPS_SCHEMA_VERSION)
+  })
+
+  it('refuses a malformed arrow by name', async () => {
+    const withShapes = (shapes: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: ARROW_SHAPES_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, shapeGroups: [{ ...arrowGroups[0], shapes }] },
+    })
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...arrow, heads: 'tail' }])),
+      'timeline.shapeGroups[0].shapes[0].heads "tail" is not one of tip, both, none',
+    )
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...arrow, headSize: 'huge' }])),
+      'timeline.shapeGroups[0].shapes[0].headSize "huge" is not one of small, medium, large',
+    )
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...arrow, tipX: undefined }])),
+      'timeline.shapeGroups[0].shapes[0].tipX',
+    )
+    // Off the frame, and with no length to point along.
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...arrow, tipY: 1.2 }])),
+      'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+    )
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...arrow, tipX: arrow.kind === 'arrow' ? arrow.tailX : 0, tipY: 0.7 }])),
+      'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+    )
+  })
+
+  it('a version-23 build refuses the file by version rather than meeting an unknown kind', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, shapeGroups: arrowGroups }),
+    )
+    expect(document.schemaVersion).toBeGreaterThan(SHAPE_GROUPS_SCHEMA_VERSION)
+  })
+
+  it('deserializes the committed v24 arrow-shapes fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV24ArrowShapesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: { ...expectedProject.timeline, shapeGroups: arrowGroups },
+      },
     })
   })
 })

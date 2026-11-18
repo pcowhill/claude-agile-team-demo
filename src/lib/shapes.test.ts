@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { Shape, ShapeContext, ShapeGroup } from './shapes'
+import type { ArrowShape, BoxShape, Shape, ShapeContext, ShapeGroup } from './shapes'
 import {
   activeShapeGroups,
+  arrowHeadLength,
+  arrowOutline,
+  ARROW_HEAD_SIZE_FACTORS,
+  MIN_ARROW_HEAD,
   clampShapeGroup,
   defaultShape,
   defaultShapeGroup,
@@ -21,7 +25,7 @@ import { canvasFrameSize } from './frameSize'
 import { shapeGroupsOf, timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
 
-const ellipse = (id = 's1'): Shape => defaultShape(id, 'ellipse')
+const ellipse = (id = 's1'): BoxShape => defaultShape(id, 'ellipse')
 const group = (overrides: Partial<ShapeGroup> = {}): ShapeGroup => ({
   id: 'g1',
   offset: 2,
@@ -36,8 +40,8 @@ describe('shape groups: defaults (#681 §1–§2)', () => {
     expect(added.offset).toBe(7.5)
     expect(added.duration).toBe(3)
     expect(added.shapes).toHaveLength(1)
-    const [shape] = added.shapes
-    expect(shape.kind).toBe('ellipse')
+    expect(added.shapes[0].kind).toBe('ellipse')
+    const shape = added.shapes[0] as BoxShape
     expect(shape.stroke).toBe('#e53935')
     expect(shape.strokeOpacity).toBe(1)
     expect(shape.fillOpacity).toBe(0)
@@ -236,6 +240,149 @@ describe('shape groups: drawing (#683)', () => {
       'alsoLate',
     ])
     expect(activeShapeGroups([late, early], 0.5).map((g) => g.id)).toEqual(['early'])
+  })
+})
+
+describe('shape groups: arrows and lines (#684)', () => {
+  /** An arrow in frame fractions; the frame below is 1000 × 500 px. */
+  const arrow = (overrides: Partial<ArrowShape> = {}): ArrowShape => ({
+    ...defaultShape('a', 'arrow'),
+    tailX: 0.1,
+    tailY: 0.5,
+    tipX: 0.9,
+    tipY: 0.5,
+    ...overrides,
+  })
+  const W = 1000
+  const H = 500
+  /** Thickness, as a stored fraction, that draws `px` pixels in the 1000 × 500 frame. */
+  const px = (pixels: number) => pixels / H
+
+  it('Add shape › Arrow gives a valid arrow across the middle, head at the tip, in the given style', () => {
+    const yellow = { ...DEFAULT_SHAPE_STYLE, stroke: '#ffeb3b', thickness: 0.004 }
+    const added = defaultShape('a', 'arrow', yellow)
+    expect(added).toMatchObject({ kind: 'arrow', heads: 'tip', headSize: 'medium', stroke: '#ffeb3b' })
+    expect((added.tailX + added.tipX) / 2).toBeCloseTo(0.5)
+    expect(added.tailY).toBe(0.5)
+    expect(added.tipY).toBe(0.5)
+    expect(added.tipX).toBeGreaterThan(added.tailX)
+    expect(isValidShapeGroupSpec(group({ shapes: [added] }))).toBe(true)
+  })
+
+  it('refuses an arrow off the frame, of no length, or with unknown heads', () => {
+    const valid = (shape: ArrowShape) => isValidShapeGroupSpec(group({ shapes: [shape] }))
+    expect(valid(arrow())).toBe(true)
+    expect(valid(arrow({ tipX: 1.1 }))).toBe(false)
+    expect(valid(arrow({ tipX: 0.1 }))).toBe(false)
+    expect(valid(arrow({ heads: 'tail' as ArrowShape['heads'] }))).toBe(false)
+    expect(valid(arrow({ headSize: 'huge' as ArrowShape['headSize'] }))).toBe(false)
+  })
+
+  it('is invisible with no visible border, whatever its fill says', () => {
+    expect(isInvisibleShape(arrow())).toBe(false)
+    expect(isInvisibleShape(arrow({ thickness: 0, fillOpacity: 1 }))).toBe(true)
+    expect(isInvisibleShape(arrow({ strokeOpacity: 0, fillOpacity: 1 }))).toBe(true)
+  })
+
+  it('counts arrows in the row name', () => {
+    expect(shapeGroupLabel(group({ shapes: [ellipse('e'), arrow({ id: 'a' }), arrow({ id: 'b' })] }))).toBe(
+      'Ellipse + 2 arrows',
+    )
+  })
+
+  it('sizes a head by its preset times the thickness, never below the minimum (#684)', () => {
+    // 10 px thick: medium is 4.5 × 10 = 45 px, above the 0.02 × 500 = 10 px floor.
+    expect(arrowHeadLength(arrow({ thickness: px(10) }), W, H)).toBeCloseTo(45)
+    expect(arrowHeadLength(arrow({ thickness: px(10), headSize: 'small' }), W, H)).toBeCloseTo(30)
+    expect(arrowHeadLength(arrow({ thickness: px(10), headSize: 'large' }), W, H)).toBeCloseTo(60)
+    // 1 px thick: 4.5 px would be a nub, so the floor holds it at 10 px.
+    expect(arrowHeadLength(arrow({ thickness: px(1) }), W, H)).toBeCloseTo(MIN_ARROW_HEAD * H)
+    expect(MIN_ARROW_HEAD * H).toBeGreaterThan(ARROW_HEAD_SIZE_FACTORS.large * 1)
+    // At 1080p and 360p, a 1 px arrow's head is the floor of each frame.
+    expect(arrowHeadLength(arrow({ thickness: 1 / 1080 }), 1920, 1080)).toBeCloseTo(21.6)
+    expect(arrowHeadLength(arrow({ thickness: 1 / 360 }), 640, 360)).toBeCloseTo(7.2)
+  })
+
+  it('outlines a tip-headed arrow: the shaft band, then a head ending exactly at the tip', () => {
+    // Tail (100, 250) → tip (900, 250), 10 px thick, head 45 px long and 45 px wide.
+    const points = arrowOutline(arrow({ thickness: px(10) }), W, H)
+    const round = points.map(({ x, y }) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100])
+    expect(round).toEqual([
+      [100, 255],
+      [855, 255],
+      [855, 272.5],
+      [900, 250],
+      [855, 227.5],
+      [855, 245],
+      [100, 245],
+    ])
+    // Nothing reaches past the tip or behind the tail.
+    expect(Math.max(...points.map((p) => p.x))).toBe(900)
+    expect(Math.min(...points.map((p) => p.x))).toBe(100)
+  })
+
+  it('puts a head at each end for Both ends, and none for a line', () => {
+    const both = arrowOutline(arrow({ thickness: px(10), heads: 'both' }), W, H)
+    expect(both).toHaveLength(10)
+    expect(both[0]).toEqual({ x: 100, y: 250 })
+    expect(both).toContainEqual({ x: 900, y: 250 })
+    const line = arrowOutline(arrow({ thickness: px(10), heads: 'none' }), W, H)
+    expect(line.map(({ x, y }) => [x, y])).toEqual([
+      [100, 255],
+      [900, 255],
+      [900, 245],
+      [100, 245],
+    ])
+  })
+
+  it('fits the heads into a short arrow, and is never narrower than its shaft', () => {
+    // 20 px long, 10 px thick, heads both ends: each head is cut to 10 px.
+    const short = arrow({ tailX: 0.49, tipX: 0.51, thickness: px(10), heads: 'both' })
+    const points = arrowOutline(short, W, H)
+    const xs = points.map((p) => Math.round(p.x * 1000) / 1000)
+    expect(Math.min(...xs)).toBe(490)
+    expect(Math.max(...xs)).toBe(510)
+    // The two heads' bases meet in the middle.
+    expect(xs.filter((x) => x === 500).length).toBeGreaterThanOrEqual(4)
+    const ys = points.map((p) => p.y)
+    expect(Math.max(...ys) - 250).toBeGreaterThanOrEqual(5)
+  })
+
+  it('draws as one filled outline in the border colour and opacity, faded with the group', () => {
+    const calls: string[] = []
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineJoin: 'miter',
+      globalAlpha: 1,
+      save: () => calls.push('save'),
+      restore: () => calls.push('restore'),
+      beginPath: () => calls.push('beginPath'),
+      closePath: () => calls.push('closePath'),
+      moveTo: (x: number, y: number) => calls.push(`moveTo ${x} ${y}`),
+      lineTo: () => calls.push('lineTo'),
+      arcTo: () => calls.push('arcTo'),
+      ellipse: () => calls.push('ellipse'),
+      rect: () => calls.push('rect'),
+      fill() {
+        calls.push(`fill ${this.fillStyle} ${this.globalAlpha.toFixed(3)}`)
+      },
+      stroke: () => calls.push('stroke'),
+    } as unknown as ShapeContext
+    const faded = group({
+      offset: 0,
+      duration: 4,
+      fadeIn: 2,
+      shapes: [arrow({ stroke: '#00ff00', strokeOpacity: 0.8, fill: '#ff0000', fillOpacity: 1 })],
+    })
+    drawShapeGroups(context, [faded], 1, W, H)
+    // Half-way through the fade: 0.8 × 0.5. Never the fill colour, never a stroke.
+    expect(calls).toContain('fill #00ff00 0.400')
+    expect(calls.some((call) => call.startsWith('fill #ff0000'))).toBe(false)
+    expect(calls).not.toContain('stroke')
+    expect(calls.filter((call) => call.startsWith('fill'))).toHaveLength(1)
+    expect(calls).toContain('closePath')
   })
 })
 

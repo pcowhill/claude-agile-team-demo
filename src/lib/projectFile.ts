@@ -29,8 +29,18 @@ import {
   markersOf,
   shapeGroupsOf,
 } from './timeline'
-import type { Shape, ShapeGroup } from './shapes'
-import { isShapeKind, isValidShape, MAX_CORNER_RADIUS, MAX_SHAPE_THICKNESS, MIN_SHAPE_SIZE } from './shapes'
+import type { Shape, ShapeGroup, ShapeStyle } from './shapes'
+import {
+  ARROW_HEAD_SIZES,
+  ARROW_HEADS,
+  isArrowHeads,
+  isArrowHeadSize,
+  isShapeKind,
+  isValidShape,
+  MAX_CORNER_RADIUS,
+  MAX_SHAPE_THICKNESS,
+  MIN_SHAPE_SIZE,
+} from './shapes'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
@@ -97,7 +107,11 @@ import { isCanvasPreset } from './frameSize'
  *                         shapes: [{ id, kind, x, y, width, height,
  *                                    stroke, strokeOpacity, thickness,
  *                                    fill, fillOpacity,
- *                                    cornerRadius? }] }],     // (#683)
+ *                                    cornerRadius? }             // (#683)
+ *                                | { id, kind: "arrow", tailX, tailY,
+ *                                    tipX, tipY, heads, headSize,
+ *                                    stroke, strokeOpacity, thickness,
+ *                                    fill, fillOpacity }] }],  // (#684)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -263,7 +277,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 23
+export const PROJECT_SCHEMA_VERSION = 24
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -316,6 +330,14 @@ export const SPOTLIGHT_SCHEMA_VERSION = 21
 export const SOFT_SPOTLIGHT_SCHEMA_VERSION = 22
 /** The version any shape group forces, whichever the save mode (#683). */
 export const SHAPE_GROUPS_SCHEMA_VERSION = 23
+/**
+ * The version any arrow in a shape group forces (#684). A group of only
+ * rectangles and ellipses stays at 23, so a #683 build opens every file it
+ * could have written itself; one holding an arrow — a kind it would refuse
+ * as unknown — it refuses by version instead, with the "newer version"
+ * message that says what to do.
+ */
+export const ARROW_SHAPES_SCHEMA_VERSION = 24
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -560,6 +582,44 @@ function storedSubtitleStyle({ x, y, font, size, color, bold, italic }: Subtitle
 }
 
 /**
+ * One shape as written to a file (#683, #684): fields listed, not spread,
+ * so state-only keys can never leak into a file, in the order each kind
+ * has always been written.
+ */
+function serializeShape(shape: Shape): Record<string, unknown> {
+  const style = (each: ShapeStyle) => ({
+    stroke: each.stroke,
+    strokeOpacity: each.strokeOpacity,
+    thickness: each.thickness,
+    fill: each.fill,
+    fillOpacity: each.fillOpacity,
+  })
+  if (shape.kind === 'arrow') {
+    return {
+      id: shape.id,
+      kind: shape.kind,
+      tailX: shape.tailX,
+      tailY: shape.tailY,
+      tipX: shape.tipX,
+      tipY: shape.tipY,
+      heads: shape.heads,
+      headSize: shape.headSize,
+      ...style(shape),
+    }
+  }
+  return {
+    id: shape.id,
+    kind: shape.kind,
+    x: shape.x,
+    y: shape.y,
+    width: shape.width,
+    height: shape.height,
+    ...style(shape),
+    ...(shape.cornerRadius === undefined ? {} : { cornerRadius: shape.cornerRadius }),
+  }
+}
+
+/**
  * Serializes the current library + timeline into project-file bytes.
  * Import failures (transient UI state) are not part of a project. With
  * `media` (bytes per clip id, covering the whole library) the file embeds
@@ -636,6 +696,9 @@ export async function serializeProject(
   const clipKindById = new Map(library.clips.map((clip) => [clip.id, clip.kind]))
   const hasMarkers = markersOf(timeline).length > 0
   const hasShapeGroups = shapeGroupsOf(timeline).length > 0
+  const hasArrowShapes = shapeGroupsOf(timeline).some((group) =>
+    group.shapes.some((shape) => shape.kind === 'arrow'),
+  )
   const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
@@ -690,7 +753,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasShapeGroups
+    schemaVersion: hasArrowShapes
+      ? ARROW_SHAPES_SCHEMA_VERSION
+      : hasShapeGroups
       ? SHAPE_GROUPS_SCHEMA_VERSION
       : hasSoftSpotlights
       ? SOFT_SPOTLIGHT_SCHEMA_VERSION
@@ -928,20 +993,7 @@ export async function serializeProject(
               duration: group.duration,
               ...(group.fadeIn === undefined ? {} : { fadeIn: group.fadeIn }),
               ...(group.fadeOut === undefined ? {} : { fadeOut: group.fadeOut }),
-              shapes: group.shapes.map((shape) => ({
-                id: shape.id,
-                kind: shape.kind,
-                x: shape.x,
-                y: shape.y,
-                width: shape.width,
-                height: shape.height,
-                stroke: shape.stroke,
-                strokeOpacity: shape.strokeOpacity,
-                thickness: shape.thickness,
-                fill: shape.fill,
-                fillOpacity: shape.fillOpacity,
-                ...(shape.cornerRadius === undefined ? {} : { cornerRadius: shape.cornerRadius }),
-              })),
+              shapes: group.shapes.map(serializeShape),
             })),
           }),
       audioTracks: audioTracksOf(timeline).map(
@@ -1940,7 +1992,7 @@ function validateProject(document: Record<string, unknown>): Project {
     return marker
   })
 
-  // Shape groups (#683, schema version 23): absent in files saved before
+  // Shape groups (#683, schema version 23; arrows #684, 24): absent in files saved before
   // them and in every shape-free file since. Each shape is checked field by
   // field so the refusal names what is wrong; ids are unique per file
   // (groups) and per group (shapes). Fades fitting the window is the
@@ -1967,26 +2019,56 @@ function validateProject(document: Record<string, unknown>): Project {
         const shapeRaw = asRecord(shapeValue, shapePath)
         const kind = asString(shapeRaw.kind, `${shapePath}.kind`)
         if (!isShapeKind(kind)) throw new Error(`${shapePath}.kind "${kind}" is unknown`)
-        const shape: Shape = {
-          id: asString(shapeRaw.id, `${shapePath}.id`),
-          kind,
-          x: asFinite(shapeRaw.x, `${shapePath}.x`),
-          y: asFinite(shapeRaw.y, `${shapePath}.y`),
-          width: asFinite(shapeRaw.width, `${shapePath}.width`),
-          height: asFinite(shapeRaw.height, `${shapePath}.height`),
+        const style: ShapeStyle = {
           stroke: asString(shapeRaw.stroke, `${shapePath}.stroke`),
           strokeOpacity: asFinite(shapeRaw.strokeOpacity, `${shapePath}.strokeOpacity`),
           thickness: asFinite(shapeRaw.thickness, `${shapePath}.thickness`),
           fill: asString(shapeRaw.fill, `${shapePath}.fill`),
           fillOpacity: asFinite(shapeRaw.fillOpacity, `${shapePath}.fillOpacity`),
         }
-        if (shapeRaw.cornerRadius !== undefined) {
-          shape.cornerRadius = asFinite(shapeRaw.cornerRadius, `${shapePath}.cornerRadius`)
+        let shape: Shape
+        if (kind === 'arrow') {
+          // Arrows (#684): a tail and a tip, and their heads.
+          const heads = asString(shapeRaw.heads, `${shapePath}.heads`)
+          if (!isArrowHeads(heads)) {
+            throw new Error(`${shapePath}.heads "${heads}" is not one of ${ARROW_HEADS.join(', ')}`)
+          }
+          const headSize = asString(shapeRaw.headSize, `${shapePath}.headSize`)
+          if (!isArrowHeadSize(headSize)) {
+            throw new Error(
+              `${shapePath}.headSize "${headSize}" is not one of ${ARROW_HEAD_SIZES.join(', ')}`,
+            )
+          }
+          shape = {
+            id: asString(shapeRaw.id, `${shapePath}.id`),
+            kind,
+            tailX: asFinite(shapeRaw.tailX, `${shapePath}.tailX`),
+            tailY: asFinite(shapeRaw.tailY, `${shapePath}.tailY`),
+            tipX: asFinite(shapeRaw.tipX, `${shapePath}.tipX`),
+            tipY: asFinite(shapeRaw.tipY, `${shapePath}.tipY`),
+            heads,
+            headSize,
+            ...style,
+          }
+        } else {
+          shape = {
+            id: asString(shapeRaw.id, `${shapePath}.id`),
+            kind,
+            x: asFinite(shapeRaw.x, `${shapePath}.x`),
+            y: asFinite(shapeRaw.y, `${shapePath}.y`),
+            width: asFinite(shapeRaw.width, `${shapePath}.width`),
+            height: asFinite(shapeRaw.height, `${shapePath}.height`),
+            ...style,
+          }
+          if (shapeRaw.cornerRadius !== undefined) {
+            shape.cornerRadius = asFinite(shapeRaw.cornerRadius, `${shapePath}.cornerRadius`)
+          }
         }
         if (!isValidShape(shape)) {
           throw new Error(
             `${shapePath} is not a valid shape: positions and opacities run 0 to 1, sizes ` +
-              `${MIN_SHAPE_SIZE} to 1, thickness 0 to ${MAX_SHAPE_THICKNESS}, a corner radius ` +
+              `${MIN_SHAPE_SIZE} to 1, an arrow's tail and tip at least ${MIN_SHAPE_SIZE} apart, ` +
+              `thickness 0 to ${MAX_SHAPE_THICKNESS}, a corner radius ` +
               `(rectangles only) 0 to ${MAX_CORNER_RADIUS}, and colours are lowercase #rrggbb`,
           )
         }
