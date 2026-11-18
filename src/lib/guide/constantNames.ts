@@ -28,6 +28,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_TRANSITION_DURATION',
   /** How long a newly added text overlay shows, in seconds. */
   'DEFAULT_TEXT_DURATION',
+  /** How long a newly added shape group shows, in seconds (#683). */
+  'DEFAULT_SHAPE_GROUP_DURATION',
   /** The configured bare-arrow step, in seconds (a live setting, #286). */
   'STEP_SECONDS',
   /** The configured Shift+arrow step, in seconds (a live setting, #286). */

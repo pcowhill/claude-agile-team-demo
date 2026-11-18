@@ -1,8 +1,8 @@
 # Timeline
 
-The arrangement: what plays, when, and how. This page is the map of the panel — its [four sections](#the-four-sections), the [header controls](#the-header), the [anatomy of a row](#a-row), the [⋯ menu](#the-menu) with [Duplicate](#duplicate), [Copy settings and Paste settings](#copy-settings-and-paste-settings) and [Rename…](#rename), the [Picture ▸](#picture) group, the [+ Effect ▾](#effect) menu, and [collapsing and folding](#collapsing-rows-and-folding-sections). What the controls inside a row do to the picture is on [Editing video](editing-video.md); dragging instead of typing is on [Visual editors](visual-editors.md). The words — element, entry, track, overlay — are defined in [Concepts](concepts.md#the-four-sections-of-the-timeline).
+The arrangement: what plays, when, and how. This page is the map of the panel — its [five sections](#the-five-sections), the [header controls](#the-header), the [anatomy of a row](#a-row), the [⋯ menu](#the-menu) with [Duplicate](#duplicate), [Copy settings and Paste settings](#copy-settings-and-paste-settings) and [Rename…](#rename), the [Picture ▸](#picture) group, the [+ Effect ▾](#effect) menu, and [collapsing and folding](#collapsing-rows-and-folding-sections). What the controls inside a row do to the picture is on [Editing video](editing-video.md); dragging instead of typing is on [Visual editors](visual-editors.md). The words — element, entry, track, overlay — are defined in [Concepts](concepts.md#the-five-sections-of-the-timeline).
 
-## The four sections
+## The five sections
 
 **Where to find it.** The timeline panel, below the library and the preview; each section has a titled heading.
 
@@ -13,11 +13,12 @@ The arrangement: what plays, when, and how. This page is the map of the panel �
 - **Sequence** — the video's spine: video clips, still images and colour slates, playing one after another in the order listed. Transitions sit on the boundary between two entries. The sequence's length, less the transitions that overlap it, is the video's length — the **Total** in the header.
 - **Audio** — audio tracks: sound clips placed at a start time, trimmed, overlapping freely.
 - **Overlays** — overlay layers: a video or an image inside a rectangle of the frame, with a start time and its own trim or duration.
+- **Shapes** — [shape groups](shapes-and-annotations.md): rectangles and ellipses drawn on the picture, appearing and disappearing together for a window of time.
 - **Text** — text overlays: titles, captions and imported subtitles, each a block of text at a point in the frame for a window of time.
 
 A section with nothing in it shows a short hint instead of rows. Anything that would play past the end of the sequence is cut off there.
 
-**Related.** [Concepts](concepts.md#the-four-sections-of-the-timeline) · [Put them on the timeline](quick-start.md#2-put-them-on-the-timeline) · [Add](media-library.md#add)
+**Related.** [Concepts](concepts.md#the-five-sections-of-the-timeline) · [Put them on the timeline](quick-start.md#2-put-them-on-the-timeline) · [Add](media-library.md#add)
 
 ## The header
 
@@ -28,7 +29,7 @@ A section with nothing in it shows a short hint instead of rows. Anything that w
 **Details.** From left to right: **Undo** and **Redo**; the **▲** and **▼** pair that collapses or expands every row; **Add ▾**; the **Total**; and **Canvas**. Beneath the header, the **Subtitle style** disclosure appears once the timeline holds any text overlay.
 
 - **Undo** and **Redo** walk the history of edits back and forward — the last {{HISTORY_LIMIT}} edits are kept. Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y) do the same — Cmd on a Mac — except while typing in a text field, where the shortcut stays the browser's own text undo, and while a dialog is open, where the keys wait like every other shortcut. What counts as an edit is in [Concepts](concepts.md#edits-and-everything-else).
-- **Add ▾** adds an element that needs no import: **Color slate**, a solid colour of any shade with an adjustable duration; **Text overlay**, a title reading *Title* in the centre of the frame for {{DEFAULT_TEXT_DURATION}} s; and **Subtitles from .srt file…**, which lands every cue of a subtitle file as a text overlay timed to it.
+- **Add ▾** adds an element that needs no import: **Color slate**, a solid colour of any shade with an adjustable duration; **Text overlay**, a title reading *Title* in the centre of the frame for {{DEFAULT_TEXT_DURATION}} s; [**Shape group**](shapes-and-annotations.md#adding-a-shape-group), one red ellipse in the middle of the frame for {{DEFAULT_SHAPE_GROUP_DURATION}} s from the playhead; and **Subtitles from .srt file…**, which lands every cue of a subtitle file as a text overlay timed to it.
 - **Total** is the video's length: the sequence's entries end to end, less the transitions that overlap them.
 - **Canvas** fixes the output frame's aspect — **Landscape 16:9**, **Portrait 9:16**, **Square 1:1** or **Portrait 4:5** — or leaves it at **Auto (match sources)**, where the frame follows the largest source. A fixed preset yields the smallest frame of that aspect that still contains every source, so nothing is downscaled; clips that do not fit letterbox into it. The preset saves with the project. [The output frame](concepts.md#the-output-frame) has the rule in full.
 - **Subtitle style** restyles every imported subtitle at once — font, size, colour, bold, italic and position — and opens itself when subtitles are imported. A property edited on one cue is pinned and keeps its value through later changes to the default.

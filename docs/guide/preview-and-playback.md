@@ -124,7 +124,7 @@ It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segme
 **Details.**
 
 - **Split at playhead** cuts the entry under the playhead in two; disabled at a boundary and inside a transition's blend. See [Split at playhead](editing-video.md#split-at-playhead).
-- **Save frame as PNG…** downloads the exact frame under the playhead as a PNG at the output resolution, composed through the export's own draw path — transitions mid-blend, zooms, colour, orientation, overlays and text as an export of that instant would have them. Disabled while the timeline is empty, and while a snapshot is already being taken. A browser whose canvas cannot apply filters refuses to save a frame from a timeline with colour adjustments, as it refuses to export one; see [Colour adjustments](editing-video.md#colour-adjustments).
+- **Save frame as PNG…** downloads the exact frame under the playhead as a PNG at the output resolution, composed through the export's own draw path — transitions mid-blend, zooms, colour, orientation, overlays, shapes and text as an export of that instant would have them. Disabled while the timeline is empty, and while a snapshot is already being taken. A browser whose canvas cannot apply filters refuses to save a frame from a timeline with colour adjustments, as it refuses to export one; see [Colour adjustments](editing-video.md#colour-adjustments).
 - **Freeze frame — split & hold** and **Freeze frame — append after clip** capture the frame as a still on the timeline; disabled where a split would be. See [Freeze frame](editing-video.md#freeze-frame).
 - **Add chapter marker at playhead** (M); disabled while the timeline is empty. See [Chapter markers](#chapter-markers).
 

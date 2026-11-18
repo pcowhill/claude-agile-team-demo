@@ -546,21 +546,24 @@ function ShapeFields({
         )}
       </div>
       <div className="text-overlay-controls">
-        <span>Border</span>
-        <input
-          type="color"
-          aria-label={`Border colour of ${name}`}
-          value={shape.stroke}
-          onChange={(event) => onChange({ stroke: event.target.value })}
-        />
-        <SecondsField
-          label={`Border opacity of ${name} (percent)`}
-          value={Math.round(shape.strokeOpacity * 100)}
-          max={100}
-          step={5}
-          onCommit={(percent) => onChange({ strokeOpacity: percent / 100 })}
-          unit="%"
-        />
+        {/* A colour and its opacity are one item (#683), so a narrow row
+            never strands an opacity box on a line away from its swatch. */}
+        <LabelledField text="Border">
+          <input
+            type="color"
+            aria-label={`Border colour of ${name}`}
+            value={shape.stroke}
+            onChange={(event) => onChange({ stroke: event.target.value })}
+          />
+          <SecondsField
+            label={`Border opacity of ${name} (percent)`}
+            value={Math.round(shape.strokeOpacity * 100)}
+            max={100}
+            step={5}
+            onCommit={(percent) => onChange({ strokeOpacity: percent / 100 })}
+            unit="%"
+          />
+        </LabelledField>
         <LabelledField text="Thickness">
           <SecondsField
             label={`Border thickness of ${name} in pixels`}
@@ -571,21 +574,22 @@ function ShapeFields({
             unit="px"
           />
         </LabelledField>
-        <span>Fill</span>
-        <input
-          type="color"
-          aria-label={`Fill colour of ${name}`}
-          value={shape.fill}
-          onChange={(event) => onChange({ fill: event.target.value })}
-        />
-        <SecondsField
-          label={`Fill opacity of ${name} (percent)`}
-          value={Math.round(shape.fillOpacity * 100)}
-          max={100}
-          step={5}
-          onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
-          unit="%"
-        />
+        <LabelledField text="Fill">
+          <input
+            type="color"
+            aria-label={`Fill colour of ${name}`}
+            value={shape.fill}
+            onChange={(event) => onChange({ fill: event.target.value })}
+          />
+          <SecondsField
+            label={`Fill opacity of ${name} (percent)`}
+            value={Math.round(shape.fillOpacity * 100)}
+            max={100}
+            step={5}
+            onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
+            unit="%"
+          />
+        </LabelledField>
         {shape.kind === 'rectangle' && (
           <LabelledField text="Corners">
             <SecondsField

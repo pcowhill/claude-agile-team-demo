@@ -9,7 +9,7 @@ import { chooseClipAction, openClipMenu } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
 import { openPicture } from './pictureDisclosure'
-import { ADD_SLATE, ADD_TEXT, openAddMenu, subtitleStyleToggle } from './timelineMenu'
+import { ADD_SHAPES, ADD_SLATE, ADD_TEXT, openAddMenu, subtitleStyleToggle } from './timelineMenu'
 import { chooseEffect, openEffectMenu, openRowMenu } from './timelineRowMenu'
 import { sineWav } from './sineWav'
 
@@ -373,6 +373,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'the preview header\'s View ▾ (#667); its accessible name says which panel, as the media library has a View ▾ too',
   },
   {
+    from: 'Add a shape to',
+    to: '+ Add shape',
+    why: "a shape group's + Add shape ▾ (#683); its accessible name says which group it adds to",
+  },
+  {
     from: 'Seek within sequence',
     to: 'Seek bar',
     why: 'as above — the accessible name says what it seeks',
@@ -579,6 +584,16 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await addMenuAgain.getByRole('menuitem', { name: ADD_TEXT, exact: true }).click()
   await expect(addMenuAgain).toHaveCount(0)
   await expect(timeline.getByRole('button', { name: /^More actions for text overlay/ })).toBeVisible()
+  // A shape group (#683) holding both kinds, so a rectangle's Corners field
+  // exists as well as an ellipse's fields.
+  const addMenuShapes = await openAddMenu(page)
+  await addMenuShapes.getByRole('menuitem', { name: ADD_SHAPES, exact: true }).click()
+  await expect(addMenuShapes).toHaveCount(0)
+  await timeline.getByRole('button', { name: 'Add a shape to shape group at position 1' }).click()
+  const addShapeMenu = page.getByRole('menu', { name: 'Add a shape to shape group at position 1' })
+  await record('+ Add shape ▾', addShapeMenu)
+  await addShapeMenu.getByRole('menuitem', { name: 'Rectangle', exact: true }).click()
+  await expect(addShapeMenu).toHaveCount(0)
 
   await record('the header', page.locator('header'))
   await record('the media library', library)
@@ -645,7 +660,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     .evaluateAll((nodes) =>
       nodes.map((node) => (node.getAttribute('aria-label') ?? '').replace(/^More actions for /, '')),
     )
-  expect(positions.length, 'one row of each kind is on the timeline').toBe(7)
+  expect(positions.length, 'one row of each kind is on the timeline').toBe(8)
 
   for (const position of positions) {
     const expand = timeline.getByRole('button', { name: `Expand ${position}`, exact: true })
@@ -934,7 +949,12 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await openDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(openDialog).toHaveCount(0)
 
-  const elementNames = [...positions, 'clip.webm', 'picture.png', 'tone.wav']
+  // A shape's fields name the shape within its group (#683), e.g.
+  // "Border colour of Ellipse 1 of shape group at position 1".
+  const shapeNames = positions
+    .filter((position) => position.startsWith('shape group'))
+    .flatMap((position) => [`Ellipse 1 of ${position}`, `Rectangle 2 of ${position}`])
+  const elementNames = [...shapeNames, ...positions, 'clip.webm', 'picture.png', 'tone.wav']
   const wanted = new Map<string, string>()
   for (const [row, surface] of collected) {
     const [role, name] = row.split('\t')

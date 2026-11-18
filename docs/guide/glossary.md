@@ -14,23 +14,27 @@ Anything placed on the timeline: a sequence entry, an audio track, an overlay la
 
 ### Sequence
 
-The video's spine — the entries that play one after another and decide how long the video is. See [The four sections](timeline.md#the-four-sections).
+The video's spine — the entries that play one after another and decide how long the video is. See [The five sections](timeline.md#the-five-sections).
 
 ### Entry
 
-One item in the sequence: a video clip, a still image or a slate. See [The four sections](timeline.md#the-four-sections).
+One item in the sequence: a video clip, a still image or a slate. See [The five sections](timeline.md#the-five-sections).
 
 ### Track
 
-An audio clip placed at a start time, mixed with the sequence's sound; tracks overlap freely. See [The four sections](timeline.md#the-four-sections).
+An audio clip placed at a start time, mixed with the sequence's sound; tracks overlap freely. See [The five sections](timeline.md#the-five-sections).
 
 ### Overlay layer
 
-A video or an image placed above the sequence inside a rectangle of the frame — picture-in-picture, a logo, a webcam bubble. See [The four sections](timeline.md#the-four-sections).
+A video or an image placed above the sequence inside a rectangle of the frame — picture-in-picture, a logo, a webcam bubble. See [The five sections](timeline.md#the-five-sections).
 
 ### Text overlay
 
-A block of text at a point in the frame for a window of time: a title, a caption or an imported subtitle. See [The four sections](timeline.md#the-four-sections).
+A block of text at a point in the frame for a window of time: a title, a caption or an imported subtitle. See [The five sections](timeline.md#the-five-sections).
+
+### Shape group
+
+Rectangles and ellipses drawn on the picture that appear, fade and disappear together, one row in the Shapes section. See [Shapes and annotations](shapes-and-annotations.md).
 
 ### Still
 
