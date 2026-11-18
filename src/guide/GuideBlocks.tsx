@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { GuideConstants } from '../lib/guide/constantNames'
 import type { GuideBlock, GuideInline, GuideLinkTarget } from '../lib/guide/document'
-import { shortcutsFor } from '../lib/shortcuts'
+import { shortcutSections, shortcutsFor } from '../lib/shortcuts'
 import { guideHash, headingElementId } from '../lib/guide/location'
 
 /**
@@ -166,18 +166,28 @@ function ShortcutsTable({ context }: { context: RenderContext }) {
           <th scope="col">What it does</th>
         </tr>
       </thead>
-      <tbody>
-        {rows.map(({ keys, does }) => (
-          <tr key={keys.join('|')}>
-            <td>
-              {keys.map((combo) => (
-                <kbd key={combo}>{combo}</kbd>
-              ))}
-            </td>
-            <td>{does}</td>
-          </tr>
-        ))}
-      </tbody>
+      {shortcutSections(rows).map(({ scope, rows: sectionRows }) => (
+        <tbody key={scope ?? ''}>
+          {/* Keys that work in one place only (#686), under its name. */}
+          {scope !== undefined && (
+            <tr>
+              <th scope="colgroup" colSpan={2} className="user-guide-shortcuts-scope">
+                {scope}
+              </th>
+            </tr>
+          )}
+          {sectionRows.map(({ keys, does }) => (
+            <tr key={keys.join('|')}>
+              <td>
+                {keys.map((combo) => (
+                  <kbd key={combo}>{combo}</kbd>
+                ))}
+              </td>
+              <td>{does}</td>
+            </tr>
+          ))}
+        </tbody>
+      ))}
     </table>
   )
 }

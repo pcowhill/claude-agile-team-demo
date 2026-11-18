@@ -73,25 +73,59 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 
 **Where to find it.** **Draw shapes…** under the shapes of an expanded shape group row, beside **+ Add shape ▾**.
 
-**What it does.** Opens the shape editor under the row: a still of the frame the group shows over, where you draw rectangles, ellipses and arrows by dragging, and select, move and resize them, instead of typing their fields.
+**What it does.** Opens the shape editor under the row: a still of the frame the group shows over, where you draw rectangles, ellipses and arrows by dragging, and select, move, resize, restyle, reorder, delete and duplicate them, instead of typing their fields.
 
 **Details.**
 
-- **The picture** is the frame at the middle of the group's window, rendered by the export's own drawing. The group's own shapes are drawn on it live, so a shape you drag looks as it will render. Other shape groups showing at that moment are in the picture too, and outlined faint and dashed; they cannot be selected here. In the editor this group is drawn over any text, though in the video it sits [below text](#how-shapes-render).
+- **The picture** is the frame at the [Preview slider](#previewing-the-group-in-the-editor)'s moment, which starts at the middle of the group's window, rendered by the export's own drawing. The group's own shapes are drawn on it live, at full opacity, so a shape you drag looks as it will render. Other shape groups showing at that moment are in the picture too, and outlined faint and dashed; they cannot be selected here. In the editor this group is drawn over any text, though in the video it sits [below text](#how-shapes-render); **Show result** shows it where it really sits.
 - **The tools** are **Select**, **Rectangle**, **Ellipse** and **Arrow**, in a strip above the picture.
   - With **Rectangle** or **Ellipse**, drag from one corner of the shape to the opposite one. With **Arrow**, drag from the tail to the tip.
   - Hold **Shift** while drawing for a square, a circle, or an arrow at a multiple of 15°. Squares, circles and angles are measured in the output frame's pixels, so a circle on a 16:9 frame is round.
-  - The new shape is added to the end of the group, takes the style of the last shape you drew or edited in the editor (the group's last shape until then), and is selected. The tool goes back to **Select**; **double-click** a tool to keep it for several shapes.
+  - The new shape is added to the end of the group, takes the style of the last shape you drew, edited or restyled in the editor (the group's last shape until then), and is selected. The tool goes back to **Select**; **double-click** a tool to keep it for several shapes.
   - A press that barely moves draws nothing.
-- **Select** picks a shape with a click. A selected rectangle or ellipse has handles on its corners and edges: a corner moves its two edges, an edge only its own, and **Shift** on a corner keeps the shape's proportions. A selected arrow has a ring at each end; dragging a ring moves only that end, and **Shift** keeps the arrow at 15° steps. Drag a shape itself to move it. A click on bare picture selects nothing.
+- **Select** picks a shape with a click. **Shift-click** adds a shape to the selection, or takes a selected one out of it. With several selected, dragging any of them moves them all together, keeping their spacing, and a click on one without dragging selects it alone. A single selected rectangle or ellipse has handles on its corners and edges: a corner moves its two edges, an edge only its own, and **Shift** on a corner keeps the shape's proportions. A selected arrow has a ring at each end; dragging a ring moves only that end, and **Shift** keeps the arrow at 15° steps. Drag a shape itself to move it. A click on bare picture selects nothing (Shift-click on it keeps the selection).
 - **Snapping.** A moved shape, a drawn corner and a dragged arrow end are pulled onto the frame's edges, its thirds and its centre, with a guide line while you drag; hold **Alt** to place it freely. See [Snapping and guides](visual-editors.md#snapping-and-guides).
-- **Keys.** Clicking the picture gives it the keyboard. The arrow keys then nudge the selected shape, Shift for the larger step, and **+** and **−** resize it: a rectangle or ellipse about its centre, an arrow along its own line.
-- **Edits.** Each drag is one undo step, committed when you let go; each key press is one more. The fields above show the same values, to a hundredth of the frame, and typing in them moves the shape in the editor. So Shift's squares and angles are exact to that hundredth: a square's sides can differ by up to half a hundredth of the frame's width, and an arrow a tenth of the frame long or longer is within a degree of its 15° step.
+- **Keys.** Clicking the picture gives it the keyboard. The arrow keys then nudge the selection, Shift for the larger step, and **+** and **−** resize each selected shape: a rectangle or ellipse about its centre, an arrow along its own line.
+  - **Delete** (or **Backspace**) removes the selected shapes. A group always keeps at least one shape, so with every shape selected it removes nothing and says so; remove the whole group from its row instead.
+  - **Ctrl+D** (**Cmd+D** on a Mac) duplicates the selected shapes: the copies go on top of the group, 2 % of the frame down and to the right (up or left where the frame's edge leaves no room), and are selected, so pressing it again copies the copies. It never opens the browser's bookmark dialog while the picture has the keyboard.
+  - These keys belong to the picture: in a text field, the style bar's boxes or anywhere else they do what they normally do. They are listed on [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut) under *In the shape editor*.
+- **Edits.** Each drag is one undo step, committed when you let go, for every shape it moved; each key press and each style-bar change is one more, however many shapes are selected. The fields above show the same values, to a hundredth of the frame, and typing in them moves the shape in the editor. So Shift's squares and angles are exact to that hundredth: a square's sides can differ by up to half a hundredth of the frame's width, and an arrow a tenth of the frame long or longer is within a degree of its 15° step.
 - Close, Escape, or **Draw shapes…** again closes the editor. The button is hidden while Settings › [Visual editors](visual-editors.md#turning-the-editors-on-and-off) is Off.
 
 **Related.** [The shapes in a group](#the-shapes-in-a-group) · [Arrows and lines](#arrows-and-lines) · [Visual editors](visual-editors.md)
 
-**Shortcuts.** Shift while drawing or resizing · Alt while dragging · ← ↑ → ↓ nudge, Shift for the larger step · + and − resize · Esc closes.
+**Shortcuts.** Shift while drawing or resizing · Shift-click adds to the selection · Alt while dragging · ← ↑ → ↓ nudge, Shift for the larger step · + and − resize · Delete or Backspace removes · Ctrl/Cmd+D duplicates · Esc closes.
+
+## Styling and ordering shapes in the editor
+
+**Where to find it.** The style bar under the shape editor's tool strip.
+
+**What it does.** Sets the look of the selected shapes, all at once, and moves them up or down the group's drawing order.
+
+**Details.**
+
+- **Border** (colour and opacity), **Thickness**, **Fill** (colour and opacity), **Corners**, **Heads** and **Head size** are the row's own [style](#a-shape-s-style) and [arrow](#arrows-and-lines) fields, applied to every selected shape. Thickness and Corners are in pixels at the current output frame, as in the row.
+- A control that does not apply to every selected shape is greyed out: **Fill** while an arrow is selected, since an arrow draws no fill; **Corners** unless every selected shape is a rectangle; **Heads** and **Head size** unless every one is an arrow. With nothing selected the whole bar is greyed out.
+- Where the selected shapes differ, a box is empty with *mixed* in it, a colour reads *mixed* beside it, and a drop-down shows *Mixed*. Setting it gives every selected shape the same value.
+- **Highlighter** gives the selected rectangles no border and a 35 % yellow fill, like a highlighter pen over a line of text; other selected kinds are left alone, and it is greyed out when no rectangle is selected. With nothing selected it picks the **Rectangle** tool, and the next rectangle you draw is a highlighter.
+- **Bring forward** and **Send backward** move each selected shape one step up or down the group's order, past the shape next to it; a later shape draws over an earlier one, so this decides which covers which where they overlap. Shapes selected together keep their order and move as a block. Each is greyed out when nothing can move that way. The row lists the shapes in the new order.
+- Each change is one undo step, and the last shape restyled sets the style of the next shape you draw.
+
+**Related.** [A shape's style](#a-shape-s-style) · [Drawing shapes on the picture](#drawing-shapes-on-the-picture)
+
+## Previewing the group in the editor
+
+**Where to find it.** The row under the shape editor's picture: **Preview**, **Show result** and **↻ Loop**.
+
+**What it does.** Moves the picture through the group's window, and shows the finished frame, as the other visual editors' [Preview slider](visual-editors.md#the-preview-slider), [Loop](visual-editors.md#loop) and [Show result](visual-editors.md#show-result) do.
+
+**Details.**
+
+- **Preview** spans the group's window on the sequence, from its start time to its end (cut off at the end of the video). Moving it changes the picture under the shapes; the shapes stay where they are.
+- **↻ Loop** plays the window on repeat, resting a second on its first and last frame. The slider is read-only while it plays.
+- **Show result** shows the finished frame at the slider's moment, by the export's own drawing: the group in its place below any text, and faded as it will be — inside a fade-in or fade-out its shapes are partly see-through. While it is on, the shapes cannot be selected, drawn or restyled; turn it off to edit them.
+
+**Related.** [A group's timing and fades](#a-group-s-timing-and-fades) · [How shapes render](#how-shapes-render)
 
 ## How shapes render
 

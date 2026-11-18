@@ -16,7 +16,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **↑ (move up)** — a sequence entry's main line; moves the entry up the sequence. [Timeline › A row](timeline.md#a-row)
 - **↑ / ↓** — jumps the playhead to the previous or next cut, transition edge or chapter marker. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
 - **↓ (move down)** — a sequence entry's main line; moves the entry down the sequence. [Timeline › A row](timeline.md#a-row)
-- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold or a redaction or spotlight region’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
+- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold, a redaction or spotlight region’s window, or a shape group’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
 - **⇤ Mark out** — the preview transport; marks the export range's end at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⇥ Mark in** — the preview transport; marks the export range's start at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⋯ menu** — a timeline row's main line, and a media library row. [Timeline › The ⋯ menu](timeline.md#the-menu) · [Media library › The ⋯ menu](media-library.md#the-menu)
@@ -43,7 +43,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
 - **Arrow** — + Add shape ▾ on a shape group; an arrow or a line from a tail to a tip. Also the shape editor's tool for drawing one, tail to tip. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
-- **Arrow heads** — an arrow in an expanded shape group row › Heads; at the tip, both ends, or none for a line. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
+- **Arrow heads** — an arrow in an expanded shape group row › Heads; at the tip, both ends, or none for a line. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Audio fade-out** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Audio only (MP3)** — the export dialog's Format group, and File ▾ › Export ▸. [Export › Audio only](export.md#audio-only-webm-opus-and-mp3)
@@ -52,11 +52,13 @@ This list is checked against the running editor in CI: a control the app shows a
 ## B
 
 - **Background fill** — an expanded sequence entry › Picture ▸. [Editing video › Background fill](editing-video.md#background-fill)
+- **Backspace** — the shape editor's picture, with shapes selected; removes them, as Delete does. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Bold** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
-- **Border colour** — a shape in an expanded shape group row › Border. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
-- **Border opacity** — a shape in an expanded shape group row › Border; 0 to 100 %. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
-- **Border thickness** — a shape in an expanded shape group row › Thickness, in pixels; 0 is no border. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Border colour** — a shape in an expanded shape group row › Border. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Border opacity** — a shape in an expanded shape group row › Border; 0 to 100 %. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Border thickness** — a shape in an expanded shape group row › Thickness, in pixels; 0 is no border. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Brightness** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
+- **Bring forward** — the shape editor's style bar; moves the selected shapes one step up the group's drawing order. [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 
 ## C
 
@@ -75,13 +77,14 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Contrast** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 - **Copy chapter list** — the export dialog's Range group; the markers in the exported span, as text. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
 - **Copy settings** — a timeline row's ⋯ menu. [Timeline › Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
-- **Corner radius** — a rectangle in an expanded shape group row › Corners, in pixels; 0 is a sharp corner. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Corner radius** — a rectangle in an expanded shape group row › Corners, in pixels; 0 is a sharp corner. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Countdown before recording** — Settings; 3 s or Off. [Settings › Countdown before recording](settings.md#countdown-before-recording)
 - **Crop bottom** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop left** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop right** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop top** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Ctrl+S** — saves the project. [Projects › Save and Save As…](projects.md#save-and-save-as)
+- **Ctrl/Cmd + D** — the shape editor's picture; duplicates the selected shapes, slightly offset. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Ctrl/Cmd + Shift + Z** — redoes the last undone edit. [Undo and redo](undo-redo.md#undo-and-redo)
 - **Ctrl/Cmd + Y** — redoes the last undone edit. [Undo and redo](undo-redo.md#undo-and-redo)
 - **Ctrl/Cmd + Z** — undoes the last timeline edit. [Undo and redo](undo-redo.md#undo-and-redo)
@@ -100,6 +103,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Default subtitle font** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Default subtitle italic** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Default subtitle size** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
+- **Delete** — the shape editor's picture, with shapes selected; removes them. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Disable GIF export** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › GIF export](plugins.md#gif-export)
 - **Disable Shaped wipes** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Discard and open** — the *Discard unsaved changes?* dialog, raised by File ▾ › Open Project… while changes are unsaved; goes ahead and asks for the file. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
@@ -134,8 +138,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Fade-in** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Fade-out** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **File** — the header menu holding the project, plugin, settings and export actions. [Projects › New Project](projects.md#new-project)
-- **Fill colour** — a rectangle or ellipse in an expanded shape group row › Fill. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
-- **Fill opacity** — a rectangle or ellipse in an expanded shape group row › Fill; 0 % is a clear centre. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Fill colour** — a rectangle or ellipse in an expanded shape group row › Fill. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Fill opacity** — a rectangle or ellipse in an expanded shape group row › Fill; 0 % is a clear centre. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Fit to width** — the preview's View ▾; the picture takes the panel's whole width, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Flip H** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
@@ -146,9 +150,10 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## H
 
-- **Head size** — an arrow in an expanded shape group row, while it has a head; Small, Medium or Large. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
+- **Head size** — an arrow in an expanded shape group row, while it has a head; Small, Medium or Large. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Height** — an expanded overlay row; the placement rectangle's height. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Help** — the header menu holding this guide and the cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
+- **Highlighter** — the shape editor's style bar; no border and a 35 % yellow fill on the selected rectangles, or on the next one drawn. [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Home / End** — jumps the playhead to the sequence's start or end. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 
 ## I
@@ -203,7 +208,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
-- **Preview** — a media library row's ⋯ menu, the same as the row's **▶**; and the slider under a visual editor’s still, which scrubs the zoom’s envelope or a redaction or spotlight region’s window. [Media library › Preview a clip](media-library.md#preview-a-clip) · [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
+- **Preview** — a media library row's ⋯ menu, the same as the row's **▶**; and the slider under a visual editor’s still, which scrubs the zoom’s envelope, a redaction or spotlight region’s window, or a shape group’s window. [Media library › Preview a clip](media-library.md#preview-a-clip) · [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
 
 ## R
 
@@ -252,6 +257,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Select a clip** — the checkbox on a media library row. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select tool** — the shape editor's tool strip; click a shape to select it, then drag it or its handles. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
+- **Send backward** — the shape editor's style bar; moves the selected shapes one step down the group's drawing order. [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Settings…** — File ▾. [Settings › Opening Settings](settings.md#opening-settings)
 - **Shape group** — Add ▾. [Shapes and annotations › Adding a shape group](shapes-and-annotations.md#adding-a-shape-group)
 - **Shape mask** — an expanded overlay row › Picture ▸. [Editing video › Shape mask](editing-video.md#shape-mask)

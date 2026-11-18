@@ -1,53 +1,80 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { FREE_RECT_HANDLES, rectGuides, rectKeyStep, textEditorSequenceTime } from '../lib/frameEditor'
+import {
+  FREE_RECT_HANDLES,
+  ZOOM_SCRUB_STEP,
+  loopPositionAt,
+  loopScrubStop,
+  rectGuides,
+  rectKeyStep,
+} from '../lib/frameEditor'
 import type { Corner, Edge, RectHandle } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import {
+  HIGHLIGHTER_STYLE,
   arrowAfterEndDrag,
   boxAfterGesture,
   drawnArrow,
   drawnBox,
+  duplicatedShapes,
   movedArrow,
+  movedShapes,
   pointGuides,
-  shapeAfterKeyStep,
+  reorderedShapes,
+  restyledShape,
+  selectionBounds,
+  selectionStyle,
   shapeBounds,
+  shapesAfterKeyStep,
   withShape,
+  withShapes,
+  withoutShapes,
 } from '../lib/shapeEditor'
-import type { ArrowEnd, FramePoint, ShapeTool } from '../lib/shapeEditor'
+import type { ArrowEnd, FramePoint, Shared, ShapeTool, StyleChange } from '../lib/shapeEditor'
 import {
+  ARROW_HEADS,
+  ARROW_HEAD_LABELS,
+  ARROW_HEAD_SIZES,
+  ARROW_HEAD_SIZE_LABELS,
+  MAX_CORNER_RADIUS,
+  MAX_SHAPE_THICKNESS,
   SHAPE_KIND_LABELS,
   SHAPE_KINDS,
   activeShapeGroups,
   defaultShape,
   drawShapeGroups,
   pickStyle,
+  shorterSideFraction,
+  shorterSidePixels,
 } from '../lib/shapes'
-import type { Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
-import { shapeGroupsOf } from '../lib/timeline'
+import type { ArrowHeadSize, ArrowHeads, Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
+import { shapeGroupsOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
 import './ShapeEditor.css'
 
 /**
- * The shape editor, part 1 (#685, from the approved design #681 §3 for the
- * customer's #679): a group's shapes drawn on a still of the frame they sit
- * over, where a drag draws a rectangle, an ellipse or an arrow, and a shape
- * is selected, moved and resized by its handles. It answers the customer's
- * main ask in #679, to build shapes "like in the *Adjust Visually* tools",
- * straight onto the picture.
+ * The shape editor (#685 part 1, #686 part 2, from the approved design #681
+ * §3 for the customer's #679): a group's shapes drawn on a still of the
+ * frame they sit over, where a drag draws a rectangle, an ellipse or an
+ * arrow, and shapes are selected, moved, resized, restyled, reordered,
+ * deleted and duplicated. It answers the customer's main ask in #679, to
+ * build shapes "like in the *Adjust Visually* tools", straight onto the
+ * picture.
  *
  * **One commit per gesture**, on release, through the same `set` the row's
- * fields use, and always the whole shape list. So a drag or a key press is
- * one undo step, and the fields and the editor are two views of one value
- * and cannot disagree.
+ * fields use, and always the whole shape list. So a drag, a key press or a
+ * style-bar change is one undo step — for the whole selection at once — and
+ * the fields and the editor are two views of one value and cannot disagree.
  *
  * **The still leaves this group out** and the editor draws it itself, live,
  * on a canvas over the still through `drawShapeGroups`, the routine the
  * preview and every export use. So a shape being dragged looks exactly as it
  * will render, with no stale copy left behind in the still. The cost is
- * stacking: in the editor the group sits above text it would sit beneath.
- * Show result (#686) is where the true composite will be shown.
+ * stacking and fades: in the editor the group sits above text it would sit
+ * beneath, at full opacity. **Show result** (#686) is the true composite:
+ * the still with this group in it, below the text and faded as it will be
+ * at the Preview slider's instant, through the export's own composer.
  *
  * Other groups showing at the same instant are already in the still. They
  * are also outlined, faint and dashed, so they read as "not this group",
@@ -61,6 +88,10 @@ const EDGE_LENGTH = 0.3
 const DRAG_THRESHOLD = 3
 
 const isEdge = (handle: RectHandle): handle is Edge => handle.length === 1
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
+const seconds = (value: number) => `${value.toFixed(2)} s`
+/** A number as the style bar shows it: at most two decimals, like the row. */
+const shown = (value: number) => String(Math.round(value * 100) / 100)
 
 type Drag =
   | { kind: 'draw'; pointerId: number; tool: ShapeKind; origin: FramePoint; draft: Shape | null }
@@ -75,13 +106,25 @@ type Drag =
       grip: RectHandle | ArrowEnd | null
       moved: boolean
     }
+  | {
+      /** A selection of several shapes dragged by one of them (#686). */
+      kind: 'move-many'
+      pointerId: number
+      origin: FramePoint
+      originPx: { x: number; y: number }
+      /** The shape the press landed on: a click without a drag selects it alone. */
+      pressed: string
+      starts: Shape[]
+      lives: Shape[]
+      moved: boolean
+    }
 
 interface ShapeEditorProps {
   timeline: TimelineState
   group: ShapeGroup
   /** "shape group at position 1": the row's own wording, so labels match its fields'. */
   position: string
-  /** The output frame, for Shift's square and 15° in pixels. */
+  /** The output frame, for Shift's square and 15° in pixels, and the bar's px. */
   frameSize: { width: number; height: number }
   /** Commits the group's whole shape list, as the row's own fields do. */
   onCommit: (shapes: Shape[]) => void
@@ -90,6 +133,137 @@ interface ShapeEditorProps {
   snapshot?: typeof snapshotTimelineFrame
   /** Injectable for tests: jsdom has no crypto.randomUUID everywhere. */
   newId?: () => string
+}
+
+/**
+ * A number box in the style bar (#686): the row's field idiom — the unit
+ * inside the box, a commit on Enter or blur, and a spinner click in Firefox
+ * (which never focuses the box, #593) committing at once. A selection whose
+ * shapes disagree shows it empty, with "mixed" as its placeholder, and
+ * typing a number gives every one of them that number.
+ */
+function StyleNumber({
+  label,
+  value,
+  unit,
+  max,
+  step,
+  disabled,
+  onCommit,
+}: {
+  label: string
+  /** Undefined when the field does not apply to the selection. */
+  value: Shared<number> | undefined
+  unit: '%' | 'px'
+  max: number
+  step: number
+  disabled: boolean
+  onCommit: (value: number) => void
+}) {
+  const text = value === undefined || value === 'mixed' ? '' : shown(value)
+  const [draft, setDraft] = useState(text)
+  useEffect(() => setDraft(text), [text])
+  const commitText = (typed: string) => {
+    const parsed = Number(typed)
+    if (typed.trim() !== '' && Number.isFinite(parsed) && (value === 'mixed' || parsed !== value)) {
+      onCommit(clamp(parsed, 0, max))
+    }
+    setDraft(text)
+  }
+  return (
+    <span className="timeline-unit-box shape-editor-number">
+      <input
+        type="number"
+        inputMode="decimal"
+        className="timeline-unit-input"
+        aria-label={label}
+        min={0}
+        max={max}
+        step={step}
+        value={draft}
+        placeholder={value === 'mixed' ? 'mixed' : undefined}
+        disabled={disabled}
+        onChange={(event) => {
+          if (document.activeElement !== event.currentTarget) commitText(event.target.value)
+          else setDraft(event.target.value)
+        }}
+        onBlur={() => commitText(draft)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur()
+        }}
+      />
+      <span className="timeline-unit" aria-hidden="true">
+        {unit}
+      </span>
+    </span>
+  )
+}
+
+/** A colour box in the style bar, with a visible "mixed" beside it when the selection disagrees. */
+function StyleColor({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: Shared<string> | undefined
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const mixed = value === 'mixed'
+  return (
+    <>
+      <input
+        type="color"
+        aria-label={label}
+        // A colour input cannot be empty; a mixed selection shows a neutral
+        // grey and says "mixed" beside it.
+        value={value === undefined || mixed ? '#808080' : value}
+        disabled={disabled}
+        data-mixed={mixed ? 'true' : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {mixed && !disabled && <span className="shape-editor-mixed">mixed</span>}
+    </>
+  )
+}
+
+/** A drop-down in the style bar; a mixed selection shows "Mixed" until one is chosen. */
+function StyleSelect<T extends string>({
+  label,
+  value,
+  options,
+  labels,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: Shared<T> | undefined
+  options: readonly T[]
+  labels: Record<T, string>
+  disabled: boolean
+  onChange: (value: T) => void
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value === undefined ? '' : value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value as T)}
+    >
+      {(value === undefined || value === 'mixed') && (
+        <option value={value === undefined ? '' : 'mixed'} disabled>
+          {value === undefined ? '—' : 'Mixed'}
+        </option>
+      )}
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {labels[option]}
+        </option>
+      ))}
+    </select>
+  )
 }
 
 /**
@@ -141,6 +315,7 @@ function ShapeCanvas({
 const shapeName = (shape: Shape, index: number, position: string) =>
   `${SHAPE_KIND_LABELS[shape.kind]} ${index + 1} of ${position}`
 
+
 export function ShapeEditor({
   timeline,
   group,
@@ -157,39 +332,81 @@ export function ShapeEditor({
   const [tool, setTool] = useState<ShapeTool>('select')
   // Double-clicking a tool keeps it after a shape is drawn (#685).
   const [sticky, setSticky] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The selection (#686): ids in the order they were picked. Shift-click
+  // adds a shape or takes it out.
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [drag, setDrag] = useState<Drag | null>(null)
-  // The style a new shape takes: the last shape drawn or edited here, and
-  // the group's last shape until then (#681 §2).
+  // The style a new shape takes: the last shape drawn, edited or restyled
+  // here, and the group's last shape until then (#681 §2).
   const [style, setStyle] = useState<ShapeStyle>(() =>
     pickStyle(group.shapes[group.shapes.length - 1] ?? defaultShape('', 'ellipse')),
   )
+  // A word on what the last key or button did, when it did something the
+  // picture alone would not show (a refused Delete, a preset waiting).
+  const [notice, setNotice] = useState<string | null>(null)
+  const [showResult, setShowResult] = useState(false)
+  // Loop (#425's control): session-only, off when the editor opens, and its
+  // clock runs in the effect below for exactly as long as this is true.
+  const [looping, setLooping] = useState(false)
   const aspect = frameSize.height > 0 ? frameSize.width / frameSize.height : 16 / 9
-  const sequenceTime = textEditorSequenceTime(timeline, group)
+
+  // The Preview slider spans the group's window on the sequence. The
+  // window is edited in the row while the editor is open, so the scrub
+  // position is kept and clamped into it rather than reset.
+  const total = Math.max(0, totalDuration(timeline))
+  const span = {
+    start: clamp(group.offset, 0, total),
+    end: clamp(group.offset + group.duration, 0, total),
+  }
+  const [scrubbed, setScrubbed] = useState(() =>
+    loopScrubStop((span.start + span.end) / 2, span.start, span.end),
+  )
+  const scrub = clamp(scrubbed, span.start, span.end)
 
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
 
-  // What is shown: the stored shapes, with the one being dragged or drawn
-  // in its live place.
+  // The loop's clock (#425): one tick a frame, where the loop is now on the
+  // slider's grid into the scrub position; the still pipeline does the rest
+  // (latest wins, #458).
+  useEffect(() => {
+    if (!looping) return
+    const startedAt = performance.now()
+    let handle = 0
+    const tick = () => {
+      const at = loopPositionAt(performance.now() - startedAt, span.start, span.end)
+      setScrubbed(loopScrubStop(at, span.start, span.end))
+      handle = requestAnimationFrame(tick)
+    }
+    tick()
+    return () => cancelAnimationFrame(handle)
+  }, [looping, span.start, span.end])
+
+  // What is shown: the stored shapes, with the ones being dragged or drawn
+  // in their live places.
   const shapes: Shape[] = (() => {
     if (drag === null) return group.shapes
     if (drag.kind === 'draw') return drag.draft === null ? group.shapes : [...group.shapes, drag.draft]
-    return group.shapes.map((shape) => (shape.id === drag.live.id ? drag.live : shape))
+    const lives = drag.kind === 'edit' ? [drag.live] : drag.lives
+    return group.shapes.map((shape) => lives.find((live) => live.id === shape.id) ?? shape)
   })()
-  const selected = shapes.find((shape) => shape.id === selectedId) ?? null
+  const selectedSet = new Set(selectedIds)
+  // In drawing order, and only shapes still in the group: an undo can take
+  // a selected shape away.
+  const selection = shapes.filter((shape) => selectedSet.has(shape.id))
+  const single = selection.length === 1 ? selection[0] : null
+  const editable = !showResult
 
   // The other groups showing at this instant: outlined, never selectable.
   const others = activeShapeGroups(
     shapeGroupsOf(timeline).filter((other) => other.id !== group.id),
-    sequenceTime,
+    scrub,
   ).flatMap((other) => other.shapes)
 
-  const pictureTimeline: TimelineState = {
-    ...timeline,
-    shapeGroups: shapeGroupsOf(timeline).filter((other) => other.id !== group.id),
-  }
+  const pictureTimeline: TimelineState = showResult
+    ? timeline
+    : { ...timeline, shapeGroups: shapeGroupsOf(timeline).filter((other) => other.id !== group.id) }
 
   const toFraction = (event: { clientX: number; clientY: number }): FramePoint => {
     const box = layerRef.current?.getBoundingClientRect()
@@ -205,29 +422,53 @@ export function ShapeEditor({
     layerRef.current?.setPointerCapture?.(event.pointerId)
   }
 
+  const select = (ids: string[]) => {
+    setSelectedIds(ids)
+    setNotice(null)
+  }
+
   const beginEdit = (event: ReactPointerEvent, shape: Shape, grip: RectHandle | ArrowEnd | null) => {
-    if (event.button !== 0 || tool !== 'select') return
+    if (event.button !== 0 || tool !== 'select' || !editable) return
     event.stopPropagation()
+    if (grip === null && event.shiftKey) {
+      // Shift-click adds the shape to the selection or takes it out (#686).
+      // It starts no drag: Shift is the drag's square / 15° modifier.
+      event.preventDefault()
+      layerRef.current?.focus({ preventScroll: true })
+      select(
+        selectedSet.has(shape.id)
+          ? selectedIds.filter((id) => id !== shape.id)
+          : [...selectedIds, shape.id],
+      )
+      return
+    }
     capture(event)
-    setSelectedId(shape.id)
-    setDrag({
-      kind: 'edit',
-      pointerId: event.pointerId,
-      origin: toFraction(event),
-      originPx: { x: event.clientX, y: event.clientY },
-      start: shape,
-      live: shape,
-      grip,
-      moved: false,
-    })
+    const origin = toFraction(event)
+    const originPx = { x: event.clientX, y: event.clientY }
+    if (grip === null && selectedSet.has(shape.id) && selection.length > 1) {
+      // A press on one of several selected shapes drags them all.
+      setDrag({
+        kind: 'move-many',
+        pointerId: event.pointerId,
+        origin,
+        originPx,
+        pressed: shape.id,
+        starts: selection,
+        lives: selection,
+        moved: false,
+      })
+      return
+    }
+    select([shape.id])
+    setDrag({ kind: 'edit', pointerId: event.pointerId, origin, originPx, start: shape, live: shape, grip, moved: false })
   }
 
   const handleLayerPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || !editable) return
     capture(event)
     if (tool === 'select') {
-      // Bare picture: nothing is selected.
-      setSelectedId(null)
+      // Bare picture: nothing is selected, unless Shift says "add to".
+      if (!event.shiftKey) select([])
       return
     }
     setDrag({ kind: 'draw', pointerId: event.pointerId, tool, origin: toFraction(event), draft: null })
@@ -261,6 +502,10 @@ export function ShapeEditor({
     if (!moved) return
     const dx = point.x - drag.origin.x
     const dy = point.y - drag.origin.y
+    if (drag.kind === 'move-many') {
+      setDrag({ ...drag, lives: movedShapes(drag.starts, dx, dy, modifiers), moved: true })
+      return
+    }
     const start = drag.start
     let live: Shape
     if (start.kind === 'arrow') {
@@ -287,8 +532,18 @@ export function ShapeEditor({
     if (drag.kind === 'draw') {
       if (drag.draft === null) return
       onCommit([...group.shapes, drag.draft])
-      setSelectedId(drag.draft.id)
+      select([drag.draft.id])
       if (!sticky) setTool('select')
+      return
+    }
+    if (drag.kind === 'move-many') {
+      // A click on one of several selected shapes, without a drag, picks it alone.
+      if (!drag.moved) {
+        select([drag.pressed])
+        return
+      }
+      const next = withShapes(group.shapes, drag.lives)
+      if (next !== null) onCommit(next)
       return
     }
     const next = withShape(group.shapes, drag.live)
@@ -297,13 +552,54 @@ export function ShapeEditor({
     setStyle(pickStyle(drag.live))
   }
 
+  /** Commits `next` when it is an edit; the selection is the caller's. */
+  const commit = (next: Shape[] | null) => {
+    if (next !== null) onCommit(next)
+    return next !== null
+  }
+
+  const removeSelection = () => {
+    if (selection.length === 0) return
+    const next = withoutShapes(group.shapes, selectedSet)
+    if (next === null) {
+      // Every shape is selected, and a group always keeps one.
+      setNotice('A group always keeps one shape: remove the whole group from its row instead.')
+      return
+    }
+    onCommit(next)
+    select([])
+  }
+
+  const duplicateSelection = () => {
+    const result = duplicatedShapes(group.shapes, selectedSet, newId)
+    if (result === null) return
+    onCommit(result.shapes)
+    select(result.copies.map((copy) => copy.id))
+  }
+
+  const reorder = (direction: 'forward' | 'backward') => commit(reorderedShapes(group.shapes, selectedSet, direction))
+
   const handleKeyDown = (event: ReactKeyboardEvent<SVGSVGElement>) => {
-    if (selected === null) return
+    if (!editable) return
+    const chord = event.ctrlKey || event.metaKey
+    if (chord && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
+      // Ours, never the browser's bookmark shortcut — even with nothing
+      // selected, since the focus is on the picture.
+      event.preventDefault()
+      duplicateSelection()
+      return
+    }
+    if (chord || event.altKey) return
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      removeSelection()
+      return
+    }
+    if (selection.length === 0) return
     const step = rectKeyStep(event)
     if (step === null) return
     event.preventDefault()
-    const next = withShape(group.shapes, shapeAfterKeyStep(selected, step, aspect))
-    if (next !== null) onCommit(next)
+    commit(withShapes(group.shapes, shapesAfterKeyStep(selection, step, aspect)))
   }
 
   const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -317,7 +613,39 @@ export function ShapeEditor({
   const chooseTool = (next: ShapeTool, keep: boolean) => {
     setTool(next)
     setSticky(keep && next !== 'select')
+    setNotice(null)
   }
+
+  // The style bar (#686): what it reads, and how it writes.
+  const read = selectionStyle(selection)
+  const toPx = (fraction: number) => shorterSidePixels(fraction, frameSize.width, frameSize.height)
+  const fromPx = (px: number) => shorterSideFraction(px, frameSize.width, frameSize.height)
+  const pxOf = (value: Shared<number> | undefined) =>
+    value === undefined || value === 'mixed' ? value : toPx(value)
+  const percentOf = (value: Shared<number> | undefined) =>
+    value === undefined || value === 'mixed' ? value : Math.round(value * 100)
+  const restyle = (change: StyleChange) => {
+    if (selection.length === 0) return
+    const restyled = selection.map((shape) => restyledShape(shape, change))
+    if (commit(withShapes(group.shapes, restyled))) setStyle(pickStyle(restyled[restyled.length - 1]))
+  }
+  const rectangles = selection.filter((shape) => shape.kind === 'rectangle')
+  const highlight = () => {
+    if (selection.length === 0) {
+      // Nothing selected: the preset is the next rectangle's style.
+      setStyle({ ...style, ...HIGHLIGHTER_STYLE })
+      setTool('rectangle')
+      setSticky(false)
+      setNotice('The next rectangle you draw is a highlighter: no border and a 35 % yellow fill.')
+      return
+    }
+    const restyled = rectangles.map((shape) => restyledShape(shape, HIGHLIGHTER_STYLE))
+    if (commit(withShapes(group.shapes, restyled))) setStyle(pickStyle(restyled[restyled.length - 1]))
+  }
+  const none = read === null || !editable
+  const maxThicknessPx = Math.floor(toPx(MAX_SHAPE_THICKNESS))
+  // One name whatever the count, so a control keeps its name as the selection changes.
+  const what = `the selected shapes of ${position}`
 
   // The frame's laid-out size in CSS pixels, as FrameEditor measured it for
   // the render in progress; the helpers below draw in it.
@@ -334,6 +662,7 @@ export function ShapeEditor({
         : rectGuides(shapeBounds(drag.draft))
     }
     if (!drag.moved) return { x: null, y: null }
+    if (drag.kind === 'move-many') return rectGuides(selectionBounds(drag.lives))
     if (drag.live.kind === 'arrow' && (drag.grip === 'tail' || drag.grip === 'tip')) {
       return drag.grip === 'tail'
         ? pointGuides({ x: drag.live.tailX, y: drag.live.tailY })
@@ -382,20 +711,22 @@ export function ShapeEditor({
     )
   }
 
+  /** An arrow's two end rings: grips for a single selection, marks for several. */
+  const arrowEnds = (shape: Shape & { kind: 'arrow' }, grips: boolean) =>
+    (['tail', 'tip'] as const).map((end) => (
+      <circle
+        key={`${shape.id}-${end}`}
+        className={`shape-editor-end shape-editor-end-${end}${grips ? '' : ' shape-editor-end-inert'}`}
+        data-testid={grips ? `shape-editor-end-${end}` : undefined}
+        cx={px(end === 'tail' ? shape.tailX : shape.tipX, 'x')}
+        cy={px(end === 'tail' ? shape.tailY : shape.tipY, 'y')}
+        r={HANDLE / 2}
+        {...(grips ? { onPointerDown: (event: ReactPointerEvent) => beginEdit(event, shape, end) } : {})}
+      />
+    ))
+
   const boxHandles = (shape: Shape) => {
-    if (shape.kind === 'arrow') {
-      return (['tail', 'tip'] as const).map((end) => (
-        <circle
-          key={end}
-          className={`shape-editor-end shape-editor-end-${end}`}
-          data-testid={`shape-editor-end-${end}`}
-          cx={px(end === 'tail' ? shape.tailX : shape.tipX, 'x')}
-          cy={px(end === 'tail' ? shape.tailY : shape.tipY, 'y')}
-          r={HANDLE / 2}
-          onPointerDown={(event) => beginEdit(event, shape, end)}
-        />
-      ))
-    }
+    if (shape.kind === 'arrow') return arrowEnds(shape, true)
     const x = px(shape.x, 'x')
     const y = px(shape.y, 'y')
     const width = px(shape.width, 'x')
@@ -440,15 +771,20 @@ export function ShapeEditor({
   const drawing = tool !== 'select'
   const layerClass = [
     'shape-editor-layer',
-    drawing ? 'shape-editor-drawing' : '',
+    drawing && editable ? 'shape-editor-drawing' : '',
+    showResult ? 'shape-editor-inert' : '',
     drag !== null ? 'frame-editor-dragging' : '',
   ]
     .filter(Boolean)
     .join(' ')
 
-  const guidance = drawing
-    ? `drag on the picture to draw ${tool === 'arrow' ? 'an arrow, tail to tip' : `a ${tool}, corner to corner`}.`
-    : 'click a shape to select it, drag it to move it, or drag a handle to resize it.'
+  const guidance = showResult
+    ? 'the finished frame at this moment, with the group faded and stacked as it will be. Turn Show result off to edit the shapes.'
+    : drawing
+      ? `drag on the picture to draw ${tool === 'arrow' ? 'an arrow, tail to tip' : `a ${tool}, corner to corner`}.`
+      : selection.length > 1
+        ? `${selection.length} shapes selected: drag one to move them all, or restyle them together above.`
+        : 'click a shape to select it, drag it to move it, or drag a handle to resize it.'
 
   return (
     <div
@@ -459,7 +795,7 @@ export function ShapeEditor({
       onKeyDown={handlePanelKeyDown}
     >
       <div className="effect-editor-header">
-        <span>Draw, select, move and resize this group's shapes.</span>
+        <span>Draw, select, move, resize and style this group's shapes.</span>
         <button
           ref={closeRef}
           type="button"
@@ -480,9 +816,10 @@ export function ShapeEditor({
             aria-label={`${each === 'select' ? 'Select' : SHAPE_KIND_LABELS[each]} tool`}
             aria-pressed={tool === each}
             data-sticky={tool === each && sticky ? 'true' : undefined}
+            disabled={!editable}
             title={
               each === 'select'
-                ? 'Select: click a shape to select it, then drag it or its handles'
+                ? 'Select: click a shape to select it, Shift-click to add one, then drag it or its handles'
                 : `${SHAPE_KIND_LABELS[each]}: drag on the picture to draw one. Double-click to keep the tool for several.`
             }
             onClick={() => chooseTool(each, false)}
@@ -492,22 +829,163 @@ export function ShapeEditor({
           </button>
         ))}
       </div>
+      {/* The style bar (#686): every control edits the whole selection as
+          one undo step. A control that does not apply to every selected
+          shape is disabled; one whose shapes disagree reads "mixed". */}
+      <div
+        className="shape-editor-style"
+        role="group"
+        aria-label={`Style of the selected shapes of ${position}`}
+        data-testid="shape-editor-style"
+      >
+        <span className="shape-editor-style-item">
+          <span>Border</span>
+          <StyleColor
+            label={`Border colour of ${what}`}
+            value={read?.stroke}
+            disabled={none}
+            onChange={(stroke) => restyle({ stroke })}
+          />
+          <StyleNumber
+            label={`Border opacity of ${what} (percent)`}
+            value={percentOf(read?.strokeOpacity)}
+            unit="%"
+            max={100}
+            step={5}
+            disabled={none}
+            onCommit={(percent) => restyle({ strokeOpacity: percent / 100 })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Thickness</span>
+          <StyleNumber
+            label={`Border thickness of ${what} in pixels`}
+            value={pxOf(read?.thickness)}
+            unit="px"
+            max={maxThicknessPx}
+            step={1}
+            disabled={none}
+            onCommit={(value) => restyle({ thickness: Math.min(fromPx(value), MAX_SHAPE_THICKNESS) })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Fill</span>
+          <StyleColor
+            label={`Fill colour of ${what}`}
+            value={read?.fill}
+            disabled={none || read?.fill === undefined}
+            onChange={(fill) => restyle({ fill })}
+          />
+          <StyleNumber
+            label={`Fill opacity of ${what} (percent)`}
+            value={percentOf(read?.fillOpacity)}
+            unit="%"
+            max={100}
+            step={5}
+            disabled={none || read?.fillOpacity === undefined}
+            onCommit={(percent) => restyle({ fillOpacity: percent / 100 })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Corners</span>
+          <StyleNumber
+            label={`Corner radius of ${what} in pixels`}
+            value={pxOf(read?.cornerRadius)}
+            unit="px"
+            max={Math.floor(toPx(MAX_CORNER_RADIUS))}
+            step={1}
+            disabled={none || read?.cornerRadius === undefined}
+            onCommit={(value) => restyle({ cornerRadius: Math.min(fromPx(value), MAX_CORNER_RADIUS) })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Heads</span>
+          <StyleSelect<ArrowHeads>
+            label={`Arrow heads of ${what}`}
+            value={read?.heads}
+            options={ARROW_HEADS}
+            labels={ARROW_HEAD_LABELS}
+            disabled={none || read?.heads === undefined}
+            onChange={(heads) => restyle({ heads })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Head size</span>
+          <StyleSelect<ArrowHeadSize>
+            label={`Head size of ${what}`}
+            value={read?.headSize}
+            options={ARROW_HEAD_SIZES}
+            labels={ARROW_HEAD_SIZE_LABELS}
+            disabled={none || read?.headSize === undefined || read?.heads === 'none'}
+            onChange={(headSize) => restyle({ headSize })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <button
+            type="button"
+            className="shape-editor-highlighter"
+            disabled={!editable || (selection.length > 0 && rectangles.length === 0)}
+            title={
+              selection.length === 0
+                ? 'Highlighter: draw the next rectangle with no border and a 35 % yellow fill'
+                : 'Highlighter: no border and a 35 % yellow fill on the selected rectangles'
+            }
+            onClick={highlight}
+          >
+            Highlighter
+          </button>
+          <button
+            type="button"
+            disabled={!editable || reorderedShapes(group.shapes, selectedSet, 'forward') === null}
+            title="Bring forward: draw the selection one step higher in the group"
+            onClick={() => reorder('forward')}
+          >
+            Bring forward
+          </button>
+          <button
+            type="button"
+            disabled={!editable || reorderedShapes(group.shapes, selectedSet, 'backward') === null}
+            title="Send backward: draw the selection one step lower in the group"
+            onClick={() => reorder('backward')}
+          >
+            Send backward
+          </button>
+        </span>
+      </div>
       <FrameEditor
         timeline={pictureTimeline}
-        sequenceTime={sequenceTime}
-        frameKey={`shape-editor#${group.id}`}
+        sequenceTime={scrub}
+        // Editing, the still leaves this group out and never changes with
+        // it. The result is the composite with the group in it, so the key
+        // carries everything about the group the composer draws.
+        frameKey={
+          showResult
+            ? `shape-editor#${group.id}#result#${JSON.stringify([
+                group.offset,
+                group.duration,
+                group.fadeIn ?? 0,
+                group.fadeOut ?? 0,
+                group.shapes,
+              ])}`
+            : `shape-editor#${group.id}`
+        }
         rect={{ x: 0, y: 0, width: 1, height: 1 }}
         applyGesture={(start) => start}
         onCommit={() => undefined}
         label={`Shapes of ${position}`}
         showRegion={false}
+        // A loop lands a frame every few dozen milliseconds; the badge would
+        // only flicker over the motion, which is itself the sign of progress.
+        showRenderingIndicator={!looping}
         fallbackAspect={aspect}
         {...(snapshot === undefined ? {} : { snapshot })}
         layer={(laidOut) => {
           size = laidOut
           return (
             <>
-              <ShapeCanvas groupId={group.id} shapes={shapes} width={laidOut.width} height={laidOut.height} />
+              {!showResult && (
+                <ShapeCanvas groupId={group.id} shapes={shapes} width={laidOut.width} height={laidOut.height} />
+              )}
               <svg
                 ref={layerRef}
                 className={layerClass}
@@ -525,16 +1003,17 @@ export function ShapeEditor({
                 onPointerCancel={endDrag}
                 onKeyDown={handleKeyDown}
               >
-                {others.map((other, index) =>
-                  outline(other, `other-${index}`, 'shape-editor-other', 'shape-editor-other'),
-                )}
+                {!showResult &&
+                  others.map((other, index) =>
+                    outline(other, `other-${index}`, 'shape-editor-other', 'shape-editor-other'),
+                  )}
                 {shapes.map((shape, index) => (
                   <g
                     key={shape.id}
                     role="img"
                     aria-label={shapeName(shape, index, position)}
                     data-testid={`shape-editor-shape-${index}`}
-                    data-selected={shape.id === selectedId ? 'true' : undefined}
+                    data-selected={selectedSet.has(shape.id) ? 'true' : undefined}
                     onPointerDown={(event) => beginEdit(event, shape, null)}
                   >
                     {outline(shape, 'hit', 'shape-editor-hit', `shape-editor-hit-${index}`)}
@@ -560,14 +1039,19 @@ export function ShapeEditor({
                     y2={px(guides.y, 'y')}
                   />
                 )}
-                {selected !== null && !drawing && (
+                {selection.length > 0 && !drawing && editable && (
                   <g data-testid="shape-editor-selection">
                     {/* A box gets a dashed outline; an arrow's two end rings
                         are enough, and a dashed line along it would paint
-                        over the very line being placed. */}
-                    {selected.kind !== 'arrow' &&
-                      outline(selected, 'selection', 'shape-editor-selected', 'shape-editor-selected')}
-                    {boxHandles(selected)}
+                        over the very line being placed. Handles only for a
+                        single shape: several move together, and are
+                        resized one at a time. */}
+                    {selection.map((shape) =>
+                      shape.kind === 'arrow'
+                        ? single === null && arrowEnds(shape, false)
+                        : outline(shape, `selection-${shape.id}`, 'shape-editor-selected', 'shape-editor-selected'),
+                    )}
+                    {single !== null && boxHandles(single)}
                   </g>
                 )}
               </svg>
@@ -575,16 +1059,60 @@ export function ShapeEditor({
           )
         }}
       />
+      <div className="effect-editor-scrub">
+        <span>Preview</span>
+        <input
+          type="range"
+          aria-label={`Preview time of ${position} in seconds`}
+          min={span.start}
+          max={span.end}
+          step={ZOOM_SCRUB_STEP}
+          value={scrub}
+          // Read-only while the loop drives it, as the other editors' are.
+          disabled={looping}
+          onChange={(event) => setScrubbed(Number(event.target.value))}
+        />
+        <output aria-label={`${position} preview time (live)`}>{seconds(scrub)}</output>
+        <label className="effect-editor-result">
+          <input
+            type="checkbox"
+            checked={showResult}
+            onChange={(event) => {
+              setShowResult(event.target.checked)
+              setDrag(null)
+            }}
+          />
+          Show result
+        </label>
+        <button
+          type="button"
+          className="effect-editor-loop"
+          data-testid="shape-editor-loop"
+          aria-pressed={looping}
+          aria-label={`Loop the window of ${position}`}
+          title={
+            looping
+              ? 'Pause the loop, leaving the preview where it is'
+              : 'Loop: play the group’s window on repeat, resting a second on its first and last frame'
+          }
+          onClick={() => setLooping((on) => !on)}
+        >
+          ↻ Loop
+        </button>
+      </div>
       {/* What the chosen tool does, below the picture: text that changes
           length above it would move the frame under the pointer. */}
       <p className="effect-editor-readout shape-editor-status" data-testid="shape-editor-status">
-        {drawing ? 'Drawing' : 'Selecting'}: {guidance}
+        {showResult ? 'Result' : drawing ? 'Drawing' : 'Selecting'}: {notice ?? guidance}
       </p>
       <p className="effect-editor-hint" id={hintId}>
         Choose Rectangle, Ellipse or Arrow and drag on the picture to draw; hold Shift for a square, a
-        circle or an arrow at 15° steps. With Select, click a shape, then drag it or a handle; arrow
-        keys nudge it, Shift for five times as far, and + and − resize it. Alt while dragging ignores
-        the guides. Each drag or key press is one undo step, and the fields above show the same
+        circle or an arrow at 15° steps. With Select, click a shape, or Shift-click to add one to the
+        selection, then drag it or a handle; arrow keys nudge the selection, Shift for five times as
+        far, and + and − resize it. Delete removes the selection and Ctrl+D (Cmd+D on a Mac)
+        duplicates it. Alt while dragging ignores the guides.{' '}
+        {looping ? 'Loop is playing the window; pause it to scrub by hand. ' : ''}
+        Each drag, key press or style change is one undo step, and the fields above show the same
         values.
       </p>
     </div>

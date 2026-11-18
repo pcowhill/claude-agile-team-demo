@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
-import { shortcutsFor } from '../lib/shortcuts'
+import { shortcutSections, shortcutsFor } from '../lib/shortcuts'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from '../lib/transport'
 import './dialog.css'
 import './ShortcutHelpDialog.css'
@@ -48,18 +48,24 @@ export function ShortcutHelpDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Keyboard shortcuts</h3>
-        <dl className="shortcut-list">
-          {shortcuts.map(({ keys, does }) => (
-            <div className="shortcut-row" key={keys.join('|')}>
-              <dt>
-                {keys.map((combo) => (
-                  <kbd key={combo}>{combo}</kbd>
-                ))}
-              </dt>
-              <dd>{does}</dd>
-            </div>
-          ))}
-        </dl>
+        {shortcutSections(shortcuts).map(({ scope, rows }) => (
+          <div key={scope ?? ''}>
+            {/* Keys that work in one place only (#686), under its name. */}
+            {scope !== undefined && <h4 className="shortcut-scope">{scope}</h4>}
+            <dl className="shortcut-list" aria-label={scope}>
+              {rows.map(({ keys, does }) => (
+                <div className="shortcut-row" key={keys.join('|')}>
+                  <dt>
+                    {keys.map((combo) => (
+                      <kbd key={combo}>{combo}</kbd>
+                    ))}
+                  </dt>
+                  <dd>{does}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
         <p className="shortcut-note">
           Shortcuts pause while you are typing in a field or a dialog is open.
         </p>

@@ -28,6 +28,7 @@
  * The tests hold both.
  */
 import {
+  RECT_SIZE_STEP,
   RECT_SNAP_CENTRES,
   ZOOM_SNAP_TOLERANCE,
   rectAfterGesture,
@@ -36,7 +37,7 @@ import {
 } from './frameEditor'
 import type { FrameRect, RectBounds, RectGesture, RectKeyStep } from './frameEditor'
 import { MIN_SHAPE_SIZE } from './shapes'
-import type { ArrowShape, BoxShape, Shape, ShapeKind } from './shapes'
+import type { ArrowHeadSize, ArrowHeads, ArrowShape, BoxShape, Shape, ShapeKind, ShapeStyle } from './shapes'
 
 /** What the tool strip offers: pick and edit, or draw one kind. */
 export type ShapeTool = 'select' | ShapeKind
@@ -392,7 +393,7 @@ export function shapeAfterKeyStep(start: Shape, step: RectKeyStep, aspect: numbe
   if (length === 0) return start
   // The overlay editor's step is a fraction of the frame's width; here it
   // is the same distance along the arrow, half at each end.
-  const half = ((step.delta > 0 ? 1 : -1) * 0.02 * aspect) / 2
+  const half = ((step.delta > 0 ? 1 : -1) * RECT_SIZE_STEP * aspect) / 2
   const ux = dx / length / aspect
   const uy = dy / length
   const tail = { x: round(start.tailX - ux * half), y: round(start.tailY - uy * half) }
@@ -416,4 +417,252 @@ export function withShape(shapes: readonly Shape[], next: Shape): Shape[] | null
   )
   if (same) return null
   return shapes.map((shape, at) => (at === index ? next : shape))
+}
+
+/**
+ * The shapes as they will be stored after an edit to several of them at
+ * once (#686: a selection moved, nudged or restyled together), or null when
+ * none changed. One list, so the caller commits it once: one undo step for
+ * the whole selection.
+ */
+export function withShapes(shapes: readonly Shape[], nexts: readonly Shape[]): Shape[] | null {
+  let current: Shape[] = [...shapes]
+  let changed = false
+  for (const next of nexts) {
+    const edited = withShape(current, next)
+    if (edited === null) continue
+    current = edited
+    changed = true
+  }
+  return changed ? current : null
+}
+
+/** The rectangle every shape in `shapes` lies inside. */
+export function selectionBounds(shapes: readonly Shape[]): FrameRect {
+  const boxes = shapes.map(shapeBounds)
+  const left = Math.min(...boxes.map((box) => box.x))
+  const top = Math.min(...boxes.map((box) => box.y))
+  const right = Math.max(...boxes.map((box) => box.x + box.width))
+  const bottom = Math.max(...boxes.map((box) => box.y + box.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+/** One shape moved by an offset already known to keep it on the frame. */
+function shiftedShape(shape: Shape, dx: number, dy: number): Shape {
+  const fit = (value: number) => clamp(round(value), 0, 1)
+  if (shape.kind === 'arrow') {
+    return {
+      ...shape,
+      tailX: fit(shape.tailX + dx),
+      tailY: fit(shape.tailY + dy),
+      tipX: fit(shape.tipX + dx),
+      tipY: fit(shape.tipY + dy),
+    }
+  }
+  return { ...shape, x: fit(shape.x + dx), y: fit(shape.y + dy) }
+}
+
+/**
+ * Several shapes moved together by one offset (#686), as one rigid piece:
+ * the offset is clamped so the whole selection stays on the frame, and,
+ * unless Alt is held, the box around the selection snaps the way a moved
+ * rectangle's does. Every shape moves by the same stored amount, so their
+ * spacing is exactly what it was.
+ */
+export function movedShapes(
+  starts: readonly Shape[],
+  dx: number,
+  dy: number,
+  modifiers: { altKey?: boolean } = {},
+): Shape[] {
+  if (starts.length === 0) return []
+  const bounds = selectionBounds(starts)
+  const fitX = (value: number) => clamp(value, -bounds.x, 1 - bounds.x - bounds.width)
+  const fitY = (value: number) => clamp(value, -bounds.y, 1 - bounds.y - bounds.height)
+  let ox = fitX(dx)
+  let oy = fitY(dy)
+  if (modifiers.altKey !== true) {
+    ox = fitX(ox + rectSnapOffset(bounds.x + ox, bounds.width))
+    oy = fitY(oy + rectSnapOffset(bounds.y + oy, bounds.height))
+  }
+  // Rounded once for all, so no shape lands a hundredth away from where its
+  // neighbours put it.
+  const sx = round(ox)
+  const sy = round(oy)
+  return starts.map((shape) => shiftedShape(shape, sx, sy))
+}
+
+/**
+ * One key press on a selection (#686). An arrow key nudges the whole
+ * selection as one piece; `+` / `−` resize each shape about its own centre,
+ * as they do a single one.
+ */
+export function shapesAfterKeyStep(starts: readonly Shape[], step: RectKeyStep, aspect: number): Shape[] {
+  if (starts.length === 1) return [shapeAfterKeyStep(starts[0], step, aspect)]
+  if (step.kind === 'move') return movedShapes(starts, step.dx, step.dy, { altKey: true })
+  return starts.map((shape) => shapeAfterKeyStep(shape, step, aspect))
+}
+
+/** How far Ctrl+D's copy sits from its original, on each axis (#686). */
+export const DUPLICATE_OFFSET = 0.02
+
+/**
+ * Ctrl+D (#686): copies of the selected shapes under new ids, offset down
+ * and right by `DUPLICATE_OFFSET` (up or left where the frame's edge leaves
+ * no room), and placed on top of the group in their original order. The
+ * caller selects the copies, so a second Ctrl+D copies the copies.
+ */
+export function duplicatedShapes(
+  shapes: readonly Shape[],
+  ids: ReadonlySet<string>,
+  newId: () => string,
+): { shapes: Shape[]; copies: Shape[] } | null {
+  const picked = shapes.filter((shape) => ids.has(shape.id))
+  if (picked.length === 0) return null
+  const bounds = selectionBounds(picked)
+  const room = (low: number, size: number) =>
+    low + size + DUPLICATE_OFFSET <= 1 + 1e-9 ? DUPLICATE_OFFSET : -DUPLICATE_OFFSET
+  const moved = movedShapes(picked, room(bounds.x, bounds.width), room(bounds.y, bounds.height), {
+    altKey: true,
+  })
+  const copies = moved.map((shape) => ({ ...shape, id: newId() }))
+  return { shapes: [...shapes, ...copies], copies }
+}
+
+/**
+ * Delete (#686): the group without the selected shapes, or null when that
+ * would leave it empty — a group always holds a shape, and removing the
+ * whole group is its row's job, behind its confirmation — or when nothing
+ * selected is in it.
+ */
+export function withoutShapes(shapes: readonly Shape[], ids: ReadonlySet<string>): Shape[] | null {
+  const kept = shapes.filter((shape) => !ids.has(shape.id))
+  if (kept.length === shapes.length || kept.length === 0) return null
+  return kept
+}
+
+/**
+ * Bring forward / Send backward (#686): each selected shape swaps places
+ * with the unselected shape just above (forward) or below (backward) it in
+ * the group's drawing order. Selected shapes that already sit together keep
+ * their order and move as a block; one already at the top (or bottom)
+ * stays, and so does any selected shape stacked against it. Null when
+ * nothing moves.
+ */
+export function reorderedShapes(
+  shapes: readonly Shape[],
+  ids: ReadonlySet<string>,
+  direction: 'forward' | 'backward',
+): Shape[] | null {
+  const order = [...shapes]
+  let moved = false
+  if (direction === 'forward') {
+    for (let index = order.length - 2; index >= 0; index -= 1) {
+      if (ids.has(order[index].id) && !ids.has(order[index + 1].id)) {
+        ;[order[index], order[index + 1]] = [order[index + 1], order[index]]
+        moved = true
+      }
+    }
+  } else {
+    for (let index = 1; index < order.length; index += 1) {
+      if (ids.has(order[index].id) && !ids.has(order[index - 1].id)) {
+        ;[order[index], order[index - 1]] = [order[index - 1], order[index]]
+        moved = true
+      }
+    }
+  }
+  return moved ? order : null
+}
+
+/** What the style bar can set (#686): a shape's look, kind by kind. */
+export type StyleChange = Partial<ShapeStyle> & {
+  /** Rectangles only. */
+  cornerRadius?: number
+  /** Arrows only. */
+  heads?: ArrowHeads
+  headSize?: ArrowHeadSize
+}
+
+/**
+ * One shape after a style-bar change: the common style applies to every
+ * kind, the corner radius to rectangles, and the heads to arrows. A field a
+ * shape's kind does not hold is left off it, so a mixed selection can be
+ * restyled without giving an ellipse a corner radius.
+ */
+export function restyledShape(shape: Shape, change: StyleChange): Shape {
+  const { cornerRadius, heads, headSize, ...style } = change
+  const next = { ...shape, ...style } as Shape
+  if (next.kind === 'rectangle' && cornerRadius !== undefined) {
+    if (cornerRadius > 0) next.cornerRadius = cornerRadius
+    else delete next.cornerRadius
+  }
+  if (next.kind === 'arrow') {
+    if (heads !== undefined) next.heads = heads
+    if (headSize !== undefined) next.headSize = headSize
+  }
+  return next
+}
+
+/**
+ * The Highlighter preset (#686, extra B of #681): no border and a 35 %
+ * yellow fill, the look of a highlighter pen stroked over a line of text.
+ * The border colour and opacity are kept, so turning the border back on
+ * gives what the shape had before.
+ */
+export const HIGHLIGHTER_STYLE: Pick<ShapeStyle, 'thickness' | 'fill' | 'fillOpacity'> = {
+  thickness: 0,
+  fill: '#ffff00',
+  fillOpacity: 0.35,
+}
+
+/** A value every shape in a selection shares, or `'mixed'`. */
+export type Shared<T> = T | 'mixed'
+
+/** What the style bar shows for a selection (#686): each field's shared value. */
+export interface SelectionStyle {
+  stroke: Shared<string>
+  strokeOpacity: Shared<number>
+  thickness: Shared<number>
+  /** Undefined when the selection holds an arrow, which draws no fill. */
+  fill?: Shared<string>
+  fillOpacity?: Shared<number>
+  /** Undefined unless every selected shape is a rectangle. */
+  cornerRadius?: Shared<number>
+  /** Undefined unless every selected shape is an arrow. */
+  heads?: Shared<ArrowHeads>
+  headSize?: Shared<ArrowHeadSize>
+}
+
+function shared<T>(values: readonly T[]): Shared<T> {
+  return values.every((value) => value === values[0]) ? values[0] : 'mixed'
+}
+
+/**
+ * The style bar's reading of a selection (#686): a field is present only
+ * when it applies to **every** selected shape — the corner radius to an
+ * all-rectangle selection, the heads to an all-arrow one, the fill to one
+ * with no arrow — and reads `'mixed'` where the shapes disagree. Null for
+ * an empty selection.
+ */
+export function selectionStyle(selected: readonly Shape[]): SelectionStyle | null {
+  if (selected.length === 0) return null
+  const result: SelectionStyle = {
+    stroke: shared(selected.map((shape) => shape.stroke)),
+    strokeOpacity: shared(selected.map((shape) => shape.strokeOpacity)),
+    thickness: shared(selected.map((shape) => shape.thickness)),
+  }
+  const boxes = selected.filter((shape): shape is BoxShape => shape.kind !== 'arrow')
+  if (boxes.length === selected.length) {
+    result.fill = shared(boxes.map((shape) => shape.fill))
+    result.fillOpacity = shared(boxes.map((shape) => shape.fillOpacity))
+    if (boxes.every((shape) => shape.kind === 'rectangle')) {
+      result.cornerRadius = shared(boxes.map((shape) => shape.cornerRadius ?? 0))
+    }
+  }
+  const arrows = selected.filter((shape): shape is ArrowShape => shape.kind === 'arrow')
+  if (arrows.length === selected.length) {
+    result.heads = shared(arrows.map((shape) => shape.heads))
+    result.headSize = shared(arrows.map((shape) => shape.headSize))
+  }
+  return result
 }

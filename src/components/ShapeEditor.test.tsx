@@ -6,7 +6,7 @@ import { preloadVisualEditors } from './visualEditors'
 import { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { shapeGroupsOf } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
-import { ADD_SHAPES, chooseFromAddMenu } from '../test/timelineMenu'
+import { ADD_SHAPES, ADD_SLATE, chooseFromAddMenu } from '../test/timelineMenu'
 
 /**
  * The shape editor, part 1 (#685), App-level: the row's **Draw shapes…**
@@ -164,6 +164,175 @@ describe('the shape editor (#685)', () => {
     expect(left()).toHaveValue(0.4)
     await userEvent.click(undo())
     expect(screen.queryByRole('list', { name: 'Shape groups' })).toBeNull()
+  })
+
+  // Part 2 (#686): the selection, the style bar, order, keys and the result.
+  const SELECTION = `the selected shapes of ${group()}`
+  const styleBar = () => screen.getByRole('group', { name: `Style of the selected shapes of ${group()}` })
+  const press = (name: string) => fireEvent.pointerDown(within(editor()).getByRole('img', { name }), { pointerId: 1, button: 0, ...at(0.5, 0.5) })
+  const release = () => fireEvent.pointerUp(layer(), { pointerId: 1, ...at(0.5, 0.5) })
+  const shiftClick = (name: string) =>
+    fireEvent.pointerDown(within(editor()).getByRole('img', { name }), {
+      pointerId: 1,
+      button: 0,
+      shiftKey: true,
+      ...at(0.5, 0.5),
+    })
+  /** The group's default ellipse plus a rectangle drawn at 0.1–0.3 × 0.1–0.4, left selected. */
+  async function ellipseAndRectangle() {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Rectangle tool' }))
+    drag(layer(), { x: 0.1, y: 0.1 }, { x: 0.3, y: 0.4 })
+  }
+  const selectedCount = () => editor().querySelectorAll('[data-selected="true"]').length
+
+  it('Shift-click builds a selection that one style-bar change restyles, as one undo step (#686)', async () => {
+    await ellipseAndRectangle()
+    expect(selectedCount()).toBe(1)
+    // Nothing selected leaves the bar disabled.
+    fireEvent.pointerDown(layer(), { pointerId: 1, button: 0, ...at(0.9, 0.9) })
+    release()
+    expect(selectedCount()).toBe(0)
+    expect(within(styleBar()).getByLabelText(`Border colour of ${SELECTION}`)).toBeDisabled()
+
+    press(shape('Ellipse', 1))
+    release()
+    shiftClick(shape('Rectangle', 2))
+    expect(selectedCount()).toBe(2)
+    fireEvent.change(within(styleBar()).getByLabelText(`Border colour of ${SELECTION}`), {
+      target: { value: '#00ff00' },
+    })
+    expect(screen.getByLabelText(`Border colour of ${shape('Ellipse', 1)}`)).toHaveValue('#00ff00')
+    expect(screen.getByLabelText(`Border colour of ${shape('Rectangle', 2)}`)).toHaveValue('#00ff00')
+    await userEvent.click(undo())
+    expect(screen.getByLabelText(`Border colour of ${shape('Ellipse', 1)}`)).toHaveValue('#e53935')
+    expect(screen.getByLabelText(`Border colour of ${shape('Rectangle', 2)}`)).toHaveValue('#e53935')
+
+    // Shift-click again takes a shape back out.
+    shiftClick(shape('Ellipse', 1))
+    expect(selectedCount()).toBe(1)
+  })
+
+  it('the style bar shows "mixed" where the selection disagrees, and disables what does not apply to all (#686)', async () => {
+    await ellipseAndRectangle()
+    const rectangle = shape('Rectangle', 2)
+    fireEvent.change(screen.getByLabelText(`Border colour of ${rectangle}`), { target: { value: '#0000ff' } })
+    // The rectangle alone: every box field applies, the heads do not.
+    const one = SELECTION
+    expect(within(styleBar()).getByLabelText(`Corner radius of ${one} in pixels`)).toBeEnabled()
+    expect(within(styleBar()).getByLabelText(`Arrow heads of ${one}`)).toBeDisabled()
+    shiftClick(shape('Ellipse', 1))
+    const colour = within(styleBar()).getByLabelText(`Border colour of ${SELECTION}`)
+    expect(colour).toHaveAttribute('data-mixed', 'true')
+    expect(within(styleBar()).getByText('mixed')).toBeInTheDocument()
+    // Both have the same opacity, so it reads as a number.
+    expect(within(styleBar()).getByLabelText(`Border opacity of ${SELECTION} (percent)`)).toHaveValue(100)
+    // An ellipse has no corners.
+    expect(within(styleBar()).getByLabelText(`Corner radius of ${SELECTION} in pixels`)).toBeDisabled()
+    expect(within(styleBar()).getByLabelText(`Fill colour of ${SELECTION}`)).toBeEnabled()
+    // A typed value applies to both, mixed or not.
+    const opacity = within(styleBar()).getByLabelText(`Border opacity of ${SELECTION} (percent)`)
+    await userEvent.clear(opacity)
+    await userEvent.type(opacity, '50{Enter}')
+    expect(field(`Border opacity of ${shape('Ellipse', 1)} (percent)`)).toHaveValue(50)
+    expect(field(`Border opacity of ${rectangle} (percent)`)).toHaveValue(50)
+  })
+
+  it('Delete removes the selection and Ctrl+D duplicates it, only from the picture, and the last shape stays (#686)', async () => {
+    await ellipseAndRectangle()
+    // Ctrl+D: the browser's bookmark shortcut is prevented.
+    expect(fireEvent.keyDown(layer(), { key: 'd', ctrlKey: true })).toBe(false)
+    const copy = shape('Rectangle', 3)
+    expect(field(`Left edge of ${copy} (0 to 1)`)).toHaveValue(0.12)
+    expect(field(`Top edge of ${copy} (0 to 1)`)).toHaveValue(0.12)
+    // The copy is selected; Cmd+D copies it again.
+    expect(fireEvent.keyDown(layer(), { key: 'd', metaKey: true })).toBe(false)
+    expect(field(`Left edge of ${shape('Rectangle', 4)} (0 to 1)`)).toHaveValue(0.14)
+    expect(fireEvent.keyDown(layer(), { key: 'Delete' })).toBe(false)
+    expect(screen.queryByRole('listitem', { name: shape('Rectangle', 4) })).toBeNull()
+
+    // The keys belong to the picture: in a text field they do nothing of ours.
+    press(shape('Rectangle', 2))
+    release()
+    const opacity = within(styleBar()).getByLabelText(`Border opacity of ${SELECTION} (percent)`)
+    expect(fireEvent.keyDown(opacity, { key: 'Delete' })).toBe(true)
+    expect(fireEvent.keyDown(opacity, { key: 'd', ctrlKey: true })).toBe(true)
+    expect(screen.getByRole('listitem', { name: shape('Rectangle', 2) })).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem', { name: /^Rectangle \d of / })).toHaveLength(2)
+
+    // Everything selected: Delete refuses, since a group keeps one shape.
+    shiftClick(shape('Ellipse', 1))
+    shiftClick(shape('Rectangle', 3))
+    expect(selectedCount()).toBe(3)
+    fireEvent.keyDown(layer(), { key: 'Backspace' })
+    expect(screen.getByTestId('shape-editor-status')).toHaveTextContent('A group always keeps one shape')
+    expect(screen.getAllByRole('listitem', { name: /of shape group at position 1$/ })).toHaveLength(3)
+  })
+
+  it('the Highlighter preset styles the selected rectangles, or the next one drawn (#686)', async () => {
+    await ellipseAndRectangle()
+    const rectangle = shape('Rectangle', 2)
+    await userEvent.click(within(styleBar()).getByRole('button', { name: 'Highlighter' }))
+    expect(field(`Border thickness of ${rectangle} in pixels`)).toHaveValue(0)
+    expect(screen.getByLabelText(`Fill colour of ${rectangle}`)).toHaveValue('#ffff00')
+    expect(field(`Fill opacity of ${rectangle} (percent)`)).toHaveValue(35)
+    // An ellipse alone is not a rectangle: the preset is off.
+    press(shape('Ellipse', 1))
+    release()
+    expect(within(styleBar()).getByRole('button', { name: 'Highlighter' })).toBeDisabled()
+
+    // Nothing selected: the Rectangle tool is chosen and its next rectangle lit.
+    fireEvent.pointerDown(layer(), { pointerId: 1, button: 0, ...at(0.9, 0.9) })
+    release()
+    await userEvent.click(within(styleBar()).getByRole('button', { name: 'Highlighter' }))
+    expect(within(editor()).getByRole('button', { name: 'Rectangle tool' })).toHaveAttribute('aria-pressed', 'true')
+    drag(layer(), { x: 0.5, y: 0.1 }, { x: 0.7, y: 0.2 })
+    const next = shape('Rectangle', 3)
+    expect(field(`Border thickness of ${next} in pixels`)).toHaveValue(0)
+    expect(field(`Fill opacity of ${next} (percent)`)).toHaveValue(35)
+  })
+
+  it('Bring forward and Send backward change the group’s order (#686)', async () => {
+    await ellipseAndRectangle()
+    const forward = () => within(styleBar()).getByRole('button', { name: 'Bring forward' })
+    const backward = () => within(styleBar()).getByRole('button', { name: 'Send backward' })
+    // The rectangle, drawn last, is on top already.
+    expect(forward()).toBeDisabled()
+    await userEvent.click(backward())
+    expect(screen.getByRole('listitem', { name: shape('Rectangle', 1) })).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: shape('Ellipse', 2) })).toBeInTheDocument()
+    expect(backward()).toBeDisabled()
+    await userEvent.click(forward())
+    expect(screen.getByRole('listitem', { name: shape('Ellipse', 1) })).toBeInTheDocument()
+  })
+
+  it('the Preview slider and Show result render the group’s window, with the group in the still (#686)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SLATE)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    const slider = within(editor()).getByRole('slider', { name: `Preview time of ${group()} in seconds` })
+    expect(slider).toHaveAttribute('min', '0')
+    expect(slider).toHaveAttribute('max', '3')
+    expect(slider).toHaveValue('1.5')
+    let [timeline, time] = snapshotMock.mock.lastCall as [TimelineState, number]
+    expect(time).toBe(1.5)
+    expect(shapeGroupsOf(timeline)).toEqual([])
+
+    fireEvent.change(slider, { target: { value: '0.5' } })
+    ;[timeline, time] = snapshotMock.mock.lastCall as [TimelineState, number]
+    expect(time).toBe(0.5)
+
+    await userEvent.click(within(editor()).getByRole('checkbox', { name: 'Show result' }))
+    ;[timeline, time] = snapshotMock.mock.lastCall as [TimelineState, number]
+    // The result is the composite: this group is in the still.
+    expect(time).toBe(0.5)
+    expect(shapeGroupsOf(timeline)).toHaveLength(1)
+    expect(screen.queryByTestId('shape-editor-canvas')).toBeNull()
+    expect(within(editor()).getByRole('button', { name: 'Rectangle tool' })).toBeDisabled()
+    expect(screen.getByTestId('shape-editor-status')).toHaveTextContent('Turn Show result off to edit')
   })
 
   it('a field typed in the row moves the shape the editor shows: one value, two views', async () => {

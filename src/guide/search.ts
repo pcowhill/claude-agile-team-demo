@@ -87,7 +87,7 @@ function blockText(block: GuideBlock, constants: GuideConstants): string {
       // The generated table (#482) is searchable as the reader sees it, so
       // `ctrl+z` finds the Keyboard shortcuts page.
       return shortcutsFor(Number(constants.STEP_SECONDS), Number(constants.LARGE_STEP_SECONDS))
-        .map(({ keys, does }) => `${keys.join(' or ')} · ${does}`)
+        .map(({ keys, does, scope }) => `${keys.join(' or ')} · ${does}${scope === undefined ? '' : ` · ${scope}`}`)
         .join(' · ')
   }
 }
