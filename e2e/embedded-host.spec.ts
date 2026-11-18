@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { embedBetweenHeaderAndFooter } from './embeddedHost'
 import { expectNoHorizontalScroll, expectNoVerticalPageScroll } from './layout'
 import { sineWav } from './sineWav'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
@@ -27,31 +28,8 @@ type Page = import('@playwright/test').Page
  * clientHeight of 720 — the 140px of header and footer.
  */
 
-const HEADER = 80
-const FOOTER = 60
-
 const sequenceRows = (page: Page) =>
   page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')
-
-/** The customer's host page: a header before `#root`, a footer after it. */
-async function embedBetweenHeaderAndFooter(page: Page) {
-  await page.evaluate(
-    ({ header, footer }) => {
-      const root = document.getElementById('root')!
-      const make = (className: string, height: number) => {
-        const div = document.createElement('div')
-        div.className = className
-        div.textContent = className
-        div.style.height = `${height}px`
-        div.style.background = '#3a2a5a'
-        return div
-      }
-      root.before(make('header', header))
-      root.after(make('footer', footer))
-    },
-    { header: HEADER, footer: FOOTER },
-  )
-}
 
 interface Boxes {
   header: { top: number; bottom: number }

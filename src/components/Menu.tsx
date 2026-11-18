@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-import { placementFor } from '../lib/menuPlacement'
+import { placementBounds, placementFor } from '../lib/menuPlacement'
 import type { Placement } from '../lib/menuPlacement'
 import './Menu.css'
 
@@ -30,7 +30,9 @@ import './Menu.css'
  * - only one menu is open at a time, whichever component owns it;
  * - the panel stays inside the viewport: it opens to the left of its right
  *   edge when it would overflow the window (the header menus sit at the
- *   page's right), and above the trigger when it would overflow the bottom;
+ *   page's right), and above the trigger when it would overflow the bottom —
+ *   the app's own bottom and right, where a host page's header and footer
+ *   leave the app less than the window (#653);
  * - a panel whose trigger sits inside a scrolling box (a media library
  *   row's ⋯) is lifted out of that box rather than clipped by it, and
  *   closes if the box scrolls under it (#416).
@@ -200,11 +202,18 @@ function MenuPanel({
     const rect = panel.getBoundingClientRect()
     if (rect.width === 0 && rect.height === 0) return
     const anchor = panel.parentElement?.getBoundingClientRect()
-    const viewport = { width: document.documentElement.clientWidth, height: window.innerHeight }
+    // The window, narrowed to the app's own box (#653): embedded between a
+    // host page's header and footer (#652), the window's bottom is the
+    // footer's, and a panel flipping against it opened under the footer.
+    // On GitHub Pages the app is the window and this is the window.
+    const bounds = placementBounds(
+      { width: document.documentElement.clientWidth, height: window.innerHeight },
+      panel.closest('.app')?.getBoundingClientRect(),
+    )
     // Flip only when the other side actually has the room; otherwise the
     // natural side is the lesser evil. The arithmetic is `placementFor`,
     // which knows a submenu flips against a different anchor edge (#430).
-    const next = placementFor(rect, anchor, viewport, submenu)
+    const next = placementFor(rect, anchor, bounds, submenu)
     if (submenu || anchor === undefined || clippingAncestorOf(panel) === null) {
       if (next.end || next.up) setPlacement(next)
       return
@@ -221,8 +230,8 @@ function MenuPanel({
     // coordinates. A fixed box is not its scrolling ancestors' overflow and
     // is not clipped by them, while staying where it is in the DOM — so the
     // keyboard handling, the outside-press close and the one-open-menu slot
-    // are untouched. The flip itself is still against the viewport, as for
-    // every other panel.
+    // are untouched. The flip itself is against the same bounds as every
+    // other panel's: the window, narrowed to the app (#653).
     //
     // Fixed offsets resolve against the viewport unless an ancestor has a
     // transform, filter or containment, when they resolve against that
