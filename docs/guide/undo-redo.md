@@ -43,7 +43,7 @@ An action that changes nothing — committing the value a field already had, dro
 
 **Details.** Undo does not affect anything that changes what you see rather than what the video is, or that lives outside the timeline:
 
-- collapsing rows and folding sections, opening a Picture ▸ or Subtitle style disclosure, the library's List or Thumbnail view, the preview's expanded size;
+- collapsing rows and folding sections, opening a Picture ▸ or Subtitle style disclosure, the library's List or Thumbnail view, the preview's View ▾ layout;
 - **Settings**, which are per device and apply at once;
 - the export **marks** and **Loop**, which are session-only, and the export dialog's own fields;
 - sorting the library, and *Copy settings* — the copy itself changes nothing; the paste is the edit;

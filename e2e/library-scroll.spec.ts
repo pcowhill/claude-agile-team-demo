@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { choosePreviewLayout } from './previewView'
 import type { Locator } from '@playwright/test'
 import { chooseView } from './clipMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
@@ -207,9 +208,9 @@ test('the list stays inside its panel and scrolls there, at window heights the 5
 
   // The expanded-preview layout sizes its rows to their content, so here
   // the 50vh cap is still what bounds the list; it must fit either way.
-  await page.getByRole('button', { name: 'Expand preview' }).click()
+  await choosePreviewLayout(page, 'Expanded')
   await expectInsidePanel('at 1280×720 with the preview expanded')
-  await page.getByRole('button', { name: 'Restore preview size' }).click()
+  await choosePreviewLayout(page, 'Default')
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await input.setInputFiles(wavs(15, 16))

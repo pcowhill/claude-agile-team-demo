@@ -13,8 +13,11 @@
   gap: 0.5rem;
 }
 
-.preview-expand {
+/* View ▾ (#667) took the place of the Expand button, at its size; the
+   media library's View ▾ trigger is styled the same way. */
+.preview-view-menu > .menu-trigger {
   font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
 }
 
 .preview-player {
@@ -198,8 +201,13 @@
    output frame's aspect ratio (#176) — as wide as it can be, height
    following along, exactly as the customer sketched. 16:9 until metadata
    arrives. The frame then fills the stage exactly, since they share the
-   ratio. */
-.preview-stage-expanded {
+   ratio.
+
+   Fit to width (#667, from the customer's #660) is the same stage in the
+   panel's own place beside the library: App.css content-sizes the top row
+   for it, so the row grows to whatever height the panel's width gives. */
+.preview-stage-expanded,
+.preview-stage-fit {
   flex: 0 0 auto;
   aspect-ratio: var(--preview-aspect, 16 / 9);
 }

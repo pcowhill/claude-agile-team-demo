@@ -388,7 +388,7 @@ describe('undo and redo wait behind a modal dialog (#559)', () => {
   })
 })
 
-describe('preview expansion (#128)', () => {
+describe('preview layout (#128, #667)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))
     return {
@@ -400,28 +400,45 @@ describe('preview expansion (#128)', () => {
     }
   }
 
-  it('toggling expands the layout and remembers the choice across mounts', async () => {
+  const chooseLayout = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(screen.getByRole('button', { name: 'Preview view' }))
+    await user.click(screen.getByRole('menuitemradio', { name }))
+  }
+
+  it('each View ▾ choice applies and is remembered across mounts (#667)', async () => {
     const storage = fakeStorage()
     const user = userEvent.setup()
     const { container, unmount } = render(<App layoutStorage={storage} />)
 
     const main = container.querySelector('main')
-    expect(main).not.toHaveClass('app-main-preview-expanded')
+    expect(main).toHaveAttribute('class', 'app-main')
 
-    await user.click(screen.getByRole('button', { name: 'Expand preview' }))
+    await chooseLayout(user, 'Expanded')
     expect(main).toHaveClass('app-main-preview-expanded')
-    expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
 
     // A fresh mount (a page load) restores the remembered choice.
     unmount()
     const remounted = render(<App layoutStorage={storage} />)
     expect(remounted.container.querySelector('main')).toHaveClass('app-main-preview-expanded')
-    expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Restore preview size' }))
+    await chooseLayout(user, 'Fit to width')
+    expect(remounted.container.querySelector('main')).toHaveClass('app-main-preview-fit')
     expect(remounted.container.querySelector('main')).not.toHaveClass('app-main-preview-expanded')
     remounted.unmount()
     const third = render(<App layoutStorage={storage} />)
-    expect(third.container.querySelector('main')).not.toHaveClass('app-main-preview-expanded')
+    expect(third.container.querySelector('main')).toHaveClass('app-main-preview-fit')
+
+    await chooseLayout(user, 'Default')
+    expect(third.container.querySelector('main')).toHaveAttribute('class', 'app-main')
+    third.unmount()
+    const fourth = render(<App layoutStorage={storage} />)
+    expect(fourth.container.querySelector('main')).toHaveAttribute('class', 'app-main')
+  })
+
+  it("a browser that chose Expand before View ▾ existed still loads expanded (#667)", () => {
+    const { container } = render(
+      <App layoutStorage={fakeStorage({ 'browser-video-editor.preview-expanded': '1' })} />,
+    )
+    expect(container.querySelector('main')).toHaveClass('app-main-preview-expanded')
   })
 })

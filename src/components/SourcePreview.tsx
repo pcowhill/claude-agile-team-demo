@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { previewStageClass } from '../lib/previewLayout'
+import type { PreviewLayout } from '../lib/previewLayout'
 import type { CSSProperties } from 'react'
 import { targetEditsText } from '../lib/history'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -31,8 +33,8 @@ interface SourcePreviewProps {
    * modes; the source letterboxes inside it exactly as a placed clip would.
    */
   aspect: number
-  /** Whether the preview panel spans the full content width (#128). */
-  expanded?: boolean
+  /** The preview panel's layout (#128, #667), which shapes the stage. */
+  layout?: PreviewLayout
   /** Back to the sequence — the header button, and Escape. */
   onBack: () => void
   /** The library row's Add / Overlay actions, offered here for convenience. */
@@ -60,7 +62,7 @@ interface SourcePreviewProps {
 export function SourcePreview({
   clip,
   aspect,
-  expanded = false,
+  layout = 'default',
   onBack,
   onAddToTimeline,
   onAddOverlay,
@@ -243,7 +245,7 @@ export function SourcePreview({
         </span>
       </div>
       <div
-        className={expanded ? 'preview-stage preview-stage-expanded' : 'preview-stage'}
+        className={previewStageClass(layout)}
         style={{ '--preview-aspect': String(aspect) } as CSSProperties}
       >
         <div className="preview-frame source-preview-frame" data-testid="source-frame">

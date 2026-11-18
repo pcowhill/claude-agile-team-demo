@@ -84,6 +84,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## D
 
+- **Default** — the preview's View ▾; the picture fitted inside the panel, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Default export format** — Settings. [Settings › Default export format](settings.md#default-export-format)
 - **Default subtitle bold** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Default subtitle centre X** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
@@ -108,7 +109,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Esc** — leaves the source preview, back to the sequence. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
-- **Expand preview** — the preview header; gives the stage the whole width. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
+- **Expanded** — the preview's View ▾; the preview as the page's full-width first row. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Export** — File ▾ › Export ▸, which opens the export dialog on a chosen format; and the export dialog's own Export button. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
 - **Export frame rate** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export height** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
@@ -124,6 +125,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Fade-in** — an expanded text row and an expanded audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Fade-out** — an expanded text row and an expanded audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **File** — the header menu holding the project, plugin, settings and export actions. [Projects › New Project](projects.md#new-project)
+- **Fit to width** — the preview's View ▾; the picture takes the panel's whole width, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Flip H** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Font** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
@@ -219,7 +221,6 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Reset crop** — an expanded video or image row › Picture ▸ › Crop, and the **Reset** button in the crop editor. [Editing video › Crop](editing-video.md#crop) · [Visual editors › Reset](visual-editors.md#reset)
 - **Reset default subtitle style** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Reset orientation** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
-- **Restore size** — the preview header, once expanded; gives the width back. [Preview and playback › The stage and the expanded layout](preview-and-playback.md#the-stage-and-the-expanded-layout)
 - **Resume from chapter N** — the export dialog, once an Each chapter run has stopped early; carries on from that chapter with the run's own settings, writing only the files still missing. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Resume recording** — the recording dialog, while paused; carries on into the same clip. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Review speed** — the preview transport; how fast the preview plays, at 0.5×, 1×, 1.5× or 2×. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
@@ -281,6 +282,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## V
 
 - **View** — the media library header; the layout and sorting menu. [Media library › View ▾](media-library.md#view-layout-and-sorting)
+- **View (preview)** — the preview header; the menu of preview layouts. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Visual editors** — Settings; switches the drag-to-adjust editors on and off. [Settings › Visual editors](settings.md#visual-editors)
 - **Volume** — an expanded video row or audio track. [Audio › Volume and mute](audio.md#volume-and-mute)
 
