@@ -38,7 +38,8 @@ import { sineWav } from './sineWav'
  * - the keyboard cheat sheet, for the shortcut combos, together with the
  *   shortcut hints the menus show
  * - the five visual editors (#507): Crop, Zoom, Overlay, Text and
- *   Redaction, each from the Adjust visually… button on the row it edits
+ *   Redaction, each from the Adjust visually… button on the row it edits,
+ *   and the shape editor (#685) from a shape group's Draw shapes… button
  * - the recording dialog, in all three of its states (#514) — counting
  *   down, recording, and paused
  * - the Save mode dialog, and the Open project dialog it writes the file
@@ -284,6 +285,31 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Close the spotlight editor',
     to: '✕ (close a visual editor)',
     why: 'as above — the spotlight editor (#533)',
+  },
+  {
+    from: 'Close the shape editor',
+    to: '✕ (close a visual editor)',
+    why: 'as above — the shape editor (#685)',
+  },
+  {
+    from: 'Draw the shapes visually',
+    to: 'Draw shapes…',
+    why: 'the button reads "Draw shapes…"; the name says which group\'s shapes it opens (#685)',
+  },
+  {
+    from: 'Rectangle tool',
+    to: 'Rectangle',
+    why: 'the shape editor\'s tool reads "Rectangle"; "tool" tells it apart from + Add shape\'s item (#685)',
+  },
+  {
+    from: 'Ellipse tool',
+    to: 'Ellipse',
+    why: 'as above — the shape editor\'s Ellipse tool (#685)',
+  },
+  {
+    from: 'Arrow tool',
+    to: 'Arrow',
+    why: 'as above — the shape editor\'s Arrow tool (#685)',
   },
   {
     from: 'Close the Zoom editor',
@@ -843,6 +869,16 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     if ((await adjust.count()) === 0) continue
     await walkEditor(adjust, `the placement editor of ${position}`)
   }
+
+  // The shape editor (#685), from the shape group's Draw shapes… button:
+  // its tool strip and its own close.
+  await walkEditor(
+    timeline.getByRole('button', {
+      name: 'Draw the shapes of shape group at position 1 visually',
+      exact: true,
+    }),
+    'the shape editor',
+  )
 
   // ── A speed segment and a pause (#525) ──────────────────────────────
   //

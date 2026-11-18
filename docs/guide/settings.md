@@ -46,7 +46,7 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **Where to find it.** Settings › **Visual editors**, **On** or **Off**.
 
-**What it does.** Shows or hides every *Adjust visually…* button on the timeline.
+**What it does.** Shows or hides every *Adjust visually…* button on the timeline, and a shape group's *Draw shapes…*.
 
 **Details.** On by default. The hint says what the switch gates: *Adjust visually… buttons sit beside the fields they stand in for, and open a still of the frame to drag the value into place instead of typing it. Off hides them all and never renders that frame.* The number fields keep working either way; Off is for a machine where rendering the still costs more than it is worth.
 

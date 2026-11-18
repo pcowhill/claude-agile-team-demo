@@ -42,7 +42,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
-- **Arrow** — + Add shape ▾ on a shape group; an arrow or a line from a tail to a tip. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
+- **Arrow** — + Add shape ▾ on a shape group; an arrow or a line from a tail to a tip. Also the shape editor's tool for drawing one, tail to tip. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Arrow heads** — an arrow in an expanded shape group row › Heads; at the tip, both ends, or none for a line. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Audio fade-out** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
@@ -104,6 +104,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Disable Shaped wipes** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Discard and open** — the *Discard unsaved changes?* dialog, raised by File ▾ › Open Project… while changes are unsaved; goes ahead and asks for the file. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Discard and start new** — the same dialog, raised by File ▾ › New Project while changes are unsaved; goes ahead and empties the project. [Projects › New Project](projects.md#new-project)
+- **Draw shapes…** — an expanded shape group row, beside + Add shape ▾; opens the shape editor. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Duck level** — beside Duck others while it is on; how far the other audio drops. [Audio › The duck level](audio.md#the-duck-level)
 - **Duck others** — an expanded audio track's row. [Audio › Duck others](audio.md#duck-others)
 - **Duplicate** — a timeline row's ⋯ menu. [Timeline › Duplicate](timeline.md#duplicate)
@@ -112,7 +113,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## E
 
 - **Each chapter** — the export dialog's Range group, once the project has a chapter marker; one file per chapter instead of one for the whole run. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
-- **Ellipse** — + Add shape ▾ on a shape group. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Ellipse** — + Add shape ▾ on a shape group. Also the shape editor's tool for drawing one, corner to corner. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Embed media in the project file** — the Save project dialog; one self-contained file with the media data in it. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
@@ -208,7 +209,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **R** — steps the review speed through 0.5×, 1×, 1.5× and 2×, wrapping round. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **Record** — the media library header; the menu of capture sources. [Recording › Record ▾](recording.md#record)
-- **Rectangle** — + Add shape ▾ on a shape group. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Rectangle** — + Add shape ▾ on a shape group. Also the shape editor's tool for drawing one, corner to corner. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Redaction region block size** — a redaction region set to Pixelate; the block, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region blur strength** — a redaction region set to Blur; the radius, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region colour** — a redaction region set to Solid; what it is filled with. [Editing video › Redact a region](editing-video.md#redact-a-region)
@@ -250,6 +251,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Seek bar** — the preview transport; drag it to move the playhead. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **Select a clip** — the checkbox on a media library row. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
+- **Select tool** — the shape editor's tool strip; click a shape to select it, then drag it or its handles. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Settings…** — File ▾. [Settings › Opening Settings](settings.md#opening-settings)
 - **Shape group** — Add ▾. [Shapes and annotations › Adding a shape group](shapes-and-annotations.md#adding-a-shape-group)
 - **Shape mask** — an expanded overlay row › Picture ▸. [Editing video › Shape mask](editing-video.md#shape-mask)
