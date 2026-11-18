@@ -115,6 +115,40 @@
   width: 5.5rem;
 }
 
+/* Width, Height and Frame rate carry their unit inside the box, after the
+   number (#665): `[ 1280 px]`, `[ 30 fps]`. The wrapper is the field —
+   drawn with the system's field colours, so it reads as the native input it
+   replaces — and the input sits in it borderless and right-aligned. */
+.export-unit-box {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 0.35rem;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: Field;
+  color: FieldText;
+  white-space: nowrap;
+}
+
+.export-unit-box:focus-within {
+  outline: auto;
+}
+
+.export-settings-row .export-unit-box input {
+  width: 4.5rem;
+  padding: 0.15rem 0.15rem 0.15rem 0.3rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  text-align: right;
+}
+
+.export-unit {
+  color: GrayText;
+}
+
 /* The selected format's stated limits (#198), e.g. the GIF plugin's caps,
    or the audio-only format's no-video-track line (#245). Full flex-row
    width, so it always lands on its own line below the radio options rather

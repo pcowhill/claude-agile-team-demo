@@ -188,8 +188,13 @@
 
 .timeline-entry-trim {
   display: flex;
+  /* Wraps (#665): with each box carrying its unit, `In [ ] out [ ]` and the
+     "plays … of …" summary no longer fit one line of a 360px column, and an
+     unwrapped flex row widens the panel instead of breaking. The summary's
+     `margin-left: auto` right-aligns it on its own line. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.2rem 0.4rem;
   color: #aaa;
   font-size: 0.8rem;
 }
@@ -222,7 +227,10 @@
 }
 
 .timeline-entry-zoom input {
-  width: 3.5rem;
+  /* 4rem, not 3.5: a start of 123.4 s scrolled out of a 3.5rem box once
+     Chromium's spinner showed in it (#665's spec measured 59px wanted
+     against 56px shown). */
+  width: 4rem;
   padding: 0.15rem 0.3rem;
   border: 1px solid #2c2c2c;
   border-radius: 4px;
@@ -468,6 +476,41 @@
   align-items: center;
   gap: inherit;
   white-space: nowrap;
+}
+
+/* A number box that carries its unit inside it, after the number (#665):
+   `[ 0 s]`, `[ 25%]`, `[ 0.5 ×]`. The border, radius and background move
+   from the input to this wrapper, and the input sits in it borderless and
+   right-aligned, so the number ends where the unit begins. Each row kind's
+   own `input` rule still sizes the input (4.5rem, or 3.5rem in the zoom
+   and remap rows); the selector below out-specifies all of them —
+   (0,3,0) against their (0,1,1) and (0,2,1) — for the box properties only. */
+.timeline-unit-box {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  white-space: nowrap;
+}
+
+.timeline-unit-box .timeline-unit-input[type='number'] {
+  padding-right: 0.15rem;
+  border: none;
+  border-radius: 4px 0 0 4px;
+  background: transparent;
+  outline: none;
+  text-align: right;
+}
+
+/* The focus ring is the box's, so it surrounds the unit too. */
+.timeline-unit-box:focus-within {
+  outline: auto;
+}
+
+.timeline-unit {
+  color: #888;
 }
 
 /* The sliders themselves. One rule for all four row kinds. It had to
