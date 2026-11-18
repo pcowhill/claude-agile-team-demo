@@ -14,6 +14,7 @@ import {
   isInvisibleShape,
   isValidShapeGroupSpec,
   shapeGroupLabel,
+  shapeGroupName,
   shapeGroupOpacityAt,
   shorterSideFraction,
   shorterSidePixels,
@@ -23,7 +24,8 @@ import type { TextOverlay } from './textOverlay'
 import { DEFAULT_SUBTITLE_STYLE } from './textOverlay'
 import { canvasFrameSize } from './frameSize'
 import { shapeGroupsOf, timelineReducer } from './timeline'
-import type { TimelineState } from './timeline'
+import type { TimelineEntry, TimelineState } from './timeline'
+import { copyElementSettings } from './settingsClipboard'
 
 const ellipse = (id = 's1'): BoxShape => defaultShape(id, 'ellipse')
 const group = (overrides: Partial<ShapeGroup> = {}): ShapeGroup => ({
@@ -384,6 +386,122 @@ describe('shape groups: arrows and lines (#684)', () => {
     expect(calls).not.toContain('stroke')
     expect(calls.filter((call) => call.startsWith('fill'))).toHaveLength(1)
     expect(calls).toContain('closePath')
+  })
+})
+
+describe('shape-group row actions: Duplicate, Paste settings and Rename… (#687)', () => {
+  const twoGroups = (): TimelineState => ({
+    entries: [],
+    shapeGroups: [
+      group({ id: 'g1', offset: 2, duration: 4, fadeIn: 0.5, fadeOut: 1, shapes: [ellipse('a'), ellipse('b')] }),
+      group({ id: 'g2', offset: 10, duration: 3, shapes: [defaultShape('r', 'rectangle')] }),
+    ],
+  })
+  const clip: TimelineEntry = {
+    id: 'e1',
+    clipId: 'c1',
+    name: 'a.mp4',
+    duration: 10,
+    url: 'blob:a',
+    inPoint: 0,
+    outPoint: 10,
+    volume: 0.4,
+    fadeIn: 1,
+    fadeOut: 2,
+  }
+
+  it('Duplicate starts the copy at the original end, right after it, with equal shapes, fades and name', () => {
+    const state = twoGroups()
+    const named = timelineReducer(state, { type: 'element-renamed', id: 'g1', name: 'Callouts' })
+    const next = timelineReducer(named, { type: 'element-duplicated', kind: 'shape-group', id: 'g1', newId: 'g1b' })
+    const groups = shapeGroupsOf(next)
+    expect(groups.map((each) => each.id)).toEqual(['g1', 'g1b', 'g2'])
+    const [original, copy] = groups
+    expect(copy.offset).toBe(original.offset + original.duration)
+    expect(copy.duration).toBe(original.duration)
+    expect(copy.fadeIn).toBe(0.5)
+    expect(copy.fadeOut).toBe(1)
+    expect(copy.name).toBe('Callouts')
+    expect(copy.shapes).toEqual(original.shapes)
+    // A copy, not a shared reference: editing one never edits the other.
+    expect(copy.shapes[0]).not.toBe(original.shapes[0])
+  })
+
+  it('Duplicate refuses an unknown original or a taken id, as the other kinds do', () => {
+    const state = twoGroups()
+    expect(timelineReducer(state, { type: 'element-duplicated', kind: 'shape-group', id: 'nope', newId: 'x' })).toBe(state)
+    expect(timelineReducer(state, { type: 'element-duplicated', kind: 'shape-group', id: 'g1', newId: 'g2' })).toBe(state)
+  })
+
+  it('pasting one group\'s settings onto another changes its timing and fades and leaves its shapes', () => {
+    const state = twoGroups()
+    const [source, target] = shapeGroupsOf(state)
+    const copied = copyElementSettings('shape-group', source)!
+    const next = timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g2', settings: copied })
+    const pasted = shapeGroupsOf(next)[1]
+    expect(pasted).toMatchObject({ id: 'g2', offset: 2, duration: 4, fadeIn: 0.5, fadeOut: 1 })
+    expect(pasted.shapes).toBe(target.shapes)
+    // The source is untouched, and the paste is one edit.
+    expect(shapeGroupsOf(next)[0]).toBe(source)
+  })
+
+  it('pasting an unfaded group\'s settings clears the target\'s fades, the identity rule', () => {
+    const state = twoGroups()
+    const copied = copyElementSettings('shape-group', shapeGroupsOf(state)[1])!
+    const next = timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g1', settings: copied })
+    const pasted = shapeGroupsOf(next)[0]
+    expect(pasted).not.toHaveProperty('fadeIn')
+    expect(pasted).not.toHaveProperty('fadeOut')
+    expect(pasted).toMatchObject({ offset: 10, duration: 3 })
+  })
+
+  it('a paste equal to the target is not an edit, and an invalid one is refused whole', () => {
+    const state = twoGroups()
+    const [source] = shapeGroupsOf(state)
+    const own = copyElementSettings('shape-group', source)!
+    expect(timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g1', settings: own })).toBe(state)
+    const bad = { 'shape-timing': { offset: 0, duration: 0, fadeIn: 0, fadeOut: 0 } }
+    expect(timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g2', settings: bad })).toBe(state)
+  })
+
+  it('a video clip\'s settings onto a shape group, and a group\'s onto the clip, change nothing (#332 class)', () => {
+    const state: TimelineState = { ...twoGroups(), entries: [clip] }
+    const fromClip = copyElementSettings('entry', clip)!
+    const ontoGroup = timelineReducer(state, {
+      type: 'settings-pasted',
+      kind: 'shape-group',
+      id: 'g1',
+      settings: fromClip,
+    })
+    expect(ontoGroup).toBe(state)
+    const fromGroup = copyElementSettings('shape-group', shapeGroupsOf(state)[0])!
+    const ontoClip = timelineReducer(state, { type: 'settings-pasted', kind: 'entry', id: 'e1', settings: fromGroup })
+    expect(ontoClip).toBe(state)
+    expect(ontoClip.entries[0]).toMatchObject({ volume: 0.4, fadeIn: 1, fadeOut: 2 })
+  })
+
+  it('Rename sets a trimmed name; an empty one clears it back to the derived name', () => {
+    const state = twoGroups()
+    const named = timelineReducer(state, { type: 'element-renamed', id: 'g2', name: '  Box  ' })
+    expect(shapeGroupsOf(named)[1].name).toBe('Box')
+    expect(shapeGroupName(shapeGroupsOf(named)[1])).toBe('Box')
+    // The same name again is not an edit.
+    expect(timelineReducer(named, { type: 'element-renamed', id: 'g2', name: 'Box' })).toBe(named)
+    const cleared = timelineReducer(named, { type: 'element-renamed', id: 'g2', name: '   ' })
+    expect(shapeGroupsOf(cleared)[1]).not.toHaveProperty('name')
+    expect(shapeGroupName(shapeGroupsOf(cleared)[1])).toBe('Rectangle')
+    // Clearing a name the group never had is not an edit either.
+    expect(timelineReducer(state, { type: 'element-renamed', id: 'g2', name: '' })).toBe(state)
+  })
+
+  it('a field edit keeps the name, and validity refuses an untrimmed or empty one', () => {
+    const named = timelineReducer(twoGroups(), { type: 'element-renamed', id: 'g1', name: 'Callouts' })
+    const { id: _id, ...spec } = shapeGroupsOf(named)[0]
+    const moved = timelineReducer(named, { type: 'shape-group-updated', id: 'g1', group: { ...spec, offset: 3 } })
+    expect(shapeGroupsOf(moved)[0]).toMatchObject({ offset: 3, name: 'Callouts' })
+    expect(isValidShapeGroupSpec({ ...spec, name: '' })).toBe(false)
+    expect(isValidShapeGroupSpec({ ...spec, name: ' x' })).toBe(false)
+    expect(isValidShapeGroupSpec({ ...spec, name: 'x' })).toBe(true)
   })
 })
 

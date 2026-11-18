@@ -97,7 +97,7 @@ import {
   pickStyle,
   SHAPE_KIND_LABELS,
   SHAPE_KINDS,
-  shapeGroupLabel,
+  shapeGroupName,
   shorterSideFraction,
   shorterSidePixels,
 } from '../lib/shapes'
@@ -162,10 +162,11 @@ interface TimelineProps {
    * semantics. Optional so tests that predate it keep compiling; the
    * Duplicate controls render only when the app supplies it.
    */
-  onDuplicate?: (kind: 'entry' | 'audio-track' | 'video-overlay' | 'text', id: string) => void
+  onDuplicate?: (kind: SettingsElementKind, id: string) => void
   /**
-   * Renames a sequence entry, slate, audio track or overlay (#405) — the
-   * reducer's `element-renamed`, one undo step. Optional so tests that
+   * Renames a sequence entry, slate, audio track, overlay (#405) or shape
+   * group (#687) — the reducer's `element-renamed`, one undo step. For a
+   * shape group an empty name clears its own name. Optional so tests that
    * predate it keep compiling; without it no rename control is offered.
    */
   onRenameElement?: (id: string, name: string) => void
@@ -2337,11 +2338,18 @@ export function Timeline({
   // one at a time, since the field takes the name's place in its row. View
   // state only; the committed name is the reducer's.
   const [renaming, setRenaming] = useState<string | null>(null)
-  const nameCell = (id: string, name: string, position: string) =>
+  const nameCell = (
+    id: string,
+    name: string,
+    position: string,
+    /** A shape group's own name can be cleared, back to the derived one (#687). */
+    clearable = false,
+  ) =>
     renaming === id ? (
       <NameField
         label={`New name for ${position}`}
         value={name}
+        allowEmpty={clearable}
         onCommit={(next) => {
           setRenaming(null)
           if (next !== name) onRenameElement?.(id, next)
@@ -3901,20 +3909,9 @@ export function Timeline({
                   </div>
                   <div className="shape-group-main">
                     {collapseToggle(group.id, position)}
-                    <span className="clip-name" title={shapeGroupLabel(group)}>
-                      {shapeGroupLabel(group)}
-                    </span>
+                    {nameCell(group.id, shapeGroupName(group), position, true)}
                     <span className="timeline-row-actions">
-                      <Menu
-                        label="⋯"
-                        caret={false}
-                        ariaLabel={`More actions for ${position}`}
-                        menuLabel={`More actions for ${position}`}
-                        className="timeline-row-more"
-                        items={[
-                          { kind: 'action', label: 'Remove', onSelect: () => setPendingRemoval(removal) },
-                        ]}
-                      />
+                      {rowActionsMenu('shape-group', group, position, { removal })}
                       <button
                         type="button"
                         aria-label={`Remove ${position} from timeline`}

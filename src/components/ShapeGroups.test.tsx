@@ -71,6 +71,92 @@ describe('Arrows in shape groups (#684)', () => {
   })
 })
 
+describe('Shape-group row actions (#687)', () => {
+  const field = (label: string, index = 1) =>
+    screen.getByRole('spinbutton', { name: `${label} of ${group(index)} in seconds` })
+  const setField = async (label: string, value: string, index = 1) => {
+    await userEvent.clear(field(label, index))
+    await userEvent.type(field(label, index), value)
+    await userEvent.tab()
+  }
+  const rowAction = async (index: number, item: string) => {
+    await userEvent.click(screen.getByRole('button', { name: `More actions for ${group(index)}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: item }))
+  }
+  const names = () =>
+    within(screen.getByRole('list', { name: 'Shape groups' }))
+      .getAllByText(/./, { selector: '.clip-name' })
+      .map((each) => each.textContent)
+
+  it('Duplicate adds a copy starting at the original end, with equal shapes and fades, as one undo step', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Rectangle' }))
+    await setField('Fade-in', '0.5')
+    const start = Number((field('Start time') as HTMLInputElement).value)
+    const duration = Number((field('Duration') as HTMLInputElement).value)
+
+    await rowAction(1, 'Duplicate')
+    expect(field('Start time', 2)).toHaveValue(start + duration)
+    expect(field('Duration', 2)).toHaveValue(duration)
+    expect(field('Fade-in', 2)).toHaveValue(0.5)
+    expect(screen.getByRole('listitem', { name: shape('Ellipse', 1, 2) })).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: shape('Rectangle', 2, 2) })).toBeInTheDocument()
+    expect(names()).toEqual(['Ellipse + Rectangle', 'Ellipse + Rectangle'])
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('spinbutton', { name: `Start time of ${group(2)} in seconds` })).toBeNull()
+  })
+
+  it('Paste settings carries timing and fades onto another group and leaves its shapes', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await rowAction(1, 'Duplicate')
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group(2)}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    await setField('Duration', '5', 2)
+    await setField('Fade-out', '1', 2)
+    const start2 = Number((field('Start time', 2) as HTMLInputElement).value)
+
+    await rowAction(2, 'Copy settings')
+    await rowAction(1, 'Paste settings')
+    const dialog = screen.getByRole('dialog', { name: `Paste settings onto ${group(1)}?` })
+    expect(within(dialog).getByRole('checkbox', { name: 'Timing and fades' })).toBeChecked()
+    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(1)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
+
+    expect(field('Start time', 1)).toHaveValue(start2)
+    expect(field('Duration', 1)).toHaveValue(5)
+    expect(field('Fade-out', 1)).toHaveValue(1)
+    // Its shapes are its own: one ellipse, not the source's ellipse + arrow.
+    expect(names()[0]).toBe('Ellipse')
+    expect(screen.queryByRole('listitem', { name: shape('Arrow', 2, 1) })).toBeNull()
+  })
+
+  it('Rename… sets the group name, and emptying it returns to the name from its shapes', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    expect(names()).toEqual(['Ellipse'])
+
+    await rowAction(1, 'Rename…')
+    const input = screen.getByRole('textbox', { name: `New name for ${group()}` })
+    expect(input).toHaveValue('Ellipse')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Callouts{Enter}')
+    expect(names()).toEqual(['Callouts'])
+    // A custom name stays put while the shapes change.
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    expect(names()).toEqual(['Callouts'])
+
+    await rowAction(1, 'Rename…')
+    await userEvent.clear(screen.getByRole('textbox', { name: `New name for ${group()}` }))
+    await userEvent.keyboard('{Enter}')
+    expect(names()).toEqual(['Ellipse + Arrow'])
+  })
+})
+
 describe('Shapes section (#683)', () => {
   it('Add ▾ › Shape group adds one red, transparent-centred ellipse at the playhead for 3 s', async () => {
     render(<App />)

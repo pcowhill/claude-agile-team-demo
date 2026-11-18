@@ -12,6 +12,8 @@ import { slateEntry } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import type { TextOverlay } from './textOverlay'
 import { DEFAULT_TEXT } from './textOverlay'
+import type { ShapeGroup } from './shapes'
+import { defaultShape } from './shapes'
 
 const videoEntry = (overrides: Partial<TimelineEntry> = {}): TimelineEntry => ({
   id: 'e1',
@@ -238,6 +240,7 @@ describe('filterSettings (#315)', () => {
       'redaction',
       'audio',
       'text-style',
+      'shape-timing',
     ])
   })
 })
@@ -278,6 +281,45 @@ describe('the spotlight group (#532)', () => {
       spotlight: { spotlights: [spotlight] },
     })
     expect(filterSettings(copied, ['crop'])).not.toHaveProperty('spotlight')
+  })
+})
+
+describe('shape groups hold one group, Timing and fades (#687)', () => {
+  const shapeGroup = (overrides: Partial<ShapeGroup> = {}): ShapeGroup => ({
+    id: 'g1',
+    offset: 2,
+    duration: 4,
+    fadeIn: 0.5,
+    shapes: [defaultShape('s1', 'ellipse')],
+    ...overrides,
+  })
+
+  it('holds shape-timing and nothing else, and copies its window and effective fades', () => {
+    expect(heldSettingsGroups('shape-group', shapeGroup())).toEqual(['shape-timing'])
+    expect(copyElementSettings('shape-group', shapeGroup())).toEqual({
+      'shape-timing': { offset: 2, duration: 4, fadeIn: 0.5, fadeOut: 0 },
+    })
+  })
+
+  it('no other kind holds it, so a paste between a shape group and any other row offers nothing', () => {
+    const fromGroup = copyElementSettings('shape-group', shapeGroup())!
+    expect(compatibleSettingsGroups(fromGroup, 'entry', videoEntry())).toEqual([])
+    expect(compatibleSettingsGroups(fromGroup, 'audio-track', track())).toEqual([])
+    expect(compatibleSettingsGroups(fromGroup, 'video-overlay', overlay())).toEqual([])
+    expect(compatibleSettingsGroups(fromGroup, 'text', text())).toEqual([])
+    for (const [kind, element] of [
+      ['entry', videoEntry()],
+      ['audio-track', track()],
+      ['video-overlay', overlay()],
+      ['text', text()],
+    ] as const) {
+      const copied = copyElementSettings(kind, element)!
+      expect(compatibleSettingsGroups(copied, 'shape-group', shapeGroup())).toEqual([])
+    }
+    // Between two shape groups it is offered, and the checklist keeps it.
+    expect(compatibleSettingsGroups(fromGroup, 'shape-group', shapeGroup({ id: 'g2' }))).toEqual(['shape-timing'])
+    expect(filterSettings(fromGroup, ['shape-timing'])).toEqual(fromGroup)
+    expect(filterSettings(fromGroup, [])).toEqual({})
   })
 })
 

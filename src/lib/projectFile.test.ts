@@ -4386,6 +4386,25 @@ describe('shape groups in project files (#683, schema version 23)', () => {
     expect(result.project.timeline.shapeGroups).toEqual(shapeGroups)
   })
 
+  it('round-trips a renamed group\'s name, as an additive key with no version bump (#687)', async () => {
+    const named: ShapeGroup[] = [{ ...shapeGroups[0], name: 'Callouts' }]
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: named })
+    const document = await gunzipJson(bytes)
+    // A build without names ignores the key and shows the derived name, so
+    // the file stays at the version the shapes themselves need.
+    expect(document.schemaVersion).toBe(SHAPE_GROUPS_SCHEMA_VERSION)
+    const written = (document.timeline as { shapeGroups: Record<string, unknown>[] }).shapeGroups[0]
+    expect(written.name).toBe('Callouts')
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(named)
+    // An unnamed group writes no key at all, so its file is unchanged.
+    const unnamed = await gunzipJson(await serializeProject(library, { ...timeline, shapeGroups }))
+    const unnamedGroup = (unnamed.timeline as { shapeGroups: Record<string, unknown>[] }).shapeGroups[0]
+    expect(unnamedGroup).not.toHaveProperty('name')
+  })
+
   it('writes no key and no version bump for a project without shape groups', async () => {
     const without = await serializeProject(library, timeline)
     const explicitlyEmpty = await serializeProject(library, { ...timeline, shapeGroups: [] })

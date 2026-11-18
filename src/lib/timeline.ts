@@ -646,10 +646,11 @@ export type TimelineAction =
        * copied — they belong to a boundary, not an entry — and inserting the
        * copy separates the original from its next entry, so normalization
        * drops any transition on that boundary, exactly as the existing
-       * insert paths behave.
+       * insert paths behave. A shape group's copy (#687) starts where the
+       * original ends, and sits immediately after it in the group list.
        */
       type: 'element-duplicated'
-      kind: 'entry' | 'audio-track' | 'video-overlay' | 'text'
+      kind: 'entry' | 'audio-track' | 'video-overlay' | 'text' | 'shape-group'
       id: string
       /** The copy's id, supplied by the caller like every element id. */
       newId: string
@@ -681,7 +682,8 @@ export type TimelineAction =
   | {
       /**
        * Rename one timeline element (#405): a sequence entry (slates
-       * included), an audio track, or a video/image overlay, by id — one
+       * included), an audio track, a video/image overlay, or a shape group
+       * (#687), by id — one
        * action across the kinds, since each kind's list is searched for the
        * id. Text overlays are identified by their content and are not
        * renamed here. The name is whitespace-trimmed; an empty result, an
@@ -690,6 +692,11 @@ export type TimelineAction =
        * library clip the element came from — each carries its own name,
        * copied at placement — and derived rows (splits, duplicates, freezes)
        * copy whatever name the source carries at that moment.
+       *
+       * A shape group differs in one way: its row shows a name derived from
+       * its shapes until it is given one, so an empty name *clears* its own
+       * name and returns it to the derived one (#687), rather than being
+       * ignored.
        */
       type: 'element-renamed'
       id: string
@@ -1648,6 +1655,16 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     const { markers: _replaced, ...rest } = state
     return markers.length === 0 ? rest : { ...rest, markers }
   }
+  // Duplicate, Paste settings and Rename… on a shape group (#687) act on
+  // the project-level list, so they are answered here, as its own actions
+  // are just below. Every other kind goes on to the collections.
+  const shapeGroupEdit = reduceShapeGroupRowAction(state, action)
+  if (shapeGroupEdit !== undefined) {
+    const current = shapeGroupsOf(state)
+    if (shapeGroupEdit === current) return state
+    const { shapeGroups: _replaced, ...rest } = state
+    return { ...rest, shapeGroups: shapeGroupEdit }
+  }
   if (
     action.type === 'shape-group-added' ||
     action.type === 'shape-group-updated' ||
@@ -1664,6 +1681,81 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
   const next = reduceTimelineCollections(state, action)
   if (next === state || action.type === 'timeline-replaced') return next
   return withProjectFields(next, state)
+}
+
+/**
+ * The row actions every timeline row shares, on a shape group (#687):
+ * Duplicate, Paste settings and Rename…. Returns the new list (the same
+ * reference when nothing changes), or `undefined` when the action is not
+ * one of these aimed at a shape group, so the caller passes it on.
+ *
+ * - **Duplicate** copies every field, shapes included (their ids are scoped
+ *   to the group, so the copy keeps them), under the caller's new id. The
+ *   copy starts where the original ends and sits right after it in the list.
+ * - **Paste settings** applies only the `shape-timing` group: window and
+ *   fades, validated and clamped exactly as the row's own fields are. Any
+ *   other group is skipped; there is nothing else a shape group holds.
+ * - **Rename** trims the name; an empty one clears it, back to the name
+ *   derived from the shapes.
+ */
+function reduceShapeGroupRowAction(
+  state: TimelineState,
+  action: TimelineAction,
+): ShapeGroup[] | undefined {
+  const groups = shapeGroupsOf(state)
+  switch (action.type) {
+    case 'element-duplicated': {
+      if (action.kind !== 'shape-group') return undefined
+      const index = groups.findIndex((group) => group.id === action.id)
+      if (index === -1) return groups
+      if (typeof action.newId !== 'string' || action.newId === '') return groups
+      if (groups.some((group) => group.id === action.newId)) return groups
+      const original = groups[index]
+      const copy: ShapeGroup = {
+        ...original,
+        id: action.newId,
+        offset: original.offset + original.duration,
+        shapes: original.shapes.map((shape) => ({ ...shape })),
+      }
+      return [...groups.slice(0, index + 1), copy, ...groups.slice(index + 1)]
+    }
+    case 'settings-pasted': {
+      if (action.kind !== 'shape-group') return undefined
+      const index = groups.findIndex((group) => group.id === action.id)
+      if (index === -1) return groups
+      const timing = action.settings['shape-timing']
+      if (timing === undefined) return groups
+      const original = groups[index]
+      const { fadeIn: _in, fadeOut: _out, ...rest } = original
+      const candidate: ShapeGroup = {
+        ...rest,
+        offset: timing.offset,
+        duration: timing.duration,
+        ...(timing.fadeIn > 0 ? { fadeIn: timing.fadeIn } : {}),
+        ...(timing.fadeOut > 0 ? { fadeOut: timing.fadeOut } : {}),
+      }
+      // Invalid input refuses the whole paste, the `settings-pasted` rule.
+      if (!isValidShapeGroupSpec(candidate)) return groups
+      const clamped = clampShapeGroup(candidate)
+      if (shapeGroupsEqual(original, clamped)) return groups
+      const next = [...groups]
+      next[index] = clamped
+      return next
+    }
+    case 'element-renamed': {
+      const index = groups.findIndex((group) => group.id === action.id)
+      if (index === -1) return undefined
+      const original = groups[index]
+      const name = typeof action.name === 'string' ? action.name.trim() : ''
+      if ((original.name ?? '') === name) return groups
+      const { name: _old, ...rest } = original
+      const next = [...groups]
+      next[index] = name === '' ? rest : { ...rest, name }
+      return next
+    }
+    default:
+      return undefined
+  }
 }
 
 function reduceShapeGroups(

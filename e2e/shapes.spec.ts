@@ -459,5 +459,20 @@ for (const width of [1280, 360]) {
     if (width === 1280) {
       await row.screenshot({ path: testInfo.outputPath(`shape-group-row-${width}.png`) })
     }
+
+    // A name of the user's own (#687) can be any length; the row's main line
+    // ellipsizes it rather than pushing ⋯ and ✕ out of the row.
+    await page.getByRole('button', { name: `More actions for ${group()}` }).click()
+    await page.getByRole('menuitem', { name: 'Rename…' }).click()
+    const input = page.getByRole('textbox', { name: `New name for ${group()}` })
+    await input.fill('Arrows and boxes pointing at the export settings in the second half of the demo')
+    await input.press('Enter')
+    const name = row.locator('.shape-group-main .clip-name')
+    await expect(name).toHaveText(/^Arrows and boxes/)
+    await expectWithin(name, row, { axis: 'x', what: 'the renamed group name' })
+    for (const control of [`More actions for ${group()}`, `Remove ${group()} from timeline`]) {
+      await expectWithin(page.getByRole('button', { name: control }), row, { axis: 'x', what: control })
+    }
+    await expectNoHorizontalScroll(page, 'with a long shape group name')
   })
 }

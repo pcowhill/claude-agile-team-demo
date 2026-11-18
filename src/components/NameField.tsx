@@ -6,6 +6,11 @@ interface NameFieldProps {
   value: string
   onCommit: (value: string) => void
   onCancel: () => void
+  /**
+   * Commit an emptied field as `''` instead of cancelling, for a name that
+   * can be cleared back to a derived one: a shape group's (#687).
+   */
+  allowEmpty?: boolean
 }
 
 /**
@@ -15,9 +20,10 @@ interface NameFieldProps {
  * an Enter that unmounts it cannot commit again through the blur that
  * follows. Escape cancels; an empty or whitespace-only name is a cancel
  * too, so the row keeps its name rather than round-tripping a rejection
- * through the reducer.
+ * through the reducer — unless `allowEmpty`, where emptying the field is
+ * how a name is cleared.
  */
-export function NameField({ label, value, onCommit, onCancel }: NameFieldProps) {
+export function NameField({ label, value, onCommit, onCancel, allowEmpty = false }: NameFieldProps) {
   const [draft, setDraft] = useState(value)
   const settled = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -31,7 +37,7 @@ export function NameField({ label, value, onCommit, onCancel }: NameFieldProps) 
     if (settled.current) return
     settled.current = true
     const trimmed = draft.trim()
-    if (commit && trimmed !== '') onCommit(trimmed)
+    if (commit && (trimmed !== '' || allowEmpty)) onCommit(trimmed)
     else onCancel()
   }
 
