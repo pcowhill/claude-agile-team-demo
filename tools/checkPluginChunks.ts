@@ -1,13 +1,13 @@
 /**
  * Bundle discipline for lazily loaded code (#197, ADR 0003; #478; #571):
- * plugin code, the user guide and the six visual editors must stay out of
+ * plugin code, the user guide and the visual editors must stay out of
  * the default bundle. The approved plugin architecture ships plugins as lazy
  * chunks that download only when a plugin is enabled — a plugin module that
  * gets statically imported into the entry bundle silently defeats the whole
  * point (the customer's "keep the default editor lightweight" criterion).
  * The user guide (#478) follows the same discipline: its compiled content,
  * search and renderer download the first time the panel opens. So do the
- * six visual editors (#537, #565): each is an `import()` edge from
+ * visual editors (#537, #565): each is an `import()` edge from
  * `src/components/visualEditors.tsx`, and a static import re-added anywhere
  * on the entry path would merge it back in with only Vite's chunk-size
  * warning — which does not fail the build — as the signal (#571). This
@@ -20,7 +20,7 @@
  * - The area's modules match a path pattern — `src/plugins/<plugin-dir>/…`
  *   (top-level files in `src/plugins/`, the catalog and the runtime
  *   singleton, are entry wiring and exempt), `src/guide/…`, or exactly the
- *   six `src/components/<Name>Editor.tsx` modules — and are loaded only via
+ *   `src/components/<Name>Editor.tsx` modules — and are loaded only via
  *   dynamic `import()`.
  * - Every such module the manifest knows must be emitted as its own chunk,
  *   NOT reachable from any entry chunk through static imports.
@@ -90,8 +90,8 @@ export interface LazyModuleRule {
  */
 const PLUGIN_CHUNKS = ['src/plugins/gif/index.ts', 'src/plugins/shapedWipes/index.ts']
 
-/** The six visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565). */
-const VISUAL_EDITORS = ['Crop', 'Overlay', 'Redaction', 'Spotlight', 'Text', 'Zoom'].map(
+/** The seven visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565, #685). */
+const VISUAL_EDITORS = ['Crop', 'Overlay', 'Redaction', 'Shape', 'Spotlight', 'Text', 'Zoom'].map(
   (name) => `src/components/${name}Editor.tsx`,
 )
 
@@ -110,12 +110,12 @@ export const LAZY_MODULE_RULES: readonly LazyModuleRule[] = [
   },
   {
     label: 'visual editors',
-    // Exactly the six editors (#537, #565). Their shared `FrameEditor.tsx`
+    // Exactly the seven editors (#537, #565, #685). Their shared `FrameEditor.tsx`
     // is not named: Rollup emits it as an unnamed `_FrameEditor-*` chunk
-    // with no `src`, reached only from the six, so holding the six out of
+    // with no `src`, reached only from the seven, so holding them out of
     // the entry holds it out too. The rest of `src/components/` is entry
     // code and must not match.
-    pattern: /^src\/components\/(Crop|Overlay|Redaction|Spotlight|Text|Zoom)Editor\.tsx$/,
+    pattern: /^src\/components\/(Crop|Overlay|Redaction|Shape|Spotlight|Text|Zoom)Editor\.tsx$/,
     loadedBy: "visualEditors.tsx's import() (src/components/visualEditors.tsx)",
     expected: VISUAL_EDITORS,
   },

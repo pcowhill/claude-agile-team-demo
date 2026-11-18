@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { LAZY_MODULE_RULES, entryStaticClosure, findLazyChunkProblems } from './checkPluginChunks.ts'
 import type { Manifest } from './checkPluginChunks.ts'
 
-const EDITORS = ['Crop', 'Overlay', 'Redaction', 'Spotlight', 'Text', 'Zoom']
+const EDITORS = ['Crop', 'Overlay', 'Redaction', 'Shape', 'Spotlight', 'Text', 'Zoom']
 
 /** A healthy build: the entry statically pulls shared code; the two plugin
- * modules, the user guide and the six visual editors are their own chunks,
+ * modules, the user guide and the visual editors are their own chunks,
  * reached only through a dynamic import. The editors pull the unnamed chunk
  * Rollup makes of their shared `FrameEditor.tsx` (#571). Both plugins are
  * listed because the real build emits both, and the plugin rule now names
@@ -142,7 +142,7 @@ describe('findLazyChunkProblems (#197)', () => {
   })
 })
 
-describe('findLazyChunkProblems: the six visual editors (#571)', () => {
+describe('findLazyChunkProblems: the visual editors (#571)', () => {
   it('fails when an editor is statically reachable from the entry', () => {
     const manifest = healthyManifest()
     // The accident this rule exists for: `import { CropEditor } from
@@ -166,7 +166,7 @@ describe('findLazyChunkProblems: the six visual editors (#571)', () => {
     // entry bundle" and exited 0. The `expected` set is what fails it.
     delete manifest['src/components/CropEditor.tsx']
     const { lazyKeys, problems } = findLazyChunkProblems(manifest)
-    expect(lazyKeys['visual editors']).toHaveLength(5)
+    expect(lazyKeys['visual editors']).toHaveLength(EDITORS.length - 1)
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('visual editors module "src/components/CropEditor.tsx"')
     expect(problems[0]).toContain('not emitted as its own chunk')
@@ -183,10 +183,10 @@ describe('findLazyChunkProblems: the six visual editors (#571)', () => {
     for (const key of EDITOR_KEYS) expect(problems.join('\n')).toContain(`"${key}"`)
   })
 
-  it('matches exactly the six editors, not the rest of src/components/', () => {
+  it('matches exactly the editors, not the rest of src/components/', () => {
     const manifest = healthyManifest()
     // Timeline.tsx is entry code and imports the loader; FrameEditor.tsx
-    // ships as an unnamed chunk the six pull in. Neither is an editor, and
+    // ships as an unnamed chunk the editors pull in. Neither is an editor, and
     // a manifest with the first in the entry closure is healthy.
     manifest['src/components/Timeline.tsx'] = {
       file: 'assets/Timeline-stu.js',

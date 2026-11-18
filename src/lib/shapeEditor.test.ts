@@ -1,0 +1,248 @@
+import { describe, expect, it } from 'vitest'
+import {
+  ARROW_SNAP_DEGREES,
+  arrowAfterEndDrag,
+  arrowAngle,
+  arrowBounds,
+  boxAfterGesture,
+  drawnArrow,
+  drawnBox,
+  movedArrow,
+  pointGuides,
+  shapeAfterKeyStep,
+  snappedAngle,
+  snappedPoint,
+  squareError,
+  withShape,
+} from './shapeEditor'
+import { defaultShape, isValidShape } from './shapes'
+import type { ArrowShape, BoxShape } from './shapes'
+
+const WIDE = 16 / 9
+
+const rect = (overrides: Partial<BoxShape> = {}): BoxShape => ({
+  ...defaultShape('r', 'rectangle'),
+  x: 0.2,
+  y: 0.2,
+  width: 0.3,
+  height: 0.2,
+  ...overrides,
+})
+
+const arrow = (overrides: Partial<ArrowShape> = {}): ArrowShape => ({
+  ...defaultShape('a', 'arrow'),
+  tailX: 0.2,
+  tailY: 0.4,
+  tipX: 0.6,
+  tipY: 0.4,
+  ...overrides,
+})
+
+describe('drawing a box (#685)', () => {
+  it('draws corner to corner in either direction, rounded to hundredths', () => {
+    expect(drawnBox({ x: 0.21, y: 0.11 }, { x: 0.452, y: 0.268 }, { altKey: true }, WIDE)).toEqual({
+      x: 0.21,
+      y: 0.11,
+      width: 0.24,
+      height: 0.16,
+    })
+    // Dragged up and to the left: the same box.
+    expect(drawnBox({ x: 0.452, y: 0.268 }, { x: 0.21, y: 0.11 }, { altKey: true }, WIDE)).toEqual({
+      x: 0.21,
+      y: 0.11,
+      width: 0.24,
+      height: 0.16,
+    })
+  })
+
+  it('draws nothing for a press that barely moves', () => {
+    expect(drawnBox({ x: 0.4, y: 0.4 }, { x: 0.405, y: 0.403 }, {}, WIDE)).toBeNull()
+  })
+
+  it('snaps both corners to the guides, unless Alt is held', () => {
+    // 0.49 → the centre line, 0.68 → the right third, 0.01 → the top edge.
+    expect(drawnBox({ x: 0.49, y: 0.01 }, { x: 0.68, y: 0.3 }, {}, WIDE)).toEqual({
+      x: 0.5,
+      y: 0,
+      width: 0.17,
+      height: 0.3,
+    })
+    expect(drawnBox({ x: 0.49, y: 0.01 }, { x: 0.68, y: 0.3 }, { altKey: true }, WIDE)).toEqual({
+      x: 0.49,
+      y: 0.01,
+      width: 0.19,
+      height: 0.29,
+    })
+  })
+
+  it('with Shift, is square in output pixels on a 16:9 frame, to within the stored precision', () => {
+    for (const [end, frame] of [
+      [{ x: 0.5, y: 0.3 }, { width: 1920, height: 1080 }],
+      [{ x: 0.33, y: 0.71 }, { width: 640, height: 360 }],
+      [{ x: 0.12, y: 0.15 }, { width: 1280, height: 720 }],
+    ] as const) {
+      const box = drawnBox({ x: 0.25, y: 0.25 }, end, { shiftKey: true, altKey: true }, frame.width / frame.height)
+      expect(box).not.toBeNull()
+      const widthPx = box!.width * frame.width
+      const heightPx = box!.height * frame.height
+      expect(Math.abs(widthPx - heightPx)).toBeLessThanOrEqual(squareError(frame.width) + 1e-9)
+    }
+  })
+
+  it('with Shift, a square that would leave the frame shrinks to fit rather than distorting', () => {
+    const box = drawnBox({ x: 0.9, y: 0.5 }, { x: 1, y: 0.95 }, { shiftKey: true }, WIDE)!
+    expect(box.x + box.width).toBeLessThanOrEqual(1)
+    expect(box.y + box.height).toBeLessThanOrEqual(1)
+    // Room to the right is 0.1 of the width = 0.1778 of the height.
+    expect(box.height).toBeCloseTo(0.18, 2)
+    expect(Math.abs(box.width * 1920 - box.height * 1080)).toBeLessThanOrEqual(squareError(1920))
+  })
+
+  it('pins the square tolerance: half a hundredth of the frame width', () => {
+    expect(squareError(1920)).toBeCloseTo(9.6, 6)
+    expect(squareError(640)).toBeCloseTo(3.2, 6)
+  })
+})
+
+describe('drawing an arrow (#685)', () => {
+  it('draws tail to tip, and nothing for a press that barely moves', () => {
+    expect(drawnArrow({ x: 0.2, y: 0.2 }, { x: 0.7, y: 0.55 }, { altKey: true }, WIDE)).toEqual({
+      tailX: 0.2,
+      tailY: 0.2,
+      tipX: 0.7,
+      tipY: 0.55,
+    })
+    expect(drawnArrow({ x: 0.2, y: 0.2 }, { x: 0.205, y: 0.2 }, {}, WIDE)).toBeNull()
+  })
+
+  it('with Shift, snaps to 15° steps measured in output pixels', () => {
+    // A drag 20° off horizontal on screen snaps to 15°.
+    const tail = { x: 0.1, y: 0.5 }
+    const angle = (20 * Math.PI) / 180
+    const end = { x: tail.x + (Math.cos(angle) * 0.4) / WIDE, y: tail.y + Math.sin(angle) * 0.4 }
+    const drawn = drawnArrow(tail, end, { shiftKey: true }, WIDE)!
+    const got = arrowAngle({ x: drawn.tailX, y: drawn.tailY }, { x: drawn.tipX, y: drawn.tipY }, WIDE)
+    // Exact before rounding; the stored hundredths leave it within a degree.
+    expect(Math.abs(got - ARROW_SNAP_DEGREES)).toBeLessThan(1)
+    const exact = snappedAngle(tail, end, WIDE)
+    expect(arrowAngle(tail, exact, WIDE)).toBeCloseTo(15, 9)
+  })
+
+  it('every 15° step lands within a degree once stored, for an arrow a tenth of the frame long or more', () => {
+    const tail = { x: 0.5, y: 0.5 }
+    for (let degrees = -180; degrees < 180; degrees += 15) {
+      for (const length of [0.1, 0.12, 0.3, 0.45]) {
+        const rad = ((degrees + 4) * Math.PI) / 180
+        const end = { x: tail.x + (Math.cos(rad) * length) / WIDE, y: tail.y + Math.sin(rad) * length }
+        const drawn = drawnArrow(tail, end, { shiftKey: true }, WIDE)!
+        let off = Math.abs(arrowAngle(tail, { x: drawn.tipX, y: drawn.tipY }, WIDE) - degrees)
+        if (off > 180) off = 360 - off
+        // The hundredths grid itself is the limit: at 0.12 of the height
+        // the nearest grid point to 15° is 15.66°. Horizontal and vertical
+        // are exact.
+        expect(off, `${degrees}° at length ${length}`).toBeLessThan(degrees % 90 === 0 ? 1e-9 : 1)
+      }
+    }
+  })
+
+  it('a 45° snap is diagonal in pixels, not in fractions', () => {
+    const tip = snappedAngle({ x: 0.2, y: 0.2 }, { x: 0.4, y: 0.52 }, WIDE)
+    expect((tip.x - 0.2) * 1920).toBeCloseTo((tip.y - 0.2) * 1080, 6)
+  })
+
+  it('a snapped direction that runs off the frame keeps its angle and shortens', () => {
+    const tip = snappedAngle({ x: 0.9, y: 0.5 }, { x: 1.4, y: 0.52 }, WIDE)
+    expect(tip.x).toBeCloseTo(1, 9)
+    expect(tip.y).toBeCloseTo(0.5, 9)
+  })
+})
+
+describe('editing shapes (#685)', () => {
+  it('a box moves, snaps its centre to the middle, and Alt bypasses the snap', () => {
+    // Centre 0.2 + 0.29 + 0.15 = 0.64 → no; move so the centre reaches 0.51.
+    const moved = boxAfterGesture(rect(), { kind: 'move', dx: 0.16, dy: 0 })
+    expect(moved.x + moved.width / 2).toBeCloseTo(0.5, 2)
+    const free = boxAfterGesture(rect(), { kind: 'move', dx: 0.16, dy: 0, altKey: true })
+    expect(free.x).toBe(0.36)
+  })
+
+  it('a corner handle moves its two edges and an edge handle only its own', () => {
+    const start = rect()
+    const corner = boxAfterGesture(start, { kind: 'corner', corner: 'se', x: 0.7, y: 0.6 })
+    expect(corner).toMatchObject({ x: 0.2, y: 0.2, width: 0.5, height: 0.4 })
+    const edge = boxAfterGesture(start, { kind: 'edge', edge: 'w', x: 0.1, y: 0.9 })
+    expect(edge).toMatchObject({ x: 0.1, y: 0.2, width: 0.4, height: 0.2 })
+  })
+
+  it('an arrow end handle moves only that end', () => {
+    const start = arrow()
+    const tip = arrowAfterEndDrag(start, 'tip', { x: 0.71, y: 0.8 }, { altKey: true }, WIDE)
+    expect(tip).toMatchObject({ tailX: 0.2, tailY: 0.4, tipX: 0.71, tipY: 0.8 })
+    const tail = arrowAfterEndDrag(start, 'tail', { x: 0.05, y: 0.15 }, { altKey: true }, WIDE)
+    expect(tail).toMatchObject({ tailX: 0.05, tailY: 0.15, tipX: 0.6, tipY: 0.4 })
+  })
+
+  it('an arrow end dragged onto the other end stays where it was', () => {
+    const start = arrow()
+    expect(arrowAfterEndDrag(start, 'tip', { x: 0.2, y: 0.4 }, { altKey: true }, WIDE)).toBe(start)
+  })
+
+  it('an end snaps to the guides unless Alt is held', () => {
+    const snapped = arrowAfterEndDrag(arrow(), 'tip', { x: 0.665, y: 0.51 }, {}, WIDE)
+    expect(snapped).toMatchObject({ tipX: 0.67, tipY: 0.5 })
+    expect(pointGuides({ x: snapped.tipX, y: snapped.tipY })).toEqual({ x: 2 / 3, y: 0.5 })
+    expect(snappedPoint({ x: 0.4, y: 0.4 })).toEqual({ x: 0.4, y: 0.4 })
+  })
+
+  it('a moved arrow keeps its length and angle, and stays on the frame', () => {
+    const start = arrow()
+    const moved = movedArrow(start, 0.9, -0.03, { altKey: true })
+    expect(moved.tipX).toBe(1)
+    expect(moved.tipX - moved.tailX).toBeCloseTo(start.tipX - start.tailX, 9)
+    expect(moved.tipY - moved.tailY).toBeCloseTo(start.tipY - start.tailY, 9)
+    expect(arrowBounds(moved).y).toBe(0.37)
+  })
+
+  it('a moved arrow snaps its span the way a box does', () => {
+    // A horizontal arrow at y 0.4 moved 0.09 down lands on the middle.
+    const moved = movedArrow(arrow(), 0, 0.09)
+    expect(moved.tailY).toBe(0.5)
+    expect(moved.tipY).toBe(0.5)
+  })
+
+  it('keys nudge either kind, and + / − resize a box and lengthen an arrow along itself', () => {
+    expect(shapeAfterKeyStep(rect(), { kind: 'move', dx: 0.01, dy: 0 }, WIDE)).toMatchObject({ x: 0.21 })
+    expect(shapeAfterKeyStep(rect(), { kind: 'scale', delta: 0.1 }, WIDE)).toMatchObject({ width: 0.32 })
+    expect(shapeAfterKeyStep(arrow(), { kind: 'move', dx: 0, dy: -0.05 }, WIDE)).toMatchObject({
+      tailY: 0.35,
+      tipY: 0.35,
+    })
+    const longer = shapeAfterKeyStep(arrow(), { kind: 'scale', delta: 0.1 }, WIDE) as ArrowShape
+    expect(longer.tipX - longer.tailX).toBeGreaterThan(0.4)
+    expect(longer.tailY).toBe(0.4)
+    expect(longer.tipY).toBe(0.4)
+    const shorter = shapeAfterKeyStep(arrow(), { kind: 'scale', delta: -0.1 }, WIDE) as ArrowShape
+    expect(shorter.tipX - shorter.tailX).toBeLessThan(0.4)
+  })
+
+  it('every shape the editor produces is one the model accepts', () => {
+    const produced = [
+      { ...rect(), ...drawnBox({ x: 0.99, y: 0.99 }, { x: 1.5, y: 1.5 }, { shiftKey: true }, WIDE) },
+      boxAfterGesture(rect(), { kind: 'corner', corner: 'nw', x: 0.9, y: 0.9 }),
+      movedArrow(arrow(), -5, 5),
+      arrowAfterEndDrag(arrow(), 'tip', { x: 3, y: -3 }, { shiftKey: true }, WIDE),
+      shapeAfterKeyStep(arrow({ tailX: 0, tipX: 1 }), { kind: 'scale', delta: 0.1 }, WIDE),
+    ]
+    for (const shape of produced) expect(isValidShape(shape), JSON.stringify(shape)).toBe(true)
+  })
+
+  it('withShape returns null for an edit that changes nothing, so it is not an undo step', () => {
+    const line = arrow()
+    const shapes = [rect(), line]
+    expect(withShape(shapes, { ...line })).toBeNull()
+    const next = withShape(shapes, { ...line, tipX: 0.7 })
+    expect(next).not.toBeNull()
+    expect(next![0]).toBe(shapes[0])
+    expect((next![1] as ArrowShape).tipX).toBe(0.7)
+  })
+})
