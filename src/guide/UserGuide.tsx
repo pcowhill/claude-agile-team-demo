@@ -15,7 +15,7 @@ import './UserGuide.css'
  * customer feedback #476): a panel docked beside the editor — not a modal,
  * so you can read what *Duck others* does while looking at the checkbox —
  * with a search field, a collapsible table of contents and the section
- * being read. Opened from Help ▾ → User guide…, F1, or a `#guide/…` URL.
+ * being read. Opened from Help ▾ → User Guide…, F1, or a `#guide/…` URL.
  *
  * Lazily loaded (`React.lazy` in App): this module, the search index and
  * the compiled guide are one chunk that downloads on first opening, so the
@@ -155,34 +155,39 @@ export default function UserGuide({ location, constants, onNavigate, onClose }: 
   return (
     <aside
       className="user-guide"
-      aria-label="User guide"
+      aria-label="User Guide"
       ref={panelRef}
       onKeyDown={onKeyDown}
       data-testid="user-guide"
     >
-      <div className="user-guide-bar">
-        <h2 className="user-guide-heading">User guide</h2>
-        <button type="button" className="user-guide-close" aria-label="Close the user guide" onClick={close}>
-          ✕
-        </button>
-      </div>
-      <div className="user-guide-search" role="search">
-        <input
-          ref={searchRef}
-          type="search"
-          className="user-guide-search-field"
-          aria-label="Search the user guide"
-          placeholder="Search the guide"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && hits.length > 0) {
-              event.preventDefault()
-              openHit(hits[0])
-            }
-          }}
-          aria-controls={searching ? resultsId : undefined}
-        />
+      {/* Title, ✕ and search stick together as one header (#666), so the
+          guide is always labelled and closable however far it is scrolled,
+          and the three cannot overlap or drift apart. */}
+      <div className="user-guide-header">
+        <div className="user-guide-bar">
+          <h2 className="user-guide-heading">User Guide</h2>
+          <button type="button" className="user-guide-close" aria-label="Close the user guide" onClick={close}>
+            ✕
+          </button>
+        </div>
+        <div className="user-guide-search" role="search">
+          <input
+            ref={searchRef}
+            type="search"
+            className="user-guide-search-field"
+            aria-label="Search the user guide"
+            placeholder="Search the guide"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && hits.length > 0) {
+                event.preventDefault()
+                openHit(hits[0])
+              }
+            }}
+            aria-controls={searching ? resultsId : undefined}
+          />
+        </div>
       </div>
       {searching ? (
         <div className="user-guide-results" id={resultsId}>

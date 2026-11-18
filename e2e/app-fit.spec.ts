@@ -41,7 +41,7 @@ type Page = import('@playwright/test').Page
  * on load, the header's wrap); each is followed by the populated one.
  */
 
-const guidePanel = (page: Page) => page.getByRole('complementary', { name: 'User guide' })
+const guidePanel = (page: Page) => page.getByRole('complementary', { name: 'User Guide' })
 const editorColumn = (page: Page) => page.getByRole('main')
 const timelinePanel = (page: Page) => page.getByRole('region', { name: 'Timeline' })
 const sequenceRows = (page: Page) =>
@@ -56,7 +56,7 @@ async function openGuide(page: Page) {
   await page.getByRole('button', { name: 'Help', exact: true }).click()
   await page
     .getByRole('menu', { name: 'Help menu' })
-    .getByRole('menuitem', { name: 'User guide…' })
+    .getByRole('menuitem', { name: 'User Guide…' })
     .click()
   await expect(guidePanel(page)).toBeVisible()
 }
