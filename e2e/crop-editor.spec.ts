@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -212,7 +213,7 @@ test('a drag commits the percent the fields read, Shift trims both edges, and on
   // there and the nudge is correctly a no-op, which is how this first read.
   await cropField(page, 'right').fill('15')
   await cropField(page, 'right').press('Enter')
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expectField(page, 'left').toBe(26)
   await expectField(page, 'right').toBe(14)
@@ -224,7 +225,7 @@ test('a drag commits the percent the fields read, Shift trims both edges, and on
   // undo step: the region above, panned right until it is flush.
   await cropField(page, 'right').fill('0')
   await cropField(page, 'right').press('Enter')
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expectField(page, 'left').toBe(25)
   await page.keyboard.press('Control+z')
@@ -314,6 +315,44 @@ test("an overlay is cropped on its own source, not inside its placement rectangl
     )
     .toBeCloseTo(20, -0.5)
   await editor.screenshot({ path: testInfo.outputPath('crop-editor-overlay.png') })
+})
+
+test('on an uncropped clip a click on the kept region gives it the keys: − shrinks it, and then the arrows move it (#662)', async ({
+  page,
+}) => {
+  const editor = await openEditor(page)
+  const region = editor.getByTestId('frame-editor-rect')
+  // Nothing is cropped, so the kept region is the whole frame: the case the
+  // customer met (#656). A click, as a person makes it — no `focus()`.
+  await clickRegion(page, region)
+  await expect
+    .poll(() => region.evaluate((node) => node === document.activeElement), {
+      message: 'the kept region holds focus after a click on it',
+    })
+    .toBe(true)
+
+  // An arrow first: flush on every side, it has nowhere to go and commits
+  // nothing — which is what the hint now says rather than promising a move.
+  await page.keyboard.press('ArrowRight')
+  // − trims every edge alike, so the region is now smaller than the frame…
+  await page.keyboard.press('-')
+  await expect.poll(async () => valueOf(cropField(page, 'left'))).toBeGreaterThan(0)
+  const left = await valueOf(cropField(page, 'left'))
+  const right = await valueOf(cropField(page, 'right'))
+  expect(right, 'both horizontal edges trimmed alike').toBeCloseTo(left, 1)
+
+  // …and an arrow then moves it, the two edges of the axis together.
+  await page.keyboard.press('ArrowRight')
+  await expectField(page, 'left').toBeCloseTo(left + 1, 1)
+  await expectField(page, 'right').toBeCloseTo(right - 1, 1)
+
+  // Two undos return to the uncropped clip: the early arrow added no step.
+  await page.keyboard.press('Control+z')
+  await expectField(page, 'left').toBeCloseTo(left, 1)
+  await page.keyboard.press('Control+z')
+  await expectField(page, 'left').toBe(0)
+  await expectField(page, 'right').toBe(0)
+  await expect(editor.getByText('once it is smaller than the frame', { exact: false })).toBeVisible()
 })
 
 test('the crop editor fits the timeline panel at both widths (#423)', async ({ page }) => {

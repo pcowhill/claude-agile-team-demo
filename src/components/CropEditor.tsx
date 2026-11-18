@@ -156,9 +156,13 @@ export function CropEditor({ subject, position, onCommit, onClose, snapshot }: C
         {orientation === undefined
           ? ''
           : 'The picture is shown turned, and crop applies before that (#255), so an edge you drag may be named for the source edge it really trims. '}
-        Arrow keys nudge the kept region, Shift for five times as far; + and − resize it. Hold
-        Shift while dragging an edge to trim the opposite one as far, or Alt while dragging for
-        finer values than whole percents. Each change is one undo step.
+        {/* With nothing cropped the kept region is the whole frame, which a
+            nudge cannot move and + cannot grow (#662): the hint says so
+            rather than promising keys that look broken on a fresh clip. */}
+        Click the kept region for the keys: + and − resize it, and once it is smaller than the frame
+        the arrow keys nudge it, Shift for five times as far. Hold Shift while dragging an edge to
+        trim the opposite one as far, or Alt while dragging for finer values than whole percents.
+        Each change is one undo step.
       </p>
     </div>
   )

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -235,7 +236,7 @@ test('arrow keys nudge by the shared step and Shift by the large one, each its o
 }) => {
   const editor = await openEditor(page)
   const region = editor.getByTestId('frame-editor-rect')
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expectField(page, 'left').toBe(36)
   await page.keyboard.press('Shift+ArrowDown')

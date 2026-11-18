@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -211,7 +212,7 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   // `inputValue()` straight afterwards can read the pre-undo DOM — a race
   // that lost this assertion in a full-suite run alongside #423's new spec
   // and passes alone. `toHaveValue` retries, which is the whole difference.
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expect(left(page)).toHaveValue('0.34')
   await page.keyboard.press('Control+z')

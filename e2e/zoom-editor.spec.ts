@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseEffect } from './timelineRowMenu'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -256,7 +257,7 @@ test('scrubbing shows the motion, snapping and the keys commit exact numbers, an
   await expect(centreY).toHaveValue('0.51')
 
   // One arrow key, one hundredth of the frame, one undo step.
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expect(centreX).toHaveValue('0.52')
   await page.keyboard.press('Control+z')

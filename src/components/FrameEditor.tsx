@@ -194,6 +194,8 @@ export function FrameEditor({
   snapshot = snapshotTimelineFrame,
 }: FrameEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null)
+  // The region, which holds the keyboard nudges (#662).
+  const regionRef = useRef<SVGRectElement>(null)
   const timelineRef = useRef(timeline)
   timelineRef.current = timeline
   // The stills rendered so far, by the instant that produced them. Scrubbing
@@ -368,6 +370,16 @@ export function FrameEditor({
   const beginDrag = (event: ReactPointerEvent, handle: RectHandle | null) => {
     if (event.button !== 0) return
     event.preventDefault()
+    // That `preventDefault` also cancels the browser's focus-on-press, so a
+    // region pressed or dragged never took focus and the arrow, + and − keys
+    // the editor's hint names went nowhere (#662) — measured on main: a click
+    // on the crop region left `document.activeElement` on <body>, and no key
+    // changed a field until the region was focused some other way (Tab from
+    // ✕, or a spec's `focus()`). Focused by hand instead, from the region
+    // itself or any of its handles, since the keys live on the region.
+    // `preventScroll`: the press is already where the person is looking, and
+    // a scroll here would move the frame out from under the drag it starts.
+    regionRef.current?.focus({ preventScroll: true })
     // Capture on the layer, so the move and release reach it wherever the
     // pointer goes (jsdom has no capture; tests fire on the layer directly).
     ;(event.currentTarget as SVGGraphicsElement).ownerSVGElement?.setPointerCapture?.(
@@ -559,6 +571,7 @@ export function FrameEditor({
               className={
                 interactive ? 'frame-editor-rect' : 'frame-editor-rect frame-editor-rect-inert'
               }
+              ref={regionRef}
               data-testid="frame-editor-rect"
               role="img"
               aria-label={label}

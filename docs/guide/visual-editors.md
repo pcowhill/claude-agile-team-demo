@@ -62,11 +62,11 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 ## Keyboard nudges
 
-**Where to find it.** With the rectangle focused, in every editor.
+**Where to find it.** With the rectangle focused, in every editor. Clicking the rectangle, or pressing on it or one of its handles to drag, focuses it; from the keyboard, **Tab** to it from the editor's buttons.
 
 **What it does.** Moves and resizes the value by fixed steps, each press its own undo step.
 
-**Details.** The arrow keys nudge the rectangle by {{EDITOR_NUDGE_PERCENT}} % of the frame, or {{EDITOR_NUDGE_LARGE_PERCENT}} % with Shift; a nudge never snaps, since it is already a deliberate amount. **+** and **−** change what the editor sizes: a zoom's magnification by {{ZOOM_SCALE_STEP}}, an overlay's, a crop's, a redaction region's or a spotlight region's rectangle by {{RECT_SIZE_STEP_PERCENT}} % of the frame, a text block's size by {{TEXT_SIZE_STEP}} — the text size field's own step.
+**Details.** The arrow keys nudge the rectangle by {{EDITOR_NUDGE_PERCENT}} % of the frame, or {{EDITOR_NUDGE_LARGE_PERCENT}} % with Shift; a nudge never snaps, since it is already a deliberate amount. **+** and **−** change what the editor sizes: a zoom's magnification by {{ZOOM_SCALE_STEP}}, an overlay's, a crop's, a redaction region's or a spotlight region's rectangle by {{RECT_SIZE_STEP_PERCENT}} % of the frame, a text block's size by {{TEXT_SIZE_STEP}} — the text size field's own step. A rectangle already flush with an edge of the frame does not move past it, so a crop's kept region on a clip with nothing cropped yet — the whole frame — neither moves nor grows: press **−** first, and the arrows then move what is left.
 
 **Related.** [Dragging](#dragging)
 
