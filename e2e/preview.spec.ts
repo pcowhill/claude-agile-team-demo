@@ -189,8 +189,9 @@ test('seeking jumps to the correct clip within the sequence', async ({ page }) =
   await expect(async () => {
     max = Number(await seek.getAttribute('max'))
     expect(max).toBeGreaterThan(1)
-    // Range inputs only accept values on the step grid (step=0.01).
-    await seek.fill((Math.round((max - 0.2) * 100) / 100).toFixed(2))
+    // Range inputs only accept values on the step grid (step=0.01). String(),
+    // not toFixed(2): "1.30" reads back as "1.3", a malformed value (#670).
+    await seek.fill(String(Math.round((max - 0.2) * 100) / 100))
   }).toPass({ timeout: 10_000 })
   await expect(page.getByTestId('preview-now-playing')).toContainText('second.webm')
 
