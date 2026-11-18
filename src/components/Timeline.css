@@ -928,6 +928,15 @@
   margin-left: auto;
 }
 
+/* An arrow's end point (#684): "Tail x [ ] y [ ]" is one item, so a narrow
+   row wraps between the two ends, never inside one. */
+.shape-row-point {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+  white-space: nowrap;
+}
+
 .shape-row-warning {
   margin: 0;
   color: #e0b050;

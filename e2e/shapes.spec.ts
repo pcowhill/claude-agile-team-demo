@@ -42,7 +42,7 @@ async function setField(page: Page, name: string, value: string): Promise<void> 
   await expect(field).toHaveValue(value)
 }
 
-async function addShape(page: Page, groupIndex: number, kind: 'Rectangle' | 'Ellipse') {
+async function addShape(page: Page, groupIndex: number, kind: 'Rectangle' | 'Ellipse' | 'Arrow') {
   await page.getByRole('button', { name: `Add a shape to ${group(groupIndex)}` }).click()
   await page.getByRole('menuitem', { name: kind, exact: true }).click()
 }
@@ -246,6 +246,85 @@ test('the export draws each shape where the preview and Save frame draw it, insi
   )
 })
 
+/**
+ * The arrow fixture (#684): one group from 1.5 s on the 3 s blue slate,
+ * holding only a red arrow from (0.2, 0.5) to (0.8, 0.5), 20 px thick, head
+ * at the tip at the medium size.
+ *
+ * Geometry at 640×360: the shaft runs along y = 180 from x = 128, 20 px
+ * thick (y 170–190). The head is 4.5 × 20 = 90 px long, from its base at
+ * x = 422 to the tip at x = 512, and 90 px wide at its base, so at x = 470
+ * it spans y 159–201: wider than the shaft.
+ */
+async function arrowFixture(page: Page): Promise<void> {
+  await blueSlate(page)
+  await chooseFromAddMenu(page, ADD_SHAPES)
+  await setField(page, `Start time of ${group()} in seconds`, '1.5')
+  await setField(page, `Duration of ${group()} in seconds`, '10')
+  await addShape(page, 1, 'Arrow')
+  await page.getByRole('button', { name: `Remove ${shape('Ellipse', 1)}` }).click()
+  const arrow = shape('Arrow', 1)
+  await setField(page, `Tail x of ${arrow} (0 to 1)`, '0.2')
+  await setField(page, `Tail y of ${arrow} (0 to 1)`, '0.5')
+  await setField(page, `Tip x of ${arrow} (0 to 1)`, '0.8')
+  await setField(page, `Tip y of ${arrow} (0 to 1)`, '0.5')
+  await setField(page, `Border thickness of ${arrow} in pixels`, '20')
+  await expect(page.getByRole('combobox', { name: `Arrow heads of ${arrow}` })).toHaveValue('tip')
+}
+
+const ARROW_POINTS: Record<'shaft' | 'head' | 'beyond', SampleRect> = {
+  // On the shaft, well inside its 20 px.
+  shaft: { x: 248 / 640, y: 176 / 360, width: 16 / 640, height: 8 / 360 },
+  // Inside the head, 12–18 px off the axis: outside the shaft's 10 px
+  // half-width, so only the head's triangle can colour it.
+  head: { x: 466 / 640, y: 162 / 360, width: 8 / 640, height: 6 / 360 },
+  // Just beyond the tip, on the axis: the arrow ends at x = 512.
+  beyond: { x: 522 / 640, y: 176 / 360, width: 10 / 640, height: 8 / 360 },
+}
+
+test('an arrow draws its shaft and head in the border colour and stops at the tip, in the export, preview and Save frame (#684)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await arrowFixture(page)
+
+  const exported = await exportOnce(page)
+  const shaft = await sampleExportedFrame(page, exported, 0.5, ARROW_POINTS.shaft)
+  const head = await sampleExportedFrame(page, exported, 0.5, ARROW_POINTS.head)
+  const beyond = await sampleExportedFrame(page, exported, 0.5, ARROW_POINTS.beyond)
+  expectColor(shaft, BORDER, 45, 'export, on the shaft')
+  expectColor(head, BORDER, 45, "export, inside the head's triangle")
+  expectColor(beyond, SLATE, 30, 'export, just beyond the tip')
+
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill('2.5')
+  await expect(page.getByTestId('preview-shapes')).toBeVisible()
+  await expect
+    .poll(async () => (await samplePreviewShapes(page, ARROW_POINTS.shaft)).r, {
+      message: 'the preview draws the shaft',
+    })
+    .toBeGreaterThan(180)
+  expectColor(await samplePreviewShapes(page, ARROW_POINTS.shaft), shaft, 45, 'preview vs export, shaft')
+  expectColor(await samplePreviewShapes(page, ARROW_POINTS.head), head, 45, 'preview vs export, head')
+  expectColor(await samplePreviewShapes(page, ARROW_POINTS.beyond), beyond, 30, 'preview vs export, beyond the tip')
+
+  const downloadPromise = page.waitForEvent('download')
+  await chooseFromFrameMenu(page, 'preview-save-frame')
+  const png = await readFile(await (await downloadPromise).path())
+  expectColor(await sampleImage(page, png, 'image/png', ARROW_POINTS.shaft), BORDER, 20, 'PNG, on the shaft')
+  expectColor(await sampleImage(page, png, 'image/png', ARROW_POINTS.head), BORDER, 20, 'PNG, inside the head')
+  expectColor(await sampleImage(page, png, 'image/png', ARROW_POINTS.beyond), SLATE, 10, 'PNG, beyond the tip')
+
+  // A line (no head): the same off-axis point is no longer coloured.
+  await page.getByRole('combobox', { name: `Arrow heads of ${shape('Arrow', 1)}` }).selectOption('none')
+  await expect
+    .poll(async () => (await samplePreviewShapes(page, ARROW_POINTS.head)).r, {
+      message: "a line has no head's triangle to colour the off-axis point",
+    })
+    .toBeLessThan(30)
+  expectColor(await samplePreviewShapes(page, ARROW_POINTS.shaft), BORDER, 45, 'a line still draws its shaft')
+})
+
 test('shapes draw below text, and the later-starting of two overlapping groups is on top (#683)', async ({
   page,
 }) => {
@@ -344,22 +423,37 @@ test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
 })
 
 for (const width of [1280, 360]) {
-  test(`an expanded shape group stays inside the timeline at ${width}px (#683)`, async ({
+  test(`an expanded shape group stays inside the timeline at ${width}px (#683, #684)`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('./')
-    // Populated (development.md): a slate, a text row and a two-shape group
-    // with both kinds' fields showing — the widest the row gets today.
+    // Populated (development.md): a slate, a text row and a three-shape
+    // group with every kind's fields showing — the widest the row gets today.
     await blueSlate(page)
     await chooseFromAddMenu(page, ADD_TEXT)
     await chooseFromAddMenu(page, ADD_SHAPES)
     await addShape(page, 1, 'Rectangle')
+    await addShape(page, 1, 'Arrow')
     const row = page.getByRole('list', { name: 'Shape groups' }).locator('> li').first()
     const timeline = page.getByRole('region', { name: 'Timeline' })
     await expectWithin(row, timeline, { axis: 'x', what: 'the shape group row' })
-    for (const name of [shape('Ellipse', 1), shape('Rectangle', 2)]) {
+    for (const name of [shape('Ellipse', 1), shape('Rectangle', 2), shape('Arrow', 3)]) {
       await expectWithin(page.getByRole('listitem', { name }), row, { axis: 'x', what: name })
+    }
+    // An arrow's end point (#684) is one item: its "Tail" label, x box and y
+    // box share a line, so a narrow row never strands a y box away from its x.
+    const arrow = page.getByRole('listitem', { name: shape('Arrow', 3) })
+    for (const end of ['Tail', 'Tip']) {
+      const tops = await Promise.all(
+        ['x', 'y'].map(async (axis) => {
+          const box = await arrow
+            .getByRole('spinbutton', { name: `${end} ${axis} of ${shape('Arrow', 3)} (0 to 1)` })
+            .boundingBox()
+          return box!.y
+        }),
+      )
+      expect(Math.abs(tops[0] - tops[1]), `${end} x and y on one line at ${width}px`).toBeLessThanOrEqual(2)
     }
     await expectNoHorizontalScroll(page, 'with an expanded shape group')
     if (width === 1280) {

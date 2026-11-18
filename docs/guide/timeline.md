@@ -13,7 +13,7 @@ The arrangement: what plays, when, and how. This page is the map of the panel �
 - **Sequence** — the video's spine: video clips, still images and colour slates, playing one after another in the order listed. Transitions sit on the boundary between two entries. The sequence's length, less the transitions that overlap it, is the video's length — the **Total** in the header.
 - **Audio** — audio tracks: sound clips placed at a start time, trimmed, overlapping freely.
 - **Overlays** — overlay layers: a video or an image inside a rectangle of the frame, with a start time and its own trim or duration.
-- **Shapes** — [shape groups](shapes-and-annotations.md): rectangles and ellipses drawn on the picture, appearing and disappearing together for a window of time.
+- **Shapes** — [shape groups](shapes-and-annotations.md): rectangles, ellipses and arrows drawn on the picture, appearing and disappearing together for a window of time.
 - **Text** — text overlays: titles, captions and imported subtitles, each a block of text at a point in the frame for a window of time.
 
 A section with nothing in it shows a short hint instead of rows. Anything that would play past the end of the sequence is cut off there.

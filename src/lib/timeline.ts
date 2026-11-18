@@ -430,7 +430,7 @@ export interface TimelineState {
   markers?: ChapterMarker[]
   /**
    * Shape groups (#683, the approved design #681): timed groups of
-   * rectangles and ellipses drawn on the output frame, between the overlay
+   * rectangles, ellipses and arrows (#684) drawn on the output frame, between the overlay
    * layers and the text. Anchored to sequence time and never retimed by a
    * video edit, like text — so they are project-level here, carried across
    * every other edit by `withProjectFields` exactly as markers are, rather

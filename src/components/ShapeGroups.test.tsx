@@ -15,6 +15,62 @@ const group = (index = 1) => `shape group at position ${index}`
 const shape = (kind: string, index: number, groupIndex = 1) =>
   `${kind} ${index} of ${group(groupIndex)}`
 
+describe('Arrows in shape groups (#684)', () => {
+  it('+ Add shape › Arrow adds an arrow with tail, tip, border and heads fields, and no fill', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    const arrow = shape('Arrow', 2)
+    expect(screen.getByRole('listitem', { name: arrow })).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Shape groups' })
+    expect(within(list).getByText('Ellipse + Arrow', { selector: '.clip-name' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: `Tail x of ${arrow} (0 to 1)` })).toHaveValue(0.35)
+    expect(screen.getByRole('spinbutton', { name: `Tail y of ${arrow} (0 to 1)` })).toHaveValue(0.5)
+    expect(screen.getByRole('spinbutton', { name: `Tip x of ${arrow} (0 to 1)` })).toHaveValue(0.65)
+    expect(screen.getByRole('spinbutton', { name: `Tip y of ${arrow} (0 to 1)` })).toHaveValue(0.5)
+    // It took the last shape's border, and draws no fill.
+    expect(screen.getByLabelText(`Border colour of ${arrow}`)).toHaveValue('#e53935')
+    expect(screen.queryByLabelText(`Fill colour of ${arrow}`)).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: `Left edge of ${arrow} (0 to 1)` })).toBeNull()
+    expect(screen.getByRole('combobox', { name: `Arrow heads of ${arrow}` })).toHaveValue('tip')
+    expect(screen.getByRole('combobox', { name: `Head size of ${arrow}` })).toHaveValue('medium')
+  })
+
+  it('switches heads to both ends and to none, each one undoable edit; a line has no head size', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    const arrow = shape('Arrow', 2)
+    const heads = () => screen.getByRole('combobox', { name: `Arrow heads of ${arrow}` })
+    await userEvent.selectOptions(heads(), 'both')
+    expect(heads()).toHaveValue('both')
+    await userEvent.selectOptions(heads(), 'none')
+    expect(heads()).toHaveValue('none')
+    expect(screen.queryByRole('combobox', { name: `Head size of ${arrow}` })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(heads()).toHaveValue('both')
+    expect(screen.getByRole('combobox', { name: `Head size of ${arrow}` })).toBeInTheDocument()
+  })
+
+  it('warns that an arrow with no border is invisible, whatever its fill', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    const arrow = shape('Arrow', 2)
+    const thickness = screen.getByRole('spinbutton', { name: `Border thickness of ${arrow} in pixels` })
+    await userEvent.clear(thickness)
+    await userEvent.type(thickness, '0')
+    await userEvent.tab()
+    expect(within(screen.getByRole('listitem', { name: arrow })).getByRole('note')).toHaveTextContent(
+      'This arrow is invisible',
+    )
+  })
+})
+
 describe('Shapes section (#683)', () => {
   it('Add ▾ › Shape group adds one red, transparent-centred ellipse at the playhead for 3 s', async () => {
     render(<App />)

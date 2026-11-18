@@ -74,8 +74,21 @@ import {
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
-import type { Shape, ShapeGroup, ShapeGroupSpec, ShapeKind } from '../lib/shapes'
+import type {
+  ArrowHeads,
+  ArrowHeadSize,
+  ArrowShape,
+  BoxShape,
+  Shape,
+  ShapeGroup,
+  ShapeGroupSpec,
+  ShapeKind,
+} from '../lib/shapes'
 import {
+  ARROW_HEAD_LABELS,
+  ARROW_HEAD_SIZE_LABELS,
+  ARROW_HEAD_SIZES,
+  ARROW_HEADS,
   defaultShape,
   isInvisibleShape,
   MAX_CORNER_RADIUS,
@@ -466,12 +479,42 @@ function shapeGroupSpecOf(group: ShapeGroup): ShapeGroupSpec {
 }
 
 /**
- * One shape's fields in its group's row (#683): kind, box, border and fill
- * — every property the shape editor (#685) will also set, so the keyboard
- * alone can do everything and the two can never disagree (#681 §3).
- * Thickness and corner radius are stored as fractions of the frame's
- * shorter side and shown in px at the current output frame (#681 answer
- * 4a); opacities are stored 0–1 and shown as percentages.
+ * A change to one shape's fields (#683, #684): any field of either kind
+ * except its identity. The row only ever offers a kind's own fields, so the
+ * merge stays a shape of that kind.
+ */
+type ShapeChange = Partial<Omit<BoxShape, 'id' | 'kind'>> & Partial<Omit<ArrowShape, 'id' | 'kind'>>
+
+/** A frame-fraction field: an edge, a size or a point (0 to 1). */
+function FractionField({
+  text,
+  label,
+  value,
+  min,
+  onCommit,
+}: {
+  text: string
+  label: string
+  value: number
+  min?: number
+  onCommit: (value: number) => void
+}) {
+  return (
+    <LabelledField text={text}>
+      <SecondsField label={label} value={value} min={min} max={1} step={0.01} onCommit={onCommit} />
+    </LabelledField>
+  )
+}
+
+/**
+ * One shape's fields in its group's row (#683): kind, placement, border and
+ * fill — every property the shape editor (#685) will also set, so the
+ * keyboard alone can do everything and the two can never disagree (#681
+ * §3). A rectangle or ellipse is placed by its box; an arrow (#684) by its
+ * tail and tip, with its heads where a box shape has its fill. Thickness
+ * and corner radius are stored as fractions of the frame's shorter side and
+ * shown in px at the current output frame (#681 answer 4a); opacities are
+ * stored 0–1 and shown as percentages.
  */
 function ShapeFields({
   shape,
@@ -484,7 +527,7 @@ function ShapeFields({
   /** The shape's accessible name, e.g. "Ellipse 1 of shape group at position 1". */
   name: string
   frameSize: { width: number; height: number }
-  onChange: (change: Partial<Shape>) => void
+  onChange: (change: ShapeChange) => void
   /** Absent for a group's only shape: a group always holds one. */
   onRemove?: () => void
 }) {
@@ -495,45 +538,71 @@ function ShapeFields({
     <li className="shape-row" aria-label={name}>
       <div className="text-overlay-controls">
         <span className="shape-row-kind">{name.split(' of ')[0]}</span>
-        <span>Box</span>
-        <LabelledField text="x">
-          <SecondsField
-            label={`Left edge of ${name} (0 to 1)`}
-            value={shape.x}
-            max={1}
-            step={0.01}
-            onCommit={(x) => onChange({ x })}
-          />
-        </LabelledField>
-        <LabelledField text="y">
-          <SecondsField
-            label={`Top edge of ${name} (0 to 1)`}
-            value={shape.y}
-            max={1}
-            step={0.01}
-            onCommit={(y) => onChange({ y })}
-          />
-        </LabelledField>
-        <LabelledField text="w">
-          <SecondsField
-            label={`Width of ${name} (fraction of frame width)`}
-            value={shape.width}
-            min={MIN_SHAPE_SIZE}
-            max={1}
-            step={0.01}
-            onCommit={(width) => onChange({ width })}
-          />
-        </LabelledField>
-        <LabelledField text="h">
-          <SecondsField
-            label={`Height of ${name} (fraction of frame height)`}
-            value={shape.height}
-            min={MIN_SHAPE_SIZE}
-            max={1}
-            step={0.01}
-            onCommit={(height) => onChange({ height })}
-          />
-        </LabelledField>
+        {shape.kind === 'arrow' ? (
+          <>
+            {/* An arrow's two ends (#684), each a point in frame fractions. */}
+            <span className="shape-row-point">
+              <span>Tail</span>
+              <FractionField
+                text="x"
+                label={`Tail x of ${name} (0 to 1)`}
+                value={shape.tailX}
+                onCommit={(tailX) => onChange({ tailX })}
+              />
+              <FractionField
+                text="y"
+                label={`Tail y of ${name} (0 to 1)`}
+                value={shape.tailY}
+                onCommit={(tailY) => onChange({ tailY })}
+              />
+            </span>
+            <span className="shape-row-point">
+              <span>Tip</span>
+              <FractionField
+                text="x"
+                label={`Tip x of ${name} (0 to 1)`}
+                value={shape.tipX}
+                onCommit={(tipX) => onChange({ tipX })}
+              />
+              <FractionField
+                text="y"
+                label={`Tip y of ${name} (0 to 1)`}
+                value={shape.tipY}
+                onCommit={(tipY) => onChange({ tipY })}
+              />
+            </span>
+          </>
+        ) : (
+          <>
+            <span>Box</span>
+            <FractionField
+              text="x"
+              label={`Left edge of ${name} (0 to 1)`}
+              value={shape.x}
+              onCommit={(x) => onChange({ x })}
+            />
+            <FractionField
+              text="y"
+              label={`Top edge of ${name} (0 to 1)`}
+              value={shape.y}
+              onCommit={(y) => onChange({ y })}
+            />
+            <FractionField
+              text="w"
+              label={`Width of ${name} (fraction of frame width)`}
+              value={shape.width}
+              min={MIN_SHAPE_SIZE}
+              onCommit={(width) => onChange({ width })}
+            />
+            <FractionField
+              text="h"
+              label={`Height of ${name} (fraction of frame height)`}
+              value={shape.height}
+              min={MIN_SHAPE_SIZE}
+              onCommit={(height) => onChange({ height })}
+            />
+          </>
+        )}
         {onRemove !== undefined && (
           <button
             type="button"
@@ -574,22 +643,56 @@ function ShapeFields({
             unit="px"
           />
         </LabelledField>
-        <LabelledField text="Fill">
-          <input
-            type="color"
-            aria-label={`Fill colour of ${name}`}
-            value={shape.fill}
-            onChange={(event) => onChange({ fill: event.target.value })}
-          />
-          <SecondsField
-            label={`Fill opacity of ${name} (percent)`}
-            value={Math.round(shape.fillOpacity * 100)}
-            max={100}
-            step={5}
-            onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
-            unit="%"
-          />
-        </LabelledField>
+        {shape.kind === 'arrow' ? (
+          <>
+            {/* An arrow has no fill: its heads take that place (#684). */}
+            <LabelledField text="Heads">
+              <select
+                aria-label={`Arrow heads of ${name}`}
+                value={shape.heads}
+                onChange={(event) => onChange({ heads: event.target.value as ArrowHeads })}
+              >
+                {ARROW_HEADS.map((heads) => (
+                  <option key={heads} value={heads}>
+                    {ARROW_HEAD_LABELS[heads]}
+                  </option>
+                ))}
+              </select>
+            </LabelledField>
+            {shape.heads !== 'none' && (
+              <LabelledField text="Head size">
+                <select
+                  aria-label={`Head size of ${name}`}
+                  value={shape.headSize}
+                  onChange={(event) => onChange({ headSize: event.target.value as ArrowHeadSize })}
+                >
+                  {ARROW_HEAD_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {ARROW_HEAD_SIZE_LABELS[size]}
+                    </option>
+                  ))}
+                </select>
+              </LabelledField>
+            )}
+          </>
+        ) : (
+          <LabelledField text="Fill">
+            <input
+              type="color"
+              aria-label={`Fill colour of ${name}`}
+              value={shape.fill}
+              onChange={(event) => onChange({ fill: event.target.value })}
+            />
+            <SecondsField
+              label={`Fill opacity of ${name} (percent)`}
+              value={Math.round(shape.fillOpacity * 100)}
+              max={100}
+              step={5}
+              onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
+              unit="%"
+            />
+          </LabelledField>
+        )}
         {shape.kind === 'rectangle' && (
           <LabelledField text="Corners">
             <SecondsField
@@ -607,7 +710,9 @@ function ShapeFields({
       </div>
       {isInvisibleShape(shape) && (
         <p className="shape-row-warning" role="note">
-          This shape is invisible: give it a border or a fill.
+          {shape.kind === 'arrow'
+            ? 'This arrow is invisible: give it a border thickness and opacity.'
+            : 'This shape is invisible: give it a border or a fill.'}
         </p>
       )}
     </li>
@@ -3762,10 +3867,11 @@ export function Timeline({
               }
               const set = (change: Partial<ShapeGroupSpec>) =>
                 onUpdateShapeGroup?.(group.id, { ...shapeGroupSpecOf(group), ...change })
-              const setShape = (shapeIndex: number, change: Partial<Shape>) =>
+              const setShape = (shapeIndex: number, change: ShapeChange) =>
                 set({
                   shapes: group.shapes.map((shape, i) =>
-                    i === shapeIndex ? { ...shape, ...change } : shape,
+                    // The row offers only the shape's own kind's fields.
+                    i === shapeIndex ? ({ ...shape, ...change } as Shape) : shape,
                   ),
                 })
               // A new shape takes the style of the group's last shape — the

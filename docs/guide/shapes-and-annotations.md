@@ -1,6 +1,6 @@
 # Shapes and annotations
 
-Rectangles and ellipses drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
+Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text, an arrow pointing at the thing to click. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style), [arrows and lines](#arrows-and-lines) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
 
 ## Adding a shape group
 
@@ -30,8 +30,8 @@ Rectangles and ellipses drawn on the picture: a red circle with a clear centre a
 
 **Details.**
 
-- **+ Add shape ▾** offers **Rectangle** and **Ellipse**. The new shape appears in the middle of the frame and takes the style of the group's last shape, so after setting one shape to yellow, the next one you add is yellow too.
-- **Box** is four fractions of the frame: **x** and **y**, the left and top edges, and **w** and **h**, the width and height, each 0 to 1. An ellipse fills its box, so a box that is square in pixels gives a circle. Because they are fractions, shapes keep their places when the output frame changes.
+- **+ Add shape ▾** offers **Rectangle**, **Ellipse** and **Arrow**. The new shape appears in the middle of the frame and takes the style of the group's last shape, so after setting one shape to yellow, the next one you add is yellow too. An arrow is placed by its two ends rather than a box; see [Arrows and lines](#arrows-and-lines).
+- **Box**, on a rectangle or an ellipse, is four fractions of the frame: **x** and **y**, the left and top edges, and **w** and **h**, the width and height, each 0 to 1. An ellipse fills its box, so a box that is square in pixels gives a circle. Because they are fractions, shapes keep their places when the output frame changes.
 - **✕** beside a shape removes it. A group always holds at least one shape, so its only shape has no ✕; remove the group instead.
 - Shapes draw in list order: a later shape in the list covers an earlier one where they overlap.
 
@@ -51,7 +51,23 @@ Rectangles and ellipses drawn on the picture: a red circle with a clear centre a
 - Thickness and corner radius are stored as a share of the frame's shorter side, so a shape looks the same at every output size. The pixels the field shows are worked out for the frame the preview is showing, so changing the [canvas preset](timeline.md#the-header) changes the number shown but not the shape's look.
 - A shape with no visible border and no visible fill draws nothing, and its block says *This shape is invisible*, so an empty-looking group is explained.
 
-**Related.** [The shapes in a group](#the-shapes-in-a-group) · [How shapes render](#how-shapes-render)
+**Related.** [The shapes in a group](#the-shapes-in-a-group) · [Arrows and lines](#arrows-and-lines) · [How shapes render](#how-shapes-render)
+
+## Arrows and lines
+
+**Where to find it.** **+ Add shape ▾** › **Arrow** on an expanded shape group row; the arrow's block of fields in that row.
+
+**What it does.** Draws a straight arrow from a tail to a tip, with a head at the tip, a head at both ends, or no head at all, which makes it a plain line.
+
+**Details.**
+
+- A new arrow runs across the middle of the frame, pointing right, with a head at the tip.
+- **Tail** and **Tip** are each two fractions of the frame, **x** across and **y** down, from 0 to 1. The arrow is drawn from the tail to the tip and ends exactly at the tip.
+- **Heads** is **At the tip**, **Both ends** or **None (a line)**.
+- **Head size** is **Small**, **Medium** or **Large**. A head is 3, 4.5 or 6 times the border's thickness long, and as wide across its base as it is long, so a thicker arrow has a bigger head. However thin the arrow, a head is never shorter than 2 % of the frame's shorter side, about 22 px in a 1080p frame, so a 1 px line still ends in a head you can see. On a short arrow the heads shrink to fit. A line has no head, so the field is hidden while Heads is None.
+- An arrow is drawn entirely in its **Border** colour, opacity and **Thickness**, head included. It has no fill, so its block has no Fill field. With thickness 0 or opacity 0 % it draws nothing, and its block says *This arrow is invisible*.
+
+**Related.** [A shape's style](#a-shape-s-style) · [The shapes in a group](#the-shapes-in-a-group)
 
 ## How shapes render
 
