@@ -22,7 +22,7 @@ Words on the picture: titles, captions, labels and imported subtitles, each a **
 
 - **Content** is a multi-line field: a line break in the field is a line break in the frame, and lines are never wrapped for you, so a long caption is broken where you break it. An overlay is never empty.
 - **Shows at** is the second of the video the text appears, and **for** how many seconds it stays. Anything past the end of the sequence is cut off there, like every element.
-- **centre** is two fractions of the frame's width and height, 0 to 1, naming the block's centre — so the block keeps its place when the output frame changes. **Adjust visually…** beside them opens the [visual text editor](visual-editors.md#what-each-editor-shows).
+- **centre** is two fractions, *x* and *y*, of the frame's width and height, 0 to 1, naming the block's centre — so the block keeps its place when the output frame changes. **Adjust visually…** beside them opens the [visual text editor](visual-editors.md#what-each-editor-shows).
 - **Fade in** and **out** are in seconds; see [Fade-in and fade-out](#fade-in-and-fade-out).
 - **Font** offers four curated stacks — *Sans-serif*, *Serif*, *Monospace* and *Display* — chosen because every browser has a font for each, so the export draws what the preview showed.
 - **Size** is the line height as a fraction of the frame's height, from {{MIN_TEXT_SIZE_PERCENT}} % to {{MAX_TEXT_SIZE_PERCENT}} %; a value in the field's step. Lines of a multi-line block are spaced at {{TEXT_LINE_HEIGHT}} × the size.
@@ -70,7 +70,7 @@ The reader is forgiving: a byte-order mark, any line-ending convention, extra bl
 
 **What it does.** Restyles every imported subtitle at once: the style new cues take, and the style every subtitle's unpinned properties follow.
 
-**Details.** The disclosure holds **Font**, **Size**, **Color**, **Bold**, **Italic** and the two **centre** fractions — the text-overlay style surface, without timing or content, which are each cue's own. Every change commits the whole style as one undo step, and rewrites the matching property on every subtitle overlay that has not [pinned](#pinned-properties) it. **Reset** returns to the built-in style, and is disabled while the project already uses it. The default subtitle style is part of the project: it saves in the file and the autosave, and a project that never changed it saves nothing for it. Fades are not part of the subtitle look; set them per cue.
+**Details.** The disclosure holds **Font**, **Size**, **Color**, **Bold**, **Italic** and the two **centre** fractions, *x* and *y* — the text-overlay style surface, without timing or content, which are each cue's own. Every change commits the whole style as one undo step, and rewrites the matching property on every subtitle overlay that has not [pinned](#pinned-properties) it. **Reset** returns to the built-in style, and is disabled while the project already uses it. The default subtitle style is part of the project: it saves in the file and the autosave, and a project that never changed it saves nothing for it. Fades are not part of the subtitle look; set them per cue.
 
 **Related.** [Subtitles from an .srt file](#subtitles-from-an-srt-file) · [Pinned properties](#pinned-properties) · [What is saved where](concepts.md#what-is-saved-where)
 

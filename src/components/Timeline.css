@@ -459,6 +459,17 @@
   gap: 0.3rem;
 }
 
+/* A box's own visible label and the box, as one item in the row's
+   wrapping flex flow (#664): the row breaks between pairs, never between
+   a label and its box, and the label never wraps. The gap is the row's
+   own, so a pair reads exactly as the bare label-then-box it replaced. */
+.timeline-labelled {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+  white-space: nowrap;
+}
+
 /* The sliders themselves. One rule for all four row kinds. It had to
    out-specify `.audio-track-gain input` below when #426 wrote it; #441
    scoped that rule to `input[type='number']`, so it no longer needs to.
