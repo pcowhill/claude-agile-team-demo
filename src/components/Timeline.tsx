@@ -395,6 +395,26 @@ interface SecondsFieldProps {
 }
 
 /**
+ * A visible label and the box it names, kept together (#664).
+ *
+ * In a row of several boxes for one value — a crop's four edges, an area's
+ * left/top/width/height, a centre's x and y — the row's own caption
+ * ("Crop", "Area", "centre") names the group, not its first box, so each
+ * box gets a word of its own. The two are one non-wrapping item in the
+ * row's flex flow, so a narrow row breaks *between* label–box pairs and
+ * never leaves a label at the end of one line with its box on the next.
+ * Purely visible: each box's accessible name is still its own `aria-label`.
+ */
+function LabelledField({ text, children }: { text: string; children: ReactNode }) {
+  return (
+    <span className="timeline-labelled">
+      <span>{text}</span>
+      {children}
+    </span>
+  )
+}
+
+/**
  * Numeric input (trim points, transition durations, zoom parameters) that
  * commits on blur/Enter. The draft is local so the user can type freely; the
  * committed value is validated — and possibly clamped — by the reducer, and
@@ -545,35 +565,39 @@ function ColorAdjustmentControls({ position, adjustments, onCommit }: ColorAdjus
   return (
     <div className="timeline-entry-color">
       <span>Color</span>
-      <SecondsField
-        label={`Brightness of ${position} (percent)`}
-        value={brightness}
-        min={COLOR_ADJUSTMENT_MIN}
-        max={COLOR_ADJUSTMENT_MAX}
-        step={5}
-        slider
-        onCommit={(value) => commit({ brightness: value })}
-      />
-      <span>contrast</span>
-      <SecondsField
-        label={`Contrast of ${position} (percent)`}
-        value={contrast}
-        min={COLOR_ADJUSTMENT_MIN}
-        max={COLOR_ADJUSTMENT_MAX}
-        step={5}
-        slider
-        onCommit={(value) => commit({ contrast: value })}
-      />
-      <span>saturation</span>
-      <SecondsField
-        label={`Saturation of ${position} (percent)`}
-        value={saturation}
-        min={COLOR_ADJUSTMENT_MIN}
-        max={COLOR_ADJUSTMENT_MAX}
-        step={5}
-        slider
-        onCommit={(value) => commit({ saturation: value })}
-      />
+      <LabelledField text="brightness">
+        <SecondsField
+          label={`Brightness of ${position} (percent)`}
+          value={brightness}
+          min={COLOR_ADJUSTMENT_MIN}
+          max={COLOR_ADJUSTMENT_MAX}
+          step={5}
+          slider
+          onCommit={(value) => commit({ brightness: value })}
+        />
+      </LabelledField>
+      <LabelledField text="contrast">
+        <SecondsField
+          label={`Contrast of ${position} (percent)`}
+          value={contrast}
+          min={COLOR_ADJUSTMENT_MIN}
+          max={COLOR_ADJUSTMENT_MAX}
+          step={5}
+          slider
+          onCommit={(value) => commit({ contrast: value })}
+        />
+      </LabelledField>
+      <LabelledField text="saturation">
+        <SecondsField
+          label={`Saturation of ${position} (percent)`}
+          value={saturation}
+          min={COLOR_ADJUSTMENT_MIN}
+          max={COLOR_ADJUSTMENT_MAX}
+          step={5}
+          slider
+          onCommit={(value) => commit({ saturation: value })}
+        />
+      </LabelledField>
       <span>%</span>
       <select
         aria-label={`Look of ${position}`}
@@ -713,24 +737,23 @@ function CropControls({ position, crop, onCommit, adjust }: CropControlsProps) {
     })
   }
   const field = (edge: keyof Crop, label: string) => (
-    <SecondsField
-      label={`Crop ${label} of ${position} (percent)`}
-      value={percent(crop?.[edge])}
-      min={0}
-      max={90}
-      step={5}
-      onCommit={(value) => commit({ [edge]: value })}
-    />
+    <LabelledField text={label}>
+      <SecondsField
+        label={`Crop ${label} of ${position} (percent)`}
+        value={percent(crop?.[edge])}
+        min={0}
+        max={90}
+        step={5}
+        onCommit={(value) => commit({ [edge]: value })}
+      />
+    </LabelledField>
   )
   return (
     <div className="timeline-entry-color">
       <span>Crop</span>
       {field('left', 'left')}
-      <span>right</span>
       {field('right', 'right')}
-      <span>top</span>
       {field('top', 'top')}
-      <span>bottom</span>
       {field('bottom', 'bottom')}
       <span>%</span>
       <button
@@ -861,41 +884,46 @@ function RedactionControls({
           <div className="timeline-redaction" key={region.id}>
             <div className="timeline-entry-color">
               <span>Area</span>
-              <SecondsField
-                label={`${which} left of ${position} (percent)`}
-                value={percent(region.left)}
-                min={0}
-                max={99}
-                step={1}
-                onCommit={(value) => replace(index, { left: value / 100 })}
-              />
-              <span>top</span>
-              <SecondsField
-                label={`${which} top of ${position} (percent)`}
-                value={percent(region.top)}
-                min={0}
-                max={99}
-                step={1}
-                onCommit={(value) => replace(index, { top: value / 100 })}
-              />
-              <span>width</span>
-              <SecondsField
-                label={`${which} width of ${position} (percent)`}
-                value={percent(region.width)}
-                min={1}
-                max={100}
-                step={1}
-                onCommit={(value) => replace(index, { width: value / 100 })}
-              />
-              <span>height</span>
-              <SecondsField
-                label={`${which} height of ${position} (percent)`}
-                value={percent(region.height)}
-                min={1}
-                max={100}
-                step={1}
-                onCommit={(value) => replace(index, { height: value / 100 })}
-              />
+              <LabelledField text="left">
+                <SecondsField
+                  label={`${which} left of ${position} (percent)`}
+                  value={percent(region.left)}
+                  min={0}
+                  max={99}
+                  step={1}
+                  onCommit={(value) => replace(index, { left: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="top">
+                <SecondsField
+                  label={`${which} top of ${position} (percent)`}
+                  value={percent(region.top)}
+                  min={0}
+                  max={99}
+                  step={1}
+                  onCommit={(value) => replace(index, { top: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="width">
+                <SecondsField
+                  label={`${which} width of ${position} (percent)`}
+                  value={percent(region.width)}
+                  min={1}
+                  max={100}
+                  step={1}
+                  onCommit={(value) => replace(index, { width: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="height">
+                <SecondsField
+                  label={`${which} height of ${position} (percent)`}
+                  value={percent(region.height)}
+                  min={1}
+                  max={100}
+                  step={1}
+                  onCommit={(value) => replace(index, { height: value / 100 })}
+                />
+              </LabelledField>
               <span>%</span>
             </div>
             <div className="timeline-entry-color">
@@ -1101,41 +1129,46 @@ function SpotlightControls({
           <div className="timeline-spotlight" key={region.id}>
             <div className="timeline-entry-color">
               <span>Area</span>
-              <SecondsField
-                label={`${which} left of ${position} (percent)`}
-                value={percent(region.left)}
-                min={0}
-                max={99}
-                step={1}
-                onCommit={(value) => replace(index, { left: value / 100 })}
-              />
-              <span>top</span>
-              <SecondsField
-                label={`${which} top of ${position} (percent)`}
-                value={percent(region.top)}
-                min={0}
-                max={99}
-                step={1}
-                onCommit={(value) => replace(index, { top: value / 100 })}
-              />
-              <span>width</span>
-              <SecondsField
-                label={`${which} width of ${position} (percent)`}
-                value={percent(region.width)}
-                min={1}
-                max={100}
-                step={1}
-                onCommit={(value) => replace(index, { width: value / 100 })}
-              />
-              <span>height</span>
-              <SecondsField
-                label={`${which} height of ${position} (percent)`}
-                value={percent(region.height)}
-                min={1}
-                max={100}
-                step={1}
-                onCommit={(value) => replace(index, { height: value / 100 })}
-              />
+              <LabelledField text="left">
+                <SecondsField
+                  label={`${which} left of ${position} (percent)`}
+                  value={percent(region.left)}
+                  min={0}
+                  max={99}
+                  step={1}
+                  onCommit={(value) => replace(index, { left: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="top">
+                <SecondsField
+                  label={`${which} top of ${position} (percent)`}
+                  value={percent(region.top)}
+                  min={0}
+                  max={99}
+                  step={1}
+                  onCommit={(value) => replace(index, { top: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="width">
+                <SecondsField
+                  label={`${which} width of ${position} (percent)`}
+                  value={percent(region.width)}
+                  min={1}
+                  max={100}
+                  step={1}
+                  onCommit={(value) => replace(index, { width: value / 100 })}
+                />
+              </LabelledField>
+              <LabelledField text="height">
+                <SecondsField
+                  label={`${which} height of ${position} (percent)`}
+                  value={percent(region.height)}
+                  min={1}
+                  max={100}
+                  step={1}
+                  onCommit={(value) => replace(index, { height: value / 100 })}
+                />
+              </LabelledField>
               <span>%</span>
             </div>
             <div className="timeline-entry-color">
@@ -1418,20 +1451,24 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
         Italic
       </label>
       <span>centre</span>
-      <SecondsField
-        label="Default subtitle centre X (0 to 1)"
-        value={effective.x}
-        max={1}
-        step={0.05}
-        onCommit={(x) => commit({ x })}
-      />
-      <SecondsField
-        label="Default subtitle centre Y (0 to 1)"
-        value={effective.y}
-        max={1}
-        step={0.05}
-        onCommit={(y) => commit({ y })}
-      />
+      <LabelledField text="x">
+        <SecondsField
+          label="Default subtitle centre X (0 to 1)"
+          value={effective.x}
+          max={1}
+          step={0.05}
+          onCommit={(x) => commit({ x })}
+        />
+      </LabelledField>
+      <LabelledField text="y">
+        <SecondsField
+          label="Default subtitle centre Y (0 to 1)"
+          value={effective.y}
+          max={1}
+          step={0.05}
+          onCommit={(y) => commit({ y })}
+        />
+      </LabelledField>
       <button
         type="button"
         aria-label="Reset default subtitle style"
@@ -2632,30 +2669,36 @@ export function Timeline({
                                 max={effectiveDuration(entry)}
                                 onCommit={(rampOut) => set({ rampOut })}
                               />
+                              <LabelledField text="scale">
+                                <SecondsField
+                                  label={`${zoomName} scale of ${position}`}
+                                  value={entryZoom.scale}
+                                  min={1}
+                                  max={10}
+                                  step={0.25}
+                                  onCommit={(scale) => set({ scale })}
+                                />
+                              </LabelledField>
                               <span>×</span>
-                              <SecondsField
-                                label={`${zoomName} scale of ${position}`}
-                                value={entryZoom.scale}
-                                min={1}
-                                max={10}
-                                step={0.25}
-                                onCommit={(scale) => set({ scale })}
-                              />
                               <span>centre</span>
-                              <SecondsField
-                                label={`${zoomName} centre X of ${position} (0 to 1)`}
-                                value={entryZoom.centerX}
-                                max={1}
-                                step={0.05}
-                                onCommit={(centerX) => set({ centerX })}
-                              />
-                              <SecondsField
-                                label={`${zoomName} centre Y of ${position} (0 to 1)`}
-                                value={entryZoom.centerY}
-                                max={1}
-                                step={0.05}
-                                onCommit={(centerY) => set({ centerY })}
-                              />
+                              <LabelledField text="x">
+                                <SecondsField
+                                  label={`${zoomName} centre X of ${position} (0 to 1)`}
+                                  value={entryZoom.centerX}
+                                  max={1}
+                                  step={0.05}
+                                  onCommit={(centerX) => set({ centerX })}
+                                />
+                              </LabelledField>
+                              <LabelledField text="y">
+                                <SecondsField
+                                  label={`${zoomName} centre Y of ${position} (0 to 1)`}
+                                  value={entryZoom.centerY}
+                                  max={1}
+                                  step={0.05}
+                                  onCommit={(centerY) => set({ centerY })}
+                                />
+                              </LabelledField>
                               <button
                                 type="button"
                                 aria-label={`Remove zoom ${zoomIndex + 1} from ${position}`}
@@ -3214,37 +3257,44 @@ export function Timeline({
                   </div>
                   <div className="video-overlay-controls">
                     <span>Rect</span>
-                    <SecondsField
-                      label={`Left edge of ${position} (fraction of frame width)`}
-                      value={overlay.x}
-                      max={1}
-                      step={0.05}
-                      onCommit={(x) => (isImage ? setImage({ x }) : set({ x }))}
-                    />
-                    <SecondsField
-                      label={`Top edge of ${position} (fraction of frame height)`}
-                      value={overlay.y}
-                      max={1}
-                      step={0.05}
-                      onCommit={(y) => (isImage ? setImage({ y }) : set({ y }))}
-                    />
-                    <span>size</span>
-                    <SecondsField
-                      label={`Width of ${position} (fraction of frame width)`}
-                      value={overlay.width}
-                      min={MIN_OVERLAY_SIZE}
-                      max={1}
-                      step={0.05}
-                      onCommit={(width) => (isImage ? setImage({ width }) : set({ width }))}
-                    />
-                    <SecondsField
-                      label={`Height of ${position} (fraction of frame height)`}
-                      value={overlay.height}
-                      min={MIN_OVERLAY_SIZE}
-                      max={1}
-                      step={0.05}
-                      onCommit={(height) => (isImage ? setImage({ height }) : set({ height }))}
-                    />
+                    <LabelledField text="left">
+                      <SecondsField
+                        label={`Left edge of ${position} (fraction of frame width)`}
+                        value={overlay.x}
+                        max={1}
+                        step={0.05}
+                        onCommit={(x) => (isImage ? setImage({ x }) : set({ x }))}
+                      />
+                    </LabelledField>
+                    <LabelledField text="top">
+                      <SecondsField
+                        label={`Top edge of ${position} (fraction of frame height)`}
+                        value={overlay.y}
+                        max={1}
+                        step={0.05}
+                        onCommit={(y) => (isImage ? setImage({ y }) : set({ y }))}
+                      />
+                    </LabelledField>
+                    <LabelledField text="width">
+                      <SecondsField
+                        label={`Width of ${position} (fraction of frame width)`}
+                        value={overlay.width}
+                        min={MIN_OVERLAY_SIZE}
+                        max={1}
+                        step={0.05}
+                        onCommit={(width) => (isImage ? setImage({ width }) : set({ width }))}
+                      />
+                    </LabelledField>
+                    <LabelledField text="height">
+                      <SecondsField
+                        label={`Height of ${position} (fraction of frame height)`}
+                        value={overlay.height}
+                        min={MIN_OVERLAY_SIZE}
+                        max={1}
+                        step={0.05}
+                        onCommit={(height) => (isImage ? setImage({ height }) : set({ height }))}
+                      />
+                    </LabelledField>
                     {visualEditors && (
                       // The visual editor (#422): a toggle, so the same
                       // button closes what it opened — the zoom's rule
@@ -3487,20 +3537,24 @@ export function Timeline({
                       onCommit={(duration) => set({ duration })}
                     />
                     <span>s, centre</span>
-                    <SecondsField
-                      label={`Centre X of ${position} (0 to 1)`}
-                      value={text.x}
-                      max={1}
-                      step={0.05}
-                      onCommit={(x) => set({ x })}
-                    />
-                    <SecondsField
-                      label={`Centre Y of ${position} (0 to 1)`}
-                      value={text.y}
-                      max={1}
-                      step={0.05}
-                      onCommit={(y) => set({ y })}
-                    />
+                    <LabelledField text="x">
+                      <SecondsField
+                        label={`Centre X of ${position} (0 to 1)`}
+                        value={text.x}
+                        max={1}
+                        step={0.05}
+                        onCommit={(x) => set({ x })}
+                      />
+                    </LabelledField>
+                    <LabelledField text="y">
+                      <SecondsField
+                        label={`Centre Y of ${position} (0 to 1)`}
+                        value={text.y}
+                        max={1}
+                        step={0.05}
+                        onCommit={(y) => set({ y })}
+                      />
+                    </LabelledField>
                     {visualEditors && (
                       // The visual editor (#424): a toggle, so the same
                       // button closes what it opened — the zoom's rule
