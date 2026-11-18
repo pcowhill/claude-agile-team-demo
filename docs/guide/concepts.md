@@ -6,18 +6,19 @@ The words the app uses, and how its parts fit together. Read it once; the featur
 
 The **media library** is the shelf: every file you import or record sits there as a **clip**, untouched. The **timeline** is the arrangement: what plays, when, and how. Placing a clip on the timeline makes an **element** — a sequence entry, an audio track, an overlay layer — that refers to the clip and carries its own settings. The same clip can be placed several times, and each placement is trimmed and adjusted on its own. Removing a clip from the library removes every element made from it; removing an element leaves the clip on the shelf.
 
-## The four sections of the timeline
+## The five sections of the timeline
 
 - **Sequence** — the video's spine. Its entries play one after another, and their combined length, less the transitions that overlap them, is the video's length. A sequence entry is a video clip, a still image, or a **slate**, a solid colour. Transitions live on the boundary between two entries.
 - **Audio** — **audio tracks**: sound clips placed at a start time, trimmed, overlapping freely, mixed with the sequence's own sound.
 - **Overlays** — **overlay layers**: a video or an image placed above the sequence inside a rectangle of the frame — picture-in-picture, a logo, a webcam bubble — with a start time and its own trim or duration.
+- **Shapes** — **shape groups**: rectangles and ellipses drawn on the picture, shown and faded together for a window of time. See [Shapes and annotations](shapes-and-annotations.md).
 - **Text** — **text overlays**: titles, captions and imported subtitles, each a block of text at a point in the frame for a window of time.
 
 Anything that would play past the end of the sequence is cut off there: the sequence decides how long the video is.
 
 ## The output frame
 
-The **output frame** is the picture's size in pixels. By default it follows the sources — the largest width and the largest height among the sequence's clips and images, so nothing is downscaled. A **canvas preset** on the timeline header fixes its aspect instead — 16:9, 9:16, 1:1 or 4:5 — and the frame becomes the smallest one of that aspect that still contains every source. A clip that does not fill the frame is letterboxed inside it, and its background fill decides what shows behind. Overlay rectangles, text positions and zoom centres are fractions of this frame, so they keep their places when the frame changes. Overlays never change the frame's size. A side-by-side or split-screen layout is built from those pieces rather than from a control of its own: a [colour slate](timeline.md#the-header) as the sequence entry underneath, with two or more [overlays](timeline.md#the-four-sections) placed in halves or quadrants of the frame.
+The **output frame** is the picture's size in pixels. By default it follows the sources — the largest width and the largest height among the sequence's clips and images, so nothing is downscaled. A **canvas preset** on the timeline header fixes its aspect instead — 16:9, 9:16, 1:1 or 4:5 — and the frame becomes the smallest one of that aspect that still contains every source. A clip that does not fill the frame is letterboxed inside it, and its background fill decides what shows behind. Overlay rectangles, text positions and zoom centres are fractions of this frame, so they keep their places when the frame changes. Overlays never change the frame's size. A side-by-side or split-screen layout is built from those pieces rather than from a control of its own: a [colour slate](timeline.md#the-header) as the sequence entry underneath, with two or more [overlays](timeline.md#the-five-sections) placed in halves or quadrants of the frame.
 
 Preview and export draw from the same rules: what the preview shows at an instant is what the exported file contains at that instant.
 

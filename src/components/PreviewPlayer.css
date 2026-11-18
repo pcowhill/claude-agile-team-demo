@@ -176,6 +176,18 @@
   pointer-events: none;
 }
 
+/* Shape groups (#683): one frame-sized canvas above the overlay video
+   layers (same z-index, later in the DOM) and below text (z-index 3) — the
+   export's paint order (#681 §4). Decorative and never a pointer target. */
+.preview-shapes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* A text overlay (#139): centred on its fractional position, above every
    video/still layer (transitions and zooms style those beneath it — an
    overlay annotates the output frame, it is not part of any clip). Only

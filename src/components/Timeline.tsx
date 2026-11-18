@@ -56,6 +56,7 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  shapeGroupsOf,
   textsOf,
   totalDuration,
   videoOverlaysOf,
@@ -73,6 +74,20 @@ import {
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
+import type { Shape, ShapeGroup, ShapeGroupSpec, ShapeKind } from '../lib/shapes'
+import {
+  defaultShape,
+  isInvisibleShape,
+  MAX_CORNER_RADIUS,
+  MAX_SHAPE_THICKNESS,
+  MIN_SHAPE_SIZE,
+  pickStyle,
+  SHAPE_KIND_LABELS,
+  SHAPE_KINDS,
+  shapeGroupLabel,
+  shorterSideFraction,
+  shorterSidePixels,
+} from '../lib/shapes'
 import type { TextFontId } from '../lib/textOverlay'
 import {
   SETTINGS_GROUPS,
@@ -196,6 +211,21 @@ interface TimelineProps {
   onImportSubtitles: (file: File) => void
   onUpdateText: (id: string, text: TextOverlaySpec) => void
   onRemoveText: (id: string) => void
+  /**
+   * Shape groups (#683): Add ▾ › Shape group adds the default group at the
+   * playhead (the caller mints ids and reads the playhead); a field commit
+   * replaces the group whole; removal takes it off. Optional so callers
+   * that predate Shapes keep compiling; without `onAddShapeGroup` the Add
+   * item is not offered.
+   */
+  onAddShapeGroup?: () => void
+  onUpdateShapeGroup?: (id: string, group: ShapeGroupSpec) => void
+  onRemoveShapeGroup?: (id: string) => void
+  /**
+   * The output frame the preview composes, for the px a shape's thickness
+   * and corner radius are shown in (#681 answer 4a). Defaults to 1920×1080.
+   */
+  frameSize?: { width: number; height: number }
   /**
    * The project's customized default subtitle style (#250); undefined means
    * the built-in default. Shown and edited by the controls beside the
@@ -429,6 +459,161 @@ const UNIT_WORDS: Record<FieldUnit, string | undefined> = {
  * never leaves a label at the end of one line with its box on the next.
  * Purely visible: each box's accessible name is still its own `aria-label`.
  */
+/** A stored shape group re-expressed as the spec an update takes (no id). */
+function shapeGroupSpecOf(group: ShapeGroup): ShapeGroupSpec {
+  const { id: _id, ...spec } = group
+  return spec
+}
+
+/**
+ * One shape's fields in its group's row (#683): kind, box, border and fill
+ * — every property the shape editor (#685) will also set, so the keyboard
+ * alone can do everything and the two can never disagree (#681 §3).
+ * Thickness and corner radius are stored as fractions of the frame's
+ * shorter side and shown in px at the current output frame (#681 answer
+ * 4a); opacities are stored 0–1 and shown as percentages.
+ */
+function ShapeFields({
+  shape,
+  name,
+  frameSize,
+  onChange,
+  onRemove,
+}: {
+  shape: Shape
+  /** The shape's accessible name, e.g. "Ellipse 1 of shape group at position 1". */
+  name: string
+  frameSize: { width: number; height: number }
+  onChange: (change: Partial<Shape>) => void
+  /** Absent for a group's only shape: a group always holds one. */
+  onRemove?: () => void
+}) {
+  const toPx = (fraction: number) => shorterSidePixels(fraction, frameSize.width, frameSize.height)
+  const fromPx = (px: number) => shorterSideFraction(px, frameSize.width, frameSize.height)
+  const maxThicknessPx = Math.floor(toPx(MAX_SHAPE_THICKNESS))
+  return (
+    <li className="shape-row" aria-label={name}>
+      <div className="text-overlay-controls">
+        <span className="shape-row-kind">{name.split(' of ')[0]}</span>
+        <span>Box</span>
+        <LabelledField text="x">
+          <SecondsField
+            label={`Left edge of ${name} (0 to 1)`}
+            value={shape.x}
+            max={1}
+            step={0.01}
+            onCommit={(x) => onChange({ x })}
+          />
+        </LabelledField>
+        <LabelledField text="y">
+          <SecondsField
+            label={`Top edge of ${name} (0 to 1)`}
+            value={shape.y}
+            max={1}
+            step={0.01}
+            onCommit={(y) => onChange({ y })}
+          />
+        </LabelledField>
+        <LabelledField text="w">
+          <SecondsField
+            label={`Width of ${name} (fraction of frame width)`}
+            value={shape.width}
+            min={MIN_SHAPE_SIZE}
+            max={1}
+            step={0.01}
+            onCommit={(width) => onChange({ width })}
+          />
+        </LabelledField>
+        <LabelledField text="h">
+          <SecondsField
+            label={`Height of ${name} (fraction of frame height)`}
+            value={shape.height}
+            min={MIN_SHAPE_SIZE}
+            max={1}
+            step={0.01}
+            onCommit={(height) => onChange({ height })}
+          />
+        </LabelledField>
+        {onRemove !== undefined && (
+          <button
+            type="button"
+            className="shape-row-remove"
+            aria-label={`Remove ${name}`}
+            onClick={onRemove}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <div className="text-overlay-controls">
+        {/* A colour and its opacity are one item (#683), so a narrow row
+            never strands an opacity box on a line away from its swatch. */}
+        <LabelledField text="Border">
+          <input
+            type="color"
+            aria-label={`Border colour of ${name}`}
+            value={shape.stroke}
+            onChange={(event) => onChange({ stroke: event.target.value })}
+          />
+          <SecondsField
+            label={`Border opacity of ${name} (percent)`}
+            value={Math.round(shape.strokeOpacity * 100)}
+            max={100}
+            step={5}
+            onCommit={(percent) => onChange({ strokeOpacity: percent / 100 })}
+            unit="%"
+          />
+        </LabelledField>
+        <LabelledField text="Thickness">
+          <SecondsField
+            label={`Border thickness of ${name} in pixels`}
+            value={toPx(shape.thickness)}
+            max={maxThicknessPx}
+            step={1}
+            onCommit={(px) => onChange({ thickness: Math.min(fromPx(px), MAX_SHAPE_THICKNESS) })}
+            unit="px"
+          />
+        </LabelledField>
+        <LabelledField text="Fill">
+          <input
+            type="color"
+            aria-label={`Fill colour of ${name}`}
+            value={shape.fill}
+            onChange={(event) => onChange({ fill: event.target.value })}
+          />
+          <SecondsField
+            label={`Fill opacity of ${name} (percent)`}
+            value={Math.round(shape.fillOpacity * 100)}
+            max={100}
+            step={5}
+            onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
+            unit="%"
+          />
+        </LabelledField>
+        {shape.kind === 'rectangle' && (
+          <LabelledField text="Corners">
+            <SecondsField
+              label={`Corner radius of ${name} in pixels`}
+              value={toPx(shape.cornerRadius ?? 0)}
+              max={Math.floor(toPx(MAX_CORNER_RADIUS))}
+              step={1}
+              onCommit={(px) =>
+                onChange({ cornerRadius: Math.min(fromPx(px), MAX_CORNER_RADIUS) })
+              }
+              unit="px"
+            />
+          </LabelledField>
+        )}
+      </div>
+      {isInvisibleShape(shape) && (
+        <p className="shape-row-warning" role="note">
+          This shape is invisible: give it a border or a fill.
+        </p>
+      )}
+    </li>
+  )
+}
+
 function LabelledField({ text, children }: { text: string; children: ReactNode }) {
   return (
     <span className="timeline-labelled">
@@ -1538,10 +1723,10 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
 }
 
 /**
- * The timeline's four sections (#300), each foldable to its heading. Fixed
- * ids: the sections are structural, not data.
+ * The timeline's five sections (#300; Shapes since #683), each foldable to
+ * its heading. Fixed ids: the sections are structural, not data.
  */
-type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'text'
+type TimelineSection = 'sequence' | 'audio' | 'overlays' | 'shapes' | 'text'
 
 interface PasteSettingsDialogProps {
   /** The target row's accessible name (its `position` string). */
@@ -1639,6 +1824,7 @@ function renderedSectionsOf(timeline: TimelineState): ReadonlySet<TimelineSectio
   if (timeline.entries.length > 0) rendered.add('sequence')
   if (audioTracksOf(timeline).length > 0) rendered.add('audio')
   if (videoOverlaysOf(timeline).length > 0) rendered.add('overlays')
+  if (shapeGroupsOf(timeline).length > 0) rendered.add('shapes')
   if (textsOf(timeline).length > 0) rendered.add('text')
   return rendered
 }
@@ -1674,6 +1860,10 @@ export function Timeline({
   onImportSubtitles,
   onUpdateText,
   onRemoveText,
+  onAddShapeGroup,
+  onUpdateShapeGroup,
+  onRemoveShapeGroup,
+  frameSize = { width: 1920, height: 1080 },
   onUpdateVideoOverlay,
   onRemoveVideoOverlay,
   onRemoveAudioTrack,
@@ -1706,6 +1896,7 @@ export function Timeline({
   const transitions = boundaryTransitions(timeline)
   const audioTracks = audioTracksOf(timeline)
   const texts = textsOf(timeline)
+  const shapeGroups = shapeGroupsOf(timeline)
   const videoOverlays = videoOverlaysOf(timeline)
   // The lane's visual scale is the video sequence duration — what preview
   // and export actually cover (#180, the customer's ask in #170). An item
@@ -1766,6 +1957,9 @@ export function Timeline({
   const addItems: MenuItem[] = [
     { kind: 'action', label: 'Color slate', onSelect: onAddSlate },
     { kind: 'action', label: 'Text overlay', onSelect: onAddText },
+    ...(onAddShapeGroup === undefined
+      ? []
+      : [{ kind: 'action', label: 'Shape group', onSelect: onAddShapeGroup } as MenuItem]),
     {
       kind: 'action',
       label: 'Subtitles from .srt file…',
@@ -1791,6 +1985,7 @@ export function Timeline({
     ...entries.map((entry) => entry.id),
     ...audioTracks.map((track) => track.id),
     ...videoOverlays.map((overlay) => overlay.id),
+    ...shapeGroups.map((group) => group.id),
     ...texts.map((text) => text.id),
   ]
   // Open "Picture" disclosures (#420, from the approved redesign #401 /
@@ -1817,6 +2012,7 @@ export function Timeline({
       ...timeline.entries.map((entry) => entry.id),
       ...audioTracksOf(timeline).map((track) => track.id),
       ...videoOverlaysOf(timeline).map((overlay) => overlay.id),
+      ...shapeGroupsOf(timeline).map((group) => group.id),
       ...textsOf(timeline).map((text) => text.id),
     ])
     setCollapsed((previous) => {
@@ -3537,6 +3733,158 @@ export function Timeline({
                       ),
                     },
                   ])}
+                    </>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+          )}
+        </div>
+      )}
+
+      {shapeGroups.length > 0 && (
+        <div className="shape-lane">
+          {sectionHeading(
+            'shapes',
+            'Shapes',
+            'shape-lane-heading',
+            shapeGroups.map((group) => group.id),
+          )}
+          {!isFolded('shapes') && (
+          <ol className="shape-group-list" aria-label="Shape groups">
+            {shapeGroups.map((group, index) => {
+              const position = `shape group at position ${index + 1}`
+              const removal: PendingRemoval = {
+                name: position,
+                consequence: `Its ${group.shapes.length === 1 ? 'shape is' : `${group.shapes.length} shapes are`} discarded.`,
+                action: () => onRemoveShapeGroup?.(group.id),
+              }
+              const set = (change: Partial<ShapeGroupSpec>) =>
+                onUpdateShapeGroup?.(group.id, { ...shapeGroupSpecOf(group), ...change })
+              const setShape = (shapeIndex: number, change: Partial<Shape>) =>
+                set({
+                  shapes: group.shapes.map((shape, i) =>
+                    i === shapeIndex ? { ...shape, ...change } : shape,
+                  ),
+                })
+              // A new shape takes the style of the group's last shape — the
+              // fields' form of #681 §2's "the last shape you drew or edited".
+              const addShape = (kind: ShapeKind) =>
+                set({
+                  shapes: [
+                    ...group.shapes,
+                    defaultShape(
+                      crypto.randomUUID(),
+                      kind,
+                      pickStyle(group.shapes[group.shapes.length - 1]),
+                    ),
+                  ],
+                })
+              return (
+                <li key={group.id} className="shape-group">
+                  <div className="audio-track-strip" aria-hidden="true">
+                    <div
+                      className="audio-track-bar shape-group-bar"
+                      data-testid={`shape-group-bar-${index}`}
+                      style={laneBar(group.offset, group.duration)}
+                    />
+                  </div>
+                  <div className="shape-group-main">
+                    {collapseToggle(group.id, position)}
+                    <span className="clip-name" title={shapeGroupLabel(group)}>
+                      {shapeGroupLabel(group)}
+                    </span>
+                    <span className="timeline-row-actions">
+                      <Menu
+                        label="⋯"
+                        caret={false}
+                        ariaLabel={`More actions for ${position}`}
+                        menuLabel={`More actions for ${position}`}
+                        className="timeline-row-more"
+                        items={[
+                          { kind: 'action', label: 'Remove', onSelect: () => setPendingRemoval(removal) },
+                        ]}
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Remove ${position} from timeline`}
+                        onClick={() => setPendingRemoval(removal)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </div>
+                  {!isCollapsed(group.id) && (
+                    <>
+                      <div className="text-overlay-controls">
+                        <span>Shows at</span>
+                        <SecondsField
+                          label={`Start time of ${position} in seconds`}
+                          value={group.offset}
+                          max={86400}
+                          onCommit={(offset) => set({ offset })}
+                          unit="s"
+                        />
+                        <span>for</span>
+                        <SecondsField
+                          label={`Duration of ${position} in seconds`}
+                          value={group.duration}
+                          min={0.1}
+                          max={86400}
+                          onCommit={(duration) => set({ duration })}
+                          unit="s"
+                        />
+                        <LabelledField text="Fade in">
+                          <SecondsField
+                            label={`Fade-in of ${position} in seconds`}
+                            value={group.fadeIn ?? 0}
+                            max={group.duration}
+                            onCommit={(fadeIn) => set({ fadeIn })}
+                            unit="s"
+                          />
+                        </LabelledField>
+                        <LabelledField text="out">
+                          <SecondsField
+                            label={`Fade-out of ${position} in seconds`}
+                            value={group.fadeOut ?? 0}
+                            max={group.duration}
+                            onCommit={(fadeOut) => set({ fadeOut })}
+                            unit="s"
+                          />
+                        </LabelledField>
+                      </div>
+                      <ol className="shape-list" aria-label={`Shapes in ${position}`}>
+                        {group.shapes.map((shape, shapeIndex) => (
+                          <ShapeFields
+                            key={shape.id}
+                            shape={shape}
+                            name={`${SHAPE_KIND_LABELS[shape.kind]} ${shapeIndex + 1} of ${position}`}
+                            frameSize={frameSize}
+                            onChange={(change) => setShape(shapeIndex, change)}
+                            onRemove={
+                              group.shapes.length > 1
+                                ? () =>
+                                    set({
+                                      shapes: group.shapes.filter((_, i) => i !== shapeIndex),
+                                    })
+                                : undefined
+                            }
+                          />
+                        ))}
+                      </ol>
+                      <div className="text-overlay-controls">
+                        <Menu
+                          label="+ Add shape"
+                          ariaLabel={`Add a shape to ${position}`}
+                          menuLabel={`Add a shape to ${position}`}
+                          items={SHAPE_KINDS.map((kind) => ({
+                            kind: 'action',
+                            label: SHAPE_KIND_LABELS[kind],
+                            onSelect: () => addShape(kind),
+                          }))}
+                        />
+                      </div>
                     </>
                   )}
                 </li>

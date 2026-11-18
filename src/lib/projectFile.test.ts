@@ -26,9 +26,11 @@ import fixtureV19MarkersReferencesBase64 from './fixtures/project-v19-markers-re
 import fixtureV20RedactionReferencesBase64 from './fixtures/project-v20-redaction-references.bvep.base64?raw'
 import fixtureV21SpotlightReferencesBase64 from './fixtures/project-v21-spotlight-references.bvep.base64?raw'
 import fixtureV22SoftSpotlightReferencesBase64 from './fixtures/project-v22-soft-spotlight-references.bvep.base64?raw'
+import fixtureV23ShapeGroupsReferencesBase64 from './fixtures/project-v23-shape-groups-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
+import type { ShapeGroup } from './shapes'
 import type { TextOverlay } from './textOverlay'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
@@ -44,6 +46,7 @@ import {
   REDACTION_SCHEMA_VERSION,
   SPOTLIGHT_SCHEMA_VERSION,
   SOFT_SPOTLIGHT_SCHEMA_VERSION,
+  SHAPE_GROUPS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1131,8 +1134,8 @@ describe('project file versioning', () => {
     // version 19 added chapter markers (#487); version 20 added entry and
     // overlay redaction regions (#492); version 21 added entry and overlay
     // spotlight regions (#532); version 22 added a spotlight region's soft
-    // edge (#533).
-    expect(PROJECT_SCHEMA_VERSION).toBe(22)
+    // edge (#533); version 23 added shape groups (#683).
+    expect(PROJECT_SCHEMA_VERSION).toBe(23)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1155,6 +1158,7 @@ describe('project file versioning', () => {
     expect(REDACTION_SCHEMA_VERSION).toBe(20)
     expect(SPOTLIGHT_SCHEMA_VERSION).toBe(21)
     expect(SOFT_SPOTLIGHT_SCHEMA_VERSION).toBe(22)
+    expect(SHAPE_GROUPS_SCHEMA_VERSION).toBe(23)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4321,6 +4325,134 @@ describe('every shipped schema version keeps a fixture (#544)', () => {
         versionOf(path),
       )
     }
+  })
+})
+
+// Shape groups (#683, schema version 23): the optional-collection rules —
+// the key is written only while any exist, a shape-free project stays
+// byte-identical at its lower version, and a malformed shape is refused by
+// name rather than silently dropped.
+describe('shape groups in project files (#683, schema version 23)', () => {
+  const shapeGroups: ShapeGroup[] = [
+    {
+      id: 'g1',
+      offset: 1,
+      duration: 3,
+      fadeIn: 0.5,
+      shapes: [
+        {
+          id: 's1',
+          kind: 'ellipse',
+          x: 0.4,
+          y: 0.35,
+          width: 0.2,
+          height: 0.3,
+          stroke: '#e53935',
+          strokeOpacity: 1,
+          thickness: 6 / 1080,
+          fill: '#e53935',
+          fillOpacity: 0,
+        },
+        {
+          id: 's2',
+          kind: 'rectangle',
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.2,
+          stroke: '#000000',
+          strokeOpacity: 0.5,
+          thickness: 0,
+          fill: '#ffeb3b',
+          fillOpacity: 0.35,
+          cornerRadius: 0.02,
+        },
+      ],
+    },
+  ]
+
+  it('round-trips shape groups at version 23', async () => {
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(SHAPE_GROUPS_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).shapeGroups).toEqual(shapeGroups)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(shapeGroups)
+  })
+
+  it('writes no key and no version bump for a project without shape groups', async () => {
+    const without = await serializeProject(library, timeline)
+    const explicitlyEmpty = await serializeProject(library, { ...timeline, shapeGroups: [] })
+    expect(new Uint8Array(explicitlyEmpty)).toEqual(new Uint8Array(without))
+    const document = await gunzipJson(without)
+    expect(document.schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    expect(document.timeline as Record<string, unknown>).not.toHaveProperty('shapeGroups')
+    const result = await deserializeProject(without)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.project.timeline).not.toHaveProperty('shapeGroups')
+  })
+
+  it('refuses a malformed group or shape by name', async () => {
+    const withGroups = (list: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: SHAPE_GROUPS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, shapeGroups: list },
+    })
+    const group = shapeGroups[0]
+    const shape = group.shapes[0]
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, duration: 0 }])),
+      'timeline.shapeGroups[0].duration',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [] }])),
+      'timeline.shapeGroups[0].shapes must not be empty',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [{ ...shape, kind: 'star' }] }])),
+      'timeline.shapeGroups[0].shapes[0].kind "star" is unknown',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [{ ...shape, stroke: 'red' }] }])),
+      'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [{ ...shape, fillOpacity: 2 }] }])),
+      'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+    )
+    // A corner radius belongs to rectangles; an ellipse carrying one is refused.
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [{ ...shape, cornerRadius: 0.1 }] }])),
+      'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([{ ...group, shapes: [shape, shape] }])),
+      'timeline.shapeGroups[0].shapes[1].id "s1" is duplicated',
+    )
+    await expectRefusal(
+      await gzipJson(withGroups([group, group])),
+      'timeline.shapeGroups[1].id "g1" is duplicated',
+    )
+  })
+
+  it('a version-22 build refuses the file by version rather than dropping the shapes', async () => {
+    // What makes the bump worth having: an older build reads the version
+    // first and says the file is newer, instead of opening it shape-less.
+    const document = await gunzipJson(await serializeProject(library, { ...timeline, shapeGroups }))
+    expect(document.schemaVersion).toBeGreaterThan(SOFT_SPOTLIGHT_SCHEMA_VERSION)
+  })
+
+  it('deserializes the committed v23 shape-groups fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV23ShapeGroupsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: { clips: expectedProject.clips, timeline: { ...expectedProject.timeline, shapeGroups } },
+    })
   })
 })
 

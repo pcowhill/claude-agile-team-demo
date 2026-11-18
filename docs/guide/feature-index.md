@@ -8,6 +8,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## Symbols and keys
 
+- **+ Add shape** — an expanded shape group row; adds a rectangle or an ellipse. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **+ Effect** — an expanded sequence entry, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
 - **?** — shows the keyboard cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **× (beside the playhead)** — the position readout, while the review speed is not 1×; how fast the preview is playing. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
@@ -50,6 +51,9 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Background fill** — an expanded sequence entry › Picture ▸. [Editing video › Background fill](editing-video.md#background-fill)
 - **Bold** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
+- **Border colour** — a shape in an expanded shape group row › Border. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Border opacity** — a shape in an expanded shape group row › Border; 0 to 100 %. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Border thickness** — a shape in an expanded shape group row › Thickness, in pixels; 0 is no border. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
 - **Brightness** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 
 ## C
@@ -69,6 +73,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Contrast** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 - **Copy chapter list** — the export dialog's Range group; the markers in the exported span, as text. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
 - **Copy settings** — a timeline row's ⋯ menu. [Timeline › Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+- **Corner radius** — a rectangle in an expanded shape group row › Corners, in pixels; 0 is a sharp corner. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
 - **Countdown before recording** — Settings; 3 s or Off. [Settings › Countdown before recording](settings.md#countdown-before-recording)
 - **Crop bottom** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
 - **Crop left** — an expanded video or image row › Picture ▸ › Crop. [Editing video › Crop](editing-video.md#crop)
@@ -100,11 +105,12 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Duck level** — beside Duck others while it is on; how far the other audio drops. [Audio › The duck level](audio.md#the-duck-level)
 - **Duck others** — an expanded audio track's row. [Audio › Duck others](audio.md#duck-others)
 - **Duplicate** — a timeline row's ⋯ menu. [Timeline › Duplicate](timeline.md#duplicate)
-- **Duration** — an expanded still, slate, overlay or text row; how long it shows. [Timeline › A row](timeline.md#a-row)
+- **Duration** — an expanded still, slate, overlay, shape group or text row; how long it shows. [Timeline › A row](timeline.md#a-row) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades)
 
 ## E
 
 - **Each chapter** — the export dialog's Range group, once the project has a chapter marker; one file per chapter instead of one for the whole run. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
+- **Ellipse** — + Add shape ▾ on a shape group. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Embed media in the project file** — the Save project dialog; one self-contained file with the media data in it. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
@@ -122,9 +128,11 @@ This list is checked against the running editor in CI: a control the app shows a
 ## F
 
 - **F1** — opens this guide. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
-- **Fade-in** — an expanded text row and an expanded audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
-- **Fade-out** — an expanded text row and an expanded audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
+- **Fade-in** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
+- **Fade-out** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **File** — the header menu holding the project, plugin, settings and export actions. [Projects › New Project](projects.md#new-project)
+- **Fill colour** — a shape in an expanded shape group row › Fill. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
+- **Fill opacity** — a shape in an expanded shape group row › Fill; 0 % is a clear centre. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style)
 - **Fit to width** — the preview's View ▾; the picture takes the panel's whole width, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Flip H** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
@@ -135,7 +143,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## H
 
-- **Height** — an expanded overlay row; the placement rectangle's height. [Glossary › Placement rectangle](glossary.md#placement-rectangle)
+- **Height** — an expanded overlay row; the placement rectangle's height. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Help** — the header menu holding this guide and the cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **Home / End** — jumps the playhead to the sequence's start or end. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 
@@ -152,7 +160,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## L
 
-- **Left edge** — an expanded overlay row; the placement rectangle's left edge. [Glossary › Placement rectangle](glossary.md#placement-rectangle)
+- **Left edge** — an expanded overlay row; the placement rectangle's left edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Length** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 - **List** — View ▾; the list layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
 - **Look** — an expanded video or image row › Picture ▸; the preset grade. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
@@ -197,6 +205,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **R** — steps the review speed through 0.5×, 1×, 1.5× and 2×, wrapping round. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **Record** — the media library header; the menu of capture sources. [Recording › Record ▾](recording.md#record)
+- **Rectangle** — + Add shape ▾ on a shape group. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Redaction region block size** — a redaction region set to Pixelate; the block, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region blur strength** — a redaction region set to Blur; the radius, in source pixels. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region colour** — a redaction region set to Solid; what it is filled with. [Editing video › Redact a region](editing-video.md#redact-a-region)
@@ -239,6 +248,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Select a clip** — the checkbox on a media library row. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Settings…** — File ▾. [Settings › Opening Settings](settings.md#opening-settings)
+- **Shape group** — Add ▾. [Shapes and annotations › Adding a shape group](shapes-and-annotations.md#adding-a-shape-group)
 - **Shape mask** — an expanded overlay row › Picture ▸. [Editing video › Shape mask](editing-video.md#shape-mask)
 - **Shift + ← / →** — steps the playhead back and forward by the jump size. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Show result** — a visual editor’s scrub row; draws the frame the viewer gets instead of the outline. [Visual editors › Show result](visual-editors.md#show-result)
@@ -259,7 +269,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Spotlight region top** — a spotlight region; its top edge, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Spotlight region width** — a spotlight region; its width, in percent of the source frame. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Start now** — the recording dialog, during the countdown; skips it. [Recording › The countdown](recording.md#the-countdown)
-- **Start time** — an expanded overlay, text or audio row; the second of the video it begins at. [Timeline › A row](timeline.md#a-row)
+- **Start time** — an expanded overlay, shape group, text or audio row; the second of the video it begins at. [Timeline › A row](timeline.md#a-row)
 - **Stop recording** — the recording dialog; ends the capture and hands the clip to the library. [Recording › The recording dialog](recording.md#the-recording-dialog)
 - **Store references only** — the Save project dialog; a small file of edits and clip names, re-linked when it is opened. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Subtitle style** — under the timeline header, once the timeline holds a text overlay. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
@@ -269,7 +279,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Text overlay** — Add ▾. [Text and subtitles › Adding a text overlay](text-and-subtitles.md#adding-a-text-overlay)
 - **Thumbnails** — View ▾; the thumbnail layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
-- **Top edge** — an expanded overlay row; the placement rectangle's top edge. [Glossary › Placement rectangle](glossary.md#placement-rectangle)
+- **Top edge** — an expanded overlay row; the placement rectangle's top edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Transition duration** — a transition control between two entries; how long the overlap lasts. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Transition type** — a transition control between two entries; which transition it is. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Type** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
@@ -292,7 +302,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **WebM** — the export dialog's Format group, and File ▾ › Export ▸. [Export › Formats and what decides them](export.md#formats-and-what-decides-them)
 - **When a previous session is found** — Settings. [Settings › When a previous session is found](settings.md#when-a-previous-session-is-found)
 - **Whole project** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
-- **Width** — an expanded overlay row; the placement rectangle's width. [Glossary › Placement rectangle](glossary.md#placement-rectangle)
+- **Width** — an expanded overlay row; the placement rectangle's width. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 
 ## Z
 

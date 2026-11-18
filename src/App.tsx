@@ -24,6 +24,7 @@ import {
   totalDuration,
   videoOverlayFromClip,
 } from './lib/timeline'
+import { defaultShapeGroup } from './lib/shapes'
 import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from './lib/history'
 import { modalDialogOpen } from './lib/transport'
 import { DEFAULT_TEXT } from './lib/textOverlay'
@@ -423,6 +424,11 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   // offers the validated range they currently form (markedExportRange, the
   // one shared rule).
   const [markIn, setMarkIn] = useState<number | null>(null)
+  // The preview's playhead (#683), read on demand by Add ▾ › Shape group.
+  const playheadRef = useRef(0)
+  // The output frame the preview composes (#683), for the px the Shapes
+  // fields show. The 16:9 fallback until the preview reports one.
+  const [outputFrame, setOutputFrame] = useState<SourceDimensions>({ width: 1920, height: 1080 })
   const [markOut, setMarkOut] = useState<number | null>(null)
   const exportRange = markedExportRange(markIn, markOut, totalDuration(timeline))
   const handleClearMarks = useCallback(() => {
@@ -601,6 +607,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         />
         <PreviewPlayer
           timeline={timeline}
+          playheadRef={playheadRef}
+          onFrameSize={setOutputFrame}
           layout={previewLayout}
           onSetLayout={handleSetPreviewLayout}
           stepSeconds={settings.stepSeconds}
@@ -693,6 +701,21 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           subtitleStyle={timeline.subtitleStyle}
           onSetSubtitleStyle={(style) => dispatchTimeline({ type: 'subtitle-style-set', style })}
           onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
+          frameSize={outputFrame}
+          onAddShapeGroup={() =>
+            dispatchTimeline({
+              type: 'shape-group-added',
+              group: defaultShapeGroup(
+                crypto.randomUUID(),
+                crypto.randomUUID(),
+                Math.min(playheadRef.current, totalDuration(timeline)),
+              ),
+            })
+          }
+          onUpdateShapeGroup={(id, group) =>
+            dispatchTimeline({ type: 'shape-group-updated', id, group })
+          }
+          onRemoveShapeGroup={(id) => dispatchTimeline({ type: 'shape-group-removed', id })}
           onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
           onUpdateVideoOverlay={(id, placement) =>
             dispatchTimeline({ type: 'video-overlay-updated', id, placement })

@@ -28,7 +28,7 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **What it does.** Sets the exported picture's size and frame rate for this one export.
 
-**Details.** The drop-down opens on **Auto (match sources)** — the frame follows the sources composed with the canvas preset, exactly as the preview shows, and the fields display the size that yields. The presets — {{EXPORT_SIZE_PRESETS}} — fill the fields with a common output size, and **Custom** is what typing into a field switches to. Each field shows its unit inside the box, after the number: **px** for width and height, **fps** for the frame rate. Width and height are whole pixels from {{MIN_EXPORT_DIMENSION}} to {{MAX_EXPORT_DIMENSION}}; the frame rate is {{EXPORT_FRAME_RATE}} fps unless you set another, up to {{MAX_EXPORT_FRAME_RATE}}. A value outside those bounds shows a message and disables Export until it is fixed. Whatever you choose here applies to this export only — the next time the dialog opens it is back on Auto — and an audio-only format hides the whole group, since it records no picture. The picture is composed at the requested size, not scaled after the fact, so overlays, text and zooms keep their proportions.
+**Details.** The drop-down opens on **Auto (match sources)** — the frame follows the sources composed with the canvas preset, exactly as the preview shows, and the fields display the size that yields. The presets — {{EXPORT_SIZE_PRESETS}} — fill the fields with a common output size, and **Custom** is what typing into a field switches to. Each field shows its unit inside the box, after the number: **px** for width and height, **fps** for the frame rate. Width and height are whole pixels from {{MIN_EXPORT_DIMENSION}} to {{MAX_EXPORT_DIMENSION}}; the frame rate is {{EXPORT_FRAME_RATE}} fps unless you set another, up to {{MAX_EXPORT_FRAME_RATE}}. A value outside those bounds shows a message and disables Export until it is fixed. Whatever you choose here applies to this export only — the next time the dialog opens it is back on Auto — and an audio-only format hides the whole group, since it records no picture. The picture is composed at the requested size, not scaled after the fact, so overlays, shapes, text and zooms keep their proportions.
 
 **Related.** [The output frame](concepts.md#the-output-frame) · [Canvas](timeline.md#the-header)
 
@@ -84,7 +84,7 @@ The times are rounded **down**, so a chapter never starts after the moment you m
 
 **Where to find it.** **Format** › **Animated GIF**, once **File ▾** › **Plugins…** › *GIF export* is enabled.
 
-**What it does.** Encodes the composed timeline — transitions, zooms, overlays and text included — as a soundless animated GIF.
+**What it does.** Encodes the composed timeline — transitions, zooms, overlays, shapes and text included — as a soundless animated GIF.
 
 **Details.** The GIF samples at {{GIF_FPS}} fps and is scaled down so its longer side is at most {{GIF_MAX_PX}} px, whatever size the Output group asks for — the composition is drawn at the requested size and then shrunk, so nothing is misplaced — and each frame gets its own 256-colour palette. The note under the Format group states these limits. The plugin's code downloads when the plugin is first enabled, not with the editor. Disabling the plugin removes the format from the list; an export already running finishes.
 

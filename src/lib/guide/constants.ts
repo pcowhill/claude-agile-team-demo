@@ -3,6 +3,7 @@ import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
 import { DEFAULT_SPOTLIGHT_DIM, MAX_SPOTLIGHT_SOFTEN } from '../spotlight'
+import { DEFAULT_SHAPE_GROUP_DURATION } from '../shapes'
 import {
   LOOP_PAUSE_MS,
   MAX_EDITOR_ZOOM_SCALE,
@@ -67,6 +68,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     DEFAULT_DUCK_LEVEL_PERCENT: String(Math.round(DEFAULT_DUCK_LEVEL * 100)),
     DEFAULT_TRANSITION_DURATION: String(DEFAULT_TRANSITION_DURATION),
     DEFAULT_TEXT_DURATION: String(DEFAULT_TEXT.duration),
+    DEFAULT_SHAPE_GROUP_DURATION: String(DEFAULT_SHAPE_GROUP_DURATION),
     STEP_SECONDS: String(settings.stepSeconds),
     LARGE_STEP_SECONDS: String(settings.largeStepSeconds),
     CROP_MIN_KEPT_PERCENT: percent(MIN_KEPT_FRACTION),

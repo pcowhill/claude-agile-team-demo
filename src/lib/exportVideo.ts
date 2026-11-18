@@ -18,12 +18,14 @@ import {
   isStillEntry,
   remapsForEntry,
   remapsOf,
+  shapeGroupsOf,
   textsOf,
   totalDuration,
   isImageOverlay,
   videoOverlaysOf,
 } from './timeline'
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
+import { drawShapeGroups } from './shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime, locateInSequence } from './playback'
 import {
@@ -1417,6 +1419,11 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         context.drawImage(scratch.canvas, 0, 0)
       }
     }
+    // Shape groups (#683) draw above every picture layer and below text
+    // (#681 §4, approved answer 2a): an annotation on the output frame, so —
+    // like text — outside every zoom and slide above. The one routine the
+    // preview's canvas calls too, so the two cannot disagree.
+    drawShapeGroups(context, shapeGroupsOf(timeline), sequenceTime, width, height)
     // Text overlays (#142) draw last, above the composed frame — the
     // preview's documented stacking order (#139): video/still layers first
     // (transitions and zooms apply to those), then overlays in add order.

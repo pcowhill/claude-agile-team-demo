@@ -1,6 +1,6 @@
 # Text and subtitles
 
-Words on the picture: titles, captions, labels and imported subtitles, each a **text overlay** — a block of text at a point in the frame for a window of time, drawn above everything else. This page covers [adding a text overlay](#adding-a-text-overlay), [its properties](#the-properties), [fading it in and out](#fade-in-and-fade-out), [how it renders](#how-text-renders) in the preview and the export, [importing subtitles](#subtitles-from-an-srt-file) from an `.srt` file, [the default subtitle style](#the-default-subtitle-style) that restyles them all at once, and [pinned properties](#pinned-properties). Placing the block by dragging it instead of typing its centre is the [visual text editor](visual-editors.md#what-each-editor-shows). Where the Text section sits among the timeline's rows is on [Timeline](timeline.md#the-four-sections).
+Words on the picture: titles, captions, labels and imported subtitles, each a **text overlay** — a block of text at a point in the frame for a window of time, drawn above everything else. This page covers [adding a text overlay](#adding-a-text-overlay), [its properties](#the-properties), [fading it in and out](#fade-in-and-fade-out), [how it renders](#how-text-renders) in the preview and the export, [importing subtitles](#subtitles-from-an-srt-file) from an `.srt` file, [the default subtitle style](#the-default-subtitle-style) that restyles them all at once, and [pinned properties](#pinned-properties). Placing the block by dragging it instead of typing its centre is the [visual text editor](visual-editors.md#what-each-editor-shows). Where the Text section sits among the timeline's rows is on [Timeline](timeline.md#the-five-sections).
 
 ## Adding a text overlay
 
@@ -46,7 +46,7 @@ The number fields commit on Enter or when you leave them; in Firefox, a click on
 
 **Where to find it.** Nothing to operate; how the preview and the export draw an overlay.
 
-**What it does.** Draws the block above the composed frame — above the sequence, its transitions and zooms, and above the overlay layers — for its window, in the preview and identically in the exported file.
+**What it does.** Draws the block above the composed frame — above the sequence, its transitions and zooms, above the overlay layers, and above [shapes](shapes-and-annotations.md#how-shapes-render) — for its window, in the preview and identically in the exported file.
 
 **Details.** Size and position are fractions of the output frame, so an overlay keeps its proportion and its place whatever the frame's pixel size, and the export draws it at the output resolution with the same font, size, position and fade envelope the preview used. Frame snapshots and the GIF plugin draw through the same rule. The block is measured from its text under its font, not stored — its width is whatever the widest line comes out as — which is why the visual editor can put a handle exactly on the text you see.
 

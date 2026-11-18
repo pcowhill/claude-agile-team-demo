@@ -78,7 +78,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Details.** A clip can be added any number of times, and each placement is trimmed and adjusted on its own; removing a placement leaves the clip in the library. An image is placed as a still with the default duration from [Settings](settings.md#new-still-or-slate-duration) ({{DEFAULT_STILL_DURATION}} s unless you changed it).
 
-**Related.** [Selecting several clips](#selecting-several-clips) · [The four sections of the timeline](concepts.md#the-four-sections-of-the-timeline)
+**Related.** [Selecting several clips](#selecting-several-clips) · [The five sections of the timeline](concepts.md#the-five-sections-of-the-timeline)
 
 ## The ⋯ menu
 

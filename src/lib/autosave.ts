@@ -1,5 +1,5 @@
 import type { LibraryClip, MediaLibraryState } from './mediaLibrary'
-import { audioTracksOf, textsOf } from './timeline'
+import { audioTracksOf, shapeGroupsOf, textsOf } from './timeline'
 import type { TimelineState } from './timeline'
 
 /**
@@ -192,13 +192,15 @@ export function planMediaSync(
 /**
  * Whether the session is empty (#194): nothing worth snapshotting, and an
  * existing snapshot should be cleared. Timeline content that can exist
- * without clips (slates, text overlays) counts as content.
+ * without clips (slates, text overlays, shape groups) counts as content.
  */
 export function sessionIsEmpty(library: MediaLibraryState, timeline: TimelineState): boolean {
   return (
     library.clips.length === 0 &&
     timeline.entries.length === 0 &&
     textsOf(timeline).length === 0 &&
+    // Shape groups (#683) need no clip either, so they are content too.
+    shapeGroupsOf(timeline).length === 0 &&
     audioTracksOf(timeline).length === 0
   )
 }

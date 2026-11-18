@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   ADD_SLATE,
   ADD_TEXT,
+  ADD_SHAPES,
   IMPORT_SUBTITLES,
   addMenu,
   addMenuTrigger,
@@ -55,7 +56,13 @@ test('Add ▾ adds a slate by keyboard alone, and offers exactly the three forme
   }
 
   const menu = await openAddMenu(page)
-  await expect(menu.getByRole('menuitem')).toHaveText([ADD_SLATE, ADD_TEXT, IMPORT_SUBTITLES])
+  // Shape group (#683) joined the three, beside Text overlay.
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    ADD_SLATE,
+    ADD_TEXT,
+    ADD_SHAPES,
+    IMPORT_SUBTITLES,
+  ])
   // Escape returns focus to the trigger — the menu-button contract (#412).
   await page.keyboard.press('Escape')
   await expect(addMenu(page)).toHaveCount(0)
