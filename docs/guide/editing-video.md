@@ -28,7 +28,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Captures the frame under the playhead as a still and places it on the timeline.
 
-**Details.** The frame is composed exactly as an export of that instant would be — transitions mid-blend, zooms, colour, orientation, overlays and text included — and saved into the library as an image clip named *Freeze* and the time, so it can be reused. *Split & hold* splits the entry at the playhead and holds the still between the halves; *append after clip* places it after the entry. The still shows for {{FREEZE_STILL_DURATION}} s, adjustable like any still. Both items are disabled where a split would be — at a boundary or inside a transition. The whole freeze is one undo step; the captured clip stays in the library across that undo.
+**Details.** The frame is composed exactly as an export of that instant would be — transitions mid-blend, zooms, colour, orientation, overlays, shapes and text included — and saved into the library as an image clip named *Freeze* and the time, so it can be reused. *Split & hold* splits the entry at the playhead and holds the still between the halves; *append after clip* places it after the entry. The still shows for {{FREEZE_STILL_DURATION}} s, adjustable like any still. Both items are disabled where a split would be — at a boundary or inside a transition. The whole freeze is one undo step; the captured clip stays in the library across that undo.
 
 **Related.** [Split at playhead](#split-at-playhead)
 

@@ -26,7 +26,7 @@
 
 **Where to find it.** **File ▾** › **Plugins…** › *GIF export*; once enabled, **Animated GIF** in the export dialog's Format group.
 
-**What it does.** Adds an *Animated GIF* export format: the composed timeline — transitions, zooms, overlays, text and all — as a soundless GIF.
+**What it does.** Adds an *Animated GIF* export format: the composed timeline — transitions, zooms, overlays, shapes, text and all — as a soundless GIF.
 
 **Details.** The GIF samples at {{GIF_FPS}} fps and is scaled down so its longer side is at most {{GIF_MAX_PX}} px, with a fresh 256-colour palette per frame; the format's note in the export dialog states the limits. The encoder lives inside the plugin, so the editor never carries it until the plugin is enabled. No project depends on this plugin — a GIF is an output, not part of the arrangement — so a project file never asks for it.
 
