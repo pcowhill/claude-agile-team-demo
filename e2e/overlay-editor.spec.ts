@@ -273,13 +273,18 @@ test('Shift on a corner keeps the proportions, and the mask silhouette is drawn 
   await expect(silhouette).toHaveAttribute('data-shape', 'ellipse')
   // Inscribed in the rectangle the region draws, to a pixel. Both boxes are
   // re-measured after the disclosure opened and the panel was scrolled.
+  // The radius is held to 1.05 rather than 1, for the region's box. In
+  // Chromium that box is the rect's geometry. In Firefox it includes the
+  // 2 px stroke and is rounded out to 1/60 px, so half its width is
+  // 1 + 1/60 px over the radius (#598: 135.417 against an rx of 134.4). The
+  // centre is unaffected, because the stroke is symmetric.
   const scrolledFrame = (await editor.getByTestId('frame-editor-frame').boundingBox())!
   const drawn = (await region.boundingBox())!
   const measured = await silhouette.evaluate((node) => ({
     cx: Number(node.getAttribute('cx')),
     rx: Number(node.getAttribute('rx')),
   }))
-  expect(Math.abs(measured.rx - drawn.width / 2)).toBeLessThan(1)
+  expect(Math.abs(measured.rx - drawn.width / 2)).toBeLessThanOrEqual(1.05)
   expect(Math.abs(measured.cx - (drawn.x - scrolledFrame.x + drawn.width / 2))).toBeLessThan(1)
   await editor.screenshot({ path: testInfo.outputPath('overlay-editor-ellipse.png') })
 })

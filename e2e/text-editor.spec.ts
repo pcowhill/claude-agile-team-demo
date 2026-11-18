@@ -18,6 +18,15 @@ type Locator = import('@playwright/test').Locator
 
 const position = 'text overlay at position 1'
 
+/**
+ * How far the region's drawn height may sit from the height its size gives.
+ * The 2 px stroke is in Firefox's `boundingBox()` of an SVG rect but not in
+ * Chromium's, and Firefox rounds that box outward to its 1/60 px grid.
+ * Measured (#598): a rect 24.19 tall reads 24.19 in Chromium and 26.217 in
+ * Firefox.
+ */
+const STROKE = 2.05
+
 const field = (page: Page, name: string) => page.getByRole('spinbutton', { name })
 const centreX = (page: Page) => field(page, `Centre X of ${position} (0 to 1)`)
 const centreY = (page: Page) => field(page, `Centre Y of ${position} (0 to 1)`)
@@ -144,7 +153,7 @@ test('the box is on the drawn text, a drag commits the centre the fields read, t
   const before = await regionFraction(editor)
   expect(before.x + before.width / 2).toBeCloseTo(0.5, 2)
   expect(before.y + before.height / 2).toBeCloseTo(0.5, 2)
-  expect(Math.abs(before.rect.height - before.frame.height * 0.096)).toBeLessThanOrEqual(2)
+  expect(Math.abs(before.rect.height - before.frame.height * 0.096)).toBeLessThanOrEqual(STROKE)
   const ink = await brightInside(editor, before)
   expect(ink.total, 'the still has white text on it').toBeGreaterThan(50)
   expect(ink.inside / ink.total, `${ink.inside} of ${ink.total} bright pixels inside the box`).toBeGreaterThanOrEqual(0.98)
@@ -200,7 +209,7 @@ test('the box is on the drawn text, a drag commits the centre the fields read, t
   await expectField(sizeField(page), 'size').toBeCloseTo(0.16, 2)
   await expect(centreX(page)).toHaveValue('0.5')
   const grown = await regionFraction(editor)
-  expect(Math.abs(grown.rect.height - grown.frame.height * 0.192)).toBeLessThanOrEqual(2)
+  expect(Math.abs(grown.rect.height - grown.frame.height * 0.192)).toBeLessThanOrEqual(STROKE)
   await page.keyboard.press('Control+z')
   await expect(sizeField(page)).toHaveValue('0.08')
 

@@ -43,13 +43,18 @@ const REGION = 'Redaction region 1'
 
 /**
  * How far a drawn rectangle's box may sit from the fraction it stands for:
- * the issue's 2 px, which is exactly the stroke — `.frame-editor-rect` is
- * stroked 2 px wide and a bounding box is stroke-inclusive, so a rectangle
- * dead on its fraction measures one pixel proud on each side, i.e. 2 in
- * total — plus a hundredth for the float tail a real layout carries
- * (measured 2.000009 at 1280 px on the first run).
+ * the issue's 2 px, which is the stroke (`.frame-editor-rect` is stroked
+ * 2 px wide), plus the rounding Firefox adds to it.
+ *
+ * The two browsers measure an SVG rect's box differently (#598, measured
+ * on Chromium 1243 and Firefox 153). Chromium's `boundingBox()` is the
+ * rect's own geometry, so a rect on its fraction reads within a float tail
+ * of it. Firefox's includes the stroke, one pixel each side, and rounds
+ * outward to its 1/60 px layout grid. A 134.4 px-wide rect reads
+ * 136.433 px, which is 2 + 2/60 over. The bound covers that, plus a float
+ * tail.
  */
-const STROKE = 2.01
+const STROKE = 2.05
 
 const field = (page: Page, which: string, label: string) =>
   page.getByRole('spinbutton', { name: `${which} ${label} of ${IMAGE} (percent)`, exact: true })
@@ -142,11 +147,9 @@ test('a drag moves the region with the fields following, a corner and an edge re
   // fraction a frame fraction here.
   expect(frameBox.width / frameBox.height).toBeCloseTo(1.5, 1)
 
-  // The default region drawn where its fields say, within the tolerance the
-  // issue names: the rectangle is stroked 2 px wide and a bounding box is
-  // stroke-inclusive, so a rectangle exactly on its fraction measures a
-  // pixel proud on each side — it reads exactly 2, plus a float's tail
-  // (measured: 2.000009), which is what the hundredth is for.
+  // The default region drawn where its fields say, within STROKE: the 2 px
+  // stroke that Firefox's box includes and Chromium's does not, plus
+  // Firefox's rounding to 1/60 px (#598).
   const drawn = (await region.boundingBox())!
   expect(Math.abs(drawn.x - (frameBox.x + frameBox.width * 0.35))).toBeLessThanOrEqual(STROKE)
   expect(Math.abs(drawn.y - (frameBox.y + frameBox.height * 0.4))).toBeLessThanOrEqual(STROKE)
@@ -154,21 +157,34 @@ test('a drag moves the region with the fields following, a corner and an edge re
   expect(Math.abs(drawn.height - frameBox.height * 0.2)).toBeLessThanOrEqual(STROKE)
 
   // A move by a fifth of the frame up and left, clear of every snap zone:
-  // the fields read 15 and 20, and the live readout agrees with them — both
-  // read inside one poll, so they come from the same render.
+  // the fields read 15 and 20 (to a pixel, below), and the live readout
+  // agrees with them. Both are read inside one poll, so they come from
+  // the same render.
   const start = await centreOf(region)
   await dragPointer(page, start, {
     x: start.x - frameBox.width * 0.2,
     y: start.y - frameBox.height * 0.2,
   })
+  // Firefox delivers whole-pixel pointer coordinates (#598, as #644
+  // measured for the crop editor), so the drag can travel up to a pixel more
+  // or less than a fifth of the frame: 90 px for 89.6 at 1280, which commits
+  // 14.91. The fields are held to within one pixel's worth of percent, and
+  // the readout to the fields exactly. Chromium lands on 15 and 20.
+  const pixel = { x: 100 / frameBox.width, y: 100 / frameBox.height }
   await expect
-    .poll(async () => ({
-      left: await valueOf(field(page, REGION, 'left')),
-      top: await valueOf(field(page, REGION, 'top')),
-      readoutLeft: await editor.getByRole('status', { name: `${REGION} left (live)` }).textContent(),
-      readoutTop: await editor.getByRole('status', { name: `${REGION} top (live)` }).textContent(),
-    }))
-    .toEqual({ left: 15, top: 20, readoutLeft: '15', readoutTop: '20' })
+    .poll(async () => {
+      const left = await valueOf(field(page, REGION, 'left'))
+      const top = await valueOf(field(page, REGION, 'top'))
+      const readoutLeft = await editor.getByRole('status', { name: `${REGION} left (live)` }).textContent()
+      const readoutTop = await editor.getByRole('status', { name: `${REGION} top (live)` }).textContent()
+      return {
+        leftWithinAPixelOf15: Math.abs(left - 15) <= pixel.x,
+        topWithinAPixelOf20: Math.abs(top - 20) <= pixel.y,
+        readoutsAgree: readoutLeft === String(left) && readoutTop === String(top),
+        read: { left, top, readoutLeft, readoutTop },
+      }
+    })
+    .toMatchObject({ leftWithinAPixelOf15: true, topWithinAPixelOf20: true, readoutsAgree: true })
   // A move is not a resize.
   await expect(field(page, REGION, 'width')).toHaveValue('30')
   await expect(field(page, REGION, 'height')).toHaveValue('20')

@@ -49,10 +49,12 @@ const REGION = 'Spotlight region 1'
 
 /**
  * How far a drawn rectangle's box may sit from the fraction it stands for:
- * the redaction editor spec's 2 px — the stroke, since a bounding box is
- * stroke-inclusive — plus a hundredth for a real layout's float tail.
+ * the redaction editor spec's bound. That is the 2 px stroke, which
+ * Firefox's box includes and Chromium's does not, plus Firefox's outward
+ * rounding to 1/60 px (#598). A 134.4 px-wide rect reads 136.433 px in
+ * Firefox.
  */
-const STROKE = 2.01
+const STROKE = 2.05
 
 const field = (page: Page, position: string, which: string, label: string) =>
   page.getByRole('spinbutton', { name: `${which} ${label} of ${position} (percent)`, exact: true })
@@ -144,21 +146,34 @@ test('a drag moves the region with the fields following, and an oval is drawn as
     await expectNoHorizontalScroll(page, label)
 
     // A move by a fifth of the frame up and left, clear of every snap zone:
-    // the fields read 15 and 20, and the live readout agrees — both read
-    // inside one poll, so they come from the same render.
+    // the fields read 15 and 20 (to a pixel, below), and the live readout
+    // agrees with them. Both are read inside one poll, so they come from
+    // the same render.
     const start = await centreOf(region)
     await dragPointer(page, start, {
       x: start.x - frameBox.width * 0.2,
       y: start.y - frameBox.height * 0.2,
     })
+    // Firefox delivers whole-pixel pointer coordinates (#598, as #644
+    // measured for the crop editor), so the drag can travel up to a pixel more
+    // or less than a fifth of the frame: 90 px for 89.6 at 1280, which commits
+    // 14.91. The fields are held to within one pixel's worth of percent, and
+    // the readout to the fields exactly. Chromium lands on 15 and 20.
+    const pixel = { x: 100 / frameBox.width, y: 100 / frameBox.height }
     await expect
-      .poll(async () => ({
-        left: await valueOf(field(page, IMAGE, REGION, 'left')),
-        top: await valueOf(field(page, IMAGE, REGION, 'top')),
-        readoutLeft: await editor.getByRole('status', { name: `${REGION} left (live)` }).textContent(),
-        readoutTop: await editor.getByRole('status', { name: `${REGION} top (live)` }).textContent(),
-      }))
-      .toEqual({ left: 15, top: 20, readoutLeft: '15', readoutTop: '20' })
+      .poll(async () => {
+        const left = await valueOf(field(page, IMAGE, REGION, 'left'))
+        const top = await valueOf(field(page, IMAGE, REGION, 'top'))
+        const readoutLeft = await editor.getByRole('status', { name: `${REGION} left (live)` }).textContent()
+        const readoutTop = await editor.getByRole('status', { name: `${REGION} top (live)` }).textContent()
+        return {
+          leftWithinAPixelOf15: Math.abs(left - 15) <= pixel.x,
+          topWithinAPixelOf20: Math.abs(top - 20) <= pixel.y,
+          readoutsAgree: readoutLeft === String(left) && readoutTop === String(top),
+          read: { left, top, readoutLeft, readoutTop },
+        }
+      })
+      .toMatchObject({ leftWithinAPixelOf15: true, topWithinAPixelOf20: true, readoutsAgree: true })
     await expect(field(page, IMAGE, REGION, 'width')).toHaveValue('30')
     await expect(field(page, IMAGE, REGION, 'dim')).toHaveValue('55')
     // One gesture, one undo step, though the drag fired eight moves.
