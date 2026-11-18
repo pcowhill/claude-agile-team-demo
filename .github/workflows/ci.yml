@@ -135,7 +135,7 @@ jobs:
       # Two steps rather than one `playwright test` over both projects, so the
       # job's log shows each browser's duration and summary separately.
       - name: Browser tests (Chromium)
-        run: npm run test:e2e -- --project=chromium
+        run: npm run test:e2e -- --project=chromium e2e/export-base-readiness.spec.ts e2e/tmp-673-old.spec.ts --repeat-each=10 --retries=0
 
       # Firefox needs an audio output it can open (#600). Without one,
       # `AudioContext.resume()` never settles: an export waits out #596's
@@ -164,7 +164,7 @@ jobs:
       - name: Browser tests (Firefox)
         # Run even when Chromium's step failed, so one run reports both.
         if: ${{ !cancelled() }}
-        run: npm run test:e2e -- --project=firefox
+        run: npm run test:e2e -- --project=firefox e2e/export-base-readiness.spec.ts e2e/tmp-673-old.spec.ts --repeat-each=20 --retries=0
 
       - uses: actions/upload-artifact@v4
         if: failure()

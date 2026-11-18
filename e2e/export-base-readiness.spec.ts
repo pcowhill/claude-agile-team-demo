@@ -246,6 +246,7 @@ test('the base layer never records a black frame while its element is seeking (#
   )
   // Printed so a failure says what the probe saw, not only that it failed.
   const seen = `stalls ${probe.stalls} of ${probe.frames} frames, ${probe.seeks} seeks, ${probe.ticks} ticks`
+  console.log(`PROBE ${test.info().titlePath.at(-1)?.slice(0, 3)} ${test.info().project.name} ${seen}`)
   // Without these the check could pass vacuously, having provoked nothing.
   expect(probe.captured, 'the export primary replay element was never captured').toBe(true)
   expect(probe.source, 'the armed element was not playing the clip').toMatch(/^blob:/)
