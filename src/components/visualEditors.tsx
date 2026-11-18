@@ -3,7 +3,7 @@ import type { ComponentType, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import './visualEditors.css'
 
 /**
- * The six visual editors are lazy chunks (#537): each opens behind an
+ * The visual editors are lazy chunks (#537, #685): each opens behind an
  * *Adjust visually…* button and none is on the first-paint path, yet
  * statically imported into `Timeline.tsx` they and `FrameEditor` put some
  * 25 kB into the entry bundle — the bytes that carried it past Vite's 500 kB
@@ -34,7 +34,7 @@ import './visualEditors.css'
  * handled, and the failure renders as a dialog of its own.
  * `props.onClose` is why the generic asks for it: without a way out, a
  * failure dialog is a worse dead end than the blank it replaces. The panel
- * also takes focus on the ✕ and answers Escape, as the six editors do: its
+ * also takes focus on the ✕ and answers Escape, as the editors do: its
  * ✕ reads `Close (Esc)`, and the editors' own Escape handlers are inside the
  * chunk that failed to arrive, so without a handler here the tooltip named a
  * key that did nothing — found in review of #570.
@@ -59,7 +59,7 @@ import './visualEditors.css'
  * with a query instead would mean a runtime-built specifier, which is
  * exactly the static edge #537 removed.
  */
-// eslint-disable-next-line react/only-export-components -- the factory that builds the six components below; exported so visualEditors.test.tsx can drive it with a loader that fails, which no real chunk does in jsdom
+// eslint-disable-next-line react/only-export-components -- the factory that builds the editor components below; exported so visualEditors.test.tsx can drive it with a loader that fails, which no real chunk does in jsdom
 export function lazyEditor<P extends { onClose: () => void }>(
   /** Names the editor in the failure dialog: "the crop editor could not load". */
   name: string,
@@ -168,6 +168,7 @@ const overlayEditor = lazyEditor('overlay placement', () =>
 const redactionEditor = lazyEditor('redaction', () =>
   import('./RedactionEditor').then((m) => m.RedactionEditor),
 )
+const shapeEditor = lazyEditor('shape', () => import('./ShapeEditor').then((m) => m.ShapeEditor))
 const spotlightEditor = lazyEditor('spotlight', () =>
   import('./SpotlightEditor').then((m) => m.SpotlightEditor),
 )
@@ -176,6 +177,7 @@ const zoomEditor = lazyEditor('zoom', () => import('./ZoomEditor').then((m) => m
 export const CropEditor = cropEditor.Editor
 export const OverlayEditor = overlayEditor.Editor
 export const RedactionEditor = redactionEditor.Editor
+export const ShapeEditor = shapeEditor.Editor
 export const SpotlightEditor = spotlightEditor.Editor
 export const TextEditor = textEditor.Editor
 export const ZoomEditor = zoomEditor.Editor
@@ -189,7 +191,7 @@ export const ZoomEditor = zoomEditor.Editor
 // eslint-disable-next-line react/only-export-components -- a loader beside the components it loads; Fast Refresh of this module is not something a lazy edge needs
 export function preloadVisualEditors(): Promise<void> {
   return Promise.all(
-    [cropEditor, overlayEditor, redactionEditor, spotlightEditor, textEditor, zoomEditor].map(
+    [cropEditor, overlayEditor, redactionEditor, shapeEditor, spotlightEditor, textEditor, zoomEditor].map(
       (editor) => editor.preload(),
     ),
   ).then(() => undefined)

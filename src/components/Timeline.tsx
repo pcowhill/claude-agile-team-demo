@@ -120,11 +120,12 @@ import { formatDuration } from '../lib/mediaLibrary'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
-// The six visual editors are lazy chunks (#537): see visualEditors.tsx.
+// The visual editors are lazy chunks (#537): see visualEditors.tsx.
 import {
   CropEditor,
   OverlayEditor,
   RedactionEditor,
+  ShapeEditor,
   SpotlightEditor,
   TextEditor,
   ZoomEditor,
@@ -2376,6 +2377,8 @@ export function Timeline({
   // Which text overlay's placement editor is open (#424) — session UI like
   // the three above, and one at a time for the same reason.
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
+  // The shape group whose shapes are open in the shape editor (#685).
+  const [editingShapeGroupId, setEditingShapeGroupId] = useState<string | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null)
 
   // Copy settings / Paste settings (#315). The copied settings are SESSION
@@ -3990,7 +3993,36 @@ export function Timeline({
                             onSelect: () => addShape(kind),
                           }))}
                         />
+                        {visualEditors && (
+                          // The shape editor (#685): a toggle, as every
+                          // Adjust visually… button is, so the same button
+                          // closes what it opened.
+                          <button
+                            type="button"
+                            className="timeline-adjust-button"
+                            aria-label={`Draw the shapes of ${position} visually`}
+                            aria-expanded={editingShapeGroupId === group.id}
+                            title="Draw, select, move and resize this group's shapes on a still of the frame"
+                            onClick={() =>
+                              setEditingShapeGroupId(
+                                editingShapeGroupId === group.id ? null : group.id,
+                              )
+                            }
+                          >
+                            Draw shapes…
+                          </button>
+                        )}
                       </div>
+                      {visualEditors && editingShapeGroupId === group.id && (
+                        <ShapeEditor
+                          timeline={timeline}
+                          group={group}
+                          position={position}
+                          frameSize={frameSize}
+                          onCommit={(shapes) => set({ shapes })}
+                          onClose={() => setEditingShapeGroupId(null)}
+                        />
+                      )}
                     </>
                   )}
                 </li>

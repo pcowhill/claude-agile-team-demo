@@ -1,6 +1,6 @@
 # Shapes and annotations
 
-Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text, an arrow pointing at the thing to click. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style), [arrows and lines](#arrows-and-lines) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
+Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text, an arrow pointing at the thing to click. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style), [arrows and lines](#arrows-and-lines), [drawing shapes on the picture](#drawing-shapes-on-the-picture) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
 
 ## Adding a shape group
 
@@ -68,6 +68,30 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 - An arrow is drawn entirely in its **Border** colour, opacity and **Thickness**, head included. It has no fill, so its block has no Fill field. With thickness 0 or opacity 0 % it draws nothing, and its block says *This arrow is invisible*.
 
 **Related.** [A shape's style](#a-shape-s-style) · [The shapes in a group](#the-shapes-in-a-group)
+
+## Drawing shapes on the picture
+
+**Where to find it.** **Draw shapes…** under the shapes of an expanded shape group row, beside **+ Add shape ▾**.
+
+**What it does.** Opens the shape editor under the row: a still of the frame the group shows over, where you draw rectangles, ellipses and arrows by dragging, and select, move and resize them, instead of typing their fields.
+
+**Details.**
+
+- **The picture** is the frame at the middle of the group's window, rendered by the export's own drawing. The group's own shapes are drawn on it live, so a shape you drag looks as it will render. Other shape groups showing at that moment are in the picture too, and outlined faint and dashed; they cannot be selected here. In the editor this group is drawn over any text, though in the video it sits [below text](#how-shapes-render).
+- **The tools** are **Select**, **Rectangle**, **Ellipse** and **Arrow**, in a strip above the picture.
+  - With **Rectangle** or **Ellipse**, drag from one corner of the shape to the opposite one. With **Arrow**, drag from the tail to the tip.
+  - Hold **Shift** while drawing for a square, a circle, or an arrow at a multiple of 15°. Squares, circles and angles are measured in the output frame's pixels, so a circle on a 16:9 frame is round.
+  - The new shape is added to the end of the group, takes the style of the last shape you drew or edited in the editor (the group's last shape until then), and is selected. The tool goes back to **Select**; **double-click** a tool to keep it for several shapes.
+  - A press that barely moves draws nothing.
+- **Select** picks a shape with a click. A selected rectangle or ellipse has handles on its corners and edges: a corner moves its two edges, an edge only its own, and **Shift** on a corner keeps the shape's proportions. A selected arrow has a ring at each end; dragging a ring moves only that end, and **Shift** keeps the arrow at 15° steps. Drag a shape itself to move it. A click on bare picture selects nothing.
+- **Snapping.** A moved shape, a drawn corner and a dragged arrow end are pulled onto the frame's edges, its thirds and its centre, with a guide line while you drag; hold **Alt** to place it freely. See [Snapping and guides](visual-editors.md#snapping-and-guides).
+- **Keys.** Clicking the picture gives it the keyboard. The arrow keys then nudge the selected shape, Shift for the larger step, and **+** and **−** resize it: a rectangle or ellipse about its centre, an arrow along its own line.
+- **Edits.** Each drag is one undo step, committed when you let go; each key press is one more. The fields above show the same values, to a hundredth of the frame, and typing in them moves the shape in the editor. So Shift's squares and angles are exact to that hundredth: a square's sides can differ by up to half a hundredth of the frame's width, and an arrow a tenth of the frame long or longer is within a degree of its 15° step.
+- Close, Escape, or **Draw shapes…** again closes the editor. The button is hidden while Settings › [Visual editors](visual-editors.md#turning-the-editors-on-and-off) is Off.
+
+**Related.** [The shapes in a group](#the-shapes-in-a-group) · [Arrows and lines](#arrows-and-lines) · [Visual editors](visual-editors.md)
+
+**Shortcuts.** Shift while drawing or resizing · Alt while dragging · ← ↑ → ↓ nudge, Shift for the larger step · + and − resize · Esc closes.
 
 ## How shapes render
 

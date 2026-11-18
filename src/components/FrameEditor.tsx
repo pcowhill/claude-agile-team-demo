@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react'
 import { createSnapshotSession, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import type { SnapshotSession } from '../lib/frameSnapshot'
 import { rectKeyStep } from '../lib/frameEditor'
@@ -152,6 +157,14 @@ interface FrameEditorProps {
    * only a guess to measure at.
    */
   onFrame?: (frame: { width: number; height: number }) => void
+  /**
+   * A caller's own layer over the still, given the frame's laid-out size in
+   * CSS pixels (#685). The shape editor edits many shapes rather than one
+   * rectangle, so it passes `showRegion={false}` and draws its shapes and
+   * handles here. It keeps the still, its cache, its latest-wins rendering
+   * and its layout, which are this component's real work.
+   */
+  layer?: (size: { width: number; height: number }) => ReactNode
   /** Injectable for tests: jsdom has no canvas to compose on. */
   snapshot?: typeof snapshotTimelineFrame
 }
@@ -191,6 +204,7 @@ export function FrameEditor({
   outlines,
   fallbackAspect = 16 / 9,
   onFrame,
+  layer,
   snapshot = snapshotTimelineFrame,
 }: FrameEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null)
@@ -504,6 +518,7 @@ export function FrameEditor({
             {error}
           </p>
         )}
+        {layer?.(size)}
         {showRegion && (
           <svg
             className={

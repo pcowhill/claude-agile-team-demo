@@ -678,7 +678,7 @@ export const RECT_SNAP_CENTRES: readonly number[] = ZOOM_SNAP_TARGETS
  * is: a tolerance that excludes its own boundary is one nobody can reason
  * about. Strict `<` keeps the first-listed alignment on an exact tie.
  */
-function rectSnapOffset(low: number, size: number): number {
+export function rectSnapOffset(low: number, size: number): number {
   const high = low + size
   const centre = low + size / 2
   let best = 0

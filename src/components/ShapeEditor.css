@@ -1,0 +1,97 @@
+/* The shape editor (#685): FrameEditor's still with a canvas showing this
+   group's shapes and an SVG layer for selecting, moving and drawing them. */
+
+.shape-editor-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.shape-editor-tools button {
+  white-space: nowrap;
+}
+
+/* The chosen tool: the same amber an on toggle takes elsewhere (#459). */
+.shape-editor-tools button[aria-pressed='true'] {
+  background: rgba(255, 140, 26, 0.35);
+  border-color: #ff8c1a;
+  color: #fff;
+}
+
+/* A tool kept by a double-click shows it with a heavier border. */
+.shape-editor-tools button[data-sticky='true'] {
+  box-shadow: inset 0 0 0 1px #ff8c1a;
+}
+
+/* Both layers fill the frame's padding box exactly, as FrameEditor's own
+   handle layer does, so a pointer fraction maps onto the still. */
+.shape-editor-canvas,
+.shape-editor-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.shape-editor-canvas {
+  pointer-events: none;
+}
+
+.shape-editor-layer {
+  overflow: visible;
+  outline: none;
+}
+
+.shape-editor-layer:focus-visible {
+  outline: 2px solid #7fd1ff;
+  outline-offset: -2px;
+}
+
+.shape-editor-drawing {
+  cursor: crosshair;
+}
+
+/* A shape's grab area: invisible, the canvas shows the shape itself. It
+   takes the pointer over its whole box and a band either side of its line,
+   so a thin arrow or a clear-centred ellipse is easy to pick. */
+.shape-editor-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: all;
+  cursor: move;
+}
+
+/* While drawing, a press anywhere starts a new shape, even over an old one. */
+.shape-editor-drawing .shape-editor-hit {
+  pointer-events: none;
+}
+
+.shape-editor-selected {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
+/* An arrow's two end handles: rings, not dots, because the head the tip
+   carries is about the handle's own size at the editor's scale, and a solid
+   dot hid it. The ring is filled transparent so it still takes the pointer. */
+.shape-editor-end {
+  fill: transparent;
+  stroke: #ffd166;
+  stroke-width: 2;
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* Another group showing at this instant (#685): faint, dashed and inert. */
+.shape-editor-other {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}

@@ -73,7 +73,7 @@ When something is not where the guide says, or the browser will not do what you 
 
 **Details.**
 
-- **Adjust visually…** buttons — hidden when Settings › *Visual editors* is Off.
+- **Adjust visually…** buttons, and a shape group's **Draw shapes…** — hidden when Settings › *Visual editors* is Off.
 - **Animated GIF** in the export dialog, and the seven **shaped wipe** transitions — their plugin is disabled; enable it in File ▾ › Plugins…. A shaped wipe already on the timeline shows as *unavailable* in the type menu meanwhile.
 - **Record ▾**, or its **Screen** sources — the browser cannot capture; see above.
 - **Marked range** in the export dialog — the preview's in and out marks do not form a range; set both, in before out.
