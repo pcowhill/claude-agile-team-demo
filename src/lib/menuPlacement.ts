@@ -1,6 +1,7 @@
 /**
- * Where a menu panel that would leave the viewport goes instead (#430, from
- * the shared `Menu` of #412).
+ * Where a menu panel that would leave the viewport — or, embedded in a host
+ * page, the app's part of it (#653) — goes instead (#430, from the shared
+ * `Menu` of #412).
  *
  * Pure and separate from the component because the effect that calls it
  * cannot be tested through the DOM: jsdom reports zero-size boxes, so the
@@ -23,6 +24,20 @@ export interface PlacementBox {
   bottom: number
   width: number
   height: number
+}
+
+/**
+ * The box a panel must stay inside, in viewport coordinates (#653). The
+ * window's own box on a page that is only the app; the part of the window
+ * the app occupies when a host page puts a header and footer around it
+ * (#652), so a panel near the app's bottom flips up rather than opening
+ * under the host's footer. `Menu.tsx` measures it.
+ */
+export interface PlacementBounds {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 /**
@@ -52,13 +67,37 @@ export interface PlacementBox {
 export function placementFor(
   panel: PlacementBox,
   anchor: PlacementBox | undefined,
-  viewport: { width: number; height: number },
+  bounds: PlacementBounds,
   submenu: boolean,
 ): Placement {
   const flippedLeft =
-    anchor === undefined ? 0 : (submenu ? anchor.left : anchor.right) - panel.width
+    anchor === undefined ? bounds.left : (submenu ? anchor.left : anchor.right) - panel.width
   return {
-    end: panel.right > viewport.width && flippedLeft >= 0,
-    up: panel.bottom > viewport.height && (anchor === undefined || anchor.top - panel.height >= 0),
+    end: panel.right > bounds.right && flippedLeft >= bounds.left,
+    up:
+      panel.bottom > bounds.bottom &&
+      (anchor === undefined || anchor.top - panel.height >= bounds.top),
   }
+}
+
+/**
+ * The bounds a panel flips against: the window, narrowed to the app's own
+ * box when the app does not fill it (#653). Pure, so the intersection is
+ * pinned by unit tests; `Menu.tsx` supplies the two measured boxes.
+ *
+ * An app box that does not overlap the window at all — scrolled clean off a
+ * host page — leaves nothing to intersect, and the window alone is used
+ * rather than an empty box that no panel could ever fit.
+ */
+export function placementBounds(
+  viewport: { width: number; height: number },
+  app: PlacementBox | undefined,
+): PlacementBounds {
+  const whole = { left: 0, top: 0, right: viewport.width, bottom: viewport.height }
+  if (app === undefined) return whole
+  const left = Math.max(whole.left, app.left)
+  const top = Math.max(whole.top, app.top)
+  const right = Math.min(whole.right, app.right)
+  const bottom = Math.min(whole.bottom, app.bottom)
+  return right > left && bottom > top ? { left, top, right, bottom } : whole
 }

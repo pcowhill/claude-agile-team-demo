@@ -150,7 +150,10 @@ needs no CSS of its own:
 
 The header and footer stay on screen, and the page itself does not scroll. A
 project too tall for the space scrolls inside the editor column instead.
-`e2e/embedded-host.spec.ts` builds this page and measures it.
+Menus open within the app's own box, flipping up or to the left at its edges
+rather than the window's, so a footer never covers one (#653).
+`e2e/embedded-host.spec.ts` builds this page and measures it, and
+`e2e/embedded-menu.spec.ts` measures a menu inside it.
 
 ## How to interact with the team (for the customer)
 
