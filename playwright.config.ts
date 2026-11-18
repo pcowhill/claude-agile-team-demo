@@ -55,14 +55,9 @@ const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'export-chapter-list.spec.ts', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
-  { title: 'Shift on a corner keeps the proportions, and the mask silhouette is drawn', why: '#598: a ratio 1.7% past its Chromium-measured tolerance' },
-  { title: 'a drag moves the region with the fields following, a corner and an edge resize it', why: '#598: a width ratio 1.2% past its tolerance' },
-  { title: 'the redaction editor fits its column at both widths', why: '#598: as above' },
-  { title: 'the box is on the drawn text, a drag commits the centre the fields read', why: '#598: a ratio 1.2% past its tolerance' },
   { title: '↑ / ↓ stop on markers and a released seek snaps onto one', why: '#598: the click lands at 3.08 s, not 2.44 s; snap or spec geometry' },
   { title: 'a committed pointer seek snaps onto the cut with a tick', why: '#598: reads 4.93 where 5 was expected' },
   { title: 'a blurred region refuses to export where canvas filters are unavailable (#492)', why: '#598: not yet classified' },
-  { title: 'a drag moves the region with the fields following, and an oval is drawn as the ellipse in its shaded box (#533)', why: '#598: not yet classified' },
   { title: 'the control fits the transport at both widths, at 1× and at 2× (#522)', why: '#598: not yet classified' },
   { title: 'the playhead keeps up with the picture at 2×, and so does an audio track (#522)', why: '#598: not yet classified' },
   { title: 'the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
