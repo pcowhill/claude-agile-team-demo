@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -214,7 +215,7 @@ test('the box is on the drawn text, a drag commits the centre the fields read, t
   await expect(sizeField(page)).toHaveValue('0.08')
 
   // Keyboard: one nudge, one undo step.
-  await region.focus()
+  await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
   await expect(centreX(page)).toHaveValue('0.51')
   await page.keyboard.press('Control+z')

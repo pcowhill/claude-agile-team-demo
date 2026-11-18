@@ -4,6 +4,7 @@ import { sampleExportedFrame } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
+import { clickRegion } from './frameEditorRegion'
 
 type Page = import('@playwright/test').Page
 type Locator = import('@playwright/test').Locator
@@ -406,6 +407,23 @@ const intermediates = (values: number[]) => {
   const high = values[values.length - 1] - 15
   return values.slice(1, -1).filter((value) => value > low && value < high).length
 }
+
+test('a click on the region gives it the keys: an arrow nudges it and − shrinks it, each its own undo step (#662)', async ({
+  page,
+}) => {
+  const editor = await openEditor(page)
+  const region = editor.getByTestId('frame-editor-rect')
+  // A click, as a person makes it — no `focus()` (#662).
+  await clickRegion(page, region)
+  await page.keyboard.press('ArrowRight')
+  await expectField(page, 'left').toBe(36)
+  await page.keyboard.press('-')
+  await expectField(page, 'width').toBeLessThan(30)
+  await page.keyboard.press('Control+z')
+  await expectField(page, 'width').toBe(30)
+  await page.keyboard.press('Control+z')
+  await expectField(page, 'left').toBe(35)
+})
 
 test('soften ramps the exported edge instead of stepping it, the default stays #532’s hard edge, and the preview agrees (#533)', async ({
   page,
