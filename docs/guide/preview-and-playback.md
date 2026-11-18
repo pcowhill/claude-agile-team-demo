@@ -1,14 +1,20 @@
 # Preview and playback
 
-The preview panel shows the video as it will export, at the instant the **playhead** stands on, and plays it. This page covers [the stage and its expanded layout](#the-stage-and-the-expanded-layout), [the transport](#the-transport), [keyboard control](#keyboard-control), [jumping to cuts](#jumping-to-cuts), [snapping on release](#snapping-on-release), the export [marks](#export-marks) and [Loop](#loop), [chapter markers](#chapter-markers), the [Frame ▾](#the-frame-menu) menu, [previewing a library clip](#previewing-a-library-clip) on its own, and [when the shortcuts pause](#when-the-shortcuts-pause). What the preview shows is what the export contains — see [The output frame](concepts.md#the-output-frame).
+The preview panel shows the video as it will export, at the instant the **playhead** stands on, and plays it. This page covers [the stage and its View ▾ layouts](#the-stage-and-the-view-menu), [the transport](#the-transport), [keyboard control](#keyboard-control), [jumping to cuts](#jumping-to-cuts), [snapping on release](#snapping-on-release), the export [marks](#export-marks) and [Loop](#loop), [chapter markers](#chapter-markers), the [Frame ▾](#the-frame-menu) menu, [previewing a library clip](#previewing-a-library-clip) on its own, and [when the shortcuts pause](#when-the-shortcuts-pause). What the preview shows is what the export contains — see [The output frame](concepts.md#the-output-frame).
 
-## The stage and the expanded layout
+## The stage and the View ▾ menu
 
-**Where to find it.** The **Preview** panel beside the media library; **Expand** and **Restore size** in its header.
+**Where to find it.** The **Preview** panel beside the media library; **View ▾** in its header holds the layouts.
 
 **What it does.** Shows the composed frame — the sequence with its transitions, zooms and picture treatments, the overlays and the text — letterboxed into the output frame's shape.
 
-**Details.** The stage keeps the output frame's aspect, so a portrait or square canvas shows as such. **Expand** makes the preview the full-width first row of the page, as wide as the window allows with its height following the frame's aspect; the library, timeline and export panels move below it, reached by scrolling. **Restore size** puts it back. The choice is remembered in this browser across page loads and is a view preference, never part of a project or the autosave. An empty timeline shows a placeholder instead of a stage.
+**Details.** The stage keeps the output frame's aspect, so a portrait or square canvas shows as such. **View ▾** offers three layouts, with the current one checked:
+
+- **Default** — the preview beside the media library, its picture the largest frame that fits inside the panel. A wide frame in a tall panel, or the reverse, leaves bands either side.
+- **Expanded** — the preview becomes the full-width first row of the page, as wide as the window allows with its height following the frame's aspect; the library, timeline and export panels move below it, reached by scrolling.
+- **Fit to width** — the preview stays beside the media library, and its picture takes the panel's whole width, its height following the frame's aspect. The row grows to fit, and the editor scrolls if the picture is taller than the window — a portrait canvas especially. On a narrow screen, where the panels stack, Default already fits the width, so the two look the same.
+
+The choice is remembered in this browser across page loads and is a view preference, never part of a project or the autosave. An empty timeline shows a placeholder instead of a stage.
 
 **Related.** [The output frame](concepts.md#the-output-frame) · [What is saved where](concepts.md#what-is-saved-where)
 

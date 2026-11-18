@@ -28,8 +28,8 @@ import { emptyTimelineHistory, targetEditsText, timelineHistoryReducer } from '.
 import { modalDialogOpen } from './lib/transport'
 import { DEFAULT_TEXT } from './lib/textOverlay'
 import { parseSrt, subtitleOverlaySpec } from './lib/srt'
-import { loadPreviewExpanded, savePreviewExpanded } from './lib/previewLayout'
-import type { PreviewLayoutStorage } from './lib/previewLayout'
+import { loadPreviewLayout, savePreviewLayout } from './lib/previewLayout'
+import type { PreviewLayout, PreviewLayoutStorage } from './lib/previewLayout'
 import { loadLibraryView, saveLibraryView } from './lib/libraryView'
 import type { LibraryView } from './lib/libraryView'
 import { loadSettings, saveSettings } from './lib/settings'
@@ -63,6 +63,18 @@ interface AppProps {
   layoutStorage?: PreviewLayoutStorage
 }
 
+/**
+ * The editor column's class for each preview layout (#128, #667). Expanded
+ * moves the preview to its own full-width row; Fit to width keeps it beside
+ * the library and content-sizes the top row, so the row grows to the
+ * width-sized stage. Both rules are in App.css.
+ */
+const MAIN_CLASS: Record<PreviewLayout, string> = {
+  default: 'app-main',
+  expanded: 'app-main app-main-preview-expanded',
+  'fit-width': 'app-main app-main-preview-fit',
+}
+
 function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps) {
   const [library, dispatch] = useReducer(mediaLibraryReducer, emptyLibrary)
   // Timeline edits run through the undo/redo history (#189); the rendered
@@ -71,19 +83,22 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   const [history, dispatchTimeline] = useReducer(timelineHistoryReducer, emptyTimelineHistory)
   const timeline = history.present
   const [isDragTarget, setIsDragTarget] = useState(false)
-  // Whether the preview spans the full content width (#128). Remembered per
-  // browser across page loads; a missing or blocked store means normal layout.
-  const [previewExpanded, setPreviewExpanded] = useState(() => loadPreviewExpanded(layoutStorage))
-  const togglePreviewExpanded = useCallback(() => {
-    setPreviewExpanded((expanded) => {
-      const next = !expanded
-      savePreviewExpanded(next, layoutStorage)
-      return next
-    })
-  }, [layoutStorage])
+  // The preview's layout, from its View ▾ (#128, #667): Default, Expanded
+  // to the full content width, or Fit to width in its own place. Remembered
+  // per browser across page loads; a missing or blocked store means Default.
+  const [previewLayout, setPreviewLayout] = useState<PreviewLayout>(() =>
+    loadPreviewLayout(layoutStorage),
+  )
+  const handleSetPreviewLayout = useCallback(
+    (next: PreviewLayout) => {
+      setPreviewLayout(next)
+      savePreviewLayout(next, layoutStorage)
+    },
+    [layoutStorage],
+  )
   // Which layout the media library's clip list is in (#311). A view
   // preference, not project content: it lives here beside the preview's
-  // expanded state, persists in the same per-browser store under its own
+  // layout, persists in the same per-browser store under its own
   // key, and never reaches a project file or the autosave snapshot.
   const [libraryView, setLibraryView] = useState<LibraryView>(() =>
     loadLibraryView(layoutStorage),
@@ -558,7 +573,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
       </header>
       {/* The editor and, while open, the guide docked beside it (#478). */}
       <div className="app-body">
-        <main className={previewExpanded ? 'app-main app-main-preview-expanded' : 'app-main'}>
+        <main className={MAIN_CLASS[previewLayout]}>
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
@@ -586,8 +601,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         />
         <PreviewPlayer
           timeline={timeline}
-          expanded={previewExpanded}
-          onToggleExpanded={togglePreviewExpanded}
+          layout={previewLayout}
+          onSetLayout={handleSetPreviewLayout}
           stepSeconds={settings.stepSeconds}
           largeStepSeconds={settings.largeStepSeconds}
           onSplit={(id, atSourceTime) =>

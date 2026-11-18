@@ -84,7 +84,7 @@ The snapshot never travels: it lives in this browser profile only, and the undo 
 A project file holds the project, not your preferences or your session. It never contains:
 
 - the [**Settings**](settings.md) (step sizes, still duration, the restore choice, the export dialog's preselected format, the [Visual editors](visual-editors.md#turning-the-editors-on-and-off) switch) — these are per device, and a browser with none uses the defaults;
-- **view choices** — the library's [List or Thumbnail layout](media-library.md#list-and-thumbnail-views), the preview's expanded state, which rows are collapsed and which sections folded;
+- **view choices** — the library's [List or Thumbnail layout](media-library.md#list-and-thumbnail-views), the preview's [View ▾ layout](preview-and-playback.md#the-stage-and-the-view-menu), which rows are collapsed and which sections folded;
 - the [**export marks**](preview-and-playback.md#export-marks) and [Loop](preview-and-playback.md#loop), and settings copied with [*Copy settings*](timeline.md#copy-settings-and-paste-settings);
 - the [**undo history**](undo-redo.md#undo-history-and-project-files) — a reopened project starts with nothing to undo;
 - [**which plugins are enabled**](plugins.md#enabled-plugins-and-this-browser) — the file records which plugins it *needs*, and enabling is per browser.

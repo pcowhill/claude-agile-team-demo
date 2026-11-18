@@ -197,6 +197,21 @@
   order: -1;
 }
 
+/* Fit to width (#667, from the customer's #660): the preview stays beside
+   the library, and its stage takes the panel's full width with the height
+   following the frame's aspect (the stage rule is PreviewPlayer.css's,
+   shared with Expanded). The top row is content-sized so it grows to that
+   height instead of binding the stage to `minmax(40dvh, 1fr)`; the column
+   scrolls if the row outgrows the window. Every row is `max-content` for
+   the reason `.app-main-preview-expanded` gives: in this definite-height
+   grid an `auto` row credits a width-sized stage with no height. There is
+   no 40dvh floor: a row's fixed minimum is what #576 measured breaking a
+   `max-content` track, and the width-sized stage is the row's height. */
+.app-main-preview-fit {
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+}
+
 .panel {
   border: 1px solid #333;
   border-radius: 8px;

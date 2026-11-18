@@ -90,6 +90,8 @@ import {
 } from '../lib/transport'
 import type { LoopSpan } from '../lib/transport'
 import { Menu } from './Menu'
+import { previewStageClass } from '../lib/previewLayout'
+import type { PreviewLayout } from '../lib/previewLayout'
 import { NameField } from './NameField'
 import type { MenuItem } from './Menu'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
@@ -98,10 +100,13 @@ import './PreviewPlayer.css'
 
 interface PreviewPlayerProps {
   timeline: TimelineState
-  /** Whether the panel spans the full content width (#128). Owned by App —
-   * the expansion rearranges the app grid, not just this panel. */
-  expanded?: boolean
-  onToggleExpanded?: () => void
+  /**
+   * The panel's layout, chosen from its View ▾ (#128, #667). Owned by App —
+   * Expanded and Fit to width rearrange the app grid, not just this panel.
+   * With no `onSetLayout` the panel offers no View ▾.
+   */
+  layout?: PreviewLayout
+  onSetLayout?: (layout: PreviewLayout) => void
   /**
    * Split the entry at the playhead (#190). The preview owns the playhead,
    * so the razor lives here; the split itself is App's dispatch. Optional so
@@ -710,6 +715,29 @@ function withZoom(
 }
 
 /**
+ * The three layouts View ▾ offers (#667, from the customer's #660), in the
+ * issue's order: the two #128 had, then the new one.
+ */
+const LAYOUT_OPTIONS: readonly { value: PreviewLayout; label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'expanded', label: 'Expanded' },
+  { value: 'fit-width', label: 'Fit to width' },
+]
+
+/** View ▾'s one radio group: the current layout checked. */
+function layoutItems(layout: PreviewLayout, onSetLayout: (layout: PreviewLayout) => void): MenuItem[] {
+  return [
+    {
+      kind: 'radio-group',
+      label: 'Layout',
+      value: layout,
+      options: LAYOUT_OPTIONS,
+      onChange: (value) => onSetLayout(value as PreviewLayout),
+    },
+  ]
+}
+
+/**
  * Plays the timeline sequence — each entry from its in-point to its
  * out-point, in order — through two stacked <video> elements. Outside a
  * transition only the primary element is visible and plays the current
@@ -725,8 +753,8 @@ function withZoom(
  */
 export function PreviewPlayer({
   timeline,
-  expanded = false,
-  onToggleExpanded,
+  layout = 'default',
+  onSetLayout,
   onSplit,
   onFreezeFrame,
   stepSeconds,
@@ -2244,15 +2272,14 @@ export function PreviewPlayer({
     <section className="panel preview-panel" aria-label="Preview">
       <div className="preview-header">
         <h2>Preview</h2>
-        {onToggleExpanded && (
-          <button
-            type="button"
-            className="preview-expand"
-            aria-label={expanded ? 'Restore preview size' : 'Expand preview'}
-            onClick={onToggleExpanded}
-          >
-            {expanded ? 'Restore size' : 'Expand'}
-          </button>
+        {onSetLayout && (
+          <Menu
+            label="View"
+            ariaLabel="Preview view"
+            menuLabel="Preview view menu"
+            className="preview-view-menu"
+            items={layoutItems(layout, onSetLayout)}
+          />
         )}
       </div>
       {/* Source preview (#403): one library clip alone, in place of the
@@ -2263,7 +2290,7 @@ export function PreviewPlayer({
         <SourcePreview
           clip={sourceClip}
           aspect={previewAspect}
-          expanded={expanded}
+          layout={layout}
           onBack={onExitSourcePreview ?? noop}
           onAddToTimeline={onAddSourceToTimeline}
           onAddOverlay={onAddSourceAsOverlay}
@@ -2283,7 +2310,7 @@ export function PreviewPlayer({
               drives both the frame's fit-inside math and the expanded/narrow
               stage's own aspect-ratio. */}
           <div
-            className={expanded ? 'preview-stage preview-stage-expanded' : 'preview-stage'}
+            className={previewStageClass(layout)}
             style={{ '--preview-aspect': String(previewAspect) } as CSSProperties}
           >
             <div className="preview-frame" data-testid="preview-frame">

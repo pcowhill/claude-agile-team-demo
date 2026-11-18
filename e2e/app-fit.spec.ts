@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { choosePreviewLayout } from './previewView'
 import {
   expectBottomWithinViewport,
   expectNoHorizontalScroll,
@@ -338,8 +339,7 @@ test('the preview panel keeps its picture inside it, expanded and at narrow widt
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('./')
   await populate(page, 6)
-  await page.getByRole('button', { name: 'Expand preview' }).click()
-  await expect(page.getByRole('button', { name: 'Restore preview size' })).toBeVisible()
+  await choosePreviewLayout(page, 'Expanded')
   await expectWithin(picture, previewPanel, {
     axis: 'y',
     what: 'the expanded preview picture',
@@ -349,7 +349,7 @@ test('the preview panel keeps its picture inside it, expanded and at narrow widt
   // click. The spilled stage covered the timeline's own buttons, so this
   // click was refused with "preview-slate intercepts pointer events".
   await page.getByRole('button', { name: 'Expand all timeline elements' }).click()
-  await page.getByRole('button', { name: 'Restore preview size' }).click()
+  await choosePreviewLayout(page, 'Default')
 
   // The single-column layout below 700px, where the stage takes its height
   // from its width too — no expanding needed, just a clip on the timeline.

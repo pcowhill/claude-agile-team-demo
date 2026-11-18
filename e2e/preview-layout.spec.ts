@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { choosePreviewLayout, expectPreviewLayout } from './previewView'
 
 /**
  * Preview layout guarantees (#128, design approved in #126):
@@ -125,7 +126,7 @@ test('expand spans the full width at the video aspect, restores, and is remember
   const fullWidth = (await timelinePanel.boundingBox())!.width
   expect(normalWidth).toBeLessThan(fullWidth * 0.8)
 
-  await page.getByRole('button', { name: 'Expand preview' }).click()
+  await choosePreviewLayout(page, 'Expanded')
 
   // Expanded: full content width, stage height following the square video.
   await expect
@@ -139,13 +140,13 @@ test('expand spans the full width at the video aspect, restores, and is remember
     .toBeCloseTo(1, 1)
 
   // The choice survives a page load (the project itself does not, so the
-  // remembered state shows on the toggle rather than the stage).
+  // remembered state shows on View ▾ rather than the stage).
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Restore preview size' })).toBeVisible()
+  await expectPreviewLayout(page, 'Expanded')
 
   // Restoring brings back the shared row and is itself remembered.
-  await page.getByRole('button', { name: 'Restore preview size' }).click()
-  await expect(page.getByRole('button', { name: 'Expand preview' })).toBeVisible()
+  await choosePreviewLayout(page, 'Default')
+  await expectPreviewLayout(page, 'Default')
   await importClip(page, 'clip.webm', 320, 180)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   const restoredWidth = (await previewPanel.boundingBox())!.width

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { choosePreviewLayout } from './previewView'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium, expect, test } from '@playwright/test'
@@ -367,9 +368,9 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'the bar has no visible label; "Seek within sequence" is its accessible name',
   },
   {
-    from: 'Restore preview size',
-    to: 'Restore size',
-    why: 'the button reads "Restore size"; the accessible name says what it restores',
+    from: 'Preview view',
+    to: 'View (preview)',
+    why: 'the preview header\'s View ▾ (#667); its accessible name says which panel, as the media library has a View ▾ too',
   },
   {
     from: 'Seek within sequence',
@@ -587,7 +588,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   // The header menus. The panel is taken as "the menu that is open" rather
   // than by name: not every panel is named for its trigger's word (Record ▾
   // opens a menu named "Recording sources").
-  for (const trigger of ['File', 'Help', 'Record', 'View', 'Frame']) {
+  for (const trigger of ['File', 'Help', 'Record', 'View', 'Preview view', 'Frame']) {
     await page.getByRole('button', { name: trigger, exact: true }).click()
     const menu = page.getByRole('menu')
     await expect(menu).toBeVisible()
@@ -714,13 +715,9 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await expect(preview.getByRole('button', { name: /Marks/ })).toBeVisible()
   await record('the preview with both marks set', preview)
 
-  const expand = preview.getByRole('button', { name: 'Expand preview', exact: true })
-  const restore = preview.getByRole('button', { name: 'Restore preview size', exact: true })
-  await expand.click()
-  await expect(restore).toBeVisible()
+  await choosePreviewLayout(page, 'Expanded')
   await record('the expanded preview', preview)
-  await restore.click()
-  await expect(expand).toBeVisible()
+  await choosePreviewLayout(page, 'Default')
 
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const exportDialog = page.getByRole('dialog', { name: 'Export project' })

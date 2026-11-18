@@ -73,7 +73,7 @@ describe('PreviewPlayer', () => {
     expect(frameMenuItem('preview-save-frame')).toBeEnabled()
   })
 
-  describe('expand toggle (#128)', () => {
+  describe('View ▾ (#128, #667)', () => {
     const oneEntry: TimelineState = {
       entries: [
         {
@@ -88,35 +88,46 @@ describe('PreviewPlayer', () => {
       ],
     }
 
-    it('renders the toggle and reports each click, in the empty panel too', () => {
-      const onToggleExpanded = vi.fn()
-      const { rerender } = render(
-        <PreviewPlayer timeline={{ entries: [] }} onToggleExpanded={onToggleExpanded} />,
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }))
-      expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    const openView = () => fireEvent.click(screen.getByRole('button', { name: 'Preview view' }))
 
-      // The label names the action now available, matching the play/pause idiom.
-      rerender(
-        <PreviewPlayer timeline={{ entries: [] }} expanded onToggleExpanded={onToggleExpanded} />,
+    it('offers Default, Expanded and Fit to width with the current one checked, and reports a choice, in the empty panel too', () => {
+      const onSetLayout = vi.fn()
+      const { rerender } = render(<PreviewPlayer timeline={{ entries: [] }} onSetLayout={onSetLayout} />)
+      openView()
+      const options = screen.getAllByRole('menuitemradio')
+      expect(options).toHaveLength(3)
+      ;['Default', 'Expanded', 'Fit to width'].forEach((name, index) =>
+        expect(options[index]).toHaveAccessibleName(name),
       )
-      expect(screen.getByRole('button', { name: 'Restore preview size' })).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Expand preview' })).not.toBeInTheDocument()
+      expect(screen.getByRole('menuitemradio', { name: 'Default' })).toHaveAttribute('aria-checked', 'true')
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fit to width' }))
+      expect(onSetLayout).toHaveBeenLastCalledWith('fit-width')
+
+      rerender(<PreviewPlayer timeline={{ entries: [] }} layout="expanded" onSetLayout={onSetLayout} />)
+      openView()
+      expect(screen.getByRole('menuitemradio', { name: 'Expanded' })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('menuitemradio', { name: 'Default' })).toHaveAttribute('aria-checked', 'false')
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Default' }))
+      expect(onSetLayout).toHaveBeenLastCalledWith('default')
     })
 
-    it('marks the stage expanded only while expanded', () => {
+    it('sizes the stage from its width in Expanded and Fit to width only', () => {
       const { container, rerender } = render(
-        <PreviewPlayer timeline={oneEntry} expanded onToggleExpanded={() => {}} />,
+        <PreviewPlayer timeline={oneEntry} layout="expanded" onSetLayout={() => {}} />,
       )
       expect(container.querySelector('.preview-stage')).toHaveClass('preview-stage-expanded')
 
-      rerender(<PreviewPlayer timeline={oneEntry} onToggleExpanded={() => {}} />)
+      rerender(<PreviewPlayer timeline={oneEntry} layout="fit-width" onSetLayout={() => {}} />)
+      expect(container.querySelector('.preview-stage')).toHaveClass('preview-stage-fit')
       expect(container.querySelector('.preview-stage')).not.toHaveClass('preview-stage-expanded')
+
+      rerender(<PreviewPlayer timeline={oneEntry} onSetLayout={() => {}} />)
+      expect(container.querySelector('.preview-stage')).toHaveAttribute('class', 'preview-stage')
     })
 
-    it('renders no toggle when no handler is wired', () => {
+    it('renders no View ▾ when no handler is wired', () => {
       render(<PreviewPlayer timeline={oneEntry} />)
-      expect(screen.queryByRole('button', { name: 'Expand preview' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Preview view' })).not.toBeInTheDocument()
     })
   })
 
