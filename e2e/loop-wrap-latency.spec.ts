@@ -14,6 +14,11 @@ import { expect, test, type Page } from '@playwright/test'
  *   element is never `seeking`. This is the structural property, and it
  *   fails without the fix: the old wrap seeked the playing element in both
  *   browsers.
+ * - **The element swapped in plays on** (#641). For a span that ends
+ *   mid-clip, no element fires `ended` while Loop plays. In Firefox one
+ *   kept out of paint until the swap (`visibility: hidden`, or `opacity:
+ *   0`) jumped to its end when played, and the next frame seeked the
+ *   element on screen back to the mark-in.
  * - **Each pass makes progress**, from near the mark-in to near the
  *   mark-out (#585's first criterion), over at least five passes.
  * - **The freeze after a wrap is short.** The median time the published
@@ -67,13 +72,20 @@ async function recordWebm(page: Page, ms: number): Promise<Buffer> {
 
 type Sample = { t: number; position: number; visibleSeeking: boolean }
 
-/** Every animation frame for `ms`: the published position, and whether the element on screen is seeking. */
-async function sampleWhilePlaying(page: Page, ms: number): Promise<Sample[]> {
+/**
+ * Every animation frame for `ms`: the published position, and whether the
+ * element on screen is seeking. Also every `ended` event either element
+ * fires meanwhile, at the ms into sampling it fired.
+ */
+async function sampleWhilePlaying(page: Page, ms: number): Promise<{ samples: Sample[]; ended: number[] }> {
   return page.evaluate(async (ms) => {
     const slider = document.querySelector('input[aria-label="Seek within sequence"]') as HTMLInputElement
     const videos = [...document.querySelectorAll('video.preview-media')] as HTMLVideoElement[]
     const out: { t: number; position: number; visibleSeeking: boolean }[] = []
+    const ended: number[] = []
     const start = performance.now()
+    const onEnded = () => ended.push(Math.round(performance.now() - start))
+    for (const video of videos) video.addEventListener('ended', onEnded)
     await new Promise<void>((resolve) => {
       const step = () => {
         const t = performance.now() - start
@@ -87,20 +99,96 @@ async function sampleWhilePlaying(page: Page, ms: number): Promise<Sample[]> {
       }
       step()
     })
-    return out
+    for (const video of videos) video.removeEventListener('ended', onEnded)
+    return { samples: out, ended }
   }, ms)
 }
 
+test('the idle element Loop pre-cues shows nothing and takes no clicks (#641)', async ({ page }) => {
+  // #641 keeps the idle element painted at a near-zero opacity, because
+  // Firefox stops decoding a video it does not paint. That must stay
+  // invisible and inert: its card sits above the one on screen (z-index 1).
+  test.setTimeout(90_000)
+  await page.goto('./')
+  const webm = await recordWebm(page, 6200)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  await expect.poll(async () => Number(await seek.getAttribute('max'))).toBeGreaterThan(5.9)
+  await seek.fill('3')
+  await blurActive(page)
+  await page.keyboard.press('i')
+  await seek.fill('4')
+  await blurActive(page)
+  await page.keyboard.press('o')
+  await page.getByRole('button', { name: 'Loop playback' }).click()
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  await expect.poll(async () => Number(await seek.inputValue())).toBeGreaterThan(3.3)
+  await page.getByRole('button', { name: 'Pause preview' }).click()
+
+  // Paused mid-pass: the idle element stands on the mark-in's frame, a
+  // different colour from the frame on screen (the clip changes every frame).
+  const idle = page.locator('.preview-video-idle')
+  await expect(idle).toHaveCount(1)
+  await expect
+    .poll(() => idle.locator('video').evaluate((video: HTMLVideoElement) => !video.seeking && video.readyState >= 2))
+    .toBe(true)
+  const stage = idle.locator('..')
+  const setIdleOpacity = (value: string) =>
+    idle.evaluate((card: HTMLElement, value) => {
+      card.style.opacity = value
+    }, value)
+
+  // Nothing at the stage's centre is inside the idle card.
+  const box = (await stage.boundingBox())!
+  const hitIdle = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest('.preview-video-idle') != null,
+    [box.x + box.width / 2, box.y + box.height / 2],
+  )
+  expect(hitIdle, 'the idle card is hit at the stage centre').toBe(false)
+
+  // The control: the card fully opaque must change the stage, or the
+  // comparison below proves nothing.
+  await setIdleOpacity('0')
+  const transparent = await stage.screenshot()
+  await setIdleOpacity('1')
+  const opaque = await stage.screenshot()
+  await setIdleOpacity('')
+  expect(opaque.equals(transparent), 'control: the idle frame differs from the frame on screen').toBe(false)
+
+  // The stage as styled is pixel-identical to the stage with the idle card
+  // fully transparent, each pair shot back to back and retried. Firefox can
+  // repaint the paused frame on screen well after the pause, even after two
+  // consecutive shots have agreed on the frame before it (#642's review: 3
+  // of 25 runs failed that way, the late shot as styled matching the
+  // transparent one exactly). A repaint costs one attempt here; a card that
+  // shows fails every attempt, since its contribution is in each shot as
+  // styled and in no transparent one.
+  await expect
+    .poll(
+      async () => {
+        const asStyled = await stage.screenshot()
+        await setIdleOpacity('0')
+        const transparentNow = await stage.screenshot()
+        await setIdleOpacity('')
+        return asStyled.equals(transparentNow)
+      },
+      { message: 'the idle card changes the picture' },
+    )
+    .toBe(true)
+})
+
 // `marks: null` loops the whole sequence, which wraps at the sequence end
-// to 0: the other place the wrap happens.
-const cases: { name: string; clips: number; recordMs: number; marks: [number, number] | null }[] = [
-  { name: 'a 1 s span inside one clip', clips: 1, recordMs: 6200, marks: [3, 4] },
-  { name: 'a 0.3 s span, the customer’s "too close together"', clips: 1, recordMs: 6200, marks: [3, 3.3] },
-  { name: 'a 1 s span straddling a cut', clips: 2, recordMs: 3200, marks: [2.6, 3.6] },
-  { name: 'the whole sequence, with no marks', clips: 1, recordMs: 1200, marks: null },
+// to 0: the other place the wrap happens. `insideClip`: the span ends well
+// before its clip does, so no element has any reason to reach its end.
+const cases: { name: string; clips: number; recordMs: number; marks: [number, number] | null; insideClip: boolean }[] = [
+  { name: 'a 1 s span inside one clip', clips: 1, recordMs: 6200, marks: [3, 4], insideClip: true },
+  { name: 'a 0.3 s span, the customer’s "too close together"', clips: 1, recordMs: 6200, marks: [3, 3.3], insideClip: true },
+  { name: 'a 1 s span straddling a cut', clips: 2, recordMs: 3200, marks: [2.6, 3.6], insideClip: false },
+  { name: 'the whole sequence, with no marks', clips: 1, recordMs: 1200, marks: null, insideClip: false },
 ]
 
-for (const { name, clips, recordMs, marks } of cases) {
+for (const { name, clips, recordMs, marks, insideClip } of cases) {
   test(`Loop wraps without seeking the element on screen: ${name} (#585)`, async ({ page }, testInfo) => {
     test.setTimeout(90_000)
     await page.goto('./')
@@ -132,8 +220,17 @@ for (const { name, clips, recordMs, marks } of cases) {
 
     const span = markOut - markIn
     // At least six wraps, so five whole passes lie between them.
-    const samples = await sampleWhilePlaying(page, Math.max(3000, span * 6500 + 500))
+    const { samples, ended } = await sampleWhilePlaying(page, Math.max(3000, span * 6500 + 500))
     await page.getByRole('button', { name: 'Pause preview' }).click()
+
+    // The element the wrap swaps to plays on from the mark-in (#641). In
+    // Firefox an element hidden with `visibility: hidden` until the swap
+    // jumped to its clip's end when played, so the next frame read the
+    // sequence's end and seeked the element on screen back to the mark-in:
+    // the stutter #585 removed, on the first wrap of every play. The checks
+    // below see that seek only when a sampled frame lands inside it; an
+    // `ended` event is fired every time.
+    if (insideClip) expect(ended, 'ms into sampling at which an element ended, inside a span that ends mid-clip').toEqual([])
 
     // A wrap is a drop of most of the span between two frames.
     const wraps: number[] = []
