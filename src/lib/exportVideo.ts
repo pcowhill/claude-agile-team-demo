@@ -1080,12 +1080,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             layer.sourceHeight,
             drawRect,
           )
-          // Spotlights (#532) dim around their regions inside the same
-          // transform, BEFORE the redactions below: a region that must be
-          // hidden stays hidden even when a spotlight brightens around it.
-          drawSpotlights({
+          // Redactions (#492) paint over the picture inside the same
+          // orientation transform and the same colour filter, so they ride
+          // every zoom, transition and rotation the layer does.
+          //
+          // Spotlights (#532) dim around their regions AFTER the redactions,
+          // in the same transform, so a redacted area outside every lit
+          // region is dimmed with the rest of the picture (#663). The order
+          // costs no privacy: `drawSpotlights` only fills dark over what is
+          // already on the canvas and never re-samples the source, so the
+          // dim cannot re-reveal what a redaction hides. Every layer path
+          // below, and the preview's `RegionOverlay`, keeps this order.
+          drawRedactions({
             context,
-            regions: timeline.entries[entryIndex]?.spotlights,
+            source: layer.source,
+            regions: timeline.entries[entryIndex]?.redactions,
             sourceTime: layer.time,
             crop: outgoingCrop,
             sourceWidth: layer.sourceWidth,
@@ -1094,13 +1103,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             createCanvas,
             blurSupported: redactionBlurSupported(),
           })
-          // Redactions (#492) paint over the picture inside the same
-          // orientation transform and the same colour filter, so they ride
-          // every zoom, transition and rotation the layer does.
-          drawRedactions({
+          drawSpotlights({
             context,
-            source: layer.source,
-            regions: timeline.entries[entryIndex]?.redactions,
+            regions: timeline.entries[entryIndex]?.spotlights,
             sourceTime: layer.time,
             crop: outgoingCrop,
             sourceWidth: layer.sourceWidth,
@@ -1260,9 +1265,10 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               overlay.layer.sourceHeight,
               drawRect,
             )
-            drawSpotlights({
+            drawRedactions({
               context,
-              regions: timeline.entries[overlay.index]?.spotlights,
+              source: overlay.layer.source,
+              regions: timeline.entries[overlay.index]?.redactions,
               sourceTime: overlay.layer.time,
               crop: incomingCrop,
               sourceWidth: overlay.layer.sourceWidth,
@@ -1271,10 +1277,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               createCanvas,
               blurSupported: redactionBlurSupported(),
             })
-            drawRedactions({
+            drawSpotlights({
               context,
-              source: overlay.layer.source,
-              regions: timeline.entries[overlay.index]?.redactions,
+              regions: timeline.entries[overlay.index]?.spotlights,
               sourceTime: overlay.layer.time,
               crop: incomingCrop,
               sourceWidth: overlay.layer.sourceWidth,
@@ -1356,9 +1361,10 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               // The overlay's own source clock — the same one that decided
               // it is on screen at all (`audioTrackPlaybackAt`), so a
               // window is read identically here and in the preview.
-              drawSpotlights({
+              drawRedactions({
                 context: target,
-                regions: layer.spotlights,
+                source: picture.source,
+                regions: layer.redactions,
                 sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
                 crop: layer.crop,
                 sourceWidth: picture.width,
@@ -1367,10 +1373,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
                 createCanvas,
                 blurSupported: redactionBlurSupported(),
               })
-              drawRedactions({
+              drawSpotlights({
                 context: target,
-                source: picture.source,
-                regions: layer.redactions,
+                regions: layer.spotlights,
                 sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
                 crop: layer.crop,
                 sourceWidth: picture.width,

@@ -138,7 +138,7 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **Spotlight or zoom?** A [zoom](#zooms) removes the context — the viewer sees the button and nothing else, and loses where on the screen it is. A spotlight keeps the whole frame and points into it, which is usually what a tutorial wants. They combine: a spotlight rides a zoom like any other part of the picture.
 
-**A redaction always wins.** Where a spotlight and a [redaction](#redact-a-region) overlap on the same clip, the redaction is drawn last and stays hiding what it hides, however bright the spotlight around it.
+**A redaction is dimmed with the rest of the picture.** A [redaction](#redact-a-region) outside every lit region is dimmed by the same amount as the picture around it, and one inside a lit region stays as bright as that region. A redaction across a region's edge is dimmed on the outside and left alone on the inside, following a soft edge's ramp like any other part of the picture. The dim only darkens what is already drawn, so it never brings back what a redaction hides.
 
 **Related.** [Redact a region](#redact-a-region) · [Zooms](#zooms) · [Crop](#crop) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Visual editors](visual-editors.md)
 

@@ -479,9 +479,10 @@ function BlurBackdrop({
  * agreeing about (#66) — the pixels come from the same source, the geometry
  * from the same functions, and the draw ORDER from the same line of code.
  *
- * One canvas rather than one per kind: the spotlight's dim must land under
- * the redaction's mask (#532), and two stacked canvases would leave that
- * order to CSS instead of to the call sequence the export uses.
+ * One canvas rather than one per kind: the spotlight's dim must land on
+ * the redaction's mask as it lands on the rest of the picture (#663), and
+ * two stacked canvases would leave that order to CSS instead of to the call
+ * sequence the export uses.
  *
  * The canvas is the card's box, so the card's zoom and transition
  * transforms carry it exactly as they carry the media. Its buffer is the
@@ -548,23 +549,24 @@ function RegionOverlay({
       const rect = fitRect(dims.width, dims.height, width, height)
       withLayerOrientation(context, orientation, rect, (drawRect) => {
         const at = isVideo ? source.currentTime : timeRef.current
-        // Spotlight first, redaction second — the export's order (#532).
-        // Here the dim lands on the canvas's own transparency and the video
-        // shows through the holes; in the export it lands on the picture.
-        // Same function, same holes, same result.
-        drawSpotlights({
+        // Redaction first, spotlight second — the export's order (#663).
+        // The redaction paints its masked pixels onto the canvas, then the
+        // dim lands on them as it lands on the canvas's own transparency
+        // around them, where the video shows through; in the export it
+        // lands on the picture. Same functions, same order, same result.
+        drawRedactions({
           context,
-          regions: spotlights,
+          source,
+          regions,
           sourceTime: at,
           crop,
           sourceWidth,
           sourceHeight,
           drawRect,
         })
-        drawRedactions({
+        drawSpotlights({
           context,
-          source,
-          regions,
+          regions: spotlights,
           sourceTime: at,
           crop,
           sourceWidth,

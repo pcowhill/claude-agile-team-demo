@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { sampleExportedFrame } from './decodedFrame'
+import { sampleExportedFrame, sampleExportedGrid } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
@@ -219,7 +219,88 @@ test('the export dims outside a region, and an oval differs from a rectangle at 
   expect(afterCorner.g, 'including the corner the oval had dimmed').toBeGreaterThan(160)
 })
 
-test('a redaction stays intact over a spotlight and in the dimmed area around it (#532)', async ({
+/** The greatest per-channel spread across a grid's cells — `export-redaction.spec.ts`'s. */
+function spread(cells: { r: number; g: number; b: number }[][]): number {
+  const flat = cells.flat()
+  const range = (pick: (cell: { r: number; g: number; b: number }) => number) =>
+    Math.max(...flat.map(pick)) - Math.min(...flat.map(pick))
+  return Math.max(range((cell) => cell.r), range((cell) => cell.g), range((cell) => cell.b))
+}
+
+/** Adds one redaction region with the given fields and returns its 1-based index. */
+async function addRedaction(
+  page: Page,
+  position: string,
+  rect: { left: number; top: number; width: number; height: number },
+  style: { kind: 'Solid'; colour: string } | { kind: 'Pixelate'; blockSize: number },
+): Promise<number> {
+  await page.getByRole('button', { name: `Add a redaction region on ${position}` }).click()
+  const index = await page
+    .getByRole('button', {
+      name: new RegExp(`^Remove redaction region \\d+ of ${escapeName(position)}$`),
+    })
+    .count()
+  const which = `Redaction region ${index}`
+  await page.getByRole('combobox', { name: `${which} style of ${position}` }).selectOption(style.kind)
+  const fields: [string, number][] = [
+    [`${which} left of ${position} (percent)`, rect.left],
+    [`${which} top of ${position} (percent)`, rect.top],
+    [`${which} width of ${position} (percent)`, rect.width],
+    [`${which} height of ${position} (percent)`, rect.height],
+    [`${which} start of ${position} in seconds`, 0],
+    [`${which} end of ${position} in seconds`, 4],
+  ]
+  if (style.kind === 'Pixelate') {
+    fields.push([`${which} block size of ${position} in pixels`, style.blockSize])
+  }
+  for (const [label, value] of fields) {
+    const field = page.getByRole('spinbutton', { name: label, exact: true })
+    await field.fill(String(value))
+    await field.blur()
+  }
+  if (style.kind === 'Solid') await page.getByLabel(`${which} colour of ${position}`).fill(style.colour)
+  return index
+}
+
+// The #663 layout, on the banded frame with BOX lit at a 50% dim. Each
+// solid region is red (#ff0000), so a dim is a pure scaling of its red
+// channel: about 255 where it is lit, about 128 where it is dimmed.
+/** A solid redaction wholly inside the lit box. */
+const RED_LIT = { left: 40, top: 40, width: 12, height: 12 }
+/** A solid redaction wholly outside it, in the dim. */
+const RED_DIMMED = { left: 5, top: 40, width: 12, height: 12 }
+/** A solid redaction straddling the box's left edge (x = 30%): 22–38% across, 56–66% down. */
+const RED_STRADDLING = { left: 22, top: 56, width: 16, height: 10 }
+/**
+ * A pixelate redaction outside the box (below it), straddling the source's
+ * green/blue edge: 20% of the 320 px frame is 64 px, one block wide and
+ * (36 px tall) one block high, so it reads as one flat block — the
+ * `export-redaction.spec.ts` geometry, moved down out of the lit box.
+ */
+const PIXELATED = { left: 40, top: 75, width: 20, height: 20 }
+const DIM = 50
+const UNDIMMED_RED = 255
+const DIMMED_RED = 255 * (1 - DIM / 100)
+
+const SAMPLES: Record<string, SampleRect> = {
+  lit: { x: 0.42, y: 0.42, width: 0.08, height: 0.08 },
+  dimmed: { x: 0.07, y: 0.42, width: 0.08, height: 0.08 },
+  // Each half of the straddling region, kept 2 % of the frame clear of the
+  // box's edge and of the region's own edges, so chroma bleed stays out.
+  straddleOutside: { x: 0.23, y: 0.58, width: 0.05, height: 0.06 },
+  straddleInside: { x: 0.32, y: 0.58, width: 0.05, height: 0.06 },
+}
+const ONE_BLOCK: SampleRect = { x: 0.44, y: 0.79, width: 0.12, height: 0.12 }
+
+/** Which samples a dim reaches, under #663's rule: everything outside the lit box. */
+const EXPECTED_RED: Record<string, number> = {
+  lit: UNDIMMED_RED,
+  dimmed: DIMMED_RED,
+  straddleOutside: DIMMED_RED,
+  straddleInside: UNDIMMED_RED,
+}
+
+test('a spotlight dims a redaction outside its regions as it dims the picture, and the redaction still hides (#663)', async ({
   page,
 }) => {
   test.setTimeout(300_000)
@@ -228,60 +309,96 @@ test('a redaction stays intact over a spotlight and in the dimmed area around it
   await openPicture(page, POSITION)
 
   const spot = await addSpotlight(page, POSITION)
-  await setSpotlight(page, POSITION, spot, { ...BOX, shape: 'Rectangle', start: 0, end: 4, dim: 70 })
+  await setSpotlight(page, POSITION, spot, { ...BOX, shape: 'Rectangle', start: 0, end: 4, dim: DIM })
+  for (const rect of [RED_LIT, RED_DIMMED, RED_STRADDLING]) {
+    await addRedaction(page, POSITION, rect, { kind: 'Solid', colour: '#ff0000' })
+  }
+  await addRedaction(page, POSITION, PIXELATED, { kind: 'Pixelate', blockSize: 64 })
 
-  // Two solid-red redactions: one inside the lit box, one out in the dim.
-  // The second is the one that discriminates — the dim is painted before
-  // the mask, so a mask outside the box reads FULL red. Were the order
-  // reversed it would read 70% of the way to black, about 77.
-  for (const rect of [
-    { left: 40, top: 40, width: 12, height: 12 },
-    { left: 5, top: 40, width: 12, height: 12 },
-  ]) {
-    await page.getByRole('button', { name: `Add a redaction region on ${POSITION}` }).click()
-    const index = await page
-      .getByRole('button', {
-        name: new RegExp(`^Remove redaction region \\d+ of ${escapeName(POSITION)}$`),
-      })
-      .count()
-    const which = `Redaction region ${index}`
-    await page
-      .getByRole('combobox', { name: `${which} style of ${POSITION}` })
-      .selectOption('Solid')
-    for (const [label, value] of [
-      [`${which} left of ${POSITION} (percent)`, rect.left],
-      [`${which} top of ${POSITION} (percent)`, rect.top],
-      [`${which} width of ${POSITION} (percent)`, rect.width],
-      [`${which} height of ${POSITION} (percent)`, rect.height],
-      [`${which} start of ${POSITION} in seconds`, 0],
-      [`${which} end of ${POSITION} in seconds`, 4],
-    ] as const) {
-      const field = page.getByRole('spinbutton', { name: label, exact: true })
-      await field.fill(String(value))
-      await field.blur()
-    }
-    await page.getByLabel(`${which} colour of ${POSITION}`).fill('#ff0000')
+  // ---- The preview ----
+  // `RegionOverlay` paints redactions and the dim on one canvas in front of
+  // the video; a solid redaction is opaque there, so its pixels are read
+  // straight off the canvas — the red the viewer sees, dim included.
+  const canvas = page.getByTestId('preview-redactions')
+  await expect(canvas).toBeVisible()
+  const readPreview = async () =>
+    await canvas.evaluate(
+      (element, samples) => {
+        const source = element as HTMLCanvasElement
+        const context = source.getContext('2d')
+        if (context === null || source.width === 0 || source.height === 0) return null
+        const out: Record<string, { r: number; g: number; a: number }> = {}
+        for (const [name, rect] of Object.entries(samples)) {
+          const x = Math.round(rect.x * source.width)
+          const y = Math.round(rect.y * source.height)
+          const w = Math.max(1, Math.round(rect.width * source.width))
+          const h = Math.max(1, Math.round(rect.height * source.height))
+          const data = context.getImageData(x, y, w, h).data
+          let r = 0
+          let g = 0
+          let a = 0
+          for (let i = 0; i < data.length; i += 4) {
+            r += data[i]
+            g += data[i + 1]
+            a += data[i + 3]
+          }
+          const n = data.length / 4
+          out[name] = { r: r / n, g: g / n, a: a / n }
+        }
+        return out
+      },
+      SAMPLES,
+    )
+  // The canvas paints on its own rAF loop once the video has a frame:
+  // polled until every solid sample is opaque, never read once
+  // (`quality-and-ci.md`), and the whole reading is taken inside one poll.
+  let preview: Awaited<ReturnType<typeof readPreview>> = null
+  await expect
+    .poll(
+      async () => {
+        preview = await readPreview()
+        if (preview === null) return 0
+        return Math.min(...Object.values(preview).map((sample) => sample.a))
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(250)
+  for (const [name, expected] of Object.entries(EXPECTED_RED)) {
+    const sample = preview![name]
+    expect(
+      Math.abs(sample.r - expected),
+      `the preview's ${name} redaction reads red ${sample.r.toFixed(1)}, want about ${expected.toFixed(1)}`,
+    ).toBeLessThan(12)
+    expect(sample.g, `the preview's ${name} redaction is not tinted`).toBeLessThan(12)
   }
 
+  // ---- The export ----
   const exported = await exportProject(page)
-  const inside = await sampleExportedFrame(page, exported, 2, {
-    x: 0.42,
-    y: 0.42,
-    width: 0.08,
-    height: 0.08,
-  })
-  const outside = await sampleExportedFrame(page, exported, 2, {
-    x: 0.07,
-    y: 0.42,
-    width: 0.08,
-    height: 0.08,
-  })
-  for (const [what, sample] of [
-    ['over the spotlight', inside],
-    ['in the dimmed area', outside],
+  for (const [name, expected] of Object.entries(EXPECTED_RED)) {
+    const sample = await sampleExportedFrame(page, exported, 2, SAMPLES[name])
+    // VP9 tolerances: a lit and a dimmed red are 128 apart, so 30 either
+    // side still tells them apart with room to spare.
+    expect(
+      Math.abs(sample.r - expected),
+      `the export's ${name} redaction reads red ${sample.r.toFixed(1)}, want about ${expected.toFixed(1)}`,
+    ).toBeLessThan(30)
+    expect(sample.g, `the export's ${name} redaction is not tinted green`).toBeLessThan(40)
+  }
+
+  // Still hidden: the pixelate block under the dim reads FLAT, though the
+  // source under it changes from green to blue — so the dim drawn after it
+  // did not bring the source's edge back — and it reads the block's
+  // green/blue average dimmed (about 51 each), where undimmed it would be
+  // about 102.
+  const block = await sampleExportedGrid(page, exported, 2, ONE_BLOCK, 4, 4)
+  expect(spread(block.cells), 'the pixelated block is flat under the dim').toBeLessThan(28)
+  const cell = block.cells[0][0]
+  for (const [channel, value] of [
+    ['green', cell.g],
+    ['blue', cell.b],
   ] as const) {
-    expect(sample.r, `the redaction ${what} is its own red`).toBeGreaterThan(150)
-    expect(sample.g, `the redaction ${what} is not tinted`).toBeLessThan(90)
+    expect(value, `the pixelated block carries ${channel}`).toBeGreaterThan(25)
+    expect(value, `the pixelated block's ${channel} is dimmed`).toBeLessThan(80)
   }
 })
 
