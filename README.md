@@ -30,7 +30,7 @@ the session is autosaved continuously so a crash or a refresh loses nothing.
 
 **The user guide is the product's documentation.**
 [Open it in the app](https://pcowhill.github.io/claude-agile-team-demo/#guide/quick-start),
-or press **F1** — or **Help ▾ → User guide…** — anywhere in the editor. It
+or press **F1** — or **Help ▾ → User Guide…** — anywhere in the editor. It
 opens as a panel docked beside the editor — over it on a narrow screen — so
 a control can be read about while being looked at, and it has a search field
 and a table of contents.
