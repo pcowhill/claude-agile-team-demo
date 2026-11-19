@@ -209,6 +209,12 @@ interface TimelineProps {
    */
   stepSeconds?: number
   largeStepSeconds?: number
+  /**
+   * Pauses the preview (#722). The Trim window calls it on opening: the
+   * window is modal, so a sequence left playing behind it could be neither
+   * seen nor paused, and its sound would mix with Play trim's.
+   */
+  onPausePreview?: () => void
   /** Sets a still entry's on-screen duration (#140); stills have no trim. */
   onSetStillDuration: (id: string, duration: number) => void
   /** Appends a solid-color slate to the sequence (#143) — no import involved. */
@@ -1961,6 +1967,7 @@ export function Timeline({
   onTrimEntry,
   stepSeconds = DEFAULT_SETTINGS.stepSeconds,
   largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
+  onPausePreview,
   onSetStillDuration,
   onAddSlate,
   onSetSlateColor,
@@ -2894,6 +2901,7 @@ export function Timeline({
                           position={position}
                           stepSeconds={stepSeconds}
                           largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
                           onApply={(inPoint, outPoint) => {
                             setTrimmingId(null)
                             onTrimEntry(entry.id, inPoint, outPoint)

@@ -153,6 +153,13 @@ interface PreviewPlayerProps {
    */
   playheadRef?: { current: number }
   /**
+   * Filled with a function that pauses whatever the preview is playing, the
+   * sequence or a source clip (#722), and does nothing when it is not. The
+   * Trim window calls it on opening, from the timeline, which has no other
+   * handle on this component's playback.
+   */
+  pauseRef?: { current: (() => void) | null }
+  /**
    * Reports the output frame the preview composes (#683), whenever its size
    * changes, so the timeline can show shape thickness in px at that frame.
    */
@@ -824,6 +831,7 @@ export function PreviewPlayer({
   markIn = null,
   markOut = null,
   playheadRef,
+  pauseRef,
   onFrameSize,
   onMarkIn,
   onMarkOut,
@@ -1778,6 +1786,20 @@ export function PreviewPlayer({
     if (sourceMode && playing) pause()
   }, [sourceMode, playing, pause])
 
+  // The pause the rest of the app can ask for (#722): the sequence's, when
+  // it plays, and the source preview's, which registers its own below.
+  const sourcePauseRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    if (pauseRef === undefined) return
+    pauseRef.current = () => {
+      if (playing) pause()
+      sourcePauseRef.current?.()
+    }
+    return () => {
+      pauseRef.current = null
+    }
+  }, [pauseRef, playing, pause])
+
   /**
    * Save frame (#237): compose the playhead's frame through the export's own
    * draw path (frameSnapshot.ts) at the output resolution and download it as
@@ -2362,6 +2384,7 @@ export function PreviewPlayer({
           aspect={previewAspect}
           layout={layout}
           onBack={onExitSourcePreview ?? noop}
+          pauseRef={sourcePauseRef}
           onAddToTimeline={onAddSourceToTimeline}
           onAddOverlay={onAddSourceAsOverlay}
           {...(stepSeconds === undefined ? {} : { stepSeconds })}

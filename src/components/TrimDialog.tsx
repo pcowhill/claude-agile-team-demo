@@ -31,6 +31,12 @@ interface TrimDialogProps {
   onApply: (inPoint: number, outPoint: number) => void
   /** Cancel, ✕ and Escape: close, changing nothing. */
   onClose: () => void
+  /**
+   * Called once as the window opens (#722): the app pauses its preview here,
+   * so the sequence does not play on, unseen and unpausable, behind the
+   * modal. Nothing resumes it on closing.
+   */
+  onOpen?: () => void
   /** Injectable for tests (jsdom has no Web Audio or blob fetch). */
   peaksFor?: Parameters<typeof AudioWaveform>[0]['peaksFor']
 }
@@ -65,6 +71,7 @@ export function TrimDialog({
   largeStepSeconds,
   onApply,
   onClose,
+  onOpen,
   peaksFor,
 }: TrimDialogProps) {
   const { duration, url } = entry
@@ -97,6 +104,14 @@ export function TrimDialog({
   // pressing whichever button would otherwise hold the focus.
   useEffect(() => {
     dialogRef.current?.focus()
+  }, [])
+
+  // The preview behind the window stops as it opens (#722), once: only the
+  // opening is the moment, so a new onOpen identity on a later render must
+  // not pause it again.
+  useEffect(() => {
+    onOpen?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const pause = useCallback(() => {
