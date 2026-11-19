@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { targetEditsText } from '../lib/history'
 import { targetClaimsKeys } from '../lib/transport'
 import {
@@ -23,14 +23,27 @@ import './dialog.css'
 import './TrimDialog.css'
 
 interface TrimDialogProps {
-  /** The sequence entry being trimmed: its source and its current trim. */
+  /**
+   * The element being trimmed — a sequence entry, or an audio track (#711) —
+   * as its source and its current trim. Nothing here assumes which: Apply
+   * hands the two numbers back, and the caller dispatches its own action.
+   */
   entry: { name: string; url: string; duration: number; inPoint: number; outPoint: number }
+  /**
+   * An audio track (#711): no picture. The window plays the source through
+   * an `<audio>` element, the strip is its waveform alone, and there are no
+   * frames to step by or to decode for the strip.
+   */
+  audioOnly?: boolean
   /** "clip.webm at position 2": the row's own wording, so the title matches its fields'. */
   position: string
   /** The clamps' arrow steps: the nudge and jump sizes from Settings. */
   stepSeconds: number
   largeStepSeconds: number
-  /** Apply: the new In and Out, as one `entry-trimmed`, so one undo step. */
+  /**
+   * Apply: the new In and Out at once, so the caller's one trim action —
+   * `entry-trimmed`, or `audio-track-trimmed` (#711) — is one undo step.
+   */
   onApply: (inPoint: number, outPoint: number) => void
   /** Cancel, ✕ and Escape: close, changing nothing. */
   onClose: () => void
@@ -80,6 +93,7 @@ type Grip = 'in' | 'out' | 'playhead'
  */
 export function TrimDialog({
   entry,
+  audioOnly = false,
   position,
   stepSeconds,
   largeStepSeconds,
@@ -93,7 +107,9 @@ export function TrimDialog({
   const { duration, url } = entry
   const headingId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  // The window's own player: a <video>, or an <audio> for a track (#711).
+  // Everything below uses only what the two share.
+  const videoRef = useRef<HTMLMediaElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const [range, setRange] = useState<TrimRange>({ inPoint: entry.inPoint, outPoint: entry.outPoint })
   // The playhead: where the preview is, in source seconds. It opens on In.
@@ -121,6 +137,8 @@ export function TrimDialog({
   // and the clamps, playhead and buttons already work (#703 §5).
   const [frames, setFrames] = useState<(string | null)[] | null>(null)
   useEffect(() => {
+    // An audio track has no frames (#711): nothing to decode.
+    if (audioOnly) return
     let stale = false
     void framesFor(url, duration).then((captured) => {
       if (!stale) setFrames(captured)
@@ -128,7 +146,7 @@ export function TrimDialog({
     return () => {
       stale = true
     }
-  }, [framesFor, url, duration])
+  }, [audioOnly, framesFor, url, duration])
 
   // Focus starts on the window itself, so Space plays at once rather than
   // pressing whichever button would otherwise hold the focus.
@@ -363,17 +381,17 @@ export function TrimDialog({
           </button>
         </div>
 
-        <div className="trim-preview">
-          <video
-            ref={videoRef}
-            className="trim-video"
-            data-testid="trim-video"
+        {audioOnly ? (
+          // An audio track (#711): no picture, so no preview box. The element
+          // has no controls and so takes no room; the window's own buttons
+          // play it.
+          <audio
+            ref={videoRef as RefObject<HTMLAudioElement>}
+            data-testid="trim-audio"
             src={url}
-            playsInline
             preload="auto"
-            // Firefox drops a seek made while an element has only its
-            // metadata (#615), so the playhead is applied again once the
-            // first frame is there.
+            // As the video's, below: a seek made before the data is there is
+            // applied again once it is.
             onLoadedData={(event) => {
               if (!playing) event.currentTarget.currentTime = timeRef.current
             }}
@@ -381,7 +399,27 @@ export function TrimDialog({
               if (!loopRef.current) setPlaying(false)
             }}
           />
-        </div>
+        ) : (
+          <div className="trim-preview">
+            <video
+              ref={videoRef as RefObject<HTMLVideoElement>}
+              className="trim-video"
+              data-testid="trim-video"
+              src={url}
+              playsInline
+              preload="auto"
+              // Firefox drops a seek made while an element has only its
+              // metadata (#615), so the playhead is applied again once the
+              // first frame is there.
+              onLoadedData={(event) => {
+                if (!playing) event.currentTarget.currentTime = timeRef.current
+              }}
+              onEnded={() => {
+                if (!loopRef.current) setPlaying(false)
+              }}
+            />
+          </div>
+        )}
         <p className="trim-position" data-testid="trim-position">
           <output aria-label="Trim window playhead">{formatTrimTime(time)}</output> /{' '}
           {formatTrimTime(duration)}
@@ -392,7 +430,7 @@ export function TrimDialog({
             bare strip moves the playhead; a press on a clamp drags it. */}
         <div
           ref={stripRef}
-          className={`trim-strip${grip === null ? '' : ' trim-strip-dragging'}`}
+          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
           data-testid="trim-strip"
           onPointerDown={beginDrag('playhead')}
           onPointerMove={onStripPointerMove}
@@ -504,14 +542,17 @@ export function TrimDialog({
           <button type="button" title="Jump the playhead to In" onClick={() => seek(range.inPoint)}>
             ⏮ In
           </button>
-          <button
-            type="button"
-            aria-label="Back one frame"
-            title="Back one frame"
-            onClick={() => seek(frameStep(timeRef.current, -1, duration))}
-          >
-            ◀ frame
-          </button>
+          {/* An audio track has no frames to step by (#711). */}
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Back one frame"
+              title="Back one frame"
+              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+            >
+              ◀ frame
+            </button>
+          )}
           <button
             type="button"
             className="trim-play"
@@ -521,14 +562,17 @@ export function TrimDialog({
           >
             {playing ? '⏸ Pause' : '▶ Play trim'}
           </button>
-          <button
-            type="button"
-            aria-label="Forward one frame"
-            title="Forward one frame"
-            onClick={() => seek(frameStep(timeRef.current, 1, duration))}
-          >
-            frame ▶
-          </button>
+          {/* As ◀ frame: not for an audio track (#711). */}
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Forward one frame"
+              title="Forward one frame"
+              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+            >
+              frame ▶
+            </button>
+          )}
           <button type="button" title="Jump the playhead to Out" onClick={() => seek(range.outPoint)}>
             Out ⏭
           </button>

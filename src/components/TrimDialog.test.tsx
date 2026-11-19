@@ -24,6 +24,109 @@ vi.mock('../lib/audioPeaks', async (importOriginal) => {
 const probeMock = vi.mocked(probeMediaFile)
 
 /**
+ * The Trim window on an audio track (#711), through <App/>: offered on the
+ * lane's rows, with no picture, and Apply dispatching the track's own trim.
+ * Play trim on the sound, and the strip's geometry, are
+ * `e2e/trim-window.spec.ts`'s.
+ */
+describe('the Trim window on an audio track (#711)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve())
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const TRACK = 'audio track music.mp3 at position 1'
+  const field = (which: 'in' | 'out') =>
+    screen.getByRole('spinbutton', { name: `Trim ${which} point of ${TRACK} in seconds` })
+  const startField = () => screen.getByRole('spinbutton', { name: `Start time of ${TRACK} in seconds` })
+  const trimButton = (name = TRACK) => screen.queryByRole('button', { name: `Trim ${name} in the Trim window` })
+  const dialog = () => screen.getByRole('dialog', { name: `Trim ${TRACK}` })
+
+  async function addClip(name: string, kind: 'audio' | 'video', duration: number) {
+    probeMock.mockResolvedValueOnce({ duration, url: `blob:${name}`, kind })
+    const type = kind === 'audio' ? 'audio/mpeg' : 'video/mp4'
+    await userEvent.upload(screen.getByTestId('clip-file-input'), new File(['content'], name, { type }))
+    await screen.findByText(name)
+    await userEvent.click(screen.getByRole('button', { name: `Add ${name} to timeline` }))
+  }
+
+  it('is offered on an audio track beside its In and Out, and opens with no picture: the strip is the waveform', async () => {
+    render(<App />)
+    await addClip('music.mp3', 'audio', 30)
+    const button = trimButton()
+    expect(button).toHaveTextContent('Trim…')
+    expect(button!.parentElement).toContainElement(field('in'))
+    expect(button!.parentElement).toContainElement(field('out'))
+
+    await userEvent.click(button!)
+    const window = dialog()
+    expect(window).toHaveAttribute('aria-modal', 'true')
+    // No picture: an <audio> element plays it, and there is no <video>.
+    expect(window.querySelector('video')).toBeNull()
+    expect(within(window).getByTestId('trim-audio').tagName).toBe('AUDIO')
+    // The strip is the waveform alone: no frame row, and no frames to step.
+    expect(await within(window).findByTestId('trim-waveform')).toBeInTheDocument()
+    expect(within(window).queryByTestId('trim-frames')).toBeNull()
+    expect(within(window).queryByRole('button', { name: 'Back one frame' })).toBeNull()
+    expect(within(window).queryByRole('button', { name: 'Forward one frame' })).toBeNull()
+    // A track has no effects to mark, so no warning line.
+    expect(within(window).queryByTestId('trim-warning')).toBeNull()
+    expect(within(window).getByRole('button', { name: 'Play trim' })).toBeInTheDocument()
+  })
+
+  it('Apply after moving the Out clamp changes the track’s Out and nothing else, as one undo step', async () => {
+    render(<App />)
+    await addClip('music.mp3', 'audio', 30)
+    await userEvent.clear(startField())
+    await userEvent.type(startField(), '4{Enter}')
+    await userEvent.click(trimButton()!)
+    const outClamp = within(dialog()).getByRole('slider', { name: 'Out clamp' })
+    expect(Number(outClamp.getAttribute('aria-valuenow'))).toBe(30)
+    fireEvent.keyDown(outClamp, { key: 'ArrowLeft', shiftKey: true })
+    fireEvent.keyDown(outClamp, { key: 'ArrowLeft', shiftKey: true })
+    expect(Number(outClamp.getAttribute('aria-valuenow'))).toBe(30 - 2 * LARGE_STEP_SECONDS)
+    // Not yet: the clamps are the window's own until Apply.
+    expect(field('out')).toHaveValue(30)
+
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Apply' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(field('out')).toHaveValue(30 - 2 * LARGE_STEP_SECONDS)
+    expect(field('in')).toHaveValue(0)
+    expect(startField()).toHaveValue(4)
+
+    // One undo restores the trim, and only the trim: the start time set the
+    // step before is kept.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(field('out')).toHaveValue(30)
+    expect(field('in')).toHaveValue(0)
+    expect(startField()).toHaveValue(4)
+  })
+
+  it('is one window at a time across the sequence and the lane: each row opens its own', async () => {
+    render(<App />)
+    await addClip('a.mp4', 'video', 10)
+    await addClip('music.mp3', 'audio', 30)
+    expect(screen.queryAllByRole('button', { name: /in the Trim window$/ })).toHaveLength(2)
+    await userEvent.click(trimButton()!)
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(dialog()).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(trimButton('a.mp4 at position 1')!)
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    // The entry's window has its picture.
+    expect(within(screen.getByRole('dialog', { name: 'Trim a.mp4 at position 1' })).getByTestId('trim-video')).toBeInTheDocument()
+  })
+})
+
+/**
  * The Trim window (#707), through <App/>: what offers it, what Apply,
  * Cancel, ✕ and Escape do to the entry, and the clamps' keyboard and field
  * rules. Playback, dragging and the window's geometry need a real browser

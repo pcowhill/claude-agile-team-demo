@@ -263,3 +263,14 @@
 .trim-footer .dialog-actions {
   margin-left: auto;
 }
+
+/* An audio track's window (#711): no frame row, so the strip is the
+   waveform lane alone, filling it. */
+.trim-strip.trim-strip-audio {
+  height: 3.5rem;
+}
+
+.trim-strip-audio .trim-strip-waveform {
+  top: 0;
+  border-radius: 4px;
+}
