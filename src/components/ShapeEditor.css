@@ -95,3 +95,53 @@
   stroke-dasharray: 4 4;
   pointer-events: none;
 }
+
+/* The style bar (#686): label-and-control pairs in a wrapping flow, so a
+   narrow editor breaks between pairs and never pushes one out of its box. */
+.shape-editor-style {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.shape-editor-style-item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.shape-editor-style-item > span:first-child,
+.shape-editor-style button {
+  white-space: nowrap;
+}
+
+/* Wide enough for two digits and Firefox's spinner, which it always draws
+   (#676: a 31px box clipped a 38px need). */
+.shape-editor-number .timeline-unit-input[type='number'] {
+  width: 3.4rem;
+}
+
+.shape-editor-style select {
+  max-width: 9rem;
+}
+
+.shape-editor-mixed {
+  font-style: italic;
+  color: #ccc;
+}
+
+/* Show result (#686): the picture is the finished frame and takes no pointer. */
+.shape-editor-inert,
+.shape-editor-inert .shape-editor-hit {
+  pointer-events: none;
+}
+
+/* Several shapes selected: their arrows' end rings mark them, inert. */
+.shape-editor-end-inert {
+  pointer-events: none;
+}

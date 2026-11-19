@@ -185,6 +185,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "as the speed segment above (#525). Safe beside Pause and Pause recording, which carry no number: the digit is what this matches",
   },
   {
+    pattern: / of the selected shapes\b/,
+    replacement: '',
+    why: "the shape editor's style bar (#686) names what it restyles; each control is the row's own field of the same name, applied to the selection",
+  },
+  {
     pattern: /^(Expand|Collapse) all .*elements$/,
     replacement: '$1 all',
     why: 'the fold-all pair names the section or the whole timeline it folds',
@@ -332,6 +337,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     why: 'as above — the same slider in the spotlight editor (#533)',
   },
   {
+    from: 'Preview time',
+    to: 'Preview',
+    why: 'as above — the same slider in the shape editor (#686), whose group the element rule took out of the name',
+  },
+  {
     from: 'Loop the hold of Zoom',
     to: '↻ Loop',
     why: 'the toggle reads "↻ Loop"; the accessible name says what it plays',
@@ -345,6 +355,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Loop the window of Spotlight region',
     to: '↻ Loop',
     why: 'as above — the same toggle in the spotlight editor (#533)',
+  },
+  {
+    from: 'Loop the window',
+    to: '↻ Loop',
+    why: 'as above — the same toggle in the shape editor (#686), over the group\'s window',
   },
   {
     from: 'Reset crop in the editor',

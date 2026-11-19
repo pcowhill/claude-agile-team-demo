@@ -14,6 +14,16 @@ import {
   snappedPoint,
   squareError,
   withShape,
+  DUPLICATE_OFFSET,
+  HIGHLIGHTER_STYLE,
+  duplicatedShapes,
+  movedShapes,
+  reorderedShapes,
+  restyledShape,
+  selectionStyle,
+  shapesAfterKeyStep,
+  withShapes,
+  withoutShapes,
 } from './shapeEditor'
 import { defaultShape, isValidShape } from './shapes'
 import type { ArrowShape, BoxShape } from './shapes'
@@ -154,6 +164,139 @@ describe('drawing an arrow (#685)', () => {
     const tip = snappedAngle({ x: 0.9, y: 0.5 }, { x: 1.4, y: 0.52 }, WIDE)
     expect(tip.x).toBeCloseTo(1, 9)
     expect(tip.y).toBeCloseTo(0.5, 9)
+  })
+})
+
+describe('a selection of several shapes (#686)', () => {
+  const ids = (...list: string[]) => new Set(list)
+  const three = () => [
+    rect({ id: 'r1', x: 0.1, y: 0.1, width: 0.2, height: 0.2 }),
+    { ...defaultShape('e1', 'ellipse'), x: 0.5, y: 0.1, width: 0.2, height: 0.2 },
+    arrow({ id: 'a1', tailX: 0.2, tailY: 0.7, tipX: 0.6, tipY: 0.8 }),
+  ]
+
+  it('withShapes commits several edits as one list, and null when none changed', () => {
+    const shapes = three()
+    expect(withShapes(shapes, [shapes[0], shapes[2]])).toBeNull()
+    const next = withShapes(shapes, [
+      { ...shapes[0], stroke: '#00ff00' },
+      { ...shapes[2], stroke: '#00ff00' },
+    ])!
+    expect(next.map((shape) => shape.stroke)).toEqual(['#00ff00', shapes[1].stroke, '#00ff00'])
+    // Order and the untouched shape's identity are kept.
+    expect(next[1]).toBe(shapes[1])
+  })
+
+  it('moves rigidly: every shape by the same stored amount, clamped so the whole selection stays on the frame', () => {
+    const [box, , line] = three()
+    const moved = movedShapes([box, line], 0.05, -0.03, { altKey: true })
+    expect(moved[0]).toMatchObject({ x: 0.15, y: 0.07 })
+    expect(moved[1]).toMatchObject({ tailX: 0.25, tailY: 0.67, tipX: 0.65, tipY: 0.77 })
+    // Far right: the arrow's tip reaches 1 and stops there; the box stops
+    // with it, so the spacing is unchanged.
+    const pushed = movedShapes([box, line], 0.9, 0, { altKey: true })
+    expect(pushed[1]).toMatchObject({ tipX: 1, tailX: 0.6 })
+    expect(pushed[0]).toMatchObject({ x: 0.5 })
+  })
+
+  it('snaps the box around the selection unless Alt is held', () => {
+    const [box, ellipse] = three()
+    // The pair spans x 0.1–0.7, centre 0.4; moving 0.095 puts it at 0.495.
+    const snapped = movedShapes([box, ellipse], 0.095, 0)
+    expect((snapped[0] as BoxShape).x + 0.3).toBeCloseTo(0.5, 5)
+    const free = movedShapes([box, ellipse], 0.095, 0, { altKey: true })
+    expect((free[0] as BoxShape).x).toBe(0.2)
+  })
+
+  it('a key nudges the selection together; + and − resize each shape about its own centre', () => {
+    const [box, ellipse] = three()
+    const nudged = shapesAfterKeyStep([box, ellipse], { kind: 'move', dx: 0.01, dy: 0 }, WIDE)
+    expect(nudged.map((shape) => (shape as BoxShape).x)).toEqual([0.11, 0.51])
+    const grown = shapesAfterKeyStep([box, ellipse], { kind: 'scale', delta: 1 }, WIDE) as BoxShape[]
+    expect(grown[0].width).toBeCloseTo(0.22, 5)
+    expect(grown[0].x + grown[0].width / 2).toBeCloseTo(0.2, 5)
+    expect(grown[1].x + grown[1].width / 2).toBeCloseTo(0.6, 5)
+  })
+
+  it('Ctrl+D copies the selection on top, offset down and right, under new ids', () => {
+    const shapes = three()
+    let counter = 0
+    const result = duplicatedShapes(shapes, ids('r1', 'a1'), () => `copy${++counter}`)!
+    expect(result.shapes.map((shape) => shape.id)).toEqual(['r1', 'e1', 'a1', 'copy1', 'copy2'])
+    expect(result.copies[0]).toMatchObject({ kind: 'rectangle', x: 0.12, y: 0.12 })
+    expect(DUPLICATE_OFFSET).toBe(0.02)
+    expect(result.copies[1]).toMatchObject({ kind: 'arrow', tailX: 0.22, tipY: 0.82 })
+    expect(result.shapes.slice(0, 3)).toEqual(shapes)
+    expect(duplicatedShapes(shapes, ids(), () => 'x')).toBeNull()
+  })
+
+  it('Ctrl+D offsets the other way where the frame leaves no room', () => {
+    const corner = rect({ id: 'r1', x: 0.8, y: 0.85, width: 0.2, height: 0.15 })
+    const { copies } = duplicatedShapes([corner], ids('r1'), () => 'c')!
+    expect(copies[0]).toMatchObject({ x: 0.78, y: 0.83 })
+  })
+
+  it('Delete removes the selection, and never the group’s last shape', () => {
+    const shapes = three()
+    expect(withoutShapes(shapes, ids('e1'))!.map((shape) => shape.id)).toEqual(['r1', 'a1'])
+    expect(withoutShapes(shapes, ids('r1', 'e1', 'a1'))).toBeNull()
+    expect(withoutShapes(shapes, ids('gone'))).toBeNull()
+  })
+
+  it('Bring forward and Send backward step the selection through the drawing order', () => {
+    const shapes = three()
+    const order = (next: ReturnType<typeof reorderedShapes>) => next?.map((shape) => shape.id)
+    expect(order(reorderedShapes(shapes, ids('r1'), 'forward'))).toEqual(['e1', 'r1', 'a1'])
+    expect(order(reorderedShapes(shapes, ids('a1'), 'backward'))).toEqual(['r1', 'a1', 'e1'])
+    // Already on top (or at the bottom): nothing moves.
+    expect(reorderedShapes(shapes, ids('a1'), 'forward')).toBeNull()
+    expect(reorderedShapes(shapes, ids('r1'), 'backward')).toBeNull()
+    // Two together move as a block.
+    expect(order(reorderedShapes(shapes, ids('r1', 'e1'), 'forward'))).toEqual(['a1', 'r1', 'e1'])
+    // One stacked against the top stays with it.
+    expect(reorderedShapes(shapes, ids('e1', 'a1'), 'forward')).toBeNull()
+    expect(reorderedShapes(shapes, ids(), 'forward')).toBeNull()
+  })
+
+  it('a restyle gives each kind only what it holds', () => {
+    const [box, ellipse, line] = three()
+    const change = { stroke: '#123456', cornerRadius: 0.05, heads: 'both' as const }
+    expect(restyledShape(box, change)).toMatchObject({ stroke: '#123456', cornerRadius: 0.05 })
+    const roundEllipse = restyledShape(ellipse, change)
+    expect(roundEllipse).not.toHaveProperty('cornerRadius')
+    expect(roundEllipse).not.toHaveProperty('heads')
+    expect(restyledShape(line, change)).toMatchObject({ stroke: '#123456', heads: 'both' })
+    expect(restyledShape(line, change)).not.toHaveProperty('cornerRadius')
+    // A zero radius is stored as none, as the row stores it.
+    expect(restyledShape(rect({ cornerRadius: 0.1 }), { cornerRadius: 0 })).not.toHaveProperty('cornerRadius')
+    for (const shape of [box, ellipse, line]) expect(isValidShape(restyledShape(shape, change))).toBe(true)
+  })
+
+  it('the Highlighter preset is no border and a 35 % yellow fill', () => {
+    expect(HIGHLIGHTER_STYLE).toEqual({ thickness: 0, fill: '#ffff00', fillOpacity: 0.35 })
+    const lit = restyledShape(rect({ stroke: '#ff0000' }), HIGHLIGHTER_STYLE)
+    expect(lit).toMatchObject({ thickness: 0, fill: '#ffff00', fillOpacity: 0.35, stroke: '#ff0000' })
+  })
+
+  it('the style bar reads shared values, "mixed" where shapes differ, and only fields every shape holds', () => {
+    const [box, ellipse, line] = three()
+    expect(selectionStyle([])).toBeNull()
+    const pair = selectionStyle([box, { ...ellipse, stroke: '#00ff00' }])!
+    expect(pair.stroke).toBe('mixed')
+    expect(pair.thickness).toBe(box.thickness)
+    expect(pair.fill).toBe(box.fill)
+    // An ellipse is in it, so no corner radius; no arrow, so no heads.
+    expect(pair.cornerRadius).toBeUndefined()
+    expect(pair.heads).toBeUndefined()
+    const all = selectionStyle([box, ellipse, line])!
+    // An arrow draws no fill, so a selection holding one offers none.
+    expect(all.fill).toBeUndefined()
+    expect(all.fillOpacity).toBeUndefined()
+    expect(selectionStyle([box, rect({ id: 'r2', cornerRadius: 0.02 })])!.cornerRadius).toBe('mixed')
+    expect(selectionStyle([line, arrow({ id: 'a2', heads: 'none' })])).toMatchObject({
+      heads: 'mixed',
+      headSize: 'medium',
+    })
   })
 })
 

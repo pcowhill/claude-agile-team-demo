@@ -273,6 +273,12 @@
   vertical-align: top;
 }
 
+/* A scope's heading row (#686): the keys below it work only there. */
+.user-guide-shortcuts-scope {
+  padding-top: 0.6rem;
+  text-align: left;
+}
+
 .user-guide-shortcuts td:first-child {
   display: flex;
   flex-direction: column;

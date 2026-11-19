@@ -37,6 +37,12 @@
   font-size: 0.85em;
 }
 
+.shortcut-scope {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #ddd;
+}
+
 .shortcut-note {
   color: #999;
   font-size: 0.8rem;

@@ -18,7 +18,17 @@ export interface Shortcut {
   keys: readonly string[]
   /** What the keys do, as a short sentence without a full stop. */
   does: string
+  /**
+   * Where the keys work, when not everywhere: "In the shape editor" (#686)
+   * for keys that act only while that editor's picture has the focus.
+   * Absent for the app-wide keys. The sheet and the guide's table both
+   * show each scope as its own heading after the app-wide rows.
+   */
+  scope?: string
 }
+
+/** The shape editor's own keys (#686): they act on its selection. */
+export const SHAPE_EDITOR_SCOPE = 'In the shape editor'
 
 export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): readonly Shortcut[] => [
   { keys: ['Space'], does: 'Play / pause the preview' },
@@ -34,4 +44,31 @@ export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): rea
   { keys: ['Ctrl/Cmd + Shift + Z', 'Ctrl/Cmd + Y'], does: 'Redo' },
   { keys: ['F1'], does: 'Open the user guide' },
   { keys: ['?'], does: 'Show the keyboard shortcuts cheat sheet' },
+  { keys: ['Delete', 'Backspace'], does: 'Remove the selected shapes', scope: SHAPE_EDITOR_SCOPE },
+  {
+    keys: ['Ctrl/Cmd + D'],
+    does: 'Duplicate the selected shapes, slightly offset',
+    scope: SHAPE_EDITOR_SCOPE,
+  },
 ]
+
+/**
+ * The table cut into its sections (#686): the app-wide keys first, under
+ * no heading, then each scope's keys under its own, in the order the
+ * scopes first appear.
+ */
+export function shortcutSections(
+  shortcuts: readonly Shortcut[],
+): { scope: string | undefined; rows: Shortcut[] }[] {
+  const sections: { scope: string | undefined; rows: Shortcut[] }[] = []
+  for (const shortcut of shortcuts) {
+    let section = sections.find((each) => each.scope === shortcut.scope)
+    if (section === undefined) {
+      section = { scope: shortcut.scope, rows: [] }
+      if (shortcut.scope === undefined) sections.unshift(section)
+      else sections.push(section)
+    }
+    section.rows.push(shortcut)
+  }
+  return sections
+}
