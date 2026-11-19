@@ -140,7 +140,7 @@ test('the mixed soundtrack exports as an audio file with no video track', async 
   ).toHaveCount(2)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
-  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 1)', '0.8')
+  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 4)', '0.8')
 
   const exported = await exportAudioOnly(page)
 
@@ -171,7 +171,7 @@ test('a muted mix still exports a valid — near-silent — audio file', async (
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   // The video is silent already; zeroing the track mutes the whole mix.
-  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 1)', '0')
+  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 4)', '0')
 
   const exported = await exportAudioOnly(page)
 

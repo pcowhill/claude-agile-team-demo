@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import gainsBefore692 from './fixtures/gains-before-692.json'
 import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import {
@@ -62,9 +63,60 @@ describe('videoEntryGain (#104)', () => {
 
   it('tolerates out-of-range inputs by clamping', () => {
     // The reducer and validator keep state in range; a stray caller value
-    // must still never exceed what an element's volume accepts.
-    expect(videoEntryGain(entry({ volume: 2 }))).toBe(1)
+    // must still never exceed the Volume range (#692), and a transition
+    // ramp never boosts.
+    expect(videoEntryGain(entry({ volume: 9 }))).toBe(4)
+    expect(videoEntryGain(entry({ volume: -1 }))).toBe(0)
     expect(videoEntryGain(entry(), 1.5)).toBe(1)
+  })
+})
+
+describe('Volume above 1 (#692)', () => {
+  it('composes a volume of 2 with a fade at its midpoint to 1, and with mute to 0', () => {
+    // Fade-in of 2 s: one second in, the envelope is 0.5.
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), 1, 10)).toBe(1)
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2, muted: true }), 1, 10)).toBe(0)
+    expect(audioTrackGainAt(track({ volume: 2, fadeIn: 2 }), 6)).toBe(1)
+    // Past the fade it is the whole 2, and a transition ramp still scales it.
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), 5, 10)).toBe(2)
+    expect(videoEntryGain(entry({ volume: 2 }), 0.25)).toBe(0.5)
+  })
+
+  it('renders every gain of a project with Volumes at or below 1 exactly as main did before #692', () => {
+    // The cases below were evaluated by main's own gain.ts at d942d72 (the
+    // commit #692 branched from) and the results committed beside this
+    // test: entries, overlays and tracks across six volumes, mute, fades,
+    // a transition ramp and positions at both window edges, plus the duck
+    // factor a track at each volume makes.
+    const base = { id: 'e', clipId: 'c', name: 'n', duration: 10, url: 'blob:n', inPoint: 0, outPoint: 10 }
+    const actual: number[] = []
+    for (const volume of [undefined, 0, 0.25, 0.5, 0.8, 1]) {
+      for (const muted of [undefined, true]) {
+        for (const fades of [{}, { fadeIn: 2, fadeOut: 3 }]) {
+          for (const [into, ramp] of [[0, 1], [1, 1], [5, 0.4], [8.5, 1], [10, 1]] as const) {
+            actual.push(videoEntryGainAt({ ...base, volume, muted, ...fades }, into, 10, ramp))
+          }
+          for (const t of [0, 1.5, 4, 9.9]) {
+            const overlay = { ...base, offset: 0, x: 0, y: 0, width: 1, height: 1, volume, muted, ...fades }
+            actual.push(videoOverlayGainAt(overlay as VideoOverlay, t))
+          }
+        }
+        for (const t of [4, 5, 6, 10, 16.5, 17]) {
+          actual.push(
+            audioTrackGainAt({ ...base, offset: 5, inPoint: 2, outPoint: 14, volume, fadeIn: 1, fadeOut: 2 }, t),
+          )
+        }
+      }
+      for (const t of [4.8, 5, 8, 17.1]) {
+        const ducking = {
+          entries: [],
+          audioTracks: [{ ...base, offset: 5, inPoint: 0, outPoint: 10, volume, duck: true, duckLevel: 0.3 }],
+        } as unknown as TimelineState
+        actual.push(duckFactorAt(duckWindows(ducking), t))
+      }
+    }
+    expect(actual).toHaveLength(312)
+    expect(actual).toEqual(gainsBefore692)
   })
 })
 

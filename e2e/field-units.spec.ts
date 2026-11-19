@@ -56,7 +56,7 @@ const UNIT_BOXES: [name: string, unit: string, widest: string][] = [
 
 /** Boxes that hold a 0–1 fraction, which #665 leaves unitless on purpose. */
 const UNITLESS_BOXES = [
-  `Volume of ${CLIP} (0 to 1)`,
+  `Volume of ${CLIP} (0 to 4)`,
   `Zoom 1 centre X of ${CLIP} (0 to 1)`,
   `Centre X of ${TEXT} (0 to 1)`,
 ]

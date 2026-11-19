@@ -92,6 +92,10 @@ export const GUIDE_CONSTANT_NAMES = [
   'RECORDING_KEYFRAME_INTERVAL_SECONDS',
   /** The recording dialog's countdown when it is on, in seconds (#514). */
   'RECORDING_COUNTDOWN_SECONDS',
+  /** The top of the Volume range (#692): a source can be raised to this many times its recorded level. */
+  'MAX_VOLUME',
+  /** …and the same in dB, rounded: "12" for Volume 4. */
+  'MAX_VOLUME_DB',
   /** Match levels' default target, labelled as Settings shows it, e.g. "−20 dB" (#691). */
   'MATCH_TARGET_DEFAULT',
   /** Match levels' targets, in order, e.g. "−30 dB, …, −16 dB" (#691). */

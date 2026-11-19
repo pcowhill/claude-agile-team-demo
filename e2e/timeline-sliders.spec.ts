@@ -53,7 +53,7 @@ async function recordWebm(page: Page): Promise<Buffer> {
 }
 
 const POSITION = 'clip.webm at position 1'
-const VOLUME = `Volume of ${POSITION} (0 to 1)`
+const VOLUME = `Volume of ${POSITION} (0 to 4)`
 
 const numberField = (page: Page, label: string) => page.getByRole('spinbutton', { name: label })
 const slider = (page: Page, label: string) => page.getByRole('slider', { name: `${label} slider` })
@@ -201,10 +201,10 @@ test('the audio track and overlay rows get the same pairs, boxed like the entry\
   // row's own screenshot and this measurement are what say so. A boxed range
   // would be 4.5rem — 72px — and taller than the 1rem the rule sets.
   for (const [row, label] of [
-    ['audio track tone.wav at position 1', 'Volume of audio track tone.wav at position 1 (0 to 1)'],
+    ['audio track tone.wav at position 1', 'Volume of audio track tone.wav at position 1 (0 to 4)'],
     [
       'overlay clip.webm at position 1',
-      'Volume of overlay clip.webm at position 1 (0 to 1)',
+      'Volume of overlay clip.webm at position 1 (0 to 4)',
     ],
   ] as const) {
     const control = slider(page, label)

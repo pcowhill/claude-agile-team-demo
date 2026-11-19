@@ -587,6 +587,30 @@
   cursor: pointer;
 }
 
+/* A slider with a marked value (#692): Volume's 1 — the source as
+   recorded — once the range runs past it. The tick hangs just under the
+   track at the mark's share of the range. A range input's thumb centre
+   runs from half a thumb in at one end to half a thumb in at the other,
+   so the tick is placed on that span, not on the whole width; --thumb is
+   the thumb's width at this slider's size, and the e2e spec clicks the
+   tick and reads the value it lands on. */
+.timeline-slider {
+  position: relative;
+  display: inline-flex;
+  --thumb: 16px;
+}
+
+.timeline-slider-mark {
+  position: absolute;
+  bottom: -3px;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--mark));
+  width: 2px;
+  height: 5px;
+  margin-left: -1px;
+  background: #ffd166;
+  pointer-events: none;
+}
+
 /* The track's gain row (#104): volume and fade-in/fade-out durations. */
 .audio-track-gain {
   display: flex;

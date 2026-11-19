@@ -1034,10 +1034,22 @@ describe('gain fields (#104)', () => {
 
   it('refuses an out-of-range entry volume', async () => {
     const document = entryDocument()
-    document.timeline.entries[0].volume = 1.5
-    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 1')
+    document.timeline.entries[0].volume = 4.5
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 4')
     document.timeline.entries[0].volume = -0.1
-    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 1')
+    await expectRefusal(await gzipJson(document), 'timeline.entries[0].volume must be between 0 and 4')
+  })
+
+  it('reads a Volume above 1, up to 4, unchanged (#692)', async () => {
+    const document = entryDocument()
+    document.timeline.entries[0].volume = 2.5
+    document.timeline.audioTracks[0].volume = 4
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.timeline.entries[0].volume).toBe(2.5)
+      expect(result.project.timeline.audioTracks?.[0].volume).toBe(4)
+    }
   })
 
   it('refuses a non-boolean mute flag', async () => {
@@ -1048,8 +1060,8 @@ describe('gain fields (#104)', () => {
 
   it('refuses an out-of-range track volume and negative fades', async () => {
     const document = entryDocument()
-    document.timeline.audioTracks[0].volume = 2
-    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].volume must be between 0 and 1')
+    document.timeline.audioTracks[0].volume = 5
+    await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].volume must be between 0 and 4')
     delete document.timeline.audioTracks[0].volume
     document.timeline.audioTracks[0].fadeIn = -1
     await expectRefusal(await gzipJson(document), 'timeline.audioTracks[0].fadeIn must not be negative')
@@ -2037,7 +2049,7 @@ describe('overlay video layers in project files (#145)', () => {
       [{ ...stored, height: 1.5 }, 'height must be within (0, 1]'],
       [{ ...stored, x: 0.8 }, 'places the rectangle beyond the frame edge'],
       [{ ...stored, y: 0.9 }, 'places the rectangle beyond the frame edge'],
-      [{ ...stored, volume: 2 }, 'volume'],
+      [{ ...stored, volume: 5 }, 'volume'],
       [{ ...stored, muted: 'yes' }, 'muted must be a boolean'],
       [{ ...stored, id: undefined }, 'timeline.videoOverlays[0].id'],
     ]

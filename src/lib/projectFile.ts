@@ -76,6 +76,7 @@ import { MAX_OVERLAY_SHADOW_BLUR, MAX_OVERLAY_SHADOW_OFFSET } from './overlaySha
 import { isValidBackgroundFillInput } from './backgroundFill'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
+import { MAX_VOLUME } from './volume'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -1342,7 +1343,23 @@ const asPositiveInteger = (value: unknown, path: string): number => {
   }
   return numeric
 }
+/**
+ * A stored Volume: 0 to `MAX_VOLUME` since #692, 0 to 1 before it. A build
+ * from before #692 refuses a file holding a Volume above 1 — the whole
+ * file, by this same check at its old bound — which is why the bound is
+ * stated here rather than relaxed: a value past it is not ours.
+ */
 const asVolume = (value: unknown, path: string): number => {
+  const numeric = asFinite(value, path)
+  if (numeric < 0 || numeric > MAX_VOLUME) throw new Error(`${path} must be between 0 and ${MAX_VOLUME}`)
+  return numeric
+}
+/**
+ * A stored fraction of full volume that never boosts: a duck level (#241)
+ * lowers the others to a share of what they were, so it stays within 0–1
+ * when Volume itself widened past 1 (#692).
+ */
+const asFraction = (value: unknown, path: string): number => {
   const numeric = asFinite(value, path)
   if (numeric < 0 || numeric > 1) throw new Error(`${path} must be between 0 and 1`)
   return numeric
@@ -2447,7 +2464,7 @@ function validateProject(document: Record<string, unknown>): Project {
         if (raw.duck) {
           track.duck = true
           if (raw.duckLevel !== undefined) {
-            track.duckLevel = asVolume(raw.duckLevel, `${path}.duckLevel`)
+            track.duckLevel = asFraction(raw.duckLevel, `${path}.duckLevel`)
           }
         }
       }

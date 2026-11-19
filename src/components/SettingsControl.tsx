@@ -260,7 +260,7 @@ export function SettingsControl({
               </SettingRow>
               <SettingRow
                 label="Match levels target"
-                hint="The level Match levels brings every element with sound to: the average level of the sound, ignoring silences. A louder element is turned down to it; a quieter one goes to Volume 1."
+                hint="The level Match levels brings every element with sound to: the average level of the sound, ignoring silences. A louder element is turned down to it, and a quieter one raised, by up to four times its volume, unless its peaks would clip."
               >
                 {(describedBy) => (
                   <select
