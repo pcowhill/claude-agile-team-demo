@@ -4260,6 +4260,46 @@ describe("a timeline row's ⋯ repeats ↑ ↓ ✕ (#622)", () => {
   })
 })
 
+describe('zooms on an overlay row (#699)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const addOverlay = async (seconds: number) => {
+    render(<App />)
+    await importClip('cam.mp4', seconds)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+  }
+
+  it('offers + Effect ▾ › Zoom, and adding one shows its fields', async () => {
+    await addOverlay(8)
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM])
+    await closeEffectMenu(OVERLAY)
+    await chooseEffect(OVERLAY, ADD_ZOOM)
+    expect(screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toHaveValue(2)
+    expect(screen.getByRole('spinbutton', { name: `Zoom 1 centre X of ${OVERLAY} (0 to 1)` })).toHaveValue(0.5)
+    // A field edit is one commit, and ✕ takes the zoom away again.
+    const scale = screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })
+    await userEvent.clear(scale)
+    await userEvent.type(scale, '3{Enter}')
+    expect(screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toHaveValue(3)
+    await userEvent.click(screen.getByRole('button', { name: `Remove zoom 1 from ${OVERLAY}` }))
+    expect(screen.queryByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toBeNull()
+  })
+
+  it('greys Zoom out when the zooms fill the overlay window', async () => {
+    // The default window is 2 s, the whole of a 2 s overlay.
+    await addOverlay(2)
+    expect(await effectItem(OVERLAY, ADD_ZOOM)).toBeEnabled()
+    await closeEffectMenu(OVERLAY)
+    await chooseEffect(OVERLAY, ADD_ZOOM)
+    expect(await effectItem(OVERLAY, ADD_ZOOM)).toBeDisabled()
+  })
+
+  it('is hidden with the rest of the fields when the row is collapsed', async () => {
+    await addOverlay(8)
+    await userEvent.click(screen.getByRole('button', { name: `Collapse ${OVERLAY}` }))
+    expect(queryEffectMenuTrigger(OVERLAY)).toBeNull()
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({

@@ -38,6 +38,7 @@ import {
   withLayerColorFilter,
   withLayerOrientation,
   zoomRect,
+  zoomRectWithin,
 } from './exportVideo'
 import type { RemapReplayState, TrackReplayElement } from './exportVideo'
 import type { AudioTrack, RemapEffect, TextOverlay, VideoOverlay } from './timeline'
@@ -2626,6 +2627,41 @@ describe('frame composition of still overlay layers (#295)', () => {
     sourceHeight: 180,
     time: 0,
   }
+
+  it('an overlay zoom (#699) magnifies the picture inside its rectangle, clipped to it', () => {
+    // 2x on the right half's centre, holding from 1.5 s to 2.5 s.
+    const zoom = { id: 'z1', start: 1, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.75, centerY: 0.5 }
+    const { composer, main } = composerFor([stillOverlay({ zooms: [zoom] })])
+    composer.drawFrame(baseLayer, 0, 2)
+    // The 80x45 picture doubles to 160x90 and shifts left by its own width,
+    // so its right half covers the rectangle (160..240) exactly; the clip
+    // around it keeps the rest off the frame.
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'save',
+      'draw(logo-img, [80, 67.5, 160, 90], none)',
+      'restore',
+    ])
+    // Outside the zoom's window it draws exactly as an unzoomed overlay.
+    const before = composerFor([stillOverlay({ zooms: [zoom] })])
+    before.composer.drawFrame(baseLayer, 0, 0.5)
+    expect(before.main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(logo-img, [160, 90, 80, 45], none)',
+    ])
+  })
+
+  it('zoomRectWithin maps through the box as zoomRect maps through the frame (#699)', () => {
+    const zoom = { scale: 2, centerX: 0.25, centerY: 0.5 }
+    // A box that is the whole frame gives zoomRect's answer.
+    expect(zoomRectWithin({ x: 0, y: 0, width: 320, height: 180 }, zoom, { x: 0, y: 0, width: 320, height: 180 })).toEqual(
+      zoomRect({ x: 0, y: 0, width: 320, height: 180 }, zoom, 320, 180),
+    )
+    const identity = { x: 1, y: 2, width: 3, height: 4 }
+    expect(zoomRectWithin(identity, { scale: 1, centerX: 0.5, centerY: 0.5 }, identity)).toBe(identity)
+  })
 
   it('draws the decoded image letterboxed inside its placement rectangle', () => {
     const { composer, main } = composerFor([stillOverlay()])

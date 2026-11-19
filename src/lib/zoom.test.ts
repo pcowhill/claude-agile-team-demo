@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineEntry, TimelineState } from './timeline'
-import { IDENTITY_ZOOM, smoothstep, zoomAt, zoomStateAt } from './zoom'
+import { IDENTITY_ZOOM, overlayZoomAt, smoothstep, zoomAt, zoomStateAt } from './zoom'
 
 const entry: TimelineEntry = {
   id: 'e1',
@@ -253,6 +253,24 @@ describe('a zoom ramp pushes in on one fixed point (#583)', () => {
     for (const t of [0.1, 0.25, 0.5, 0.9]) {
       expect(zoomStateAt(zoom, t).scale).toBeCloseTo(1 + 3 * smoothstep(t), 12)
     }
+  })
+})
+
+describe('overlayZoomAt (#699)', () => {
+  const zoom = { id: 'z1', start: 1, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.75, centerY: 0.5 }
+
+  it('counts the window from the overlay trim, as an entry zoom does', () => {
+    const overlay = { inPoint: 2, zooms: [zoom] }
+    expect(overlayZoomAt(overlay, 2.5)).toEqual(IDENTITY_ZOOM)
+    // In the hold (source 3.5 to 4.5) it is the stored zoom exactly.
+    expect(overlayZoomAt(overlay, 4)).toEqual({ scale: 2, centerX: 0.75, centerY: 0.5 })
+    // Mid-ramp it is the entry's easing, not a copy of it.
+    expect(overlayZoomAt(overlay, 3.25)).toEqual(zoomStateAt(zoom, 0.25))
+    expect(overlayZoomAt(overlay, 6)).toEqual(IDENTITY_ZOOM)
+  })
+
+  it('is the identity for an overlay with no zooms', () => {
+    expect(overlayZoomAt({ inPoint: 0 }, 1)).toEqual(IDENTITY_ZOOM)
   })
 })
 

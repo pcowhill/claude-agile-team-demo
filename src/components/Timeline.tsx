@@ -299,6 +299,10 @@ interface TimelineProps {
   /** Sets a video overlay's shape mask whole (#266);
    * `{ kind: 'rectangle' }` resets. */
   onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
+  /** Adds a zoom on an overlay's own picture (#699); the id is the caller's to mint. */
+  onAddVideoOverlayZoom?: (overlayId: string, zoom: ZoomSpec) => void
+  onUpdateVideoOverlayZoom?: (overlayId: string, id: string, zoom: ZoomSpec) => void
+  onRemoveVideoOverlayZoom?: (overlayId: string, id: string) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -423,6 +427,110 @@ const imageOverlayPlacementOf = ({
   width,
   height,
 }: VideoOverlay): ImageOverlayPlacement => ({ offset, duration, x, y, width, height })
+
+/**
+ * One zoom's fields (#129): its window, scale and centre, and its remove
+ * button, then whatever the owner adds (`children` — the entry's visual
+ * editor toggle). Shared by an entry's zooms and an overlay's (#699), so
+ * the two read alike and their accessible names follow one pattern; the
+ * centre is a fraction of whatever the zoom magnifies, the frame or the
+ * overlay's rectangle.
+ */
+function ZoomFieldsRow({
+  zoom,
+  zoomIndex,
+  position,
+  maxStart,
+  onUpdate,
+  onRemove,
+  children,
+}: {
+  zoom: ZoomSpec
+  zoomIndex: number
+  position: string
+  /** The owner's trimmed length: the window fields' upper bound. */
+  maxStart: number
+  onUpdate: (spec: ZoomSpec) => void
+  onRemove: () => void
+  children?: ReactNode
+}) {
+  const zoomName = `Zoom ${zoomIndex + 1}`
+  const set = (change: Partial<ZoomSpec>) => onUpdate({ ...zoomSpecOf(zoom), ...change })
+  return (
+    <div className="timeline-entry-zoom">
+      <span>{zoomName} at</span>
+      <SecondsField
+        label={`${zoomName} start of ${position} in seconds`}
+        value={zoom.start}
+        max={maxStart}
+        onCommit={(start) => set({ start })}
+        unit="s"
+      />
+      <span>in</span>
+      <SecondsField
+        label={`${zoomName} ramp-in of ${position} in seconds`}
+        value={zoom.rampIn}
+        max={maxStart}
+        onCommit={(rampIn) => set({ rampIn })}
+        unit="s"
+      />
+      <span>hold</span>
+      <SecondsField
+        label={`${zoomName} hold of ${position} in seconds`}
+        value={zoom.hold}
+        max={maxStart}
+        onCommit={(hold) => set({ hold })}
+        unit="s"
+      />
+      <span>out</span>
+      <SecondsField
+        label={`${zoomName} ramp-out of ${position} in seconds`}
+        value={zoom.rampOut}
+        max={maxStart}
+        onCommit={(rampOut) => set({ rampOut })}
+        unit="s"
+      />
+      <LabelledField text="scale">
+        <SecondsField
+          label={`${zoomName} scale of ${position}`}
+          value={zoom.scale}
+          min={1}
+          max={10}
+          step={0.25}
+          onCommit={(scale) => set({ scale })}
+          unit="×"
+        />
+      </LabelledField>
+      <span>centre</span>
+      <LabelledField text="x">
+        <SecondsField
+          label={`${zoomName} centre X of ${position} (0 to 1)`}
+          value={zoom.centerX}
+          max={1}
+          step={0.05}
+          onCommit={(centerX) => set({ centerX })}
+        />
+      </LabelledField>
+      <LabelledField text="y">
+        <SecondsField
+          label={`${zoomName} centre Y of ${position} (0 to 1)`}
+          value={zoom.centerY}
+          max={1}
+          step={0.05}
+          onCommit={(centerY) => set({ centerY })}
+        />
+      </LabelledField>
+      <button
+        type="button"
+        aria-label={`Remove zoom ${zoomIndex + 1} from ${position}`}
+        onClick={onRemove}
+      >
+        ✕
+      </button>
+      {children}
+    </div>
+  )
+}
 
 /** A stored zoom re-expressed as the spec `onSetZoom` takes (no entryId). */
 const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: ZoomSpec): ZoomSpec => ({
@@ -2026,6 +2134,9 @@ export function Timeline({
   onSetVideoOverlayRedactions,
   onSetVideoOverlaySpotlights,
   onSetVideoOverlayMask,
+  onAddVideoOverlayZoom,
+  onUpdateVideoOverlayZoom,
+  onRemoveVideoOverlayZoom,
   onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
@@ -3075,81 +3186,17 @@ export function Timeline({
                     <>
                       {entryZooms.map((entryZoom, zoomIndex) => {
                         const zoomName = `Zoom ${zoomIndex + 1}`
-                        const set = (change: Partial<ZoomSpec>) =>
-                          onUpdateZoom(entryZoom.id, { ...zoomSpecOf(entryZoom), ...change })
                         const editing = editingZoomId === entryZoom.id
                         return (
                           <Fragment key={entryZoom.id}>
-                            <div className="timeline-entry-zoom">
-                              <span>{zoomName} at</span>
-                              <SecondsField
-                                label={`${zoomName} start of ${position} in seconds`}
-                                value={entryZoom.start}
-                                max={effectiveDuration(entry)}
-                                onCommit={(start) => set({ start })}
-                                unit="s"
-                              />
-                              <span>in</span>
-                              <SecondsField
-                                label={`${zoomName} ramp-in of ${position} in seconds`}
-                                value={entryZoom.rampIn}
-                                max={effectiveDuration(entry)}
-                                onCommit={(rampIn) => set({ rampIn })}
-                                unit="s"
-                              />
-                              <span>hold</span>
-                              <SecondsField
-                                label={`${zoomName} hold of ${position} in seconds`}
-                                value={entryZoom.hold}
-                                max={effectiveDuration(entry)}
-                                onCommit={(hold) => set({ hold })}
-                                unit="s"
-                              />
-                              <span>out</span>
-                              <SecondsField
-                                label={`${zoomName} ramp-out of ${position} in seconds`}
-                                value={entryZoom.rampOut}
-                                max={effectiveDuration(entry)}
-                                onCommit={(rampOut) => set({ rampOut })}
-                                unit="s"
-                              />
-                              <LabelledField text="scale">
-                                <SecondsField
-                                  label={`${zoomName} scale of ${position}`}
-                                  value={entryZoom.scale}
-                                  min={1}
-                                  max={10}
-                                  step={0.25}
-                                  onCommit={(scale) => set({ scale })}
-                                  unit="×"
-                                />
-                              </LabelledField>
-                              <span>centre</span>
-                              <LabelledField text="x">
-                                <SecondsField
-                                  label={`${zoomName} centre X of ${position} (0 to 1)`}
-                                  value={entryZoom.centerX}
-                                  max={1}
-                                  step={0.05}
-                                  onCommit={(centerX) => set({ centerX })}
-                                />
-                              </LabelledField>
-                              <LabelledField text="y">
-                                <SecondsField
-                                  label={`${zoomName} centre Y of ${position} (0 to 1)`}
-                                  value={entryZoom.centerY}
-                                  max={1}
-                                  step={0.05}
-                                  onCommit={(centerY) => set({ centerY })}
-                                />
-                              </LabelledField>
-                              <button
-                                type="button"
-                                aria-label={`Remove zoom ${zoomIndex + 1} from ${position}`}
-                                onClick={() => onRemoveZoom(entryZoom.id)}
-                              >
-                                ✕
-                              </button>
+                            <ZoomFieldsRow
+                              zoom={entryZoom}
+                              zoomIndex={zoomIndex}
+                              position={position}
+                              maxStart={effectiveDuration(entry)}
+                              onUpdate={(spec) => onUpdateZoom(entryZoom.id, spec)}
+                              onRemove={() => onRemoveZoom(entryZoom.id)}
+                            >
                               {visualEditors && (
                                 // The visual editor (#413): a toggle, so the
                                 // same button closes what it opened.
@@ -3164,7 +3211,7 @@ export function Timeline({
                                   Adjust visually…
                                 </button>
                               )}
-                            </div>
+                            </ZoomFieldsRow>
                             {visualEditors && editing && (
                               <ZoomEditor
                                 timeline={timeline}
@@ -3915,6 +3962,50 @@ export function Timeline({
                       ),
                     },
                   ])}
+                  {/* The overlay's zooms (#699), in the entry's zoom-row
+                      idiom: numbered in window order, the order the
+                      normalized overlay stores them in. Their centre is a
+                      fraction of the overlay's rectangle. The entry's visual
+                      editor shows the sequence frame, not an overlay's
+                      picture, so an overlay zoom has fields only (#734). */}
+                  {(overlay.zooms ?? []).map((overlayZoom, zoomIndex) => (
+                    <ZoomFieldsRow
+                      key={overlayZoom.id}
+                      zoom={overlayZoom}
+                      zoomIndex={zoomIndex}
+                      position={position}
+                      maxStart={trimmedLength}
+                      onUpdate={(spec) => onUpdateVideoOverlayZoom?.(overlay.id, overlayZoom.id, spec)}
+                      onRemove={() => onRemoveVideoOverlayZoom?.(overlay.id, overlayZoom.id)}
+                    />
+                  ))}
+                  {/* + Effect ▾ (#699): the entry's menu, offering what an
+                      overlay can carry — Zoom, enabled while the overlay's
+                      window has room for one (`defaultZoomFor`, the entry's
+                      rule). */}
+                  {(() => {
+                    const addableZoom = defaultZoomFor(overlay.zooms ?? [], trimmedLength)
+                    const items: MenuItem[] = [
+                      {
+                        kind: 'action',
+                        label: 'Zoom',
+                        disabled: addableZoom === null,
+                        onSelect: () =>
+                          addableZoom !== null && onAddVideoOverlayZoom?.(overlay.id, addableZoom),
+                      },
+                    ]
+                    return (
+                      <div className="timeline-entry-effects">
+                        <Menu
+                          label="+ Effect"
+                          ariaLabel={`+ Effect on ${position}`}
+                          menuLabel={`+ Effect on ${position}`}
+                          triggerClassName="timeline-effect-add"
+                          items={items}
+                        />
+                      </div>
+                    )
+                  })()}
                     </>
                   )}
                 </li>

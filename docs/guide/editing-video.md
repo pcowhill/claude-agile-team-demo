@@ -82,11 +82,13 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## Zooms
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Zoom**.
+**Where to find it.** An expanded sequence entry or overlay › **+ Effect ▾** › **Zoom**.
 
 **What it does.** Magnifies part of the frame for a while: ramps in, holds, ramps out.
 
 **Details.** A zoom has a start (*at*, in seconds into the entry), a ramp *in*, a *hold*, a ramp *out*, a magnification (*scale*, in ×) and a *centre*, *x* and *y*, as fractions of the frame's width and height. A new zoom is {{DEFAULT_ZOOM_SCALE}} × on the centre of the frame, with {{DEFAULT_ZOOM_RAMP}} s ramps and a {{DEFAULT_ZOOM_HOLD}} s hold, fitted into the room the entry has. An entry may carry several zooms with windows that do not overlap. The centre is a fraction of the output frame, so it keeps its place when the frame changes; the zoomed region never leaves the frame. Each ramp is a straight push-in: one point of the picture stays where it is on screen while everything else grows away from it, so a zoom into a corner keeps that corner in the corner of the picture throughout, and a zoom on the centre stays centred. **Adjust visually…** beside the fields opens the [zoom editor](visual-editors.md#what-each-editor-shows).
+
+**On an overlay.** A zoom on a video or image overlay magnifies the overlay's own picture inside its rectangle; the rectangle itself does not grow or move, and the base and everything else on the frame are untouched. The fields are the same, read against the overlay: *at* is seconds into the overlay's window, and the *centre* is a fraction of the overlay's rectangle rather than of the frame. The zoomed region never leaves the rectangle, its shape mask still cuts it, and its redaction and spotlight regions stay on the parts of the picture they cover. An overlay's zooms are removed with it and copied when it is duplicated. An overlay zoom has fields only — no **Adjust visually…** yet.
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Visual editors](visual-editors.md)
 

@@ -90,7 +90,7 @@ A remap changes how a clip's source time maps onto the video's time within one e
 
 ### Zoom, ramp and hold
 
-A zoom magnifies part of the frame for a while: it ramps in, holds at its magnification, and ramps out. See [Zooms](editing-video.md#zooms).
+A zoom magnifies part of the frame — or, on an overlay, part of the overlay's picture inside its rectangle — for a while: it ramps in, holds at its magnification, and ramps out. See [Zooms](editing-video.md#zooms).
 
 ### Crop
 

@@ -1,5 +1,6 @@
 import type { TimelineState, ZoomEffect } from './timeline'
 import { zoomsForEntry } from './timeline'
+import type { VideoOverlay } from './videoOverlay'
 
 /**
  * The zoom in effect at one moment of one entry (#63). `scale` is the
@@ -41,6 +42,24 @@ export function zoomAt(state: TimelineState, entryIndex: number, sourceTime: num
   // engages first in list (start) order — a measure-zero boundary.
   for (const zoom of zoomsForEntry(state, entry.id)) {
     const t = sourceTime - entry.inPoint - zoom.start
+    if (rampFraction(zoom, t) > 0) return zoomStateAt(zoom, t)
+  }
+  return IDENTITY_ZOOM
+}
+
+/**
+ * The zoom state of an overlay's own picture (#699) at `sourceTime`, the
+ * overlay's source clock (`audioTrackPlaybackAt`'s, which decides that it
+ * is on screen at all). The entry rule exactly — `start` counts from the
+ * trim's `inPoint` — but the state is in fractions of the overlay's
+ * placement rectangle rather than of the frame.
+ */
+export function overlayZoomAt(
+  overlay: Pick<VideoOverlay, 'inPoint' | 'zooms'>,
+  sourceTime: number,
+): ZoomState {
+  for (const zoom of overlay.zooms ?? []) {
+    const t = sourceTime - overlay.inPoint - zoom.start
     if (rampFraction(zoom, t) > 0) return zoomStateAt(zoom, t)
   }
   return IDENTITY_ZOOM

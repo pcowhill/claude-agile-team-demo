@@ -60,6 +60,7 @@ import { isCanvasPreset } from './frameSize'
 import type {
   ImageOverlayPlacement,
   OverlayPlacement,
+  OverlayZoom,
   VideoOverlay,
   VideoOverlayPlacement,
 } from './videoOverlay'
@@ -78,6 +79,7 @@ export type { TextOverlay, TextOverlaySpec } from './textOverlay'
 export type {
   ImageOverlayPlacement,
   OverlayPlacement,
+  OverlayZoom,
   VideoOverlay,
   VideoOverlayPlacement,
 } from './videoOverlay'
@@ -785,6 +787,14 @@ export type TimelineAction =
       placement: OverlayPlacement
     }
   | { type: 'video-overlay-removed'; id: string }
+  /**
+   * Zooms on an overlay's own picture (#699), the entry zoom actions'
+   * counterparts: the add is vetoed when normalization leaves its window no
+   * room, and an update that clamps back to what is stored is a no-op.
+   */
+  | { type: 'video-overlay-zoom-added'; overlayId: string; zoom: OverlayZoom }
+  | { type: 'video-overlay-zoom-updated'; overlayId: string; id: string; zoom: ZoomSpec }
+  | { type: 'video-overlay-zoom-removed'; overlayId: string; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -1096,7 +1106,7 @@ export function zoomWindowDuration(zoom: ZoomSpec): number {
  * never displaces an existing zoom. Returns null when the windows already
  * cover the whole trimmed duration (nothing sensible to add).
  */
-export function defaultZoomFor(zooms: ZoomEffect[], entryDuration: number): ZoomSpec | null {
+export function defaultZoomFor(zooms: readonly ZoomSpec[], entryDuration: number): ZoomSpec | null {
   const sorted = [...zooms].sort((a, b) => a.start - b.start)
   const gaps: { start: number; length: number }[] = []
   let cursor = 0
@@ -1199,7 +1209,7 @@ export function boundaryTransitions(state: TimelineState): (TimelineTransition |
  * Returns the same object when nothing changes, so no-op edits are cheap to
  * detect.
  */
-function clampZoom(zoom: ZoomEffect, entryDuration: number, floor = 0): ZoomEffect {
+function clampZoom<T extends ZoomSpec>(zoom: T, entryDuration: number, floor = 0): T {
   const start = clamp(zoom.start, Math.min(floor, entryDuration), entryDuration)
   const rampIn = clamp(zoom.rampIn, 0, entryDuration - start)
   const hold = clamp(zoom.hold, 0, entryDuration - start - rampIn)
@@ -1208,7 +1218,7 @@ function clampZoom(zoom: ZoomEffect, entryDuration: number, floor = 0): ZoomEffe
   const centerX = clamp(zoom.centerX, halfExtent, 1 - halfExtent)
   const centerY = clamp(zoom.centerY, halfExtent, 1 - halfExtent)
   const next = { ...zoom, start, rampIn, hold, rampOut, centerX, centerY }
-  return zoomsEqual(zoom, next) ? zoom : next
+  return zoomSpecsEqual(zoom, next) ? zoom : next
 }
 
 /**
@@ -1230,9 +1240,12 @@ function isValidZoomSpec(zoom: ZoomSpec): boolean {
 }
 
 function zoomsEqual(a: ZoomEffect, b: ZoomEffect): boolean {
+  return a.id === b.id && a.entryId === b.entryId && zoomSpecsEqual(a, b)
+}
+
+/** Whether two zooms have the same window, magnification and centre. */
+function zoomSpecsEqual(a: ZoomSpec, b: ZoomSpec): boolean {
   return (
-    a.id === b.id &&
-    a.entryId === b.entryId &&
     a.start === b.start &&
     a.rampIn === b.rampIn &&
     a.hold === b.hold &&
@@ -1267,16 +1280,40 @@ function normalizedZooms(entries: TimelineEntry[], zooms: ZoomEffect[]): ZoomEff
   return entries.flatMap((entry) => {
     const list = byEntry.get(entry.id)
     if (list === undefined) return []
-    const duration = durations.get(entry.id) as number
-    // Array.prototype.sort is stable: equal starts keep their stored order.
-    list.sort((a, b) => a.start - b.start)
-    let cursor = 0
-    return list.map((zoom) => {
-      const clamped = clampZoom(zoom, duration, cursor)
-      cursor = clamped.start + zoomWindowDuration(clamped)
-      return clamped
-    })
+    return sweptZooms(list, durations.get(entry.id) as number)
   })
+}
+
+/**
+ * One owner's zooms, sorted by start and clamped in that order with the
+ * previous window's end as each one's floor (#129) — the sweep
+ * `normalizedZooms` runs per entry, and the overlay's zooms (#699) per
+ * overlay, so the two owners resolve overlaps by one rule.
+ */
+function sweptZooms<T extends ZoomSpec>(zooms: readonly T[], duration: number): T[] {
+  // Array.prototype.sort is stable: equal starts keep their stored order.
+  const sorted = [...zooms].sort((a, b) => a.start - b.start)
+  let cursor = 0
+  return sorted.map((zoom) => {
+    const clamped = clampZoom(zoom, duration, cursor)
+    cursor = clamped.start + zoomWindowDuration(clamped)
+    return clamped
+  })
+}
+
+/**
+ * An overlay with its zooms (#699) normalized against its own trimmed
+ * window, by the entry's sweep (`sweptZooms`). The same object when
+ * nothing moved — including an overlay with no zooms — so zoom-free states
+ * keep every reference and every saved byte.
+ */
+function withOverlayZoomsClamped(overlay: VideoOverlay): VideoOverlay {
+  if (overlay.zooms === undefined) return overlay
+  const swept = sweptZooms(overlay.zooms, effectiveDuration(overlay))
+  const unchanged =
+    swept.length === overlay.zooms.length &&
+    swept.every((zoom, index) => zoom === overlay.zooms?.[index])
+  return unchanged ? overlay : { ...overlay, zooms: swept }
 }
 
 /**
@@ -1516,7 +1553,15 @@ function withEffects(
     // deliberately untouched by video edits — sequence-anchored windows are
     // never re-anchored (see the TimelineState field comment). Only their
     // own ranges clamp. The key exists only while overlays do.
-    ...(videoOverlays.length === 0 ? {} : { videoOverlays: videoOverlays.map(clampVideoOverlay) }),
+    // Each overlay's own zooms (#699) clamp against its trimmed window after
+    // the window itself clamps, as an entry's do against its trim.
+    ...(videoOverlays.length === 0
+      ? {}
+      : {
+          videoOverlays: videoOverlays.map((overlay) =>
+            withOverlayZoomsClamped(clampVideoOverlay(overlay)),
+          ),
+        }),
     // Audio tracks are deliberately untouched by video edits: offsets are
     // absolute and never clamped to the sequence's (possibly new) length —
     // see the AudioTrack doc comment. Fades, though, depend only on the
@@ -2741,6 +2786,56 @@ function reduceTimelineCollections(
       const remaining = videoOverlays.filter((overlay) => overlay.id !== action.id)
       if (remaining.length === videoOverlays.length) return state
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, remaining)
+    }
+    case 'video-overlay-zoom-added': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const existing = overlay.zooms ?? []
+      // Ids are the handle updates and removals act on — never two alike.
+      if (existing.some((zoom) => zoom.id === action.zoom.id)) return state
+      if (!isValidZoomSpec(action.zoom)) return state
+      const overlays = [...videoOverlays]
+      overlays[index] = { ...overlay, zooms: [...existing, action.zoom] }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].zooms?.find((zoom) => zoom.id === action.zoom.id)
+      // No room left in the overlay's window: veto, as `zoom-added` does.
+      if (applied === undefined || zoomWindowDuration(applied) <= 0) return state
+      return next
+    }
+    case 'video-overlay-zoom-updated': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const stored = overlay.zooms?.find((zoom) => zoom.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidZoomSpec(action.zoom)) return state
+      const candidate: OverlayZoom = { id: stored.id, ...action.zoom }
+      const overlays = [...videoOverlays]
+      overlays[index] = {
+        ...overlay,
+        zooms: (overlay.zooms ?? []).map((zoom) => (zoom.id === action.id ? candidate : zoom)),
+      }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].zooms?.find((zoom) => zoom.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference.
+      if (zoomSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'video-overlay-zoom-removed': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const remaining = (overlay.zooms ?? []).filter((zoom) => zoom.id !== action.id)
+      if (remaining.length === (overlay.zooms ?? []).length) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all, so a zoom-free overlay saves as before.
+      const next = { ...overlay }
+      if (remaining.length === 0) delete next.zooms
+      else next.zooms = remaining
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }
     case 'audio-track-added':
       return withEffects(state.entries, transitions, zooms, [...audioTracks, action.track], remaps, texts, videoOverlays)

@@ -44,7 +44,7 @@ import {
   MIN_SHAPE_SIZE,
 } from './shapes'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
-import type { VideoOverlay } from './videoOverlay'
+import type { OverlayZoom, VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
 import {
   isTextFontId,
@@ -125,7 +125,9 @@ import { isCanvasPreset } from './frameSize'
  *                           colorAdjustments?, orientation?,       // (#145, #192, #232)
  *                           crop?,                                 // (#255)
  *                           shapeMask?: { kind: 'ellipse' } |
- *                                       { kind: 'rounded', radius } }] // (#266)
+ *                                       { kind: 'rounded', radius },  // (#266)
+ *                           zooms?: [{ id, start, rampIn, hold, rampOut,
+ *                                      scale, centerX, centerY }] }] // (#699)
  *     }
  *   }
  *
@@ -281,7 +283,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 25
+export const PROJECT_SCHEMA_VERSION = 26
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -349,6 +351,12 @@ export const ARROW_SHAPES_SCHEMA_VERSION = 24
  * dash — which it would silently draw solid — it refuses by version.
  */
 export const LINE_STYLES_SCHEMA_VERSION = 25
+/**
+ * The version an overlay zoom forces (#699). A #688 build would ignore the
+ * key and show the overlay unzoomed, so a file carrying one refuses it by
+ * version; a file with no overlay zoom keeps its version and its bytes.
+ */
+export const OVERLAY_ZOOMS_SCHEMA_VERSION = 26
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -719,6 +727,10 @@ export async function serializeProject(
     group.shapes.some((shape) => (shape.lineStyle ?? 'solid') !== 'solid'),
   )
   const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
+  // Length-based, like redactions below: written only while one exists.
+  const hasOverlayZooms = videoOverlaysOf(timeline).some(
+    (overlay) => (overlay.zooms?.length ?? 0) > 0,
+  )
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
@@ -772,7 +784,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasLineStyles
+    schemaVersion: hasOverlayZooms
+      ? OVERLAY_ZOOMS_SCHEMA_VERSION
+      : hasLineStyles
       ? LINE_STYLES_SCHEMA_VERSION
       : hasArrowShapes
       ? ARROW_SHAPES_SCHEMA_VERSION
@@ -1047,7 +1061,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1088,6 +1102,24 @@ export async function serializeProject(
                 ...(spotlights === undefined || spotlights.length === 0
                   ? {}
                   : { spotlights: spotlights.map(storedSpotlight) }),
+                // The overlay's own zooms (#699): a sequence zoom's fields
+                // without the entryId, since the overlay holds them.
+                ...(zooms === undefined || zooms.length === 0
+                  ? {}
+                  : {
+                      zooms: zooms.map(
+                        ({ id, start, rampIn, hold, rampOut, scale, centerX, centerY }) => ({
+                          id,
+                          start,
+                          rampIn,
+                          hold,
+                          rampOut,
+                          scale,
+                          centerX,
+                          centerY,
+                        }),
+                      ),
+                    }),
               }),
             ),
           }),
@@ -1556,6 +1588,40 @@ const asCanvasPreset = (value: unknown, path: string): CanvasPreset | undefined 
   const preset = asString(value, path)
   if (!isCanvasPreset(preset)) throw new Error(`${path} "${preset}" is unknown`)
   return preset
+}
+
+/**
+ * An overlay's zooms (#699) as stored: each one a sequence zoom's fields
+ * and an id, held to the timeline zooms' checks — a magnification above 1,
+ * a centre within [0, 1], non-negative windows — with ids unique within the
+ * overlay, since they are what its edits act on.
+ */
+function asOverlayZooms(value: unknown, path: string): OverlayZoom[] {
+  const ids = new Set<string>()
+  return asArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const raw = asRecord(item, itemPath)
+    const zoom: OverlayZoom = {
+      id: asString(raw.id, `${itemPath}.id`),
+      start: asNonNegative(raw.start, `${itemPath}.start`),
+      rampIn: asNonNegative(raw.rampIn, `${itemPath}.rampIn`),
+      hold: asNonNegative(raw.hold, `${itemPath}.hold`),
+      rampOut: asNonNegative(raw.rampOut, `${itemPath}.rampOut`),
+      scale: asFinite(raw.scale, `${itemPath}.scale`),
+      centerX: asFinite(raw.centerX, `${itemPath}.centerX`),
+      centerY: asFinite(raw.centerY, `${itemPath}.centerY`),
+    }
+    if (zoom.scale <= 1) throw new Error(`${itemPath}.scale must be greater than 1`)
+    for (const [field, centre] of [
+      ['centerX', zoom.centerX],
+      ['centerY', zoom.centerY],
+    ] as const) {
+      if (centre < 0 || centre > 1) throw new Error(`${itemPath}.${field} must be between 0 and 1`)
+    }
+    if (ids.has(zoom.id)) throw new Error(`${itemPath}.id "${zoom.id}" is duplicated`)
+    ids.add(zoom.id)
+    return zoom
+  })
 }
 
 function validateProject(document: Record<string, unknown>): Project {
@@ -2298,6 +2364,13 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.spotlights !== undefined) {
         const spotlights = asSpotlights(raw.spotlights, `${path}.spotlights`)
         if (spotlights !== undefined) overlay.spotlights = spotlights
+      }
+      // The overlay's own zooms (#699), checked as the timeline's zooms
+      // are; fitting them into the overlay's window is open-time
+      // normalization's, as for an entry's.
+      if (raw.zooms !== undefined) {
+        const overlayZooms = asOverlayZooms(raw.zooms, `${path}.zooms`)
+        if (overlayZooms.length > 0) overlay.zooms = overlayZooms
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)
