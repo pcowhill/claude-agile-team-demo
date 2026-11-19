@@ -66,6 +66,8 @@ import { MAX_SPOTLIGHT_SOFTEN, normalizeSpotlights, softenOf } from './spotlight
 import type { BackgroundFill } from './backgroundFill'
 import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
+import type { OverlayBorder } from './overlayBorder'
+import { MAX_OVERLAY_BORDER } from './overlayBorder'
 import { isValidBackgroundFillInput } from './backgroundFill'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
@@ -127,7 +129,8 @@ import { isCanvasPreset } from './frameSize'
  *                           shapeMask?: { kind: 'ellipse' } |
  *                                       { kind: 'rounded', radius },  // (#266)
  *                           zooms?: [{ id, start, rampIn, hold, rampOut,
- *                                      scale, centerX, centerY }] }] // (#699)
+ *                                      scale, centerX, centerY }], // (#699)
+ *                           border?: { color, thickness } }]   // (#697)
  *     }
  *   }
  *
@@ -283,7 +286,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 26
+export const PROJECT_SCHEMA_VERSION = 27
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -357,6 +360,12 @@ export const LINE_STYLES_SCHEMA_VERSION = 25
  * version; a file with no overlay zoom keeps its version and its bytes.
  */
 export const OVERLAY_ZOOMS_SCHEMA_VERSION = 26
+/**
+ * The version an overlay border forces (#697). A #699 build would ignore
+ * the key and show the overlay without its outline, so a file carrying one
+ * refuses it by version; a border-free file keeps its version and its bytes.
+ */
+export const OVERLAY_BORDERS_SCHEMA_VERSION = 27
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -731,6 +740,10 @@ export async function serializeProject(
   const hasOverlayZooms = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.zooms?.length ?? 0) > 0,
   )
+  // Written only while one exists (#697): a thickness of 0 is no key at all.
+  const hasOverlayBorders = videoOverlaysOf(timeline).some(
+    (overlay) => overlay.border !== undefined,
+  )
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
@@ -784,7 +797,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayZooms
+    schemaVersion: hasOverlayBorders
+      ? OVERLAY_BORDERS_SCHEMA_VERSION
+      : hasOverlayZooms
       ? OVERLAY_ZOOMS_SCHEMA_VERSION
       : hasLineStyles
       ? LINE_STYLES_SCHEMA_VERSION
@@ -1061,7 +1076,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1094,6 +1109,12 @@ export async function serializeProject(
                 // rectangle is no key at all, so mask-free projects stay
                 // byte-identical to earlier output.
                 ...(shapeMask === undefined ? {} : { shapeMask: storedShapeMask(shapeMask) }),
+                // Border (#697), written only when present — a thickness of
+                // 0 is no key at all, so border-free projects stay
+                // byte-identical to earlier output.
+                ...(border === undefined
+                  ? {}
+                  : { border: { color: border.color, thickness: border.thickness } }),
                 // Redaction regions (#492), exactly as on a sequence entry.
                 ...(redactions === undefined || redactions.length === 0
                   ? {}
@@ -1588,6 +1609,24 @@ const asCanvasPreset = (value: unknown, path: string): CanvasPreset | undefined 
   const preset = asString(value, path)
   if (!isCanvasPreset(preset)) throw new Error(`${path} "${preset}" is unknown`)
   return preset
+}
+
+/**
+ * An overlay's border (#697) as stored: a `#rrggbb` colour and a thickness
+ * in (0, MAX_OVERLAY_BORDER] — the stored form, since a thickness of 0 is
+ * written as no key and the reducer stores the colour lower-case.
+ */
+function asOverlayBorder(value: unknown, path: string): OverlayBorder {
+  const raw = asRecord(value, path)
+  const color = asString(raw.color, `${path}.color`)
+  if (!/^#[0-9a-f]{6}$/.test(color)) {
+    throw new Error(`${path}.color must be a lower-case #rrggbb colour`)
+  }
+  const thickness = asFinite(raw.thickness, `${path}.thickness`)
+  if (thickness <= 0 || thickness > MAX_OVERLAY_BORDER) {
+    throw new Error(`${path}.thickness must be above 0 and at most ${MAX_OVERLAY_BORDER}`)
+  }
+  return { color, thickness }
 }
 
 /**
@@ -2354,6 +2393,11 @@ function validateProject(document: Record<string, unknown>): Project {
       // mask-free overlay since, meaning the hard rectangle.
       if (raw.shapeMask !== undefined) {
         overlay.shapeMask = asShapeMask(raw.shapeMask, `${path}.shapeMask`)
+      }
+      // Border (#697): absent in files saved before it, and on every
+      // border-free overlay since.
+      if (raw.border !== undefined) {
+        overlay.border = asOverlayBorder(raw.border, `${path}.border`)
       }
       // Redaction regions (#492), exactly as on a sequence entry.
       if (raw.redactions !== undefined) {

@@ -8,6 +8,8 @@ import type { SpotlightRegion } from './spotlight'
 import { cropsEqual } from './crop'
 import type { ShapeMask } from './shapeMask'
 import { shapeMasksEqual } from './shapeMask'
+import type { OverlayBorder } from './overlayBorder'
+import { overlayBordersEqual } from './overlayBorder'
 import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
 
@@ -153,6 +155,15 @@ export interface VideoOverlay {
    * silhouette, never the source pixels.
    */
   shapeMask?: ShapeMask
+  /**
+   * A coloured border (#697): an outline drawn outside the overlay's
+   * silhouette — the placed rectangle, or the shape the mask cuts it to —
+   * in a colour and a thickness (see overlayBorder.ts). Absent means none,
+   * present exactly when the thickness is above 0 (normalized by the
+   * `video-overlay-border-set` reducer case), so border-free states and
+   * files stay byte-identical.
+   */
+  border?: OverlayBorder
   /**
    * Zooms on the overlay's own picture (#699): each magnifies what the
    * placed rectangle shows, the way a sequence zoom (#63) magnifies the
@@ -494,6 +505,7 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     colorAdjustmentsEqual(a.colorAdjustments, b.colorAdjustments) &&
     orientationsEqual(a.orientation, b.orientation) &&
     cropsEqual(a.crop, b.crop) &&
-    shapeMasksEqual(a.shapeMask, b.shapeMask)
+    shapeMasksEqual(a.shapeMask, b.shapeMask) &&
+    overlayBordersEqual(a.border, b.border)
   )
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
+import { MAX_OVERLAY_BORDER } from './overlayBorder'
 import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec, ChapterMarker } from './timeline'
 import {
   audioTrackFromClip,
@@ -3488,6 +3489,66 @@ describe('video-overlay shape mask (#266)', () => {
       })
       expect(videoOverlaysOf(moved)[0].shapeMask).toEqual({ kind: 'rounded', radius: 0.3 })
       expect(videoOverlaysOf(moved)[0].offset).toBe(2)
+    })
+  })
+
+  describe('video-overlay-border-set (#697)', () => {
+    const red = { color: '#FF0000', thickness: 0.01 }
+
+    it('stores the border normalized — colour lower-case — and 0 thickness as no key', () => {
+      const bordered = timelineReducer(withOverlay(), { type: 'video-overlay-border-set', id: 'v1', border: red })
+      expect(videoOverlaysOf(bordered)[0].border).toEqual({ color: '#ff0000', thickness: 0.01 })
+      const cleared = timelineReducer(bordered, {
+        type: 'video-overlay-border-set',
+        id: 'v1',
+        border: { color: '#ff0000', thickness: 0 },
+      })
+      expect('border' in videoOverlaysOf(cleared)[0]).toBe(false)
+    })
+
+    it('clamps the thickness to the maximum', () => {
+      const thick = timelineReducer(withOverlay(), {
+        type: 'video-overlay-border-set',
+        id: 'v1',
+        border: { color: '#000000', thickness: 5 },
+      })
+      expect(videoOverlaysOf(thick)[0].border?.thickness).toBe(MAX_OVERLAY_BORDER)
+    })
+
+    it('a re-commit, a clear of a border-free overlay, or a bad input keeps the state reference', () => {
+      const bordered = timelineReducer(withOverlay(), { type: 'video-overlay-border-set', id: 'v1', border: red })
+      expect(timelineReducer(bordered, { type: 'video-overlay-border-set', id: 'v1', border: red })).toBe(bordered)
+      const plain = withOverlay()
+      expect(
+        timelineReducer(plain, { type: 'video-overlay-border-set', id: 'v1', border: { color: '#000000', thickness: 0 } }),
+      ).toBe(plain)
+      for (const border of [
+        { color: 'red', thickness: 0.01 },
+        { color: '#ff0000', thickness: Number.NaN },
+      ]) {
+        expect(timelineReducer(plain, { type: 'video-overlay-border-set', id: 'v1', border })).toBe(plain)
+      }
+      expect(timelineReducer(plain, { type: 'video-overlay-border-set', id: 'nope', border: red })).toBe(plain)
+    })
+
+    it('the border survives placement edits and travels with a duplicate', () => {
+      const bordered = timelineReducer(withOverlay(), { type: 'video-overlay-border-set', id: 'v1', border: red })
+      const moved = timelineReducer(bordered, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(moved)[0].border).toEqual({ color: '#ff0000', thickness: 0.01 })
+      const duplicated = timelineReducer(moved, {
+        type: 'element-duplicated',
+        kind: 'video-overlay',
+        id: 'v1',
+        newId: 'v2',
+      })
+      expect(videoOverlaysOf(duplicated).map((item) => item.border)).toEqual([
+        { color: '#ff0000', thickness: 0.01 },
+        { color: '#ff0000', thickness: 0.01 },
+      ])
     })
   })
 })

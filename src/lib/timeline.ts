@@ -17,6 +17,12 @@ import {
 } from './redaction'
 import type { ShapeMaskInput } from './shapeMask'
 import { isValidShapeMaskInput, normalizeShapeMask, shapeMasksEqual } from './shapeMask'
+import type { OverlayBorder } from './overlayBorder'
+import {
+  isValidOverlayBorderInput,
+  normalizeOverlayBorder,
+  overlayBordersEqual,
+} from './overlayBorder'
 import type { BackgroundFill, BackgroundFillInput } from './backgroundFill'
 import {
   backgroundFillsEqual,
@@ -875,6 +881,17 @@ export type TimelineAction =
       type: 'video-overlay-mask-set'
       id: string
       mask: ShapeMaskInput
+    }
+  | {
+      /**
+       * Sets an overlay's border (#697), in the mask-set idiom: the action
+       * carries the full border and the reducer stores the normalized form
+       * — a thickness of 0 normalizes to no `border` key at all, so it is
+       * the reset.
+       */
+      type: 'video-overlay-border-set'
+      id: string
+      border: OverlayBorder
     }
   | {
       /**
@@ -3117,6 +3134,23 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (normalized === undefined) delete next.crop
       else next.crop = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'video-overlay-border-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (!isValidOverlayBorderInput(action.border)) return state
+      const normalized = normalizeOverlayBorder(action.border)
+      // Stored is always normalized, so re-committing the same border — or
+      // clearing a border-free overlay — is a no-op, not an edit.
+      if (overlayBordersEqual(normalized, overlay.border)) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all — what keeps border-free files byte-identical.
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.border
+      else next.border = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

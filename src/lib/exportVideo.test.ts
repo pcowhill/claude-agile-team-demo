@@ -1578,6 +1578,11 @@ function fakeComposerContext(filterSupported = true) {
     roundRect: (x: number, y: number, w: number, h: number, r: number) =>
       ops.push(`roundRect(${num(x)}, ${num(y)}, ${num(w)}, ${num(h)}, ${num(r)})`),
     fill: () => ops.push(`fillPath(${fillStyleValue}, ${compositeValue})`),
+    lineWidth: 1,
+    lineJoin: 'miter',
+    strokeStyle: '',
+    stroke: () =>
+      ops.push(`strokePath(${context.strokeStyle}, ${num(context.lineWidth)}, ${context.lineJoin})`),
     clip: () => {},
     drawImage: (source: unknown, ...args: number[]) =>
       ops.push(
@@ -1970,6 +1975,52 @@ describe('frame composition of overlay shape masks (#267)', () => {
     expect(masked.buffers[1].ops).toEqual([
       'clear(0, 0, 320, 180)',
       ...unmaskedPaint,
+      'ellipse(200, 112.5, 40, 22.5)',
+      'fillPath(#fff, destination-in)',
+    ])
+  })
+
+  it('a border (#697) is a stroke at twice the thickness with the inside removed, under the picture', () => {
+    // 0.05 of the 180 px shorter side is 9 px, so the centred stroke is 18.
+    const border = { color: '#ff0000', thickness: 0.05 }
+    const { composer, main, buffers } = composerFor(overlayFor({ border }))
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(buffer-1, [0, 0], none)',
+      // The picture still draws straight to the frame, exactly as unbordered.
+      'draw(over-element, [160, 90, 80, 45], none)',
+    ])
+    expect(buffers[1].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      'strokePath(#ff0000, 18, miter)',
+      'fillPath(#fff, destination-out)',
+    ])
+  })
+
+  it('a border follows an ellipse mask: the same inscribed ellipse stroked, then cleared inside', () => {
+    const border = { color: '#00ff00', thickness: 0.05 }
+    const { composer, main, buffers } = composerFor(
+      overlayFor({ border, shapeMask: { kind: 'ellipse' } }),
+    )
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(buffer-1, [0, 0], none)',
+      'draw(buffer-1, [0, 0], none)',
+    ])
+    // The border first, then the masked picture in the same scratch, each
+    // composited before the next begins.
+    expect(buffers[1].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      'ellipse(200, 112.5, 40, 22.5)',
+      'strokePath(#00ff00, 18, miter)',
+      'ellipse(200, 112.5, 40, 22.5)',
+      'fillPath(#fff, destination-out)',
+      'clear(0, 0, 320, 180)',
+      'draw(over-element, [160, 90, 80, 45], none)',
       'ellipse(200, 112.5, 40, 22.5)',
       'fillPath(#fff, destination-in)',
     ])

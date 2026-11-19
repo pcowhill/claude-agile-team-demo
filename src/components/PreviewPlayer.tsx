@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { TimelineEntry, TimelineState, ChapterMarker } from '../lib/timeline'
 import {
@@ -61,7 +61,9 @@ import {
   backdropRect,
 } from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
-import { drawLayerSource, fitRect, withLayerOrientation } from '../lib/exportVideo'
+import { drawLayerSource, drawOverlayBorder, fitRect, withLayerOrientation } from '../lib/exportVideo'
+import type { OverlayBorder } from '../lib/overlayBorder'
+import type { VideoOverlay } from '../lib/videoOverlay'
 import type { RedactionRegion } from '../lib/redaction'
 import { drawRedactions } from '../lib/redaction'
 import type { SpotlightRegion } from '../lib/spotlight'
@@ -658,6 +660,74 @@ function ShapeLayer({ groups, time }: { groups: readonly ShapeGroup[]; time: num
       ref={canvasRef}
       className="preview-shapes"
       data-testid="preview-shapes"
+      aria-hidden="true"
+    />
+  )
+}
+
+/**
+ * An overlay's border (#697), drawn on a frame-sized canvas by the export's
+ * own routine (`drawOverlayBorder`), so the preview and every export draw
+ * the same band — the ShapeLayer pattern. It is rendered as the card's
+ * previous sibling at the card's z-index, so the overlay's picture paints
+ * over its inner edge and a later overlay covers it, exactly the export's
+ * order. Rendered only while the overlay shows, so a border-free (or
+ * off-window) overlay adds nothing.
+ */
+function OverlayBorderLayer({
+  overlay,
+  testId,
+}: {
+  overlay: Pick<VideoOverlay, 'x' | 'y' | 'width' | 'height' | 'shapeMask'> & {
+    border: OverlayBorder
+  }
+  testId: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const scratchRef = useRef<HTMLCanvasElement | null>(null)
+  const { x, y, width: w, height: h, shapeMask, border } = overlay
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (canvas === null) return
+    const paint = () => {
+      // Unlaid-out (or jsdom) canvases have no box to draw into.
+      if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return
+      // Device pixels, so a thin border stays crisp; the thickness is a
+      // fraction of the shorter side, so the proportion is the export's.
+      const scale = window.devicePixelRatio || 1
+      const width = Math.round(canvas.clientWidth * scale)
+      const height = Math.round(canvas.clientHeight * scale)
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const scratch = (scratchRef.current ??= document.createElement('canvas'))
+      if (scratch.width !== width) scratch.width = width
+      if (scratch.height !== height) scratch.height = height
+      const context = canvas.getContext('2d')
+      const scratchContext = scratch.getContext('2d')
+      if (context === null || scratchContext === null) return
+      context.clearRect(0, 0, width, height)
+      drawOverlayBorder(
+        context,
+        { canvas: scratch, context: scratchContext },
+        border,
+        shapeMask,
+        { x: x * width, y: y * height, width: w * width, height: h * height },
+        width,
+        height,
+      )
+    }
+    paint()
+    // A resize while paused redraws at the new size, as ShapeLayer does.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(paint)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [x, y, w, h, shapeMask, border])
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-shapes"
+      data-testid={testId}
       aria-hidden="true"
     />
   )
@@ -2562,9 +2632,16 @@ export function PreviewPlayer({
                 // `zoomRectWithin`: the picture and its regions magnify
                 // inside the card, which clips them while it zooms.
                 const overlayZoom = overlayZoomAt(overlay, overlayTime)
+                const border = overlay.border
                 return (
+                  <Fragment key={overlay.id}>
+                  {active && border !== undefined && (
+                    <OverlayBorderLayer
+                      overlay={{ ...overlay, border }}
+                      testId={`preview-overlay-border-${index}`}
+                    />
+                  )}
                   <div
-                    key={overlay.id}
                     className={`preview-overlay-video${active ? '' : ' preview-overlay-hidden'}`}
                     data-testid={`preview-overlay-card-${index}`}
                     style={{
@@ -2639,6 +2716,7 @@ export function PreviewPlayer({
                       />
                     </div>
                   </div>
+                  </Fragment>
                 )
               })}
               <ShapeLayer
