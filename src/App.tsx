@@ -426,6 +426,10 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   const [markIn, setMarkIn] = useState<number | null>(null)
   // The preview's playhead (#683), read on demand by Add ▾ › Shape group.
   const playheadRef = useRef(0)
+  // Pauses whatever the preview is playing (#722), filled in by the preview.
+  // The Trim window calls it on opening, so the sequence's sound does not
+  // play on behind the modal, under its own Play trim.
+  const pausePreviewRef = useRef<(() => void) | null>(null)
   // The output frame the preview composes (#683), for the px the Shapes
   // fields show. The 16:9 fallback until the preview reports one.
   const [outputFrame, setOutputFrame] = useState<SourceDimensions>({ width: 1920, height: 1080 })
@@ -608,6 +612,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         <PreviewPlayer
           timeline={timeline}
           playheadRef={playheadRef}
+          pauseRef={pausePreviewRef}
           onFrameSize={setOutputFrame}
           layout={previewLayout}
           onSetLayout={handleSetPreviewLayout}
@@ -660,6 +665,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           }
           stepSeconds={settings.stepSeconds}
           largeStepSeconds={settings.largeStepSeconds}
+          onPausePreview={() => pausePreviewRef.current?.()}
           onSetStillDuration={(id, duration) =>
             dispatchTimeline({ type: 'still-duration-set', id, duration })
           }

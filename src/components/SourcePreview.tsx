@@ -37,6 +37,11 @@ interface SourcePreviewProps {
   layout?: PreviewLayout
   /** Back to the sequence — the header button, and Escape. */
   onBack: () => void
+  /**
+   * Filled with this preview's pause, a no-op when it is not playing, so
+   * `PreviewPlayer`'s own pause handle (#722) stops a source clip too.
+   */
+  pauseRef?: { current: (() => void) | null }
   /** The library row's Add / Overlay actions, offered here for convenience. */
   onAddToTimeline?: (clip: LibraryClip) => void
   onAddOverlay?: (clip: LibraryClip) => void
@@ -64,6 +69,7 @@ export function SourcePreview({
   aspect,
   layout = 'default',
   onBack,
+  pauseRef,
   onAddToTimeline,
   onAddOverlay,
   stepSeconds,
@@ -120,6 +126,16 @@ export function SourcePreview({
     media()?.pause()
     setPlaying(false)
   }, [stopLoop])
+
+  useEffect(() => {
+    if (pauseRef === undefined) return
+    pauseRef.current = () => {
+      if (playing) pause()
+    }
+    return () => {
+      pauseRef.current = null
+    }
+  }, [pauseRef, playing, pause])
 
   const seek = useCallback(
     (to: number) => {

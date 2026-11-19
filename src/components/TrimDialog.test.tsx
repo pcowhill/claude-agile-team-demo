@@ -251,6 +251,26 @@ describe('the Trim window (#707)', () => {
     expect(screen.queryByRole('button', { name: /Marks/ })).toBeNull()
   })
 
+  it('pauses the playing preview as it opens, the sequence or a source clip, and closing does not resume it (#722)', async () => {
+    render(<App />)
+    await addVideo()
+    await userEvent.click(screen.getByRole('button', { name: 'Play preview' }))
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument()
+    await openTrim()
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+    expect((screen.getByTestId('preview-video') as HTMLVideoElement).paused).toBe(true)
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('button', { name: 'Play preview' })).toBeInTheDocument()
+
+    // A source clip playing in the preview panel (#403) is stopped too.
+    await userEvent.click(screen.getByRole('button', { name: 'Preview a.mp4' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Play source' }))
+    expect(screen.getByRole('button', { name: 'Pause source' })).toBeInTheDocument()
+    await openTrim()
+    expect(screen.getByRole('button', { name: 'Play source' })).toBeInTheDocument()
+    expect((screen.getByTestId('source-video') as HTMLVideoElement).paused).toBe(true)
+  })
+
   it('Space plays and pauses Play trim from the window, but not from a button that has the focus', async () => {
     render(<App />)
     await addVideo()

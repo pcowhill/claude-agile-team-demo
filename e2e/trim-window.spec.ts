@@ -185,6 +185,43 @@ test('Play trim plays from In and stops at Out; with Loop on it goes back to In 
   await dialog.getByRole('button', { name: 'Pause' }).click()
 })
 
+test('opening the Trim window pauses the preview behind it, and closing it does not resume it (#722)', async ({
+  page,
+}) => {
+  await addClip(page)
+  const preview = page.getByTestId('preview-video')
+  const previewTime = () => preview.evaluate((video: HTMLVideoElement) => video.currentTime)
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  // The sequence is really playing, its clock moving, before the window opens.
+  await expect
+    .poll(() => preview.evaluate((video: HTMLVideoElement) => !video.paused && video.currentTime > 0.2))
+    .toBe(true)
+
+  const dialog = await openTrim(page)
+  await expect.poll(() => preview.evaluate((video: HTMLVideoElement) => video.paused)).toBe(true)
+  // Its time stops: two reads half a second apart agree. The wait is the
+  // point of the check (a clock that still ran would have moved), not a
+  // stand-in for one.
+  const stoppedAt = await previewTime()
+  await page.waitForTimeout(500)
+  expect(await previewTime()).toBe(stoppedAt)
+
+  // Play trim plays the window's own clip, and only that: the preview stays
+  // paused under it.
+  await dialog.getByRole('button', { name: 'Play trim' }).click()
+  await expect.poll(() => videoTime(dialog)).toBeGreaterThan(0.1)
+  expect(await preview.evaluate((video: HTMLVideoElement) => video.paused)).toBe(true)
+  expect(await previewTime()).toBe(stoppedAt)
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toBeHidden()
+  // Closing leaves the preview paused: nothing resumes it on its own.
+  await expect(page.getByRole('button', { name: 'Play preview' })).toBeVisible()
+  await page.waitForTimeout(500)
+  expect(await preview.evaluate((video: HTMLVideoElement) => video.paused)).toBe(true)
+  expect(await previewTime()).toBe(stoppedAt)
+})
+
 for (const viewport of [
   { width: 1280, height: 720 },
   { width: 360, height: 740 },
