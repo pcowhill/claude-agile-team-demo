@@ -12,6 +12,7 @@ import {
   rateControlledCandidates,
   recorderOptions,
   sizeLimitBitrates,
+  smallerBitrates,
   videoBitrateReading,
 } from './sizeLimit'
 import type { TimelineEntry, TimelineState } from './timeline'
@@ -158,6 +159,67 @@ describe('rateControlledCandidates (#726)', () => {
       'audio/webm;codecs=opus',
       'audio/webm',
     ])
+  })
+})
+
+describe('smallerBitrates: Export again smaller (#727)', () => {
+  it('scales the picture by limit / actual, less the margin, and keeps the sound’s reserve', () => {
+    // 1,672,000 × (25e6 / 30e6) × 0.9 = 1,672,000 × 0.75 = 1,254,000.
+    // Worked by hand from #727's formula.
+    expect(
+      smallerBitrates({
+        previous: { videoBitsPerSecond: 1_672_000, audioBitsPerSecond: 128_000 },
+        limitBytes: 25_000_000,
+        actualBytes: 30_000_000,
+      }),
+    ).toEqual({ ok: true, bitrates: { videoBitsPerSecond: 1_254_000, audioBitsPerSecond: 128_000 } })
+  })
+
+  it('takes the step from the overshoot: a file barely over is not halved', () => {
+    // 1,000,000 × (10e6 / 10.2e6) × 0.9 = 882,352.94…, floored.
+    expect(
+      smallerBitrates({ previous: { videoBitsPerSecond: 1_000_000 }, limitBytes: 10e6, actualBytes: 10.2e6 }),
+    ).toEqual({ ok: true, bitrates: { videoBitsPerSecond: 882_352 } })
+    // Twice over: 1,000,000 × 0.5 × 0.9 = 450,000.
+    expect(
+      smallerBitrates({ previous: { videoBitsPerSecond: 1_000_000 }, limitBytes: 10e6, actualBytes: 20e6 }),
+    ).toEqual({ ok: true, bitrates: { videoBitsPerSecond: 450_000 } })
+  })
+
+  it('scales the sound in an audio-only export, and refuses below Opus’s floor', () => {
+    // 72,000 × (1e6 / 1.2e6) × 0.9 = 54,000.
+    expect(
+      smallerBitrates({ previous: { audioBitsPerSecond: 72_000 }, limitBytes: 1e6, actualBytes: 1.2e6 }),
+    ).toEqual({ ok: true, bitrates: { audioBitsPerSecond: 54_000 } })
+    const floor = smallerBitrates({ previous: { audioBitsPerSecond: 6_500 }, limitBytes: 1e6, actualBytes: 1.2e6 })
+    expect(floor.ok).toBe(false)
+    if (!floor.ok) {
+      expect(floor.error).toBe(
+        'The file cannot be made smaller than this under a 1 MB limit. Choose a larger limit or a shorter range.',
+      )
+    }
+  })
+
+  it('never returns a rate at or above the first, however little the file is over', () => {
+    for (const actualBytes of [10_000_001, 10_050_000, 11e6, 50e6]) {
+      for (const previous of [7, 1_000, 830_000, 16_363_636]) {
+        const result = smallerBitrates({ previous: { videoBitsPerSecond: previous }, limitBytes: 10e6, actualBytes })
+        if (result.ok) expect(result.bitrates.videoBitsPerSecond!).toBeLessThan(previous)
+      }
+    }
+  })
+
+  it('refuses a file that is not over its limit, and a picture rate that would reach zero', () => {
+    expect(
+      smallerBitrates({ previous: { videoBitsPerSecond: 1_000_000 }, limitBytes: 10e6, actualBytes: 10e6 }).ok,
+    ).toBe(false)
+    expect(
+      smallerBitrates({ previous: { videoBitsPerSecond: 1_000_000 }, limitBytes: 10e6, actualBytes: 9e6 }).ok,
+    ).toBe(false)
+    // 1 × 0.5 × 0.9 floors to 0: nothing left to ask the recorder for.
+    expect(smallerBitrates({ previous: { videoBitsPerSecond: 1 }, limitBytes: 10e6, actualBytes: 20e6 }).ok).toBe(
+      false,
+    )
   })
 })
 

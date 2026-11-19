@@ -285,6 +285,23 @@
   font-size: 0.9rem;
 }
 
+/* Export again smaller (#727), under an over-limit file's size line: the
+   button and the rate it will ask for, wrapping as a unit onto the next
+   line at a phone width rather than squeezing the button. */
+.export-again-smaller {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0 0;
+}
+
+.export-again-smaller .export-format-note {
+  /* Beside the button, not the full-width line the note is elsewhere. */
+  flex-basis: auto;
+  margin: 0;
+}
+
 .export-chapter-result-size {
   grid-column: 1 / -1;
   color: #aaa;

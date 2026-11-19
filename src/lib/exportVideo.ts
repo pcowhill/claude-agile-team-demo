@@ -57,6 +57,7 @@ import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
 import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
+import type { SizeLimitBitrates } from './sizeLimit'
 import { attachBoost, capturedElementsHonourPlaybackRate, intendedGain, setMediaGain } from './mediaGain'
 
 /**
@@ -1853,6 +1854,20 @@ export interface ExportOptions {
    * honours it; a sink (#198) or an audio sink (#269) is its own encoder.
    */
   sizeLimitBytes?: number
+  /**
+   * The rates to give the recorder under `sizeLimitBytes`, instead of
+   * working them out from it: **Export again smaller** (#727) re-runs an
+   * over-limit export at rates scaled down from what the first run was
+   * given (`smallerBitrates`). Ignored without `sizeLimitBytes`.
+   */
+  bitrates?: SizeLimitBitrates
+  /**
+   * Told the rates a size-limited recording was given, once the recorder is
+   * created (#727): they depend on whether a sound track was actually
+   * captured, which only the pipeline knows, and **Export again smaller**
+   * scales down from exactly these.
+   */
+  onBitrates?: (bitrates: SizeLimitBitrates) => void
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
@@ -2953,18 +2968,24 @@ export async function exportTimeline(
     try {
       // The Size limit (#726) is sized by what this recording carries: the
       // window being exported, and whether a sound track was captured.
-      let bitrates = null
+      // Export again smaller (#727) brings its own rates.
+      let bitrates: SizeLimitBitrates | null = null
       if (options.sizeLimitBytes !== undefined) {
-        const limited = sizeLimitBitrates({
-          limitBytes: options.sizeLimitBytes,
-          durationSeconds: windowEnd - windowStart,
-          audio: audioCapture !== null,
-          audioOnly,
-        })
-        if (!limited.ok) throw new ExportUnsupportedError(limited.error)
-        bitrates = limited.bitrates
+        if (options.bitrates !== undefined) {
+          bitrates = options.bitrates
+        } else {
+          const limited = sizeLimitBitrates({
+            limitBytes: options.sizeLimitBytes,
+            durationSeconds: windowEnd - windowStart,
+            audio: audioCapture !== null,
+            audioOnly,
+          })
+          if (!limited.ok) throw new ExportUnsupportedError(limited.error)
+          bitrates = limited.bitrates
+        }
       }
       recorder = new MediaRecorder(stream, recorderOptions(mimeType as string, bitrates))
+      if (bitrates !== null) options.onBitrates?.(bitrates)
     } catch (error) {
       // A rejected track combination must not strand the audio context, which
       // holds a rendering thread until it is closed.

@@ -131,6 +131,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Esc** — leaves the source preview, back to the sequence; closes the Trim window without applying. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Expanded** — the preview's View ▾; the preview as the page's full-width first row. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Export** — File ▾ › Export ▸, which opens the export dialog on a chosen format; and the export dialog's own Export button. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
+- **Export again smaller** — the export dialog, under a size-limited file that came out over its limit; runs the same export again at a lower rate. [Export › The Size limit](export.md#the-size-limit)
 - **Export frame rate** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export height** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export Project…** — the header. [Export › Opening the export dialog](export.md#opening-the-export-dialog)

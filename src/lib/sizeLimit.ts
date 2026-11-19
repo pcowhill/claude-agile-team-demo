@@ -136,6 +136,56 @@ export function sizeLimitBitrates({
 }
 
 /**
+ * The rates for **Export again smaller** (#727): a size-limited export came
+ * out over its limit, so the same export runs again with each rate it was
+ * given scaled by how far over it came (`limit / actual`) and by the
+ * margin again (`1 - SIZE_LIMIT_MARGIN`). The step comes from the measured
+ * overshoot rather than a fixed one, so a file 2 % over is not halved and
+ * one twice over is not trimmed by 10 %.
+ *
+ * What is scaled is the rate the recorder was asked for and overshot:
+ * the picture's in a video export, whose sound keeps its reserve (Opus
+ * holds its rate; the picture is what overshoots), and the sound's in an
+ * audio-only one. The new rate is always below the first: the scale is
+ * under `1 - SIZE_LIMIT_MARGIN` whenever the file was over, and a file
+ * that was not over is refused rather than re-run at the same rate. A
+ * rate that would fall below what a recording can use (1 bit/s of
+ * picture, or Opus's floor for sound alone) is refused with a message.
+ */
+export function smallerBitrates({
+  previous,
+  limitBytes,
+  actualBytes,
+}: {
+  /** What the over-limit export's recorder was given. */
+  previous: SizeLimitBitrates
+  limitBytes: number
+  /** The over-limit file's actual size. */
+  actualBytes: number
+}): SizeLimitResult {
+  if (!(actualBytes > limitBytes) || !(limitBytes > 0)) {
+    return { ok: false, error: 'The file is not over its limit.' }
+  }
+  const scale = (limitBytes / actualBytes) * (1 - SIZE_LIMIT_MARGIN)
+  const tooSmall = `The file cannot be made smaller than this under a ${formatMegabytes(limitBytes)} limit. Choose a larger limit or a shorter range.`
+  if (previous.videoBitsPerSecond === undefined) {
+    if (previous.audioBitsPerSecond === undefined) return { ok: false, error: tooSmall }
+    const audio = Math.floor(previous.audioBitsPerSecond * scale)
+    if (audio < MIN_AUDIO_ONLY_BITRATE) return { ok: false, error: tooSmall }
+    return { ok: true, bitrates: { audioBitsPerSecond: audio } }
+  }
+  const video = Math.floor(previous.videoBitsPerSecond * scale)
+  if (video < 1) return { ok: false, error: tooSmall }
+  return {
+    ok: true,
+    bitrates:
+      previous.audioBitsPerSecond === undefined
+        ? { videoBitsPerSecond: video }
+        : { videoBitsPerSecond: video, audioBitsPerSecond: previous.audioBitsPerSecond },
+  }
+}
+
+/**
  * The recorder MIME candidates for a size-limited export: VP8 ahead of VP9,
  * everything else in its place. Measured for #726 in Chromium on a 60 s,
  * 1280×720 screen-like export: asked for a 5 MB limit, VP9 wrote 9.7 MB
