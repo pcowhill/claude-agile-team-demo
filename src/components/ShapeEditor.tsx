@@ -63,8 +63,8 @@ import './ShapeEditor.css'
  * The shape editor (#685 part 1, #686 part 2, from the approved design #681
  * §3 for the customer's #679): a group's shapes drawn on a still of the
  * frame they sit over, where a drag draws a rectangle, an ellipse or an
- * arrow, a click places a numbered badge (#689), and shapes are selected, moved, resized, restyled, reordered,
- * deleted and duplicated. It answers the customer's main ask in #679, to
+ * arrow, a click places a numbered badge (#689), and shapes are selected,
+ * moved, resized, restyled, reordered, deleted and duplicated. It answers the customer's main ask in #679, to
  * build shapes "like in the *Adjust Visually* tools", straight onto the
  * picture.
  *
