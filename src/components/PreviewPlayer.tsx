@@ -691,6 +691,23 @@ function entryBackdrop(
 }
 
 /**
+ * An overlay's zoom (#699) as a CSS transform on the box that fills its
+ * card: each card fraction p lands at 0.5 + scale·(p − centre), the
+ * mapping `zoomRectWithin` gives the export. With the origin at the box's
+ * top-left, that is a scale followed by a translate of (0.5 − scale·centre)
+ * of the box, whose own size is the card's. No style at all for the
+ * identity zoom.
+ */
+function overlayZoomStyle(zoom: ZoomState): CSSProperties | undefined {
+  if (zoom.scale === 1) return undefined
+  const { scale, centerX, centerY } = zoom
+  return {
+    transformOrigin: '0 0',
+    transform: `translate(${(0.5 - scale * centerX) * 100}%, ${(0.5 - scale * centerY) * 100}%) scale(${scale})`,
+  }
+}
+
+/**
  * Composes an element's transition styles with its entry's zoom state (#64).
  * The element box is the frame (it fills the stage), so the transform maps a
  * frame fraction p to 0.5 + scale·(p − centre): the visible region
@@ -715,23 +732,6 @@ function entryBackdrop(
  * (mask and clip-path intersect, exactly as the export's nested clips do),
  * mapped through the same inverse zoom when the incoming entry is zoomed.
  */
-/**
- * An overlay's zoom (#699) as a CSS transform on the box that fills its
- * card: each card fraction p lands at 0.5 + scale·(p − centre), the
- * mapping `zoomRectWithin` gives the export. With the origin at the box's
- * top-left, that is a scale followed by a translate of (0.5 − scale·centre)
- * of the box, whose own size is the card's. No style at all for the
- * identity zoom.
- */
-function overlayZoomStyle(zoom: ZoomState): CSSProperties | undefined {
-  if (zoom.scale === 1) return undefined
-  const { scale, centerX, centerY } = zoom
-  return {
-    transformOrigin: '0 0',
-    transform: `translate(${(0.5 - scale * centerX) * 100}%, ${(0.5 - scale * centerY) * 100}%) scale(${scale})`,
-  }
-}
-
 function withZoom(
   style: CSSProperties | undefined,
   zoom: ZoomState,
