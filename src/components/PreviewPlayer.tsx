@@ -42,7 +42,7 @@ import {
   sequenceTimeAt,
   splitTargetAt,
 } from '../lib/playback'
-import type { PlaybackLocation, TransitionOverlap } from '../lib/playback'
+import type { PlaybackLocation, PlayheadTrim, TransitionOverlap } from '../lib/playback'
 import {
   audioTrackGainAt,
   duckFactorAt,
@@ -1093,6 +1093,8 @@ export function PreviewPlayer({
   const pendingCueRef = useRef(new WeakMap<HTMLVideoElement, () => void>())
   const [playing, setPlaying] = useState(false)
   const [sequenceTime, setSequenceTime] = useState(0)
+  /** Q's trim, waiting for the trimmed timeline to land the playhead (#754). */
+  const trimLandingRef = useRef<PlayheadTrim | null>(null)
   useEffect(() => {
     if (playheadRef !== undefined) playheadRef.current = sequenceTime
   }, [playheadRef, sequenceTime])
@@ -2209,7 +2211,13 @@ export function PreviewPlayer({
           // there is nothing to trim (a still, an edge, a transition
           // overlap, a kept part under the minimum) or without wiring.
           const trim = playheadTrimAt(timeline, Math.min(sequenceTime, total), action.edge)
-          if (trim !== null) onTrimEntry?.(trim.entryId, trim.inPoint, trim.outPoint)
+          if (trim === null || onTrimEntry === undefined) break
+          // Q leaves the playhead on the entry's new start (#754), where the
+          // frame it was showing now plays; the trimmed timeline has not
+          // arrived yet, so the landing waits for it. W needs no landing:
+          // the playhead already sits on the entry's new end.
+          if (action.edge === 'start') trimLandingRef.current = trim
+          onTrimEntry(trim.entryId, trim.inPoint, trim.outPoint)
           break
         }
       }
@@ -2267,6 +2275,24 @@ export function PreviewPlayer({
   useEffect(() => {
     sequenceTimeRef.current = sequenceTime
   }, [sequenceTime])
+
+  // Q's landing (#754): once the trimmed timeline arrives, the playhead moves
+  // to the entry's new start, where the frame Q was pressed on now plays —
+  // entryStartTime, so a transition into the entry is allowed for. Declared
+  // after the effect above that re-clamps the position on any edit, so this
+  // position wins, and before the idle cue below, which reads the ref to show
+  // the frame there. Any edit consumes the landing: one that is not Q's own
+  // trim (the entry's In differs) leaves the playhead alone, as edits do.
+  useEffect(() => {
+    const landing = trimLandingRef.current
+    if (landing === null) return
+    trimLandingRef.current = null
+    const index = timeline.entries.findIndex((entry) => entry.id === landing.entryId)
+    if (index === -1 || timeline.entries[index].inPoint !== landing.inPoint) return
+    const start = entryStartTime(timeline, index)
+    sequenceTimeRef.current = start
+    setSequenceTime(start)
+  }, [timeline])
 
   // Idle frame (#382): the video elements have no declarative src — cueing
   // is imperative, and before this effect it only happened on play, seek,
