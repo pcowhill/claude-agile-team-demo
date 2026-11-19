@@ -79,7 +79,7 @@ import {
   TEXT_FONTS,
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
-import { MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
+import { MIN_OVERLAY_SIZE, overlayOutputDuration } from '../lib/videoOverlay'
 import type {
   ArrowHeads,
   ArrowHeadSize,
@@ -311,6 +311,10 @@ interface TimelineProps {
   onAddVideoOverlayZoom?: (overlayId: string, zoom: ZoomSpec) => void
   onUpdateVideoOverlayZoom?: (overlayId: string, id: string, zoom: ZoomSpec) => void
   onRemoveVideoOverlayZoom?: (overlayId: string, id: string) => void
+  /** Adds a speed segment or pause to a video overlay (#700); the id is the caller's to mint. */
+  onAddVideoOverlayRemap?: (overlayId: string, remap: RemapSpec) => void
+  onUpdateVideoOverlayRemap?: (overlayId: string, id: string, remap: RemapSpec) => void
+  onRemoveVideoOverlayRemap?: (overlayId: string, id: string) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -1827,6 +1831,121 @@ function ShapeMaskControls({ position, mask, onCommit }: ShapeMaskControlsProps)
   )
 }
 
+interface RemapFieldRowsProps {
+  /** The accessible name of the row's owner (a sequence entry or a video overlay). */
+  position: string
+  /** The owner's speed segments and pauses, normalized: sorted by window start. */
+  effects: readonly (RemapSpec & { id: string })[]
+  /** The owner's trimmed source length — every position's upper bound. */
+  trimmed: number
+  onUpdate: (id: string, remap: RemapSpec) => void
+  onRemove: (id: string) => void
+}
+
+/**
+ * The rows of an owner's time-remap effects (#141): one per speed segment
+ * or pause, each independently editable like a zoom. Accessible names
+ * number each kind separately, in window order — the order the normalized
+ * state stores them in. Shared by sequence entries and video overlays
+ * (#700), so the two read alike.
+ */
+function RemapFieldRows({ position, effects, trimmed, onUpdate, onRemove }: RemapFieldRowsProps) {
+  const kindIndex = (id: string, kind: RemapSpec['kind']) =>
+    effects.filter((effect) => effect.kind === kind).findIndex((effect) => effect.id === id) + 1
+  return (
+    <>
+      {effects.map((effect) =>
+        effect.kind === 'speed' ? (
+          (() => {
+            const name = `Speed segment ${kindIndex(effect.id, 'speed')}`
+            const set = (change: Partial<Omit<typeof effect, 'kind'>>) =>
+              onUpdate(effect.id, {
+                kind: 'speed',
+                start: effect.start,
+                end: effect.end,
+                factor: effect.factor,
+                ...change,
+              })
+            return (
+              <div key={effect.id} className="timeline-entry-remap">
+                <span>{name} from</span>
+                <SecondsField
+                  label={`${name} start of ${position} in seconds`}
+                  value={effect.start}
+                  max={trimmed}
+                  onCommit={(start) => set({ start })}
+                  unit="s"
+                />
+                <span>to</span>
+                <SecondsField
+                  label={`${name} end of ${position} in seconds`}
+                  value={effect.end}
+                  max={trimmed}
+                  onCommit={(end) => set({ end })}
+                  unit="s"
+                />
+                <span>at</span>
+                <SecondsField
+                  label={`${name} factor of ${position}`}
+                  value={effect.factor}
+                  min={0.05}
+                  max={10}
+                  step={0.25}
+                  onCommit={(factor) => set({ factor })}
+                  unit="×"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove speed segment ${kindIndex(effect.id, 'speed')} from ${position}`}
+                  onClick={() => onRemove(effect.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          })()
+        ) : (
+          (() => {
+            const name = `Pause ${kindIndex(effect.id, 'pause')}`
+            return (
+              <div key={effect.id} className="timeline-entry-remap">
+                <span>{name} at</span>
+                <SecondsField
+                  label={`${name} position of ${position} in seconds`}
+                  value={effect.at}
+                  max={trimmed}
+                  onCommit={(at) =>
+                    onUpdate(effect.id, { kind: 'pause', at, hold: effect.hold })
+                  }
+                  unit="s"
+                />
+                <span>hold</span>
+                <SecondsField
+                  label={`${name} hold of ${position} in seconds`}
+                  value={effect.hold}
+                  min={0.1}
+                  max={86400}
+                  onCommit={(hold) =>
+                    onUpdate(effect.id, { kind: 'pause', at: effect.at, hold })
+                  }
+                  unit="s"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove pause ${kindIndex(effect.id, 'pause')} from ${position}`}
+                  onClick={() => onRemove(effect.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          })()
+        ),
+      )}
+    </>
+  )
+}
+
 interface BorderControlsProps {
   /** The accessible name of the row's owner (a video or image overlay). */
   position: string
@@ -2202,6 +2321,9 @@ export function Timeline({
   onAddVideoOverlayZoom,
   onUpdateVideoOverlayZoom,
   onRemoveVideoOverlayZoom,
+  onAddVideoOverlayRemap,
+  onUpdateVideoOverlayRemap,
+  onRemoveVideoOverlayRemap,
   onSetEntryBackgroundFill,
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
@@ -3294,111 +3416,19 @@ export function Timeline({
                     </>
                   )
                 })()}
-                {!isStillEntry(entry) &&
-                  (() => {
-                    // Time-remap effects (#141): speed segments and pauses,
-                    // each independently editable like a zoom. Stills carry
-                    // none — their one duration already sets their timing
-                    // (#138). Accessible names number each kind separately,
-                    // in window order — the order the normalized state
-                    // stores them in.
-                    const entryRemaps = remapsForEntry(timeline, entry.id)
-                    const trimmed = effectiveDuration(entry)
-                    const kindIndex = (id: string, kind: RemapSpec['kind']) =>
-                      entryRemaps.filter((effect) => effect.kind === kind).findIndex((effect) => effect.id === id) + 1
-                    return (
-                      <>
-                        {entryRemaps.map((effect) =>
-                          effect.kind === 'speed' ? (
-                            (() => {
-                              const name = `Speed segment ${kindIndex(effect.id, 'speed')}`
-                              const set = (change: Partial<Omit<typeof effect, 'kind'>>) =>
-                                onUpdateRemap(effect.id, {
-                                  kind: 'speed',
-                                  start: effect.start,
-                                  end: effect.end,
-                                  factor: effect.factor,
-                                  ...change,
-                                })
-                              return (
-                                <div key={effect.id} className="timeline-entry-remap">
-                                  <span>{name} from</span>
-                                  <SecondsField
-                                    label={`${name} start of ${position} in seconds`}
-                                    value={effect.start}
-                                    max={trimmed}
-                                    onCommit={(start) => set({ start })}
-                                    unit="s"
-                                  />
-                                  <span>to</span>
-                                  <SecondsField
-                                    label={`${name} end of ${position} in seconds`}
-                                    value={effect.end}
-                                    max={trimmed}
-                                    onCommit={(end) => set({ end })}
-                                    unit="s"
-                                  />
-                                  <span>at</span>
-                                  <SecondsField
-                                    label={`${name} factor of ${position}`}
-                                    value={effect.factor}
-                                    min={0.05}
-                                    max={10}
-                                    step={0.25}
-                                    onCommit={(factor) => set({ factor })}
-                                    unit="×"
-                                  />
-                                  <button
-                                    type="button"
-                                    aria-label={`Remove speed segment ${kindIndex(effect.id, 'speed')} from ${position}`}
-                                    onClick={() => onRemoveRemap(effect.id)}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              )
-                            })()
-                          ) : (
-                            (() => {
-                              const name = `Pause ${kindIndex(effect.id, 'pause')}`
-                              return (
-                                <div key={effect.id} className="timeline-entry-remap">
-                                  <span>{name} at</span>
-                                  <SecondsField
-                                    label={`${name} position of ${position} in seconds`}
-                                    value={effect.at}
-                                    max={trimmed}
-                                    onCommit={(at) =>
-                                      onUpdateRemap(effect.id, { kind: 'pause', at, hold: effect.hold })
-                                    }
-                                    unit="s"
-                                  />
-                                  <span>hold</span>
-                                  <SecondsField
-                                    label={`${name} hold of ${position} in seconds`}
-                                    value={effect.hold}
-                                    min={0.1}
-                                    max={86400}
-                                    onCommit={(hold) =>
-                                      onUpdateRemap(effect.id, { kind: 'pause', at: effect.at, hold })
-                                    }
-                                    unit="s"
-                                  />
-                                  <button
-                                    type="button"
-                                    aria-label={`Remove pause ${kindIndex(effect.id, 'pause')} from ${position}`}
-                                    onClick={() => onRemoveRemap(effect.id)}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              )
-                            })()
-                          ),
-                        )}
-                      </>
-                    )
-                  })()}
+                {!isStillEntry(entry) && (
+                  // Time-remap effects (#141): speed segments and pauses,
+                  // each independently editable like a zoom. Stills carry
+                  // none — their one duration already sets their timing
+                  // (#138).
+                  <RemapFieldRows
+                    position={position}
+                    effects={remapsForEntry(timeline, entry.id)}
+                    trimmed={effectiveDuration(entry)}
+                    onUpdate={onUpdateRemap}
+                    onRemove={onRemoveRemap}
+                  />
+                )}
                 {/* + Effect ▾ (#419, from the approved redesign #401 /
                     feedback #395): the three things an expanded entry can
                     grow — a zoom (#129), a speed segment and a pause (#141)
@@ -3707,6 +3737,10 @@ export function Timeline({
                 action: () => onRemoveVideoOverlay(overlay.id),
               }
               const trimmedLength = effectiveDuration(overlay)
+              // What the overlay occupies on screen: its trim, through its
+              // speed segments and pauses (#700) — the bar and the length
+              // shown, as an entry's remapped length is.
+              const outputLength = overlayOutputDuration(overlay)
               // A still overlay (#294) has no source to trim and no audio:
               // its window is offset + duration, and the audio controls are
               // absent rather than disabled — there is nothing to control.
@@ -3724,7 +3758,7 @@ export function Timeline({
                     <div
                       className="audio-track-bar video-overlay-bar"
                       data-testid={`video-overlay-bar-${index}`}
-                      style={laneBar(overlay.offset, trimmedLength)}
+                      style={laneBar(overlay.offset, outputLength)}
                     >
                       {/* A video overlay shows the same audio amplitude
                           visual as the sequence entries (#230); a still
@@ -3761,7 +3795,7 @@ export function Timeline({
                       />
                     )}
                     {nameCell(overlay.id, overlay.name, position)}
-                    <span className="clip-duration">{formatDuration(trimmedLength)}</span>
+                    <span className="clip-duration">{formatDuration(outputLength)}</span>
                     <span className="timeline-row-actions">
                       {rowActionsMenu('video-overlay', overlay, position, { removal: overlayRemoval })}
                       <button
@@ -3821,6 +3855,11 @@ export function Timeline({
                         />
                         <span className="timeline-entry-effective">
                           plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
+                          {/* Its speed segments and pauses (#700) change
+                              how long it shows — said where the trim math
+                              is, as on an entry (#141). */}
+                          {outputLength !== trimmedLength &&
+                            ` — ${formatSeconds(outputLength)}s remapped`}
                         </span>
                       </>
                     )}
@@ -3905,12 +3944,14 @@ export function Timeline({
                           Mute
                         </label>
                         {/* Audio fades (#220), in the audio-track fade-fields
-                            idiom (#104), over the overlay's trimmed window. */}
+                            idiom (#104), over the overlay's window — its
+                            remapped length (#700), as an entry's fades span
+                            its output duration. */}
                         <LabelledField text="Fade in">
                           <SecondsField
                             label={`Audio fade-in of ${position} in seconds`}
                             value={overlay.fadeIn ?? 0}
-                            max={trimmedLength}
+                            max={outputLength}
                             slider
                             onCommit={(fadeIn) => set({ fadeIn })}
                             unit="s"
@@ -3920,7 +3961,7 @@ export function Timeline({
                           <SecondsField
                             label={`Audio fade-out of ${position} in seconds`}
                             value={overlay.fadeOut ?? 0}
-                            max={trimmedLength}
+                            max={outputLength}
                             slider
                             onCommit={(fadeOut) => set({ fadeOut })}
                             unit="s"
@@ -4056,10 +4097,26 @@ export function Timeline({
                       onRemove={() => onRemoveVideoOverlayZoom?.(overlay.id, overlayZoom.id)}
                     />
                   ))}
+                  {/* The overlay's speed segments and pauses (#700), in the
+                      entry's rows. A still overlay carries none, as a still
+                      entry does not. */}
+                  {!isImage && (
+                    <RemapFieldRows
+                      position={position}
+                      effects={overlay.remaps ?? []}
+                      trimmed={trimmedLength}
+                      onUpdate={(id, remap) => onUpdateVideoOverlayRemap?.(overlay.id, id, remap)}
+                      onRemove={(id) => onRemoveVideoOverlayRemap?.(overlay.id, id)}
+                    />
+                  )}
                   {/* + Effect ▾ (#699): the entry's menu, offering what an
                       overlay can carry — Zoom, enabled while the overlay's
                       window has room for one (`defaultZoomFor`, the entry's
-                      rule). */}
+                      rule), and on a video overlay Speed segment and Pause
+                      (#700), under the entry's rules (`defaultSpeedFor`,
+                      `defaultPauseFor`). A still overlay has no time to
+                      remap, so its menu offers Zoom alone, as a still
+                      entry's does. */}
                   {(() => {
                     const addableZoom = defaultZoomFor(overlay.zooms ?? [], trimmedLength)
                     const items: MenuItem[] = [
@@ -4071,6 +4128,27 @@ export function Timeline({
                           addableZoom !== null && onAddVideoOverlayZoom?.(overlay.id, addableZoom),
                       },
                     ]
+                    if (!isImage) {
+                      const overlayRemaps = overlay.remaps ?? []
+                      const addableSpeed = defaultSpeedFor(overlayRemaps, trimmedLength)
+                      const addablePause = defaultPauseFor(overlayRemaps, trimmedLength)
+                      items.push(
+                        {
+                          kind: 'action',
+                          label: 'Speed segment',
+                          disabled: addableSpeed === null,
+                          onSelect: () =>
+                            addableSpeed !== null && onAddVideoOverlayRemap?.(overlay.id, addableSpeed),
+                        },
+                        {
+                          kind: 'action',
+                          label: 'Pause',
+                          disabled: addablePause === null,
+                          onSelect: () =>
+                            addablePause !== null && onAddVideoOverlayRemap?.(overlay.id, addablePause),
+                        },
+                      )
+                    }
                     return (
                       <div className="timeline-entry-effects">
                         <Menu

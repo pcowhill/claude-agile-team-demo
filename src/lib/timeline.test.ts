@@ -32,7 +32,10 @@ import {
   nextMarkerName,
   markerAt,
 } from './timeline'
-import type { RemapEffect, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
+import type { RemapEffect, RemapSpec, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
+import { overlayOutputDuration } from './videoOverlay'
+import { audioTrackPlaybackAt, videoOverlayPlaybackAt } from './playback'
+import { remapPlaybackAt } from './remap'
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
 import { zoomAt } from './zoom'
 import { copyElementSettings } from './settingsClipboard'
@@ -5148,6 +5151,148 @@ describe('zooms on an overlay (#699)', () => {
   it('a zoom-free overlay keeps its reference through normalization', () => {
     const state = normalizedTimelineState([], [], [], [], [], [], [overlay])
     expect(videoOverlaysOf(state)[0]).toBe(overlay)
+  })
+})
+
+describe('speed segments and pauses on an overlay (#700)', () => {
+  // A 4 s trim (source 2 → 6) shown from sequence time 1.
+  const overlay: VideoOverlay = {
+    id: 'o1',
+    clipId: 'c1',
+    name: 'cam.webm',
+    duration: 10,
+    url: 'blob:cam',
+    offset: 1,
+    inPoint: 2,
+    outPoint: 6,
+    x: 0.5,
+    y: 0.5,
+    width: 0.4,
+    height: 0.4,
+  }
+  const withOverlay: TimelineState = { ...emptyTimeline, videoOverlays: [overlay] }
+  const speed: RemapSpec = { kind: 'speed', start: 1, end: 3, factor: 2 }
+  const pause: RemapSpec = { kind: 'pause', at: 3, hold: 1 }
+  const add = (state: TimelineState, id: string, remap: RemapSpec, overlayId = 'o1') =>
+    timelineReducer(state, { type: 'video-overlay-remap-added', overlayId, remap: { ...remap, id } })
+  const on = (state: TimelineState) => videoOverlaysOf(state)[0]
+  const placementOf = ({ offset, inPoint, outPoint, x, y, width, height, fadeIn, fadeOut }: VideoOverlay) => ({
+    offset,
+    inPoint,
+    outPoint,
+    x,
+    y,
+    width,
+    height,
+    fadeIn,
+    fadeOut,
+  })
+
+  it('a 2× segment over 2 s of a 4 s trim shows for 3 s, and a 1 s pause makes it 4 s', () => {
+    const sped = add(withOverlay, 'r1', speed)
+    expect(overlayOutputDuration(on(sped))).toBe(3)
+    const paused = add(sped, 'r2', pause)
+    expect(overlayOutputDuration(on(paused))).toBe(4)
+    expect(overlayOutputDuration(overlay)).toBe(4) // remap-free: the trim itself
+  })
+
+  it("plays the source an entry's remap would, at every instant of the window", () => {
+    const state = add(add(withOverlay, 'r1', speed), 'r2', pause)
+    const remapped = on(state)
+    const effects = [speed, pause]
+    // Inside the segment, 0.5 s into it: 1 + 0.5 × 2 = 2 s into the trim.
+    for (const into of [0, 0.5, 1, 1.25, 1.9, 2, 2.5, 2.99, 3, 3.5]) {
+      const playback = videoOverlayPlaybackAt(remapped, overlay.offset + into)
+      const entry = remapPlaybackAt(4, effects, into)
+      expect(playback.shouldPlay, `at ${into}`).toBe(true)
+      expect(playback.sourceTime, `at ${into}`).toBeCloseTo(overlay.inPoint + entry.sourceTime, 9)
+      expect(playback.rate, `at ${into}`).toBe(entry.rate)
+      expect(playback.holding, `at ${into}`).toBe(entry.hold !== null)
+    }
+    expect(videoOverlayPlaybackAt(remapped, 1 + 1.5)).toMatchObject({ sourceTime: 4, rate: 2, holding: false })
+    // The pause holds source 3 s into the trim (5 s) from output 2 to 3.
+    expect(videoOverlayPlaybackAt(remapped, 1 + 2.5)).toMatchObject({ sourceTime: 5, rate: 0, holding: true })
+    // The window is half-open on its remapped end: 1 + 4.
+    expect(videoOverlayPlaybackAt(remapped, 4.999).shouldPlay).toBe(true)
+    expect(videoOverlayPlaybackAt(remapped, 5)).toMatchObject({ shouldPlay: false, sourceTime: 6 })
+    expect(videoOverlayPlaybackAt(remapped, 0.5)).toMatchObject({ shouldPlay: false, sourceTime: 2 })
+  })
+
+  it('reads exactly as audioTrackPlaybackAt for a remap-free overlay', () => {
+    for (const time of [0, 1, 2.5, 4.99, 5, 9]) {
+      expect(videoOverlayPlaybackAt(overlay, time)).toEqual({
+        ...audioTrackPlaybackAt(overlay, time),
+        rate: 1,
+        holding: false,
+      })
+    }
+  })
+
+  it('updates and removes an effect, and removing the last leaves no key', () => {
+    const added = add(withOverlay, 'r1', speed)
+    const updated = timelineReducer(added, {
+      type: 'video-overlay-remap-updated',
+      overlayId: 'o1',
+      id: 'r1',
+      remap: { ...speed, factor: 0.5 } as RemapSpec,
+    })
+    expect(on(updated).remaps).toEqual([{ ...speed, factor: 0.5, id: 'r1' }])
+    // Re-committing what is stored is a same-reference no-op.
+    expect(
+      timelineReducer(updated, {
+        type: 'video-overlay-remap-updated',
+        overlayId: 'o1',
+        id: 'r1',
+        remap: { ...speed, factor: 0.5 } as RemapSpec,
+      }),
+    ).toBe(updated)
+    const removed = timelineReducer(updated, { type: 'video-overlay-remap-removed', overlayId: 'o1', id: 'r1' })
+    expect('remaps' in on(removed)).toBe(false)
+  })
+
+  it('refuses an image overlay, an invalid spec, a taken id, an unknown overlay, and a segment with no room', () => {
+    const image: VideoOverlay = { ...overlay, id: 'i1', kind: 'image', duration: 5, inPoint: 0, outPoint: 5 }
+    const withImage: TimelineState = { ...emptyTimeline, videoOverlays: [image] }
+    expect(add(withImage, 'r1', speed, 'i1')).toBe(withImage)
+    expect(add(withOverlay, 'r1', { ...speed, factor: 0 } as RemapSpec)).toBe(withOverlay)
+    expect(add(withOverlay, 'r1', speed, 'nope')).toBe(withOverlay)
+    const added = add(withOverlay, 'r1', { kind: 'speed', start: 0, end: 4, factor: 2 })
+    expect(add(added, 'r1', pause)).toBe(added)
+    // The first segment covers the whole trim: a second collapses, so it is vetoed.
+    expect(add(added, 'r2', speed)).toBe(added)
+  })
+
+  it('a retrim re-clamps the effects, and the fades ramp over the remapped window', () => {
+    const slowed = add(withOverlay, 'r1', { kind: 'speed', start: 0, end: 4, factor: 0.5 })
+    // At 0.5× the 4 s trim shows for 8 s: a 6 s fade-in fits it.
+    const faded = timelineReducer(slowed, {
+      type: 'video-overlay-updated',
+      id: 'o1',
+      placement: { ...placementOf(on(slowed)), fadeIn: 6 },
+    })
+    expect(on(faded).fadeIn).toBe(6)
+    // Trimming the out point to 4 s (a 2 s trim) clamps the segment to
+    // [0, 2] — 4 s on screen — and the fade-in with it.
+    const trimmed = timelineReducer(faded, {
+      type: 'video-overlay-updated',
+      id: 'o1',
+      placement: { ...placementOf(on(faded)), outPoint: 4 },
+    })
+    expect(on(trimmed).remaps).toEqual([{ kind: 'speed', start: 0, end: 2, factor: 0.5, id: 'r1' }])
+    expect(on(trimmed).fadeIn).toBe(4)
+  })
+
+  it('a duplicate carries the effects and starts where the original leaves the screen', () => {
+    const state = add(withOverlay, 'r1', speed)
+    const duplicated = timelineReducer(state, {
+      type: 'element-duplicated',
+      kind: 'video-overlay',
+      id: 'o1',
+      newId: 'o2',
+    })
+    const copy = videoOverlaysOf(duplicated)[1]
+    expect(copy.remaps).toEqual(on(state).remaps)
+    expect(copy.offset).toBe(1 + 3)
   })
 })
 

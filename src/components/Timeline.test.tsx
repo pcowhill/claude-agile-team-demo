@@ -4315,7 +4315,7 @@ describe('zooms on an overlay row (#699)', () => {
 
   it('offers + Effect ▾ › Zoom, and adding one shows its fields', async () => {
     await addOverlay(8)
-    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM])
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
     await closeEffectMenu(OVERLAY)
     await chooseEffect(OVERLAY, ADD_ZOOM)
     expect(screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toHaveValue(2)
@@ -4342,6 +4342,61 @@ describe('zooms on an overlay row (#699)', () => {
     await addOverlay(8)
     await userEvent.click(screen.getByRole('button', { name: `Collapse ${OVERLAY}` }))
     expect(queryEffectMenuTrigger(OVERLAY)).toBeNull()
+  })
+})
+
+describe('speed segments and pauses on an overlay row (#700)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const addOverlay = async (seconds: number) => {
+    render(<App />)
+    await importClip('cam.mp4', seconds)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+  }
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+
+  it('adds the default speed segment, shows its fields and the remapped length, and ✕ removes it', async () => {
+    await addOverlay(10)
+    await chooseEffect(OVERLAY, ADD_SPEED)
+    expect(field(`Speed segment 1 start of ${OVERLAY} in seconds`)).toHaveValue(0)
+    expect(field(`Speed segment 1 end of ${OVERLAY} in seconds`)).toHaveValue(2)
+    expect(field(`Speed segment 1 factor of ${OVERLAY}`)).toHaveValue(0.5)
+    // A 2 s span at 0.5× shows for 4 s: 10 − 2 + 4 = 12 s on screen.
+    expect(screen.getByText(/plays 10s of 10s — 12s remapped/)).toBeInTheDocument()
+    // A field edit is one commit: at 2× the span shows for 1 s, so 9 s.
+    const factor = field(`Speed segment 1 factor of ${OVERLAY}`)
+    await userEvent.clear(factor)
+    await userEvent.type(factor, '2{Enter}')
+    expect(screen.getByText(/plays 10s of 10s — 9s remapped/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: `Remove speed segment 1 from ${OVERLAY}` }))
+    expect(screen.queryByRole('spinbutton', { name: `Speed segment 1 factor of ${OVERLAY}` })).toBeNull()
+    expect(screen.queryByText(/remapped/)).toBeNull()
+  })
+
+  it('adds a pause into the free space after a segment, and totals its hold', async () => {
+    await addOverlay(10)
+    await chooseEffect(OVERLAY, ADD_SPEED)
+    await chooseEffect(OVERLAY, ADD_PAUSE)
+    expect(field(`Pause 1 position of ${OVERLAY} in seconds`)).toHaveValue(2)
+    expect(field(`Pause 1 hold of ${OVERLAY} in seconds`)).toHaveValue(1)
+    expect(screen.getByText(/plays 10s of 10s — 13s remapped/)).toBeInTheDocument()
+  })
+
+  it('offers Zoom alone on an image overlay, which has no time to remap', async () => {
+    render(<App />)
+    probeMock.mockResolvedValueOnce({
+      duration: 0,
+      url: 'blob:logo.png',
+      kind: 'image',
+      width: 640,
+      height: 480,
+    })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], 'logo.png', { type: 'image/png' }),
+    )
+    await screen.findByText('logo.png')
+    await chooseClipAction('logo.png', 'Add as overlay')
+    expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM])
   })
 })
 

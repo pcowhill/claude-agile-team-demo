@@ -42,4 +42,4 @@ A still image, a slate or an image overlay shows for {{DEFAULT_STILL_DURATION}} 
 
 ## Time on the timeline
 
-Every element has a place in **sequence time**: seconds from the start of the video. A video clip also has **source time**: seconds into the file it came from. The **in point** and **out point** are source times, and trimming moves them. Speed segments and pauses change how source time maps onto sequence time for one entry. The **playhead** is the instant the preview shows, in sequence time; the export **marks** are two playhead positions that bound a range.
+Every element has a place in **sequence time**: seconds from the start of the video. A video clip also has **source time**: seconds into the file it came from. The **in point** and **out point** are source times, and trimming moves them. Speed segments and pauses change how source time maps onto sequence time for one entry or video overlay. The **playhead** is the instant the preview shows, in sequence time; the export **marks** are two playhead positions that bound a range.
