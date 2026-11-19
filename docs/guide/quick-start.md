@@ -42,7 +42,7 @@ Press **Play** under the preview, or press **Space** anywhere outside a text fie
 
 Click **Export Project…** in the header. The dialog lists the formats this browser can record, shows the output size and frame rate it will use, and offers the whole project or a range. Click **Export**: the file renders in real time — a thirty-second sequence takes about thirty seconds — and downloads when it finishes.
 
-![The Export project dialog: a Format group listing the formats this browser records, a Range group with Whole project selected, an Output group with the size preset, width, height and frame rate, and the Cancel and Export buttons](images/export-dialog.png)
+![The Export project dialog: a Format group listing the formats this browser records, a Range group with Whole project selected, an Output group with the size preset, width, height, frame rate and Size limit, and the Cancel and Export buttons](images/export-dialog.png)
 
 ## 8. Save the project
 

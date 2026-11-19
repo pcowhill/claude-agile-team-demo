@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { markersOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
-import { EXPORT_FRAME_RATE, ExportCanceledError } from '../lib/exportVideo'
+import { EXPORT_FRAME_RATE, ExportCanceledError, exportedDuration } from '../lib/exportVideo'
 import type { ExportRange } from '../lib/exportVideo'
 import { INTRO_CHAPTER_NAME, formatChapterList } from '../lib/chapterList'
 import { chapterFileName, chapterSpans } from '../lib/chapterExport'
@@ -24,6 +24,15 @@ import {
   isValidExportSettings,
 } from '../lib/exportSettings'
 import { FALLBACK_FRAME } from '../lib/frameSize'
+import {
+  BYTES_PER_MB,
+  SIZE_LIMIT_PRESETS_MB,
+  formatBitrate,
+  formatMegabytes,
+  formatSizeAgainstLimit,
+  sizeLimitBitrates,
+  videoBitrateReading,
+} from '../lib/sizeLimit'
 import './dialog.css'
 import './ExportControl.css'
 
@@ -98,6 +107,22 @@ interface ChapterFile {
   /** What the browser was actually told to save it as, not recomputed after. */
   fileName: string
   duration: number
+  /** The file's actual size, stated beside the Size limit when one was set (#726). */
+  bytes: number
+}
+
+/**
+ * The Size limit selector's state (#726): no limit, one of the presets (its
+ * MB as a string, the select's value), or 'custom', which is whatever the
+ * MB field says.
+ */
+type LimitMode = 'none' | 'custom' | `${(typeof SIZE_LIMIT_PRESETS_MB)[number]}`
+
+/** A size-limited single export's file, stated against its limit (#726). */
+interface SizeOutcome {
+  fileName: string
+  bytes: number
+  limitBytes: number
 }
 
 /** Why a per-chapter run stopped before its last chapter (#530). */
@@ -110,6 +135,8 @@ type ChapterStop = { kind: 'cancelled' } | { kind: 'error'; message: string }
 interface ChapterEncodeOptions {
   frame?: { width: number; height: number }
   frameRate?: number
+  /** The Size limit (#726), applied to each chapter file on its own. */
+  sizeLimitBytes?: number
 }
 
 /**
@@ -208,6 +235,17 @@ export function ExportControl({
   const [widthDraft, setWidthDraft] = useState(String(FALLBACK_FRAME.width))
   const [heightDraft, setHeightDraft] = useState(String(FALLBACK_FRAME.height))
   const [frameRateDraft, setFrameRateDraft] = useState(String(EXPORT_FRAME_RATE))
+  // The Size limit (#726): one-export state like the output settings above,
+  // reset to No limit on every open and never remembered.
+  const [limitMode, setLimitMode] = useState<LimitMode>('none')
+  const [customLimitDraft, setCustomLimitDraft] = useState('')
+  /**
+   * The last size-limited single export's file (#726). Its actual size is
+   * the honest half of the feature: a recorder aims at its bitrate and can
+   * overshoot, so the dialog stays open after such an export to say what the
+   * file came to. Cleared when another export starts or the dialog reopens.
+   */
+  const [sizeOutcome, setSizeOutcome] = useState<SizeOutcome | null>(null)
   // The probe resolves after the dialog opens; it must not overwrite fields
   // the user has already put into a preset or custom state.
   const sizeModeRef = useRef<SizeMode>('auto')
@@ -297,6 +335,9 @@ export function ExportControl({
     setWidthDraft(String(FALLBACK_FRAME.width))
     setHeightDraft(String(FALLBACK_FRAME.height))
     setFrameRateDraft(String(EXPORT_FRAME_RATE))
+    setLimitMode('none')
+    setCustomLimitDraft('')
+    setSizeOutcome(null)
     setOpen(true)
   }
 
@@ -360,6 +401,69 @@ export function ExportControl({
     end: totalDuration(timeline),
   })
   const canExportChapters = chapterRunSpans.length > 0
+
+  /**
+   * The Size limit (#726). Offered only for a format whose encoder takes a
+   * bitrate (`sizeLimit` in the registry): MP3 and the GIF plugin have their
+   * own, so the control is hidden for them rather than faked.
+   */
+  const limitOffered = selectedSpec?.sizeLimit === true
+  const customLimitMb = Number(customLimitDraft)
+  /** The limit in bytes; null for No limit, or while Custom's field is not a size. */
+  const limitBytes: number | null =
+    !limitOffered || limitMode === 'none'
+      ? null
+      : limitMode === 'custom'
+        ? customLimitDraft.trim() !== '' && Number.isFinite(customLimitMb) && customLimitMb > 0
+          ? Math.round(customLimitMb * BYTES_PER_MB)
+          : null
+        : Number(limitMode) * BYTES_PER_MB
+  const customLimitInvalid = limitOffered && limitMode === 'custom' && limitBytes === null
+  /**
+   * The length the limit is spread over: what this export covers, by the
+   * pipeline's own rule (`exportedDuration`). Each chapter is its own file,
+   * sized by its own length, so for Each chapter the estimate is the longest
+   * chapter's, the one the limit squeezes hardest. Null while a typed range
+   * is not yet a range.
+   */
+  const limitDuration: number | null =
+    scope === 'chapters'
+      ? Math.max(0, ...chapterRunSpans.map((span) => span.range.end - span.range.start))
+      : scope === 'custom'
+        ? customRange.range === null
+          ? null
+          : exportedDuration(timeline, customRange.range)
+        : exportedDuration(timeline, scope === 'range' ? range : null)
+  /**
+   * What the limit asks the recorder for, by the same function the export
+   * calls. A video export carries sound wherever the browser has Web Audio
+   * (the pipeline captures the mix whenever it can), so that is when the
+   * estimate reserves the sound's share.
+   */
+  const limitResult =
+    limitBytes === null || limitDuration === null || limitDuration <= 0
+      ? null
+      : sizeLimitBitrates({
+          limitBytes,
+          durationSeconds: limitDuration,
+          audio: typeof AudioContext !== 'undefined',
+          audioOnly,
+        })
+  /** The estimate line's reading of the rate (#726), or null when there is none to give. */
+  const limitEstimate = (() => {
+    if (limitResult === null || !limitResult.ok) return null
+    const { videoBitsPerSecond, audioBitsPerSecond } = limitResult.bitrates
+    if (videoBitsPerSecond === undefined) {
+      return {
+        blurry: false,
+        rate: `about ${formatBitrate(audioBitsPerSecond ?? 0)}`,
+        reading: 'for the sound',
+      }
+    }
+    return settingsValid
+      ? videoBitrateReading({ videoBitsPerSecond, ...parsedSettings })
+      : { blurry: false, rate: `about ${formatBitrate(videoBitsPerSecond)}`, reading: 'for the picture' }
+  })()
 
   /**
    * The span Copy chapter list (#488) writes its times against: whatever
@@ -467,15 +571,19 @@ export function ExportControl({
    * same ones — a chapter exported at different settings from its
    * neighbours would be a bug nobody would think to look for.
    */
-  const encodeOptions = () =>
-    audioOnly
+  const encodeOptions = (): ChapterEncodeOptions => ({
+    ...(audioOnly
       ? {}
       : {
           ...(sizeMode === 'auto'
             ? {}
             : { frame: { width: parsedSettings.width, height: parsedSettings.height } }),
           frameRate: parsedSettings.frameRate,
-        }
+        }),
+    // The Size limit (#726) only when one is set: No limit sends nothing, so
+    // the recorder is created exactly as before.
+    ...(limitBytes === null ? {} : { sizeLimitBytes: limitBytes }),
+  })
 
   /**
    * Saves one finished blob under `fileName`, the way the single-file path's
@@ -541,6 +649,7 @@ export function ExportControl({
           name: span.name,
           fileName,
           duration: span.range.end - span.range.start,
+          bytes: blob.size,
         })
       }
       setStatus({ kind: 'idle' })
@@ -569,6 +678,7 @@ export function ExportControl({
     releaseResult()
     setResult(null)
     setChapterRun(null)
+    setSizeOutcome(null)
     await runChapters({
       spans: chapterRunSpans,
       format,
@@ -618,6 +728,7 @@ export function ExportControl({
     }
     releaseResult()
     setResult(null)
+    setSizeOutcome(null)
     // A per-chapter run leaves the dialog open on its completion list, and
     // from there the user can pick another Range and export again (#541).
     // That list describes a run the user is no longer doing, so it goes
@@ -630,6 +741,9 @@ export function ExportControl({
     // Captured now so the finished download keeps this export's name even if
     // the picker changed while a slow export recorded.
     const fileName = exportFileName(format)
+    // Captured with the name, for the same reason: the outcome states the
+    // limit this export was run under.
+    const options = encodeOptions()
     setStatus({ kind: 'exporting', fraction: 0 })
     try {
       const blob = await doExport(timeline, {
@@ -637,8 +751,9 @@ export function ExportControl({
         // Auto sends no frame override — the export derives the frame from
         // the sources exactly as before (#179); anything else exports at
         // what the fields say. An audio-only format (#245) has no frame or
-        // frame rate to send at all. Shared with the per-chapter run (#529).
-        ...encodeOptions(),
+        // frame rate to send at all. Shared with the per-chapter run (#529),
+        // as is the Size limit (#726).
+        ...options,
         // The marked range (#385) or the typed one (#400), when this export
         // is scoped to either. Read at the click: the dialog is modal, so the
         // marks cannot change under an open dialog, and the pipeline
@@ -651,7 +766,10 @@ export function ExportControl({
       const url = URL.createObjectURL(blob)
       resultUrlRef.current = url
       setStatus({ kind: 'idle' })
-      setOpen(false)
+      // A size-limited export keeps the dialog open to state what the file
+      // came to (#726); without a limit it closes on the download, as ever.
+      if (options.sizeLimitBytes === undefined) setOpen(false)
+      else setSizeOutcome({ fileName, bytes: blob.size, limitBytes: options.sizeLimitBytes })
       setResult({ url, fileName })
     } catch (error) {
       if (error instanceof ExportCanceledError) {
@@ -888,91 +1006,161 @@ export function ExportControl({
                 </>
               )}
             </fieldset>
-            {!audioOnly && (
+            {(!audioOnly || limitOffered) && (
             <fieldset className="export-settings">
               <legend>Output</legend>
-              <label className="export-settings-row">
-                Size
-                <select
-                  aria-label="Export size preset"
-                  disabled={exporting}
-                  value={sizeMode}
-                  onChange={(event) => selectSizeMode(event.target.value as SizeMode)}
-                >
-                  <option value="auto">Auto (match sources)</option>
-                  {EXPORT_SIZE_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-              <div className="export-settings-row">
-                <label>
-                  Width
-                  <span className="export-unit-box">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      aria-label="Export width in pixels"
-                      min={MIN_EXPORT_DIMENSION}
-                      max={MAX_EXPORT_DIMENSION}
-                      step={1}
+              {!audioOnly && (
+                <>
+                  <label className="export-settings-row">
+                    Size
+                    <select
+                      aria-label="Export size preset"
                       disabled={exporting}
-                      value={widthDraft}
-                      onChange={(event) => editField(setWidthDraft)(event.target.value)}
-                    />
-                    <span className="export-unit" aria-hidden="true">
-                      px
-                    </span>
-                  </span>
-                </label>
-                <label>
-                  Height
-                  <span className="export-unit-box">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      aria-label="Export height in pixels"
-                      min={MIN_EXPORT_DIMENSION}
-                      max={MAX_EXPORT_DIMENSION}
-                      step={1}
-                      disabled={exporting}
-                      value={heightDraft}
-                      onChange={(event) => editField(setHeightDraft)(event.target.value)}
-                    />
-                    <span className="export-unit" aria-hidden="true">
-                      px
-                    </span>
-                  </span>
-                </label>
-                <label>
-                  Frame rate
-                  <span className="export-unit-box">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      aria-label="Export frame rate in frames per second"
-                      min={1}
-                      max={MAX_EXPORT_FRAME_RATE}
-                      step={1}
-                      disabled={exporting}
-                      value={frameRateDraft}
-                      onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
-                    />
-                    <span className="export-unit" aria-hidden="true">
-                      fps
-                    </span>
-                  </span>
-                </label>
-              </div>
-              {!settingsValid && (
-                <p className="export-error" role="alert">
-                  Width and height must be whole numbers between {MIN_EXPORT_DIMENSION} and{' '}
-                  {MAX_EXPORT_DIMENSION}, and the frame rate between 1 and{' '}
-                  {MAX_EXPORT_FRAME_RATE}.
-                </p>
+                      value={sizeMode}
+                      onChange={(event) => selectSizeMode(event.target.value as SizeMode)}
+                    >
+                      <option value="auto">Auto (match sources)</option>
+                      {EXPORT_SIZE_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <div className="export-settings-row">
+                    <label>
+                      Width
+                      <span className="export-unit-box">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          aria-label="Export width in pixels"
+                          min={MIN_EXPORT_DIMENSION}
+                          max={MAX_EXPORT_DIMENSION}
+                          step={1}
+                          disabled={exporting}
+                          value={widthDraft}
+                          onChange={(event) => editField(setWidthDraft)(event.target.value)}
+                        />
+                        <span className="export-unit" aria-hidden="true">
+                          px
+                        </span>
+                      </span>
+                    </label>
+                    <label>
+                      Height
+                      <span className="export-unit-box">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          aria-label="Export height in pixels"
+                          min={MIN_EXPORT_DIMENSION}
+                          max={MAX_EXPORT_DIMENSION}
+                          step={1}
+                          disabled={exporting}
+                          value={heightDraft}
+                          onChange={(event) => editField(setHeightDraft)(event.target.value)}
+                        />
+                        <span className="export-unit" aria-hidden="true">
+                          px
+                        </span>
+                      </span>
+                    </label>
+                    <label>
+                      Frame rate
+                      <span className="export-unit-box">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          aria-label="Export frame rate in frames per second"
+                          min={1}
+                          max={MAX_EXPORT_FRAME_RATE}
+                          step={1}
+                          disabled={exporting}
+                          value={frameRateDraft}
+                          onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
+                        />
+                        <span className="export-unit" aria-hidden="true">
+                          fps
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                  {!settingsValid && (
+                    <p className="export-error" role="alert">
+                      Width and height must be whole numbers between {MIN_EXPORT_DIMENSION} and{' '}
+                      {MAX_EXPORT_DIMENSION}, and the frame rate between 1 and{' '}
+                      {MAX_EXPORT_FRAME_RATE}.
+                    </p>
+                  )}
+                </>
+              )}
+              {/* The Size limit (#726): a file size the export aims under,
+                  for the formats whose encoder takes a bitrate. */}
+              {limitOffered && (
+                <>
+                  <div className="export-settings-row export-limit-row">
+                    <label>
+                      Size limit
+                      <select
+                        aria-label="Export size limit"
+                        disabled={exporting}
+                        value={limitMode}
+                        onChange={(event) => setLimitMode(event.target.value as LimitMode)}
+                      >
+                        <option value="none">No limit</option>
+                        {SIZE_LIMIT_PRESETS_MB.map((mb) => (
+                          <option key={mb} value={String(mb)}>
+                            {mb} MB
+                          </option>
+                        ))}
+                        <option value="custom">Custom…</option>
+                      </select>
+                    </label>
+                    {limitMode === 'custom' && (
+                      <span className="export-unit-box">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          aria-label="Custom size limit in MB"
+                          min={0.1}
+                          step="any"
+                          disabled={exporting}
+                          value={customLimitDraft}
+                          onChange={(event) => setCustomLimitDraft(event.target.value)}
+                        />
+                        <span className="export-unit" aria-hidden="true">
+                          MB
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {customLimitInvalid && (
+                    <p className="export-error" role="alert">
+                      Enter the size limit as a number of MB above 0.
+                    </p>
+                  )}
+                  {limitResult !== null && !limitResult.ok && (
+                    <p className="export-error" role="alert" data-testid="export-limit-error">
+                      {scope === 'chapters' ? 'For the longest chapter: ' : ''}
+                      {limitResult.error}
+                    </p>
+                  )}
+                  {limitEstimate !== null && (
+                    <p
+                      className={`export-format-note export-limit-estimate${limitEstimate.blurry ? ' export-limit-blurry' : ''}`}
+                      data-testid="export-limit-estimate"
+                    >
+                      {scope === 'chapters' ? 'Each chapter file aims under the limit; the longest at ' : 'Aims at '}
+                      <span className="export-limit-rate">{limitEstimate.rate}</span>
+                      {limitEstimate.reading.startsWith('for ') ? ' ' : ': '}
+                      {limitEstimate.reading}.{' '}
+                      The limit is aimed at, not guaranteed: the browser’s recorder varies its rate,
+                      so a file can come out a little over.
+                    </p>
+                  )}
+                </>
               )}
             </fieldset>
             )}
@@ -1010,6 +1198,25 @@ export function ExportControl({
             {status.kind === 'error' && (
               <p className="export-error" role="alert">
                 {status.message}
+              </p>
+            )}
+            {/* What a size-limited file came to (#726), stated plainly when
+                it is over: the limit is aimed at, and this is the result. */}
+            {sizeOutcome !== null && (
+              <p
+                className={sizeOutcome.bytes > sizeOutcome.limitBytes ? 'export-error' : 'export-size-result'}
+                role="status"
+                data-testid="export-size-result"
+              >
+                {/* Each size is one figure: "1.1" and "MB" on two lines read
+                    as two things. */}
+                Saved {sizeOutcome.fileName}:{' '}
+                <span className="export-size-figure">
+                  {formatSizeAgainstLimit(sizeOutcome.bytes, sizeOutcome.limitBytes)}
+                </span>{' '}
+                {sizeOutcome.bytes > sizeOutcome.limitBytes ? '— over the ' : '(limit '}
+                <span className="export-size-figure">{formatMegabytes(sizeOutcome.limitBytes)}</span>
+                {sizeOutcome.bytes > sizeOutcome.limitBytes ? ' limit.' : ').'}
               </p>
             )}
             {/* What the run produced (#529). Not a flourish — it is the
@@ -1051,6 +1258,20 @@ export function ExportControl({
                           {formatDuration(file.duration)}
                         </span>
                         <span className="export-chapter-result-file">{file.fileName}</span>
+                        {chapterRun.encode.sizeLimitBytes !== undefined && (
+                          <span
+                            className={
+                              file.bytes > chapterRun.encode.sizeLimitBytes
+                                ? 'export-chapter-result-size export-chapter-result-over'
+                                : 'export-chapter-result-size'
+                            }
+                          >
+                            {formatSizeAgainstLimit(file.bytes, chapterRun.encode.sizeLimitBytes)}
+                            {file.bytes > chapterRun.encode.sizeLimitBytes
+                              ? `, over the ${formatMegabytes(chapterRun.encode.sizeLimitBytes)} limit`
+                              : ''}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -1093,6 +1314,8 @@ export function ExportControl({
                 disabled={
                   exporting ||
                   (!audioOnly && !settingsValid) ||
+                  customLimitInvalid ||
+                  (limitResult !== null && !limitResult.ok) ||
                   (scope === 'custom' && customRange.range === null) ||
                   (scope === 'chapters' && !canExportChapters)
                 }

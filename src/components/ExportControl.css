@@ -262,3 +262,35 @@
   /* The one string a user has no control over the length of. */
   overflow-wrap: anywhere;
 }
+
+/* The Size limit's estimate (#726). The rate is one phrase — "about 1.4
+   Mbit/s" read as "about 1.4" and "Mbit/s" on two lines is two numbers —
+   so it never wraps; the sentence around it does. */
+.export-limit-rate {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.export-limit-blurry .export-limit-rate {
+  color: #f0b45a;
+}
+
+.export-size-figure {
+  white-space: nowrap;
+}
+
+.export-size-result {
+  margin: 0.5rem 0 0;
+  color: #8fd18f;
+  font-size: 0.9rem;
+}
+
+.export-chapter-result-size {
+  grid-column: 1 / -1;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.export-chapter-result-over {
+  color: #ff8a80;
+}

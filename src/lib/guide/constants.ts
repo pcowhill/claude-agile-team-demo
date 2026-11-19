@@ -34,6 +34,7 @@ import { FREEZE_STILL_DURATION } from '../freezeFrame'
 import { EXPORT_SIZE_PRESETS, MAX_EXPORT_DIMENSION, MAX_EXPORT_FRAME_RATE, MIN_EXPORT_DIMENSION } from '../exportSettings'
 import { exportFormats } from '../exportFormats'
 import { MP3_KBPS } from '../mp3Bitrate'
+import { BLUR_BITS_PER_PIXEL, RESERVED_AUDIO_BITRATE, SIZE_LIMIT_MARGIN } from '../sizeLimit'
 import { AUDIO_START_TIMEOUT_MS, EXPORT_FRAME_RATE } from '../exportVideo'
 import { DEFAULT_DUCK_LEVEL, DUCK_RAMP_SECONDS } from '../gain'
 import { HISTORY_LIMIT } from '../history'
@@ -155,6 +156,9 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     GIF_FPS: String(GIF_FRAME_RATE),
     GIF_MAX_PX: String(GIF_MAX_DIMENSION),
     MP3_KBPS: String(MP3_KBPS),
+    SIZE_LIMIT_MARGIN_PERCENT: percent(SIZE_LIMIT_MARGIN),
+    RESERVED_AUDIO_KBPS: String(RESERVED_AUDIO_BITRATE / 1000),
+    BLUR_BITS_PER_PIXEL: String(BLUR_BITS_PER_PIXEL),
     AUDIO_START_TIMEOUT_SECONDS: String(AUDIO_START_TIMEOUT_MS / 1000),
     DEFAULT_STEP_SECONDS: String(STEP_SECONDS),
     DEFAULT_LARGE_STEP_SECONDS: String(LARGE_STEP_SECONDS),

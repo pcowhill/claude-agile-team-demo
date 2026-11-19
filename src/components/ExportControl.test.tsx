@@ -7,6 +7,7 @@ import { ExportCanceledError } from '../lib/exportVideo'
 import { exportFormats } from '../lib/exportFormats'
 import { FALLBACK_FRAME, presetFrame } from '../lib/frameSize'
 import { slateEntry } from '../lib/timeline'
+import { activate as activateGif } from '../plugins/gif'
 import type { TimelineState } from '../lib/timeline'
 
 const timeline: TimelineState = {
@@ -1286,6 +1287,200 @@ describe('Each chapter export (#529)', () => {
       <ExportControl timeline={marked} doExport={doExport} isTypeSupported={recordsEverything} />,
     )
     expect(screen.getByRole('button', { name: 'Resume from chapter 2' })).toBeInTheDocument()
+  })
+})
+
+describe('Size limit (#726)', () => {
+  const withWebAudio = () => vi.stubGlobal('AudioContext', class {})
+  const limitSelect = () => screen.getByRole('combobox', { name: 'Export size limit' })
+  /** A 100 s timeline, so the expected rates are easy to work by hand. */
+  const long: TimelineState = {
+    entries: [{ ...timeline.entries[0], duration: 100, outPoint: 100 }],
+  }
+  const captureOptions = () => {
+    const calls: Parameters<DoExport>[1][] = []
+    const doExport: DoExport = (_timeline, options) => {
+      calls.push(options)
+      return Promise.resolve(new Blob(['x'.repeat(1000)]))
+    }
+    return { calls, doExport }
+  }
+
+  it('sends no limit with No limit, the default, so the recorder is created as before', async () => {
+    const { calls, doExport } = captureOptions()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(limitSelect()).toHaveValue('none')
+    expect(screen.queryByTestId('export-limit-estimate')).not.toBeInTheDocument()
+    await user.click(exportButton())
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]).not.toHaveProperty('sizeLimitBytes')
+    // And the dialog closes on the download, as an unlimited export always has.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('offers 10, 25 and 100 MB and Custom…, and sends the chosen limit in bytes', async () => {
+    const { calls, doExport } = captureOptions()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    expect(within(limitSelect()).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'No limit',
+      '10 MB',
+      '25 MB',
+      '100 MB',
+      'Custom…',
+    ])
+    await user.selectOptions(limitSelect(), '25 MB')
+    await user.click(exportButton())
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0].sizeLimitBytes).toBe(25_000_000)
+  })
+
+  it('takes a Custom limit in MB, and will not export while the field is not a size', async () => {
+    const { calls, doExport } = captureOptions()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), 'Custom…')
+    const field = screen.getByRole('spinbutton', { name: 'Custom size limit in MB' })
+    expect(exportButton()).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter the size limit as a number of MB above 0.')
+    await user.type(field, '7.5')
+    expect(exportButton()).toBeEnabled()
+    await user.click(exportButton())
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0].sizeLimitBytes).toBe(7_500_000)
+  })
+
+  it('states the rate the limit implies and reads it at the output size, before Export', async () => {
+    // 25 MB over 100 s with the 10 % margin is 1.8 Mbit/s; with Web Audio
+    // the sound keeps 128 kbit/s, leaving 1,672,000 bit/s: "1.7 Mbit/s".
+    withWebAudio()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Export size preset' }),
+      'HD 1280×720',
+    )
+    await user.selectOptions(limitSelect(), '25 MB')
+    const estimate = screen.getByTestId('export-limit-estimate')
+    expect(estimate).toHaveTextContent(
+      'Aims at about 1.7 Mbit/s: fine for screen text at 1280×720. The limit is aimed at, not guaranteed',
+    )
+    // 10 MB is 720,000 bit/s in all, 592 kbit/s for the picture: under
+    // 0.03 bits per pixel per frame at 1280×720 and 30 fps.
+    await user.selectOptions(limitSelect(), '10 MB')
+    expect(screen.getByTestId('export-limit-estimate')).toHaveTextContent(
+      'Aims at about 592 kbit/s: text will be blurry at 1280×720; consider a larger limit or a smaller output size.',
+    )
+    // The dialog never changes the output size on its own.
+    expect(screen.getByRole('spinbutton', { name: 'Export width in pixels' })).toHaveValue(1280)
+  })
+
+  it('is sized by the range being exported, not the whole project', async () => {
+    const { calls, doExport } = captureOptions()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    // Over 100 s, 10 MB without sound is 720 kbit/s; over a 50 s range, twice that.
+    expect(screen.getByTestId('export-limit-estimate')).toHaveTextContent('about 720 kbit/s')
+    const start = screen.getByRole('textbox', { name: 'Custom range start' })
+    await user.clear(start)
+    await user.type(start, '50')
+    expect(screen.getByTestId('export-limit-estimate')).toHaveTextContent('about 1.4 Mbit/s')
+    await user.click(exportButton())
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]).toMatchObject({ sizeLimitBytes: 10_000_000, range: { start: 50, end: 100 } })
+  })
+
+  it('refuses a limit too small to leave the picture any bitrate, with the reason', async () => {
+    withWebAudio()
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), 'Custom…')
+    await user.type(screen.getByRole('spinbutton', { name: 'Custom size limit in MB' }), '1')
+    expect(screen.getByTestId('export-limit-error')).toHaveTextContent(
+      'A 1 MB limit leaves no room for the picture over 1:40 once the sound has its 128 kbit/s.',
+    )
+    expect(exportButton()).toBeDisabled()
+  })
+
+  it('is hidden for MP3 and GIF, which do not encode through the recorder, and not sent', async () => {
+    withWebAudio()
+    // The GIF plugin's support probe is a 2D canvas, which jsdom lacks.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      {} as CanvasRenderingContext2D,
+    )
+    const deactivate = activateGif()
+    try {
+      const { calls, doExport } = captureOptions()
+      const user = userEvent.setup()
+      render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={() => true} />)
+      await user.click(openButton())
+      await user.selectOptions(limitSelect(), '25 MB')
+      await user.click(screen.getByRole('radio', { name: 'Audio only (MP3)' }))
+      expect(screen.queryByRole('combobox', { name: 'Export size limit' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('radio', { name: 'Animated GIF' }))
+      expect(screen.queryByRole('combobox', { name: 'Export size limit' })).not.toBeInTheDocument()
+      await user.click(exportButton())
+      await waitFor(() => expect(calls).toHaveLength(1))
+      expect(calls[0].format).toBe('gif')
+      expect(calls[0]).not.toHaveProperty('sizeLimitBytes')
+      // Audio-only WebM records through the recorder, so it keeps the limit.
+      await user.click(openButton())
+      await user.click(screen.getByRole('radio', { name: 'Audio only (WebM/Opus)' }))
+      expect(limitSelect()).toBeInTheDocument()
+      await user.selectOptions(limitSelect(), '10 MB')
+      expect(screen.getByTestId('export-limit-estimate')).toHaveTextContent(
+        'Aims at about 510 kbit/s for the sound.',
+      )
+    } finally {
+      deactivate()
+    }
+  })
+
+  it('stays open after a limited export to state the file’s size against the limit', async () => {
+    const doExport: DoExport = () => Promise.resolve(new Blob([new Uint8Array(1_234_567)]))
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent(
+        'Saved sequence-export.webm: 1.2 MB (limit 10 MB).',
+      ),
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('says plainly when the file came out over the limit', async () => {
+    const doExport: DoExport = () => Promise.resolve(new Blob([new Uint8Array(10_040_000)]))
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent(
+        'Saved sequence-export.webm: 10.04 MB — over the 10 MB limit.',
+      ),
+    )
+  })
+
+  it('resets to No limit when the dialog opens again', async () => {
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '25 MB')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(openButton())
+    expect(limitSelect()).toHaveValue('none')
   })
 })
 
