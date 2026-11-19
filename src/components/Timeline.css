@@ -16,6 +16,36 @@
   margin: 0;
 }
 
+/* Match levels (#691): one word pair on one line, so the header wraps
+   between controls rather than inside this one. */
+.timeline-match-levels {
+  white-space: nowrap;
+}
+
+/* Match levels' report: a status line under the header (#691), not a
+   dialog (#395). It wraps as prose — it names each element held back —
+   and its ✕ stays at the line's end. */
+.timeline-match-report {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.timeline-match-report > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-match-report-dismiss {
+  flex: none;
+}
+
 .timeline-total {
   color: #aaa;
   font-size: 0.85rem;

@@ -1,6 +1,6 @@
 # Settings
 
-Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
+Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [Match levels target](#match-levels-target), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
 
 ## Opening Settings
 
@@ -62,6 +62,16 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **Related.** [The countdown](recording.md#the-countdown) · [The recording dialog](recording.md#the-recording-dialog)
 
+## Match levels target
+
+**Where to find it.** Settings › **Match levels target**: {{MATCH_TARGET_CHOICES}}.
+
+**What it does.** Sets the level [Match levels](audio.md#match-levels) brings every element with sound to.
+
+**Details.** {{MATCH_TARGET_DEFAULT}} by default — the level a clear voice recording usually sits near, leaving room above it for the peaks of speech. The level is the average level of the sound, ignoring silences, in dB below full scale; a higher number (nearer 0) is louder. A louder element is turned down to the target; a quieter one goes to Volume 1 and is reported as below it. A target well above your recordings therefore changes little, and a lower one brings them all down to match the quietest. Changing the target changes nothing until you press Match levels again. Like every setting, it is a preference for this browser; the Volumes it produces are part of the project.
+
+**Related.** [Match levels](audio.md#match-levels) · [Volume and mute](audio.md#volume-and-mute)
+
 ## Default export format
 
 **Where to find it.** Settings › **Default export format**.
@@ -78,6 +88,6 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **What it does.** Says what settings are, and are not.
 
-**Details.** Settings describe how you like to work — the arrow steps, a new still's length, the restore offer, the export format, the visual editors, the recording countdown — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
+**Details.** Settings describe how you like to work — the arrow steps, a new still's length, the restore offer, the export format, the visual editors, the recording countdown, the Match levels target — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
 
 **Related.** [What is saved where](concepts.md#what-is-saved-where) · [What is never in a project file](projects.md#what-is-never-in-a-project-file)

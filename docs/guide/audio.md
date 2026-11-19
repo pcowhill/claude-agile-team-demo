@@ -1,6 +1,6 @@
 # Audio
 
-Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
+Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), [matching every source's level](#match-levels) in one step, one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
 
 ## Audio tracks
 
@@ -18,9 +18,27 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **What it does.** Sets how loud each sound source plays, from silent to full.
 
-**Details.** **Volume** is a fraction from 0 to 1 on audio tracks, video entries and video overlays. Video entries and video overlays also have **Mute**, which silences them whatever the volume says — mute wins over everything. An audio track has no Mute; set its volume to 0 or take it off the timeline. A still image, a slate and an image overlay have no sound and no audio fields. Each commit is one undo step, and the slider beside the field commits once on release. Through a transition, the outgoing entry's sound fades out as the incoming entry's fades in, whatever the transition's picture does.
+**Details.** **Volume** is a fraction from 0 to 1 on audio tracks, video entries and video overlays. Video entries and video overlays also have **Mute**, which silences them whatever the volume says — mute wins over everything. An audio track has no Mute; set its volume to 0 or take it off the timeline. A still image, a slate and an image overlay have no sound and no audio fields. Each commit is one undo step, and the slider beside the field commits once on release. [Match levels](#match-levels) sets every Volume at once, as one undo step for all of them. Through a transition, the outgoing entry's sound fades out as the incoming entry's fades in, whatever the transition's picture does.
 
-**Related.** [The slider beside each number](editing-video.md#the-slider-beside-each-number) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings)
+**Related.** [The slider beside each number](editing-video.md#the-slider-beside-each-number) · [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) · [Match levels](#match-levels)
+
+## Match levels
+
+**Where to find it.** **Match levels** in the [timeline's header](timeline.md#the-header); the level it aims for is Settings › [**Match levels target**](settings.md#match-levels-target).
+
+**What it does.** Measures how loud every sound source on the timeline is, and sets each one's **Volume** so they all play at about the same level — for recordings made on different days, at different distances from the microphone.
+
+**Details.**
+
+- **What it covers.** Every video entry, video overlay and audio track, in every section, whether or not the Audio section is showing. A muted entry or overlay is left alone: you silenced it on purpose. A still image, a slate and an image overlay have no sound and are skipped.
+- **What it measures** is the average level of the sound, **ignoring silences**: the pauses between sentences do not count as the speaker being quiet. Precisely, it is a level in dB of the sound's average power, taken in tenth-of-a-second blocks; blocks of near-silence are left out, and so are blocks more than {{MATCH_RELATIVE_GATE_DB}} dB below the rest, which is where room tone between sentences sits. Each element is measured on its **trim** — the part that plays — not on the whole clip, so a take trimmed to its quiet half is measured on that half.
+- **What it sets.** Each element's Volume becomes the one that brings it to the target, worked out from the source itself, so what its Volume was before makes no difference. The new values are ordinary Volume fields: you can see them, change them, and **one Undo** puts every one of them back.
+- **Only down, for now.** Volume stops at 1, so Match levels can turn a loud element down but cannot raise a quiet one above full volume. An element quieter than the target is set to 1 and named in the report as *below the target even at Volume 1*.
+- **Never into clipping.** An element is never set to a Volume at which its loudest moment would pass full scale; one that would is stopped short and named as *stopped short so its peaks do not clip*.
+- **The report** appears under the timeline's header: how many elements were set to the target, and each one held back, by name, with the reason. An element whose sound could not be read — a video recorded with no sound, or a file this browser cannot decode — is named and left as it was, never guessed at. **✕** dismisses the report; the next Match levels replaces it.
+- **Decoded once.** Each clip is read once, together with its [waveform](#waveforms); pressing Match levels again, after a trim or a change of target, measures from what was already read.
+
+**Related.** [Volume and mute](#volume-and-mute) · [Settings › Match levels target](settings.md#match-levels-target) · [The header](timeline.md#the-header)
 
 ## Fade-in and fade-out
 

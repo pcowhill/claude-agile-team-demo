@@ -31,6 +31,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **◀ frame** — the Trim window; moves the playhead one frame back. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was, Escape included. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **✕ (close the Trim window)** — the top-right of the Trim window; closes it without applying, as Cancel and Esc do. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **✕ (dismiss the Match levels report)** — the line under the timeline header after Match levels. [Audio › Match levels](audio.md#match-levels)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
 - **✕ Marks** — the preview transport, once a mark is set; clears both. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 
@@ -187,6 +188,8 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **M** — adds a chapter marker at the playhead. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Marked range** — the export dialog's Range group, once the preview's marks form a range. [Export › The Range line](export.md#the-range-line)
+- **Match levels** — the timeline header; sets every element's Volume toward one level, as one undo step. [Audio › Match levels](audio.md#match-levels)
+- **Match levels target** — Settings; the level Match levels aims for. [Settings › Match levels target](settings.md#match-levels-target)
 - **Microphone** — Record ▾. [Recording › Microphone](recording.md#microphone)
 - **Move down** — a sequence entry's ⋯ menu; the same as the row's **↓**. [Timeline › The ⋯ menu](timeline.md#the-menu)
 - **Move to playhead** — a chapter marker's menu; moves the marker to where the playhead stands. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)

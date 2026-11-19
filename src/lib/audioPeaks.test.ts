@@ -3,9 +3,11 @@ import {
   PEAK_COUNT,
   computePeaks,
   peakWindow,
+  levelsForClip,
   peaksForClip,
   waveformPath,
 } from './audioPeaks'
+import type { ClipAudio } from './audioPeaks'
 
 describe('computePeaks (#191)', () => {
   // Float32Array storage rounds literals like 0.3, so expectations compare
@@ -89,9 +91,14 @@ describe('waveformPath (#191)', () => {
 })
 
 describe('peaksForClip cache (#191)', () => {
+  const audio = (peaks: Float32Array): ClipAudio => ({
+    peaks,
+    levels: { blockSeconds: 0.1, meanSquares: new Float32Array(0), peaks: new Float32Array(0) },
+  })
+
   it('decodes a clip once and shares the result across callers', async () => {
     const peaks = new Float32Array([0.5])
-    const decode = vi.fn(() => Promise.resolve<Float32Array | null>(peaks))
+    const decode = vi.fn(() => Promise.resolve<ClipAudio | null>(audio(peaks)))
     const first = await peaksForClip('blob:cache-hit', decode)
     const second = await peaksForClip('blob:cache-hit', decode)
     expect(first).toBe(peaks)
@@ -100,7 +107,7 @@ describe('peaksForClip cache (#191)', () => {
   })
 
   it('caches a failed decode as null instead of retrying forever', async () => {
-    const decode = vi.fn(() => Promise.resolve<Float32Array | null>(null))
+    const decode = vi.fn(() => Promise.resolve<ClipAudio | null>(null))
     expect(await peaksForClip('blob:undecodable', decode)).toBeNull()
     expect(await peaksForClip('blob:undecodable', decode)).toBeNull()
     expect(decode).toHaveBeenCalledTimes(1)
@@ -108,11 +115,21 @@ describe('peaksForClip cache (#191)', () => {
 
   it('keys strictly by URL — different clips do not share peaks', async () => {
     const decode = vi.fn((url: string) =>
-      Promise.resolve<Float32Array | null>(new Float32Array([url.length])),
+      Promise.resolve<ClipAudio | null>(audio(new Float32Array([url.length]))),
     )
     const a = await peaksForClip('blob:clip-a', decode)
     const b = await peaksForClip('blob:clip-b!', decode)
     expect(decode).toHaveBeenCalledTimes(2)
     expect(a).not.toEqual(b)
+  })
+
+  it('shares one decode between the waveform and Match levels (#691)', async () => {
+    const decoded = audio(new Float32Array([0.25]))
+    const decode = vi.fn(() => Promise.resolve<ClipAudio | null>(decoded))
+    expect(await peaksForClip('blob:shared', decode)).toBe(decoded.peaks)
+    expect(await levelsForClip('blob:shared', decode)).toBe(decoded.levels)
+    // A second Match levels on the same project reads the cache too.
+    expect(await levelsForClip('blob:shared', decode)).toBe(decoded.levels)
+    expect(decode).toHaveBeenCalledTimes(1)
   })
 })

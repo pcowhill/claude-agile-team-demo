@@ -5,6 +5,7 @@ import App from '../App'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
+import { computeLevels } from '../lib/audioLevels'
 import type { SavePort } from '../lib/saveProject'
 import { chooseClipAction, clipMenuItem, queryClipMenuItem } from '../test/clipMenu'
 import {
@@ -59,11 +60,16 @@ vi.mock('../lib/probeMedia', () => ({
 // jsdom has no Web Audio or blob fetch, so the peaks decode is mocked
 // (resolved peaks make the waveform render, #191/#230); everything else in
 // the module — windowing, path building — is the real code.
+// Match levels (#691) reads level blocks from the same decode: a test sets
+// a clip's blocks here by its object URL; an unset clip reads as
+// undecodable, which is what the real decode gives in jsdom.
+const testLevels = vi.hoisted(() => new Map<string, unknown>())
 vi.mock('../lib/audioPeaks', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/audioPeaks')>()
   return {
     ...actual,
     peaksForClip: vi.fn(() => Promise.resolve(new Float32Array([0.2, 0.8, 0.5, 0.3]))),
+    levelsForClip: vi.fn((url: string) => Promise.resolve(testLevels.get(url) ?? null)),
   }
 })
 
@@ -4440,6 +4446,72 @@ describe('speed segments and pauses on an overlay row (#700)', () => {
     await screen.findByText('logo.png')
     await chooseClipAction('logo.png', 'Add as overlay')
     expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM])
+  })
+})
+
+describe('Match levels (#691)', () => {
+  /** Level blocks for a 10 s, 440 Hz sine at `amplitude`, as the decode would make them. */
+  const toneLevels = (amplitude: number) => {
+    const rate = 8000
+    const samples = new Float32Array(10 * rate)
+    for (let index = 0; index < samples.length; index++) {
+      samples[index] = amplitude * Math.sin((2 * Math.PI * 440 * index) / rate)
+    }
+    return computeLevels([samples], rate)
+  }
+  const volume = (position: string) =>
+    Number((screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` }) as HTMLInputElement).value)
+  const ENTRY = 'a.mp4 at position 1'
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const TRACK = 'audio track music.mp3 at position 1'
+
+  const threeElements = async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await importClip('cam.mp4', 10)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    await importAudioClip('music.mp3', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+  }
+
+  it('sets three Volumes from their measured levels, reports it, and one Undo restores all three', async () => {
+    // −13, −19 and −23 dB: the default −20 dB target lowers the first two
+    // and leaves the third below it at Volume 1.
+    testLevels.set('blob:a.mp4', toneLevels(0.316))
+    testLevels.set('blob:cam.mp4', toneLevels(0.158))
+    testLevels.set('blob:music.mp3', toneLevels(0.1))
+    await threeElements()
+    expect([volume(ENTRY), volume(OVERLAY), volume(TRACK)]).toEqual([1, 1, 1])
+    await userEvent.click(screen.getByRole('button', { name: 'Match levels' }))
+    const report = await screen.findByRole('status', { name: 'Match levels report' })
+    expect(report).toHaveTextContent('Match levels set 2 of 3 elements to the target.')
+    expect(report).toHaveTextContent('music.mp3 (audio, position 1): below the target even at Volume 1')
+    // −13 → −20 is 10^(−7/20) ≈ 0.45; −19 → −20 is ≈ 0.89 (the field shows two decimals).
+    expect(volume(ENTRY)).toBeCloseTo(0.45, 1)
+    expect(volume(OVERLAY)).toBeCloseTo(0.89, 1)
+    expect(volume(TRACK)).toBe(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect([volume(ENTRY), volume(OVERLAY), volume(TRACK)]).toEqual([1, 1, 1])
+    // The report is dismissed with its ✕.
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss the Match levels report' }))
+    expect(screen.queryByRole('status', { name: 'Match levels report' })).toBeNull()
+  })
+
+  it('leaves a muted entry alone, and names an element whose sound could not be read', async () => {
+    testLevels.set('blob:a.mp4', toneLevels(0.316))
+    testLevels.delete('blob:cam.mp4')
+    testLevels.set('blob:music.mp3', toneLevels(0.316))
+    await threeElements()
+    await userEvent.click(screen.getByRole('checkbox', { name: `Mute ${ENTRY}` }))
+    await userEvent.click(screen.getByRole('button', { name: 'Match levels' }))
+    const report = await screen.findByRole('status', { name: 'Match levels report' })
+    // Muted: not counted at all. Undecodable: counted, named, left as it was.
+    expect(report).toHaveTextContent('Match levels set 1 of 2 elements to the target.')
+    expect(report).toHaveTextContent('cam.mp4 (overlay, position 1): its sound could not be read')
+    expect(volume(ENTRY)).toBe(1)
+    expect(volume(OVERLAY)).toBe(1)
+    expect(volume(TRACK)).toBeCloseTo(0.45, 1)
   })
 })
 

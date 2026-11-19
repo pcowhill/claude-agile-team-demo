@@ -8,6 +8,8 @@ import {
   STEP_CHOICES,
   STILL_DURATION_CHOICES,
   countdownLabel,
+  MATCH_TARGET_CHOICES,
+  matchTargetLabel,
   formatSeconds,
   sessionRestoreLabel,
 } from '../lib/settings'
@@ -251,6 +253,26 @@ export function SettingsControl({
                     {COUNTDOWN_CHOICES.map((choice) => (
                       <option key={choice} value={String(choice)}>
                         {countdownLabel(choice)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </SettingRow>
+              <SettingRow
+                label="Match levels target"
+                hint="The level Match levels brings every element with sound to: the average level of the sound, ignoring silences. A louder element is turned down to it; a quieter one goes to Volume 1."
+              >
+                {(describedBy) => (
+                  <select
+                    value={String(settings.matchTargetDb)}
+                    aria-describedby={describedBy}
+                    onChange={(event) =>
+                      onChange({ ...settings, matchTargetDb: Number(event.target.value) })
+                    }
+                  >
+                    {MATCH_TARGET_CHOICES.map((choice) => (
+                      <option key={choice} value={String(choice)}>
+                        {matchTargetLabel(choice)}
                       </option>
                     ))}
                   </select>

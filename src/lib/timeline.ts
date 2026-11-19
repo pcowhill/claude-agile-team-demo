@@ -934,6 +934,16 @@ export type TimelineAction =
       fill: BackgroundFillInput
     }
   | { type: 'audio-track-volume-set'; id: string; volume: number }
+  | {
+      /**
+       * Match levels (#691): several elements' Volumes set at once, as one
+       * action so one undo restores them all. Each is clamped to 0–1 like
+       * its own volume action; ids no longer present (an element removed
+       * while the clips were measured) and image overlays are skipped.
+       */
+      type: 'volumes-matched'
+      volumes: { kind: 'entry' | 'video-overlay' | 'audio-track'; id: string; volume: number }[]
+    }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
 
@@ -3286,6 +3296,36 @@ function reduceTimelineCollections(
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], volume }
       return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+    }
+    case 'volumes-matched': {
+      let entries = state.entries
+      let tracks = audioTracks
+      let overlays = videoOverlays
+      for (const { kind, id, volume: asked } of action.volumes) {
+        if (!Number.isFinite(asked)) continue
+        const volume = clamp(asked, 0, 1)
+        if (kind === 'entry') {
+          const index = entries.findIndex((entry) => entry.id === id)
+          if (index === -1 || entries[index].kind !== undefined) continue
+          if (volume === (entries[index].volume ?? 1)) continue
+          if (entries === state.entries) entries = [...entries]
+          entries[index] = { ...entries[index], volume }
+        } else if (kind === 'audio-track') {
+          const index = tracks.findIndex((track) => track.id === id)
+          if (index === -1 || volume === (tracks[index].volume ?? 1)) continue
+          if (tracks === audioTracks) tracks = [...tracks]
+          tracks[index] = { ...tracks[index], volume }
+        } else {
+          const index = overlays.findIndex((overlay) => overlay.id === id)
+          if (index === -1 || isImageOverlay(overlays[index])) continue
+          if (volume === (overlays[index].volume ?? 1)) continue
+          if (overlays === videoOverlays) overlays = [...overlays]
+          overlays[index] = { ...overlays[index], volume }
+        }
+      }
+      // Nothing changed: a same-reference no-op, so no undo step.
+      if (entries === state.entries && tracks === audioTracks && overlays === videoOverlays) return state
+      return withEffects(entries, transitions, zooms, tracks, remaps, texts, overlays)
     }
     case 'audio-track-fades-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)

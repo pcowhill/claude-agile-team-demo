@@ -1,3 +1,4 @@
+import { DEFAULT_MATCH_TARGET_DB } from './matchLevels'
 import { DEFAULT_STILL_DURATION } from './timeline'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from './transport'
 
@@ -67,6 +68,14 @@ export interface AppSettings {
    * off is for people who never want it, and Start now skips it once.
    */
   countdownSeconds: number
+  /**
+   * The level Match levels brings every element with sound to (#691), in
+   * dB: the gated RMS level of `audioLevels.ts`, relative to full scale.
+   * A preference, not project state, because the issue placed it in
+   * Settings: it says how loud this person wants their videos, and the
+   * Volumes it produces are what travels with the project.
+   */
+  matchTargetDb: number
 }
 
 /** The countdown's length when it is on, in seconds (#514). */
@@ -91,6 +100,12 @@ export const STILL_DURATION_CHOICES: readonly number[] = [2, 3, DEFAULT_STILL_DU
 export const SESSION_RESTORE_CHOICES: readonly SessionRestoreMode[] = ['ask', 'always', 'never']
 /** On (three seconds) or off — the two the customer's suggestion named (#494). */
 export const COUNTDOWN_CHOICES: readonly number[] = [DEFAULT_COUNTDOWN_SECONDS, 0]
+/**
+ * Match levels' targets (#691), loudest last: from a quiet −30 dB to −16 dB.
+ * Within today's 0–1 Volume a target only lowers what is louder than it,
+ * so the list stops where a target would leave most recordings below it.
+ */
+export const MATCH_TARGET_CHOICES: readonly number[] = [-30, -26, -23, DEFAULT_MATCH_TARGET_DB, -16]
 
 /** Exactly today's behaviour, so a first visit changes nothing. */
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -101,6 +116,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   exportFormat: 'webm',
   visualEditors: true,
   countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
+  matchTargetDb: DEFAULT_MATCH_TARGET_DB,
 }
 
 /** The slice of Storage this needs; injectable so tests stay deterministic. */
@@ -160,6 +176,8 @@ export function parseSettings(stored: unknown): AppSettings {
       COUNTDOWN_CHOICES,
       DEFAULT_SETTINGS.countdownSeconds,
     ),
+    // A store from before Match levels existed has no key: the default.
+    matchTargetDb: pickNumber(raw.matchTargetDb, MATCH_TARGET_CHOICES, DEFAULT_SETTINGS.matchTargetDb),
   }
 }
 
@@ -191,6 +209,11 @@ export function saveSettings(
 /** How the dialog labels a duration choice: "0.1 s", "1 s", "10 s". */
 export function formatSeconds(seconds: number): string {
   return `${seconds} s`
+}
+
+/** How the dialog labels a Match levels target (#691): "−20 dB", with a true minus sign. */
+export function matchTargetLabel(db: number): string {
+  return `${db < 0 ? '\u2212' : ''}${Math.abs(db)} dB`
 }
 
 /** How the dialog labels a countdown choice (#514): its length, or Off. */

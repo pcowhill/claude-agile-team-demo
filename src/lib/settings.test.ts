@@ -14,8 +14,11 @@ import {
   COUNTDOWN_CHOICES,
   DEFAULT_COUNTDOWN_SECONDS,
   countdownLabel,
+  MATCH_TARGET_CHOICES,
+  matchTargetLabel,
 } from './settings'
 import type { AppSettings } from './settings'
+import { DEFAULT_MATCH_TARGET_DB } from './matchLevels'
 import { DEFAULT_STILL_DURATION } from './timeline'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from './transport'
 
@@ -55,6 +58,7 @@ describe('settings defaults (#286)', () => {
       exportFormat: 'webm',
       visualEditors: true,
       countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
+      matchTargetDb: DEFAULT_MATCH_TARGET_DB,
     })
   })
 
@@ -66,6 +70,7 @@ describe('settings defaults (#286)', () => {
     expect(STILL_DURATION_CHOICES).toContain(DEFAULT_SETTINGS.stillDurationSeconds)
     expect(SESSION_RESTORE_CHOICES).toContain(DEFAULT_SETTINGS.sessionRestore)
     expect(COUNTDOWN_CHOICES).toContain(DEFAULT_SETTINGS.countdownSeconds)
+    expect(MATCH_TARGET_CHOICES).toContain(DEFAULT_SETTINGS.matchTargetDb)
   })
 
   it('labels each choice for the dialog', () => {
@@ -78,6 +83,14 @@ describe('settings defaults (#286)', () => {
     ])
     // The countdown is on (its length) or off — the two choices #494 named.
     expect(COUNTDOWN_CHOICES.map(countdownLabel)).toEqual(['3 s', 'Off'])
+    // Match levels' targets (#691), with a true minus sign.
+    expect(MATCH_TARGET_CHOICES.map(matchTargetLabel)).toEqual([
+      '\u221230 dB',
+      '\u221226 dB',
+      '\u221223 dB',
+      '\u221220 dB',
+      '\u221216 dB',
+    ])
   })
 })
 
@@ -90,6 +103,7 @@ describe('settings validation (#286)', () => {
     exportFormat: 'mp4',
     visualEditors: false,
     countdownSeconds: 0,
+    matchTargetDb: -26,
   }
 
   it('keeps every recognized stored value', () => {
@@ -124,7 +138,17 @@ describe('settings validation (#286)', () => {
       exportFormat: 'mp4',
       visualEditors: DEFAULT_SETTINGS.visualEditors,
       countdownSeconds: DEFAULT_SETTINGS.countdownSeconds,
+      matchTargetDb: DEFAULT_SETTINGS.matchTargetDb,
     })
+  })
+
+  it('reads the Match levels target, and a store from before it existed means the default (#691)', () => {
+    expect(parseSettings({ ...stored, matchTargetDb: -30 }).matchTargetDb).toBe(-30)
+    const { matchTargetDb: _dropped, ...older } = stored
+    expect(parseSettings(older).matchTargetDb).toBe(DEFAULT_MATCH_TARGET_DB)
+    // Only the offered targets: a stored −12 is not one this version has.
+    expect(parseSettings({ ...stored, matchTargetDb: -12 }).matchTargetDb).toBe(DEFAULT_MATCH_TARGET_DB)
+    expect(parseSettings({ ...stored, matchTargetDb: '-20' }).matchTargetDb).toBe(DEFAULT_MATCH_TARGET_DB)
   })
 
   it('reads the countdown, and a store from before it existed means on (#514)', () => {

@@ -4,8 +4,13 @@
  * renders every audio track's waveform from that shared array, windowed to
  * the track's trim. The full decoded buffer is never retained: peaks are
  * computed inside the decode step and only the `PEAK_COUNT`-float array
- * (a few KB) survives per clip, whatever the source duration.
+ * (a few KB) survives per clip, whatever the source duration — with the
+ * level blocks Match levels measures from (#691, `audioLevels.ts`), made in
+ * the same pass so a clip is still decoded once.
  */
+
+import { computeLevels } from './audioLevels'
+import type { ClipLevels } from './audioLevels'
 
 /**
  * Peaks per clip. Fixed regardless of source duration, so memory per clip is
@@ -92,8 +97,18 @@ export function waveformPath(peaks: ArrayLike<number>, height: number): string {
   return `M0 ${y(mid)}${top.join('')}${bottom.join('')}Z`
 }
 
-/** Decodes a clip and reduces it to peaks; null when the browser can't. */
-async function decodeClipPeaks(url: string): Promise<Float32Array | null> {
+/**
+ * What one decode of a clip leaves behind (#191, #691): the waveform's
+ * peaks and the level blocks Match levels measures with. Both are small
+ * reductions; the decoded buffer itself is never kept.
+ */
+export interface ClipAudio {
+  peaks: Float32Array
+  levels: ClipLevels
+}
+
+/** Decodes a clip and reduces it to peaks and levels; null when the browser can't. */
+async function decodeClipAudio(url: string): Promise<ClipAudio | null> {
   try {
     // OfflineAudioContext decodes without an audible context or autoplay
     // gating; its constructor arguments are irrelevant to decodeAudioData.
@@ -105,32 +120,50 @@ async function decodeClipPeaks(url: string): Promise<Float32Array | null> {
     const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) =>
       buffer.getChannelData(channel),
     )
-    // Only the peaks leave this scope; buffer and channels are garbage.
-    return computePeaks(channels)
+    // Only the reductions leave this scope; buffer and channels are garbage.
+    return { peaks: computePeaks(channels), levels: computeLevels(channels, buffer.sampleRate) }
   } catch {
     // Undecodable or unreachable media: the bar renders as before (#191's
-    // graceful-degradation criterion). Cached like a success, so a broken
-    // clip is not re-fetched on every render.
+    // graceful-degradation criterion), and Match levels reports the element
+    // rather than guessing (#691). Cached like a success, so a broken clip
+    // is not re-fetched on every render.
     return null
   }
 }
 
-const peaksCache = new Map<string, Promise<Float32Array | null>>()
+const audioCache = new Map<string, Promise<ClipAudio | null>>()
 
 /**
- * The peaks for a clip's object URL, decoded at most once per clip and
- * shared by every track referencing it (#191). The object URL is unique and
- * stable per library clip, so it is the cache key. `decode` is injectable
- * for tests (jsdom has no Web Audio or blob fetch).
+ * A clip's decoded reductions, decoded at most once per clip and shared by
+ * every element referencing it (#191) and by every Match levels after the
+ * first (#691). The object URL is unique and stable per library clip, so it
+ * is the cache key. `decode` is injectable for tests (jsdom has no Web Audio
+ * or blob fetch).
  */
-export function peaksForClip(
+export function audioForClip(
   url: string,
-  decode: (url: string) => Promise<Float32Array | null> = decodeClipPeaks,
-): Promise<Float32Array | null> {
-  let pending = peaksCache.get(url)
+  decode: (url: string) => Promise<ClipAudio | null> = decodeClipAudio,
+): Promise<ClipAudio | null> {
+  let pending = audioCache.get(url)
   if (pending === undefined) {
     pending = decode(url)
-    peaksCache.set(url, pending)
+    audioCache.set(url, pending)
   }
   return pending
+}
+
+/** The waveform peaks for a clip's object URL (#191), from the shared decode. */
+export function peaksForClip(
+  url: string,
+  decode?: (url: string) => Promise<ClipAudio | null>,
+): Promise<Float32Array | null> {
+  return audioForClip(url, decode).then((audio) => audio?.peaks ?? null)
+}
+
+/** The level blocks for a clip's object URL (#691), from the shared decode. */
+export function levelsForClip(
+  url: string,
+  decode?: (url: string) => Promise<ClipAudio | null>,
+): Promise<ClipLevels | null> {
+  return audioForClip(url, decode).then((audio) => audio?.levels ?? null)
 }
