@@ -7,6 +7,8 @@ import {
   timelineHistoryReducer,
 } from './history'
 import type { TimelineEntry, TimelineState } from './timeline'
+import { audioTrackFromClip, videoOverlayFromClip } from './timeline'
+import type { LibraryClip } from './mediaLibrary'
 
 const entry = (id: string, clipId = `clip-${id}`): TimelineEntry => ({
   id,
@@ -379,6 +381,76 @@ describe('rename is one undo step (#405)', () => {
     ] as const) {
       expect(timelineHistoryReducer(withEntry, action)).toBe(withEntry)
     }
+  })
+})
+
+describe('Match levels is one undo step (#691)', () => {
+  const clip = (id: string, kind: 'video' | 'audio'): LibraryClip => ({
+    id: `clip-${id}`,
+    name: `${id}.webm`,
+    duration: 10,
+    url: `blob:${id}`,
+    kind,
+  })
+  const withThree = (): TimelineHistory => {
+    let history = addEntry(emptyTimelineHistory, 'a')
+    history = timelineHistoryReducer(history, {
+      type: 'video-overlay-added',
+      overlay: videoOverlayFromClip(clip('pip', 'video'), 'pip'),
+    })
+    history = timelineHistoryReducer(history, {
+      type: 'audio-track-added',
+      track: audioTrackFromClip(clip('music', 'audio'), 'music'),
+    })
+    return history
+  }
+
+  it('sets an entry, an overlay and a track in one step, and one Undo restores all three', () => {
+    const before = withThree()
+    const matched = timelineHistoryReducer(before, {
+      type: 'volumes-matched',
+      volumes: [
+        { kind: 'entry', id: 'a', volume: 0.5 },
+        { kind: 'video-overlay', id: 'pip', volume: 0.25 },
+        { kind: 'audio-track', id: 'music', volume: 0.8 },
+      ],
+    })
+    expect(matched.present.entries[0].volume).toBe(0.5)
+    expect(matched.present.videoOverlays![0].volume).toBe(0.25)
+    expect(matched.present.audioTracks![0].volume).toBe(0.8)
+    expect(matched.past).toHaveLength(before.past.length + 1)
+    const undone = timelineHistoryReducer(matched, { type: 'edit-undone' })
+    expect(undone.present).toBe(before.present)
+    expect(undone.present.entries[0].volume).toBeUndefined()
+    expect(undone.present.videoOverlays![0].volume ?? 1).toBe(1)
+    expect(undone.present.audioTracks![0].volume).toBeUndefined()
+  })
+
+  it('records no step when nothing changes: every Volume already there, or no such element', () => {
+    const before = withThree()
+    expect(
+      timelineHistoryReducer(before, {
+        type: 'volumes-matched',
+        volumes: [
+          { kind: 'entry', id: 'a', volume: 1 },
+          { kind: 'audio-track', id: 'gone', volume: 0.5 },
+          { kind: 'entry', id: 'a', volume: Number.NaN },
+        ],
+      }),
+    ).toBe(before)
+    expect(timelineHistoryReducer(before, { type: 'volumes-matched', volumes: [] })).toBe(before)
+  })
+
+  it('clamps to 0–1, as each Volume field does', () => {
+    const matched = timelineHistoryReducer(withThree(), {
+      type: 'volumes-matched',
+      volumes: [
+        { kind: 'entry', id: 'a', volume: 3 },
+        { kind: 'audio-track', id: 'music', volume: -1 },
+      ],
+    })
+    expect(matched.present.entries[0].volume).toBeUndefined()
+    expect(matched.present.audioTracks![0].volume).toBe(0)
   })
 })
 

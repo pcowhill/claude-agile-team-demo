@@ -181,6 +181,12 @@ interface TimelineProps {
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  /**
+   * Match levels (#691): measures every element with sound, sets their
+   * Volumes toward the Settings target as one undo step, and resolves to
+   * the report sentence the timeline shows. Absent hides the control.
+   */
+  onMatchLevels?: () => Promise<string>
   onMoveEntry: (id: string, direction: 'up' | 'down') => void
   /**
    * Duplicates a timeline element (#314): an exact copy of the row with all
@@ -2447,6 +2453,7 @@ export function Timeline({
   canRedo,
   onUndo,
   onRedo,
+  onMatchLevels,
   onMoveEntry,
   onDuplicate,
   onRenameElement,
@@ -2858,6 +2865,19 @@ export function Timeline({
   // time, since it is a modal dialog. View state only; Apply is the one
   // edit it makes.
   const [trimmingId, setTrimmingId] = useState<string | null>(null)
+  // Match levels (#691): whether a run is measuring, and the last run's
+  // report — a status line under the header, not a dialog (#395), until
+  // dismissed or replaced by the next run's.
+  const [matching, setMatching] = useState(false)
+  const [matchReport, setMatchReport] = useState<string | null>(null)
+  const matchLevels = () => {
+    if (onMatchLevels === undefined || matching) return
+    setMatching(true)
+    onMatchLevels()
+      .then((report) => setMatchReport(report))
+      .catch(() => setMatchReport('Match levels could not measure the sound; no Volume was changed.'))
+      .finally(() => setMatching(false))
+  }
   const nameCell = (
     id: string,
     name: string,
@@ -3115,6 +3135,21 @@ export function Timeline({
             which is why all three were here rather than in the library. The
             third still opens the same hidden input below. */}
         <Menu label="Add" menuLabel="Add menu" className="timeline-add-menu" items={addItems} />
+        {/* Match levels (#691): in the header rather than the Audio
+            heading the issue suggested, because that heading exists only
+            while the project has an audio track, and the action covers
+            video entries and overlays too. */}
+        {onMatchLevels !== undefined && (
+          <button
+            type="button"
+            className="timeline-match-levels"
+            title="Match levels: measure the sound of every video clip, video overlay and audio track, in every section, and set each one's Volume toward the target in Settings. One Undo restores them all."
+            disabled={matching}
+            onClick={matchLevels}
+          >
+            {matching ? 'Matching…' : 'Match levels'}
+          </button>
+        )}
         <input
           ref={subtitleInputRef}
           type="file"
@@ -3172,6 +3207,19 @@ export function Timeline({
           </label>
         )}
       </div>
+      {matchReport !== null && (
+        <p className="timeline-match-report" role="status" aria-label="Match levels report">
+          <span>{matchReport}</span>
+          <button
+            type="button"
+            className="timeline-match-report-dismiss"
+            aria-label="Dismiss the Match levels report"
+            onClick={() => setMatchReport(null)}
+          >
+            ✕
+          </button>
+        </p>
+      )}
 
       {/* The default subtitle style (#250) lives beside the import it
           governs — all imported subtitles restyle at once. Since #418 it is

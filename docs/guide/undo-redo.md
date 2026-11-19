@@ -29,6 +29,7 @@ Every edit to the timeline can be taken back, and taken back again. This page co
 - Split at playhead, Freeze frame, Duplicate and Paste settings, each as one step;
 - adding several selected clips from the library at once, and the Screen + camera take landing as a screen entry plus a camera overlay — one step each;
 - importing an `.srt` file, however many cues it holds — one step;
+- [Match levels](audio.md#match-levels), however many Volumes it sets — one step;
 - a whole drag of the slider beside a number field, which commits once on release, and each drag or key press in a visual editor.
 
 An action that changes nothing — committing the value a field already had, dropping a rectangle where it was — records no step.

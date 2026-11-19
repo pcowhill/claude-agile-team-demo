@@ -34,6 +34,9 @@ import type { PreviewLayout, PreviewLayoutStorage } from './lib/previewLayout'
 import { loadLibraryView, saveLibraryView } from './lib/libraryView'
 import type { LibraryView } from './lib/libraryView'
 import { loadSettings, saveSettings } from './lib/settings'
+import { levelsForClip } from './lib/audioPeaks'
+import type { ClipLevels } from './lib/audioLevels'
+import { levelElements, matchReport, planMatchLevels } from './lib/matchLevels'
 import type { AppSettings } from './lib/settings'
 import { guideConstants } from './lib/guide/constants'
 import { useGuideLocation } from './lib/guide/useGuideLocation'
@@ -303,6 +306,27 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
     },
     [importSubtitles],
   )
+
+  // Match levels (#691): measure every element with sound — each clip
+  // decoded once, shared with its waveform and with every later run — and
+  // set the Volumes in one action, so one Undo restores them all. The
+  // elements and the target are read when the button is pressed; an
+  // element removed while its clip was decoding is skipped by the reducer.
+  const matchTargetDb = settings.matchTargetDb
+  const handleMatchLevels = useCallback(async () => {
+    const elements = levelElements(timeline)
+    const urls = [...new Set(elements.map((element) => element.url))]
+    const decoded = await Promise.all(urls.map((url) => levelsForClip(url)))
+    const levels = new Map<string, ClipLevels | null>(urls.map((url, index) => [url, decoded[index]]))
+    const results = planMatchLevels(elements, (element) => levels.get(element.url) ?? null, matchTargetDb)
+    dispatchTimeline({
+      type: 'volumes-matched',
+      volumes: results
+        .filter((result) => result.outcome !== 'undecodable' && result.outcome !== 'silent')
+        .map(({ element, volume }) => ({ kind: element.kind, id: element.id, volume })),
+    })
+    return matchReport(results)
+  }, [timeline, matchTargetDb])
 
   const stillDuration = settings.stillDurationSeconds
   const handleAddToTimeline = useCallback(
@@ -649,6 +673,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           canRedo={history.future.length > 0}
           onUndo={() => dispatchTimeline({ type: 'edit-undone' })}
           onRedo={() => dispatchTimeline({ type: 'edit-redone' })}
+          onMatchLevels={handleMatchLevels}
           onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
           onDuplicate={(kind, id) =>
             dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })

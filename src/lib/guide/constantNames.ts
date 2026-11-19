@@ -92,6 +92,12 @@ export const GUIDE_CONSTANT_NAMES = [
   'RECORDING_KEYFRAME_INTERVAL_SECONDS',
   /** The recording dialog's countdown when it is on, in seconds (#514). */
   'RECORDING_COUNTDOWN_SECONDS',
+  /** Match levels' default target, labelled as Settings shows it, e.g. "−20 dB" (#691). */
+  'MATCH_TARGET_DEFAULT',
+  /** Match levels' targets, in order, e.g. "−30 dB, …, −16 dB" (#691). */
+  'MATCH_TARGET_CHOICES',
+  /** How far below its own average a stretch of sound is left out as a pause, in dB (#691). */
+  'MATCH_RELATIVE_GATE_DB',
   /** Re-linking tolerates this much duration difference, as a percentage (#77). */
   'RELINK_DURATION_TOLERANCE_PERCENT',
   /** …and never less than this many seconds of difference. */
