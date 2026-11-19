@@ -9,8 +9,9 @@
  * stroked at twice the thickness, centred on the path, and the silhouette's
  * inside is then removed, leaving exactly the outside offset of the shape
  * (sharp corners on a rectangle, as a CSS border has; an arc of radius
- * r + thickness at a rounded corner). The export does it on a scratch
- * canvas; the preview with an SVG mask of the same geometry.
+ * r + thickness at a rounded corner). One routine does it for both —
+ * `drawOverlayBorder` in exportVideo.ts, which the preview calls on a
+ * frame-sized canvas (`OverlayBorderLayer`).
  *
  * The thickness is a fraction of the output frame's shorter side, as a
  * shape's border is (#683), so the border keeps its look at every export

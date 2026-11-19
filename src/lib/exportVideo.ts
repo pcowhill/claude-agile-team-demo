@@ -324,7 +324,7 @@ export function traceShapeMask(
  * offset of the shape, so the picture keeps every pixel. A filled path's
  * edge alpha survives the composite, which is why the inside is removed
  * this way rather than by an engine `clip()` (the #261 risk). The preview
- * draws the same stroke under an SVG mask of the same silhouette.
+ * calls this same routine on a frame-sized canvas (`OverlayBorderLayer`).
  */
 export function drawOverlayBorder(
   context: CanvasRenderingContext2D,

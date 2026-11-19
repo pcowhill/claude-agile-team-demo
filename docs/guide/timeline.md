@@ -111,7 +111,7 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 **What it does.** Gathers every treatment of the picture behind one disclosure, closed by default.
 
-**Details.** Open, it holds **Color**, **Orientation** and **Crop**, then more by the row's kind: **Background** on a sequence entry, **Shape** and **Border** on an overlay. Closed, its summary still says what is applied — *▸ Picture · Color, Crop* — so nothing hides silently. Whether the group is open is remembered per row for this session only. Slates and audio tracks have no such group. Each treatment is explained on [Editing video](editing-video.md).
+**Details.** Open, it holds **Color**, **Orientation** and **Crop**, then more by the row's kind — **Background** on a sequence entry, **Shape** and **Border** on an overlay — and last **Spotlight** and **Redact**. Closed, its summary still says what is applied — *▸ Picture · Color, Crop* — so nothing hides silently. Whether the group is open is remembered per row for this session only. Slates and audio tracks have no such group. Each treatment is explained on [Editing video](editing-video.md).
 
 **Related.** [Colour adjustments](editing-video.md#colour-adjustments) · [Orientation](editing-video.md#orientation) · [Crop](editing-video.md#crop) · [Background fill](editing-video.md#background-fill) · [Shape mask](editing-video.md#shape-mask) · [Overlay border](editing-video.md#overlay-border)
 
