@@ -90,6 +90,54 @@ export const MIN_ARROW_HEAD = 0.02
 /** A head's width across its base, as a multiple of its length. */
 export const ARROW_HEAD_WIDTH_RATIO = 1
 
+/**
+ * How a shape's border is drawn (#688, extra C of #681): solid, dashed or
+ * dotted. It applies to a rectangle's or ellipse's border and to an arrow's
+ * shaft; an arrow's heads stay solid.
+ */
+export const LINE_STYLES = ['solid', 'dashed', 'dotted'] as const
+export type LineStyle = (typeof LINE_STYLES)[number]
+
+export function isLineStyle(value: unknown): value is LineStyle {
+  return typeof value === 'string' && (LINE_STYLES as readonly string[]).includes(value)
+}
+
+export const LINE_STYLE_LABELS: Record<LineStyle, string> = {
+  solid: 'Solid',
+  dashed: 'Dashed',
+  dotted: 'Dotted',
+}
+
+/**
+ * A line style's dash and gap, as multiples of the border's thickness
+ * (#688), so a style looks the same at every output size and every
+ * thickness. Dashes are three thicknesses long with two between; dots are
+ * square, one thickness each way. Solid has no pattern.
+ */
+export const LINE_DASH_FACTORS: Record<Exclude<LineStyle, 'solid'>, readonly [number, number]> = {
+  dashed: [3, 2],
+  dotted: [1, 1],
+}
+
+/** The canvas dash pattern for a line style at a line width in px; empty for solid. */
+export function lineDashFor(lineStyle: LineStyle | undefined, lineWidth: number): number[] {
+  if (lineStyle === undefined || lineStyle === 'solid' || lineWidth <= 0) return []
+  const [dash, gap] = LINE_DASH_FACTORS[lineStyle]
+  return [dash * lineWidth, gap * lineWidth]
+}
+
+/**
+ * A shape with its line style set (#688). Solid is stored as no key, so a
+ * shape that was never dashed and one dashed and set back read — and save —
+ * the same, and a file without the field opens with every shape solid.
+ */
+export function withLineStyle<T extends ShapeStyle>(shape: T, lineStyle: LineStyle): T {
+  if (lineStyle !== 'solid') return { ...shape, lineStyle }
+  if (shape.lineStyle === undefined) return shape
+  const { lineStyle: _dropped, ...rest } = shape
+  return rest as T
+}
+
 /** A shape's look (#681 §2, PowerPoint's *Format Shape*). */
 export interface ShapeStyle {
   /** Border colour, lowercase #rrggbb. */
@@ -102,6 +150,11 @@ export interface ShapeStyle {
   fill: string
   /** Fill opacity, 0..1; 0 is a transparent centre. */
   fillOpacity: number
+  /**
+   * The border's line style (#688). Absent is solid — what every shape
+   * saved before it reads as; `withLineStyle` stores solid as no key.
+   */
+  lineStyle?: LineStyle
 }
 
 /**
@@ -246,13 +299,14 @@ export function defaultShapeGroup(id: string, shapeId: string, offset: number): 
 }
 
 export function pickStyle(style: ShapeStyle): ShapeStyle {
-  return {
+  const picked: ShapeStyle = {
     stroke: style.stroke,
     strokeOpacity: style.strokeOpacity,
     thickness: style.thickness,
     fill: style.fill,
     fillOpacity: style.fillOpacity,
   }
+  return withLineStyle(picked, style.lineStyle ?? 'solid')
 }
 
 const COLOR = /^#[0-9a-f]{6}$/
@@ -270,7 +324,8 @@ function isValidStyle(style: ShapeStyle): boolean {
     style.thickness <= MAX_SHAPE_THICKNESS &&
     typeof style.fill === 'string' &&
     COLOR.test(style.fill) &&
-    fraction(style.fillOpacity)
+    fraction(style.fillOpacity) &&
+    (style.lineStyle === undefined || isLineStyle(style.lineStyle))
   )
 }
 
@@ -356,7 +411,8 @@ function stylesEqual(a: ShapeStyle, b: ShapeStyle): boolean {
     a.strokeOpacity === b.strokeOpacity &&
     a.thickness === b.thickness &&
     a.fill === b.fill &&
-    a.fillOpacity === b.fillOpacity
+    a.fillOpacity === b.fillOpacity &&
+    (a.lineStyle ?? 'solid') === (b.lineStyle ?? 'solid')
   )
 }
 
@@ -495,6 +551,8 @@ export type ShapeContext = Pick<
   | 'strokeStyle'
   | 'lineWidth'
   | 'lineJoin'
+  | 'lineCap'
+  | 'setLineDash'
   | 'globalAlpha'
 >
 
@@ -517,31 +575,12 @@ export interface Point {
  * ends). Empty when the arrow has no thickness or no length.
  */
 export function arrowOutline(shape: ArrowShape, frameWidth: number, frameHeight: number): Point[] {
-  const tail = { x: shape.tailX * frameWidth, y: shape.tailY * frameHeight }
-  const tip = { x: shape.tipX * frameWidth, y: shape.tipY * frameHeight }
-  const length = Math.hypot(tip.x - tail.x, tip.y - tail.y)
-  const lineWidth = shorterSidePixels(shape.thickness, frameWidth, frameHeight)
-  if (length <= 0 || lineWidth <= 0) return []
-  // Unit vector along the arrow, and its normal.
-  const ux = (tip.x - tail.x) / length
-  const uy = (tip.y - tail.y) / length
-  const nx = -uy
-  const ny = ux
-  const at = (from: Point, along: number, across: number): Point => ({
-    x: from.x + ux * along + nx * across,
-    y: from.y + uy * along + ny * across,
-  })
-  const halfLine = lineWidth / 2
-  const headCount = shape.heads === 'both' ? 2 : shape.heads === 'tip' ? 1 : 0
-  if (headCount === 0) {
+  const geometry = arrowGeometry(shape, frameWidth, frameHeight)
+  if (geometry === null) return []
+  const { tail, tip, at, halfLine, headLength, halfHead } = geometry
+  if (shape.heads === 'none') {
     return [at(tail, 0, halfLine), at(tip, 0, halfLine), at(tip, 0, -halfLine), at(tail, 0, -halfLine)]
   }
-  const headLength = Math.min(
-    arrowHeadLength(shape, frameWidth, frameHeight),
-    length / headCount,
-  )
-  // A head never narrower than the shaft it ends.
-  const halfHead = Math.max((headLength * ARROW_HEAD_WIDTH_RATIO) / 2, halfLine)
   const points: Point[] = []
   if (shape.heads === 'both') {
     points.push(tail, at(tail, headLength, halfHead), at(tail, headLength, halfLine))
@@ -561,6 +600,70 @@ export function arrowOutline(shape: ArrowShape, frameWidth: number, frameHeight:
     points.push(at(tail, 0, -halfLine))
   }
   return points
+}
+
+/** A dashed or dotted arrow's pieces in frame pixels (#688). */
+export interface ArrowPieces {
+  /** Each head as a solid triangle. */
+  heads: Point[][]
+  /** The shaft's centre line, from head base to head base (or end). */
+  shaft: { from: Point; to: Point }
+  lineWidth: number
+}
+
+/**
+ * A dashed or dotted arrow's pieces (#688): its heads as solid triangles —
+ * the same triangles `arrowOutline` draws — and its shaft as the centre
+ * line between them, to be stroked with the dash pattern at `lineWidth`.
+ * The shaft ends exactly at each head's base, so with butt caps a
+ * half-opaque arrow has no darker seam where a dash would overlap a head.
+ * Null when the arrow has no thickness or no length.
+ */
+export function arrowPieces(shape: ArrowShape, frameWidth: number, frameHeight: number): ArrowPieces | null {
+  const geometry = arrowGeometry(shape, frameWidth, frameHeight)
+  if (geometry === null) return null
+  const { tail, tip, at, halfLine, headLength, halfHead } = geometry
+  const heads: Point[][] = []
+  let from = tail
+  let to = tip
+  if (shape.heads !== 'none') {
+    heads.push([at(tip, -headLength, halfHead), tip, at(tip, -headLength, -halfHead)])
+    to = at(tip, -headLength, 0)
+  }
+  if (shape.heads === 'both') {
+    heads.push([at(tail, headLength, halfHead), tail, at(tail, headLength, -halfHead)])
+    from = at(tail, headLength, 0)
+  }
+  return { heads, shaft: { from, to }, lineWidth: halfLine * 2 }
+}
+
+/**
+ * What `arrowOutline` and `arrowPieces` share: the arrow's ends in frame
+ * pixels, a point helper along and across it, and the head's length and
+ * half-width as drawn (`headLength` 0 when it has no heads).
+ */
+function arrowGeometry(shape: ArrowShape, frameWidth: number, frameHeight: number) {
+  const tail = { x: shape.tailX * frameWidth, y: shape.tailY * frameHeight }
+  const tip = { x: shape.tipX * frameWidth, y: shape.tipY * frameHeight }
+  const length = Math.hypot(tip.x - tail.x, tip.y - tail.y)
+  const lineWidth = shorterSidePixels(shape.thickness, frameWidth, frameHeight)
+  if (length <= 0 || lineWidth <= 0) return null
+  // Unit vector along the arrow, and its normal.
+  const ux = (tip.x - tail.x) / length
+  const uy = (tip.y - tail.y) / length
+  const nx = -uy
+  const ny = ux
+  const at = (from: Point, along: number, across: number): Point => ({
+    x: from.x + ux * along + nx * across,
+    y: from.y + uy * along + ny * across,
+  })
+  const halfLine = lineWidth / 2
+  const headCount = shape.heads === 'both' ? 2 : shape.heads === 'tip' ? 1 : 0
+  const headLength =
+    headCount === 0 ? 0 : Math.min(arrowHeadLength(shape, frameWidth, frameHeight), length / headCount)
+  // A head never narrower than the shaft it ends.
+  const halfHead = Math.max((headLength * ARROW_HEAD_WIDTH_RATIO) / 2, halfLine)
+  return { tail, tip, at, halfLine, headLength, halfHead }
 }
 
 /**
@@ -612,6 +715,40 @@ function traceShape(context: ShapeContext, shape: BoxShape, frameWidth: number, 
 }
 
 /**
+ * A dashed or dotted arrow (#688): its heads filled solid, then its shaft
+ * stroked with the line style's pattern between them, both in the border
+ * colour at `alpha`.
+ */
+function drawBrokenArrow(
+  context: ShapeContext,
+  shape: ArrowShape,
+  alpha: number,
+  frameWidth: number,
+  frameHeight: number,
+) {
+  const pieces = arrowPieces(shape, frameWidth, frameHeight)
+  if (pieces === null) return
+  context.globalAlpha = alpha
+  context.fillStyle = shape.stroke
+  for (const head of pieces.heads) {
+    traceArrow(context, head)
+    context.fill()
+  }
+  const { from, to } = pieces.shaft
+  if (Math.hypot(to.x - from.x, to.y - from.y) <= 0) return
+  context.save()
+  context.setLineDash(lineDashFor(shape.lineStyle, pieces.lineWidth))
+  context.lineCap = 'butt'
+  context.strokeStyle = shape.stroke
+  context.lineWidth = pieces.lineWidth
+  context.beginPath()
+  context.moveTo(from.x, from.y)
+  context.lineTo(to.x, to.y)
+  context.stroke()
+  context.restore()
+}
+
+/**
  * Draws every shape group visible at `sequenceTime` onto a frame-sized
  * context (#683). The one routine the preview, the export's composer, Save
  * frame as PNG and the GIF plugin all call, so the four cannot disagree.
@@ -637,10 +774,15 @@ export function drawShapeGroups(
     if (opacity <= 0) continue
     for (const shape of group.shapes) {
       if (shape.kind === 'arrow') {
+        if (shape.strokeOpacity <= 0) continue
+        if ((shape.lineStyle ?? 'solid') !== 'solid') {
+          drawBrokenArrow(context, shape, shape.strokeOpacity * opacity, frameWidth, frameHeight)
+          continue
+        }
         // An arrow is all border: one filled outline in the border's colour
         // and opacity (#684).
         const outline = arrowOutline(shape, frameWidth, frameHeight)
-        if (outline.length === 0 || shape.strokeOpacity <= 0) continue
+        if (outline.length === 0) continue
         traceArrow(context, outline)
         context.globalAlpha = shape.strokeOpacity * opacity
         context.fillStyle = shape.stroke
@@ -655,10 +797,20 @@ export function drawShapeGroups(
       }
       const lineWidth = shorterSidePixels(shape.thickness, frameWidth, frameHeight)
       if (lineWidth > 0 && shape.strokeOpacity > 0) {
+        // A dashed or dotted border (#688) is set up inside its own
+        // save/restore, so the pattern ends with it and a solid shape never
+        // touches the dash state at all.
+        const dash = lineDashFor(shape.lineStyle, lineWidth)
+        if (dash.length > 0) {
+          context.save()
+          context.setLineDash(dash)
+          context.lineCap = 'butt'
+        }
         context.globalAlpha = shape.strokeOpacity * opacity
         context.strokeStyle = shape.stroke
         context.lineWidth = lineWidth
         context.stroke()
+        if (dash.length > 0) context.restore()
       }
     }
   }

@@ -71,6 +71,31 @@ describe('Arrows in shape groups (#684)', () => {
   })
 })
 
+describe('Line styles in shape groups (#688)', () => {
+  it('every shape starts solid; Line sets dashed or dotted as one undoable edit, and a new shape takes it', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    const ellipse = shape('Ellipse', 1)
+    const line = (name: string) => screen.getByRole('combobox', { name: `Line style of ${name}` })
+    expect(line(ellipse)).toHaveValue('solid')
+    expect(within(line(ellipse)).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Solid',
+      'Dashed',
+      'Dotted',
+    ])
+    await userEvent.selectOptions(line(ellipse), 'dashed')
+    expect(line(ellipse)).toHaveValue('dashed')
+    await userEvent.selectOptions(line(ellipse), 'dotted')
+    expect(line(ellipse)).toHaveValue('dotted')
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(line(ellipse)).toHaveValue('dashed')
+    // An arrow takes the last shape's style, its dash included: it dashes its shaft.
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    expect(line(shape('Arrow', 2))).toHaveValue('dashed')
+  })
+})
+
 describe('Shape-group row actions (#687)', () => {
   const field = (label: string, index = 1) =>
     screen.getByRole('spinbutton', { name: `${label} of ${group(index)} in seconds` })

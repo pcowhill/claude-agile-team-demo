@@ -79,6 +79,7 @@ import type {
   ArrowHeadSize,
   ArrowShape,
   BoxShape,
+  LineStyle,
   Shape,
   ShapeGroup,
   ShapeGroupSpec,
@@ -91,6 +92,8 @@ import {
   ARROW_HEADS,
   defaultShape,
   isInvisibleShape,
+  LINE_STYLE_LABELS,
+  LINE_STYLES,
   MAX_CORNER_RADIUS,
   MAX_SHAPE_THICKNESS,
   MIN_SHAPE_SIZE,
@@ -100,6 +103,7 @@ import {
   shapeGroupName,
   shorterSideFraction,
   shorterSidePixels,
+  withLineStyle,
 } from '../lib/shapes'
 import type { TextFontId } from '../lib/textOverlay'
 import {
@@ -659,6 +663,20 @@ function ShapeFields({
             onCommit={(px) => onChange({ thickness: Math.min(fromPx(px), MAX_SHAPE_THICKNESS) })}
             unit="px"
           />
+        </LabelledField>
+        {/* A box's border, an arrow's shaft (#688); heads stay solid. */}
+        <LabelledField text="Line">
+          <select
+            aria-label={`Line style of ${name}`}
+            value={shape.lineStyle ?? 'solid'}
+            onChange={(event) => onChange({ lineStyle: event.target.value as LineStyle })}
+          >
+            {LINE_STYLES.map((lineStyle) => (
+              <option key={lineStyle} value={lineStyle}>
+                {LINE_STYLE_LABELS[lineStyle]}
+              </option>
+            ))}
+          </select>
         </LabelledField>
         {shape.kind === 'arrow' ? (
           <>
@@ -3928,10 +3946,14 @@ export function Timeline({
                 onUpdateShapeGroup?.(group.id, { ...shapeGroupSpecOf(group), ...change })
               const setShape = (shapeIndex: number, change: ShapeChange) =>
                 set({
-                  shapes: group.shapes.map((shape, i) =>
-                    // The row offers only the shape's own kind's fields.
-                    i === shapeIndex ? ({ ...shape, ...change } as Shape) : shape,
-                  ),
+                  shapes: group.shapes.map((shape, i) => {
+                    if (i !== shapeIndex) return shape
+                    // The row offers only the shape's own kind's fields;
+                    // solid is stored as no key (#688).
+                    const { lineStyle, ...rest } = change
+                    const next = { ...shape, ...rest } as Shape
+                    return lineStyle === undefined ? next : withLineStyle(next, lineStyle)
+                  }),
                 })
               // A new shape takes the style of the group's last shape — the
               // fields' form of #681 §2's "the last shape you drew or edited".

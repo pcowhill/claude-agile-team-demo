@@ -36,8 +36,8 @@ import {
   rectSnapOffset,
 } from './frameEditor'
 import type { FrameRect, RectBounds, RectGesture, RectKeyStep } from './frameEditor'
-import { MIN_SHAPE_SIZE } from './shapes'
-import type { ArrowHeadSize, ArrowHeads, ArrowShape, BoxShape, Shape, ShapeKind, ShapeStyle } from './shapes'
+import { MIN_SHAPE_SIZE, withLineStyle } from './shapes'
+import type { ArrowHeadSize, ArrowHeads, ArrowShape, BoxShape, LineStyle, Shape, ShapeKind, ShapeStyle } from './shapes'
 
 /** What the tool strip offers: pick and edit, or draw one kind. */
 export type ShapeTool = 'select' | ShapeKind
@@ -590,8 +590,10 @@ export type StyleChange = Partial<ShapeStyle> & {
  * restyled without giving an ellipse a corner radius.
  */
 export function restyledShape(shape: Shape, change: StyleChange): Shape {
-  const { cornerRadius, heads, headSize, ...style } = change
-  const next = { ...shape, ...style } as Shape
+  const { cornerRadius, heads, headSize, lineStyle, ...style } = change
+  let next = { ...shape, ...style } as Shape
+  // Solid is stored as no key (#688).
+  if (lineStyle !== undefined) next = withLineStyle(next, lineStyle)
   if (next.kind === 'rectangle' && cornerRadius !== undefined) {
     if (cornerRadius > 0) next.cornerRadius = cornerRadius
     else delete next.cornerRadius
@@ -623,6 +625,8 @@ export interface SelectionStyle {
   stroke: Shared<string>
   strokeOpacity: Shared<number>
   thickness: Shared<number>
+  /** Every kind has one (#688): a box's border, an arrow's shaft. */
+  lineStyle: Shared<LineStyle>
   /** Undefined when the selection holds an arrow, which draws no fill. */
   fill?: Shared<string>
   fillOpacity?: Shared<number>
@@ -650,6 +654,7 @@ export function selectionStyle(selected: readonly Shape[]): SelectionStyle | nul
     stroke: shared(selected.map((shape) => shape.stroke)),
     strokeOpacity: shared(selected.map((shape) => shape.strokeOpacity)),
     thickness: shared(selected.map((shape) => shape.thickness)),
+    lineStyle: shared(selected.map((shape) => shape.lineStyle ?? 'solid')),
   }
   const boxes = selected.filter((shape): shape is BoxShape => shape.kind !== 'arrow')
   if (boxes.length === selected.length) {

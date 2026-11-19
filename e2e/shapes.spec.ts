@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { sampleExportedFrame } from './decodedFrame'
+import { sampleExportedFrame, sampleExportedGrid } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
@@ -325,6 +325,115 @@ test('an arrow draws its shaft and head in the border colour and stops at the ti
   expectColor(await samplePreviewShapes(page, ARROW_POINTS.shaft), BORDER, 45, 'a line still draws its shaft')
 })
 
+/**
+ * The line-style fixture (#688), all 16 px thick at 640×360:
+ * - a dashed rectangle, x 0.1–0.9 (64–576 px), y 0.1–0.3: its top border is
+ *   centred on y = 36;
+ * - a dotted rectangle with the same box at y 0.7–0.9: top border on y = 252;
+ * - a dashed arrow along y = 0.5 (180 px) from x 64 to its tip at 576. Its
+ *   medium head is 4.5 × 16 = 72 px long, so the shaft ends at x = 504.
+ */
+async function lineStyleFixture(page: Page): Promise<void> {
+  await blueSlate(page)
+  await chooseFromAddMenu(page, ADD_SHAPES)
+  await setField(page, `Start time of ${group()} in seconds`, '1.5')
+  await setField(page, `Duration of ${group()} in seconds`, '10')
+  await addShape(page, 1, 'Rectangle')
+  await addShape(page, 1, 'Rectangle')
+  await addShape(page, 1, 'Arrow')
+  await page.getByRole('button', { name: `Remove ${shape('Ellipse', 1)}` }).click()
+  const boxes: [string, string, string][] = [
+    [shape('Rectangle', 1), '0.1', 'dashed'],
+    [shape('Rectangle', 2), '0.7', 'dotted'],
+  ]
+  for (const [name, top, lineStyle] of boxes) {
+    await setField(page, `Left edge of ${name} (0 to 1)`, '0.1')
+    await setField(page, `Top edge of ${name} (0 to 1)`, top)
+    await setField(page, `Width of ${name} (fraction of frame width)`, '0.8')
+    await setField(page, `Height of ${name} (fraction of frame height)`, '0.2')
+    await setField(page, `Border thickness of ${name} in pixels`, '16')
+    await page.getByRole('combobox', { name: `Line style of ${name}` }).selectOption(lineStyle)
+  }
+  const arrow = shape('Arrow', 3)
+  await setField(page, `Tail x of ${arrow} (0 to 1)`, '0.1')
+  await setField(page, `Tail y of ${arrow} (0 to 1)`, '0.5')
+  await setField(page, `Tip x of ${arrow} (0 to 1)`, '0.9')
+  await setField(page, `Tip y of ${arrow} (0 to 1)`, '0.5')
+  await setField(page, `Border thickness of ${arrow} in pixels`, '16')
+  await page.getByRole('combobox', { name: `Line style of ${arrow}` }).selectOption('dashed')
+}
+
+/** A run of one class along a sampled row: border (`true`) or slate. */
+interface Run {
+  border: boolean
+  start: number
+  length: number
+}
+
+/** A row of 1 px cells classified by red, which the border has and the slate lacks. */
+function runsOf(cells: { r: number }[]): Run[] {
+  const runs: Run[] = []
+  cells.forEach((cell, x) => {
+    const border = cell.r > 0xe5 / 2
+    const last = runs[runs.length - 1]
+    if (last !== undefined && last.border === border) last.length += 1
+    else runs.push({ border, start: x, length: 1 })
+  })
+  return runs
+}
+
+test('a dashed or dotted border alternates border and slate along its edge, and a dashed arrow keeps a solid head (#688)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await lineStyleFixture(page)
+  const exported = await exportOnce(page)
+  const THICKNESS = 16
+  /** One row of 640 one-pixel cells, 4 px tall, centred on `y` px. */
+  const row = async (y: number) =>
+    runsOf(
+      (await sampleExportedGrid(page, exported, 0.5, { x: 0, y: (y - 2) / 360, width: 1, height: 4 / 360 }, 640, 1))
+        .cells[0],
+    )
+  // The runs between the corners: the first and last border runs meet the
+  // side borders, so only those between them have a known length.
+  const interior = (runs: Run[]) => {
+    const border = runs.filter((run) => run.border)
+    const first = runs.indexOf(border[0])
+    const last = runs.indexOf(border[border.length - 1])
+    return runs.slice(first + 1, last)
+  }
+  // Lossy video softens each edge of a run by a pixel or two, and the
+  // classification splits a softened edge at half the border's red, so a
+  // run may read up to ±5 px (0.3 of the thickness) from its drawn length.
+  const TOLERANCE = 5
+  const expectRuns = (runs: Run[], dash: number, gap: number, what: string) => {
+    const where = `${what}: ${JSON.stringify(runs.map((run) => `${run.border ? 'B' : '-'}${run.length}`))}`
+    expect(runs.filter((run) => run.border).length, where).toBeGreaterThanOrEqual(3)
+    expect(runs.filter((run) => !run.border).length, where).toBeGreaterThanOrEqual(3)
+    for (const run of runs) {
+      expect(Math.abs(run.length - (run.border ? dash : gap) * THICKNESS), where).toBeLessThanOrEqual(TOLERANCE)
+    }
+  }
+  const dashed = interior(await row(36))
+  const dotted = interior(await row(252))
+  // Dashes 3 thicknesses on 2 off (48/32 px); dots 1 on 1 (16/16 px).
+  expectRuns(dashed, 3, 2, 'the dashed top edge')
+  expectRuns(dotted, 1, 1, 'the dotted top edge')
+
+  // The arrow's axis: a dashed shaft from x 64, then the head, solid from
+  // its base at 504 to the tip at 576 — longer than any dash could be.
+  const axis = (await row(180)).filter((run) => run.start >= 60 && run.start < 600)
+  const where = JSON.stringify(axis.map((run) => `${run.border ? 'B' : '-'}${run.start}+${run.length}`))
+  const head = axis.filter((run) => run.border).pop()!
+  expect(Math.abs(head.start + head.length - 576), `the head ends at the tip: ${where}`).toBeLessThanOrEqual(TOLERANCE)
+  expect(head.length, `the head is solid for its 72 px: ${where}`).toBeGreaterThanOrEqual(72 - TOLERANCE)
+  const shaft = axis.filter((run) => run.start + run.length <= head.start)
+  expect(shaft.filter((run) => !run.border).length, `the shaft has gaps: ${where}`).toBeGreaterThanOrEqual(4)
+  expectRuns(shaft.slice(1, -1), 3, 2, 'the dashed shaft')
+})
+
 test('shapes draw below text, and the later-starting of two overlapping groups is on top (#683)', async ({
   page,
 }) => {
@@ -440,6 +549,12 @@ for (const width of [1280, 360]) {
     await expectWithin(row, timeline, { axis: 'x', what: 'the shape group row' })
     for (const name of [shape('Ellipse', 1), shape('Rectangle', 2), shape('Arrow', 3)]) {
       await expectWithin(page.getByRole('listitem', { name }), row, { axis: 'x', what: name })
+      // Each field on its own (#688 added Line): an item that overflows a
+      // wrapping row keeps its own box, so the row's box alone cannot see it.
+      await expectWithin(page.getByRole('combobox', { name: `Line style of ${name}` }), row, {
+        axis: 'x',
+        what: `the Line field of ${name}`,
+      })
     }
     // An arrow's end point (#684) is one item: its "Tail" label, x box and y
     // box share a line, so a narrow row never strands a y box away from its x.
