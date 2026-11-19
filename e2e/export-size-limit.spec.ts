@@ -198,7 +198,7 @@ for (const viewport of [
  * of limits in MB. Each limit's actual size is reported as an annotation
  * and on stdout, beside the unlimited export of the same timeline.
  */
-const measureLimits = (process.env.SIZE_LIMIT_MEASURE ?? '')
+const measureLimits = (process.env.SIZE_LIMIT_MEASURE ?? (process.env.CI ? '25,5' : ''))
   .split(',')
   .filter((value) => value.trim() !== '')
   .map(Number)
