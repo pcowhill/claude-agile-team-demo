@@ -166,15 +166,20 @@ test('Play trim plays from In and stops at Out; with Loop on it goes back to In 
   await dialog.getByRole('button', { name: '↻ Loop' }).click()
   await expect(dialog.getByRole('button', { name: '↻ Loop' })).toHaveAttribute('aria-pressed', 'true')
   await dialog.getByRole('button', { name: 'Play trim' }).click()
-  // Seen near Out, then back near In, while still playing.
-  await expect.poll(() => videoTime(dialog), { timeout: 5000 }).toBeGreaterThan(1.8)
+  // Seen near Out, then back near In, while still playing. Polled every
+  // 50 ms: the loop is about a second long and spends only its last ~0.2 s
+  // past 1.8, so the default back-off (1 s steps after the first second)
+  // can fall into step with it and sample nothing but the seek back to In —
+  // which Firefox did on every attempt in CI, with a PulseAudio sink
+  // holding each play at In for ~1.5 s (#721's review has the event log).
+  await expect.poll(() => videoTime(dialog), { timeout: 5000, intervals: [50] }).toBeGreaterThan(1.8)
   await expect
     .poll(
       () =>
         dialog
           .getByTestId('trim-video')
           .evaluate((video: HTMLVideoElement) => !video.paused && video.currentTime < 1.5),
-      { timeout: 5000 },
+      { timeout: 5000, intervals: [50] },
     )
     .toBe(true)
   await dialog.getByRole('button', { name: 'Pause' }).click()
