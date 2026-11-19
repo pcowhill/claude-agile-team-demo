@@ -170,6 +170,7 @@ jobs:
       # ~2¼ minutes waiting out a dead mirror before apt falls back and makes
       # progress), plus that 2-minute bound.
       - name: Install Playwright system dependencies (retry)
+        id: install-system-deps-retry
         # Both conditions: on the cache path the first attempt is skipped,
         # and a skipped step's outcome is not 'success' either.
         if: steps.deps-from-cache.outcome != 'success' && steps.install-system-deps.outcome != 'success'
@@ -218,12 +219,17 @@ jobs:
       # Fills the cache on a miss (#714): every package the network steps
       # installed, downloaded as .deb files at the versions installed. Only
       # once both installs succeeded, so a partial set is never saved; it
-      # costs a few seconds, on the one run per key that misses. A hit that
-      # failed to install is not re-saved (a key cannot be overwritten), so
-      # such a key keeps taking the network path until the image moves on.
+      # costs a few seconds, on the one run per key that misses. "Both"
+      # means install-deps (either attempt) and PulseAudio: the PulseAudio
+      # step runs under !cancelled() even after the retry has failed, and
+      # did succeed after one (run 44418008935), so its outcome alone would
+      # let a set without Playwright's libraries be saved — and every later
+      # hit would then skip install-deps on it. A hit that failed to install
+      # is not re-saved (a key cannot be overwritten), so such a key keeps
+      # taking the network path until the image moves on.
       - name: Collect system packages for the cache
         id: apt-collect
-        if: ${{ !cancelled() && steps.apt-cache.outputs.cache-hit != 'true' && steps.audio-output.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.apt-cache.outputs.cache-hit != 'true' && (steps.install-system-deps.outcome == 'success' || steps.install-system-deps-retry.outcome == 'success') && steps.audio-output.outcome == 'success' }}
         timeout-minutes: 2
         continue-on-error: true
         run: .github/scripts/apt-debs.sh collect "$RUNNER_TEMP/packages-before" ~/apt-debs
