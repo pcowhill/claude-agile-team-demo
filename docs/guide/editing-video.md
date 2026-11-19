@@ -22,7 +22,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 - **Opening it pauses the preview.** If the video, or a library clip you are [previewing](media-library.md#preview-a-clip), is playing when you press **Trim…**, it stops, so its sound does not play on under Play trim. Closing the window leaves it paused: press Play to carry on.
 - **The picture** is the source clip itself, with none of the entry's effects (colour, crop, zoom), so nothing hides what is at its edges. Under it, the playhead's time and the clip's length.
-- **The strip** is the whole clip, left to right, with its sound's waveform. The parts outside the two clamps are darkened.
+- **The strip** is the whole clip, left to right: a row of {{TRIM_FRAME_COUNT}} frames along the top, taken at even steps through the clip so you can see where it changes, and its sound's waveform under them. The parts outside the two clamps are darkened. The frames appear a moment after the window opens, and everything works before they do; opening the window again on the same clip shows them at once.
   - **The In clamp** `[` and **the Out clamp** `]` are dragged along the strip; the picture follows the clamp you drag, showing the frame the kept part will start or end on.
   - Each clamp is also a slider: Tab to it, then **←** and **→** move it by the nudge size and **Shift** by the jump size (both in [Settings](settings.md)); **Home** and **End** take it to its limit.
   - The clamps cannot cross: the kept part is never shorter than a tenth of a second.

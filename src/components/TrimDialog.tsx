@@ -15,6 +15,7 @@ import {
   timeAtStripFraction,
 } from '../lib/trim'
 import type { TrimRange } from '../lib/trim'
+import { trimFramesFor } from '../lib/trimFrames'
 import { AudioWaveform } from './AudioWaveform'
 import './dialog.css'
 import './TrimDialog.css'
@@ -39,6 +40,8 @@ interface TrimDialogProps {
   onOpen?: () => void
   /** Injectable for tests (jsdom has no Web Audio or blob fetch). */
   peaksFor?: Parameters<typeof AudioWaveform>[0]['peaksFor']
+  /** The strip's frame row (#708); injectable for tests, as `peaksFor` is. */
+  framesFor?: (url: string, duration: number) => Promise<(string | null)[]>
 }
 
 type Grip = 'in' | 'out' | 'playhead'
@@ -46,7 +49,8 @@ type Grip = 'in' | 'out' | 'playhead'
 /**
  * The Trim window (#707, from the approved design #703 for the customer's
  * #701, PowerPoint's *Trim Video*): the raw source clip at the top, the
- * whole clip as a strip under it with its waveform, an In and an Out clamp
+ * whole clip as a strip under it with a row of its frames (#708) over its
+ * waveform, an In and an Out clamp
  * to drag, and buttons that play only the kept part.
  *
  * **Nothing changes until Apply** (#703 question 2): the clamps are this
@@ -73,6 +77,7 @@ export function TrimDialog({
   onClose,
   onOpen,
   peaksFor,
+  framesFor = trimFramesFor,
 }: TrimDialogProps) {
   const { duration, url } = entry
   const headingId = useId()
@@ -99,6 +104,20 @@ export function TrimDialog({
     frameRef.current = null
   }, [])
   useEffect(() => stopTicking, [stopTicking])
+
+  // The strip's frames (#708), decoded in the background and cached per
+  // clip. Nothing waits for them: until they arrive the strip is its bar,
+  // and the clamps, playhead and buttons already work (#703 §5).
+  const [frames, setFrames] = useState<(string | null)[] | null>(null)
+  useEffect(() => {
+    let stale = false
+    void framesFor(url, duration).then((captured) => {
+      if (!stale) setFrames(captured)
+    })
+    return () => {
+      stale = true
+    }
+  }, [framesFor, url, duration])
 
   // Focus starts on the window itself, so Space plays at once rather than
   // pressing whichever button would otherwise hold the focus.
@@ -364,6 +383,17 @@ export function TrimDialog({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
+          {frames !== null && frames.some((frame) => frame !== null) && (
+            <div className="trim-strip-frames" data-testid="trim-frames" aria-hidden="true">
+              {frames.map((frame, index) =>
+                frame === null ? (
+                  <span key={index} className="trim-frame" />
+                ) : (
+                  <img key={index} className="trim-frame" src={frame} alt="" data-testid="trim-frame" />
+                ),
+              )}
+            </div>
+          )}
           <div className="trim-strip-waveform">
             <AudioWaveform
               url={url}
