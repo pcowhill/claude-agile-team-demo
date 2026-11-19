@@ -9,7 +9,9 @@ import {
   totalDuration,
   markersOf,
 } from './timeline'
-import { outputTimeAtSource, sourceTimeAtOutput } from './remap'
+import { outputTimeAtSource, remapPlaybackAt, sourceTimeAtOutput } from './remap'
+import type { VideoOverlay } from './videoOverlay'
+import { overlayOutputDuration } from './videoOverlay'
 
 /**
  * The second entry playing during a transition overlap: while the outgoing
@@ -309,4 +311,61 @@ export function audioTrackPlaybackAt(track: AudioTrack, sequenceTime: number): A
     return { shouldPlay: false, sourceTime: track.outPoint }
   }
   return { shouldPlay: true, sourceTime: track.inPoint + (sequenceTime - track.offset) }
+}
+
+/**
+ * Where an overlay stands at one timeline position (#700): the audio
+ * track's answer (`AudioTrackPlayback`), plus the rate its source advances
+ * at and — inside a pause — the plateau being held, both from the overlay's
+ * own speed segments and pauses.
+ */
+export interface VideoOverlayPlayback extends AudioTrackPlayback {
+  /**
+   * The playback rate the overlay's source advances at here: the speed
+   * segment's factor, 1 outside every segment (and outside the window), 0
+   * on a pause plateau (see `remapPlaybackAt`).
+   */
+  rate: number
+  /** True on a pause plateau: the element freezes on `sourceTime`. */
+  holding: boolean
+}
+
+/**
+ * Maps a timeline position to one overlay's playback state (#700) — the
+ * overlay's counterpart of `audioTrackPlaybackAt`, which overlays used
+ * structurally until they could carry remaps. The window is
+ * [offset, offset + overlayOutputDuration): half-open, as a track's is.
+ * Inside it the source instant is `remapPlaybackAt`'s, the rule a remapped
+ * entry plays by. With no remaps every field but the two new ones is
+ * exactly `audioTrackPlaybackAt`'s, so a remap-free overlay plays as it
+ * always did. Audio tracks keep `audioTrackPlaybackAt`: they carry no
+ * remaps, and that helper is deliberately left untouched.
+ */
+export function videoOverlayPlaybackAt(
+  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint' | 'remaps'>,
+  sequenceTime: number,
+): VideoOverlayPlayback {
+  const remaps = overlay.remaps
+  if (remaps === undefined || remaps.length === 0) {
+    const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay as AudioTrack, sequenceTime)
+    return { shouldPlay, sourceTime, rate: 1, holding: false }
+  }
+  const length = overlayOutputDuration(overlay)
+  if (sequenceTime < overlay.offset) {
+    return { shouldPlay: false, sourceTime: overlay.inPoint, rate: 1, holding: false }
+  }
+  if (sequenceTime >= overlay.offset + length) {
+    return { shouldPlay: false, sourceTime: overlay.outPoint, rate: 1, holding: false }
+  }
+  const played = remapPlaybackAt(
+    overlay.outPoint - overlay.inPoint,
+    remaps,
+    sequenceTime - overlay.offset,
+  )
+  return {
+    shouldPlay: true,
+    sourceTime: overlay.inPoint + played.sourceTime,
+    rate: played.rate,
+    holding: played.hold !== null,
+  }
 }

@@ -12,6 +12,8 @@ import type { OverlayBorder } from './overlayBorder'
 import { overlayBordersEqual } from './overlayBorder'
 import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
+import type { RemapSpec } from './remap'
+import { remappedDuration, remapSpecsEqual, sweptRemaps } from './remap'
 
 /**
  * Overlay video layers — picture-in-picture (#145): video clips composited
@@ -37,7 +39,8 @@ import type { ZoomSpec } from './timeline'
  *
  * Deliberately out of scope at first (#145): no transitions or time
  * remapping on overlays — those belong to base sequence entries only. Zooms
- * came later (#699), as the overlay's own `zooms` below.
+ * came later (#699), as the overlay's own `zooms` below, and speed segments
+ * and pauses later still (#700), as its own `remaps`.
  *
  * The overlay's field shape is a superset of AudioTrack's (id, clipId,
  * name, duration, url, offset, inPoint, outPoint), which is what lets the
@@ -177,6 +180,43 @@ export interface VideoOverlay {
    * windows, exactly as for an entry's zooms (#129).
    */
   zooms?: OverlayZoom[]
+  /**
+   * Speed segments and pauses on the overlay's own clock (#700), with the
+   * fields, defaults and non-overlap rule of a sequence entry's (#138):
+   * positions are seconds into the overlay's trimmed range, a pause's hold
+   * is output seconds. They change how long the overlay is on screen — its
+   * window is `offset + remappedDuration(trim, remaps)` — and which source
+   * instant shows at each moment of it (`videoOverlayPlaybackAt`). Held on
+   * the overlay, like its zooms, so removing or duplicating it takes them
+   * along. Absent means none, and a video overlay only: an image overlay
+   * has no time to remap, exactly as a still entry has none (#138).
+   * `clampVideoOverlay` keeps the list sorted with disjoint windows inside
+   * the trim, by the entries' sweep (`sweptRemaps`).
+   */
+  remaps?: OverlayRemap[]
+}
+
+/** One speed segment or pause on an overlay (#700): an entry's spec plus its handle. */
+export type OverlayRemap = RemapSpec & {
+  /** Unique within its overlay — what update and remove act on. */
+  id: string
+}
+
+/**
+ * How long the overlay is on screen (#700): its trimmed length, adjusted by
+ * its speed segments and pauses — `remappedDuration`, as for an entry. With
+ * no remaps it is exactly the trimmed length, so every remap-free overlay
+ * keeps its old window math. Remaps must be normalized, as any published
+ * state's are.
+ */
+export function overlayOutputDuration(
+  overlay: Pick<VideoOverlay, 'inPoint' | 'outPoint' | 'remaps'>,
+): number {
+  const trimmedLength = overlay.outPoint - overlay.inPoint
+  const remaps = overlay.remaps
+  return remaps === undefined || remaps.length === 0
+    ? trimmedLength
+    : remappedDuration(trimmedLength, remaps)
 }
 
 /** One zoom on an overlay (#699): a sequence zoom's spec plus its handle. */
@@ -432,9 +472,11 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
     // the invariant holds in state whatever an action or a file carried (the
     // validator and the parser refuse them by name first; this is the
     // backstop that keeps the model honest).
-    const stripped = IMAGE_OVERLAY_FORBIDDEN_FIELDS.some(
-      (field) => (overlay as unknown as Record<string, unknown>)[field] !== undefined,
-    )
+    const stripped =
+      overlay.remaps !== undefined ||
+      IMAGE_OVERLAY_FORBIDDEN_FIELDS.some(
+        (field) => (overlay as unknown as Record<string, unknown>)[field] !== undefined,
+      )
     if (
       !stripped &&
       offset === overlay.offset &&
@@ -451,14 +493,23 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
     for (const field of IMAGE_OVERLAY_FORBIDDEN_FIELDS) {
       delete (next as unknown as Record<string, unknown>)[field]
     }
+    // A still has no time to remap (#700), as a still entry has none.
+    delete next.remaps
     return next
   }
   const inPoint = clamp(overlay.inPoint, 0, overlay.duration)
   const outPoint = clamp(overlay.outPoint, 0, overlay.duration)
   const volume = overlay.volume === undefined ? undefined : clamp(overlay.volume, 0, 1)
   const trimmedLength = Math.max(0, outPoint - inPoint)
-  const clampedFadeIn = clamp(overlay.fadeIn ?? 0, 0, trimmedLength)
-  const clampedFadeOut = clamp(overlay.fadeOut ?? 0, 0, trimmedLength - clampedFadeIn)
+  // Speed segments and pauses (#700) clamp into the (possibly new) trim by
+  // the entries' sweep; the fades then ramp over the remapped window, as an
+  // entry's do over its output duration (#220).
+  const remaps =
+    overlay.remaps === undefined ? undefined : sweptRemaps(overlay.remaps, trimmedLength)
+  const outputLength =
+    remaps === undefined ? trimmedLength : remappedDuration(trimmedLength, remaps)
+  const clampedFadeIn = clamp(overlay.fadeIn ?? 0, 0, outputLength)
+  const clampedFadeOut = clamp(overlay.fadeOut ?? 0, 0, outputLength - clampedFadeIn)
   const fadeIn = clampedFadeIn === 0 ? undefined : clampedFadeIn
   const fadeOut = clampedFadeOut === 0 ? undefined : clampedFadeOut
   if (
@@ -471,11 +522,13 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
     height === overlay.height &&
     volume === overlay.volume &&
     fadeIn === overlay.fadeIn &&
-    fadeOut === overlay.fadeOut
+    fadeOut === overlay.fadeOut &&
+    remaps === overlay.remaps
   ) {
     return overlay
   }
   const next = { ...overlay, offset, inPoint, outPoint, x, y, width, height, volume }
+  if (remaps !== undefined) next.remaps = [...remaps]
   if (fadeIn === undefined) delete next.fadeIn
   else next.fadeIn = fadeIn
   if (fadeOut === undefined) delete next.fadeOut
@@ -506,6 +559,20 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     orientationsEqual(a.orientation, b.orientation) &&
     cropsEqual(a.crop, b.crop) &&
     shapeMasksEqual(a.shapeMask, b.shapeMask) &&
-    overlayBordersEqual(a.border, b.border)
+    overlayBordersEqual(a.border, b.border) &&
+    overlayRemapsEqual(a.remaps, b.remaps)
+  )
+}
+
+/** Whether two overlays' remap lists (#700) are the same effects, in order. */
+export function overlayRemapsEqual(
+  a: readonly OverlayRemap[] | undefined,
+  b: readonly OverlayRemap[] | undefined,
+): boolean {
+  const left = a ?? []
+  const right = b ?? []
+  return (
+    left.length === right.length &&
+    left.every((remap, index) => remap.id === right[index].id && remapSpecsEqual(remap, right[index]))
   )
 }

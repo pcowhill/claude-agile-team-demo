@@ -42,6 +42,7 @@ import {
   remapEnd,
   remappedDuration,
   remapsEqual,
+  remapSpecsEqual,
   remapStart,
 } from './remap'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
@@ -66,6 +67,7 @@ import { isCanvasPreset } from './frameSize'
 import type {
   ImageOverlayPlacement,
   OverlayPlacement,
+  OverlayRemap,
   OverlayZoom,
   VideoOverlay,
   VideoOverlayPlacement,
@@ -76,6 +78,7 @@ import {
   isValidImageOverlay,
   isValidImageOverlayPlacement,
   isValidVideoOverlayPlacement,
+  overlayOutputDuration,
   videoOverlaysEqual,
 } from './videoOverlay'
 
@@ -85,6 +88,7 @@ export type { TextOverlay, TextOverlaySpec } from './textOverlay'
 export type {
   ImageOverlayPlacement,
   OverlayPlacement,
+  OverlayRemap,
   OverlayZoom,
   VideoOverlay,
   VideoOverlayPlacement,
@@ -801,6 +805,15 @@ export type TimelineAction =
   | { type: 'video-overlay-zoom-added'; overlayId: string; zoom: OverlayZoom }
   | { type: 'video-overlay-zoom-updated'; overlayId: string; id: string; zoom: ZoomSpec }
   | { type: 'video-overlay-zoom-removed'; overlayId: string; id: string }
+  /**
+   * Speed segments and pauses on a video overlay (#700), the entry remap
+   * actions' counterparts: an add aimed at an image overlay, or one whose
+   * speed segment normalization collapses to nothing, is vetoed, and an
+   * update that clamps back to what is stored is a no-op.
+   */
+  | { type: 'video-overlay-remap-added'; overlayId: string; remap: OverlayRemap }
+  | { type: 'video-overlay-remap-updated'; overlayId: string; id: string; remap: RemapSpec }
+  | { type: 'video-overlay-remap-removed'; overlayId: string; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -2200,10 +2213,12 @@ function reduceTimelineCollections(
           const overlay = videoOverlays.find((candidate) => candidate.id === action.id)
           if (overlay === undefined) return state
           if (videoOverlays.some((existing) => existing.id === action.newId)) return state
+          // The copy starts where the original leaves the screen — its
+          // remapped length (#700), which is its trim when it has no remaps.
           const copy = {
             ...overlay,
             id: action.newId,
-            offset: overlay.offset + (overlay.outPoint - overlay.inPoint),
+            offset: overlay.offset + overlayOutputDuration(overlay),
           }
           return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, [...videoOverlays, copy])
         }
@@ -2851,6 +2866,61 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (remaining.length === 0) delete next.zooms
       else next.zooms = remaining
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'video-overlay-remap-added': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      // A still has no time to remap (#700), as a still entry has none.
+      if (isImageOverlay(overlay)) return state
+      const existing = overlay.remaps ?? []
+      // Ids are the handle updates and removals act on — never two alike.
+      if (existing.some((remap) => remap.id === action.remap.id)) return state
+      if (!isValidRemapSpec(action.remap)) return state
+      const overlays = [...videoOverlays]
+      overlays[index] = { ...overlay, remaps: [...existing, action.remap] }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].remaps?.find((remap) => remap.id === action.remap.id)
+      // No room left in the overlay's trim: veto, as `remap-added` does.
+      if (applied === undefined) return state
+      if (applied.kind === 'speed' && applied.start >= applied.end) return state
+      return next
+    }
+    case 'video-overlay-remap-updated': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const stored = overlay.remaps?.find((remap) => remap.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidRemapSpec(action.remap)) return state
+      const candidate: OverlayRemap = { ...action.remap, id: stored.id }
+      const overlays = [...videoOverlays]
+      overlays[index] = {
+        ...overlay,
+        remaps: (overlay.remaps ?? []).map((remap) => (remap.id === action.id ? candidate : remap)),
+      }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].remaps?.find((remap) => remap.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference
+      // (edits stop preview playback). The edited effect unchanged means
+      // every sweep input is unchanged, so no sibling moved either.
+      if (remapSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'video-overlay-remap-removed': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const remaining = (overlay.remaps ?? []).filter((remap) => remap.id !== action.id)
+      if (remaining.length === (overlay.remaps ?? []).length) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all, so a remap-free overlay saves as before.
+      const next = { ...overlay }
+      if (remaining.length === 0) delete next.remaps
+      else next.remaps = remaining
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

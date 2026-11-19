@@ -89,7 +89,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
  * lands on. Returns the same object when nothing changes, so no-op edits
  * are cheap to detect.
  */
-export function clampRemap(effect: RemapEffect, trimmedLength: number, floor = 0): RemapEffect {
+export function clampRemap<T extends RemapSpec>(effect: T, trimmedLength: number, floor = 0): T {
   if (effect.kind === 'pause') {
     const at = clamp(effect.at, Math.min(floor, trimmedLength), trimmedLength)
     return at === effect.at ? effect : { ...effect, at }
@@ -101,11 +101,40 @@ export function clampRemap(effect: RemapEffect, trimmedLength: number, floor = 0
 
 export function remapsEqual(a: RemapEffect, b: RemapEffect): boolean {
   if (a.id !== b.id || a.entryId !== b.entryId) return false
+  return remapSpecsEqual(a, b)
+}
+
+/**
+ * Whether two specs describe the same effect, field by field — the owner-free
+ * half of `remapsEqual`, which an overlay's remaps (#700, held on the overlay
+ * rather than keyed by `entryId`) compare with.
+ */
+export function remapSpecsEqual(a: RemapSpec, b: RemapSpec): boolean {
   if (a.kind === 'pause' && b.kind === 'pause') return a.at === b.at && a.hold === b.hold
   if (a.kind === 'speed' && b.kind === 'speed') {
     return a.start === b.start && a.end === b.end && a.factor === b.factor
   }
   return false
+}
+
+/**
+ * One owner's effects, sorted by window start and clamped in that order
+ * with the previous window's end as each one's floor — the sweep the
+ * entries' remaps run per entry (#138), and an overlay's per overlay
+ * (#700), so the two owners resolve overlaps by one rule. Returns the same
+ * array when nothing moved or reordered, so an unchanged owner keeps its
+ * reference.
+ */
+export function sweptRemaps<T extends RemapSpec>(effects: readonly T[], trimmedLength: number): readonly T[] {
+  // Array.prototype.sort is stable: equal starts keep their stored order.
+  const sorted = [...effects].sort((a, b) => remapStart(a) - remapStart(b))
+  let cursor = 0
+  const swept = sorted.map((effect) => {
+    const clamped = clampRemap(effect, trimmedLength, cursor)
+    cursor = remapEnd(clamped)
+    return clamped
+  })
+  return swept.every((effect, index) => effect === effects[index]) ? effects : swept
 }
 
 /**
@@ -303,7 +332,7 @@ export const DEFAULT_PAUSE_HOLD = 1
 
 /** The unoccupied source ranges between effect windows, in window order. */
 function freeGaps(
-  effects: readonly RemapEffect[],
+  effects: readonly RemapSpec[],
   trimmedLength: number,
 ): { start: number; length: number }[] {
   const sorted = [...effects].sort((a, b) => remapStart(a) - remapStart(b))
@@ -326,7 +355,7 @@ function freeGaps(
  * cover its whole trimmed range and the add affordance disables.
  */
 export function defaultSpeedFor(
-  effects: readonly RemapEffect[],
+  effects: readonly RemapSpec[],
   trimmedLength: number,
 ): SpeedRemapSpec | null {
   const gaps = freeGaps(effects, trimmedLength)
@@ -356,7 +385,7 @@ export function defaultSpeedFor(
  * or when segments cover the whole range and a pause already holds its end.
  */
 export function defaultPauseFor(
-  effects: readonly RemapEffect[],
+  effects: readonly RemapSpec[],
   trimmedLength: number,
 ): PauseRemapSpec | null {
   if (trimmedLength <= 0) return null

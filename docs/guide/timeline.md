@@ -119,9 +119,9 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 **Where to find it.** An expanded sequence entry or overlay, below its fields.
 
-**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry, or a **Zoom** to the overlay.
+**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry or video overlay, or a **Zoom** to an image overlay.
 
-**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the entry leave no room for another, and a still or slate offers Zoom alone, since its one duration is already its timing. An overlay offers Zoom alone. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
+**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the row leave no room for another, and a still, a slate or an image overlay offers Zoom alone, since its one duration is already its timing. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
 
 **Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 

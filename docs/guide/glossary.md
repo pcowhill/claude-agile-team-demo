@@ -86,7 +86,7 @@ A named point of the sequence, shown as a numbered tick under the seek bar and t
 
 ### Remap, speed segment and pause
 
-A remap changes how a clip's source time maps onto the video's time within one entry: a speed segment plays a range at a factor, a pause holds one frame for a while. See [Speed segments and pauses](editing-video.md#speed-segments-and-pauses).
+A remap changes how a clip's source time maps onto the video's time within one entry or video overlay: a speed segment plays a range at a factor, a pause holds one frame for a while. See [Speed segments and pauses](editing-video.md#speed-segments-and-pauses).
 
 ### Zoom, ramp and hold
 

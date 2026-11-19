@@ -44,7 +44,7 @@ import {
   MIN_SHAPE_SIZE,
 } from './shapes'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
-import type { OverlayZoom, VideoOverlay } from './videoOverlay'
+import type { OverlayRemap, OverlayZoom, VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
 import {
   isTextFontId,
@@ -130,7 +130,9 @@ import { isCanvasPreset } from './frameSize'
  *                                       { kind: 'rounded', radius },  // (#266)
  *                           zooms?: [{ id, start, rampIn, hold, rampOut,
  *                                      scale, centerX, centerY }], // (#699)
- *                           border?: { color, thickness } }]   // (#697)
+ *                           border?: { color, thickness },      // (#697)
+ *                           remaps?: [{ id, kind: "speed", start, end, factor } |
+ *                                     { id, kind: "pause", at, hold }] }] // (#700)
  *     }
  *   }
  *
@@ -286,7 +288,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 27
+export const PROJECT_SCHEMA_VERSION = 28
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -366,6 +368,13 @@ export const OVERLAY_ZOOMS_SCHEMA_VERSION = 26
  * refuses it by version; a border-free file keeps its version and its bytes.
  */
 export const OVERLAY_BORDERS_SCHEMA_VERSION = 27
+/**
+ * The version an overlay speed segment or pause forces (#700). An earlier
+ * build would ignore the key and play the overlay 1:1, at a different
+ * length, so a file carrying one refuses it by version; a file with no
+ * overlay remap keeps its version and its bytes.
+ */
+export const OVERLAY_REMAPS_SCHEMA_VERSION = 28
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -744,6 +753,10 @@ export async function serializeProject(
   const hasOverlayBorders = videoOverlaysOf(timeline).some(
     (overlay) => overlay.border !== undefined,
   )
+  // Written only while one exists (#700), as the overlay's zooms are.
+  const hasOverlayRemaps = videoOverlaysOf(timeline).some(
+    (overlay) => (overlay.remaps?.length ?? 0) > 0,
+  )
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
@@ -797,7 +810,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayBorders
+    schemaVersion: hasOverlayRemaps
+      ? OVERLAY_REMAPS_SCHEMA_VERSION
+      : hasOverlayBorders
       ? OVERLAY_BORDERS_SCHEMA_VERSION
       : hasOverlayZooms
       ? OVERLAY_ZOOMS_SCHEMA_VERSION
@@ -1076,7 +1091,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1139,6 +1154,24 @@ export async function serializeProject(
                           centerX,
                           centerY,
                         }),
+                      ),
+                    }),
+                // The overlay's speed segments and pauses (#700): an entry
+                // remap's fields without the entryId, since the overlay
+                // holds them; written only while any exist.
+                ...(remaps === undefined || remaps.length === 0
+                  ? {}
+                  : {
+                      remaps: remaps.map((remap) =>
+                        remap.kind === 'pause'
+                          ? { id: remap.id, kind: remap.kind, at: remap.at, hold: remap.hold }
+                          : {
+                              id: remap.id,
+                              kind: remap.kind,
+                              start: remap.start,
+                              end: remap.end,
+                              factor: remap.factor,
+                            },
                       ),
                     }),
               }),
@@ -1660,6 +1693,42 @@ function asOverlayZooms(value: unknown, path: string): OverlayZoom[] {
     if (ids.has(zoom.id)) throw new Error(`${itemPath}.id "${zoom.id}" is duplicated`)
     ids.add(zoom.id)
     return zoom
+  })
+}
+
+/**
+ * An overlay's speed segments and pauses (#700) as stored: each one an
+ * entry remap's fields and an id, held to the timeline remaps' checks — a
+ * factor and a hold above 0, a non-empty segment, non-negative positions —
+ * with ids unique within the overlay. Fitting them into the trim is
+ * open-time normalization's, as for an entry's.
+ */
+function asOverlayRemaps(value: unknown, path: string): OverlayRemap[] {
+  const ids = new Set<string>()
+  return asArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const raw = asRecord(item, itemPath)
+    const id = asString(raw.id, `${itemPath}.id`)
+    if (ids.has(id)) throw new Error(`${itemPath}.id "${id}" is duplicated`)
+    ids.add(id)
+    const kind = asString(raw.kind, `${itemPath}.kind`)
+    if (kind === 'pause') {
+      const at = asNonNegative(raw.at, `${itemPath}.at`)
+      const hold = asFinite(raw.hold, `${itemPath}.hold`)
+      if (hold <= 0) throw new Error(`${itemPath}.hold must be greater than 0`)
+      return { id, kind: 'pause', at, hold }
+    }
+    if (kind === 'speed') {
+      const start = asNonNegative(raw.start, `${itemPath}.start`)
+      const end = asFinite(raw.end, `${itemPath}.end`)
+      const factor = asFinite(raw.factor, `${itemPath}.factor`)
+      if (factor <= 0) throw new Error(`${itemPath}.factor must be greater than 0`)
+      if (start >= end) {
+        throw new Error(`${itemPath} source range is empty (start must be less than end)`)
+      }
+      return { id, kind: 'speed', start, end, factor }
+    }
+    throw new Error(`${itemPath}.kind "${kind}" is unknown`)
   })
 }
 
@@ -2415,6 +2484,16 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.zooms !== undefined) {
         const overlayZooms = asOverlayZooms(raw.zooms, `${path}.zooms`)
         if (overlayZooms.length > 0) overlay.zooms = overlayZooms
+      }
+      // The overlay's speed segments and pauses (#700). A still overlay has
+      // no time to remap, as a still entry has none: one carrying them
+      // could only come from a foreign writer.
+      if (raw.remaps !== undefined) {
+        if (overlay.kind === 'image') {
+          throw new Error(`${path}.remaps: time remapping applies to video overlays only`)
+        }
+        const overlayRemaps = asOverlayRemaps(raw.remaps, `${path}.remaps`)
+        if (overlayRemaps.length > 0) overlay.remaps = overlayRemaps
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)
