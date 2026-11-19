@@ -4,12 +4,14 @@ import {
   effectiveDuration,
   entryOutputDuration,
   isSplittablePoint,
+  isStillEntry,
   remapsForEntry,
   remapsOf,
   totalDuration,
   markersOf,
 } from './timeline'
 import { outputTimeAtSource, remapPlaybackAt, sourceTimeAtOutput } from './remap'
+import { MIN_TRIM_LENGTH, sourceTime as trimTime } from './trim'
 import type { VideoOverlay } from './videoOverlay'
 import { overlayOutputDuration } from './videoOverlay'
 
@@ -276,6 +278,56 @@ export function splitTargetAt(state: TimelineState, sequenceTime: number): Split
   const { entry, sourceTime } = location
   if (!isSplittablePoint(entry, sourceTime)) return null
   return { entryId: entry.id, atSourceTime: sourceTime }
+}
+
+/** The trim Q or W (#710) would apply: an `entry-trimmed`'s fields. */
+export interface PlayheadTrim {
+  entryId: string
+  /** Absolute source-clip seconds. */
+  inPoint: number
+  outPoint: number
+}
+
+/**
+ * Resolves Q / W at the playhead (#710) to the trim it performs, or null
+ * where the key does nothing. Q (`'start'`) moves the entry's In to the
+ * source instant under the playhead, so the entry now starts on that frame;
+ * W (`'end'`) moves its Out there. The desktop editors' trim-to-playhead.
+ *
+ * The playhead's output time maps to source through `locateInSequence`,
+ * the same mapping the preview plays and Split cuts by, so speed segments
+ * and pauses (#138) are accounted for: inside a pause the instant is the
+ * held frame. Null, as for Split (`splitTargetAt`):
+ *
+ * - on an empty timeline, over a still or slate (it has no source to trim);
+ * - inside a transition overlap, where two clips play and trimming the
+ *   outgoing one would re-clamp the transition;
+ * - on the entry's own edge — the instant *is* its In (or Out), so there
+ *   is nothing to cut;
+ * - where the kept part would be shorter than `MIN_TRIM_LENGTH`, the Trim
+ *   window's floor.
+ *
+ * The instant is kept to the millisecond, as the Trim window keeps its
+ * clamps and the fields show them (`trim.ts`), so a playhead stepped by
+ * 0.1 s trims at 4.05, not at 4.0500000000000007.
+ */
+export function playheadTrimAt(
+  state: TimelineState,
+  sequenceTime: number,
+  edge: 'start' | 'end',
+): PlayheadTrim | null {
+  const location = locateInSequence(state, sequenceTime)
+  if (location === null || location.transition !== undefined) return null
+  const { entry } = location
+  if (isStillEntry(entry)) return null
+  const at = trimTime(location.sourceTime, entry.duration)
+  if (!isSplittablePoint(entry, at)) return null
+  const trim =
+    edge === 'start'
+      ? { entryId: entry.id, inPoint: at, outPoint: entry.outPoint }
+      : { entryId: entry.id, inPoint: entry.inPoint, outPoint: at }
+  // The tolerance absorbs float noise: 4.1 - 4 is 0.0999999999999996.
+  return trim.outPoint - trim.inPoint < MIN_TRIM_LENGTH - 1e-9 ? null : trim
 }
 
 /** Where an audio track stands at one timeline position (#103). */

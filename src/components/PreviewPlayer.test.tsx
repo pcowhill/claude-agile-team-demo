@@ -1833,6 +1833,87 @@ describe('transport keyboard shortcuts (#203)', () => {
     pressOnWindow('i')
     pressOnWindow('o')
   })
+
+  it('Q and W trim the entry under the playhead to start / end there (#710)', () => {
+    const onTrimEntry = vi.fn()
+    render(<PreviewPlayer timeline={oneClip} onTrimEntry={onTrimEntry} />)
+    fireEvent.change(slider(), { target: { value: '1.5' } })
+    pressOnWindow('q')
+    expect(onTrimEntry).toHaveBeenLastCalledWith('e1', 1.5, 4)
+    // Uppercase is the same intent, as for I / O.
+    pressOnWindow('W', { shiftKey: true })
+    expect(onTrimEntry).toHaveBeenLastCalledWith('e1', 0, 1.5)
+    expect(onTrimEntry).toHaveBeenCalledTimes(2)
+    // On the entry's own edge there is nothing to trim.
+    pressOnWindow('Home')
+    pressOnWindow('q')
+    pressOnWindow('w')
+    expect(onTrimEntry).toHaveBeenCalledTimes(2)
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveTextContent(
+      'Trim the clip under the playhead to start / end there',
+    )
+  })
+
+  it('Q and W respect the transport guards: a field, a modal, a source preview, a still, no wiring (#710)', () => {
+    const onTrimEntry = vi.fn()
+    const clip: LibraryClip = { id: 'c9', name: 'audition.webm', duration: 3, url: 'blob:audition', kind: 'video' }
+    const { rerender } = render(<PreviewPlayer timeline={oneClip} onTrimEntry={onTrimEntry} />)
+    fireEvent.change(slider(), { target: { value: '1.5' } })
+
+    // Typed into a field: the field keeps its letter.
+    const input = document.createElement('input')
+    input.type = 'text'
+    document.body.appendChild(input)
+    try {
+      input.focus()
+      fireEvent.keyDown(input, { key: 'q' })
+      fireEvent.keyDown(input, { key: 'w' })
+    } finally {
+      input.remove()
+    }
+    expect(onTrimEntry).not.toHaveBeenCalled()
+
+    // Under a modal (the cheat sheet itself).
+    pressOnWindow('?', { shiftKey: true })
+    pressOnWindow('q')
+    pressOnWindow('w')
+    expect(onTrimEntry).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // While a library clip is previewed (#403): there is no sequence to trim.
+    rerender(
+      <PreviewPlayer timeline={oneClip} onTrimEntry={onTrimEntry} sourceClip={clip} onExitSourcePreview={() => {}} />,
+    )
+    pressOnWindow('q')
+    pressOnWindow('w')
+    expect(onTrimEntry).not.toHaveBeenCalled()
+
+    // Over a slate: a still has no source to trim.
+    const slate: TimelineState = {
+      entries: [
+        { id: 'sl1', clipId: '', name: 'Color slate', duration: 4, url: '', inPoint: 0, outPoint: 4, kind: 'slate', color: '#ff0000' },
+      ],
+    }
+    rerender(<PreviewPlayer timeline={slate} onTrimEntry={onTrimEntry} />)
+    fireEvent.change(slider(), { target: { value: '1.5' } })
+    pressOnWindow('q')
+    pressOnWindow('w')
+    expect(onTrimEntry).not.toHaveBeenCalled()
+
+    // The same position on a video entry would trim: the guards, not the
+    // place, held the keys back above.
+    rerender(<PreviewPlayer timeline={oneClip} onTrimEntry={onTrimEntry} />)
+    fireEvent.change(slider(), { target: { value: '1.5' } })
+    pressOnWindow('q')
+    expect(onTrimEntry).toHaveBeenCalledTimes(1)
+
+    // Without wiring the keys are harmless no-ops.
+    rerender(<PreviewPlayer timeline={oneClip} />)
+    pressOnWindow('q')
+    pressOnWindow('w')
+  })
 })
 
 describe('orientation (#232)', () => {
