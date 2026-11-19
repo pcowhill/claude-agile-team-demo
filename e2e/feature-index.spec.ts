@@ -317,6 +317,11 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     to: 'Arrow',
     why: 'as above — the shape editor\'s Arrow tool (#685)',
   },
+  {
+    from: 'Badge tool',
+    to: 'Badge',
+    why: 'as above — the shape editor\'s Badge tool (#689)',
+  },
   // The Trim window (#707): its controls read as glyphs or short words on
   // screen, and their accessible names say what each does.
   {
@@ -675,6 +680,13 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     .getByRole('menuitem', { name: 'Arrow', exact: true })
     .click()
   await expect(timeline.getByRole('listitem', { name: 'Arrow 3 of shape group at position 1' })).toBeVisible()
+  // And a numbered badge (#689), for its centre, size, number and colour fields.
+  await timeline.getByRole('button', { name: 'Add a shape to shape group at position 1' }).click()
+  await page
+    .getByRole('menu', { name: 'Add a shape to shape group at position 1' })
+    .getByRole('menuitem', { name: 'Badge', exact: true })
+    .click()
+  await expect(timeline.getByRole('listitem', { name: 'Badge 4 of shape group at position 1' })).toBeVisible()
 
   await record('the header', page.locator('header'))
   await record('the media library', library)
@@ -1054,13 +1066,14 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
 
   // A shape's fields name the shape within its group (#683), e.g.
   // "Border colour of Ellipse 1 of shape group at position 1"; the walk adds
-  // an arrow third (#684).
+  // an arrow third (#684) and a badge fourth (#689).
   const shapeNames = positions
     .filter((position) => position.startsWith('shape group'))
     .flatMap((position) => [
       `Ellipse 1 of ${position}`,
       `Rectangle 2 of ${position}`,
       `Arrow 3 of ${position}`,
+      `Badge 4 of ${position}`,
     ])
   const elementNames = [...shapeNames, ...positions, 'clip.webm', 'picture.png', 'tone.wav']
   const wanted = new Map<string, string>()

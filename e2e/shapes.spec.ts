@@ -42,7 +42,7 @@ async function setField(page: Page, name: string, value: string): Promise<void> 
   await expect(field).toHaveValue(value)
 }
 
-async function addShape(page: Page, groupIndex: number, kind: 'Rectangle' | 'Ellipse' | 'Arrow') {
+async function addShape(page: Page, groupIndex: number, kind: 'Rectangle' | 'Ellipse' | 'Arrow' | 'Badge') {
   await page.getByRole('button', { name: `Add a shape to ${group(groupIndex)}` }).click()
   await page.getByRole('menuitem', { name: kind, exact: true }).click()
 }
@@ -498,6 +498,125 @@ test('shapes draw below text, and the later-starting of two overlapping groups i
   ).toBeGreaterThan(25)
 })
 
+/**
+ * The badge fixture (#689): one badge alone in a group shown from 1.5 s,
+ * centred on the 640×360 frame, 120 px across (radius 60), showing 7 in
+ * white on the default red disc.
+ */
+async function badgeFixture(page: Page): Promise<void> {
+  await blueSlate(page)
+  await chooseFromAddMenu(page, ADD_SHAPES)
+  await setField(page, `Start time of ${group()} in seconds`, '1.5')
+  await setField(page, `Duration of ${group()} in seconds`, '10')
+  await addShape(page, 1, 'Badge')
+  await page.getByRole('button', { name: `Remove ${shape('Ellipse', 1)}` }).click()
+  const badge = shape('Badge', 1)
+  await setField(page, `Centre X of ${badge} (0 to 1)`, '0.5')
+  await setField(page, `Centre Y of ${badge} (0 to 1)`, '0.5')
+  await setField(page, `Diameter of ${badge} in pixels`, '120')
+  await setField(page, `Number of ${badge}`, '7')
+}
+
+/**
+ * Where the digit's stroke is thickest, from a **rendered reference**
+ * rather than a guess (#689's criterion): the same digit, in the same font
+ * string at the same size and place as the badge draws it, set alone on a
+ * 640×360 canvas in this browser, which resolves the font stack to the same
+ * face the export does. Returns the pixel whose surrounding square of fully
+ * inked pixels is largest — the middle of the stroke — and that square's
+ * half-side, so a sample there stays on the digit.
+ */
+async function digitInterior(page: Page): Promise<{ x: number; y: number; reach: number }> {
+  return await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 360
+    const context = canvas.getContext('2d')!
+    // badgeFont(72) in src/lib/shapes.ts: one digit is 0.6 of the 120 px
+    // diameter, on the alphabetic baseline BADGE_DIGIT_DROP (0.358) of the
+    // font size below the centre.
+    context.font = '700 72px Arial, Helvetica, sans-serif'
+    context.textAlign = 'center'
+    context.textBaseline = 'alphabetic'
+    context.fillStyle = '#ffffff'
+    context.fillText('7', 320, 180 + 72 * 0.358)
+    const alpha = context.getImageData(0, 0, 640, 360).data
+    const inked = (x: number, y: number) => alpha[(y * 640 + x) * 4 + 3] === 255
+    let best = { x: 0, y: 0, reach: -1 }
+    for (let y = 120; y < 240; y++) {
+      for (let x = 260; x < 380; x++) {
+        let reach = 0
+        grow: while (reach < 12) {
+          const next = reach + 1
+          for (let dy = -next; dy <= next; dy++) {
+            for (let dx = -next; dx <= next; dx++) {
+              if (!inked(x + dx, y + dy)) break grow
+            }
+          }
+          reach = next
+        }
+        if (inked(x, y) && reach > best.reach) best = { x, y, reach }
+      }
+    }
+    return best
+  })
+}
+
+test('an exported badge shows its fill at the disc edge and its number colour inside the digit (#689)', async ({
+  page,
+  browserName,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await badgeFixture(page)
+  const interior = await digitInterior(page)
+  // A bold 72 px digit's stroke is several pixels wide in every engine.
+  expect(interior.reach, `the reference digit's widest point: ${JSON.stringify(interior)}`).toBeGreaterThanOrEqual(2)
+
+  const exported = await exportOnce(page)
+  // 0.5 s from the end of the 3 s slate: 2.5 s, inside the group's window.
+  // Just inside the disc's left edge (x 260–380), level with its centre and
+  // clear of the digit, which sits within x 300–340.
+  const edge = await sampleExportedFrame(page, exported, 0.5, {
+    x: 264 / 640,
+    y: 176 / 360,
+    width: 6 / 640,
+    height: 8 / 360,
+  })
+  expectColor(edge, BORDER, 45, "export, just inside the badge's edge (its fill)")
+  // A 3×3 square at the reference's thickest point of the digit.
+  const digit = await sampleExportedFrame(page, exported, 0.5, {
+    x: (interior.x - 1) / 640,
+    y: (interior.y - 1) / 360,
+    width: 3 / 640,
+    height: 3 / 360,
+  })
+  expectColor(digit, { r: 255, g: 255, b: 255 }, 60, `export, inside the digit at ${interior.x}, ${interior.y}`)
+  // Outside the disc, the slate.
+  const outside = await sampleExportedFrame(page, exported, 0.5, {
+    x: 240 / 640,
+    y: 176 / 360,
+    width: 8 / 640,
+    height: 8 / 360,
+  })
+  expectColor(outside, SLATE, 30, 'export, just outside the badge')
+  // The readings, so each engine's CI log carries its own measurement.
+  const round = (rgb: Rgb) => [rgb.r, rgb.g, rgb.b].map((value) => Math.round(value)).join(',')
+  console.log(
+    `[${browserName}] badge: digit interior ${interior.x},${interior.y} (reach ${interior.reach}); ` +
+      `export edge ${round(edge)}, digit ${round(digit)}, outside ${round(outside)}`,
+  )
+
+  // The preview draws the same disc: its edge reads the fill.
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill('2.5')
+  await expect(page.getByTestId('preview-shapes')).toBeVisible()
+  await expect
+    .poll(async () => (await samplePreviewShapes(page, { x: 264 / 640, y: 176 / 360, width: 6 / 640, height: 8 / 360 })).r, {
+      message: "the preview draws the badge's disc",
+    })
+    .toBeGreaterThan(180)
+})
+
 test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('./')
@@ -532,22 +651,23 @@ test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
 })
 
 for (const width of [1280, 360]) {
-  test(`an expanded shape group stays inside the timeline at ${width}px (#683, #684)`, async ({
+  test(`an expanded shape group stays inside the timeline at ${width}px (#683, #684, #689)`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('./')
-    // Populated (development.md): a slate, a text row and a three-shape
+    // Populated (development.md): a slate, a text row and a four-shape
     // group with every kind's fields showing — the widest the row gets today.
     await blueSlate(page)
     await chooseFromAddMenu(page, ADD_TEXT)
     await chooseFromAddMenu(page, ADD_SHAPES)
     await addShape(page, 1, 'Rectangle')
     await addShape(page, 1, 'Arrow')
+    await addShape(page, 1, 'Badge')
     const row = page.getByRole('list', { name: 'Shape groups' }).locator('> li').first()
     const timeline = page.getByRole('region', { name: 'Timeline' })
     await expectWithin(row, timeline, { axis: 'x', what: 'the shape group row' })
-    for (const name of [shape('Ellipse', 1), shape('Rectangle', 2), shape('Arrow', 3)]) {
+    for (const name of [shape('Ellipse', 1), shape('Rectangle', 2), shape('Arrow', 3), shape('Badge', 4)]) {
       await expectWithin(page.getByRole('listitem', { name }), row, { axis: 'x', what: name })
       // Each field on its own (#688 added Line): an item that overflows a
       // wrapping row keeps its own box, so the row's box alone cannot see it.
@@ -569,6 +689,23 @@ for (const width of [1280, 360]) {
         }),
       )
       expect(Math.abs(tops[0] - tops[1]), `${end} x and y on one line at ${width}px`).toBeLessThanOrEqual(2)
+    }
+    // A badge's centre (#689) is one item in the same way, and its Number
+    // colour swatch stays inside the row.
+    const badge = shape('Badge', 4)
+    const centreTops = await Promise.all(
+      ['X', 'Y'].map(async (axis) => {
+        const box = await page.getByRole('spinbutton', { name: `Centre ${axis} of ${badge} (0 to 1)` }).boundingBox()
+        return box!.y
+      }),
+    )
+    expect(Math.abs(centreTops[0] - centreTops[1]), `Centre X and Y on one line at ${width}px`).toBeLessThanOrEqual(2)
+    for (const control of [
+      page.getByRole('spinbutton', { name: `Diameter of ${badge} in pixels` }),
+      page.getByRole('spinbutton', { name: `Number of ${badge}` }),
+      page.getByLabel(`Number colour of ${badge}`),
+    ]) {
+      await expectWithin(control, row, { axis: 'x', what: `a field of ${badge}` })
     }
     await expectNoHorizontalScroll(page, 'with an expanded shape group')
     if (width === 1280) {

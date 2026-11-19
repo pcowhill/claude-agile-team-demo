@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { ArrowShape, BoxShape, Shape, ShapeContext, ShapeGroup } from './shapes'
+import type { ArrowShape, BadgeShape, BoxShape, Shape, ShapeContext, ShapeGroup } from './shapes'
 import {
   activeShapeGroups,
+  badgeFont,
+  BADGE_ADD_STEP,
+  BADGE_DIGIT_DROP,
+  BADGE_DIGIT_SCALE,
+  DEFAULT_BADGE_SIZE,
+  DEFAULT_BADGE_STYLE,
+  isValidShape,
+  MAX_BADGE_NUMBER,
+  newBadge,
+  nextBadgeNumber,
+  styleForNextShape,
   arrowHeadLength,
   arrowOutline,
   arrowPieces,
@@ -677,6 +688,136 @@ describe('shape groups: dashed and dotted lines (#688)', () => {
     expect(
       isValidShapeGroupSpec(group({ shapes: [{ ...box(), lineStyle: 'wavy' as unknown as 'dashed' }] })),
     ).toBe(false)
+  })
+})
+
+describe('shape groups: numbered badges (#689)', () => {
+  const badges = (shapes: readonly Shape[]) =>
+    shapes.filter((shape): shape is BadgeShape => shape.kind === 'badge')
+
+  it('numbers three new badges 1, 2, 3; with badge 2 deleted, the next is 4', () => {
+    let shapes: Shape[] = [ellipse()]
+    for (const id of ['b1', 'b2', 'b3']) shapes = [...shapes, newBadge(id, shapes)]
+    expect(badges(shapes).map((badge) => badge.number)).toEqual([1, 2, 3])
+    // Every step is a group the reducer accepts.
+    expect(isValidShapeGroupSpec({ offset: 0, duration: 3, shapes })).toBe(true)
+    shapes = shapes.filter((shape) => shape.id !== 'b2')
+    expect(badges(shapes).map((badge) => badge.number)).toEqual([1, 3])
+    shapes = [...shapes, newBadge('b4', shapes)]
+    expect(badges(shapes).map((badge) => badge.number)).toEqual([1, 3, 4])
+  })
+
+  it('counts from the highest number, an edited one included, and stops at the ceiling', () => {
+    const edited: BadgeShape = { ...newBadge('b1', []), number: 7 }
+    expect(nextBadgeNumber([edited])).toBe(8)
+    expect(nextBadgeNumber([ellipse()])).toBe(1)
+    expect(nextBadgeNumber([{ ...edited, number: MAX_BADGE_NUMBER }])).toBe(MAX_BADGE_NUMBER)
+  })
+
+  it("starts as a solid red disc with a white number, whatever the group's other shapes look like", () => {
+    const first = newBadge('b1', [{ ...ellipse(), fillOpacity: 0, stroke: '#0000ff' }])
+    expect(first).toMatchObject({ ...DEFAULT_BADGE_STYLE, size: DEFAULT_BADGE_SIZE, number: 1 })
+    expect(first.fill).toBe('#e53935')
+    expect(first.fillOpacity).toBe(1)
+    expect({ x: first.centerX, y: first.centerY }).toEqual({ x: 0.5, y: 0.5 })
+  })
+
+  it("takes the group's last badge's look, and lands a step to its right (or where clicked)", () => {
+    const styled: BadgeShape = {
+      ...newBadge('b1', []),
+      fill: '#ffeb3b',
+      numberColor: '#000000',
+      size: 0.12,
+      thickness: 0.004,
+    }
+    const next = newBadge('b2', [styled, ellipse()])
+    expect(next).toMatchObject({ fill: '#ffeb3b', numberColor: '#000000', size: 0.12, thickness: 0.004 })
+    expect(next.centerX).toBeCloseTo(styled.centerX + BADGE_ADD_STEP, 10)
+    expect(next.centerY).toBe(styled.centerY)
+    // At the right edge it wraps to the left, a step lower.
+    const wrapped = newBadge('b3', [{ ...styled, centerX: 0.97, centerY: 0.3 }])
+    expect({ x: wrapped.centerX, y: wrapped.centerY }).toEqual({ x: BADGE_ADD_STEP, y: 0.4 })
+    const clicked = newBadge('b4', [styled], { x: 0.123, y: 0.789 })
+    expect({ x: clicked.centerX, y: clicked.centerY }).toEqual({ x: 0.12, y: 0.79 })
+  })
+
+  it('is passed over when the next rectangle, ellipse or arrow takes a style', () => {
+    const red = { ...ellipse(), stroke: '#00ff00' }
+    expect(styleForNextShape([red, newBadge('b1', [red])])).toEqual(pickStyle(red))
+    expect(styleForNextShape([newBadge('b1', [])])).toEqual(pickStyle(DEFAULT_SHAPE_STYLE))
+  })
+
+  it('is valid only with a whole number 0 to 999, a legible size and its centre on the frame', () => {
+    const badge = newBadge('b1', [])
+    expect(isValidShape(badge)).toBe(true)
+    expect(isValidShape({ ...badge, number: 0 })).toBe(true)
+    for (const change of [
+      { number: 2.5 },
+      { number: -1 },
+      { number: MAX_BADGE_NUMBER + 1 },
+      { size: 0.01 },
+      { size: 0.6 },
+      { centerX: -0.1 },
+      { numberColor: 'white' },
+    ]) {
+      expect(isValidShape({ ...badge, ...change })).toBe(false)
+    }
+  })
+
+  it('is never invisible, since its number always draws, and names itself in the group label', () => {
+    expect(isInvisibleShape({ ...newBadge('b1', []), fillOpacity: 0, thickness: 0 })).toBe(false)
+    const shapes = [newBadge('b1', []), newBadge('b2', [newBadge('b1', [])]), ellipse()]
+    expect(shapeGroupLabel({ offset: 0, duration: 1, shapes })).toBe('2 badges + Ellipse')
+  })
+
+  it('fills the disc, rings it, then sets its number centred on top, all at frame pixels', () => {
+    const calls: string[] = []
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineJoin: 'miter',
+      lineCap: 'butt',
+      globalAlpha: 1,
+      font: '',
+      textAlign: 'start',
+      textBaseline: 'alphabetic',
+      save: () => calls.push('save'),
+      restore: () => calls.push('restore'),
+      beginPath: () => calls.push('beginPath'),
+      setLineDash: (dash: number[]) => calls.push(`dash ${dash.join(',')}`),
+      ellipse: (x: number, y: number, rx: number, ry: number) => calls.push(`ellipse ${x} ${y} ${rx} ${ry}`),
+      fill() {
+        calls.push(`fill ${this.fillStyle} ${this.globalAlpha.toFixed(3)}`)
+      },
+      stroke() {
+        calls.push(`stroke ${this.strokeStyle} ${this.globalAlpha.toFixed(3)} ${this.lineWidth.toFixed(2)}`)
+      },
+      fillText(text: string, x: number, y: number) {
+        calls.push(`text ${text} ${x} ${y} ${this.fillStyle} ${this.globalAlpha.toFixed(3)} ${this.font} ${this.textAlign} ${this.textBaseline}`)
+      },
+    }
+    const badge: BadgeShape = {
+      ...newBadge('b1', []),
+      centerX: 0.25,
+      centerY: 0.5,
+      size: 0.1,
+      number: 12,
+      thickness: 0.01,
+    }
+    const faded = group({ offset: 0, duration: 4, fadeIn: 2, shapes: [badge] })
+    drawShapeGroups(context as unknown as ShapeContext, [faded], 1, 1000, 400)
+    const draws = calls.filter((call) => !['save', 'restore', 'beginPath'].includes(call))
+    // Shorter side 400 px: a 40 px disc (radius 20), a 4 px ring, two digits at half the diameter.
+    const fontPx = 40 * BADGE_DIGIT_SCALE[2]
+    expect(draws).toEqual([
+      'ellipse 250 200 20 20',
+      'fill #e53935 0.500',
+      'stroke #ffffff 0.500 4.00',
+      // Set on the alphabetic baseline, dropped by BADGE_DIGIT_DROP of the font size.
+      `text 12 250 ${200 + fontPx * BADGE_DIGIT_DROP} #ffffff 0.500 ${badgeFont(fontPx)} center alphabetic`,
+    ])
+    expect(badgeFont(fontPx)).toBe('700 20px Arial, Helvetica, sans-serif')
   })
 })
 

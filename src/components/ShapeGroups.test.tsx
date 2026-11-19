@@ -182,6 +182,73 @@ describe('Shape-group row actions (#687)', () => {
   })
 })
 
+describe('Numbered badges in shape groups (#689)', () => {
+  const addBadge = async () => {
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Badge' }))
+  }
+
+  it('+ Add shape › Badge adds badges numbered 1, 2, 3 with centre, size, number and colour fields', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await addBadge()
+    await addBadge()
+    await addBadge()
+    const numbers = [2, 3, 4].map((index) =>
+      screen.getByRole('spinbutton', { name: `Number of ${shape('Badge', index)}` }),
+    )
+    expect(numbers.map((field) => (field as HTMLInputElement).valueAsNumber)).toEqual([1, 2, 3])
+    const list = screen.getByRole('list', { name: 'Shape groups' })
+    expect(within(list).getByText('Ellipse + 3 badges', { selector: '.clip-name' })).toBeInTheDocument()
+    const first = shape('Badge', 2)
+    expect(screen.getByRole('spinbutton', { name: `Centre X of ${first} (0 to 1)` })).toHaveValue(0.5)
+    expect(screen.getByRole('spinbutton', { name: `Centre Y of ${first} (0 to 1)` })).toHaveValue(0.5)
+    // A step to the right of the badge before it, so they do not stack.
+    expect(
+      screen.getByRole('spinbutton', { name: `Centre X of ${shape('Badge', 3)} (0 to 1)` }),
+    ).toHaveValue(0.6)
+    // 0.08 of the 640×360 fallback frame's shorter side.
+    expect(screen.getByRole('spinbutton', { name: `Diameter of ${first} in pixels` })).toHaveValue(28.8)
+    // Its own look, not the ellipse's transparent centre.
+    expect(screen.getByLabelText(`Fill colour of ${first}`)).toHaveValue('#e53935')
+    expect(screen.getByRole('spinbutton', { name: `Fill opacity of ${first} (percent)` })).toHaveValue(100)
+    expect(screen.getByLabelText(`Number colour of ${first}`)).toHaveValue('#ffffff')
+    expect(screen.queryByRole('spinbutton', { name: `Left edge of ${first} (0 to 1)` })).toBeNull()
+    expect(within(screen.getByRole('listitem', { name: first })).queryByRole('note')).toBeNull()
+  })
+
+  it('removing badge 2 leaves 1 and 3, the next is 4, and a typed number is one undoable edit', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await addBadge()
+    await addBadge()
+    await addBadge()
+    await userEvent.click(screen.getByRole('button', { name: `Remove ${shape('Badge', 3)}` }))
+    await addBadge()
+    const numberOf = (index: number) =>
+      screen.getByRole('spinbutton', { name: `Number of ${shape('Badge', index)}` })
+    expect([2, 3, 4].map((index) => (numberOf(index) as HTMLInputElement).valueAsNumber)).toEqual([1, 3, 4])
+
+    await userEvent.clear(numberOf(2))
+    await userEvent.type(numberOf(2), '7')
+    await userEvent.tab()
+    expect(numberOf(2)).toHaveValue(7)
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(numberOf(2)).toHaveValue(1)
+  })
+
+  it('a new ellipse after a badge takes the earlier ellipse\'s style, not the solid disc', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await addBadge()
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Ellipse' }))
+    expect(
+      screen.getByRole('spinbutton', { name: `Fill opacity of ${shape('Ellipse', 3)} (percent)` }),
+    ).toHaveValue(0)
+  })
+})
+
 describe('Shapes section (#683)', () => {
   it('Add ▾ › Shape group adds one red, transparent-centred ellipse at the playhead for 3 s', async () => {
     render(<App />)

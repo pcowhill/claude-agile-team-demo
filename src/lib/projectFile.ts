@@ -39,8 +39,11 @@ import {
   LINE_STYLES,
   isShapeKind,
   isValidShape,
+  MAX_BADGE_NUMBER,
+  MAX_BADGE_SIZE,
   MAX_CORNER_RADIUS,
   MAX_SHAPE_THICKNESS,
+  MIN_BADGE_SIZE,
   MIN_SHAPE_SIZE,
 } from './shapes'
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
@@ -119,7 +122,12 @@ import { isCanvasPreset } from './frameSize'
  *                                    tipX, tipY, heads, headSize,
  *                                    stroke, strokeOpacity, thickness,
  *                                    fill, fillOpacity,
- *                                    lineStyle? }] }],           // (#684, #688)
+ *                                    lineStyle? }                // (#684, #688)
+ *                                | { id, kind: "badge", centerX, centerY,
+ *                                    size, number, numberColor,
+ *                                    stroke, strokeOpacity, thickness,
+ *                                    fill, fillOpacity,
+ *                                    lineStyle? }] }],           // (#689)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -292,7 +300,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 29
+export const PROJECT_SCHEMA_VERSION = 30
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -386,6 +394,13 @@ export const OVERLAY_REMAPS_SCHEMA_VERSION = 28
  * and its bytes.
  */
 export const OVERLAY_SHADOWS_SCHEMA_VERSION = 29
+/**
+ * The version a numbered badge in a shape group forces (#689). An earlier
+ * build would refuse the kind as unknown, so a file holding one refuses it
+ * by version instead, with the "newer version" message; a badge-free file
+ * keeps its version and its bytes.
+ */
+export const BADGE_SHAPES_SCHEMA_VERSION = 30
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -646,6 +661,18 @@ function serializeShape(shape: Shape): Record<string, unknown> {
       ? {}
       : { lineStyle: each.lineStyle }),
   })
+  if (shape.kind === 'badge') {
+    return {
+      id: shape.id,
+      kind: shape.kind,
+      centerX: shape.centerX,
+      centerY: shape.centerY,
+      size: shape.size,
+      number: shape.number,
+      numberColor: shape.numberColor,
+      ...style(shape),
+    }
+  }
   if (shape.kind === 'arrow') {
     return {
       id: shape.id,
@@ -751,6 +778,9 @@ export async function serializeProject(
   const hasArrowShapes = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => shape.kind === 'arrow'),
   )
+  const hasBadgeShapes = shapeGroupsOf(timeline).some((group) =>
+    group.shapes.some((shape) => shape.kind === 'badge'),
+  )
   // Written only when not solid (#688), so the key and the version move together.
   const hasLineStyles = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => (shape.lineStyle ?? 'solid') !== 'solid'),
@@ -824,7 +854,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayShadows
+    schemaVersion: hasBadgeShapes
+      ? BADGE_SHAPES_SCHEMA_VERSION
+      : hasOverlayShadows
       ? OVERLAY_SHADOWS_SCHEMA_VERSION
       : hasOverlayRemaps
       ? OVERLAY_REMAPS_SCHEMA_VERSION
@@ -2247,7 +2279,7 @@ function validateProject(document: Record<string, unknown>): Project {
     return marker
   })
 
-  // Shape groups (#683, schema version 23; arrows #684, 24): absent in files saved before
+  // Shape groups (#683, schema version 23; arrows #684, 24; badges #689, 30): absent in files saved before
   // them and in every shape-free file since. Each shape is checked field by
   // field so the refusal names what is wrong; ids are unique per file
   // (groups) and per group (shapes). Fades fitting the window is the
@@ -2297,7 +2329,20 @@ function validateProject(document: Record<string, unknown>): Project {
           if (lineStyle !== 'solid') style.lineStyle = lineStyle
         }
         let shape: Shape
-        if (kind === 'arrow') {
+        if (kind === 'badge') {
+          // Numbered step badges (#689): a centre, a diameter, a number and
+          // its colour.
+          shape = {
+            id: asString(shapeRaw.id, `${shapePath}.id`),
+            kind,
+            centerX: asFinite(shapeRaw.centerX, `${shapePath}.centerX`),
+            centerY: asFinite(shapeRaw.centerY, `${shapePath}.centerY`),
+            size: asFinite(shapeRaw.size, `${shapePath}.size`),
+            number: asFinite(shapeRaw.number, `${shapePath}.number`),
+            numberColor: asString(shapeRaw.numberColor, `${shapePath}.numberColor`),
+            ...style,
+          }
+        } else if (kind === 'arrow') {
           // Arrows (#684): a tail and a tip, and their heads.
           const heads = asString(shapeRaw.heads, `${shapePath}.heads`)
           if (!isArrowHeads(heads)) {
@@ -2339,7 +2384,9 @@ function validateProject(document: Record<string, unknown>): Project {
             `${shapePath} is not a valid shape: positions and opacities run 0 to 1, sizes ` +
               `${MIN_SHAPE_SIZE} to 1, an arrow's tail and tip at least ${MIN_SHAPE_SIZE} apart, ` +
               `thickness 0 to ${MAX_SHAPE_THICKNESS}, a corner radius ` +
-              `(rectangles only) 0 to ${MAX_CORNER_RADIUS}, and colours are lowercase #rrggbb`,
+              `(rectangles only) 0 to ${MAX_CORNER_RADIUS}, a badge's size ${MIN_BADGE_SIZE} ` +
+              `to ${MAX_BADGE_SIZE} and its number a whole number 0 to ${MAX_BADGE_NUMBER}, ` +
+              `and colours are lowercase #rrggbb`,
           )
         }
         if (shapeIds.has(shape.id)) throw new Error(`${shapePath}.id "${shape.id}" is duplicated`)

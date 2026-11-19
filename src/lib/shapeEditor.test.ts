@@ -24,9 +24,13 @@ import {
   shapesAfterKeyStep,
   withShapes,
   withoutShapes,
+  BADGE_SIZE_STEP,
+  movedBadge,
+  placedBadgeCenter,
+  shapeBounds,
 } from './shapeEditor'
-import { defaultShape, isValidShape } from './shapes'
-import type { ArrowShape, BoxShape } from './shapes'
+import { MAX_BADGE_SIZE, MIN_BADGE_SIZE, defaultShape, isValidShape, newBadge } from './shapes'
+import type { ArrowShape, BadgeShape, BoxShape } from './shapes'
 
 const WIDE = 16 / 9
 
@@ -312,6 +316,64 @@ describe('a selection of several shapes (#686)', () => {
       heads: 'mixed',
       headSize: 'medium',
     })
+  })
+})
+
+describe('placing and moving a badge (#689)', () => {
+  const badge = (overrides: Partial<BadgeShape> = {}): BadgeShape => ({
+    ...newBadge('b', []),
+    centerX: 0.27,
+    centerY: 0.62,
+    ...overrides,
+  })
+
+  it('puts a clicked badge where the pointer is, on the stored grid, snapping only near a guide', () => {
+    expect(placedBadgeCenter({ x: 0.2712, y: 0.6188 }, {})).toEqual({ x: 0.27, y: 0.62 })
+    // Within the snap tolerance of the frame's centre and a third, it lands on them...
+    expect(placedBadgeCenter({ x: 0.49, y: 0.345 }, {})).toEqual({ x: 0.5, y: 0.33 })
+    // ...unless Alt is held, and it never leaves the frame.
+    expect(placedBadgeCenter({ x: 0.49, y: 0.345 }, { altKey: true })).toEqual({ x: 0.49, y: 0.35 })
+    expect(placedBadgeCenter({ x: -0.3, y: 1.4 }, { altKey: true })).toEqual({ x: 0, y: 1 })
+  })
+
+  it('moves by its centre, kept on the frame, and stays a valid shape', () => {
+    const moved = movedBadge(badge(), 0.1, -0.05, { altKey: true })
+    expect({ x: moved.centerX, y: moved.centerY }).toEqual({ x: 0.37, y: 0.57 })
+    const pushed = movedBadge(badge(), 2, 2, { altKey: true })
+    expect({ x: pushed.centerX, y: pushed.centerY }).toEqual({ x: 1, y: 1 })
+    expect(isValidShape(pushed)).toBe(true)
+    // Its size and number never change by moving.
+    expect(moved).toMatchObject({ size: badge().size, number: badge().number })
+  })
+
+  it('takes arrow keys as a nudge and + / − as a diameter step within its limits', () => {
+    const nudged = shapeAfterKeyStep(badge(), { kind: 'move', dx: 0.01, dy: 0 }, WIDE) as BadgeShape
+    expect(nudged.centerX).toBe(0.28)
+    const grown = shapeAfterKeyStep(badge(), { kind: 'scale', delta: 1 }, WIDE) as BadgeShape
+    expect(grown.size).toBeCloseTo(badge().size + BADGE_SIZE_STEP, 10)
+    const smallest = badge({ size: MIN_BADGE_SIZE })
+    expect(shapeAfterKeyStep(smallest, { kind: 'scale', delta: -1 }, WIDE)).toBe(smallest)
+    const largest = badge({ size: MAX_BADGE_SIZE })
+    expect(shapeAfterKeyStep(largest, { kind: 'scale', delta: 1 }, WIDE)).toBe(largest)
+  })
+
+  it('moves with a selection by the same offset as a box beside it', () => {
+    const [box, moved] = movedShapes([rect(), badge()], 0.1, 0.1, { altKey: true })
+    expect((box as BoxShape).x).toBe(0.3)
+    expect(moved).toMatchObject({ centerX: 0.37, centerY: 0.72 })
+    expect(shapeBounds(badge())).toEqual({ x: 0.27, y: 0.62, width: 0, height: 0 })
+  })
+
+  it('shares the fill with boxes in the style bar, but neither corners nor heads', () => {
+    const read = selectionStyle([rect({ fill: '#e53935' }), badge()])
+    expect(read?.fill).toBe('#e53935')
+    expect(read?.fillOpacity).toBe('mixed')
+    expect(read?.cornerRadius).toBeUndefined()
+    expect(read?.heads).toBeUndefined()
+    // A restyle reaches a badge's disc and ring, and leaves its number alone.
+    const restyled = restyledShape(badge(), { fill: '#00ff00', thickness: 0.01 }) as BadgeShape
+    expect(restyled).toMatchObject({ fill: '#00ff00', thickness: 0.01, number: 1, numberColor: '#ffffff' })
+    expect(restyledShape(badge(), { cornerRadius: 0.1 })).not.toHaveProperty('cornerRadius')
   })
 })
 

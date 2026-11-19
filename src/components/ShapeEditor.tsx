@@ -18,7 +18,9 @@ import {
   drawnBox,
   duplicatedShapes,
   movedArrow,
+  movedBadge,
   movedShapes,
+  placedBadgeCenter,
   pointGuides,
   reorderedShapes,
   restyledShape,
@@ -45,11 +47,13 @@ import {
   activeShapeGroups,
   defaultShape,
   drawShapeGroups,
+  newBadge,
   pickStyle,
   shorterSideFraction,
   shorterSidePixels,
+  styleForNextShape,
 } from '../lib/shapes'
-import type { ArrowHeadSize, ArrowHeads, LineStyle, Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
+import type { ArrowHeadSize, ArrowHeads, BadgeShape, LineStyle, Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
 import { shapeGroupsOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
@@ -59,8 +63,8 @@ import './ShapeEditor.css'
  * The shape editor (#685 part 1, #686 part 2, from the approved design #681
  * §3 for the customer's #679): a group's shapes drawn on a still of the
  * frame they sit over, where a drag draws a rectangle, an ellipse or an
- * arrow, and shapes are selected, moved, resized, restyled, reordered,
- * deleted and duplicated. It answers the customer's main ask in #679, to
+ * arrow, a click places a numbered badge (#689), and shapes are selected,
+ * moved, resized, restyled, reordered, deleted and duplicated. It answers the customer's main ask in #679, to
  * build shapes "like in the *Adjust Visually* tools", straight onto the
  * picture.
  *
@@ -339,10 +343,13 @@ export function ShapeEditor({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [drag, setDrag] = useState<Drag | null>(null)
   // The style a new shape takes: the last shape drawn, edited or restyled
-  // here, and the group's last shape until then (#681 §2).
-  const [style, setStyle] = useState<ShapeStyle>(() =>
-    pickStyle(group.shapes[group.shapes.length - 1] ?? defaultShape('', 'ellipse')),
-  )
+  // here, and the group's last shape until then (#681 §2). Badges are
+  // passed over (#689): a new badge takes the last badge's look instead
+  // (`newBadge`), and its solid disc is not what the next ellipse wants.
+  const [style, setStyle] = useState<ShapeStyle>(() => styleForNextShape(group.shapes))
+  const keepStyle = (shape: Shape) => {
+    if (shape.kind !== 'badge') setStyle(pickStyle(shape))
+  }
   // A word on what the last key or button did, when it did something the
   // picture alone would not show (a refused Delete, a preset waiting).
   const [notice, setNotice] = useState<string | null>(null)
@@ -473,7 +480,14 @@ export function ShapeEditor({
       if (!event.shiftKey) select([])
       return
     }
-    setDrag({ kind: 'draw', pointerId: event.pointerId, tool, origin: toFraction(event), draft: null })
+    const origin = toFraction(event)
+    // The Badge tool (#689) places on the press itself: a click is a badge,
+    // and dragging before letting go moves it into place.
+    const draft =
+      tool === 'badge'
+        ? newBadge(newId(), group.shapes, placedBadgeCenter(origin, { altKey: event.altKey }))
+        : null
+    setDrag({ kind: 'draw', pointerId: event.pointerId, tool, origin, draft })
   }
 
   /**
@@ -492,6 +506,12 @@ export function ShapeEditor({
     const modifiers = { altKey: event.altKey, shiftKey: event.shiftKey }
     if (current.kind === 'draw') {
       let draft: Shape | null = null
+      if (current.tool === 'badge') {
+        // Follows the pointer from the press; never null, so a click commits.
+        if (current.draft?.kind !== 'badge') return current
+        const center = placedBadgeCenter(point, modifiers)
+        return { ...current, draft: { ...current.draft, centerX: center.x, centerY: center.y } }
+      }
       if (current.tool === 'arrow') {
         const ends = drawnArrow(current.origin, point, modifiers, aspect)
         if (ends !== null) {
@@ -518,7 +538,9 @@ export function ShapeEditor({
     }
     const start = current.start
     let live: Shape
-    if (start.kind === 'arrow') {
+    if (start.kind === 'badge') {
+      live = movedBadge(start, dx, dy, modifiers)
+    } else if (start.kind === 'arrow') {
       live =
         current.grip === 'tail' || current.grip === 'tip'
           ? arrowAfterEndDrag(start, current.grip, point, modifiers, aspect)
@@ -556,6 +578,7 @@ export function ShapeEditor({
       if (final.draft === null) return
       onCommit([...group.shapes, final.draft])
       select([final.draft.id])
+      keepStyle(final.draft)
       if (!sticky) setTool('select')
       return
     }
@@ -572,7 +595,7 @@ export function ShapeEditor({
     const next = withShape(group.shapes, final.live)
     if (next === null) return
     onCommit(next)
-    setStyle(pickStyle(final.live))
+    keepStyle(final.live)
   }
 
   /** Commits `next` when it is an edit; the selection is the caller's. */
@@ -650,7 +673,7 @@ export function ShapeEditor({
   const restyle = (change: StyleChange) => {
     if (selection.length === 0) return
     const restyled = selection.map((shape) => restyledShape(shape, change))
-    if (commit(withShapes(group.shapes, restyled))) setStyle(pickStyle(restyled[restyled.length - 1]))
+    if (commit(withShapes(group.shapes, restyled))) keepStyle(restyled[restyled.length - 1])
   }
   const rectangles = selection.filter((shape) => shape.kind === 'rectangle')
   const highlight = () => {
@@ -675,17 +698,22 @@ export function ShapeEditor({
   let size = { width: 0, height: 0 }
   const px = (value: number, axis: 'x' | 'y') =>
     Math.round(value * (axis === 'x' ? size.width : size.height) * 100) / 100
+  /** A badge's radius in laid-out pixels: half its diameter of the shorter side. */
+  const badgeRadius = (shape: BadgeShape) =>
+    Math.round(shorterSidePixels(shape.size, size.width, size.height) * 50) / 100
 
   const guides = (() => {
     if (drag === null) return { x: null, y: null }
     if (drag.kind === 'draw') {
       if (drag.draft === null) return { x: null, y: null }
+      if (drag.draft.kind === 'badge') return pointGuides({ x: drag.draft.centerX, y: drag.draft.centerY })
       return drag.draft.kind === 'arrow'
         ? pointGuides({ x: drag.draft.tipX, y: drag.draft.tipY })
         : rectGuides(shapeBounds(drag.draft))
     }
     if (!drag.moved) return { x: null, y: null }
     if (drag.kind === 'move-many') return rectGuides(selectionBounds(drag.lives))
+    if (drag.live.kind === 'badge') return pointGuides({ x: drag.live.centerX, y: drag.live.centerY })
     if (drag.live.kind === 'arrow' && (drag.grip === 'tail' || drag.grip === 'tip')) {
       return drag.grip === 'tail'
         ? pointGuides({ x: drag.live.tailX, y: drag.live.tailY })
@@ -695,6 +723,19 @@ export function ShapeEditor({
   })()
 
   const outline = (shape: Shape, key: string | number, className: string, testId: string) => {
+    if (shape.kind === 'badge') {
+      // Round in laid-out pixels, as the canvas draws it (#689).
+      return (
+        <circle
+          key={key}
+          className={className}
+          data-testid={testId}
+          cx={px(shape.centerX, 'x')}
+          cy={px(shape.centerY, 'y')}
+          r={badgeRadius(shape)}
+        />
+      )
+    }
     if (shape.kind === 'arrow') {
       return (
         <line
@@ -750,6 +791,9 @@ export function ShapeEditor({
 
   const boxHandles = (shape: Shape) => {
     if (shape.kind === 'arrow') return arrowEnds(shape, true)
+    // A badge has no handles (#689): it moves by its body, and + / − or its
+    // Size field resize it, so it can never be pulled out of round.
+    if (shape.kind === 'badge') return null
     const x = px(shape.x, 'x')
     const y = px(shape.y, 'y')
     const width = px(shape.width, 'x')
@@ -804,7 +848,9 @@ export function ShapeEditor({
   const guidance = showResult
     ? 'the finished frame at this moment, with the group faded and stacked as it will be. Turn Show result off to edit the shapes.'
     : drawing
-      ? `drag on the picture to draw ${tool === 'arrow' ? 'an arrow, tail to tip' : `a ${tool}, corner to corner`}.`
+      ? tool === 'badge'
+        ? 'click on the picture to place the next numbered badge; drag before letting go to move it.'
+        : `drag on the picture to draw ${tool === 'arrow' ? 'an arrow, tail to tip' : `a ${tool}, corner to corner`}.`
       : selection.length > 1
         ? `${selection.length} shapes selected: drag one to move them all, or restyle them together above.`
         : 'click a shape to select it, drag it to move it, or drag a handle to resize it.'
@@ -843,7 +889,9 @@ export function ShapeEditor({
             title={
               each === 'select'
                 ? 'Select: click a shape to select it, Shift-click to add one, then drag it or its handles'
-                : `${SHAPE_KIND_LABELS[each]}: drag on the picture to draw one. Double-click to keep the tool for several.`
+                : each === 'badge'
+                  ? 'Badge: click on the picture to place the next numbered badge. Double-click to keep the tool for several.'
+                  : `${SHAPE_KIND_LABELS[each]}: drag on the picture to draw one. Double-click to keep the tool for several.`
             }
             onClick={() => chooseTool(each, false)}
             onDoubleClick={() => chooseTool(each, true)}
@@ -1141,7 +1189,7 @@ export function ShapeEditor({
       </p>
       <p className="effect-editor-hint" id={hintId}>
         Choose Rectangle, Ellipse or Arrow and drag on the picture to draw; hold Shift for a square, a
-        circle or an arrow at 15° steps. With Select, click a shape, or Shift-click to add one to the
+        circle or an arrow at 15° steps. Choose Badge and click to place the next numbered badge. With Select, click a shape, or Shift-click to add one to the
         selection, then drag it or a handle; arrow keys nudge the selection, Shift for five times as
         far, and + and − resize it. Delete removes the selection and Ctrl+D (Cmd+D on a Mac)
         duplicates it. Alt while dragging ignores the guides.{' '}

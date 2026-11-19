@@ -1,8 +1,8 @@
 /**
  * Shape annotations (#683, from the approved design #681 for feedback #679):
- * rectangles, ellipses and arrows (#684) drawn on the output frame in timed **shape
- * groups**. A group shows for a window of sequence time and fades as a
- * whole, exactly as a text overlay does (#139/#177); its shapes appear and
+ * rectangles, ellipses, arrows (#684) and numbered badges (#689) drawn on the
+ * output frame in timed **shape groups**. A group shows for a window of
+ * sequence time and fades as a whole, exactly as a text overlay does (#139/#177); its shapes appear and
  * disappear together, which is what the customer asked for instead of
  * timing three circles by hand.
  *
@@ -18,14 +18,17 @@
  * cannot drift — the same idiom as `drawSpotlights`.
  */
 
+import { textFontStack } from './textOverlay'
+
 /**
  * The shapes this version draws: rectangles and ellipses (#683), defined by
- * a box, and arrows (#684), defined by a tail and a tip point.
+ * a box; arrows (#684), defined by a tail and a tip point; and numbered step
+ * badges (#689), defined by a centre and a diameter.
  */
-export const SHAPE_KINDS = ['rectangle', 'ellipse', 'arrow'] as const
+export const SHAPE_KINDS = ['rectangle', 'ellipse', 'arrow', 'badge'] as const
 export type ShapeKind = (typeof SHAPE_KINDS)[number]
 /** The kinds placed by a box (x, y, width, height). */
-export type BoxShapeKind = Exclude<ShapeKind, 'arrow'>
+export type BoxShapeKind = Exclude<ShapeKind, 'arrow' | 'badge'>
 
 export function isShapeKind(value: unknown): value is ShapeKind {
   return typeof value === 'string' && (SHAPE_KINDS as readonly string[]).includes(value)
@@ -36,6 +39,7 @@ export const SHAPE_KIND_LABELS: Record<ShapeKind, string> = {
   rectangle: 'Rectangle',
   ellipse: 'Ellipse',
   arrow: 'Arrow',
+  badge: 'Badge',
 }
 
 /**
@@ -201,10 +205,49 @@ export interface ArrowShape extends ShapeStyle {
   headSize: ArrowHeadSize
 }
 
-export type Shape = BoxShape | ArrowShape
+/**
+ * A numbered step badge (#689, extra A of #681): a filled circle with a
+ * number centred in it, for walking a viewer through a sequence of clicks.
+ *
+ * It is placed by its **centre**, in frame fractions, and sized by its
+ * **diameter** as a fraction of the frame's shorter side — the thickness
+ * rule — so it is round at every canvas preset and export size, which a box
+ * in frame fractions could not promise. It carries the common style: its
+ * fill is the disc, its border rings it, and the number is drawn in its own
+ * colour on top.
+ */
+export interface BadgeShape extends ShapeStyle {
+  id: string
+  kind: 'badge'
+  /** The centre's x, as a fraction of frame width. */
+  centerX: number
+  /** The centre's y, as a fraction of frame height. */
+  centerY: number
+  /** Diameter, as a fraction of the frame's shorter side. */
+  size: number
+  /** The number shown: a whole number from 0 to `MAX_BADGE_NUMBER`. */
+  number: number
+  /** The number's colour, lowercase #rrggbb. */
+  numberColor: string
+}
+
+export type Shape = BoxShape | ArrowShape | BadgeShape
 
 export function isArrow(shape: Shape): shape is ArrowShape {
   return shape.kind === 'arrow'
+}
+
+/** Whether a shape is placed by a box (a rectangle or an ellipse). */
+export function isBoxShape(shape: Shape): shape is BoxShape {
+  return shape.kind === 'rectangle' || shape.kind === 'ellipse'
+}
+
+/**
+ * Whether a shape's kind draws its fill (#689): a box's inside and a
+ * badge's disc do; an arrow is all border and never does (#684).
+ */
+export function drawsFill(kind: ShapeKind): boolean {
+  return kind !== 'arrow'
 }
 
 /** A shape group's editable fields: timing, fades and its shapes. */
@@ -239,6 +282,91 @@ export const MAX_CORNER_RADIUS = 0.5
 export const DEFAULT_SHAPE_GROUP_DURATION = 3
 
 /**
+ * A badge's smallest diameter, as a fraction of the frame's shorter side:
+ * about 22 px at 1080p and 7 px at 360p, below which no digit is legible.
+ */
+export const MIN_BADGE_SIZE = 0.02
+/** A badge's largest diameter: half the frame's shorter side. */
+export const MAX_BADGE_SIZE = 0.5
+/**
+ * A new badge's diameter (#689): about 86 px at 1080p and 29 px at 360p,
+ * the size of a mouse-click marker in a screen recording.
+ */
+export const DEFAULT_BADGE_SIZE = 0.08
+/** The highest number a badge shows: three digits still fit its disc. */
+export const MAX_BADGE_NUMBER = 999
+
+/**
+ * A badge's own look (#689): a solid red disc (`#E53935` at 100 %, the
+ * shapes' red), a white number, and no border until one is given — the
+ * border colour is white, so giving it a thickness rings the disc in white.
+ */
+export const DEFAULT_BADGE_STYLE: ShapeStyle & Pick<BadgeShape, 'numberColor'> = {
+  stroke: '#ffffff',
+  strokeOpacity: 1,
+  thickness: 0,
+  fill: '#e53935',
+  fillOpacity: 1,
+  numberColor: '#ffffff',
+}
+
+/**
+ * The number the next badge in a group takes (#689): one more than the
+ * highest badge already there, or 1 in a group without one. Deleting a
+ * badge renumbers nothing, so after 1, 2, 3 with 2 deleted the next is 4.
+ */
+export function nextBadgeNumber(shapes: readonly Shape[]): number {
+  let highest = 0
+  for (const shape of shapes) if (shape.kind === 'badge') highest = Math.max(highest, shape.number)
+  return Math.min(highest + 1, MAX_BADGE_NUMBER)
+}
+
+/** How far right of the group's last badge a badge added from the row lands. */
+export const BADGE_ADD_STEP = 0.1
+
+/**
+ * A new badge for a group (#689): the next number, and the look of the
+ * group's last badge (its style, size and number colour) or else the badge
+ * defaults — never the last rectangle's or arrow's style, whose transparent
+ * fill would leave a number floating with no disc behind it.
+ *
+ * It is centred at `center` when given (a click in the shape editor);
+ * otherwise `BADGE_ADD_STEP` right of the group's last badge, wrapping to
+ * the left a step lower at the frame's edge, or at the frame's centre for
+ * the group's first badge — so badges added from the row do not stack.
+ */
+export function newBadge(id: string, shapes: readonly Shape[], center?: { x: number; y: number }): BadgeShape {
+  const badges = shapes.filter((shape): shape is BadgeShape => shape.kind === 'badge')
+  const last = badges[badges.length - 1]
+  const base = defaultShape(id, 'badge')
+  const look =
+    last === undefined
+      ? {}
+      : { ...pickStyle(last), size: last.size, numberColor: last.numberColor }
+  let centerX = 0.5
+  let centerY = 0.5
+  if (center !== undefined) {
+    centerX = center.x
+    centerY = center.y
+  } else if (last !== undefined) {
+    centerX = last.centerX + BADGE_ADD_STEP
+    centerY = last.centerY
+    if (centerX > 1 - BADGE_ADD_STEP / 2) {
+      centerX = BADGE_ADD_STEP
+      centerY = last.centerY + BADGE_ADD_STEP > 1 ? BADGE_ADD_STEP : last.centerY + BADGE_ADD_STEP
+    }
+  }
+  const round = (value: number) => Math.round(clamp(value, 0, 1) * 100) / 100
+  return {
+    ...base,
+    ...look,
+    centerX: round(centerX),
+    centerY: round(centerY),
+    number: nextBadgeNumber(shapes),
+  }
+}
+
+/**
  * The first shape's style (#681 §2): a red border at full opacity, about
  * 6 px at 1080p, and a transparent centre — the customer's "red circle with
  * a transparent center". The fill colour is the same red, so raising its
@@ -252,8 +380,13 @@ export const DEFAULT_SHAPE_STYLE: ShapeStyle = {
   fillOpacity: 0,
 }
 
-/** A new shape of a kind, centred in the frame, in the given style. */
+/**
+ * A new shape of a kind, centred in the frame, in the given style. A badge
+ * ignores the style and takes the badge defaults, numbered 1; `newBadge` is
+ * what gives it a group's next number and last badge's look.
+ */
 export function defaultShape(id: string, kind: 'arrow', style?: ShapeStyle): ArrowShape
+export function defaultShape(id: string, kind: 'badge', style?: ShapeStyle): BadgeShape
 export function defaultShape(id: string, kind: BoxShapeKind, style?: ShapeStyle): BoxShape
 export function defaultShape(id: string, kind: ShapeKind, style?: ShapeStyle): Shape
 export function defaultShape(
@@ -261,6 +394,17 @@ export function defaultShape(
   kind: ShapeKind,
   style: ShapeStyle = DEFAULT_SHAPE_STYLE,
 ): Shape {
+  if (kind === 'badge') {
+    return {
+      id,
+      kind,
+      centerX: 0.5,
+      centerY: 0.5,
+      size: DEFAULT_BADGE_SIZE,
+      number: 1,
+      ...DEFAULT_BADGE_STYLE,
+    }
+  }
   if (kind === 'arrow') {
     // Across the middle of the frame, pointing right (#684).
     return {
@@ -298,6 +442,19 @@ export function defaultShapeGroup(id: string, shapeId: string, offset: number): 
   }
 }
 
+/**
+ * The style the next rectangle, ellipse or arrow in a group takes (#681 §2,
+ * "the last shape you drew or edited"): the group's last such shape's. A
+ * badge is passed over (#689): its solid disc would otherwise turn the next
+ * ellipse into a solid red blot over the very thing it is meant to circle.
+ */
+export function styleForNextShape(shapes: readonly Shape[]): ShapeStyle {
+  for (let index = shapes.length - 1; index >= 0; index -= 1) {
+    if (shapes[index].kind !== 'badge') return pickStyle(shapes[index])
+  }
+  return pickStyle(DEFAULT_SHAPE_STYLE)
+}
+
 export function pickStyle(style: ShapeStyle): ShapeStyle {
   const picked: ShapeStyle = {
     stroke: style.stroke,
@@ -332,6 +489,20 @@ function isValidStyle(style: ShapeStyle): boolean {
 export function isValidShape(shape: Shape): boolean {
   if (typeof shape.id !== 'string' || shape.id === '' || !isShapeKind(shape.kind)) return false
   if (!isValidStyle(shape)) return false
+  if (shape.kind === 'badge') {
+    return (
+      fraction(shape.centerX) &&
+      fraction(shape.centerY) &&
+      finite(shape.size) &&
+      shape.size >= MIN_BADGE_SIZE &&
+      shape.size <= MAX_BADGE_SIZE &&
+      Number.isInteger(shape.number) &&
+      shape.number >= 0 &&
+      shape.number <= MAX_BADGE_NUMBER &&
+      typeof shape.numberColor === 'string' &&
+      COLOR.test(shape.numberColor)
+    )
+  }
   if (shape.kind === 'arrow') {
     return (
       fraction(shape.tailX) &&
@@ -418,6 +589,17 @@ function stylesEqual(a: ShapeStyle, b: ShapeStyle): boolean {
 
 function shapesEqual(a: Shape, b: Shape): boolean {
   if (a.id !== b.id || !stylesEqual(a, b)) return false
+  if (a.kind === 'badge' || b.kind === 'badge') {
+    return (
+      a.kind === 'badge' &&
+      b.kind === 'badge' &&
+      a.centerX === b.centerX &&
+      a.centerY === b.centerY &&
+      a.size === b.size &&
+      a.number === b.number &&
+      a.numberColor === b.numberColor
+    )
+  }
   if (a.kind === 'arrow' || b.kind === 'arrow') {
     return (
       a.kind === 'arrow' &&
@@ -476,9 +658,11 @@ export function shapeGroupOpacityAt(group: ShapeGroupSpec, sequenceTime: number)
 /**
  * A shape that draws nothing (#681 §6): no visible border and no visible
  * fill. The fields allow it; the row explains it. An arrow draws only in
- * its border style, so its fill never makes it visible (#684).
+ * its border style, so its fill never makes it visible (#684). A badge
+ * always draws its number (#689), so it is never invisible.
  */
 export function isInvisibleShape(shape: ShapeStyle & { kind?: ShapeKind }): boolean {
+  if (shape.kind === 'badge') return false
   const borderVisible = shape.thickness > 0 && shape.strokeOpacity > 0
   const fillVisible = shape.kind !== 'arrow' && shape.fillOpacity > 0
   return !borderVisible && !fillVisible
@@ -554,6 +738,10 @@ export type ShapeContext = Pick<
   | 'lineCap'
   | 'setLineDash'
   | 'globalAlpha'
+  | 'fillText'
+  | 'font'
+  | 'textAlign'
+  | 'textBaseline'
 >
 
 /** A point in frame pixels. */
@@ -749,13 +937,95 @@ function drawBrokenArrow(
 }
 
 /**
+ * A badge's number size, as a fraction of its diameter, by how many digits
+ * it has (#689): one digit large, three small enough to sit inside the disc.
+ * Sized by count rather than measured, so every engine sets the same size.
+ */
+export const BADGE_DIGIT_SCALE: Record<1 | 2 | 3, number> = { 1: 0.6, 2: 0.5, 3: 0.38 }
+
+/**
+ * How far below a badge's centre its number's baseline sits, as a fraction
+ * of the number's font size (#689): half a digit's height in Arial and its
+ * metric twins (0.716 em), so the digits' own middle lands on the centre.
+ * Set on the alphabetic baseline, which every engine places alike, rather
+ * than `middle`, which centres the em box — digits drawn that way sit about
+ * 4 % of the disc high, and engines compute it differently.
+ */
+export const BADGE_DIGIT_DROP = 0.358
+
+/**
+ * The font a badge's number is set in (#689): bold, in the text overlays'
+ * sans-serif stack (`textFontStack('sans')`), at `px` pixels.
+ */
+export function badgeFont(px: number): string {
+  return `700 ${px}px ${textFontStack('sans')}`
+}
+
+/** A badge in frame pixels: its centre, radius, number size and number baseline. */
+export function badgeGeometry(shape: BadgeShape, frameWidth: number, frameHeight: number) {
+  const radius = shorterSidePixels(shape.size, frameWidth, frameHeight) / 2
+  const digits = Math.min(Math.max(String(shape.number).length, 1), 3) as 1 | 2 | 3
+  return {
+    cx: shape.centerX * frameWidth,
+    cy: shape.centerY * frameHeight,
+    radius,
+    fontPx: 2 * radius * BADGE_DIGIT_SCALE[digits],
+    baselineY: shape.centerY * frameHeight + 2 * radius * BADGE_DIGIT_SCALE[digits] * BADGE_DIGIT_DROP,
+  }
+}
+
+/**
+ * A badge (#689): its disc filled, its border stroked centred on the
+ * circle as a box shape's is, and its number centred on top, each at its
+ * own opacity times the group's fade.
+ */
+function drawBadge(
+  context: ShapeContext,
+  shape: BadgeShape,
+  opacity: number,
+  frameWidth: number,
+  frameHeight: number,
+) {
+  const { cx, cy, radius, fontPx, baselineY } = badgeGeometry(shape, frameWidth, frameHeight)
+  if (radius <= 0) return
+  context.beginPath()
+  context.ellipse(cx, cy, radius, radius, 0, 0, Math.PI * 2)
+  if (shape.fillOpacity > 0) {
+    context.globalAlpha = shape.fillOpacity * opacity
+    context.fillStyle = shape.fill
+    context.fill()
+  }
+  const lineWidth = shorterSidePixels(shape.thickness, frameWidth, frameHeight)
+  if (lineWidth > 0 && shape.strokeOpacity > 0) {
+    const dash = lineDashFor(shape.lineStyle, lineWidth)
+    context.save()
+    if (dash.length > 0) {
+      context.setLineDash(dash)
+      context.lineCap = 'butt'
+    }
+    context.globalAlpha = shape.strokeOpacity * opacity
+    context.strokeStyle = shape.stroke
+    context.lineWidth = lineWidth
+    context.stroke()
+    context.restore()
+  }
+  context.globalAlpha = opacity
+  context.fillStyle = shape.numberColor
+  context.font = badgeFont(fontPx)
+  context.textAlign = 'center'
+  context.textBaseline = 'alphabetic'
+  context.fillText(String(shape.number), cx, baselineY)
+}
+
+/**
  * Draws every shape group visible at `sequenceTime` onto a frame-sized
  * context (#683). The one routine the preview, the export's composer, Save
  * frame as PNG and the GIF plugin all call, so the four cannot disagree.
  *
  * Each box shape fills first and strokes second, the border centred on the
  * outline as PowerPoint draws it; an arrow fills its one outline (shaft and
- * heads) in the border's colour. The group's fade multiplies each shape's
+ * heads) in the border's colour; a badge fills its disc, rings it and sets
+ * its number on top (#689). The group's fade multiplies each shape's
  * own opacities, so a group fading in brings its shapes up together.
  */
 export function drawShapeGroups(
@@ -773,6 +1043,10 @@ export function drawShapeGroups(
     const opacity = shapeGroupOpacityAt(group, sequenceTime)
     if (opacity <= 0) continue
     for (const shape of group.shapes) {
+      if (shape.kind === 'badge') {
+        drawBadge(context, shape, opacity, frameWidth, frameHeight)
+        continue
+      }
       if (shape.kind === 'arrow') {
         if (shape.strokeOpacity <= 0) continue
         if ((shape.lineStyle ?? 'solid') !== 'solid') {

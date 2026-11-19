@@ -93,6 +93,7 @@ import type {
   ArrowHeads,
   ArrowHeadSize,
   ArrowShape,
+  BadgeShape,
   BoxShape,
   LineStyle,
   Shape,
@@ -109,15 +110,19 @@ import {
   isInvisibleShape,
   LINE_STYLE_LABELS,
   LINE_STYLES,
+  MAX_BADGE_NUMBER,
+  MAX_BADGE_SIZE,
   MAX_CORNER_RADIUS,
   MAX_SHAPE_THICKNESS,
+  MIN_BADGE_SIZE,
   MIN_SHAPE_SIZE,
-  pickStyle,
+  newBadge,
   SHAPE_KIND_LABELS,
   SHAPE_KINDS,
   shapeGroupName,
   shorterSideFraction,
   shorterSidePixels,
+  styleForNextShape,
   withLineStyle,
 } from '../lib/shapes'
 import type { TextFontId } from '../lib/textOverlay'
@@ -631,11 +636,13 @@ function shapeGroupSpecOf(group: ShapeGroup): ShapeGroupSpec {
 }
 
 /**
- * A change to one shape's fields (#683, #684): any field of either kind
+ * A change to one shape's fields (#683, #684, #689): any field of any kind
  * except its identity. The row only ever offers a kind's own fields, so the
  * merge stays a shape of that kind.
  */
-type ShapeChange = Partial<Omit<BoxShape, 'id' | 'kind'>> & Partial<Omit<ArrowShape, 'id' | 'kind'>>
+type ShapeChange = Partial<Omit<BoxShape, 'id' | 'kind'>> &
+  Partial<Omit<ArrowShape, 'id' | 'kind'>> &
+  Partial<Omit<BadgeShape, 'id' | 'kind'>>
 
 /** A frame-fraction field: an edge, a size or a point (0 to 1). */
 function FractionField({
@@ -690,7 +697,49 @@ function ShapeFields({
     <li className="shape-row" aria-label={name}>
       <div className="text-overlay-controls">
         <span className="shape-row-kind">{name.split(' of ')[0]}</span>
-        {shape.kind === 'arrow' ? (
+        {shape.kind === 'badge' ? (
+          <>
+            {/* A badge (#689) is placed by its centre and sized by its
+                diameter, shown in px at the output frame as thickness is. */}
+            <span className="shape-row-point">
+              <span>Centre</span>
+              <FractionField
+                text="x"
+                label={`Centre X of ${name} (0 to 1)`}
+                value={shape.centerX}
+                onCommit={(centerX) => onChange({ centerX })}
+              />
+              <FractionField
+                text="y"
+                label={`Centre Y of ${name} (0 to 1)`}
+                value={shape.centerY}
+                onCommit={(centerY) => onChange({ centerY })}
+              />
+            </span>
+            <LabelledField text="Size">
+              <SecondsField
+                label={`Diameter of ${name} in pixels`}
+                value={Math.round(toPx(shape.size) * 100) / 100}
+                min={Math.ceil(toPx(MIN_BADGE_SIZE))}
+                max={Math.floor(toPx(MAX_BADGE_SIZE))}
+                step={1}
+                onCommit={(px) =>
+                  onChange({ size: Math.min(Math.max(fromPx(px), MIN_BADGE_SIZE), MAX_BADGE_SIZE) })
+                }
+                unit="px"
+              />
+            </LabelledField>
+            <LabelledField text="Number">
+              <SecondsField
+                label={`Number of ${name}`}
+                value={shape.number}
+                max={MAX_BADGE_NUMBER}
+                step={1}
+                onCommit={(number) => onChange({ number: Math.round(number) })}
+              />
+            </LabelledField>
+          </>
+        ) : shape.kind === 'arrow' ? (
           <>
             {/* An arrow's two ends (#684), each a point in frame fractions. */}
             <span className="shape-row-point">
@@ -856,6 +905,16 @@ function ShapeFields({
               step={5}
               onCommit={(percent) => onChange({ fillOpacity: percent / 100 })}
               unit="%"
+            />
+          </LabelledField>
+        )}
+        {shape.kind === 'badge' && (
+          <LabelledField text="Number colour">
+            <input
+              type="color"
+              aria-label={`Number colour of ${name}`}
+              value={shape.numberColor}
+              onChange={(event) => onChange({ numberColor: event.target.value })}
             />
           </LabelledField>
         )}
@@ -4338,15 +4397,15 @@ export function Timeline({
                 })
               // A new shape takes the style of the group's last shape — the
               // fields' form of #681 §2's "the last shape you drew or edited".
+              // A badge (#689) takes the next number and the last badge's
+              // look instead, and is passed over by the other kinds.
               const addShape = (kind: ShapeKind) =>
                 set({
                   shapes: [
                     ...group.shapes,
-                    defaultShape(
-                      crypto.randomUUID(),
-                      kind,
-                      pickStyle(group.shapes[group.shapes.length - 1]),
-                    ),
+                    kind === 'badge'
+                      ? newBadge(crypto.randomUUID(), group.shapes)
+                      : defaultShape(crypto.randomUUID(), kind, styleForNextShape(group.shapes)),
                   ],
                 })
               return (
