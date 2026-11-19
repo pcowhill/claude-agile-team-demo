@@ -31,6 +31,7 @@ import fixtureV24ArrowShapesReferencesBase64 from './fixtures/project-v24-arrow-
 import fixtureV25LineStylesReferencesBase64 from './fixtures/project-v25-line-styles-references.bvep.base64?raw'
 import fixtureV26OverlayZoomsReferencesBase64 from './fixtures/project-v26-overlay-zooms-references.bvep.base64?raw'
 import fixtureV27OverlayBordersReferencesBase64 from './fixtures/project-v27-overlay-borders-references.bvep.base64?raw'
+import fixtureV28OverlayRemapsReferencesBase64 from './fixtures/project-v28-overlay-remaps-references.bvep.base64?raw'
 import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-overlay-shadows-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
@@ -56,6 +57,7 @@ import {
   LINE_STYLES_SCHEMA_VERSION,
   OVERLAY_ZOOMS_SCHEMA_VERSION,
   OVERLAY_BORDERS_SCHEMA_VERSION,
+  OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
@@ -1147,8 +1149,9 @@ describe('project file versioning', () => {
     // edge (#533); version 23 added shape groups (#683); version 24 added
     // arrows in shape groups (#684); version 25 added dashed and dotted
     // shape borders (#688); version 26 added overlay zooms (#699); version
-    // 27 added overlay borders (#697); version 29 added overlay drop
-    // shadows (#698).
+    // 27 added overlay borders (#697); version 28 added overlay speed
+    // segments and pauses (#700); version 29 added overlay drop shadows
+    // (#698).
     expect(PROJECT_SCHEMA_VERSION).toBe(29)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
@@ -1177,6 +1180,7 @@ describe('project file versioning', () => {
     expect(LINE_STYLES_SCHEMA_VERSION).toBe(25)
     expect(OVERLAY_ZOOMS_SCHEMA_VERSION).toBe(26)
     expect(OVERLAY_BORDERS_SCHEMA_VERSION).toBe(27)
+    expect(OVERLAY_REMAPS_SCHEMA_VERSION).toBe(28)
     expect(OVERLAY_SHADOWS_SCHEMA_VERSION).toBe(29)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
@@ -4915,6 +4919,83 @@ describe('overlay borders in project files (#697, schema version 27)', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, border }])
+  })
+})
+
+describe('overlay speed segments and pauses in project files (#700, schema version 28)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+  }
+  const overlayRemaps = [
+    { id: 'or1', kind: 'speed' as const, start: 0.25, end: 1.25, factor: 2 },
+    { id: 'or2', kind: 'pause' as const, at: 1.5, hold: 0.75 },
+  ]
+  const remappedTimeline = (remaps: typeof overlayRemaps | []): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', remaps }],
+  })
+
+  it('round-trips overlay remaps at version 28, without an entryId', async () => {
+    const bytes = await serializeProject(library, remappedTimeline(overlayRemaps))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_REMAPS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.remaps).toEqual(overlayRemaps)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, remaps: overlayRemaps }] },
+      },
+    })
+  })
+
+  it('writes an overlay without remaps byte-identically, at the version it had before', async () => {
+    const remapFree: TimelineState = { ...timeline, videoOverlays: [{ ...stored, url: 'blob:session/c2' }] }
+    const bytes = await serializeProject(library, remapFree)
+    expect((await gunzipJson(bytes)).schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    // An empty list is no remap at all, the zooms' rule.
+    expect(await serializeProject(library, remappedTimeline([]))).toEqual(bytes)
+  })
+
+  it('refuses a zero factor, an empty segment, a duplicated id, and remaps on an image overlay, by path', async () => {
+    const withRemaps = (remaps: unknown[], overlay: Record<string, unknown> = stored) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_REMAPS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...overlay, remaps }] },
+    })
+    await expectRefusal(
+      await gzipJson(withRemaps([{ ...overlayRemaps[0], factor: 0 }])),
+      'timeline.videoOverlays[0].remaps[0].factor must be greater than 0',
+    )
+    await expectRefusal(
+      await gzipJson(withRemaps([{ ...overlayRemaps[0], end: 0.25 }])),
+      'timeline.videoOverlays[0].remaps[0] source range is empty (start must be less than end)',
+    )
+    await expectRefusal(
+      await gzipJson(withRemaps([overlayRemaps[0], { ...overlayRemaps[1], id: 'or1' }])),
+      'timeline.videoOverlays[0].remaps[1].id "or1" is duplicated',
+    )
+  })
+
+  it('deserializes the committed v28 overlay-remaps fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV28OverlayRemapsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, remaps: overlayRemaps }])
   })
 })
 

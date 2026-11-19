@@ -11,6 +11,7 @@ import type { TextOverlay } from './textOverlay'
 import { totalDuration, videoOverlaysOf, zoomsOf, zoomWindowDuration } from './timeline'
 import type { TimelineEntry, TimelineState, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
+import { overlayOutputDuration } from './videoOverlay'
 import { zoomRampFraction, zoomStateAt } from './zoom'
 
 /**
@@ -811,9 +812,11 @@ export function rectAfterKeyStep(
  */
 export function overlayEditorSequenceTime(
   state: TimelineState,
-  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint'>,
+  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint' | 'remaps'>,
 ): number {
-  const middle = overlay.offset + (overlay.outPoint - overlay.inPoint) / 2
+  // The window is the overlay's on-screen length, after its speed segments
+  // and pauses (#700).
+  const middle = overlay.offset + overlayOutputDuration(overlay) / 2
   return clamp(middle, 0, Math.max(0, totalDuration(state)))
 }
 

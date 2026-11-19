@@ -1,5 +1,6 @@
 import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
+import { overlayOutputDuration } from './videoOverlay'
 import { audioTracksOf, effectiveDuration } from './timeline'
 
 /**
@@ -70,13 +71,15 @@ export function videoEntryGainAt(
  * Gain of an overlay video layer's own audio at a sequence position (#220):
  * volume × mute (`videoEntryGain`, applied structurally as everywhere)
  * scaled by the overlay's fade envelope over its window
- * `[offset, offset + trimmedLength)` — the audio-track window shape the
- * overlay model shares (#145).
+ * `[offset, offset + length)` — the audio-track window shape the overlay
+ * model shares (#145), where the length is the overlay's on-screen one,
+ * after its speed segments and pauses (#700), as an entry's fades ramp over
+ * its output duration.
  */
 export function videoOverlayGainAt(overlay: VideoOverlay, sequenceTime: number): number {
   return (
     videoEntryGain(overlay) *
-    fadeRampAt(overlay.fadeIn, overlay.fadeOut, sequenceTime - overlay.offset, effectiveDuration(overlay))
+    fadeRampAt(overlay.fadeIn, overlay.fadeOut, sequenceTime - overlay.offset, overlayOutputDuration(overlay))
   )
 }
 

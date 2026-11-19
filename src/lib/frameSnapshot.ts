@@ -8,7 +8,7 @@ import {
 } from './exportVideo'
 import type { LayerFrame, OverlayFrame } from './exportVideo'
 import { automaticExportFrame, probeSourceDimensions } from './exportSettings'
-import { audioTrackPlaybackAt, locateInSequence } from './playback'
+import { locateInSequence, videoOverlayPlaybackAt } from './playback'
 import { isImageOverlay, isStillEntry } from './timeline'
 import type { TimelineState } from './timeline'
 import type { SourceDimensions } from './frameSize'
@@ -446,7 +446,7 @@ async function renderFrame(
       }
       overlayReplays.push({
         overlay,
-        element: await cueVideo(overlay.url, audioTrackPlaybackAt(overlay, sequenceTime).sourceTime),
+        element: await cueVideo(overlay.url, videoOverlayPlaybackAt(overlay, sequenceTime).sourceTime),
       })
     }
 

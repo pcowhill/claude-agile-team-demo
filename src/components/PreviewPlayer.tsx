@@ -32,6 +32,7 @@ import {
 } from '../lib/reviewSpeed'
 import {
   audioTrackPlaybackAt,
+  videoOverlayPlaybackAt,
   entryStartTime,
   frontedLocation,
   isTransitionOverlayActive,
@@ -62,6 +63,7 @@ import {
 } from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
 import {
+  HOLD_SEEK_EPSILON,
   drawLayerSource,
   drawOverlayBorder,
   drawOverlayShadow,
@@ -1258,8 +1260,11 @@ export function PreviewPlayer({
   /**
    * Aligns every overlay video layer's element with a sequence position
    * (#145), exactly as syncAudioTracks aligns the audio tracks — the same
-   * window math (`audioTrackPlaybackAt` applies structurally: offset +
-   * trim, half-open) and the same drift tolerance. Volume is the overlay's
+   * window math (offset + length, half-open; `videoOverlayPlaybackAt`, the
+   * remap-aware twin of `audioTrackPlaybackAt`, #700) and the same drift
+   * tolerance. Inside an overlay's speed segment the element plays at the
+   * segment's factor times the review rate, as a remapped entry does; on a
+   * pause plateau it is paused on the frozen instant. Volume is the overlay's
    * own volume × mute × fade envelope (`videoOverlayGainAt`, #220), set
    * every call — the rAF loop calls this each frame, which is what renders
    * fades as continuous ramps, as for the audio tracks. Each element keeps
@@ -1274,16 +1279,23 @@ export function PreviewPlayer({
         if (isImageOverlay(overlay)) continue
         const element = overlayRefs.current.get(overlay.id)
         if (!element) continue
-        const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
+        const playback = videoOverlayPlaybackAt(overlay, sequenceTime)
+        const { sourceTime } = playback
+        // A pause plateau (#700) holds the frame: the element stays paused
+        // on it, exactly as outside the window.
+        const shouldPlay = playback.shouldPlay && !playback.holding
         element.volume =
           videoOverlayGainAt(overlay, sequenceTime) * duckFactorAt(ducking, sequenceTime)
         // The review rate and its rate-relative tolerance, for the same
         // reason as the audio tracks above (#522) — this function is their
         // twin, down to sharing the epsilon, so an overlay left at 1× would
-        // drift against the picture it sits on.
-        const rate = playedRate()
+        // drift against the picture it sits on. The overlay's own speed
+        // segment (#700) multiplies in, as `rateAtSourceTime` does for a
+        // remapped entry.
+        const rate = playedRate(shouldPlay ? playback.rate : 1)
         if (element.playbackRate !== rate) element.playbackRate = rate
-        const drift = AUDIO_DRIFT_EPSILON * rate
+        // A pause shows one frame, so the element is cued to it exactly.
+        const drift = playback.holding ? HOLD_SEEK_EPSILON : AUDIO_DRIFT_EPSILON * rate
         if (shouldPlay && running) {
           if (element.paused) {
             element.currentTime = sourceTime
@@ -2697,7 +2709,7 @@ export function PreviewPlayer({
                   published time (hidden outside the window); playback and
                   audio follow via syncVideoOverlays each frame. */}
               {videoOverlays.map((overlay, index) => {
-                const active = audioTrackPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
+                const active = videoOverlayPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
                 // The overlay's card is its fractional rectangle; the media
                 // element inside carries the clip's own looks (filter,
                 // orientation) — the base slots' split, at rectangle scale.
@@ -2710,7 +2722,7 @@ export function PreviewPlayer({
                 // after crop/orientation shaped the picture inside. Mask-free
                 // overlays get no clipPath key at all (the #255 discipline).
                 const clipPath = maskClipPath(overlay.shapeMask, overlay)
-                const overlayTime = audioTrackPlaybackAt(overlay, sequenceTime).sourceTime
+                const overlayTime = videoOverlayPlaybackAt(overlay, sequenceTime).sourceTime
                 // The overlay's own zoom (#699), the export's
                 // `zoomRectWithin`: the picture and its regions magnify
                 // inside the card, which clips them while it zooms.

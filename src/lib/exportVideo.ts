@@ -27,7 +27,7 @@ import {
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
 import { drawShapeGroups, shorterSidePixels } from './shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
-import { audioTrackPlaybackAt, entryStartTime, locateInSequence } from './playback'
+import { audioTrackPlaybackAt, entryStartTime, locateInSequence, videoOverlayPlaybackAt } from './playback'
 import {
   audioTrackGainAt,
   duckFactorAt,
@@ -450,12 +450,13 @@ export function activeVideoOverlays(
 ): VideoOverlay[] {
   // Both overlay kinds (#294/#295) are judged by the same window test: a
   // still's window is stored as inPoint 0 / outPoint duration, so
-  // audioTrackPlaybackAt reads it correctly with no branch of its own. What
+  // videoOverlayPlaybackAt reads it correctly with no branch of its own
+  // (a still carries no remaps, #700). What
   // differs is where the picture comes from — a replay element for a video
   // layer, a decoded <img> for a still — which is the composer's business,
   // not this function's.
   return videoOverlaysOf(timeline).filter(
-    (overlay) => audioTrackPlaybackAt(overlay, sequenceTime).shouldPlay,
+    (overlay) => videoOverlayPlaybackAt(overlay, sequenceTime).shouldPlay,
   )
 }
 
@@ -1511,7 +1512,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           width: layer.width * width,
           height: layer.height * height,
         }
-        const layerTime = audioTrackPlaybackAt(layer, sequenceTime).sourceTime
+        // The overlay's own source clock, through its speed segments and
+        // pauses (#700) — the instant its replay element is driven to.
+        const layerTime = videoOverlayPlaybackAt(layer, sequenceTime).sourceTime
         // The overlay's own zoom (#699) magnifies its picture inside the
         // placed rectangle: the letterboxed picture box is mapped through
         // the zoom about the rectangle, and everything drawn against it —
@@ -1537,7 +1540,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
                 drawRect,
               )
               // The overlay's own source clock — the same one that decided
-              // it is on screen at all (`audioTrackPlaybackAt`), so a
+              // it is on screen at all (`videoOverlayPlaybackAt`), so a
               // window is read identically here and in the preview.
               drawRedactions({
                 context: target,
@@ -2094,6 +2097,15 @@ export async function createAudioCapture(
  */
 export const AUDIO_DRIFT_EPSILON = 0.25
 
+/**
+ * How far a frozen element may sit from a pause's instant (#700), in
+ * seconds: a hold shows one frame, so it is cued to that frame rather than
+ * left wherever the drift tolerance above would allow — up to 0.25 s is
+ * several frames of the wrong picture. Once cued it stays, so this seeks
+ * once per hold, not per frame.
+ */
+export const HOLD_SEEK_EPSILON = 0.001
+
 /** The element surface syncTrackReplay drives (an HTMLAudioElement in production). */
 export interface TrackReplayElement {
   volume: number
@@ -2128,24 +2140,42 @@ export function syncTrackReplay(
 }
 
 /**
+ * An overlay's replay element (#146): a track replay that can also change
+ * rate, for the overlay's speed segments (#700). Optional so a remap-free
+ * test double needs no field it never reads.
+ */
+export interface OverlayReplayElement extends TrackReplayElement {
+  playbackRate?: number
+}
+
+/**
  * Aligns an overlay video layer's replay element with the export clock
  * (#146) — the export-side counterpart of the preview's `syncVideoOverlays`
  * (#145), and the same clock discipline as the audio tracks above: the
- * shared window helper decides playing state and source position, and the
- * element free-runs within the drift tolerance. Gain is the overlay's own
- * volume × mute × fade envelope (`videoOverlayGainAt`, #220 — applied
+ * overlay's window helper decides playing state and source position, and
+ * the element free-runs within the drift tolerance. Gain is the overlay's
+ * own volume × mute × fade envelope (`videoOverlayGainAt`, #220 — applied
  * every frame, as the preview does, so fades record as continuous ramps),
  * ducked with the rest of the mix by `duckFactor` (#241).
+ *
+ * Speed segments and pauses (#700): inside a segment the element plays at
+ * the segment's factor, and the drift tolerance scales with it, as the
+ * preview's does with the review rate (#522); on a pause plateau it is
+ * paused on the frozen instant. A remap-free overlay's rate is always 1,
+ * so it plays exactly as before.
  */
 export function syncOverlayReplay(
   overlay: VideoOverlay,
-  element: TrackReplayElement,
+  element: OverlayReplayElement,
   sequenceTime: number,
   duckFactor = 1,
 ): void {
-  const { shouldPlay, sourceTime } = audioTrackPlaybackAt(overlay, sequenceTime)
+  const { shouldPlay, sourceTime, rate, holding } = videoOverlayPlaybackAt(overlay, sequenceTime)
   element.volume = videoOverlayGainAt(overlay, sequenceTime) * duckFactor
-  alignReplayClock(element, shouldPlay, sourceTime)
+  const playing = shouldPlay && !holding
+  if (playing && (element.playbackRate ?? 1) !== rate) element.playbackRate = rate
+  const drift = holding ? HOLD_SEEK_EPSILON : AUDIO_DRIFT_EPSILON * (playing ? rate : 1)
+  alignReplayClock(element, playing, sourceTime, drift)
 }
 
 /** The shared clock discipline of syncTrackReplay and syncOverlayReplay. */
@@ -2153,6 +2183,7 @@ function alignReplayClock(
   element: TrackReplayElement,
   shouldPlay: boolean,
   sourceTime: number,
+  drift = AUDIO_DRIFT_EPSILON,
 ): void {
   if (shouldPlay) {
     if (element.paused) {
@@ -2160,14 +2191,14 @@ function alignReplayClock(
       // play() rejects (AbortError) when interrupted by pause — an expected
       // outcome, matching the video replay elements.
       element.play().catch(() => {})
-    } else if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+    } else if (Math.abs(element.currentTime - sourceTime) > drift) {
       element.currentTime = sourceTime
     }
   } else {
     if (!element.paused) element.pause()
     // Keep the paused element cued to the position (its in-point while the
     // clock is before the window) so starting is only ever a play().
-    if (Math.abs(element.currentTime - sourceTime) > AUDIO_DRIFT_EPSILON) {
+    if (Math.abs(element.currentTime - sourceTime) > drift) {
       element.currentTime = sourceTime
     }
   }
@@ -2186,9 +2217,19 @@ export function capturedElementsHonourPlaybackRate(): boolean {
   return typeof HTMLMediaElement === 'undefined' || !('mozCaptureStream' in HTMLMediaElement.prototype)
 }
 
-/** Whether any speed segment on the timeline plays at other than 1× (#611). */
+/**
+ * Whether any speed segment on the timeline's **sequence entries** plays at
+ * other than 1× (#611). An overlay's segments (#700) are asked separately,
+ * per overlay, by `overlayChangesRate`: each replay gets a twin only when
+ * its own clock changes rate.
+ */
 export function timelineChangesRate(timeline: TimelineState): boolean {
   return remapsOf(timeline).some((remap) => remap.kind === 'speed' && remap.factor !== 1)
+}
+
+/** Whether one overlay's own speed segments (#700) play at other than 1×. */
+export function overlayChangesRate(overlay: Pick<VideoOverlay, 'remaps'>): boolean {
+  return (overlay.remaps ?? []).some((remap) => remap.kind === 'speed' && remap.factor !== 1)
 }
 
 /** The replay element an audio twin follows (#611): its picture and its clock. */
@@ -2514,6 +2555,23 @@ export async function exportTimeline(
           return twin
         })
       : []
+  // The same, per overlay (#700): an overlay whose own speed segments change
+  // its rate keeps its replay out of the graph, so its picture plays at the
+  // remapped rate, and gets a twin carrying its sound — silent through a
+  // sped or slowed span, as a base entry's is. Null for every other overlay,
+  // whose replay joins the graph itself as before.
+  const overlayTwins = overlayReplays.map(({ overlay }) => {
+    if (
+      sink !== undefined ||
+      (options.capturedRateHonoured ?? capturedElementsHonourPlaybackRate()) ||
+      !overlayChangesRate(overlay)
+    ) {
+      return null
+    }
+    const twin = createAudio()
+    twin.preload = 'auto'
+    return twin
+  })
 
   // A sink-driven export (#198) is soundless (see ExportFrameSink): no audio
   // graph is built, which also leaves the replays muted below — the export
@@ -2523,7 +2581,7 @@ export async function exportTimeline(
     : await createAudioCapture(
         [
           ...(audioTwins.length > 0 ? audioTwins : replays),
-          ...overlayReplays.map(({ element }) => element),
+          ...overlayReplays.map(({ element }, index) => overlayTwins[index] ?? element),
           ...trackReplays.map(({ element }) => element),
         ],
         options.createAudioContext,
@@ -2549,7 +2607,11 @@ export async function exportTimeline(
   // from the speakers: their sound reaches the file through the twins. The
   // twins play only when there is a graph to hold them, for the same reason.
   for (const replay of audioTwins.length > 0 ? replays : []) replay.muted = true
+  overlayReplays.forEach(({ element }, index) => {
+    if (overlayTwins[index] !== null) element.muted = true
+  })
   const recordedTwins = audioCapture === null ? [] : audioTwins
+  const recordedOverlayTwins = audioCapture === null ? [] : overlayTwins
   // Without Web Audio there is nothing to record the tracks into — and,
   // unconnected to any graph, playing them would sound from the speakers —
   // so the video-only fallback leaves them untouched.
@@ -2620,6 +2682,7 @@ export async function exportTimeline(
     for (const replay of [
       ...replays,
       ...audioTwins,
+      ...overlayTwins.filter((twin) => twin !== null),
       ...overlayReplays.map(({ element }) => element),
       ...trackReplays.map(({ element }) => element),
     ]) {
@@ -3164,6 +3227,10 @@ export async function exportTimeline(
           // after this frame's play/pause/rate and gain decisions above, so
           // each twin follows what its replay does now.
           recordedTwins.forEach((twin, i) => syncAudioTwin(replays[i], twin))
+          // And the overlays' twins (#700), after their replays' sync above.
+          recordedOverlayTwins.forEach((twin, i) => {
+            if (twin !== null) syncAudioTwin(overlayReplays[i].element, twin)
+          })
           // Progress is measured against the exported window (#385) — for a
           // whole-sequence export that is [0, total], the old fraction.
           reportProgress(exportProgressFraction(sequenceTime, windowStart, windowEnd))

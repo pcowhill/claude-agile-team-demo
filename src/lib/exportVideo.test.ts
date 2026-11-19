@@ -30,6 +30,7 @@ import {
   recorderStream,
   syncAudioTwin,
   syncOverlayReplay,
+  overlayChangesRate,
   syncTrackReplay,
   timelineChangesRate,
   textDraw,
@@ -1150,6 +1151,63 @@ describe('syncOverlayReplay (#146)', () => {
 // carry their sound. The rate itself can only be measured in a real browser
 // (e2e/export-remap.spec.ts under the firefox project); these pin the twin's
 // decisions.
+
+describe('an overlay\'s speed segments and pauses in the export (#700)', () => {
+  // Window from 2, trim 1 → 7: a 2× segment over the first 2 s of trim
+  // (1 s on screen), then a 1 s pause on trim 2 s (source 3).
+  const remapped = exportOverlay({
+    remaps: [
+      { id: 's', kind: 'speed', start: 0, end: 2, factor: 2 },
+      { id: 'p', kind: 'pause', at: 2, hold: 1 },
+    ],
+  })
+
+  it('plays the element at the segment factor, from the remapped source instant', () => {
+    const element = Object.assign(fakeTrackElement(), { playbackRate: 1 })
+    syncOverlayReplay(remapped, element, 2.5)
+    expect(element.playbackRate).toBe(2)
+    expect(element.paused).toBe(false)
+    // 0.5 s into the window at 2× is 1 s into the trim: source 2.
+    expect(element.currentTime).toBe(2)
+  })
+
+  it('holds the element paused on the frozen instant through a pause', () => {
+    const element = Object.assign(fakeTrackElement({ paused: false, currentTime: 2.9 }), { playbackRate: 2 })
+    syncOverlayReplay(remapped, element, 3.5)
+    expect(element.pauseCalls).toBe(1)
+    expect(element.paused).toBe(true)
+    expect(element.currentTime).toBe(3)
+  })
+
+  it('returns to 1× after the pause, and scales its drift tolerance with the rate', () => {
+    const element = Object.assign(fakeTrackElement({ paused: false, currentTime: 3.5 }), { playbackRate: 2 })
+    syncOverlayReplay(remapped, element, 4.5)
+    expect(element.playbackRate).toBe(1)
+    // Inside the 2× segment a drift of 1.5 × epsilon is within 2 × epsilon.
+    const sped = Object.assign(fakeTrackElement({ paused: false, currentTime: 2 + 1.5 * AUDIO_DRIFT_EPSILON }), { playbackRate: 2 })
+    syncOverlayReplay(remapped, sped, 2.5)
+    expect(sped.currentTime).toBe(2 + 1.5 * AUDIO_DRIFT_EPSILON)
+  })
+
+  it('is on screen for its remapped length', () => {
+    // A 2× segment alone shortens the 6 s window to 5 s: [2, 7).
+    const sped = exportOverlay({ remaps: [{ id: 's', kind: 'speed', start: 0, end: 2, factor: 2 }] })
+    expect(activeVideoOverlays({ entries: [], videoOverlays: [sped] }, 6.9)).toEqual([sped])
+    expect(activeVideoOverlays({ entries: [], videoOverlays: [sped] }, 7.5)).toEqual([])
+    expect(activeVideoOverlays({ entries: [], videoOverlays: [exportOverlay()] }, 7.5)).toHaveLength(1)
+  })
+
+  it('asks for an audio twin only for an overlay whose own segments change rate', () => {
+    expect(overlayChangesRate(remapped)).toBe(true)
+    expect(overlayChangesRate(exportOverlay())).toBe(false)
+    expect(
+      overlayChangesRate(exportOverlay({ remaps: [{ id: 'p', kind: 'pause', at: 1, hold: 1 }] })),
+    ).toBe(false)
+    expect(
+      overlayChangesRate(exportOverlay({ remaps: [{ id: 's', kind: 'speed', start: 0, end: 1, factor: 1 }] })),
+    ).toBe(false)
+  })
+})
 
 describe('syncAudioTwin (#611)', () => {
   const replay = (overrides: Partial<{ currentSrc: string; currentTime: number; paused: boolean; playbackRate: number; volume: number }> = {}) => ({
