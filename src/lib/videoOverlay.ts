@@ -433,6 +433,38 @@ export function videoOverlayFromClip(clip: LibraryClip, id: string, offset = 0):
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /**
+ * A stored **video** overlay re-expressed as the placement
+ * `video-overlay-updated` takes: the row's fields edit one part of it, and
+ * the Trim window (#711) both applies and previews a trim through it, so
+ * the warning and Apply dispatch the same action.
+ */
+export const overlayPlacementOf = ({
+  offset,
+  inPoint,
+  outPoint,
+  x,
+  y,
+  width,
+  height,
+  volume,
+  muted,
+  fadeIn,
+  fadeOut,
+}: VideoOverlay): VideoOverlayPlacement => ({
+  offset,
+  inPoint,
+  outPoint,
+  x,
+  y,
+  width,
+  height,
+  volume,
+  muted,
+  ...(fadeIn === undefined ? {} : { fadeIn }),
+  ...(fadeOut === undefined ? {} : { fadeOut }),
+})
+
+/**
  * Whether a placement is acceptable input at all: finite numbers and boolean
  * toggles. Ranges are not rejected here — they clamp (`clampVideoOverlay`),
  * like a zoom centre; an empty trim range is rejected by the reducer against

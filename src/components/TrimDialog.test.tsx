@@ -6,6 +6,8 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from '../lib/transport'
 import { MIN_TRIM_LENGTH } from '../lib/trim'
 import { ADD_SLATE, chooseFromAddMenu } from '../test/timelineMenu'
+import { chooseClipAction } from '../test/clipMenu'
+import { ADD_ZOOM, chooseEffect } from '../test/timelineRowMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -27,7 +29,7 @@ const probeMock = vi.mocked(probeMediaFile)
  * The Trim window on an audio track (#711), through <App/>: offered on the
  * lane's rows, with no picture, and Apply dispatching the track's own trim.
  * Play trim on the sound, and the strip's geometry, are
- * `e2e/trim-window.spec.ts`'s.
+ * `e2e/trim-window-audio.spec.ts`'s.
  */
 describe('the Trim window on an audio track (#711)', () => {
   beforeEach(() => {
@@ -123,6 +125,123 @@ describe('the Trim window on an audio track (#711)', () => {
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     // The entry's window has its picture.
     expect(within(screen.getByRole('dialog', { name: 'Trim a.mp4 at position 1' })).getByTestId('trim-video')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The Trim window on a video overlay (#711), through <App/>: offered on a
+ * video overlay's row and not an image overlay's, Apply dispatching the
+ * overlay's own update, and the overlay's own zooms marked and warned of.
+ * The window in a real browser is `e2e/trim-window-overlay.spec.ts`'s.
+ */
+describe('the Trim window on a video overlay (#711)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve())
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const field = (label: string) => screen.getByRole('spinbutton', { name: label })
+  const inField = () => field(`Trim in point of ${OVERLAY} in seconds`)
+  const outField = () => field(`Trim out point of ${OVERLAY} in seconds`)
+  const startField = () => field(`Start time of ${OVERLAY} in seconds`)
+  const leftField = () => field(`Left edge of ${OVERLAY} (fraction of frame width)`)
+  const trimButton = (name = OVERLAY) => screen.queryByRole('button', { name: `Trim ${name} in the Trim window` })
+  const dialog = () => screen.getByRole('dialog', { name: `Trim ${OVERLAY}` })
+
+  async function importClip(name: string, probed: Awaited<ReturnType<typeof probeMediaFile>>, type: string) {
+    probeMock.mockResolvedValueOnce(probed)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), new File(['content'], name, { type }))
+    await screen.findByText(name)
+  }
+
+  async function addOverlay() {
+    render(<App />)
+    await importClip('cam.mp4', { duration: 8, url: 'blob:cam.mp4', kind: 'video' }, 'video/mp4')
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+  }
+
+  it('is offered on a video overlay beside its In and Out, and not on an image overlay', async () => {
+    await addOverlay()
+    const button = trimButton()
+    expect(button).toHaveTextContent('Trim…')
+    expect(button!.parentElement).toContainElement(inField())
+    expect(button!.parentElement).toContainElement(outField())
+
+    await importClip(
+      'logo.png',
+      { duration: 0, url: 'blob:logo.png', kind: 'image', width: 640, height: 480 },
+      'image/png',
+    )
+    await chooseClipAction('logo.png', 'Add as overlay')
+    expect(screen.getByRole('spinbutton', { name: 'Duration of overlay logo.png at position 2 in seconds' })).toBeInTheDocument()
+    expect(trimButton('overlay logo.png at position 2')).toBeNull()
+    // Two overlays, one Trim…: the image overlay's window is its Length.
+    expect(screen.queryAllByRole('button', { name: /^Trim overlay .* in the Trim window$/ })).toHaveLength(1)
+
+    await userEvent.click(button!)
+    // The full window: the overlay's own source, with its picture.
+    expect(within(dialog()).getByTestId('trim-video')).toBeInTheDocument()
+    expect(within(dialog()).getByRole('button', { name: 'Back one frame' })).toBeInTheDocument()
+  })
+
+  it('Apply after moving the Out clamp changes the overlay’s Out and nothing else, as one undo step', async () => {
+    await addOverlay()
+    await userEvent.clear(startField())
+    await userEvent.type(startField(), '3{Enter}')
+    const left = Number(leftField().getAttribute('value'))
+    await userEvent.click(trimButton()!)
+    const outClamp = within(dialog()).getByRole('slider', { name: 'Out clamp' })
+    expect(Number(outClamp.getAttribute('aria-valuenow'))).toBe(8)
+    fireEvent.keyDown(outClamp, { key: 'ArrowLeft', shiftKey: true })
+    expect(Number(outClamp.getAttribute('aria-valuenow'))).toBe(8 - LARGE_STEP_SECONDS)
+    // Not yet: the clamps are the window's own until Apply.
+    expect(outField()).toHaveValue(8)
+
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Apply' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(outField()).toHaveValue(8 - LARGE_STEP_SECONDS)
+    expect(inField()).toHaveValue(0)
+    expect(startField()).toHaveValue(3)
+    expect(leftField()).toHaveValue(left)
+
+    // One undo restores the trim, and only the trim.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(outField()).toHaveValue(8)
+    expect(inField()).toHaveValue(0)
+    expect(startField()).toHaveValue(3)
+  })
+
+  it('marks the overlay’s own zoom on the strip, and warns before a trim cuts into it', async () => {
+    await addOverlay()
+    await chooseEffect(OVERLAY, ADD_ZOOM)
+    await userEvent.click(trimButton()!)
+    // At the current trim: the zoom is marked, and nothing is cut.
+    const marks = within(dialog()).getAllByTestId('trim-effect-mark')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]).toHaveAttribute('data-kind', 'zoom')
+    expect(marks[0]).toHaveAttribute('title', 'Zoom 1')
+    // The status line is there, kept for its announcements, and says nothing.
+    expect(within(dialog()).getByTestId('trim-warning')).toBeEmptyDOMElement()
+    expect(within(dialog()).queryByTestId(/^trim-transition-/)).toBeNull()
+
+    // Out as far left as it goes: the default zoom starts at the overlay's
+    // start, so it no longer fits whole, and the window says so.
+    fireEvent.keyDown(within(dialog()).getByRole('slider', { name: 'Out clamp' }), { key: 'Home' })
+    expect(within(dialog()).getByTestId('trim-warning')).toHaveTextContent('Trimming here shortens Zoom 1.')
+    expect(within(dialog()).getAllByTestId('trim-effect-mark')).toHaveLength(1)
+
+    // Cancel: nothing changed, and the zoom's fields are as they were.
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(outField()).toHaveValue(8)
   })
 })
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { RemapEffect, RemapSpec } from './remap'
 import type { TimelineEntry, TimelineState, ZoomEffect } from './timeline'
-import { remapsForEntry, timelineReducer, zoomWindowDuration, zoomsForEntry } from './timeline'
-import { trimEffectsPreview, trimWarningText } from './trimEffects'
+import { remapsForEntry, timelineReducer, videoOverlaysOf, zoomWindowDuration, zoomsForEntry } from './timeline'
+import { overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
+import type { VideoOverlay } from './videoOverlay'
+import { overlayPlacementOf } from './videoOverlay'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
   clipId: 'clip-a',
@@ -132,6 +134,119 @@ describe('trimEffectsPreview: speed segments and pauses (#709)', () => {
     expect(trimWarningText(preview.warnings)).toBe(
       'Trimming here shortens Speed segment 1, moves Pause 1 to the new end and removes Speed segment 2.',
     )
+  })
+})
+
+/**
+ * The overlay variant (#711): the same rule, through the overlay's own
+ * action (`video-overlay-updated`, as Apply dispatches it) and its own
+ * `zooms` and `remaps`. Each case checks the warning against what the
+ * reducer then does, as the entry cases above do.
+ */
+describe('overlayTrimEffectsPreview: a video overlay’s own effects (#711)', () => {
+  const overlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'o1',
+    clipId: 'clip-o',
+    name: 'pip.webm',
+    duration: 10,
+    url: 'blob:clip-o',
+    offset: 2,
+    inPoint: 0,
+    outPoint: 10,
+    x: 0.6,
+    y: 0.6,
+    width: 0.3,
+    height: 0.3,
+    ...overrides,
+  })
+  const overlayZoom = { id: 'oz1', start: 4, rampIn: 1, hold: 2, rampOut: 1, scale: 2, centerX: 0.5, centerY: 0.5 }
+  const withOverlay = (overrides: Partial<VideoOverlay> = {}): TimelineState => ({
+    entries: [entry({ id: 'e1' })],
+    videoOverlays: [overlay(overrides)],
+  })
+  /** What Apply does: the overlay's placement with the new In and Out. */
+  const appliedOverlay = (state: TimelineState, inPoint: number, outPoint: number) => {
+    const stored = videoOverlaysOf(state)[0]
+    const next = timelineReducer(state, {
+      type: 'video-overlay-updated',
+      id: stored.id,
+      placement: { ...overlayPlacementOf(stored), inPoint, outPoint },
+    })
+    return videoOverlaysOf(next)[0]
+  }
+
+  it('a zoom: "shortens" with Out inside it, "removes" with Out before it, and the reducer agrees', () => {
+    const state = withOverlay({ zooms: [overlayZoom] })
+    const shortened = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 7 })
+    expect(shortened.warnings).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', outcome: 'shortens' }])
+    expect(shortened.marks).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', start: 4, end: 7 }])
+    expect(zoomWindowDuration(appliedOverlay(state, 0, 7).zooms![0])).toBe(3)
+
+    const removed = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 3.5 })
+    expect(removed.warnings).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', outcome: 'removes' }])
+    expect(removed.marks).toEqual([])
+    expect(zoomWindowDuration(appliedOverlay(state, 0, 3.5).zooms![0])).toBe(0)
+  })
+
+  it('moves the marks with In: a zoom 4 s into the trim sits at source 6 with In at 2', () => {
+    const preview = overlayTrimEffectsPreview(withOverlay({ zooms: [overlayZoom] }), 'o1', {
+      inPoint: 2,
+      outPoint: 10,
+    })
+    // The trim is 8 s long now, so the zoom's 4 → 8 s window still fits.
+    expect(preview.warnings).toEqual([])
+    expect(preview.marks).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', start: 6, end: 10 }])
+  })
+
+  it('a speed segment and a pause, named as the row names them; a pause moves to the new end', () => {
+    const state = withOverlay({
+      remaps: [
+        { id: 'os1', kind: 'speed', start: 2, end: 6, factor: 0.5 },
+        { id: 'op1', kind: 'pause', at: 7, hold: 1 },
+      ],
+    })
+    const preview = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 5 })
+    expect(preview.warnings).toEqual([
+      { id: 'os1', kind: 'speed', name: 'Speed segment 1', outcome: 'shortens' },
+      { id: 'op1', kind: 'pause', name: 'Pause 1', outcome: 'moves' },
+    ])
+    expect(trimWarningText(preview.warnings)).toBe(
+      'Trimming here shortens Speed segment 1 and moves Pause 1 to the new end.',
+    )
+    // The reducer agrees: the segment ends at 5, and the pause sits there.
+    const after = appliedOverlay(state, 0, 5).remaps!
+    expect(after.find((remap) => remap.id === 'os1')).toMatchObject({ start: 2, end: 5 })
+    expect(after.find((remap) => remap.id === 'op1')).toMatchObject({ at: 5 })
+  })
+
+  it('has no transition spans, and shows nothing for an image overlay, an unknown id, or a refused trim', () => {
+    const state = withOverlay({ zooms: [overlayZoom] })
+    expect(overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 7 }).transitions).toEqual([])
+    const image: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      videoOverlays: [overlay({ kind: 'image', zooms: [overlayZoom] })],
+    }
+    expect(overlayTrimEffectsPreview(image, 'o1', { inPoint: 0, outPoint: 7 })).toEqual({
+      marks: [],
+      warnings: [],
+      transitions: [],
+    })
+    expect(overlayTrimEffectsPreview(state, 'nope', { inPoint: 0, outPoint: 7 }).marks).toEqual([])
+    // In past Out: the reducer refuses it, so nothing is shown.
+    expect(overlayTrimEffectsPreview(state, 'o1', { inPoint: 8, outPoint: 3 })).toEqual({
+      marks: [],
+      warnings: [],
+      transitions: [],
+    })
+  })
+
+  it('at the current trim: the marks as they stand, and no warning', () => {
+    const preview = overlayTrimEffectsPreview(withOverlay({ zooms: [overlayZoom] }), 'o1', {
+      inPoint: 0,
+      outPoint: 10,
+    })
+    expect(preview.warnings).toEqual([])
+    expect(preview.marks).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', start: 4, end: 8 }])
   })
 })
 

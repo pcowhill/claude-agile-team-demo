@@ -26,18 +26,20 @@
  */
 
 import { remapEnd, remapStart, sourceTimeAtOutput } from './remap'
-import type { RemapEffect, RemapSpec } from './remap'
+import type { RemapSpec } from './remap'
 import {
   boundaryTransitions,
   effectiveDuration,
   entryOutputDuration,
   remapsForEntry,
   timelineReducer,
+  videoOverlaysOf,
   zoomWindowDuration,
   zoomsForEntry,
 } from './timeline'
-import type { TimelineState, ZoomEffect } from './timeline'
+import type { TimelineState, ZoomSpec } from './timeline'
 import type { TrimRange } from './trim'
+import { isImageOverlay, overlayPlacementOf } from './videoOverlay'
 
 export type TrimEffectKind = 'zoom' | RemapSpec['kind']
 
@@ -102,8 +104,15 @@ interface Placed {
   end: number
 }
 
-/** An entry's effects, named as the row names them, in seconds into its trim. */
-function placedEffects(zooms: readonly ZoomEffect[], remaps: readonly RemapEffect[]): Placed[] {
+/**
+ * An element's effects, named as the row names them, in seconds into its
+ * trim. Structural, so an entry's (`ZoomEffect`, `RemapEffect`) and a video
+ * overlay's own (`OverlayZoom`, `OverlayRemap`, #711) both fit.
+ */
+function placedEffects(
+  zooms: readonly (ZoomSpec & { id: string })[],
+  remaps: readonly (RemapSpec & { id: string })[],
+): Placed[] {
   // The row numbers zooms per entry and each remap kind separately, in the
   // normalized state's order (`Timeline.tsx`, `RemapFieldRows`).
   const zoomPlaced = zooms.map((zoom, index) => ({
@@ -141,6 +150,42 @@ function outcomeOf(before: Placed, after: Placed): TrimEffectOutcome | null {
 }
 
 /**
+ * The marks and warnings for one element (#709, #711): `before` is its
+ * effects as stored, `after` as the candidate trim leaves them, and
+ * `inPoint` the candidate's In, which puts trim seconds on the source strip.
+ */
+function comparedEffects(
+  beforePlaced: readonly Placed[],
+  afterPlaced: readonly Placed[],
+  inPoint: number,
+): Pick<TrimEffectsPreview, 'marks' | 'warnings'> {
+  const before = new Map(beforePlaced.map((placed) => [placed.id, placed]))
+  const after = afterPlaced
+    // Named as the row names them now, before Apply: that is what the user reads.
+    .map((placed) => ({ ...placed, name: before.get(placed.id)?.name ?? placed.name }))
+    .sort((a, b) => a.start - b.start)
+
+  const marks: TrimEffectMark[] = []
+  const warnings: TrimEffectWarning[] = []
+  for (const placed of after) {
+    const was = before.get(placed.id)
+    const outcome = was === undefined ? null : outcomeOf(was, placed)
+    if (outcome !== null) warnings.push({ id: placed.id, kind: placed.kind, name: placed.name, outcome })
+    // A collapsed effect plays nothing, so it has no place on the strip.
+    // An effect already collapsed before this trim is neither drawn nor warned of.
+    if (placed.kind !== 'pause' && placed.end - placed.start <= EPSILON) continue
+    marks.push({
+      id: placed.id,
+      kind: placed.kind,
+      name: placed.name,
+      start: inPoint + placed.start,
+      end: inPoint + placed.end,
+    })
+  }
+  return { marks, warnings }
+}
+
+/**
  * The Trim window's view of `range` for the entry `entryId` (#709): marks,
  * warnings and transition spans, all from the state `entry-trimmed` would
  * produce. An entry that is not in `state`, or a trim the reducer refuses,
@@ -171,35 +216,12 @@ export function trimEffectsPreview(
     return EMPTY
   }
 
-  const before = new Map(
-    placedEffects(zoomsForEntry(state, entryId), remapsForEntry(state, entryId)).map((placed) => [
-      placed.id,
-      placed,
-    ]),
-  )
   const remaps = remapsForEntry(trimmed, entryId)
-  const after = placedEffects(zoomsForEntry(trimmed, entryId), remaps)
-    // Named as the row names them now, before Apply: that is what the user reads.
-    .map((placed) => ({ ...placed, name: before.get(placed.id)?.name ?? placed.name }))
-    .sort((a, b) => a.start - b.start)
-
-  const marks: TrimEffectMark[] = []
-  const warnings: TrimEffectWarning[] = []
-  for (const placed of after) {
-    const was = before.get(placed.id)
-    const outcome = was === undefined ? null : outcomeOf(was, placed)
-    if (outcome !== null) warnings.push({ id: placed.id, kind: placed.kind, name: placed.name, outcome })
-    // A collapsed effect plays nothing, so it has no place on the strip.
-    // An effect already collapsed before this trim is neither drawn nor warned of.
-    if (placed.kind !== 'pause' && placed.end - placed.start <= EPSILON) continue
-    marks.push({
-      id: placed.id,
-      kind: placed.kind,
-      name: placed.name,
-      start: entry.inPoint + placed.start,
-      end: entry.inPoint + placed.end,
-    })
-  }
+  const { marks, warnings } = comparedEffects(
+    placedEffects(zoomsForEntry(state, entryId), remapsForEntry(state, entryId)),
+    placedEffects(zoomsForEntry(trimmed, entryId), remaps),
+    entry.inPoint,
+  )
 
   // Transitions are in output seconds; the strip is source. The incoming
   // side of a transition plays the entry's first `duration` output
@@ -226,6 +248,43 @@ export function trimEffectsPreview(
     })
   }
   return { marks, warnings, transitions }
+}
+
+/**
+ * The Trim window's view of `range` for the **video overlay** `overlayId`
+ * (#711): `trimEffectsPreview`'s rule, with the overlay's own action and
+ * lists. The candidate is the `video-overlay-updated` Apply dispatches —
+ * the overlay's placement with the new In and Out — and the overlay's own
+ * zooms and speed segments and pauses are compared before and after. An
+ * overlay sits on no boundary, so there are no transition spans. An image
+ * overlay has no source to trim, and shows nothing.
+ */
+export function overlayTrimEffectsPreview(
+  state: TimelineState,
+  overlayId: string,
+  range: TrimRange,
+): TrimEffectsPreview {
+  const current = videoOverlaysOf(state).find((overlay) => overlay.id === overlayId)
+  if (current === undefined || isImageOverlay(current)) return EMPTY
+  const unchanged = range.inPoint === current.inPoint && range.outPoint === current.outPoint
+  const trimmed = unchanged
+    ? state
+    : timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: overlayId,
+        placement: { ...overlayPlacementOf(current), inPoint: range.inPoint, outPoint: range.outPoint },
+      })
+  // A refused trim: as for an entry, show nothing rather than the current
+  // trim's effects against clamps somewhere else.
+  if (trimmed === state && !unchanged) return EMPTY
+  const overlay = videoOverlaysOf(trimmed).find((candidate) => candidate.id === overlayId)
+  if (overlay === undefined) return EMPTY
+  const { marks, warnings } = comparedEffects(
+    placedEffects(current.zooms ?? [], current.remaps ?? []),
+    placedEffects(overlay.zooms ?? [], overlay.remaps ?? []),
+    overlay.inPoint,
+  )
+  return { marks, warnings, transitions: [] }
 }
 
 /**
