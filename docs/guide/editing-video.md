@@ -190,7 +190,7 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **Details.** **Rectangle** is the placed rectangle as it is; **Ellipse** inscribes an ellipse in it, a circle when the rectangle is square; **Rounded** rounds the corners by a *radius* in percent, up to {{MAX_ROUNDED_RADIUS_PERCENT}} %, starting at {{DEFAULT_ROUNDED_RADIUS_PERCENT}} %. The silhouette is cut the same way in the preview and in every export. The overlay's placement editor outlines the silhouette while you place it.
 
-**Related.** [Overlay border](#overlay-border) · [Picture ▸](timeline.md#picture) · [Visual editors](visual-editors.md)
+**Related.** [Overlay border](#overlay-border) · [Overlay shadow](#overlay-shadow) · [Picture ▸](timeline.md#picture) · [Visual editors](visual-editors.md)
 
 ## Overlay border
 
