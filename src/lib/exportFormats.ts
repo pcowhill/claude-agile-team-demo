@@ -35,7 +35,9 @@ import type { ExportOptions } from './exportVideo'
  * export modal shows for the selected format — where a format states its
  * limits in the UI) — recorded in ADR 0003. #245 grew it once more:
  * `audioOnly` (the export modal hides the video-only output settings for a
- * format that records no video track) — recorded in ADR 0003.
+ * format that records no video track) — recorded in ADR 0003. #726 grew it
+ * with `sizeLimit` (the modal offers the Size limit only for a format whose
+ * encoder takes a bitrate) — recorded in ADR 0003.
  */
 export interface ExportFormatSpec {
   /** Stable identifier, unique within the registry (e.g. 'webm'). */
@@ -84,6 +86,14 @@ export interface ExportFormatSpec {
    * video format.
    */
   audioOnly?: boolean
+  /**
+   * The format encodes through the shared `MediaRecorder` pipeline, which
+   * takes a target bitrate, so the export modal offers the Size limit (#726)
+   * and passes `sizeLimitBytes` to `encode`. Absent means the limit is
+   * hidden rather than faked: MP3 has its own fixed bitrate (#269), and a
+   * plugin's own encoder (the GIF plugin) has its own limits.
+   */
+  sizeLimit?: boolean
 }
 
 /**
@@ -226,6 +236,7 @@ export function registerCoreExportFormats(registry: ExportFormatRegistry): void 
       extension: 'webm',
       candidates: EXPORT_MIME_CANDIDATES,
       candidatesWithAudio: EXPORT_MIME_CANDIDATES_WITH_AUDIO,
+      sizeLimit: true,
     }),
   )
   registry.register(
@@ -235,6 +246,7 @@ export function registerCoreExportFormats(registry: ExportFormatRegistry): void 
       extension: 'mp4',
       candidates: EXPORT_MP4_MIME_CANDIDATES,
       candidatesWithAudio: EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
+      sizeLimit: true,
     }),
   )
   // Audio only (#245): the project's mixed soundtrack, recorded through the
@@ -248,6 +260,7 @@ export function registerCoreExportFormats(registry: ExportFormatRegistry): void 
     candidates: EXPORT_AUDIO_MIME_CANDIDATES,
     candidatesWithAudio: EXPORT_AUDIO_MIME_CANDIDATES,
     audioOnly: true,
+    sizeLimit: true,
     note: 'Saves just the mixed soundtrack — the file has no video track.',
     isSupported: (isTypeSupported) =>
       typeof AudioContext !== 'undefined' &&

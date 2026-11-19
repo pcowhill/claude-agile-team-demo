@@ -134,6 +134,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Export frame rate** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export height** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export Project…** — the header. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
+- **Export size limit** — the export dialog's Output group: No limit, 10, 25 or 100 MB, or Custom…, which takes a number of MB; the file aims under it. [Export › The Size limit](export.md#the-size-limit)
 - **Export size preset** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Export width** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
 - **Exported chapters** — the export dialog, after an Each chapter run has finished or stopped; the list of files it wrote, with each one's number, name, filename and length. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)

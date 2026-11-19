@@ -136,6 +136,12 @@ export const GUIDE_CONSTANT_NAMES = [
   'GIF_MAX_PX',
   /** The MP3 export's bitrate, in kbps (#269). */
   'MP3_KBPS',
+  /** The Size limit's safety margin, as a percentage of the limit (#726). */
+  'SIZE_LIMIT_MARGIN_PERCENT',
+  /** The bitrate a size-limited video export keeps for its sound, in kbit/s (#726). */
+  'RESERVED_AUDIO_KBPS',
+  /** Bits per pixel per frame below which the Size limit's estimate warns of blurry text (#726). */
+  'BLUR_BITS_PER_PIXEL',
   /** How long an export waits for the browser's sound output to start before exporting without it, in seconds (#596). */
   'AUDIO_START_TIMEOUT_SECONDS',
   /** The default arrow-key steps before Settings changes them, in seconds (#286). */

@@ -1,6 +1,6 @@
 # Export
 
-Turning the arrangement into a file: [opening the export dialog](#opening-the-export-dialog), the [formats](#formats-and-what-decides-them) and what decides which are offered, the [output settings](#output-settings) and their presets, [the Range line](#the-range-line), the two [Audio only](#audio-only-webm-opus-and-mp3) formats, [Animated GIF](#animated-gif-plugin) through its plugin, and [what can stop an export](#what-can-stop-an-export). The exported file carries the preview's mix, and draws every frame through the same rule the preview uses — see [The output frame](concepts.md#the-output-frame). A single frame is saved from the preview's **Frame ▾** › **Save frame as PNG…** instead.
+Turning the arrangement into a file: [opening the export dialog](#opening-the-export-dialog), the [formats](#formats-and-what-decides-them) and what decides which are offered, the [output settings](#output-settings) and their presets, the [Size limit](#the-size-limit), [the Range line](#the-range-line), the two [Audio only](#audio-only-webm-opus-and-mp3) formats, [Animated GIF](#animated-gif-plugin) through its plugin, and [what can stop an export](#what-can-stop-an-export). The exported file carries the preview's mix, and draws every frame through the same rule the preview uses — see [The output frame](concepts.md#the-output-frame). A single frame is saved from the preview's **Frame ▾** › **Save frame as PNG…** instead.
 
 ## Opening the export dialog
 
@@ -24,13 +24,30 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 ## Output settings
 
-**Where to find it.** The dialog's **Output** group: a size drop-down, **Width**, **Height** and **Frame rate**.
+**Where to find it.** The dialog's **Output** group: a size drop-down, **Width**, **Height** and **Frame rate**, and below them the [Size limit](#the-size-limit).
 
 **What it does.** Sets the exported picture's size and frame rate for this one export.
 
-**Details.** The drop-down opens on **Auto (match sources)** — the frame follows the sources composed with the canvas preset, exactly as the preview shows, and the fields display the size that yields. The presets — {{EXPORT_SIZE_PRESETS}} — fill the fields with a common output size, and **Custom** is what typing into a field switches to. Each field shows its unit inside the box, after the number: **px** for width and height, **fps** for the frame rate. Width and height are whole pixels from {{MIN_EXPORT_DIMENSION}} to {{MAX_EXPORT_DIMENSION}}; the frame rate is {{EXPORT_FRAME_RATE}} fps unless you set another, up to {{MAX_EXPORT_FRAME_RATE}}. A value outside those bounds shows a message and disables Export until it is fixed. Whatever you choose here applies to this export only — the next time the dialog opens it is back on Auto — and an audio-only format hides the whole group, since it records no picture. The picture is composed at the requested size, not scaled after the fact, so overlays, shapes, text and zooms keep their proportions.
+**Details.** The drop-down opens on **Auto (match sources)** — the frame follows the sources composed with the canvas preset, exactly as the preview shows, and the fields display the size that yields. The presets — {{EXPORT_SIZE_PRESETS}} — fill the fields with a common output size, and **Custom** is what typing into a field switches to. Each field shows its unit inside the box, after the number: **px** for width and height, **fps** for the frame rate. Width and height are whole pixels from {{MIN_EXPORT_DIMENSION}} to {{MAX_EXPORT_DIMENSION}}; the frame rate is {{EXPORT_FRAME_RATE}} fps unless you set another, up to {{MAX_EXPORT_FRAME_RATE}}. A value outside those bounds shows a message and disables Export until it is fixed. Whatever you choose here applies to this export only — the next time the dialog opens it is back on Auto — and an audio-only format hides the size and frame-rate fields, since it records no picture. The picture is composed at the requested size, not scaled after the fact, so overlays, shapes, text and zooms keep their proportions.
 
-**Related.** [The output frame](concepts.md#the-output-frame) · [Canvas](timeline.md#the-header)
+**Related.** [The output frame](concepts.md#the-output-frame) · [Canvas](timeline.md#the-header) · [The Size limit](#the-size-limit)
+
+## The Size limit
+
+**Where to find it.** The dialog's **Output** group › **Size limit**: **No limit**, **10 MB**, **25 MB**, **100 MB** or **Custom…**, which takes a number of MB.
+
+**What it does.** Aims the exported file under a size you choose — e-mail, chat and course platforms cap uploads, often at about 25 MB — by telling the browser's recorder how many bits a second to spend.
+
+**Details.** The rate is the limit, less a {{SIZE_LIMIT_MARGIN_PERCENT}} % safety margin, spread over the length of what you export: the whole project, or the range you chose, with speed segments, pauses and transitions counted as they play. When the export carries sound, {{RESERVED_AUDIO_KBPS}} kbit/s of it is kept for the sound and the picture gets the rest. **No limit** is where the dialog opens, and it leaves the rate to the browser, as before the limit existed; like the output settings, the limit applies to this export only.
+
+- **The estimate.** As soon as a limit is chosen, a line under it says the rate it implies and what that means at the output size — *Aims at about 1.7 Mbit/s: fine for screen text at 1280×720*. Below about {{BLUR_BITS_PER_PIXEL}} bits per pixel per frame it warns instead — *text will be blurry at 1280×720; consider a larger limit or a smaller output size*. The dialog never changes the output size itself: a smaller frame, or a lower frame rate, is your call.
+- **Aimed at, not guaranteed.** A browser's recorder treats the rate as a target and varies it as the picture changes, so a file can come out a little over. After a limited export the dialog stays open and states the file's actual size beside the limit, *Saved sequence-export.webm: 23.1 MB (limit 25 MB)*, or says plainly that it is over. With **No limit** the dialog closes on the download, as it always has.
+- **WebM picks the codec that holds the rate.** With a limit set, a WebM export records with VP8 rather than VP9: in Chromium, VP9's recorder came out at nearly twice a tight limit, where VP8 stayed under it. Without a limit WebM records as before, with VP9 where the browser has it, which makes the smaller file for the same picture.
+- **Too small to export.** A limit that leaves the picture nothing once the sound has its share, or one too small for sound alone, says so and disables **Export**.
+- **Each chapter.** With [Each chapter](#exporting-each-chapter-as-its-own-file), the limit applies to **every chapter file** on its own, sized by that chapter's length, because an upload cap is per file. The estimate reads the longest chapter, the one the limit squeezes hardest, and the finished list gives each file's size.
+- **Which formats.** WebM, MP4 and **Audio only (WebM/Opus)** offer the limit; for the audio-only format the whole budget goes to the sound. **MP3** has its own fixed rate and **Animated GIF** its own limits, so neither shows the control.
+
+**Related.** [Output settings](#output-settings) · [The Range line](#the-range-line) · [Audio only: WebM/Opus and MP3](#audio-only-webm-opus-and-mp3)
 
 ## The Range line
 
@@ -48,7 +65,7 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **What it does.** Runs the export once per chapter and saves each one as its own file, so a long sectioned recording becomes a series of videos in a single pass instead of one custom range typed and named by hand per chapter.
 
-**Details.** The chapters are the same ones [Copy chapter list](#copying-a-chapter-list) writes: each one runs from its marker up to the next, the last reaches the end of the project, and when no marker sits at the very start a leading **Intro** chapter covers the span before the first one. Each file is named `NN Name` — the chapter's number, zero-padded so a folder sorts in order, then the marker's name with any character a filesystem would reject replaced by a space. A chapter whose name survives none of that keeps the number alone. Every file uses the format and output settings chosen in the dialog, exactly as a single export would.
+**Details.** The chapters are the same ones [Copy chapter list](#copying-a-chapter-list) writes: each one runs from its marker up to the next, the last reaches the end of the project, and when no marker sits at the very start a leading **Intro** chapter covers the span before the first one. Each file is named `NN Name` — the chapter's number, zero-padded so a folder sorts in order, then the marker's name with any character a filesystem would reject replaced by a space. A chapter whose name survives none of that keeps the number alone. Every file uses the format and output settings chosen in the dialog, exactly as a single export would; a [Size limit](#the-size-limit) applies to each file on its own.
 
 **Each chapter always covers the whole project**, so it cannot be combined with a marked or typed range — the Range options are a choice of one. While the run is going the dialog says which chapter is recording and how many there are, *Chapter 3 of 7: Installing the CLI*, and the progress bar shows that one file.
 
@@ -76,7 +93,7 @@ The times are rounded **down**, so a chapter never starts after the moment you m
 
 **What it does.** Saves just the project's mixed soundtrack — the same mix a video export records, with no video track.
 
-**Details.** Selecting either hides the Output group; the Range line still applies. The mix is the one the preview plays — every volume, mute, fade and duck — so the file sounds like the preview did (in Firefox, except a [Volume above 1](audio.md#volume-and-mute), which the export raises and the preview does not). **WebM/Opus** is recorded by the browser's own recorder, like the video formats. **MP3** is encoded in the page at {{MP3_KBPS}} kbps by an encoder the app downloads the first time an MP3 export runs, so it costs nothing until then and works wherever the browser's audio engine does — including browsers whose recorder cannot produce MP3, which is all of them. An audio-only export needs the browser's audio engine; where it is unavailable the export refuses rather than producing a silent file.
+**Details.** Selecting either hides the Output group's size and frame-rate fields; the Range line still applies, and **WebM/Opus** keeps the [Size limit](#the-size-limit). The mix is the one the preview plays — every volume, mute, fade and duck — so the file sounds like the preview did (in Firefox, except a [Volume above 1](audio.md#volume-and-mute), which the export raises and the preview does not). **WebM/Opus** is recorded by the browser's own recorder, like the video formats. **MP3** is encoded in the page at {{MP3_KBPS}} kbps by an encoder the app downloads the first time an MP3 export runs, so it costs nothing until then and works wherever the browser's audio engine does — including browsers whose recorder cannot produce MP3, which is all of them. An audio-only export needs the browser's audio engine; where it is unavailable the export refuses rather than producing a silent file.
 
 **Related.** [Formats and what decides them](#formats-and-what-decides-them)
 
