@@ -76,7 +76,7 @@ test('the strip’s frames are the clip at their times: the first red, the middl
   expect(first.g, JSON.stringify(first)).toBeLessThan(80)
   expect(first.b, JSON.stringify(first)).toBeLessThan(80)
 
-  // Frame 10 of 20 sits at 3.15 s, inside the green stretch.
+  // nth(10), the 11th of 20, sits at 3.15 s, inside the green stretch.
   const middle = await colourOf(frames.nth(FRAME_COUNT / 2))
   expect(middle.g, JSON.stringify(middle)).toBeGreaterThan(180)
   expect(middle.r, JSON.stringify(middle)).toBeLessThan(80)
