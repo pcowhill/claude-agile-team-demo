@@ -960,3 +960,11 @@
   color: #e0b050;
   font-size: 0.8rem;
 }
+
+/* Trim… (#707): beside In and Out, at the row's small type, and never
+   broken inside its label when the row wraps. */
+.timeline-trim-open {
+  font-size: inherit;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}

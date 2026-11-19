@@ -63,4 +63,35 @@ describe('the generated shortcut table (#482)', () => {
       'Ctrl/Cmd + D',
     ])
   })
+
+  it('shows the Trim window’s keys under their own heading in both, with the live step sizes (#707)', () => {
+    const settings = { stepSeconds: 0.25, largeStepSeconds: 2 }
+    const constants = guideConstants(settings)
+    render(
+      <>
+        <GuideBlocks blocks={[{ kind: 'shortcuts' }]} context={{ section: 'keyboard-shortcuts', constants, onNavigate: () => {} }} />
+        <ShortcutHelpDialog onClose={() => {}} stepSeconds={settings.stepSeconds} largeStepSeconds={settings.largeStepSeconds} />
+      </>,
+    )
+    const table = screen.getByTestId('user-guide-shortcuts')
+    const heading = within(table).getByRole('columnheader', { name: 'In the Trim window' })
+    const after = Array.from(heading.closest('tbody')!.querySelectorAll('tr')).slice(1)
+    expect(after.map((row) => row.querySelector('td:last-child')!.textContent)).toEqual([
+      'Play / pause Play trim',
+      'Set the In / Out clamp at the playhead',
+      'Move the focused clamp 0.25 s back / forward',
+      'Move the focused clamp 2 s back / forward',
+      'Close the window without applying',
+    ])
+    const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    expect(within(sheet).getByRole('heading', { name: 'In the Trim window' })).toBeInTheDocument()
+    const trimList = sheet.querySelector('dl[aria-label="In the Trim window"]')!
+    expect(Array.from(trimList.querySelectorAll('kbd')).map((kbd) => kbd.textContent)).toEqual([
+      'Space',
+      'I / O',
+      '← / →',
+      'Shift + ← / →',
+      'Esc',
+    ])
+  })
 })

@@ -155,7 +155,7 @@ does. Do not write ADRs for trivial or easily reversed choices.
   re-takes cannot catch what a later change breaks. Geometry assertions are
   claims a browser can measure — a bounding box lying inside its dialog, a
   label on one line (the lines its text's client rects occupy, counted as
-  `expectNoWrap` in `e2e/user-guide.spec.ts` does), rows still aligned, the
+  `expectNoWrap` in `e2e/layout.ts` does), rows still aligned, the
   page not scrolling sideways. `scrollWidth <= clientWidth` is **not** a
   wrap check: it compares boxes, and wrapped text still fits its box. On
   the guide's 27 Contents links, squeezed to 70px so that 22 wrapped, it

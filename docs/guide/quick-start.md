@@ -22,7 +22,7 @@ Sequence entries play one after another in the order they are listed. Each seque
 
 ## 3. Trim
 
-Click a row's **▾** to expand it. The **In** and **Out** fields set where the clip starts and stops playing, in seconds into its source file. Type a value and press Enter, or drag the slider beside the field. The row's coverage bar and the **Total** on the timeline header follow.
+Click a row's **▾** to expand it. The **In** and **Out** fields set where the clip starts and stops playing, in seconds into its source file. Type a value and press Enter, or drag the slider beside the field. The row's coverage bar and the **Total** on the timeline header follow. To set them while watching the clip, click **Trim…** beside them: see [The Trim window](editing-video.md#the-trim-window).
 
 ## 4. Add a transition
 
