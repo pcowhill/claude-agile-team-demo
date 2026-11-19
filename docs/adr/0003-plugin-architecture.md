@@ -99,7 +99,16 @@ extension point is built until a concrete plugin needs it**.
   mixed audio-capture track alone — the same replay/gain loop drives the
   mix, so audio parity with video exports is inherited — and an audio-only
   export refuses where Web Audio is unavailable instead of falling back to
-  video-only.
+  video-only. The Size limit (#726) grew it again: `sizeLimit?` marks a
+  format whose encoder takes a target bitrate, which today means one that
+  records through the shared `MediaRecorder` pipeline (WebM, MP4, audio
+  WebM). The export modal offers the limit only for such a format and then
+  passes `ExportOptions.sizeLimitBytes` to `encode`. The pipeline turns
+  that into `videoBitsPerSecond` / `audioBitsPerSecond` from the exported
+  window's duration. The flag is opt-in, so a format with its own encoder
+  (MP3, and the GIF plugin) has the limit hidden rather than faked, and a
+  future plugin format gets it only by declaring an encoder that honours
+  it.
 - **Plugin runtime** (`src/lib/plugins.ts`, phase 2 #197): the catalog entry
   contract — id, name, description, version, a `load()` that must be a
   dynamic `import()` of a module under `src/plugins/` (so the code ships as

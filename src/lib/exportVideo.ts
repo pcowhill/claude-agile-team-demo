@@ -56,6 +56,7 @@ import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
+import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
 import { attachBoost, capturedElementsHonourPlaybackRate, intendedGain, setMediaGain } from './mediaGain'
 
 /**
@@ -1723,6 +1724,21 @@ export function resolveExportRange(total: number, range: ExportRange | undefined
 }
 
 /**
+ * How long the exported file plays, in output seconds (#726, for the Size
+ * limit's bitrate): the export's own window, by the same rule the
+ * pipeline uses (`resolveExportRange`). That is the whole sequence, or the
+ * requested range clamped into it. The
+ * sequence's length is `totalDuration`, which already counts speed
+ * segments, pauses and transition overlaps. Clip lengths are not the
+ * answer: a 2× segment halves the time its source covers.
+ */
+export function exportedDuration(timeline: TimelineState, range?: ExportRange | null): number {
+  const total = totalDuration(timeline)
+  const window = resolveExportRange(total, range ?? undefined)
+  return window === null ? total : window.end - window.start
+}
+
+/**
  * The export range a pair of transport marks (#385) currently offers, or null
  * when they offer none: both marks set, the in mark strictly before the out
  * mark, and the in mark inside the sequence; the out mark clamps to the
@@ -1828,6 +1844,15 @@ export interface ExportOptions {
    * whole sequence, exactly as before.
    */
   range?: ExportRange
+  /**
+   * The Size limit (#726), in bytes: the recorder is given the bitrates that
+   * aim the file under it (`sizeLimitBitrates`), worked out from the
+   * exported window's duration, so a range or a chapter is sized by its own
+   * length. Absent means no limit: the recorder gets the MIME type alone and
+   * the browser picks the bitrate, exactly as before. Only the recorder
+   * honours it; a sink (#198) or an audio sink (#269) is its own encoder.
+   */
+  sizeLimitBytes?: number
   /** Injectable for tests (jsdom never fires media events). */
   createVideo?: () => HTMLVideoElement
   /** Injectable for tests (jsdom never fires media events). */
@@ -2620,11 +2645,14 @@ export async function exportTimeline(
 
   // A sink is its own encoder (#198), and so is an audio sink (#269): no
   // recorder MIME type to negotiate for either.
+  const candidates = audioCapture === null ? container.candidates : container.candidatesWithAudio
   const mimeType = sink !== undefined || audioSink !== undefined
     ? null
     : pickExportMimeType(
         (type) => MediaRecorder.isTypeSupported(type),
-        audioCapture === null ? container.candidates : container.candidatesWithAudio,
+        // A Size limit (#726) needs a codec that holds its bitrate: VP8
+        // ahead of VP9 (see `rateControlledCandidates`).
+        options.sizeLimitBytes === undefined ? candidates : rateControlledCandidates(candidates),
       )
   if (sink === undefined && audioSink === undefined && mimeType === null) {
     await audioCapture?.dispose()
@@ -2923,7 +2951,20 @@ export async function exportTimeline(
       audioCapture?.track ?? null,
     )
     try {
-      recorder = new MediaRecorder(stream, { mimeType: mimeType as string })
+      // The Size limit (#726) is sized by what this recording carries: the
+      // window being exported, and whether a sound track was captured.
+      let bitrates = null
+      if (options.sizeLimitBytes !== undefined) {
+        const limited = sizeLimitBitrates({
+          limitBytes: options.sizeLimitBytes,
+          durationSeconds: windowEnd - windowStart,
+          audio: audioCapture !== null,
+          audioOnly,
+        })
+        if (!limited.ok) throw new ExportUnsupportedError(limited.error)
+        bitrates = limited.bitrates
+      }
+      recorder = new MediaRecorder(stream, recorderOptions(mimeType as string, bitrates))
     } catch (error) {
       // A rejected track combination must not strand the audio context, which
       // holds a rendering thread until it is closed.
