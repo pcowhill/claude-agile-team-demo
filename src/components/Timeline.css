@@ -600,6 +600,17 @@
   --thumb: 16px;
 }
 
+/* Firefox draws its range thumb 20px wide at this size, not Chromium's
+   16px, which put the tick a pixel short of 1 there; measured by clicking
+   along the slider, where Firefox reads 0 until 10px in and 4 from 10px
+   before the end. The selector test is Firefox's own thumb pseudo-element,
+   which no other engine accepts. */
+@supports selector(::-moz-range-thumb) {
+  .timeline-slider {
+    --thumb: 20px;
+  }
+}
+
 .timeline-slider-mark {
   position: absolute;
   bottom: -3px;
