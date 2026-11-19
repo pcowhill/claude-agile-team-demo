@@ -286,10 +286,22 @@ async function click(page: Page, point: { x: number; y: number }, shift = false)
 /**
  * The editor's still, sampled at frame fractions, as the export composed it
  * (the still is `snapshotTimelineFrame`, the export's own composer). Read in
- * one evaluate, so every sample comes from one image.
+ * one evaluate, so every sample comes from one image. `dx` is a further
+ * offset in the still's own pixels, applied in that same evaluate, so a
+ * point "10 px inside" needs no second read of the width — which could be a
+ * different image (#733).
+ *
+ * A still the Preview slider is replacing has no pixels yet: its
+ * `naturalWidth` is 0, and sampling it threw `getImageData … Value is
+ * infinite` straight out of the caller's `expect.poll` (#733). It reports
+ * width 0 and colours of -1 instead, which no caller's condition accepts,
+ * so the poll reads again once the new still has loaded.
  */
-async function sampleStill(editor: Locator, points: { x: number; y: number }[]) {
+async function sampleStill(editor: Locator, points: { x: number; y: number; dx?: number }[]) {
   return editor.getByTestId('frame-editor-image').evaluate((element: HTMLImageElement, at) => {
+    if (!element.complete || element.naturalWidth === 0 || element.naturalHeight === 0) {
+      return { width: 0, height: 0, colours: at.map(() => ({ r: -1, g: -1, b: -1 })) }
+    }
     const canvas = document.createElement('canvas')
     canvas.width = element.naturalWidth
     canvas.height = element.naturalHeight
@@ -298,8 +310,13 @@ async function sampleStill(editor: Locator, points: { x: number; y: number }[]) 
     return {
       width: canvas.width,
       height: canvas.height,
-      colours: at.map(({ x, y }) => {
-        const [r, g, b] = ctx.getImageData(Math.floor(x * canvas.width), Math.floor(y * canvas.height), 1, 1).data
+      colours: at.map(({ x, y, dx = 0 }) => {
+        const [r, g, b] = ctx.getImageData(
+          Math.floor(x * canvas.width + dx),
+          Math.floor(y * canvas.height),
+          1,
+          1,
+        ).data
         return { r, g, b }
       }),
     }
@@ -467,10 +484,8 @@ test('the Preview slider moves the picture under the shapes, and Show result ins
   // blue (0, 0, 204) and the border's red (229, 57, 53).
   await backgroundAt('1')
   await editor.getByRole('checkbox', { name: 'Show result' }).check()
-  const onBorder = async () => {
-    const { width } = await sampleStill(editor, [])
-    return sampleStill(editor, [{ x: 0.1 + 10 / width, y: 0.4 }]).then((read) => read.colours[0])
-  }
+  const onBorder = async () =>
+    (await sampleStill(editor, [{ x: 0.1, y: 0.4, dx: 10 }])).colours[0]
   await expect
     .poll(async () => {
       const c = await onBorder()
