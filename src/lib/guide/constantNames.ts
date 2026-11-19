@@ -67,6 +67,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'TEXT_SIZE_STEP',
   /** How long Loop rests on the hold's first and last frame, in seconds (#425). */
   'LOOP_REST_SECONDS',
+  /** How many frames the Trim window's strip shows along the clip (#708). */
+  'TRIM_FRAME_COUNT',
   /** The smallest side a redaction region can be dragged to, in percent of the source (#493). */
   'REDACTION_MIN_REGION_PERCENT',
   /** A rounded shape mask's corner radius: its ceiling and its starting value, in percent (#266). */
