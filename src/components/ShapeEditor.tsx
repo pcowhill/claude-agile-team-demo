@@ -558,7 +558,7 @@ export function ShapeEditor({
       return
     }
     if (final.kind === 'move-many') {
-      // A click on one of several selected shapes, without a final, picks it alone.
+      // A click on one of several selected shapes, without a drag, picks it alone.
       if (!final.moved) {
         select([final.pressed])
         return
