@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -190,7 +190,17 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **Details.** **Rectangle** is the placed rectangle as it is; **Ellipse** inscribes an ellipse in it, a circle when the rectangle is square; **Rounded** rounds the corners by a *radius* in percent, up to {{MAX_ROUNDED_RADIUS_PERCENT}} %, starting at {{DEFAULT_ROUNDED_RADIUS_PERCENT}} %. The silhouette is cut the same way in the preview and in every export. The overlay's placement editor outlines the silhouette while you place it.
 
-**Related.** [Picture ▸](timeline.md#picture) · [Visual editors](visual-editors.md)
+**Related.** [Overlay border](#overlay-border) · [Picture ▸](timeline.md#picture) · [Visual editors](visual-editors.md)
+
+## Overlay border
+
+**Where to find it.** An expanded video or image overlay row › **Picture ▸** › **Border**.
+
+**What it does.** Outlines an overlay in a colour, at a thickness you set — a black or red edge that separates a webcam bubble or a picture-in-picture from a busy picture behind it.
+
+**Details.** **Thickness** is in pixels of the output frame, up to a tenth of its shorter side; 0, the default, is no border. The thickness keeps its proportion when the output frame changes, so a border looks the same at every export size, and the field shows it in pixels at the current frame. **Colour** sets the outline's colour; choosing one before any thickness starts the border at 4 px. The border follows the overlay's [shape mask](#shape-mask) — the rectangle, the ellipse or the rounded rectangle — and is drawn **outside** it, so the picture keeps every pixel and the outline hugs it. A part of the border past the frame's edge is cut off, as anything past the frame is. A later overlay covers an earlier one's border, as it covers its picture. The border shows exactly while the overlay does; an overlay's fades are its sound's, so the border does not fade. It is drawn the same way in the preview and in every export, saves with the project, and is copied when the overlay is duplicated. Copy settings does not carry it, as it does not carry the shape mask.
+
+**Related.** [Shape mask](#shape-mask) · [Picture ▸](timeline.md#picture)
 
 ## The slider beside each number
 

@@ -25,7 +25,7 @@ import {
   videoOverlaysOf,
 } from './timeline'
 import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
-import { drawShapeGroups } from './shapes'
+import { drawShapeGroups, shorterSidePixels } from './shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime, locateInSequence } from './playback'
 import {
@@ -48,6 +48,7 @@ import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius, backdropRect } from './backg
 import type { BackgroundFill } from './backgroundFill'
 import { inscribedEllipse, roundedCornerRadius } from './shapeMask'
 import type { ShapeMask } from './shapeMask'
+import type { OverlayBorder } from './overlayBorder'
 import { transitionLayerSpec } from './transitionRender'
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -313,6 +314,45 @@ export function traceShapeMask(
     placed.height,
     roundedCornerRadius(placed, mask.radius),
   )
+}
+
+/**
+ * An overlay's border (#697) into `scratch`, then onto `context`: the
+ * silhouette — the placed rectangle, or the shape its mask cuts — stroked at
+ * twice the thickness, centred on the path, with the silhouette's inside
+ * then removed by a `destination-out` fill. What remains is the outside
+ * offset of the shape, so the picture keeps every pixel. A filled path's
+ * edge alpha survives the composite, which is why the inside is removed
+ * this way rather than by an engine `clip()` (the #261 risk). The preview
+ * calls this same routine on a frame-sized canvas (`OverlayBorderLayer`).
+ */
+export function drawOverlayBorder(
+  context: CanvasRenderingContext2D,
+  scratchBuffer: { canvas: CanvasImageSource; context: CanvasRenderingContext2D },
+  border: OverlayBorder,
+  mask: ShapeMask | undefined,
+  placed: FitRect,
+  frameWidth: number,
+  frameHeight: number,
+): void {
+  const scratch = scratchBuffer.context
+  const trace = () => {
+    scratch.beginPath()
+    if (mask === undefined) scratch.rect(placed.x, placed.y, placed.width, placed.height)
+    else traceShapeMask(scratch, mask, placed)
+  }
+  scratch.clearRect(0, 0, frameWidth, frameHeight)
+  trace()
+  scratch.lineWidth = 2 * shorterSidePixels(border.thickness, frameWidth, frameHeight)
+  scratch.lineJoin = 'miter'
+  scratch.strokeStyle = border.color
+  scratch.stroke()
+  scratch.globalCompositeOperation = 'destination-out'
+  scratch.fillStyle = '#fff'
+  trace()
+  scratch.fill()
+  scratch.globalCompositeOperation = 'source-over'
+  context.drawImage(scratchBuffer.canvas, 0, 0)
 }
 
 /**
@@ -1438,6 +1478,20 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           target.clip()
           paintPicture(target)
           target.restore()
+        }
+        // The border (#697) sits outside the silhouette, under the picture,
+        // so the picture's own antialiased edge lands on it. A border-free
+        // overlay makes no extra calls.
+        if (layer.border !== undefined) {
+          drawOverlayBorder(
+            context,
+            maskScratch(),
+            layer.border,
+            layer.shapeMask,
+            placed,
+            width,
+            height,
+          )
         }
         if (layer.shapeMask === undefined) {
           // Mask-free overlays draw exactly as before #267 — same target,

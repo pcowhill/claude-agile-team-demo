@@ -44,6 +44,12 @@ import {
   softenOf,
 } from '../lib/spotlight'
 import type { ShapeMask, ShapeMaskInput } from '../lib/shapeMask'
+import type { OverlayBorder } from '../lib/overlayBorder'
+import {
+  DEFAULT_OVERLAY_BORDER_COLOR,
+  DEFAULT_OVERLAY_BORDER_PX,
+  MAX_OVERLAY_BORDER,
+} from '../lib/overlayBorder'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -299,6 +305,8 @@ interface TimelineProps {
   /** Sets a video overlay's shape mask whole (#266);
    * `{ kind: 'rectangle' }` resets. */
   onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
+  /** Sets an overlay's border (#697); a thickness of 0 clears it. */
+  onSetVideoOverlayBorder?: (id: string, border: OverlayBorder) => void
   /** Adds a zoom on an overlay's own picture (#699); the id is the caller's to mint. */
   onAddVideoOverlayZoom?: (overlayId: string, zoom: ZoomSpec) => void
   onUpdateVideoOverlayZoom?: (overlayId: string, id: string, zoom: ZoomSpec) => void
@@ -1819,6 +1827,62 @@ function ShapeMaskControls({ position, mask, onCommit }: ShapeMaskControlsProps)
   )
 }
 
+interface BorderControlsProps {
+  /** The accessible name of the row's owner (a video or image overlay). */
+  position: string
+  border: OverlayBorder | undefined
+  /** The output frame, which the thickness is shown in px against. */
+  frameSize: { width: number; height: number }
+  /** Receives the full border on every edit; a thickness of 0 clears it (#697). */
+  onCommit: (border: OverlayBorder) => void
+}
+
+/**
+ * Per-overlay border controls (#697): a colour and a thickness, one row in
+ * the per-item-controls idiom, beside Shape — the border hugs the silhouette
+ * the shape mask cuts. The thickness is stored as a fraction of the output
+ * frame's shorter side and shown in px at the current output frame, as a
+ * shape's border is (#683); 0 is no border. Choosing a colour with no border
+ * yet starts one at a default 4 px, so the choice shows rather than being
+ * discarded with the absent border.
+ */
+function BorderControls({ position, border, frameSize, onCommit }: BorderControlsProps) {
+  const toPx = (fraction: number) => shorterSidePixels(fraction, frameSize.width, frameSize.height)
+  const fromPx = (px: number) => shorterSideFraction(px, frameSize.width, frameSize.height)
+  const color = border?.color ?? DEFAULT_OVERLAY_BORDER_COLOR
+  return (
+    <div className="timeline-entry-color">
+      <span>Border</span>
+      <LabelledField text="colour">
+        <input
+          type="color"
+          aria-label={`Border colour of ${position}`}
+          value={color}
+          onChange={(event) =>
+            onCommit({
+              color: event.target.value,
+              thickness: border?.thickness ?? fromPx(DEFAULT_OVERLAY_BORDER_PX),
+            })
+          }
+        />
+      </LabelledField>
+      <LabelledField text="thickness">
+        <SecondsField
+          label={`Border thickness of ${position} in pixels`}
+          // Hundredths, so a thickness typed at another frame size reads
+          // without float noise.
+          value={border === undefined ? 0 : Math.round(toPx(border.thickness) * 100) / 100}
+          max={Math.floor(toPx(MAX_OVERLAY_BORDER))}
+          step={1}
+          slider
+          onCommit={(px) => onCommit({ color, thickness: Math.min(fromPx(px), MAX_OVERLAY_BORDER) })}
+          unit="px"
+        />
+      </LabelledField>
+    </div>
+  )
+}
+
 interface BackgroundFillControlsProps {
   /** The accessible name of the row's owner (a video/image entry). */
   position: string
@@ -2134,6 +2198,7 @@ export function Timeline({
   onSetVideoOverlayRedactions,
   onSetVideoOverlaySpotlights,
   onSetVideoOverlayMask,
+  onSetVideoOverlayBorder,
   onAddVideoOverlayZoom,
   onUpdateVideoOverlayZoom,
   onRemoveVideoOverlayZoom,
@@ -3922,6 +3987,18 @@ export function Timeline({
                           position={position}
                           mask={overlay.shapeMask}
                           onCommit={(mask) => onSetVideoOverlayMask(overlay.id, mask)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Border',
+                      applied: overlay.border !== undefined,
+                      controls: (
+                        <BorderControls
+                          position={position}
+                          border={overlay.border}
+                          frameSize={frameSize}
+                          onCommit={(border) => onSetVideoOverlayBorder?.(overlay.id, border)}
                         />
                       ),
                     },

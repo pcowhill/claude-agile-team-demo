@@ -30,6 +30,7 @@ import fixtureV23ShapeGroupsReferencesBase64 from './fixtures/project-v23-shape-
 import fixtureV24ArrowShapesReferencesBase64 from './fixtures/project-v24-arrow-shapes-references.bvep.base64?raw'
 import fixtureV25LineStylesReferencesBase64 from './fixtures/project-v25-line-styles-references.bvep.base64?raw'
 import fixtureV26OverlayZoomsReferencesBase64 from './fixtures/project-v26-overlay-zooms-references.bvep.base64?raw'
+import fixtureV27OverlayBordersReferencesBase64 from './fixtures/project-v27-overlay-borders-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -53,6 +54,7 @@ import {
   ARROW_SHAPES_SCHEMA_VERSION,
   LINE_STYLES_SCHEMA_VERSION,
   OVERLAY_ZOOMS_SCHEMA_VERSION,
+  OVERLAY_BORDERS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1142,8 +1144,9 @@ describe('project file versioning', () => {
     // spotlight regions (#532); version 22 added a spotlight region's soft
     // edge (#533); version 23 added shape groups (#683); version 24 added
     // arrows in shape groups (#684); version 25 added dashed and dotted
-    // shape borders (#688).
-    expect(PROJECT_SCHEMA_VERSION).toBe(26)
+    // shape borders (#688); version 26 added overlay zooms (#699); version
+    // 27 added overlay borders (#697).
+    expect(PROJECT_SCHEMA_VERSION).toBe(27)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1170,6 +1173,7 @@ describe('project file versioning', () => {
     expect(ARROW_SHAPES_SCHEMA_VERSION).toBe(24)
     expect(LINE_STYLES_SCHEMA_VERSION).toBe(25)
     expect(OVERLAY_ZOOMS_SCHEMA_VERSION).toBe(26)
+    expect(OVERLAY_BORDERS_SCHEMA_VERSION).toBe(27)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4832,6 +4836,81 @@ describe('overlay zooms in project files (#699, schema version 26)', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, zooms: overlayZooms }])
+  })
+})
+
+describe('overlay borders in project files (#697, schema version 27)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+    shapeMask: { kind: 'ellipse' as const },
+  }
+  const border = { color: '#ff0000', thickness: 10 / 1080 }
+  const borderedTimeline = (withBorder: boolean): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', ...(withBorder ? { border } : {}) }],
+  })
+
+  it('round-trips an overlay border at version 27', async () => {
+    const bytes = await serializeProject(library, borderedTimeline(true))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_BORDERS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.border).toEqual(border)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, border }] },
+      },
+    })
+  })
+
+  it('writes a border-free overlay with no key, at the version it had before', async () => {
+    const bytes = await serializeProject(library, borderedTimeline(false))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(SHAPE_MASK_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect('border' in written).toBe(false)
+  })
+
+  it('refuses a border with no thickness, too thick, or not a stored colour, by path', async () => {
+    const withBorder = (value: unknown) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_BORDERS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, border: value }] },
+    })
+    await expectRefusal(
+      await gzipJson(withBorder({ ...border, thickness: 0 })),
+      'timeline.videoOverlays[0].border.thickness must be above 0 and at most 0.1',
+    )
+    await expectRefusal(
+      await gzipJson(withBorder({ ...border, thickness: 0.2 })),
+      'timeline.videoOverlays[0].border.thickness must be above 0 and at most 0.1',
+    )
+    await expectRefusal(
+      await gzipJson(withBorder({ ...border, color: 'red' })),
+      'timeline.videoOverlays[0].border.color must be a lower-case #rrggbb colour',
+    )
+  })
+
+  it('deserializes the committed v27 overlay-borders fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV27OverlayBordersReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, border }])
   })
 })
 

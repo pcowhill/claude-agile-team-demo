@@ -3654,6 +3654,51 @@ describe("a row's Picture disclosure (#420)", () => {
     expect(groupField('Background', position)).toBeNull()
   })
 
+  it("gives an overlay a Border: px thickness at the output frame, a colour, and 0 clears it (#697)", async () => {
+    await addVideoEntry()
+    const position = await addOverlay()
+    await openPicture(position)
+
+    const thickness = screen.getByRole('spinbutton', {
+      name: `Border thickness of ${position} in pixels`,
+    })
+    // No border yet: 0 px, capped at a tenth of the output frame's shorter
+    // side — the imported clip's 640×360 here.
+    expect(thickness).toHaveValue(0)
+    expect(thickness).toHaveAttribute('max', '36')
+    expect(appliedPictureGroups(position)).toEqual([])
+
+    fireEvent.change(thickness, { target: { value: '10' } })
+    fireEvent.blur(thickness)
+    expect(thickness).toHaveValue(10)
+    expect(appliedPictureGroups(position)).toEqual(['Border'])
+
+    const colour = screen.getByLabelText(`Border colour of ${position}`)
+    expect(colour).toHaveValue('#000000')
+    fireEvent.change(colour, { target: { value: '#ff0000' } })
+    expect(colour).toHaveValue('#ff0000')
+    expect(thickness).toHaveValue(10)
+
+    fireEvent.change(thickness, { target: { value: '0' } })
+    fireEvent.blur(thickness)
+    expect(appliedPictureGroups(position)).toEqual([])
+    // Cleared, the colour goes with it: the border is absent, not hidden.
+    expect(colour).toHaveValue('#000000')
+  })
+
+  it('choosing a border colour with no border yet starts one at the default thickness (#697)', async () => {
+    await addVideoEntry()
+    const position = await addOverlay()
+    await openPicture(position)
+    fireEvent.change(screen.getByLabelText(`Border colour of ${position}`), {
+      target: { value: '#00ff00' },
+    })
+    expect(
+      screen.getByRole('spinbutton', { name: `Border thickness of ${position} in pixels` }),
+    ).toHaveValue(4)
+    expect(appliedPictureGroups(position)).toEqual(['Border'])
+  })
+
   it('leaves Timing and Audio visible without opening anything', async () => {
     const position = await addVideoEntry()
 
