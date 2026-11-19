@@ -31,8 +31,10 @@ import {
   formatMegabytes,
   formatSizeAgainstLimit,
   sizeLimitBitrates,
+  smallerBitrates,
   videoBitrateReading,
 } from '../lib/sizeLimit'
+import type { SizeLimitBitrates } from '../lib/sizeLimit'
 import './dialog.css'
 import './ExportControl.css'
 
@@ -118,11 +120,31 @@ interface ChapterFile {
  */
 type LimitMode = 'none' | 'custom' | `${(typeof SIZE_LIMIT_PRESETS_MB)[number]}`
 
+/**
+ * One single-file export as it was asked for: the format and every option
+ * the pipeline was sent, captured at the click. **Export again smaller**
+ * (#727) replays it, so the second file has the first one's format, range
+ * and output settings even if the dialog's fields have changed since.
+ */
+interface SingleExportRequest {
+  format: string
+  options: ChapterEncodeOptions & { range?: ExportRange; bitrates?: SizeLimitBitrates }
+  /**
+   * The rates the dialog's own estimate worked out at the click, for when
+   * the pipeline does not report the ones it used (an injected `doExport`).
+   */
+  estimated: SizeLimitBitrates | null
+}
+
 /** A size-limited single export's file, stated against its limit (#726). */
 interface SizeOutcome {
   fileName: string
   bytes: number
   limitBytes: number
+  /** The export that made it, for Export again smaller (#727). */
+  request: SingleExportRequest
+  /** The rates its recorder was given: what Export again smaller scales down. */
+  bitrates: SizeLimitBitrates | null
 }
 
 /** Why a per-chapter run stopped before its last chapter (#530). */
@@ -726,6 +748,34 @@ export function ExportControl({
       await startChapterExport()
       return
     }
+    await runSingleExport({
+      // Captured now so the finished download keeps this export's name even
+      // if the picker changed while a slow export recorded.
+      format,
+      options: {
+        // Auto sends no frame override — the export derives the frame from
+        // the sources exactly as before (#179); anything else exports at
+        // what the fields say. An audio-only format (#245) has no frame or
+        // frame rate to send at all. Shared with the per-chapter run (#529),
+        // as is the Size limit (#726).
+        ...encodeOptions(),
+        // The marked range (#385) or the typed one (#400), when this export
+        // is scoped to either. Read at the click: the dialog is modal, so the
+        // marks cannot change under an open dialog, and the pipeline
+        // re-validates against the timeline.
+        ...(scope === 'range' && range !== null ? { range } : {}),
+        ...(scope === 'custom' && customRange.range !== null ? { range: customRange.range } : {}),
+      },
+      estimated: limitResult !== null && limitResult.ok ? limitResult.bitrates : null,
+    })
+  }
+
+  /**
+   * Runs one single-file export as `request` describes it: from the Export
+   * button, or again from **Export again smaller** (#727) with the first
+   * run's request and lower rates.
+   */
+  const runSingleExport = async (request: SingleExportRequest) => {
     releaseResult()
     setResult(null)
     setSizeOutcome(null)
@@ -738,28 +788,25 @@ export function ExportControl({
     setChapterRun(null)
     const controller = new AbortController()
     abortRef.current = controller
-    // Captured now so the finished download keeps this export's name even if
-    // the picker changed while a slow export recorded.
-    const fileName = exportFileName(format)
-    // Captured with the name, for the same reason: the outcome states the
-    // limit this export was run under.
-    const options = encodeOptions()
+    const fileName = exportFileName(request.format)
+    const limitBytes = request.options.sizeLimitBytes
+    // The rates the recorder was actually given (#727), which depend on
+    // whether sound was captured: reported by the pipeline when it creates
+    // the recorder. Only asked for under a limit, so an unlimited export
+    // is sent exactly what it always was.
+    let reported: SizeLimitBitrates | null = null
     setStatus({ kind: 'exporting', fraction: 0 })
     try {
       const blob = await doExport(timeline, {
-        format,
-        // Auto sends no frame override — the export derives the frame from
-        // the sources exactly as before (#179); anything else exports at
-        // what the fields say. An audio-only format (#245) has no frame or
-        // frame rate to send at all. Shared with the per-chapter run (#529),
-        // as is the Size limit (#726).
-        ...options,
-        // The marked range (#385) or the typed one (#400), when this export
-        // is scoped to either. Read at the click: the dialog is modal, so the
-        // marks cannot change under an open dialog, and the pipeline
-        // re-validates against the timeline.
-        ...(scope === 'range' && range !== null ? { range } : {}),
-        ...(scope === 'custom' && customRange.range !== null ? { range: customRange.range } : {}),
+        format: request.format,
+        ...request.options,
+        ...(limitBytes === undefined
+          ? {}
+          : {
+              onBitrates: (bitrates: SizeLimitBitrates) => {
+                reported = bitrates
+              },
+            }),
         signal: controller.signal,
         onProgress: (fraction) => setStatus({ kind: 'exporting', fraction }),
       })
@@ -768,8 +815,15 @@ export function ExportControl({
       setStatus({ kind: 'idle' })
       // A size-limited export keeps the dialog open to state what the file
       // came to (#726); without a limit it closes on the download, as ever.
-      if (options.sizeLimitBytes === undefined) setOpen(false)
-      else setSizeOutcome({ fileName, bytes: blob.size, limitBytes: options.sizeLimitBytes })
+      if (limitBytes === undefined) setOpen(false)
+      else
+        setSizeOutcome({
+          fileName,
+          bytes: blob.size,
+          limitBytes,
+          request,
+          bitrates: reported ?? request.options.bitrates ?? request.estimated,
+        })
       setResult({ url, fileName })
     } catch (error) {
       if (error instanceof ExportCanceledError) {
@@ -781,6 +835,27 @@ export function ExportControl({
         })
       }
     }
+  }
+
+  /**
+   * **Export again smaller** (#727): the over-limit file's own export,
+   * re-run at rates scaled down by its measured overshoot. Null while there
+   * is no over-limit file, or no rates to scale.
+   */
+  const smaller =
+    sizeOutcome === null || sizeOutcome.bytes <= sizeOutcome.limitBytes || sizeOutcome.bitrates === null
+      ? null
+      : smallerBitrates({
+          previous: sizeOutcome.bitrates,
+          limitBytes: sizeOutcome.limitBytes,
+          actualBytes: sizeOutcome.bytes,
+        })
+  const exportAgainSmaller = () => {
+    if (sizeOutcome === null || smaller === null || !smaller.ok) return
+    void runSingleExport({
+      ...sizeOutcome.request,
+      options: { ...sizeOutcome.request.options, bitrates: smaller.bitrates },
+    })
   }
 
   // Rendering the finished result also starts the download, so the modal's
@@ -1219,6 +1294,29 @@ export function ExportControl({
                 {sizeOutcome.bytes > sizeOutcome.limitBytes ? ' limit.' : ').'}
               </p>
             )}
+            {/* Export again smaller (#727): the same export at a rate
+                scaled down by how far over it came. */}
+            {smaller !== null &&
+              (smaller.ok ? (
+                <div className="export-again-smaller">
+                  <button type="button" onClick={exportAgainSmaller}>
+                    Export again smaller
+                  </button>
+                  <span className="export-format-note">
+                    Same export, at about{' '}
+                    <span className="export-limit-rate">
+                      {formatBitrate(
+                        smaller.bitrates.videoBitsPerSecond ?? smaller.bitrates.audioBitsPerSecond ?? 0,
+                      )}
+                    </span>
+                    .
+                  </span>
+                </div>
+              ) : (
+                <p className="export-format-note" data-testid="export-again-smaller-refused">
+                  {smaller.error}
+                </p>
+              ))}
             {/* What the run produced (#529). Not a flourish — it is the
                 mitigation for the one risk this feature has: a browser that
                 prompts once and quietly drops the rest leaves a folder that

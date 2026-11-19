@@ -1484,6 +1484,124 @@ describe('Size limit (#726)', () => {
   })
 })
 
+describe('Export again smaller (#727)', () => {
+  const limitSelect = () => screen.getByRole('combobox', { name: 'Export size limit' })
+  const againButton = () => screen.queryByRole('button', { name: 'Export again smaller' })
+  /** A 100 s timeline, as in the Size limit tests. */
+  const long: TimelineState = {
+    entries: [{ ...timeline.entries[0], duration: 100, outPoint: 100 }],
+  }
+  /**
+   * A stubbed recorder: each export writes a file of the next size in
+   * `sizes`, and reports the rates it was given (or, for the first, the
+   * ones it worked out: `reported`), as the pipeline does.
+   */
+  const recorder = (sizes: number[], reported: { videoBitsPerSecond: number; audioBitsPerSecond?: number }) => {
+    const calls: Parameters<DoExport>[1][] = []
+    const doExport: DoExport = (_timeline, options) => {
+      calls.push(options)
+      options.onBitrates?.(options.bitrates ?? reported)
+      return Promise.resolve(new Blob([new Uint8Array(sizes[calls.length - 1])]))
+    }
+    return { calls, doExport }
+  }
+
+  it('offers it for a file over its limit, and re-runs the same export at the reduced rate', async () => {
+    // The pipeline reports 1,672,000 bit/s of picture and 128 kbit/s of
+    // sound for 10 MB over 100 s... in a world where it overshot to 12.5 MB:
+    // 1,672,000 × (10e6 / 12.5e6) × 0.9 = 1,203,840. Worked by hand.
+    const { calls, doExport } = recorder([12_500_000, 9_000_000], {
+      videoBitsPerSecond: 1_672_000,
+      audioBitsPerSecond: 128_000,
+    })
+    const user = userEvent.setup()
+    render(
+      <ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} range={{ start: 10, end: 60 }} />,
+    )
+    await user.click(openButton())
+    await user.click(screen.getByRole('radio', { name: /Marked range/ }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Export size preset' }), 'HD 1280×720')
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent('12.5 MB — over the 10 MB limit.'),
+    )
+    expect(calls[0]).not.toHaveProperty('bitrates')
+    expect(screen.getByText(/Same export, at about/)).toHaveTextContent('Same export, at about 1.2 Mbit/s.')
+
+    // The fields change after the first export; the second is still the
+    // first one's export: same format, range, size and limit.
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Export size preset' }), 'Full HD 1920×1080')
+    await user.click(againButton()!)
+    await waitFor(() => expect(calls).toHaveLength(2))
+    const { signal: _s1, onProgress: _p1, onBitrates: _b1, ...first } = calls[0]
+    const { signal: _s2, onProgress: _p2, onBitrates: _b2, bitrates, ...second } = calls[1]
+    expect(second).toEqual(first)
+    expect(first).toMatchObject({ format: 'webm', range: { start: 10, end: 60 }, sizeLimitBytes: 10_000_000 })
+    expect(first.frame).toEqual({ width: 1280, height: 720 })
+    expect(bitrates).toEqual({ videoBitsPerSecond: 1_203_840, audioBitsPerSecond: 128_000 })
+
+    // The second file came out under: stated, and nothing more to offer.
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent('9 MB (limit 10 MB).'),
+    )
+    expect(againButton()).not.toBeInTheDocument()
+  })
+
+  it('scales from the rates the over-limit run was given, again and again', async () => {
+    // 12 MB, then still 11 MB over a 10 MB limit:
+    // 1,000,000 × (10 / 12) × 0.9 = 750,000; then 750,000 × (10 / 11) × 0.9
+    // = 613,636.36…, floored.
+    const { calls, doExport } = recorder([12e6, 11e6, 9e6], { videoBitsPerSecond: 1_000_000 })
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() => expect(againButton()).toBeInTheDocument())
+    await user.click(againButton()!)
+    await waitFor(() => expect(calls).toHaveLength(2))
+    expect(calls[1].bitrates).toEqual({ videoBitsPerSecond: 750_000 })
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent('11 MB — over the 10 MB limit.'),
+    )
+    await user.click(againButton()!)
+    await waitFor(() => expect(calls).toHaveLength(3))
+    expect(calls[2].bitrates).toEqual({ videoBitsPerSecond: 613_636 })
+  })
+
+  it('does not show when the file came out under its limit, or with No limit', async () => {
+    const { doExport } = recorder([9_990_000], { videoBitsPerSecond: 1_000_000 })
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() => expect(screen.getByTestId('export-size-result')).toHaveTextContent('(limit 10 MB)'))
+    expect(againButton()).not.toBeInTheDocument()
+  })
+
+  it('says so instead of offering it when the rate cannot go lower', async () => {
+    // An audio-only export at Opus's floor has nowhere to go: 12 MB over a
+    // 10 MB limit would scale 6,000 bit/s to 4,500, below the floor.
+    const floorExport: DoExport = (_timeline, options) => {
+      options.onBitrates?.({ audioBitsPerSecond: 6_000 })
+      return Promise.resolve(new Blob([new Uint8Array(12_000_000)]))
+    }
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={floorExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), '10 MB')
+    await user.click(exportButton())
+    await waitFor(() =>
+      expect(screen.getByTestId('export-again-smaller-refused')).toHaveTextContent(
+        'The file cannot be made smaller than this under a 10 MB limit.',
+      ),
+    )
+    expect(againButton()).not.toBeInTheDocument()
+  })
+})
+
 describe('format-note layout structure (#268)', () => {
   // jsdom computes no layout, so the geometry itself (the note below the
   // radio rows, everything inside the dialog) is evidenced by
