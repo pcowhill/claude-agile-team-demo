@@ -75,7 +75,12 @@ worse than no test, because it manufactures false confidence.
   Assert with an auto-retrying matcher instead — `expect(locator)
   .toHaveValue(…)`, or `expect.poll` where the comparison is numeric or
   derived — and when two values must agree with each other, read both
-  **inside one poll**, so they come from the same render. Once a retrying
+  **in one page read** — one `evaluate` (or one matcher) inside the poll —
+  so they come from the same render. A poll callback that awaits two reads
+  can see a render between them (#733). A read that can find its subject
+  mid-replacement (an image with no `naturalWidth` yet, an element just
+  remounted) returns a value the poll's condition rejects, rather than
+  throwing; a throw ends the poll instead of retrying it. Once a retrying
   assertion has observed the commit, one-shot reads of that same render are
   fine. The race hides under low load, which is why it is a rule and not a
   fix in one file: #444's spec passed alone and in three full-suite runs,
