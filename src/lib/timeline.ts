@@ -2355,8 +2355,9 @@ function reduceTimelineCollections(
             candidate.fadeIn = Math.max(0, audio.fadeIn)
             candidate.fadeOut = Math.max(0, audio.fadeOut)
             // clampVideoOverlay drops zero fades to absent fields and keeps
-            // the pair within the overlay's own trimmed length; placement is
-            // untouched, since it is not a settings group.
+            // the pair within the overlay's on-screen length (its trim, after
+            // any speed segments and pauses, #700); placement is untouched,
+            // since it is not a settings group.
             const clamped = clampVideoOverlay(candidate)
             if (!videoOverlaysEqual(overlay, clamped)) next = clamped
           }

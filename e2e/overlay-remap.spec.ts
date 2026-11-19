@@ -38,8 +38,12 @@ type Page = import('@playwright/test').Page
  * where 1:1 playback is still green. The pause holds yellow from 2.5 s to
  * 4 s; without it the sequence would reach magenta at 3 s. The window
  * itself is 5 − 2 + 1 + 1.5 = 5.5 s, so magenta still shows at 5 s, when a
- * remap-free overlay would have ended. Every sample sits half a source
- * second from a colour change.
+ * remap-free overlay would have ended. Every sample but one sits half a
+ * source second from a colour change; 2.25 s (source 3.25, a quarter
+ * second after the segment hands back to 1×) sits a quarter second from
+ * blue → yellow, the whole of the 1× drift tolerance (0.25 s), so a flake
+ * there points at the replay's re-cue after the segment rather than at the
+ * mapping.
  */
 
 const CLIP = 'overlay-colours.webm'
