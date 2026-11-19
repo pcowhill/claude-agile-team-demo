@@ -27,6 +27,15 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
   - Each clamp is also a slider: Tab to it, then **←** and **→** move it by the nudge size and **Shift** by the jump size (both in [Settings](settings.md)); **Home** and **End** take it to its limit.
   - The clamps cannot cross: the kept part is never shorter than a tenth of a second.
   - Click or drag on the strip anywhere else to move the playhead and look at that moment, without moving a clamp.
+- **What a trim does to the entry's effects** shows on the strip before you apply it:
+  - **Marks.** The entry's [zooms](#zooms), [speed segments and pauses](#speed-segments-and-pauses) sit along the foot of the strip where they will be after Apply. A zoom is a purple bar, a speed segment a green bar, and a pause an orange tick; point at one to see its name. They are placed in seconds into the kept part, as their fields are, so they move with the In clamp.
+  - **The warning line** under the strip names each effect the clamps as they stand would cut into:
+    - *shortens Zoom 1*: part of it is left.
+    - *removes Speed segment 1*: none of it plays. It is kept at length zero, so trimming back out restores it.
+    - *moves Pause 1 to the new end*: the pause still holds, on the new last frame.
+
+    It changes as you drag and goes when the clamps move back.
+  - **Transitions.** When the entry has a [transition](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) at its start or end, the stretch of clip that transition will play over is hatched, at the clamps as they stand. A sped-up span under it covers more of the clip.
 - **The buttons:**
   - **▶ Play trim** plays from In and stops at Out. It starts from the playhead instead when the playhead is already inside the kept part, so a pause and a second press carry on. While it plays it reads **⏸ Pause**.
   - **↻ Loop**, while it is on, takes Play trim back to In each time it reaches Out, until you pause.
