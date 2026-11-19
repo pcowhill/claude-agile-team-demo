@@ -50,6 +50,15 @@ import {
   DEFAULT_OVERLAY_BORDER_PX,
   MAX_OVERLAY_BORDER,
 } from '../lib/overlayBorder'
+import type { OverlayShadow } from '../lib/overlayShadow'
+import {
+  DEFAULT_OVERLAY_SHADOW_BLUR_PX,
+  DEFAULT_OVERLAY_SHADOW_COLOR,
+  DEFAULT_OVERLAY_SHADOW_OFFSET_PX,
+  DEFAULT_OVERLAY_SHADOW_OPACITY,
+  MAX_OVERLAY_SHADOW_BLUR,
+  MAX_OVERLAY_SHADOW_OFFSET,
+} from '../lib/overlayShadow'
 import {
   DEFAULT_TRANSITION_DURATION,
   audioTracksOf,
@@ -307,6 +316,8 @@ interface TimelineProps {
   onSetVideoOverlayMask: (id: string, mask: ShapeMaskInput) => void
   /** Sets an overlay's border (#697); a thickness of 0 clears it. */
   onSetVideoOverlayBorder?: (id: string, border: OverlayBorder) => void
+  /** Turns an overlay's drop shadow on or edits it (#698); `null` turns it off. */
+  onSetVideoOverlayShadow?: (id: string, shadow: OverlayShadow | null) => void
   /** Adds a zoom on an overlay's own picture (#699); the id is the caller's to mint. */
   onAddVideoOverlayZoom?: (overlayId: string, zoom: ZoomSpec) => void
   onUpdateVideoOverlayZoom?: (overlayId: string, id: string, zoom: ZoomSpec) => void
@@ -1883,6 +1894,117 @@ function BorderControls({ position, border, frameSize, onCommit }: BorderControl
   )
 }
 
+interface ShadowControlsProps {
+  /** The accessible name of the row's owner (a video or image overlay). */
+  position: string
+  shadow: OverlayShadow | undefined
+  /** The output frame, which blur and offsets are shown in px against. */
+  frameSize: { width: number; height: number }
+  /** Receives the full shadow on every edit, or `null` when it is turned off (#698). */
+  onCommit: (shadow: OverlayShadow | null) => void
+}
+
+/**
+ * Per-overlay drop-shadow controls (#698), beside Border: a Shadow checkbox
+ * turns it on (black, 50 %, a soft blur, down and to the right) and off;
+ * while on, its colour, opacity, blur and x/y offset. Blur and offsets are
+ * stored as fractions of the output frame's shorter side and shown in px at
+ * the current output frame, as the border's thickness is (#697); an offset
+ * may be negative, so the shadow can fall up or left.
+ */
+function ShadowControls({ position, shadow, frameSize, onCommit }: ShadowControlsProps) {
+  const toPx = (fraction: number) => shorterSidePixels(fraction, frameSize.width, frameSize.height)
+  const fromPx = (px: number) => shorterSideFraction(px, frameSize.width, frameSize.height)
+  // Hundredths, so a value typed at another frame size reads without float noise.
+  const shownPx = (fraction: number) => Math.round(toPx(fraction) * 100) / 100
+  const maxBlurPx = Math.floor(toPx(MAX_OVERLAY_SHADOW_BLUR))
+  const maxOffsetPx = Math.floor(toPx(MAX_OVERLAY_SHADOW_OFFSET))
+  const set = (change: Partial<OverlayShadow>) => {
+    if (shadow !== undefined) onCommit({ ...shadow, ...change })
+  }
+  return (
+    <div className="timeline-entry-color">
+      <label>
+        <input
+          type="checkbox"
+          aria-label={`Shadow of ${position}`}
+          checked={shadow !== undefined}
+          onChange={(event) =>
+            onCommit(
+              event.target.checked
+                ? {
+                    color: DEFAULT_OVERLAY_SHADOW_COLOR,
+                    opacity: DEFAULT_OVERLAY_SHADOW_OPACITY,
+                    blur: fromPx(DEFAULT_OVERLAY_SHADOW_BLUR_PX),
+                    offsetX: fromPx(DEFAULT_OVERLAY_SHADOW_OFFSET_PX),
+                    offsetY: fromPx(DEFAULT_OVERLAY_SHADOW_OFFSET_PX),
+                  }
+                : null,
+            )
+          }
+        />
+        Shadow
+      </label>
+      {shadow !== undefined && (
+        <>
+          <LabelledField text="colour">
+            <input
+              type="color"
+              aria-label={`Shadow colour of ${position}`}
+              value={shadow.color}
+              onChange={(event) => set({ color: event.target.value })}
+            />
+          </LabelledField>
+          <LabelledField text="opacity">
+            <SecondsField
+              label={`Shadow opacity of ${position} in percent`}
+              value={Math.round(shadow.opacity * 100)}
+              max={100}
+              step={5}
+              slider
+              onCommit={(percent) => set({ opacity: percent / 100 })}
+              unit="%"
+            />
+          </LabelledField>
+          <LabelledField text="blur">
+            <SecondsField
+              label={`Shadow blur of ${position} in pixels`}
+              value={shownPx(shadow.blur)}
+              max={maxBlurPx}
+              step={1}
+              slider
+              onCommit={(px) => set({ blur: Math.min(fromPx(px), MAX_OVERLAY_SHADOW_BLUR) })}
+              unit="px"
+            />
+          </LabelledField>
+          <LabelledField text="x">
+            <SecondsField
+              label={`Shadow x offset of ${position} in pixels`}
+              value={shownPx(shadow.offsetX)}
+              min={-maxOffsetPx}
+              max={maxOffsetPx}
+              step={1}
+              onCommit={(px) => set({ offsetX: fromPx(px) })}
+              unit="px"
+            />
+          </LabelledField>
+          <LabelledField text="y">
+            <SecondsField
+              label={`Shadow y offset of ${position} in pixels`}
+              value={shownPx(shadow.offsetY)}
+              min={-maxOffsetPx}
+              max={maxOffsetPx}
+              step={1}
+              onCommit={(px) => set({ offsetY: fromPx(px) })}
+              unit="px"
+            />
+          </LabelledField>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface BackgroundFillControlsProps {
   /** The accessible name of the row's owner (a video/image entry). */
   position: string
@@ -2199,6 +2321,7 @@ export function Timeline({
   onSetVideoOverlaySpotlights,
   onSetVideoOverlayMask,
   onSetVideoOverlayBorder,
+  onSetVideoOverlayShadow,
   onAddVideoOverlayZoom,
   onUpdateVideoOverlayZoom,
   onRemoveVideoOverlayZoom,
@@ -3999,6 +4122,18 @@ export function Timeline({
                           border={overlay.border}
                           frameSize={frameSize}
                           onCommit={(border) => onSetVideoOverlayBorder?.(overlay.id, border)}
+                        />
+                      ),
+                    },
+                    {
+                      name: 'Shadow',
+                      applied: overlay.shadow !== undefined,
+                      controls: (
+                        <ShadowControls
+                          position={position}
+                          shadow={overlay.shadow}
+                          frameSize={frameSize}
+                          onCommit={(shadow) => onSetVideoOverlayShadow?.(overlay.id, shadow)}
                         />
                       ),
                     },

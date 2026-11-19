@@ -77,7 +77,7 @@ A move or a removal from the menu is one undo step, as it is from the button.
 
 **What it does.** Makes an exact copy of the element carrying every adjustable setting, as one undo step.
 
-**Details.** The copy takes the trim, volume and fades, colour, orientation, crop, background fill, speed segments and pauses, zooms, overlay placement, shape mask and border, text content and style, or a shape group's shapes, fades and name — whatever the row has. A duplicated sequence entry lands right after the original; its transitions are never copied, since a transition belongs to a boundary, and the transition on the original's next boundary is dropped because the copy now sits there. A duplicated audio track, overlay, text or shape group starts where the original ends, so the two never stack; a shape group's copy is also listed right after the original.
+**Details.** The copy takes the trim, volume and fades, colour, orientation, crop, background fill, speed segments and pauses, zooms, overlay placement, shape mask, border and shadow, text content and style, or a shape group's shapes, fades and name — whatever the row has. A duplicated sequence entry lands right after the original; its transitions are never copied, since a transition belongs to a boundary, and the transition on the original's next boundary is dropped because the copy now sits there. A duplicated audio track, overlay, text or shape group starts where the original ends, so the two never stack; a shape group's copy is also listed right after the original.
 
 **Related.** [Copy settings and Paste settings](#copy-settings-and-paste-settings)
 
@@ -111,9 +111,9 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 **What it does.** Gathers every treatment of the picture behind one disclosure, closed by default.
 
-**Details.** Open, it holds **Color**, **Orientation** and **Crop**, then more by the row's kind — **Background** on a sequence entry, **Shape** and **Border** on an overlay — and last **Spotlight** and **Redact**. Closed, its summary still says what is applied — *▸ Picture · Color, Crop* — so nothing hides silently. Whether the group is open is remembered per row for this session only. Slates and audio tracks have no such group. Each treatment is explained on [Editing video](editing-video.md).
+**Details.** Open, it holds **Color**, **Orientation** and **Crop**, then more by the row's kind — **Background** on a sequence entry, **Shape**, **Border** and **Shadow** on an overlay — and last **Spotlight** and **Redact**. Closed, its summary still says what is applied — *▸ Picture · Color, Crop* — so nothing hides silently. Whether the group is open is remembered per row for this session only. Slates and audio tracks have no such group. Each treatment is explained on [Editing video](editing-video.md).
 
-**Related.** [Colour adjustments](editing-video.md#colour-adjustments) · [Orientation](editing-video.md#orientation) · [Crop](editing-video.md#crop) · [Background fill](editing-video.md#background-fill) · [Shape mask](editing-video.md#shape-mask) · [Overlay border](editing-video.md#overlay-border)
+**Related.** [Colour adjustments](editing-video.md#colour-adjustments) · [Orientation](editing-video.md#orientation) · [Crop](editing-video.md#crop) · [Background fill](editing-video.md#background-fill) · [Shape mask](editing-video.md#shape-mask) · [Overlay border](editing-video.md#overlay-border) · [Overlay shadow](editing-video.md#overlay-shadow)
 
 ## + Effect ▾
 

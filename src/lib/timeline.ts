@@ -23,6 +23,12 @@ import {
   normalizeOverlayBorder,
   overlayBordersEqual,
 } from './overlayBorder'
+import type { OverlayShadow } from './overlayShadow'
+import {
+  isValidOverlayShadowInput,
+  normalizeOverlayShadow,
+  overlayShadowsEqual,
+} from './overlayShadow'
 import type { BackgroundFill, BackgroundFillInput } from './backgroundFill'
 import {
   backgroundFillsEqual,
@@ -892,6 +898,16 @@ export type TimelineAction =
       type: 'video-overlay-border-set'
       id: string
       border: OverlayBorder
+    }
+  | {
+      /**
+       * Turns an overlay's drop shadow (#698) on, edits it, or (with
+       * `null`) turns it off. The action carries the full shadow and the
+       * reducer stores the normalized form; off is no `shadow` key at all.
+       */
+      type: 'video-overlay-shadow-set'
+      id: string
+      shadow: OverlayShadow | null
     }
   | {
       /**
@@ -3151,6 +3167,23 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (normalized === undefined) delete next.border
       else next.border = normalized
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'video-overlay-shadow-set': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (action.shadow !== null && !isValidOverlayShadowInput(action.shadow)) return state
+      const normalized = action.shadow === null ? undefined : normalizeOverlayShadow(action.shadow)
+      // Stored is always normalized, so re-committing the same shadow — or
+      // turning off a shadow-free overlay's — is a no-op, not an edit.
+      if (overlayShadowsEqual(normalized, overlay.shadow)) return state
+      const overlays = [...videoOverlays]
+      // Off means no key at all — what keeps shadow-free files byte-identical.
+      const next = { ...overlay }
+      if (normalized === undefined) delete next.shadow
+      else next.shadow = normalized
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

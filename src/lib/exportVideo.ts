@@ -49,6 +49,8 @@ import type { BackgroundFill } from './backgroundFill'
 import { inscribedEllipse, roundedCornerRadius } from './shapeMask'
 import type { ShapeMask } from './shapeMask'
 import type { OverlayBorder } from './overlayBorder'
+import type { OverlayShadow } from './overlayShadow'
+import { shadowRgba } from './overlayShadow'
 import { transitionLayerSpec } from './transitionRender'
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
@@ -353,6 +355,86 @@ export function drawOverlayBorder(
   scratch.fill()
   scratch.globalCompositeOperation = 'source-over'
   context.drawImage(scratchBuffer.canvas, 0, 0)
+}
+
+/** A full-frame scratch canvas and its context, as the overlay draws take them. */
+export interface ScratchBuffer {
+  canvas: CanvasImageSource
+  context: CanvasRenderingContext2D
+}
+
+/**
+ * An overlay's drop shadow (#698) onto `context`, drawn under its border and
+ * picture. Three steps, each chosen so both renderers agree and no engine's
+ * antialiasing of `clip()` decides an edge (the #261 risk):
+ *
+ * 1. `silhouette` gets the overlay's silhouette, opaque: the placed
+ *    rectangle or the shape its mask cuts, filled, and — with a border —
+ *    stroked at twice the border's thickness, which grows it to the
+ *    bordered outline `drawOverlayBorder` paints.
+ * 2. `shadow` gets that silhouette drawn **once**, with the canvas shadow
+ *    set, from far off the canvas: only its shadow lands, shifted back by
+ *    the offset. One draw casts one shadow, so the fill and the stroke
+ *    never compound their alpha where they overlap.
+ * 3. The silhouette is removed from the shadow (`destination-out`), so the
+ *    shadow lies only outside the overlay, as a CSS `box-shadow` does: a
+ *    letterboxed picture or a transparent still never shows it through.
+ *
+ * Blur is `shadowBlur`, which every engine draws (canvas `filter` is not
+ * universal). The preview calls this same routine on a frame-sized canvas
+ * (`OverlayShadowLayer`).
+ */
+export function drawOverlayShadow(
+  context: CanvasRenderingContext2D,
+  silhouetteBuffer: ScratchBuffer,
+  shadowBuffer: ScratchBuffer,
+  shadow: OverlayShadow,
+  mask: ShapeMask | undefined,
+  border: OverlayBorder | undefined,
+  placed: FitRect,
+  frameWidth: number,
+  frameHeight: number,
+): void {
+  const silhouette = silhouetteBuffer.context
+  silhouette.clearRect(0, 0, frameWidth, frameHeight)
+  silhouette.beginPath()
+  if (mask === undefined) silhouette.rect(placed.x, placed.y, placed.width, placed.height)
+  else traceShapeMask(silhouette, mask, placed)
+  silhouette.fillStyle = '#000'
+  silhouette.fill()
+  const grow = border === undefined ? 0 : shorterSidePixels(border.thickness, frameWidth, frameHeight)
+  if (border !== undefined) {
+    silhouette.lineWidth = 2 * grow
+    silhouette.lineJoin = 'miter'
+    silhouette.strokeStyle = '#000'
+    silhouette.stroke()
+  }
+  const target = shadowBuffer.context
+  target.clearRect(0, 0, frameWidth, frameHeight)
+  // Only the bordered silhouette's box casts, so the engine blurs that box
+  // rather than the whole frame — once per overlay per exported frame.
+  const left = Math.max(0, Math.floor(placed.x - grow - 1))
+  const top = Math.max(0, Math.floor(placed.y - grow - 1))
+  const right = Math.min(frameWidth, Math.ceil(placed.x + placed.width + grow + 1))
+  const bottom = Math.min(frameHeight, Math.ceil(placed.y + placed.height + grow + 1))
+  if (right > left && bottom > top) {
+    // Far enough left that the silhouette itself is wholly off the canvas;
+    // the shadow offset brings its shadow back to where it falls.
+    const away = 2 * frameWidth + 1
+    target.save()
+    target.shadowColor = shadowRgba(shadow.color, shadow.opacity)
+    target.shadowBlur = shorterSidePixels(shadow.blur, frameWidth, frameHeight)
+    target.shadowOffsetX = away + shorterSidePixels(shadow.offsetX, frameWidth, frameHeight)
+    target.shadowOffsetY = shorterSidePixels(shadow.offsetY, frameWidth, frameHeight)
+    const width = right - left
+    const height = bottom - top
+    target.drawImage(silhouetteBuffer.canvas, left, top, width, height, left - away, top, width, height)
+    target.restore()
+  }
+  target.globalCompositeOperation = 'destination-out'
+  target.drawImage(silhouetteBuffer.canvas, 0, 0)
+  target.globalCompositeOperation = 'source-over'
+  context.drawImage(shadowBuffer.canvas, 0, 0)
 }
 
 /**
@@ -798,6 +880,25 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       maskBuffer = { canvas: buffer, context: bufferContext }
     }
     return maskBuffer
+  }
+  /**
+   * The drop-shadow buffer (#698): `drawOverlayShadow` casts the shadow into
+   * it from the silhouette `maskScratch` holds, then composites it. Created
+   * on first use, so a shadow-free timeline never allocates it.
+   */
+  let shadowBuffer: { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null = null
+  const shadowScratch = () => {
+    if (shadowBuffer === null) {
+      const buffer = createCanvas()
+      buffer.width = width
+      buffer.height = height
+      const bufferContext = buffer.getContext('2d')
+      if (bufferContext === null) {
+        throw new ExportUnsupportedError('This browser cannot draw canvas graphics.')
+      }
+      shadowBuffer = { canvas: buffer, context: bufferContext }
+    }
+    return shadowBuffer
   }
   /**
    * Whether this context's `filter` works, probed on the first blur draw
@@ -1478,6 +1579,22 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           target.clip()
           paintPicture(target)
           target.restore()
+        }
+        // The drop shadow (#698) goes first, under the border and the
+        // picture; it lies only outside the bordered silhouette, so neither
+        // is darkened by it. A shadow-free overlay makes no extra calls.
+        if (layer.shadow !== undefined) {
+          drawOverlayShadow(
+            context,
+            maskScratch(),
+            shadowScratch(),
+            layer.shadow,
+            layer.shapeMask,
+            layer.border,
+            placed,
+            width,
+            height,
+          )
         }
         // The border (#697) sits outside the silhouette, under the picture,
         // so the picture's own antialiased edge lands on it. A border-free

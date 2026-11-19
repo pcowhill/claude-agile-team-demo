@@ -57,6 +57,10 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_ZOOM_SCALE',
   'DEFAULT_ZOOM_RAMP',
   'DEFAULT_ZOOM_HOLD',
+  /** A newly turned-on overlay shadow's opacity, blur and offset (#698). */
+  'DEFAULT_OVERLAY_SHADOW_OPACITY_PERCENT',
+  'DEFAULT_OVERLAY_SHADOW_BLUR_PX',
+  'DEFAULT_OVERLAY_SHADOW_OFFSET_PX',
   /** The magnification the zoom editor's corner drag stays within (#413). */
   'EDITOR_ZOOM_MIN_SCALE',
   'EDITOR_ZOOM_MAX_SCALE',

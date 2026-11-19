@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -200,7 +200,17 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **Details.** **Thickness** is in pixels of the output frame, up to a tenth of its shorter side; 0, the default, is no border. The thickness keeps its proportion when the output frame changes, so a border looks the same at every export size, and the field shows it in pixels at the current frame. **Colour** sets the outline's colour; choosing one before any thickness starts the border at 4 px. The border follows the overlay's [shape mask](#shape-mask) — the rectangle, the ellipse or the rounded rectangle — and is drawn **outside** it, so the picture keeps every pixel and the outline hugs it. A part of the border past the frame's edge is cut off, as anything past the frame is. A later overlay covers an earlier one's border, as it covers its picture. The border shows exactly while the overlay does; an overlay's fades are its sound's, so the border does not fade. It is drawn the same way in the preview and in every export, saves with the project, and is copied when the overlay is duplicated. Copy settings does not carry it, as it does not carry the shape mask.
 
-**Related.** [Shape mask](#shape-mask) · [Picture ▸](timeline.md#picture)
+**Related.** [Shape mask](#shape-mask) · [Overlay shadow](#overlay-shadow) · [Picture ▸](timeline.md#picture)
+
+## Overlay shadow
+
+**Where to find it.** An expanded video or image overlay row › **Picture ▸** › **Shadow**.
+
+**What it does.** Casts a soft drop shadow under an overlay, so a webcam bubble or a picture-in-picture looks lifted off the picture behind it.
+
+**Details.** The **Shadow** checkbox turns it on and off; it is off until you turn it on. Turned on, it starts black at {{DEFAULT_OVERLAY_SHADOW_OPACITY_PERCENT}} % opacity, with a {{DEFAULT_OVERLAY_SHADOW_BLUR_PX}} px blur, falling {{DEFAULT_OVERLAY_SHADOW_OFFSET_PX}} px right and {{DEFAULT_OVERLAY_SHADOW_OFFSET_PX}} px down. **Colour** and **opacity** (0 to 100 %) set how it looks. **Blur** softens its edge; at 0 the edge is hard. **x** and **y** move it right and down; a negative value moves it left or up. Blur and each offset are in pixels of the output frame, up to a tenth of its shorter side, and keep their proportion when the output frame changes, as a [border's](#overlay-border) thickness does. The shadow takes the overlay's [shape](#shape-mask) — the rectangle, the ellipse or the rounded rectangle — grown by its border when it has one. It is drawn only **outside** the overlay, so a picture letterboxed inside its rectangle, or a still with transparent parts, never shows shadow through itself. It sits under the border and the picture, over everything beneath the overlay; a later overlay covers it, as it covers the earlier one's picture. A part past the frame's edge is cut off. It shows exactly while the overlay does and does not fade, since an overlay's fades are its sound's. It is drawn the same way in the preview and in every export, saves with the project, and is copied when the overlay is duplicated. Copy settings does not carry it, as it does not carry the border.
+
+**Related.** [Overlay border](#overlay-border) · [Shape mask](#shape-mask) · [Picture ▸](timeline.md#picture)
 
 ## The slider beside each number
 

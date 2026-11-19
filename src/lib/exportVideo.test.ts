@@ -1538,8 +1538,36 @@ function fakeComposerContext(filterSupported = true) {
     return Object.is(rounded, -0) ? 0 : rounded
   }
   let compositeValue = 'source-over'
+  // The canvas shadow (#698), saved and restored with the state as a real
+  // context's is; a draw records it only while one is set.
+  let shadowState = { color: '', blur: 0, x: 0, y: 0 }
+  const saved: (typeof shadowState)[] = []
   const context = {
     globalAlpha: 1,
+    get shadowColor() {
+      return shadowState.color
+    },
+    set shadowColor(value: string) {
+      shadowState = { ...shadowState, color: value }
+    },
+    get shadowBlur() {
+      return shadowState.blur
+    },
+    set shadowBlur(value: number) {
+      shadowState = { ...shadowState, blur: value }
+    },
+    get shadowOffsetX() {
+      return shadowState.x
+    },
+    set shadowOffsetX(value: number) {
+      shadowState = { ...shadowState, x: value }
+    },
+    get shadowOffsetY() {
+      return shadowState.y
+    },
+    set shadowOffsetY(value: number) {
+      shadowState = { ...shadowState, y: value }
+    },
     get globalCompositeOperation() {
       return compositeValue
     },
@@ -1566,8 +1594,14 @@ function fakeComposerContext(filterSupported = true) {
     clearRect: (x: number, y: number, w: number, h: number) =>
       ops.push(`clear(${num(x)}, ${num(y)}, ${num(w)}, ${num(h)})`),
     fillText: () => {},
-    save: () => ops.push('save'),
-    restore: () => ops.push('restore'),
+    save: () => {
+      saved.push(shadowState)
+      ops.push('save')
+    },
+    restore: () => {
+      shadowState = saved.pop() ?? shadowState
+      ops.push('restore')
+    },
     translate: (x: number, y: number) => ops.push(`translate(${num(x)}, ${num(y)})`),
     rotate: (angle: number) => ops.push(`rotate(${num((angle * 180) / Math.PI)})`),
     scale: (x: number, y: number) => ops.push(`scale(${x}, ${y})`),
@@ -1588,7 +1622,13 @@ function fakeComposerContext(filterSupported = true) {
       ops.push(
         `draw(${(source as { tag?: string }).tag ?? 'source'}, [${args
           .map(num)
-          .join(', ')}], ${filterValue})`,
+          .join(', ')}], ${filterValue})` +
+          (shadowState.color === ''
+            ? ''
+            : ` shadow(${shadowState.color}, ${num(shadowState.blur)}, ${num(shadowState.x)}, ${num(shadowState.y)})`) +
+          // A draw that cuts (#698's silhouette removal) says so; the
+          // blending composites earlier tests read stay unrecorded.
+          (compositeValue.startsWith('destination-') ? ` ${compositeValue}` : ''),
       ),
   }
   return { context: context as unknown as CanvasRenderingContext2D, ops }
@@ -1997,6 +2037,77 @@ describe('frame composition of overlay shape masks (#267)', () => {
       'strokePath(#ff0000, 18, miter)',
       'fillPath(#fff, destination-out)',
     ])
+  })
+
+  it('a drop shadow (#698) is cast once from the silhouette off the canvas, cut out where the overlay stands, under the picture', () => {
+    // 0.05 of the 180 px shorter side is 9 px: the blur and both offsets.
+    const shadow = { color: '#000000', opacity: 0.5, blur: 0.05, offsetX: 0.05, offsetY: -0.05 }
+    const { composer, main, buffers } = composerFor(overlayFor({ shadow }))
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      // The shadow buffer, composited before the picture draws over it.
+      'draw(buffer-2, [0, 0], none)',
+      // The picture still draws straight to the frame, exactly as unshadowed.
+      'draw(over-element, [160, 90, 80, 45], none)',
+    ])
+    // The silhouette: the placed rectangle, filled opaque; no border, no stroke.
+    expect(buffers[1].ops).toEqual(['clear(0, 0, 320, 180)', 'fillPath(#000, source-over)'])
+    // One shadow-casting draw of the silhouette's box (1 px of margin), from
+    // 641 px to the left (twice the width, plus one) — its shadow brought
+    // back by the offset, 641 + 9 — and then the silhouette cut out.
+    expect(buffers[2].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      'save',
+      'draw(buffer-1, [159, 89, 82, 47, -482, 89, 82, 47], none) shadow(rgba(0, 0, 0, 0.5), 9, 650, -9)',
+      'restore',
+      'draw(buffer-1, [0, 0], none) destination-out',
+    ])
+  })
+
+  it('a drop shadow on a bordered ellipse is cast by the ellipse grown by its border, before the border draws', () => {
+    const shadow = { color: '#ff0000', opacity: 1, blur: 0, offsetX: 0.05, offsetY: 0.05 }
+    const border = { color: '#00ff00', thickness: 0.05 }
+    const { composer, main, buffers } = composerFor(
+      overlayFor({ shadow, border, shapeMask: { kind: 'ellipse' } }),
+    )
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      // Shadow, then border, then the masked picture: bottom to top.
+      'draw(buffer-2, [0, 0], none)',
+      'draw(buffer-1, [0, 0], none)',
+      'draw(buffer-1, [0, 0], none)',
+    ])
+    // The silhouette is the ellipse filled and stroked at twice the border's
+    // 9 px, which is the outline the border band itself reaches.
+    expect(buffers[1].ops.slice(0, 4)).toEqual([
+      'clear(0, 0, 320, 180)',
+      'ellipse(200, 112.5, 40, 22.5)',
+      'fillPath(#000, source-over)',
+      'strokePath(#000, 18, miter)',
+    ])
+    // The box grows by the border's 9 px too.
+    expect(buffers[2].ops).toEqual([
+      'clear(0, 0, 320, 180)',
+      'save',
+      'draw(buffer-1, [150, 80, 100, 65, -491, 80, 100, 65], none) shadow(rgba(255, 0, 0, 1), 0, 650, 9)',
+      'restore',
+      'draw(buffer-1, [0, 0], none) destination-out',
+    ])
+  })
+
+  it('a shadow-free overlay allocates no shadow buffer and makes no shadow draw', () => {
+    const { composer, main, buffers } = composerFor(overlayFor())
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(main.ops).toEqual([
+      'fill(#000, 0, 0, 320, 180)',
+      'draw(base, [0, 0, 320, 180], none)',
+      'draw(over-element, [160, 90, 80, 45], none)',
+    ])
+    expect(buffers.length).toBeLessThanOrEqual(1)
   })
 
   it('a border follows an ellipse mask: the same inscribed ellipse stroked, then cleared inside', () => {

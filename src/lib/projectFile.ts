@@ -68,6 +68,8 @@ import type { ShapeMask } from './shapeMask'
 import { MAX_ROUNDED_RADIUS } from './shapeMask'
 import type { OverlayBorder } from './overlayBorder'
 import { MAX_OVERLAY_BORDER } from './overlayBorder'
+import type { OverlayShadow } from './overlayShadow'
+import { MAX_OVERLAY_SHADOW_BLUR, MAX_OVERLAY_SHADOW_OFFSET } from './overlayShadow'
 import { isValidBackgroundFillInput } from './backgroundFill'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
@@ -130,7 +132,9 @@ import { isCanvasPreset } from './frameSize'
  *                                       { kind: 'rounded', radius },  // (#266)
  *                           zooms?: [{ id, start, rampIn, hold, rampOut,
  *                                      scale, centerX, centerY }], // (#699)
- *                           border?: { color, thickness } }]   // (#697)
+ *                           border?: { color, thickness },      // (#697)
+ *                           shadow?: { color, opacity, blur,
+ *                                      offsetX, offsetY } }]    // (#698)
  *     }
  *   }
  *
@@ -286,7 +290,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 27
+export const PROJECT_SCHEMA_VERSION = 29
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -366,6 +370,13 @@ export const OVERLAY_ZOOMS_SCHEMA_VERSION = 26
  * refuses it by version; a border-free file keeps its version and its bytes.
  */
 export const OVERLAY_BORDERS_SCHEMA_VERSION = 27
+/**
+ * The version an overlay drop shadow forces (#698). An earlier build would
+ * ignore the key and show the overlay without its shadow, so a file
+ * carrying one refuses it by version; a shadow-free file keeps its version
+ * and its bytes.
+ */
+export const OVERLAY_SHADOWS_SCHEMA_VERSION = 29
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -744,6 +755,9 @@ export async function serializeProject(
   const hasOverlayBorders = videoOverlaysOf(timeline).some(
     (overlay) => overlay.border !== undefined,
   )
+  const hasOverlayShadows = videoOverlaysOf(timeline).some(
+    (overlay) => overlay.shadow !== undefined,
+  )
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
     (overlay) => overlay.shapeMask !== undefined,
@@ -797,7 +811,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayBorders
+    schemaVersion: hasOverlayShadows
+      ? OVERLAY_SHADOWS_SCHEMA_VERSION
+      : hasOverlayBorders
       ? OVERLAY_BORDERS_SCHEMA_VERSION
       : hasOverlayZooms
       ? OVERLAY_ZOOMS_SCHEMA_VERSION
@@ -1076,7 +1092,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, shadow }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1115,6 +1131,19 @@ export async function serializeProject(
                 ...(border === undefined
                   ? {}
                   : { border: { color: border.color, thickness: border.thickness } }),
+                // Drop shadow (#698), written only while on — off is no key
+                // at all, so shadow-free projects stay byte-identical.
+                ...(shadow === undefined
+                  ? {}
+                  : {
+                      shadow: {
+                        color: shadow.color,
+                        opacity: shadow.opacity,
+                        blur: shadow.blur,
+                        offsetX: shadow.offsetX,
+                        offsetY: shadow.offsetY,
+                      },
+                    }),
                 // Redaction regions (#492), exactly as on a sequence entry.
                 ...(redactions === undefined || redactions.length === 0
                   ? {}
@@ -1627,6 +1656,33 @@ function asOverlayBorder(value: unknown, path: string): OverlayBorder {
     throw new Error(`${path}.thickness must be above 0 and at most ${MAX_OVERLAY_BORDER}`)
   }
   return { color, thickness }
+}
+
+/**
+ * An overlay's drop shadow (#698) as stored: a lower-case `#rrggbb` colour,
+ * an opacity in [0, 1], a blur in [0, MAX_OVERLAY_SHADOW_BLUR] and offsets
+ * within ±MAX_OVERLAY_SHADOW_OFFSET — the reducer's normalized form.
+ */
+function asOverlayShadow(value: unknown, path: string): OverlayShadow {
+  const raw = asRecord(value, path)
+  const color = asString(raw.color, `${path}.color`)
+  if (!/^#[0-9a-f]{6}$/.test(color)) {
+    throw new Error(`${path}.color must be a lower-case #rrggbb colour`)
+  }
+  const opacity = asFinite(raw.opacity, `${path}.opacity`)
+  if (opacity < 0 || opacity > 1) throw new Error(`${path}.opacity must be within [0, 1]`)
+  const blur = asFinite(raw.blur, `${path}.blur`)
+  if (blur < 0 || blur > MAX_OVERLAY_SHADOW_BLUR) {
+    throw new Error(`${path}.blur must be within [0, ${MAX_OVERLAY_SHADOW_BLUR}]`)
+  }
+  const offset = (key: 'offsetX' | 'offsetY') => {
+    const value = asFinite(raw[key], `${path}.${key}`)
+    if (Math.abs(value) > MAX_OVERLAY_SHADOW_OFFSET) {
+      throw new Error(`${path}.${key} must be within ±${MAX_OVERLAY_SHADOW_OFFSET}`)
+    }
+    return value
+  }
+  return { color, opacity, blur, offsetX: offset('offsetX'), offsetY: offset('offsetY') }
 }
 
 /**
@@ -2398,6 +2454,11 @@ function validateProject(document: Record<string, unknown>): Project {
       // border-free overlay since.
       if (raw.border !== undefined) {
         overlay.border = asOverlayBorder(raw.border, `${path}.border`)
+      }
+      // Drop shadow (#698): absent in files saved before it, and on every
+      // shadow-free overlay since.
+      if (raw.shadow !== undefined) {
+        overlay.shadow = asOverlayShadow(raw.shadow, `${path}.shadow`)
       }
       // Redaction regions (#492), exactly as on a sequence entry.
       if (raw.redactions !== undefined) {
