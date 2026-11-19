@@ -135,7 +135,7 @@ test('a slate joins the timeline red and 5s, with editable color and duration', 
     page.getByRole('spinbutton', { name: 'Trim in point of Color slate at position 1 in seconds' }),
   ).toHaveCount(0)
   await expect(
-    page.getByRole('spinbutton', { name: 'Volume of Color slate at position 1 (0 to 1)' }),
+    page.getByRole('spinbutton', { name: 'Volume of Color slate at position 1 (0 to 4)' }),
   ).toHaveCount(0)
 })
 

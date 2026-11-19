@@ -56,6 +56,7 @@ import { locateInSequence } from './playback'
 import { sourceTimeAtOutput } from './remap'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
+import { attachBoost, setMediaGain } from './mediaGain'
 
 // The export pipeline itself (playback capture + MediaRecorder) cannot run
 // in jsdom; it is covered by e2e/export.spec.ts. These tests cover the pure
@@ -192,10 +193,14 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       }
     },
     createMediaStreamDestination: () => streamDestination,
-    /** The mix bus a PCM tap inserts (#269); absent a tap, never created. */
+    /**
+     * Every gain node: one boost per element (#692), created as each is
+     * sourced, and the mix bus a PCM tap inserts (#269), created before
+     * them and only with a tap.
+     */
     createGain: () => {
       const gain = {
-        name: 'mix bus',
+        gain: { value: 1 },
         connectedTo: [] as unknown[],
         connect: (target: unknown) => gain.connectedTo.push(target),
       }
@@ -210,8 +215,10 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       context.closed = true
     },
   }
-  const gains: { name: string; connectedTo: unknown[]; connect: (t: unknown) => void }[] = []
-  return { context, track, streamDestination, connectedTo, sourcedElements, gains }
+  const gains: { gain: { value: number }; connectedTo: unknown[]; connect: (t: unknown) => void }[] = []
+  /** Where each sourced element's sound goes after its own boost (#692). */
+  const boostTargets = () => gains.filter((gain) => connectedTo.includes(gain)).map((gain) => gain.connectedTo)
+  return { context, track, streamDestination, connectedTo, sourcedElements, gains, boostTargets }
 }
 
 const asAudioContext = (context: unknown) => context as AudioContext
@@ -224,7 +231,10 @@ describe('createAudioCapture', () => {
       () => asAudioContext(fake.context),
     )
     expect(capture?.track).toBe(fake.track)
-    expect(fake.connectedTo).toEqual([fake.streamDestination])
+    // Through its own boost (#692), at the identity until a gain passes 1.
+    expect(fake.connectedTo).toEqual([fake.gains[0]])
+    expect(fake.gains[0].gain.value).toBe(1)
+    expect(fake.boostTargets()).toEqual([[fake.streamDestination]])
   })
 
   it('mixes every element into the one destination (transition overlaps record both)', async () => {
@@ -233,8 +243,10 @@ describe('createAudioCapture', () => {
     const capture = await createAudioCapture(videos, () => asAudioContext(fake.context))
     expect(capture?.track).toBe(fake.track)
     expect(fake.sourcedElements).toEqual(videos)
-    // Both sources reach the same destination — one mixed recorded track.
-    expect(fake.connectedTo).toEqual([fake.streamDestination, fake.streamDestination])
+    // Both sources reach the same destination — one mixed recorded track —
+    // each through a boost of its own (#692).
+    expect(fake.connectedTo).toEqual(fake.gains)
+    expect(fake.boostTargets()).toEqual([[fake.streamDestination], [fake.streamDestination]])
   })
 
   it('mixes audio track elements alongside the video replays (#105)', async () => {
@@ -243,7 +255,7 @@ describe('createAudioCapture', () => {
     const capture = await createAudioCapture(elements, () => asAudioContext(fake.context))
     expect(capture?.track).toBe(fake.track)
     expect(fake.sourcedElements).toEqual(elements)
-    expect(fake.connectedTo).toEqual([fake.streamDestination, fake.streamDestination])
+    expect(fake.boostTargets()).toEqual([[fake.streamDestination], [fake.streamDestination]])
   })
 
   it('never connects the graph to the speakers', async () => {
@@ -251,6 +263,7 @@ describe('createAudioCapture', () => {
     const fake = fakeAudioContext()
     await createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context))
     expect(fake.connectedTo).not.toContain(fake.context.destination)
+    expect(fake.boostTargets().flat()).not.toContain(fake.context.destination)
   })
 
   it('resumes a suspended context, which would otherwise record silence', async () => {
@@ -381,20 +394,21 @@ describe('createAudioCapture with a PCM tap (#269)', () => {
     )
     // The recorded track is unchanged — the recorder path never notices the tap.
     expect(capture?.track).toBe(fake.track)
-    // One bus: every element feeds it, and it feeds the destination, so the
-    // tap hears exactly the mix the recorder would.
-    expect(fake.gains).toHaveLength(1)
+    // One bus: every element feeds it, through its own boost (#692), and
+    // it feeds the destination, so the tap hears exactly the mix the
+    // recorder would.
+    expect(fake.gains).toHaveLength(3)
     const bus = fake.gains[0]
-    expect(fake.connectedTo).toEqual([bus, bus])
+    expect(fake.boostTargets()).toEqual([[bus], [bus]])
     expect(bus.connectedTo).toEqual([fake.streamDestination])
     expect(tapCalls).toEqual([{ context: fake.context, mix: bus }])
   })
 
-  it('without a tap the graph is exactly what #245 built — no bus at all', async () => {
+  it('without a tap there is no bus — only the element\'s own boost (#692)', async () => {
     const fake = fakeAudioContext()
     await createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context))
-    expect(fake.gains).toHaveLength(0)
-    expect(fake.connectedTo).toEqual([fake.streamDestination])
+    expect(fake.gains).toHaveLength(1)
+    expect(fake.boostTargets()).toEqual([[fake.streamDestination]])
   })
 })
 
@@ -443,6 +457,22 @@ describe('syncTrackReplay (#105)', () => {
       syncTrackReplay(track, element, sequenceTime)
       expect(element.volume).toBe(audioTrackGainAt(track, sequenceTime))
     }
+  })
+
+  it('carries a Volume above 1 on the element\'s boost, the element itself at 1 (#692)', () => {
+    // Volume 2 with a 2 s fade-in: 0.5 into the fade is gain 0.5, the
+    // element's alone; past it the gain is 2, split 1 × 2.
+    const track = exportTrack({ volume: 2, fadeIn: 2 })
+    const element = fakeTrackElement({ paused: false, currentTime: 10.5 })
+    const boost = { gain: { value: 1 } }
+    attachBoost(element, boost)
+    syncTrackReplay(track, element, 5.5)
+    expect([element.volume, boost.gain.value]).toEqual([0.5, 1])
+    syncTrackReplay(track, element, 11)
+    expect([element.volume, boost.gain.value]).toEqual([1, 2])
+    // Ducked to a quarter: 0.5 overall, back on the element alone.
+    syncTrackReplay(track, element, 11, 0.25)
+    expect([element.volume, boost.gain.value]).toEqual([0.5, 1])
   })
 
   it('starts a paused element at the mapped source time when the window opens', () => {
@@ -1222,6 +1252,17 @@ describe('syncAudioTwin (#611)', () => {
   // they close over, so a copy would never see its own state change.
   const twin = ({ src = '', ...overrides }: Parameters<typeof fakeTrackElement>[0] & { src?: string } = {}) =>
     Object.assign(fakeTrackElement(overrides), { src })
+
+  it('follows a replay\'s gain past 1, which the replay\'s own volume cannot show (#692)', () => {
+    const source = replay()
+    setMediaGain(source, 3)
+    expect(source.volume).toBe(1)
+    const element = twin()
+    const boost = { gain: { value: 1 } }
+    attachBoost(element, boost)
+    syncAudioTwin(source, element)
+    expect([element.volume, boost.gain.value]).toEqual([1, 3])
+  })
 
   it('takes the replay source, gain and position, and plays with it at 1×', () => {
     const element = twin()

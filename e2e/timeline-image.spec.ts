@@ -79,7 +79,7 @@ test('an image joins the timeline as a 5s still with an editable duration', asyn
     page.getByRole('spinbutton', { name: 'Trim in point of logo.png at position 1 in seconds' }),
   ).toHaveCount(0)
   await expect(
-    page.getByRole('spinbutton', { name: 'Volume of logo.png at position 1 (0 to 1)' }),
+    page.getByRole('spinbutton', { name: 'Volume of logo.png at position 1 (0 to 4)' }),
   ).toHaveCount(0)
 
   // Any positive duration is accepted.

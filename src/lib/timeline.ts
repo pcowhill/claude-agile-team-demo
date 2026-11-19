@@ -69,6 +69,7 @@ import {
 } from './textOverlay'
 import type { CopiedSettings, SettingsElementKind } from './settingsClipboard'
 import type { CanvasPreset } from './frameSize'
+import { clampVolume } from './volume'
 import { isCanvasPreset } from './frameSize'
 import type {
   ImageOverlayPlacement,
@@ -134,7 +135,7 @@ export interface TimelineEntry {
    */
   color?: string
   /**
-   * Volume of the entry's own audio, 0..1 (#104). Absent means full volume —
+   * Volume of the entry's own audio, 0 to `MAX_VOLUME` (#104, #692). Absent means full volume —
    * the fields are additive so pre-#104 states (and saved files) stay valid.
    */
   volume?: number
@@ -248,7 +249,7 @@ export interface AudioTrack {
   inPoint: number
   /** Trim end within the source clip, in seconds. inPoint < outPoint ≤ duration. */
   outPoint: number
-  /** Volume of the track, 0..1 (#104). Absent means full volume. */
+  /** Volume of the track, 0 to `MAX_VOLUME` (#104, #692). Absent means full volume. */
   volume?: number
   /**
    * Linear fade-in duration in seconds, from the start of the track's
@@ -937,7 +938,7 @@ export type TimelineAction =
   | {
       /**
        * Match levels (#691): several elements' Volumes set at once, as one
-       * action so one undo restores them all. Each is clamped to 0–1 like
+       * action so one undo restores them all. Each is clamped to 0–`MAX_VOLUME` like
        * its own volume action; ids no longer present (an element removed
        * while the clips were measured) and image overlays are skipped.
        */
@@ -2291,7 +2292,7 @@ function reduceTimelineCollections(
             }
             // Volume and mute compare against the *effective* value, so
             // pasting full volume onto an untouched entry is a no-op.
-            const volume = clamp(audio.volume, 0, 1)
+            const volume = clampVolume(audio.volume)
             const muted = audio.muted
             const candidate = { ...next }
             if (volume !== (entry.volume ?? 1)) candidate.volume = volume
@@ -2340,7 +2341,7 @@ function reduceTimelineCollections(
           // stored — the field must not appear on a track.
           const candidate = clampTrackFades({
             ...track,
-            volume: clamp(audio.volume, 0, 1),
+            volume: clampVolume(audio.volume),
             fadeIn: Math.max(0, audio.fadeIn),
             fadeOut: Math.max(0, audio.fadeOut),
           })
@@ -2373,7 +2374,7 @@ function reduceTimelineCollections(
             ) {
               return state
             }
-            const volume = clamp(audio.volume, 0, 1)
+            const volume = clampVolume(audio.volume)
             const muted = audio.muted
             const candidate: VideoOverlay = { ...next }
             if (volume !== (overlay.volume ?? 1)) candidate.volume = volume
@@ -2988,7 +2989,7 @@ function reduceTimelineCollections(
       const index = state.entries.findIndex((entry) => entry.id === action.id)
       if (index === -1) return state
       if (!Number.isFinite(action.volume)) return state
-      const volume = clamp(action.volume, 0, 1)
+      const volume = clampVolume(action.volume)
       // Compare against the effective value: setting an untouched entry to
       // full volume is a no-op, not an edit (edits stop preview playback).
       if (volume === (state.entries[index].volume ?? 1)) return state
@@ -3291,7 +3292,7 @@ function reduceTimelineCollections(
       const index = audioTracks.findIndex((track) => track.id === action.id)
       if (index === -1) return state
       if (!Number.isFinite(action.volume)) return state
-      const volume = clamp(action.volume, 0, 1)
+      const volume = clampVolume(action.volume)
       if (volume === (audioTracks[index].volume ?? 1)) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], volume }
@@ -3303,7 +3304,7 @@ function reduceTimelineCollections(
       let overlays = videoOverlays
       for (const { kind, id, volume: asked } of action.volumes) {
         if (!Number.isFinite(asked)) continue
-        const volume = clamp(asked, 0, 1)
+        const volume = clampVolume(asked)
         if (kind === 'entry') {
           const index = entries.findIndex((entry) => entry.id === id)
           if (index === -1 || entries[index].kind !== undefined) continue

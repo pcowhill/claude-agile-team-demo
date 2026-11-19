@@ -131,7 +131,7 @@ test('a duck-enabled voice track lowers the music under its window in the export
 
   const voice = 'audio track voice.wav at position 2'
   await setField(page, `Start time of ${voice} in seconds`, '1.5')
-  await setField(page, `Volume of ${voice} (0 to 1)`, '0.1')
+  await setField(page, `Volume of ${voice} (0 to 4)`, '0.1')
 
   // Baseline, ducking off: the music is as loud under the voice window
   // ([1.7, 2.3], clear of the 0.25 s edge ramps at [1.25, 1.5] and

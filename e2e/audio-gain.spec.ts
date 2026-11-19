@@ -71,7 +71,7 @@ test('a track volume and fades drive its element volume, scrubbed and playing', 
 }) => {
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   const position = 'audio track tone.wav at position 1'
-  await setField(page, `Volume of ${position} (0 to 1)`, '0.5')
+  await setField(page, `Volume of ${position} (0 to 4)`, '0.5')
   await setField(page, `Fade-in of ${position} in seconds`, '1')
 
   const track = page.getByTestId('preview-audio-0')
@@ -101,7 +101,7 @@ test('a video entry\'s audio fades drive its element volume, scrubbed and playin
 }) => {
   const position = 'clip.webm at position 1'
   await setField(page, `Trim out point of ${position} in seconds`, '1.4')
-  await setField(page, `Volume of ${position} (0 to 1)`, '0.5')
+  await setField(page, `Volume of ${position} (0 to 4)`, '0.5')
   await setField(page, `Audio fade-in of ${position} in seconds`, '1')
 
   const video = page.getByTestId('preview-video')

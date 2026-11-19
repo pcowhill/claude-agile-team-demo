@@ -56,6 +56,7 @@ import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
+import { attachBoost, capturedElementsHonourPlaybackRate, intendedGain, setMediaGain } from './mediaGain'
 
 /**
  * Recorder MIME types in preference order. WebM is the only container
@@ -2048,7 +2049,14 @@ export async function createAudioCapture(
       mixInto = bus
     }
     for (const element of elements) {
-      context.createMediaElementSource(element).connect(mixInto)
+      // Each element plays through its own boost (#692): the part of its
+      // gain above 1, which its `volume` cannot carry. At 1 — every gain a
+      // project with no Volume above 1 asks for — it is the identity, so
+      // the mix is the one recorded before.
+      const boost = context.createGain()
+      context.createMediaElementSource(element).connect(boost)
+      boost.connect(mixInto)
+      attachBoost(element, boost)
     }
     // Autoplay policy starts contexts suspended; a suspended context feeds
     // the recorder nothing. The wait is bounded (#596): a browser that
@@ -2135,7 +2143,7 @@ export function syncTrackReplay(
   duckFactor = 1,
 ): void {
   const { shouldPlay, sourceTime } = audioTrackPlaybackAt(track, sequenceTime)
-  element.volume = audioTrackGainAt(track, sequenceTime) * duckFactor
+  setMediaGain(element, audioTrackGainAt(track, sequenceTime) * duckFactor)
   alignReplayClock(element, shouldPlay, sourceTime)
 }
 
@@ -2171,7 +2179,7 @@ export function syncOverlayReplay(
   duckFactor = 1,
 ): void {
   const { shouldPlay, sourceTime, rate, holding } = videoOverlayPlaybackAt(overlay, sequenceTime)
-  element.volume = videoOverlayGainAt(overlay, sequenceTime) * duckFactor
+  setMediaGain(element, videoOverlayGainAt(overlay, sequenceTime) * duckFactor)
   const playing = shouldPlay && !holding
   if (playing && (element.playbackRate ?? 1) !== rate) element.playbackRate = rate
   const drift = holding ? HOLD_SEEK_EPSILON : AUDIO_DRIFT_EPSILON * (playing ? rate : 1)
@@ -2204,18 +2212,9 @@ function alignReplayClock(
   }
 }
 
-/**
- * Whether this browser plays a media element at its `playbackRate` once its
- * audio is captured into Web Audio (#611). Chromium does. Firefox does not:
- * an element routed through `createMediaElementSource` (or captured with
- * `mozCaptureStream`) reports the rate it was given and plays at 1× anyway.
- * Measured in Firefox 153 on a video-only WebM set to 0.5: 0.47× plain, 0.94×
- * captured, while Chromium plays 0.50× either way. `mozCaptureStream` is the
- * Gecko marker — the engine with the limitation, not a user-agent string.
- */
-export function capturedElementsHonourPlaybackRate(): boolean {
-  return typeof HTMLMediaElement === 'undefined' || !('mozCaptureStream' in HTMLMediaElement.prototype)
-}
+// Whether a captured element honours its playbackRate (#611) lives with the
+// rest of the element-into-Web-Audio rules since the preview asks it too (#692).
+export { capturedElementsHonourPlaybackRate } from './mediaGain'
 
 /**
  * Whether any speed segment on the timeline's **sequence entries** plays at
@@ -2262,7 +2261,9 @@ export interface AudioTwinElement extends TrackReplayElement {
 export function syncAudioTwin(replay: AudioTwinSource, twin: AudioTwinElement): void {
   if (replay.currentSrc === '') return
   if (twin.src !== replay.currentSrc) twin.src = replay.currentSrc
-  twin.volume = replay.volume
+  // The replay's gain, not its `volume`: above 1 the volume stops at 1 and
+  // the rest is a boost (#692), which the twin carries in the graph.
+  setMediaGain(twin, intendedGain(replay))
   alignReplayClock(twin, !replay.paused && replay.playbackRate === 1, replay.currentTime)
 }
 
@@ -3004,9 +3005,10 @@ export async function exportTimeline(
         // envelope at the cue point, no ramp outside a transition. The draw
         // loop below re-applies it every frame, which is what records a
         // fade-in as a continuous ramp.
-        primary.volume =
-          videoEntryGainAt(entry, startInto, outDuration) *
-          duckFactorAt(ducking, startTime + startInto)
+        setMediaGain(
+          primary,
+          videoEntryGainAt(entry, startInto, outDuration) * duckFactorAt(ducking, startTime + startInto),
+        )
         // The cue point is `startInto` output seconds into the entry.
         drawFrame(heldVideoFrame(primary), index, startTime + startInto)
         sink?.frame(canvas, startTime + startInto)
@@ -3109,7 +3111,7 @@ export async function exportTimeline(
           // records as a continuous ramp, exactly as the preview renders it.
           // Inside a transition overlap the branches below re-set it with
           // the crossfade ramp.
-          if (!still) primary.volume = videoEntryGainAt(entry, outputInto, outDuration) * duck
+          if (!still) setMediaGain(primary, videoEntryGainAt(entry, outputInto, outDuration) * duck)
           let overlayFrame: OverlayFrame | null = null
           if (overlap !== undefined && next !== undefined && outputInto >= overlapStartOut) {
             const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
@@ -3119,8 +3121,10 @@ export async function exportTimeline(
               // entry's gain ramps. (A still carries no remaps, so output
               // elapsed is exactly its source elapsed.)
               if (!still) {
-                primary.volume =
-                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
+                setMediaGain(
+                  primary,
+                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck,
+                )
               }
               overlayFrame = {
                 layer: stillFrame(next, next.inPoint + (outputInto - overlapStartOut)),
@@ -3133,7 +3137,7 @@ export async function exportTimeline(
                 engaged = true
                 // The incoming entry starts at the foot of its ramp — which is
                 // 0 whatever its volume, and stays 0 throughout if it is muted.
-                secondary.volume = videoEntryGain(next, 0)
+                setMediaGain(secondary, videoEntryGain(next, 0))
                 engageIncoming(secondary, () => lastOutputInto - overlapStartOut, next)
               }
               // Until the incoming element has a decodable frame, keep drawing
@@ -3172,16 +3176,20 @@ export async function exportTimeline(
                 // so a muted or half-volume entry stays that way mid-effect —
                 // fade envelopes included (#220), each over its own window.
                 if (!still) {
-                  primary.volume =
-                    videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck
+                  setMediaGain(
+                  primary,
+                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck,
+                )
                 }
-                secondary.volume =
+                setMediaGain(
+                  secondary,
                   videoEntryGainAt(
                     next,
                     outputInto - overlapStartOut,
                     entryOutputDuration(next, remapsOf(timeline)),
                     progress,
-                  ) * duck
+                  ) * duck,
+                )
                 overlayFrame = {
                   layer: heldVideoFrame(secondary),
                   index: index + 1,
@@ -3270,9 +3278,11 @@ export async function exportTimeline(
         // The incoming entry leaves its ramp for its own gain at the
         // handover point — overlap.duration output seconds in (#220); the
         // paused outgoing element's volume is set again when it is next cued.
-        secondary.volume =
+        setMediaGain(
+          secondary,
           videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
-          duckFactorAt(ducking, startTime + outDuration)
+            duckFactorAt(ducking, startTime + outDuration),
+        )
         const incoming = secondary
         secondary = primary
         primary = incoming

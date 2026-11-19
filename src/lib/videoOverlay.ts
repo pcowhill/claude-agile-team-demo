@@ -16,6 +16,7 @@ import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
 import type { RemapSpec } from './remap'
 import { remappedDuration, remapSpecsEqual, sweptRemaps } from './remap'
+import { clampVolume } from './volume'
 
 /**
  * Overlay video layers — picture-in-picture (#145): video clips composited
@@ -95,7 +96,7 @@ export interface VideoOverlay {
   width: number
   /** Rectangle's height, as a fraction of frame height. */
   height: number
-  /** Volume of the overlay's own audio, 0..1 (#104). Absent = full volume. Never present on an image overlay. */
+  /** Volume of the overlay's own audio, 0 to `MAX_VOLUME` (#104, #692). Absent = full volume. Never present on an image overlay. */
   volume?: number
   /** Mutes the overlay's audio; mute wins over volume (#104). */
   muted?: boolean
@@ -456,7 +457,7 @@ export function isValidVideoOverlayPlacement(placement: VideoOverlayPlacement): 
 /**
  * Clamps one overlay's continuous fields into their ranges: offset at 0 but
  * unbounded above (the allowed-tail decision — see the module comment), trim
- * within the source clip, volume into 0..1, audio fades within the trimmed
+ * within the source clip, volume into 0 to `MAX_VOLUME`, audio fades within the trimmed
  * length (#220, fadeIn keeps its value first as for audio tracks — and zero
  * fades normalize to absent fields, the byte-identity rule), and the
  * rectangle fully onto the frame — size first into its bounds, then position
@@ -509,7 +510,7 @@ export function clampVideoOverlay(overlay: VideoOverlay): VideoOverlay {
   }
   const inPoint = clamp(overlay.inPoint, 0, overlay.duration)
   const outPoint = clamp(overlay.outPoint, 0, overlay.duration)
-  const volume = overlay.volume === undefined ? undefined : clamp(overlay.volume, 0, 1)
+  const volume = overlay.volume === undefined ? undefined : clampVolume(overlay.volume)
   const trimmedLength = Math.max(0, outPoint - inPoint)
   // Speed segments and pauses (#700) clamp into the (possibly new) trim by
   // the entries' sweep; the fades then ramp over the remapped window, as an

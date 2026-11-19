@@ -102,8 +102,9 @@ export const SESSION_RESTORE_CHOICES: readonly SessionRestoreMode[] = ['ask', 'a
 export const COUNTDOWN_CHOICES: readonly number[] = [DEFAULT_COUNTDOWN_SECONDS, 0]
 /**
  * Match levels' targets (#691), loudest last: from a quiet −30 dB to −16 dB.
- * Within today's 0–1 Volume a target only lowers what is louder than it,
- * so the list stops where a target would leave most recordings below it.
+ * The list stops at −16 dB because louder still leaves speech's peaks,
+ * 12–15 dB above its average, too near full scale: the clipping guard
+ * would hold most recordings back short of it.
  */
 export const MATCH_TARGET_CHOICES: readonly number[] = [-30, -26, -23, DEFAULT_MATCH_TARGET_DB, -16]
 

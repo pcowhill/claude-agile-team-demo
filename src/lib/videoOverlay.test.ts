@@ -116,8 +116,9 @@ describe('clampVideoOverlay (#145)', () => {
     expect(clampVideoOverlay(overlay({ x: -2, y: -2 }))).toMatchObject({ x: 0, y: 0 })
   })
 
-  it('clamps volume into 0..1, leaving an absent volume absent', () => {
-    expect(clampVideoOverlay(overlay({ volume: 4 })).volume).toBe(1)
+  it('clamps volume into 0..4 (#692), leaving an absent volume absent', () => {
+    expect(clampVideoOverlay(overlay({ volume: 9 })).volume).toBe(4)
+    expect(clampVideoOverlay(overlay({ volume: 2.5 })).volume).toBe(2.5)
     expect(clampVideoOverlay(overlay({ volume: -1 })).volume).toBe(0)
     expect(clampVideoOverlay(overlay()).volume).toBeUndefined()
   })

@@ -109,7 +109,7 @@ test('the gain row sizes every control it holds: the Duck checkbox intrinsic, th
   // exactly the kind of change that repairs one control by quietly resizing
   // its neighbours. The number fields keep the 4.5 rem bordered box the rule
   // was written for…
-  const volume = page.getByRole('spinbutton', { name: `Volume of ${track} (0 to 1)` })
+  const volume = page.getByRole('spinbutton', { name: `Volume of ${track} (0 to 4)` })
   const volumeBox = (await volume.boundingBox())!
   expect(volumeBox.width).toBeGreaterThan(64)
   expect(volumeBox.width).toBeLessThan(80)
@@ -119,7 +119,7 @@ test('the gain row sizes every control it holds: the Duck checkbox intrinsic, th
   // matters most here: they were reachable by the rule being scoped only
   // through a workaround that out-specified it, so a careless fix could have
   // handed them the number field's box.
-  const slider = page.getByRole('slider', { name: `Volume of ${track} (0 to 1) slider` })
+  const slider = page.getByRole('slider', { name: `Volume of ${track} (0 to 4) slider` })
   const sliderBox = (await slider.boundingBox())!
   expect(sliderBox.width).toBeGreaterThan(60)
   expect(sliderBox.width).toBeLessThan(100)

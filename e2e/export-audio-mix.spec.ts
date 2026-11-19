@@ -164,7 +164,7 @@ test('an audio track exports into the mix, its fade-in audible as a quiet head',
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
 
   const position = 'audio track tone.wav at position 1'
-  await setField(page, `Volume of ${position} (0 to 1)`, '0.8')
+  await setField(page, `Volume of ${position} (0 to 4)`, '0.8')
   await setField(page, `Fade-in of ${position} in seconds`, '1.5')
 
   const exported = await exportOnce(page)

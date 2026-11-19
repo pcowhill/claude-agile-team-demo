@@ -9,16 +9,17 @@
  * Volume becomes given its measured window. Decoding and measuring are
  * `audioPeaks.ts` / `audioLevels.ts`; the App wires them together.
  *
- * **Within 0–1.** Volume is a media element's `volume`, which the browser
- * caps at 1, and the preview and the export both rely on that property; so
- * an element quieter than the target goes to 1 and is reported as below
- * target. Raising it further is #692.
+ * **Up to `MAX_VOLUME`** (#692). An element quieter than the target is
+ * raised, to at most `MAX_VOLUME` (+12 dB); one that would need more ends
+ * there and is reported as below target. Before #692 the ceiling was 1,
+ * a media element's own `volume`.
  *
  * **Clipping guard.** No element is set to a volume at which its window's
  * peak would pass full scale, whatever the target asks.
  */
 
 import { dbToGain, windowLevel } from './audioLevels'
+import { MAX_VOLUME } from './volume'
 import type { ClipLevels } from './audioLevels'
 import { isImageOverlay } from './videoOverlay'
 import { audioTracksOf, videoOverlaysOf } from './timeline'
@@ -95,9 +96,8 @@ export function levelElements(state: TimelineState): LevelElement[] {
  * speech in broadcast alignment (SMPTE RP 155 puts 0 VU at −20 dBFS), so
  * a clear voice recording lands near it already; and speech's peaks, some
  * 12–15 dB above its average, then sit around −5 to −8 dB — headroom left,
- * nothing near clipping. Within today's 0–1 Volume a target only lowers
- * what is louder than it, so a target well above typical recordings would
- * match nothing.
+ * nothing near clipping. A quieter recording is raised to it, by up to
+ * +12 dB (`MAX_VOLUME`, #692), unless its peaks would clip first.
  */
 export const DEFAULT_MATCH_TARGET_DB = -20
 
@@ -105,7 +105,7 @@ export const DEFAULT_MATCH_TARGET_DB = -20
 export type MatchOutcome =
   /** Its Volume now brings it to the target. */
   | 'matched'
-  /** It needs more than Volume 1 to reach the target; it is at 1. */
+  /** It needs more than `MAX_VOLUME` to reach the target; it is at `MAX_VOLUME`. */
   | 'below-target'
   /** Its peak would pass full scale on the way to the target; it stops short. */
   | 'peak-limited'
@@ -136,9 +136,10 @@ function roundVolume(volume: number): number {
  *
  * The Volume that brings an element to the target is `10^((target − level) /
  * 20)`, measured on the source at Volume 1 — so the result does not depend
- * on where its Volume was before. It is then capped twice: at 1, the media
- * element's ceiling ("below target"), and at the Volume that puts the
- * window's peak exactly at full scale ("peak-limited"), whichever is lower.
+ * on where its Volume was before. It is then capped twice: at `MAX_VOLUME`,
+ * the top of the Volume range ("below target", #692), and at the Volume
+ * that puts the window's peak exactly at full scale ("peak-limited"),
+ * whichever is lower.
  */
 export function planMatchLevels(
   elements: readonly LevelElement[],
@@ -152,14 +153,14 @@ export function planMatchLevels(
     if (measured === null) return { element, outcome: 'silent', volume: element.volume }
     const wanted = dbToGain(targetDb - measured.levelDb)
     const peakCap = measured.peak > 0 ? 1 / measured.peak : Infinity
-    if (wanted <= Math.min(1, peakCap)) {
+    if (wanted <= Math.min(MAX_VOLUME, peakCap)) {
       return { element, outcome: 'matched', volume: roundVolume(wanted) }
     }
-    if (peakCap < 1) {
+    if (peakCap < MAX_VOLUME) {
       // Floor, not round: rounding up could put the peak a hair past full scale.
       return { element, outcome: 'peak-limited', volume: Math.floor(peakCap * 1000) / 1000 }
     }
-    return { element, outcome: 'below-target', volume: 1 }
+    return { element, outcome: 'below-target', volume: MAX_VOLUME }
   })
 }
 
@@ -172,7 +173,7 @@ export function matchReport(results: readonly MatchResult[]): string {
   if (results.length === 0) return 'Match levels: no element with sound to match.'
   const matched = results.filter((result) => result.outcome === 'matched').length
   const reasons: Record<Exclude<MatchOutcome, 'matched'>, string> = {
-    'below-target': 'below the target even at Volume 1',
+    'below-target': `below the target even at Volume ${MAX_VOLUME}`,
     'peak-limited': 'stopped short so its peaks do not clip',
     undecodable: 'its sound could not be read, so it was left as it was',
     silent: 'no sound in its trim, so it was left as it was',

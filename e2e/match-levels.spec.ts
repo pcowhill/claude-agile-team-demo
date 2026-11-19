@@ -48,18 +48,22 @@ const LOUD = 'loud-take.wav'
 const QUIET = 'quiet-take.wav'
 const position = (name: string, index: number) => `audio track ${name} at position ${index}`
 const volumeField = (page: Page, name: string, index: number) =>
-  page.getByRole('spinbutton', { name: `Volume of ${position(name, index)} (0 to 1)` })
+  page.getByRole('spinbutton', { name: `Volume of ${position(name, index)} (0 to 4)` })
 
-async function twoTakes(page: Page) {
+/** 0.004 of full scale: −51 dB while sounding, beyond even Volume 4's +12 dB of a −20 dB target. */
+const FAINT = 'faint-take.wav'
+
+async function twoTakes(page: Page, { faint = false } = {}) {
   await page.goto('./')
-  await page.getByTestId('clip-file-input').setInputFiles([
+  const takes = [
     { name: LOUD, mimeType: 'audio/wav', buffer: takeWav(0.4) },
     { name: QUIET, mimeType: 'audio/wav', buffer: takeWav(0.1) },
-  ])
-  await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(2)
-  await page.getByRole('button', { name: `Add ${LOUD} to timeline` }).click()
-  await page.getByRole('button', { name: `Add ${QUIET} to timeline` }).click()
-  await expect(volumeField(page, QUIET, 2)).toHaveValue('1')
+    ...(faint ? [{ name: FAINT, mimeType: 'audio/wav', buffer: takeWav(0.004) }] : []),
+  ]
+  await page.getByTestId('clip-file-input').setInputFiles(takes)
+  await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(takes.length)
+  for (const take of takes) await page.getByRole('button', { name: `Add ${take.name} to timeline` }).click()
+  await expect(volumeField(page, takes[takes.length - 1].name, takes.length)).toHaveValue('1')
 }
 
 async function chooseTarget(page: Page, value: string) {
@@ -100,16 +104,24 @@ test('Match levels sets two recordings 12 dB apart to one target, and reports it
   await expect(volumeField(page, QUIET, 2)).toHaveValue('1')
 })
 
-test('with the default target above the quieter take, it is held at Volume 1 and named (#691)', async ({ page }) => {
+test('with the default target between the takes, the quieter is raised past 1 to it (#692)', async ({ page }) => {
   await twoTakes(page)
   // The default −20 dB lies between −11 and −23.
   await page.getByRole('button', { name: 'Match levels', exact: true }).click()
   const report = page.getByRole('status', { name: 'Match levels report' })
-  await expect(report).toContainText('Match levels set 1 of 2 elements to the target.')
-  await expect(report).toContainText(`${QUIET} (audio, position 2): below the target even at Volume 1`)
-  await expect(volumeField(page, QUIET, 2)).toHaveValue('1')
-  // −11 → −20 dB is 10^(−9/20) ≈ 0.35.
+  await expect(report).toContainText('Match levels set 2 of 2 elements to the target.')
+  // −11 → −20 dB is 10^(−9/20) ≈ 0.35; −23 → −20 dB is 10^(3/20) ≈ 1.41.
   await expect.poll(async () => Number(await volumeField(page, LOUD, 1).inputValue())).toBeCloseTo(0.35, 1)
+  await expect.poll(async () => Number(await volumeField(page, QUIET, 2).inputValue())).toBeCloseTo(1.41, 1)
+})
+
+test('a take more than 12 dB below the target stops at Volume 4 and is named (#692)', async ({ page }) => {
+  await twoTakes(page, { faint: true })
+  await page.getByRole('button', { name: 'Match levels', exact: true }).click()
+  const report = page.getByRole('status', { name: 'Match levels report' })
+  await expect(report).toContainText('Match levels set 2 of 3 elements to the target.')
+  await expect(report).toContainText(`${FAINT} (audio, position 3): below the target even at Volume 4`)
+  await expect(volumeField(page, FAINT, 3)).toHaveValue('4')
 })
 
 for (const width of [1280, 360]) {
@@ -117,9 +129,10 @@ for (const width of [1280, 360]) {
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
-    // Populated (development.md): two tracks on the timeline, and the report
-    // showing, which names a held-back element and is the longest it gets.
-    await twoTakes(page)
+    // Populated (development.md): three tracks on the timeline, and the
+    // report showing, which names a held-back element and is the longest
+    // it gets.
+    await twoTakes(page, { faint: true })
     await page.getByRole('button', { name: 'Match levels', exact: true }).click()
     const report = page.getByRole('status', { name: 'Match levels report' })
     await expect(report).toContainText('below the target')

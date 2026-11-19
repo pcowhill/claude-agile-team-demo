@@ -1250,13 +1250,21 @@ describe('gain: volume, mute, fades (#104)', () => {
         timelineReducer(withEntry(), { type: 'entry-volume-set', id: 'e1', volume: -2 })
           .entries[0].volume,
       ).toBe(0)
-      // Clamping above lands on full volume — the default — so an untouched
-      // entry no-ops rather than storing a redundant field.
+      // Above the range it clamps to MAX_VOLUME (#692), and 2 — inside it —
+      // is stored as asked.
+      expect(
+        timelineReducer(withEntry(), { type: 'entry-volume-set', id: 'e1', volume: 7 }).entries[0].volume,
+      ).toBe(4)
+      expect(
+        timelineReducer(withEntry(), { type: 'entry-volume-set', id: 'e1', volume: 2 }).entries[0].volume,
+      ).toBe(2)
+      // Full volume is the default, so setting it on an untouched entry
+      // no-ops rather than storing a redundant field.
       const state = withEntry()
-      expect(timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 7 })).toBe(state)
+      expect(timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 1 })).toBe(state)
       const halved = timelineReducer(state, { type: 'entry-volume-set', id: 'e1', volume: 0.5 })
       expect(
-        timelineReducer(halved, { type: 'entry-volume-set', id: 'e1', volume: 7 }).entries[0].volume,
+        timelineReducer(halved, { type: 'entry-volume-set', id: 'e1', volume: 1 }).entries[0].volume,
       ).toBe(1)
     })
 
@@ -1297,8 +1305,10 @@ describe('gain: volume, mute, fades (#104)', () => {
         audioTracksOf(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 0.25 }))[0]
           .volume,
       ).toBe(0.25)
-      // Clamping above lands on the default, so an untouched track no-ops.
-      expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 9 })).toBe(state)
+      // Above the range it clamps to MAX_VOLUME (#692).
+      expect(
+        audioTracksOf(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 9 }))[0].volume,
+      ).toBe(4)
       expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 'nope', volume: 0.5 })).toBe(state)
       expect(timelineReducer(state, { type: 'audio-track-volume-set', id: 't1', volume: 1 })).toBe(state)
       expect(

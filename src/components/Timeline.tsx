@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
-import type { KeyboardEvent, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import type {
   ColorAdjustments,
   ColorLook,
@@ -19,6 +19,7 @@ import {
   COLOR_ADJUSTMENT_MAX,
   COLOR_ADJUSTMENT_MIN,
 } from '../lib/colorAdjustments'
+import { MAX_VOLUME } from '../lib/volume'
 import type { Orientation } from '../lib/orientation'
 import type { Crop } from '../lib/crop'
 import type { CropSubject } from '../lib/frameEditor'
@@ -605,6 +606,12 @@ interface SecondsFieldProps {
    * Absent for a value that truly is just a number (a 0–1 fraction).
    */
   unit?: FieldUnit
+  /**
+   * A value the slider marks with a tick under its track (#692): Volume's
+   * 1, the source as recorded, which sits a quarter of the way along once
+   * the range runs to `MAX_VOLUME`. Only drawn with `slider`.
+   */
+  mark?: number
 }
 
 /** The units a field can carry (#665). */
@@ -981,6 +988,7 @@ function SecondsField({
   onCommit,
   slider = false,
   unit,
+  mark,
 }: SecondsFieldProps) {
   const [draft, setDraft] = useState(() => formatSeconds(value))
   // Whether the slider has moved since it last committed (#426). A gesture
@@ -1071,28 +1079,45 @@ function SecondsField({
     draft.trim() !== '' && Number.isFinite(drafted)
       ? Math.min(Math.max(drafted, min), max)
       : value
+  const range = (
+    <input
+      type="range"
+      aria-label={`${label} slider`}
+      step={step}
+      min={min}
+      max={max}
+      value={position}
+      onChange={(event) => {
+        slid.current = true
+        setDraft(event.target.value)
+      }}
+      // Not on change: that fires on every step of a drag, and each one
+      // would be its own undo step. Release ends the gesture — by pointer,
+      // by key, or by the focus leaving mid-gesture — and only a release
+      // that ends a gesture this slider actually made commits anything.
+      onPointerUp={endGesture}
+      onKeyUp={endGesture}
+      onBlur={endGesture}
+    />
+  )
   return (
     <span className="timeline-field">
       {field}
-      <input
-        type="range"
-        aria-label={`${label} slider`}
-        step={step}
-        min={min}
-        max={max}
-        value={position}
-        onChange={(event) => {
-          slid.current = true
-          setDraft(event.target.value)
-        }}
-        // Not on change: that fires on every step of a drag, and each one
-        // would be its own undo step. Release ends the gesture — by pointer,
-        // by key, or by the focus leaving mid-gesture — and only a release
-        // that ends a gesture this slider actually made commits anything.
-        onPointerUp={endGesture}
-        onKeyUp={endGesture}
-        onBlur={endGesture}
-      />
+      {mark === undefined || max <= min ? (
+        range
+      ) : (
+        // The tick sits under the track at the mark's share of the range,
+        // inset by half a thumb at each end, where the thumb's centre
+        // stands at the slider's ends (#692).
+        <span className="timeline-slider">
+          {range}
+          <span
+            className="timeline-slider-mark"
+            aria-hidden
+            style={{ '--mark': (mark - min) / (max - min) } as CSSProperties}
+          />
+        </span>
+      )}
     </span>
   )
 }
@@ -3469,9 +3494,10 @@ export function Timeline({
                     <div className="timeline-entry-audio">
                       <span>Volume</span>
                       <SecondsField
-                        label={`Volume of ${position} (0 to 1)`}
+                        label={`Volume of ${position} (0 to ${MAX_VOLUME})`}
                         value={entry.volume ?? 1}
-                        max={1}
+                        max={MAX_VOLUME}
+                        mark={1}
                         step={0.05}
                         slider
                         onCommit={(volume) => onSetEntryVolume(entry.id, volume)}
@@ -3879,9 +3905,10 @@ export function Timeline({
                   <div className="audio-track-gain">
                     <span>Volume</span>
                     <SecondsField
-                      label={`Volume of ${position} (0 to 1)`}
+                      label={`Volume of ${position} (0 to ${MAX_VOLUME})`}
                       value={track.volume ?? 1}
-                      max={1}
+                      max={MAX_VOLUME}
+                      mark={1}
                       step={0.05}
                       slider
                       onCommit={(volume) => onSetAudioTrackVolume(track.id, volume)}
@@ -4157,9 +4184,10 @@ export function Timeline({
                       <>
                         <span>Volume</span>
                         <SecondsField
-                          label={`Volume of ${position} (0 to 1)`}
+                          label={`Volume of ${position} (0 to ${MAX_VOLUME})`}
                           value={overlay.volume ?? 1}
-                          max={1}
+                          max={MAX_VOLUME}
+                          mark={1}
                           step={0.05}
                           slider
                           onCommit={(volume) => set({ volume })}

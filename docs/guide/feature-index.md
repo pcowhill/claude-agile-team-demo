@@ -334,7 +334,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **View** — the media library header; the layout and sorting menu. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 - **View (preview)** — the preview header; the menu of preview layouts. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Visual editors** — Settings; switches the drag-to-adjust editors on and off. [Settings › Visual editors](settings.md#visual-editors)
-- **Volume** — an expanded video row or audio track. [Audio › Volume and mute](audio.md#volume-and-mute)
+- **Volume** — an expanded video row or audio track; 0 to {{MAX_VOLUME}}, 1 being the source as recorded. [Audio › Volume and mute](audio.md#volume-and-mute)
 
 ## W
 

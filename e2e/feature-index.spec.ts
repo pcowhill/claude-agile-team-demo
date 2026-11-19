@@ -111,7 +111,7 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: 'a number field and its range slider share a name; the slider adds the word',
   },
   {
-    pattern: / \((?:percent|0 to 1|fraction of frame (?:width|height))\)$/,
+    pattern: / \((?:percent|0 to 1|0 to 4|fraction of frame (?:width|height))\)$/,
     replacement: '',
     why: 'the unit is told to a screen reader, and is not part of the name',
   },

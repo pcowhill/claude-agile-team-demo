@@ -33,13 +33,39 @@ describe('Match levels: the gains (#691)', () => {
   const pair = [element('loud', 'blob:loud'), element('quiet', 'blob:quiet')]
   const levels = byUrl({ 'blob:loud': loud, 'blob:quiet': quiet })
 
-  it('lowers the louder of two sources to a target between them, and holds the quieter at Volume 1', () => {
+  it('lowers the louder of two sources to a target between them, and raises the quieter to it (#692)', () => {
     const [a, b] = planMatchLevels(pair, levels, -16)
-    expect(a.outcome).toBe('matched')
+    expect([a.outcome, b.outcome]).toEqual(['matched', 'matched'])
     expect(Math.abs(playedDb(loud, a.element, a.volume) - -16)).toBeLessThan(0.5)
-    // The quieter would need more than Volume 1: it is at 1, reported below target.
-    expect(b).toMatchObject({ outcome: 'below-target', volume: 1 })
-    expect(matchReport([a, b])).toContain('quiet: below the target even at Volume 1')
+    // The quieter is raised past 1 — about +7 dB, a Volume near 2.24.
+    expect(b.volume).toBeGreaterThan(1)
+    expect(Math.abs(playedDb(quiet, b.element, b.volume) - -16)).toBeLessThan(0.5)
+  })
+
+  it('raises a source 12 dB below the target to about Volume 4, its peak allowing (#692)', () => {
+    // quiet is −23.01 dB with a 0.1 peak: at −11 dB it needs +12 dB, a
+    // Volume of 3.99, and its peak reaches only 0.4 there.
+    const [result] = planMatchLevels([element('quiet', 'blob:quiet')], levels, -11)
+    expect(result.outcome).toBe('matched')
+    expect(Math.abs(20 * Math.log10(result.volume / 4))).toBeLessThan(0.5)
+    expect(Math.abs(playedDb(quiet, result.element, result.volume) - -11)).toBeLessThan(0.5)
+  })
+
+  it('stops a raise at the Volume where the peak reaches full scale, and reports it (#692)', () => {
+    // loud peaks at 0.4, so Volume 2.5 puts it at full scale; a 0 dB target
+    // would want 3.54.
+    const [result] = planMatchLevels([element('loud', 'blob:loud')], levels, 0)
+    expect(result.outcome).toBe('peak-limited')
+    expect(result.volume).toBeGreaterThan(2.49)
+    expect(result.volume * 0.4).toBeLessThanOrEqual(1 + 1e-6)
+    expect(matchReport([result])).toContain('loud: stopped short so its peaks do not clip')
+  })
+
+  it('holds a source more than 12 dB below the target at Volume 4, reported below target (#692)', () => {
+    const faint = computeLevels([sine(0.01, 2)], RATE)
+    const [result] = planMatchLevels([element('faint', 'blob:faint')], byUrl({ 'blob:faint': faint }), -20)
+    expect(result).toMatchObject({ outcome: 'below-target', volume: 4 })
+    expect(matchReport([result])).toContain('faint: below the target even at Volume 4')
   })
 
   it('with the target at or below both, lands them within 0.5 dB of each other and of the target', () => {

@@ -441,15 +441,15 @@ describe('Match levels is one undo step (#691)', () => {
     expect(timelineHistoryReducer(before, { type: 'volumes-matched', volumes: [] })).toBe(before)
   })
 
-  it('clamps to 0–1, as each Volume field does', () => {
+  it('clamps to 0–4, as each Volume field does (#692)', () => {
     const matched = timelineHistoryReducer(withThree(), {
       type: 'volumes-matched',
       volumes: [
-        { kind: 'entry', id: 'a', volume: 3 },
+        { kind: 'entry', id: 'a', volume: 7 },
         { kind: 'audio-track', id: 'music', volume: -1 },
       ],
     })
-    expect(matched.present.entries[0].volume).toBeUndefined()
+    expect(matched.present.entries[0].volume).toBe(4)
     expect(matched.present.audioTracks![0].volume).toBe(0)
   })
 })

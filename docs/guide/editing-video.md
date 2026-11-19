@@ -220,6 +220,6 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 
 **What it does.** Drags the value on the field's own range and step instead of typing it.
 
-**Details.** The number moves as you drag and commits once when you release, so a whole drag is one undo step. The field itself still commits on Enter or when you leave it, and the two always read the same value. In Firefox a click on the field's own arrows commits at once, because Firefox steps the number without putting the cursor in the field.
+**Details.** The number moves as you drag and commits once when you release, so a whole drag is one undo step. The field itself still commits on Enter or when you leave it, and the two always read the same value. In Firefox a click on the field's own arrows commits at once, because Firefox steps the number without putting the cursor in the field. The Volume slider runs from 0 to {{MAX_VOLUME}} and carries a small mark at 1, the source as recorded.
 
 **Related.** [A row](timeline.md#a-row)

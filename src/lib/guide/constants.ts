@@ -1,6 +1,7 @@
 import { AUTOSAVE_DEBOUNCE_MS } from '../autosave'
 import { RELATIVE_GATE_DB } from '../audioLevels'
 import { DEFAULT_MATCH_TARGET_DB } from '../matchLevels'
+import { MAX_VOLUME } from '../volume'
 import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
@@ -129,6 +130,8 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     AUTOSAVE_DEBOUNCE_SECONDS: String(AUTOSAVE_DEBOUNCE_MS / 1000),
     RECORDING_KEYFRAME_INTERVAL_SECONDS: String(RECORDING_KEYFRAME_INTERVAL_MS / 1000),
     RECORDING_COUNTDOWN_SECONDS: String(DEFAULT_COUNTDOWN_SECONDS),
+    MAX_VOLUME: String(MAX_VOLUME),
+    MAX_VOLUME_DB: String(Math.round(20 * Math.log10(MAX_VOLUME))),
     MATCH_TARGET_DEFAULT: matchTargetLabel(DEFAULT_MATCH_TARGET_DB),
     MATCH_TARGET_CHOICES: MATCH_TARGET_CHOICES.map(matchTargetLabel).join(', '),
     MATCH_RELATIVE_GATE_DB: String(Math.abs(RELATIVE_GATE_DB)),

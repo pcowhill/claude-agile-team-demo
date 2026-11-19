@@ -229,7 +229,7 @@ describe('timeline', () => {
         }),
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole('spinbutton', { name: 'Volume of logo.png at position 1 (0 to 1)' }),
+        screen.queryByRole('spinbutton', { name: 'Volume of logo.png at position 1 (0 to 4)' }),
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole('checkbox', { name: 'Mute logo.png at position 1' }),
@@ -308,7 +308,7 @@ describe('timeline', () => {
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole('spinbutton', {
-          name: 'Volume of Color slate at position 1 (0 to 1)',
+          name: 'Volume of Color slate at position 1 (0 to 4)',
         }),
       ).not.toBeInTheDocument()
       expect(
@@ -1078,7 +1078,7 @@ describe('gain controls (#104)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const volume = screen.getByRole('spinbutton', {
-      name: 'Volume of a.mp4 at position 1 (0 to 1)',
+      name: 'Volume of a.mp4 at position 1 (0 to 4)',
     })
     const mute = screen.getByRole('checkbox', { name: 'Mute a.mp4 at position 1' })
     expect(volume).toHaveValue(1)
@@ -1101,14 +1101,13 @@ describe('gain controls (#104)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
     const volume = screen.getByRole('spinbutton', {
-      name: 'Volume of a.mp4 at position 1 (0 to 1)',
+      name: 'Volume of a.mp4 at position 1 (0 to 4)',
     })
     await userEvent.clear(volume)
     await userEvent.type(volume, '5')
     await userEvent.tab()
-    // Clamped to the 0..1 range; full volume is the default, so the field
-    // snaps back to 1.
-    expect(volume).toHaveValue(1)
+    // Clamped to the 0..4 range (#692), and the field shows the stored 4.
+    expect(volume).toHaveValue(4)
   })
 
   it('starts an audio track at full volume with no fades, and clamps fades to the trim', async () => {
@@ -1117,7 +1116,7 @@ describe('gain controls (#104)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add tone.wav to timeline' }))
 
     const position = 'audio track tone.wav at position 1'
-    const volume = screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` })
+    const volume = screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 4)` })
     const fadeIn = screen.getByRole('spinbutton', { name: `Fade-in of ${position} in seconds` })
     const fadeOut = screen.getByRole('spinbutton', { name: `Fade-out of ${position} in seconds` })
     expect(volume).toHaveValue(1)
@@ -1400,7 +1399,7 @@ describe('overlay video layers (#145)', () => {
     expect(x).toHaveValue(0.65)
 
     const volume = screen.getByRole('spinbutton', {
-      name: 'Volume of overlay cam.mp4 at position 1 (0 to 1)',
+      name: 'Volume of overlay cam.mp4 at position 1 (0 to 4)',
     })
     await userEvent.clear(volume)
     await userEvent.type(volume, '0.4')
@@ -2444,7 +2443,7 @@ describe('collapsible timeline elements (#299)', () => {
 
     // Controls gone; the strip, name, and remove button remain.
     expect(trimIn(position)).toBeNull()
-    expect(screen.queryByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: `Volume of ${position} (0 to 4)` })).toBeNull()
     expect(screen.getByTestId('timeline-entry-bar-0')).toBeInTheDocument()
     expect(barStyle()).toBe(expandedStyle)
     expect(sequenceNames()).toEqual(['a.mp4'])
@@ -2844,7 +2843,7 @@ describe('image overlay layers (#294)', () => {
     for (const name of [
       `Trim in point of ${position} in seconds`,
       `Trim out point of ${position} in seconds`,
-      `Volume of ${position} (0 to 1)`,
+      `Volume of ${position} (0 to 4)`,
       `Audio fade-in of ${position} in seconds`,
       `Audio fade-out of ${position} in seconds`,
     ]) {
@@ -3757,7 +3756,7 @@ describe("a row's Picture disclosure (#420)", () => {
     for (const name of [
       `Trim in point of ${position} in seconds`,
       `Trim out point of ${position} in seconds`,
-      `Volume of ${position} (0 to 1)`,
+      `Volume of ${position} (0 to 4)`,
       `Audio fade-in of ${position} in seconds`,
     ]) {
       expect(screen.getByRole('spinbutton', { name })).toBeInTheDocument()
@@ -3860,7 +3859,7 @@ describe('range sliders beside the single-number fields (#426)', () => {
 
   it("moves the number live and commits one undo step for the whole gesture", async () => {
     const position = await addVideoEntry()
-    const label = `Volume of ${position} (0 to 1)`
+    const label = `Volume of ${position} (0 to 4)`
     const slider = sliderFor(label)
     expect(slider).toHaveValue('1')
 
@@ -3883,9 +3882,9 @@ describe('range sliders beside the single-number fields (#426)', () => {
 
   it('carries the number field\'s own range and step, and keys commit on release too', async () => {
     const position = await addVideoEntry()
-    const volume = sliderFor(`Volume of ${position} (0 to 1)`)
+    const volume = sliderFor(`Volume of ${position} (0 to 4)`)
     expect(volume).toHaveAttribute('min', '0')
-    expect(volume).toHaveAttribute('max', '1')
+    expect(volume).toHaveAttribute('max', '4')
     expect(volume).toHaveAttribute('step', '0.05')
 
     // A fade's ceiling is the entry's own output duration, not a constant.
@@ -3904,7 +3903,7 @@ describe('range sliders beside the single-number fields (#426)', () => {
 
   it('leaves the number field committing exactly as it did, slider following', async () => {
     const position = await addVideoEntry()
-    const label = `Volume of ${position} (0 to 1)`
+    const label = `Volume of ${position} (0 to 4)`
     const volume = numberFor(label)
 
     await userEvent.clear(volume)
@@ -3921,8 +3920,8 @@ describe('range sliders beside the single-number fields (#426)', () => {
     await userEvent.clear(volume)
     await userEvent.type(volume, '5')
     await userEvent.tab()
-    expect(volume).toHaveValue(1)
-    expect(sliderFor(label)).toHaveValue('1')
+    expect(volume).toHaveValue(4)
+    expect(sliderFor(label)).toHaveValue('4')
   })
 
   it('reaches the colour dials inside the Picture disclosure, dropping the group at identity', async () => {
@@ -3975,37 +3974,37 @@ describe('range sliders beside the single-number fields (#426)', () => {
     const track = 'audio track m.mp3 at position 1'
     const overlay = 'overlay cam.mp4 at position 1'
     for (const label of [
-      `Volume of ${track} (0 to 1)`,
+      `Volume of ${track} (0 to 4)`,
       `Fade-in of ${track} in seconds`,
       `Fade-out of ${track} in seconds`,
-      `Volume of ${overlay} (0 to 1)`,
+      `Volume of ${overlay} (0 to 4)`,
       `Audio fade-in of ${overlay} in seconds`,
       `Audio fade-out of ${overlay} in seconds`,
     ]) {
       expect(sliderFor(label)).toBeInTheDocument()
     }
 
-    dragSlider(sliderFor(`Volume of ${track} (0 to 1)`), ['0.5', '0.3'])
-    expect(numberFor(`Volume of ${track} (0 to 1)`)).toHaveValue(0.3)
+    dragSlider(sliderFor(`Volume of ${track} (0 to 4)`), ['0.5', '0.3'])
+    expect(numberFor(`Volume of ${track} (0 to 4)`)).toHaveValue(0.3)
   })
 
   it('commits nothing on a release that ends no gesture of its own', async () => {
     const position = await addVideoEntry()
-    const label = `Volume of ${position} (0 to 1)`
+    const label = `Volume of ${position} (0 to 4)`
     const volume = numberFor(label)
 
     // A number field mid-typing, deliberately out of range: the draft is 5,
     // the stored value still 1, and the slider mirrors the draft — pinned to
-    // its own maximum, since 5 is off the end of it.
+    // its own maximum, 4 (#692), since 5 is off the end of it.
     await userEvent.clear(volume)
     await userEvent.type(volume, '5')
-    expect(sliderFor(label)).toHaveValue('1')
+    expect(sliderFor(label)).toHaveValue('4')
 
     // A release over the slider that no drag of its own preceded — a
     // pointer let go while passing across it, or the key-up of a shortcut
     // pressed while it has focus — must commit nothing. Committing here
-    // would push 5 through the reducer, which clamps it to the 1 already
-    // stored, and the draft would snap back to "1": what the user was
+    // would push 5 through the reducer, which clamps it to 4, and the
+    // draft would snap to "4": what the user was
     // typing, swallowed by a release they did not aim at this control.
     // The browser spec found this the hard way, where the key-up of a
     // Ctrl+Z arrived after the undo had changed the stored value and put
@@ -4017,7 +4016,7 @@ describe('range sliders beside the single-number fields (#426)', () => {
     // The field itself still commits on blur exactly as it always has —
     // that is the behaviour the release must not borrow.
     await userEvent.tab()
-    expect(numberFor(label)).toHaveValue(1)
+    expect(numberFor(label)).toHaveValue(4)
   })
 
   it('gives no slider to the fields this change left alone', async () => {
@@ -4460,7 +4459,7 @@ describe('Match levels (#691)', () => {
     return computeLevels([samples], rate)
   }
   const volume = (position: string) =>
-    Number((screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 1)` }) as HTMLInputElement).value)
+    Number((screen.getByRole('spinbutton', { name: `Volume of ${position} (0 to 4)` }) as HTMLInputElement).value)
   const ENTRY = 'a.mp4 at position 1'
   const OVERLAY = 'overlay cam.mp4 at position 1'
   const TRACK = 'audio track music.mp3 at position 1'
@@ -4476,21 +4475,22 @@ describe('Match levels (#691)', () => {
   }
 
   it('sets three Volumes from their measured levels, reports it, and one Undo restores all three', async () => {
-    // −13, −19 and −23 dB: the default −20 dB target lowers the first two
-    // and leaves the third below it at Volume 1.
+    // −13, −23 and −43 dB against the default −20 dB target: the first is
+    // lowered, the second raised past 1 (#692), and the third would need
+    // +23 dB, more than Volume 4 gives, so it stops there below the target.
     testLevels.set('blob:a.mp4', toneLevels(0.316))
-    testLevels.set('blob:cam.mp4', toneLevels(0.158))
-    testLevels.set('blob:music.mp3', toneLevels(0.1))
+    testLevels.set('blob:cam.mp4', toneLevels(0.1))
+    testLevels.set('blob:music.mp3', toneLevels(0.01))
     await threeElements()
     expect([volume(ENTRY), volume(OVERLAY), volume(TRACK)]).toEqual([1, 1, 1])
     await userEvent.click(screen.getByRole('button', { name: 'Match levels' }))
     const report = await screen.findByRole('status', { name: 'Match levels report' })
     expect(report).toHaveTextContent('Match levels set 2 of 3 elements to the target.')
-    expect(report).toHaveTextContent('music.mp3 (audio, position 1): below the target even at Volume 1')
-    // −13 → −20 is 10^(−7/20) ≈ 0.45; −19 → −20 is ≈ 0.89 (the field shows two decimals).
+    expect(report).toHaveTextContent('music.mp3 (audio, position 1): below the target even at Volume 4')
+    // −13 → −20 is 10^(−7/20) ≈ 0.45; −23 → −20 is 10^(3/20) ≈ 1.41 (the field shows two decimals).
     expect(volume(ENTRY)).toBeCloseTo(0.45, 1)
-    expect(volume(OVERLAY)).toBeCloseTo(0.89, 1)
-    expect(volume(TRACK)).toBe(1)
+    expect(volume(OVERLAY)).toBeCloseTo(1.41, 1)
+    expect(volume(TRACK)).toBe(4)
     await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
     expect([volume(ENTRY), volume(OVERLAY), volume(TRACK)]).toEqual([1, 1, 1])
     // The report is dismissed with its ✕.
@@ -4569,7 +4569,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await chooseClipAction('logo.png', 'Add as overlay')
 
     // Dial the clip's volume down, so a reset would be visible.
-    const volume = screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 1)' })
+    const volume = screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 4)' })
     fireEvent.change(volume, { target: { value: '0.25' } })
     fireEvent.blur(volume)
 
@@ -4580,7 +4580,7 @@ describe('a still overlay offers no Audio group in the paste checklist (#332)', 
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }))
 
     expect(
-      screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 1)' }),
+      screen.getByRole('spinbutton', { name: 'Volume of a.mp4 at position 1 (0 to 4)' }),
     ).toHaveValue(0.25)
   })
 })

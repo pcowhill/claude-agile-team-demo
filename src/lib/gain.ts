@@ -2,12 +2,18 @@ import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import { overlayOutputDuration } from './videoOverlay'
 import { audioTracksOf, effectiveDuration } from './timeline'
+import { clampVolume } from './volume'
 
 /**
  * Effective audio gain (#104): the single source of truth composing volume,
- * mute, fade envelopes, and transition ramps into the value a media
- * element's `volume` is set to. Preview and export (#105) both call these —
- * the same idiom as `TRANSITION_TYPES` — so the two renders cannot drift.
+ * mute, fade envelopes, and transition ramps into the gain a media element
+ * plays at. Preview and export (#105) both call these — the same idiom as
+ * `TRANSITION_TYPES` — so the two renders cannot drift.
+ *
+ * Since #692 a Volume may exceed 1 (up to `MAX_VOLUME`), so a composed gain
+ * may too; `setMediaGain` (`mediaGain.ts`) puts it on an element, splitting
+ * it between the element's `volume` and a Web Audio boost. Every other
+ * factor — fades, transition ramps, ducking — still lies within 0–1.
  */
 
 const clamp01 = (value: number) => Math.min(Math.max(value, 0), 1)
@@ -44,7 +50,7 @@ export function fadeRampAt(
  */
 export function videoEntryGain(entry: TimelineEntry, transitionRamp = 1): number {
   if (entry.muted) return 0
-  return clamp01(entry.volume ?? 1) * clamp01(transitionRamp)
+  return clampVolume(entry.volume ?? 1) * clamp01(transitionRamp)
 }
 
 /**
@@ -92,7 +98,7 @@ export function audioTrackGainAt(track: AudioTrack, sequenceTime: number): numbe
   const length = effectiveDuration(track)
   const into = sequenceTime - track.offset
   if (into < 0 || into >= length) return 0
-  return clamp01(track.volume ?? 1) * fadeRampAt(track.fadeIn, track.fadeOut, into, length)
+  return clampVolume(track.volume ?? 1) * fadeRampAt(track.fadeIn, track.fadeOut, into, length)
 }
 
 /**
@@ -130,7 +136,7 @@ export function duckWindows(timeline: TimelineState): DuckWindow[] {
   const windows = audioTracksOf(timeline)
     .filter(
       (track) =>
-        track.duck === true && clamp01(track.volume ?? 1) > 0 && effectiveDuration(track) > 0,
+        track.duck === true && clampVolume(track.volume ?? 1) > 0 && effectiveDuration(track) > 0,
     )
     .map((track) => ({
       start: track.offset,

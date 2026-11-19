@@ -149,7 +149,7 @@ test('the mixed soundtrack exports as a real MPEG audio stream', async ({ page }
   ).toHaveCount(2)
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
-  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 1)', '0.8')
+  await setField(page, 'Volume of audio track tone.wav at position 1 (0 to 4)', '0.8')
   const exported = await exportAs(page, 'Audio only (MP3)', 'sequence-export.mp3')
 
   // Frame-level: the leading frames walk by their own declared lengths.
@@ -183,7 +183,7 @@ test('the MP3 carries the same mix as the WebM path — one fade, two encoders',
   await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   const position = 'audio track tone.wav at position 1'
-  await setField(page, `Volume of ${position} (0 to 1)`, '0.8')
+  await setField(page, `Volume of ${position} (0 to 4)`, '0.8')
   await setField(page, `Fade-in of ${position} in seconds`, '1.5')
 
   const asWebm = await exportAs(page, 'Audio only (WebM/Opus)', 'sequence-export.webm')
