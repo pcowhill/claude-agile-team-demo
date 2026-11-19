@@ -16,6 +16,8 @@ import {
 } from '../lib/trim'
 import type { TrimRange } from '../lib/trim'
 import { trimFramesFor } from '../lib/trimFrames'
+import { trimWarningText } from '../lib/trimEffects'
+import type { TrimEffectsPreview } from '../lib/trimEffects'
 import { AudioWaveform } from './AudioWaveform'
 import './dialog.css'
 import './TrimDialog.css'
@@ -42,6 +44,14 @@ interface TrimDialogProps {
   peaksFor?: Parameters<typeof AudioWaveform>[0]['peaksFor']
   /** The strip's frame row (#708); injectable for tests, as `peaksFor` is. */
   framesFor?: (url: string, duration: number) => Promise<(string | null)[]>
+  /**
+   * What the clamps as they stand would do to the entry's effects (#709):
+   * its zooms, speed segments and pauses as marks, a warning naming each
+   * one the trim would cut into, and the span a transition at either end
+   * would cover. The timeline answers it with the reducer's own rule
+   * (`trimEffectsPreview`); absent, the strip shows none of them.
+   */
+  effectsFor?: (range: TrimRange) => TrimEffectsPreview
 }
 
 type Grip = 'in' | 'out' | 'playhead'
@@ -78,6 +88,7 @@ export function TrimDialog({
   onOpen,
   peaksFor,
   framesFor = trimFramesFor,
+  effectsFor,
 }: TrimDialogProps) {
   const { duration, url } = entry
   const headingId = useId()
@@ -316,6 +327,11 @@ export function TrimDialog({
   const percent = (at: number) => `${stripFraction(at, duration) * 100}%`
   const inAt = percent(range.inPoint)
   const outAt = percent(range.outPoint)
+  // Recomputed on every render, so it follows the clamps live as they move
+  // and goes when they move back (#709). It runs the reducer once on a
+  // small state; a drag renders no more often than the pointer moves.
+  const effects = effectsFor?.(range) ?? null
+  const warning = effects === null ? null : trimWarningText(effects.warnings)
   const changed = range.inPoint !== entry.inPoint || range.outPoint !== entry.outPoint
 
   return (
@@ -410,6 +426,33 @@ export function TrimDialog({
             style={{ left: outAt, right: 0 }}
             aria-hidden="true"
           />
+          {/* The span a transition at either end will cover (#709), at the
+              clamps: hatched, over the dimming, under the clamps. */}
+          {effects?.transitions.map((span) => (
+            <div
+              key={span.edge}
+              className="trim-strip-transition"
+              data-testid={`trim-transition-${span.edge}`}
+              title={span.edge === 'start' ? 'Covered by the transition into this clip' : 'Covered by the transition out of this clip'}
+              style={{ left: percent(span.start), width: `calc(${percent(span.end)} - ${percent(span.start)})` }}
+            />
+          ))}
+          {/* The entry's effects where Apply would leave them (#709): a bar
+              for a zoom or a speed segment, a tick for a pause. */}
+          {effects?.marks.map((mark) => (
+            <div
+              key={mark.id}
+              className={`trim-effect-mark trim-effect-${mark.kind}`}
+              data-testid="trim-effect-mark"
+              data-kind={mark.kind}
+              title={mark.name}
+              style={
+                mark.kind === 'pause'
+                  ? { left: percent(mark.start) }
+                  : { left: percent(mark.start), width: `calc(${percent(mark.end)} - ${percent(mark.start)})` }
+              }
+            />
+          ))}
           <div
             className="trim-strip-kept"
             data-testid="trim-kept"
@@ -449,6 +492,13 @@ export function TrimDialog({
           <span>In {formatTrimTime(range.inPoint)}</span>
           <span>Out {formatTrimTime(range.outPoint)}</span>
         </div>
+        {/* Live, and present while empty, so a screen reader hears the
+            warning arrive as a clamp moves into an effect (#709). */}
+        {effects !== null && (
+          <p className="trim-warning" role="status" data-testid="trim-warning">
+            {warning}
+          </p>
+        )}
 
         <div className="trim-transport" role="group" aria-label="Trim playback">
           <button type="button" title="Jump the playhead to In" onClick={() => seek(range.inPoint)}>

@@ -107,6 +107,60 @@
   pointer-events: none;
 }
 
+/* A transition's span (#709): hatched, so it reads as "shared with the
+   neighbour" over both the kept part and the dimmed outside. */
+.trim-strip-transition {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.35) 0 4px,
+    rgba(255, 255, 255, 0) 4px 9px
+  );
+  border-left: 1px solid rgba(255, 255, 255, 0.6);
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* An effect's mark (#709): a bar along the strip's foot for a zoom or a
+   speed segment, a tick standing up from it for a pause. Each takes
+   pointer events only for its tooltip; a press still reaches the strip. */
+.trim-effect-mark {
+  position: absolute;
+  bottom: 2px;
+  height: 0.45rem;
+  min-width: 2px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.trim-effect-zoom {
+  background: #c49bff;
+}
+
+.trim-effect-speed {
+  background: #6fdc9a;
+}
+
+.trim-effect-pause {
+  width: 3px;
+  margin-left: -1.5px;
+  height: 1.1rem;
+  background: #ff9466;
+}
+
+/* One line held open while empty, so the warning arriving mid-drag does
+   not push the buttons under the pointer down the window. */
+.trim-warning {
+  min-height: 1.3em;
+  margin: 0.35rem 0.5rem 0;
+  color: #ffcf70;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
 .trim-strip-kept {
   position: absolute;
   top: -1px;

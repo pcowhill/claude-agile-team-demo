@@ -158,6 +158,7 @@ import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { TrimDialog } from './TrimDialog'
+import { trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
@@ -3453,6 +3454,7 @@ export function Timeline({
                             onTrimEntry(entry.id, inPoint, outPoint)
                           }}
                           onClose={() => setTrimmingId(null)}
+                          effectsFor={(range) => trimEffectsPreview(timeline, entry.id, range)}
                         />
                       )}
                       <span className="timeline-entry-effective">
