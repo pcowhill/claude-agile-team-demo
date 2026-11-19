@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { preloadVisualEditors } from './visualEditors'
@@ -164,6 +164,44 @@ describe('the shape editor (#685)', () => {
     expect(left()).toHaveValue(0.4)
     await userEvent.click(undo())
     expect(screen.queryByRole('list', { name: 'Shape groups' })).toBeNull()
+  })
+
+  // A release that arrives before React has rendered the last move (#728):
+  // the move and the release are dispatched inside one act, so no render
+  // runs between them, as happens in Firefox under load. The shape must be
+  // committed where the pointer was released, not where the last rendered
+  // move left it.
+  it('a draw released before its last move has rendered ends at the release point (#728)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Rectangle tool' }))
+    fireEvent.pointerDown(layer(), { pointerId: 1, button: 0, ...at(0.1, 0.1) })
+    act(() => {
+      fireEvent.pointerMove(layer(), { pointerId: 1, altKey: true, ...at(0.2, 0.25) })
+      fireEvent.pointerUp(layer(), { pointerId: 1, altKey: true, ...at(0.3, 0.4) })
+    })
+    const rectangle = shape('Rectangle', 2)
+    expect(field(`Width of ${rectangle} (fraction of frame width)`)).toHaveValue(0.2)
+    expect(field(`Height of ${rectangle} (fraction of frame height)`)).toHaveValue(0.3)
+  })
+
+  it('a move released before its last move has rendered ends at the release point (#728)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    // The ellipse's left edge is 0.4; it follows the pointer to the release.
+    const ellipse = shape('Ellipse', 1)
+    fireEvent.pointerDown(within(editor()).getByRole('img', { name: ellipse }), {
+      pointerId: 1,
+      button: 0,
+      ...at(0.5, 0.5),
+    })
+    act(() => {
+      fireEvent.pointerMove(layer(), { pointerId: 1, altKey: true, ...at(0.55, 0.5) })
+      fireEvent.pointerUp(layer(), { pointerId: 1, altKey: true, ...at(0.6, 0.5) })
+    })
+    expect(field(`Left edge of ${ellipse} (0 to 1)`)).toHaveValue(0.5)
   })
 
   // Part 2 (#686): the selection, the style bar, order, keys and the result.

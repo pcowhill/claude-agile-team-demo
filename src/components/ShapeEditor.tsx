@@ -474,82 +474,103 @@ export function ShapeEditor({
     setDrag({ kind: 'draw', pointerId: event.pointerId, tool, origin: toFraction(event), draft: null })
   }
 
-  const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (drag === null || event.pointerId !== drag.pointerId) return
+  /**
+   * The drag as it stands with the pointer at `event`: the draft, the live
+   * shape or the moved selection recomputed from the drag's start. Both the
+   * moves and the release go through it, so the release commits the shape
+   * at its own position (#728): a pointerup dispatched before React has
+   * rendered the last move's state must not commit that move's predecessor.
+   * A drag that has not travelled past the threshold comes back unchanged.
+   */
+  const dragAt = (
+    current: Drag,
+    event: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean },
+  ): Drag => {
     const point = toFraction(event)
     const modifiers = { altKey: event.altKey, shiftKey: event.shiftKey }
-    if (drag.kind === 'draw') {
+    if (current.kind === 'draw') {
       let draft: Shape | null = null
-      if (drag.tool === 'arrow') {
-        const ends = drawnArrow(drag.origin, point, modifiers, aspect)
+      if (current.tool === 'arrow') {
+        const ends = drawnArrow(current.origin, point, modifiers, aspect)
         if (ends !== null) {
-          draft = { ...defaultShape(drag.draft?.id ?? newId(), 'arrow', style), ...ends }
+          draft = { ...defaultShape(current.draft?.id ?? newId(), 'arrow', style), ...ends }
         }
       } else {
-        const box = drawnBox(drag.origin, point, modifiers, aspect)
+        const box = drawnBox(current.origin, point, modifiers, aspect)
         if (box !== null) {
-          draft = { ...defaultShape(drag.draft?.id ?? newId(), drag.tool, style), ...box }
+          draft = { ...defaultShape(current.draft?.id ?? newId(), current.tool, style), ...box }
         }
       }
-      setDrag({ ...drag, draft })
-      return
+      return { ...current, draft }
     }
     // A press that has not yet travelled is a click: it selects, and must
     // not snap the shape onto a guide it happens to be near.
     const moved =
-      drag.moved ||
-      Math.hypot(event.clientX - drag.originPx.x, event.clientY - drag.originPx.y) >= DRAG_THRESHOLD
-    if (!moved) return
-    const dx = point.x - drag.origin.x
-    const dy = point.y - drag.origin.y
-    if (drag.kind === 'move-many') {
-      setDrag({ ...drag, lives: movedShapes(drag.starts, dx, dy, modifiers), moved: true })
-      return
+      current.moved ||
+      Math.hypot(event.clientX - current.originPx.x, event.clientY - current.originPx.y) >= DRAG_THRESHOLD
+    if (!moved) return current
+    const dx = point.x - current.origin.x
+    const dy = point.y - current.origin.y
+    if (current.kind === 'move-many') {
+      return { ...current, lives: movedShapes(current.starts, dx, dy, modifiers), moved: true }
     }
-    const start = drag.start
+    const start = current.start
     let live: Shape
     if (start.kind === 'arrow') {
       live =
-        drag.grip === 'tail' || drag.grip === 'tip'
-          ? arrowAfterEndDrag(start, drag.grip, point, modifiers, aspect)
+        current.grip === 'tail' || current.grip === 'tip'
+          ? arrowAfterEndDrag(start, current.grip, point, modifiers, aspect)
           : movedArrow(start, dx, dy, modifiers)
-    } else if (drag.grip === null) {
+    } else if (current.grip === null) {
       live = boxAfterGesture(start, { kind: 'move', dx, dy, ...modifiers })
-    } else if (drag.grip === 'tail' || drag.grip === 'tip') {
+    } else if (current.grip === 'tail' || current.grip === 'tip') {
       live = start
-    } else if (isEdge(drag.grip)) {
-      live = boxAfterGesture(start, { kind: 'edge', edge: drag.grip, ...point, ...modifiers })
+    } else if (isEdge(current.grip)) {
+      live = boxAfterGesture(start, { kind: 'edge', edge: current.grip, ...point, ...modifiers })
     } else {
-      live = boxAfterGesture(start, { kind: 'corner', corner: drag.grip, ...point, ...modifiers })
+      live = boxAfterGesture(start, { kind: 'corner', corner: current.grip, ...point, ...modifiers })
     }
-    setDrag({ ...drag, live, moved: true })
+    return { ...current, live, moved: true }
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (drag === null || event.pointerId !== drag.pointerId) return
+    const next = dragAt(drag, event)
+    if (next !== drag) setDrag(next)
   }
 
   const endDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (drag === null || event.pointerId !== drag.pointerId) return
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     setDrag(null)
-    if (drag.kind === 'draw') {
-      if (drag.draft === null) return
-      onCommit([...group.shapes, drag.draft])
-      select([drag.draft.id])
+    // A cancelled pointer has no release point worth committing to; a
+    // release does (#728), whether or not its last move has rendered.
+    const final = event.type === 'pointercancel' ? drag : dragAt(drag, event)
+    commitDrag(final)
+  }
+
+  const commitDrag = (final: Drag) => {
+    if (final.kind === 'draw') {
+      if (final.draft === null) return
+      onCommit([...group.shapes, final.draft])
+      select([final.draft.id])
       if (!sticky) setTool('select')
       return
     }
-    if (drag.kind === 'move-many') {
-      // A click on one of several selected shapes, without a drag, picks it alone.
-      if (!drag.moved) {
-        select([drag.pressed])
+    if (final.kind === 'move-many') {
+      // A click on one of several selected shapes, without a final, picks it alone.
+      if (!final.moved) {
+        select([final.pressed])
         return
       }
-      const next = withShapes(group.shapes, drag.lives)
+      const next = withShapes(group.shapes, final.lives)
       if (next !== null) onCommit(next)
       return
     }
-    const next = withShape(group.shapes, drag.live)
+    const next = withShape(group.shapes, final.live)
     if (next === null) return
     onCommit(next)
-    setStyle(pickStyle(drag.live))
+    setStyle(pickStyle(final.live))
   }
 
   /** Commits `next` when it is an edit; the selection is the caller's. */
