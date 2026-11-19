@@ -240,6 +240,23 @@ describe('the shape editor (#685)', () => {
     expect(field(`Border opacity of ${rectangle} (percent)`)).toHaveValue(50)
   })
 
+  it('the style bar sets the line style of the whole selection, arrows included, as one undo step (#688)', async () => {
+    await ellipseAndRectangle()
+    shiftClick(shape('Ellipse', 1))
+    const line = () => within(styleBar()).getByLabelText(`Line style of ${SELECTION}`)
+    expect(line()).toHaveValue('solid')
+    fireEvent.change(line(), { target: { value: 'dotted' } })
+    const rowLine = (name: string) => screen.getByRole('combobox', { name: `Line style of ${name}` })
+    expect(rowLine(shape('Ellipse', 1))).toHaveValue('dotted')
+    expect(rowLine(shape('Rectangle', 2))).toHaveValue('dotted')
+    await userEvent.click(undo())
+    expect(rowLine(shape('Ellipse', 1))).toHaveValue('solid')
+    expect(rowLine(shape('Rectangle', 2))).toHaveValue('solid')
+    // Shapes that disagree read "Mixed".
+    fireEvent.change(rowLine(shape('Rectangle', 2)), { target: { value: 'dashed' } })
+    expect(line()).toHaveValue('mixed')
+  })
+
   it('Delete removes the selection and Ctrl+D duplicates it, only from the picture, and the last shape stays (#686)', async () => {
     await ellipseAndRectangle()
     // Ctrl+D: the browser's bookmark shortcut is prevented.

@@ -35,6 +35,8 @@ import {
   ARROW_HEADS,
   isArrowHeads,
   isArrowHeadSize,
+  isLineStyle,
+  LINE_STYLES,
   isShapeKind,
   isValidShape,
   MAX_CORNER_RADIUS,
@@ -107,11 +109,13 @@ import { isCanvasPreset } from './frameSize'
  *                         shapes: [{ id, kind, x, y, width, height,
  *                                    stroke, strokeOpacity, thickness,
  *                                    fill, fillOpacity,
+ *                                    lineStyle?,                 // (#688)
  *                                    cornerRadius? }             // (#683)
  *                                | { id, kind: "arrow", tailX, tailY,
  *                                    tipX, tipY, heads, headSize,
  *                                    stroke, strokeOpacity, thickness,
- *                                    fill, fillOpacity }] }],  // (#684)
+ *                                    fill, fillOpacity,
+ *                                    lineStyle? }] }],           // (#684, #688)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
  *                         duck?, duckLevel? }],                 // (#241)
@@ -277,7 +281,7 @@ import { isCanvasPreset } from './frameSize'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 24
+export const PROJECT_SCHEMA_VERSION = 25
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -338,6 +342,13 @@ export const SHAPE_GROUPS_SCHEMA_VERSION = 23
  * message that says what to do.
  */
 export const ARROW_SHAPES_SCHEMA_VERSION = 24
+/**
+ * The version a dashed or dotted shape forces (#688). Solid is written as
+ * no key, so a file whose shapes are all solid stays at 23 or 24 and a
+ * #684 build opens every file it could have written itself; one with a
+ * dash — which it would silently draw solid — it refuses by version.
+ */
+export const LINE_STYLES_SCHEMA_VERSION = 25
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -593,6 +604,10 @@ function serializeShape(shape: Shape): Record<string, unknown> {
     thickness: each.thickness,
     fill: each.fill,
     fillOpacity: each.fillOpacity,
+    // Solid is no key (#688), so the bytes of an all-solid file are unchanged.
+    ...(each.lineStyle === undefined || each.lineStyle === 'solid'
+      ? {}
+      : { lineStyle: each.lineStyle }),
   })
   if (shape.kind === 'arrow') {
     return {
@@ -699,6 +714,10 @@ export async function serializeProject(
   const hasArrowShapes = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => shape.kind === 'arrow'),
   )
+  // Written only when not solid (#688), so the key and the version move together.
+  const hasLineStyles = shapeGroupsOf(timeline).some((group) =>
+    group.shapes.some((shape) => (shape.lineStyle ?? 'solid') !== 'solid'),
+  )
   const hasImageOverlays = videoOverlaysOf(timeline).some(isImageOverlay)
   const hasCanvasPreset = timeline.canvasPreset !== undefined
   const hasShapeMask = videoOverlaysOf(timeline).some(
@@ -753,7 +772,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasArrowShapes
+    schemaVersion: hasLineStyles
+      ? LINE_STYLES_SCHEMA_VERSION
+      : hasArrowShapes
       ? ARROW_SHAPES_SCHEMA_VERSION
       : hasShapeGroups
       ? SHAPE_GROUPS_SCHEMA_VERSION
@@ -2034,6 +2055,16 @@ function validateProject(document: Record<string, unknown>): Project {
           thickness: asFinite(shapeRaw.thickness, `${shapePath}.thickness`),
           fill: asString(shapeRaw.fill, `${shapePath}.fill`),
           fillOpacity: asFinite(shapeRaw.fillOpacity, `${shapePath}.fillOpacity`),
+        }
+        if (shapeRaw.lineStyle !== undefined) {
+          // Dashed and dotted (#688); solid is held as no key.
+          const lineStyle = asString(shapeRaw.lineStyle, `${shapePath}.lineStyle`)
+          if (!isLineStyle(lineStyle)) {
+            throw new Error(
+              `${shapePath}.lineStyle "${lineStyle}" is not one of ${LINE_STYLES.join(', ')}`,
+            )
+          }
+          if (lineStyle !== 'solid') style.lineStyle = lineStyle
         }
         let shape: Shape
         if (kind === 'arrow') {

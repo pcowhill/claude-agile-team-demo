@@ -28,6 +28,7 @@ import fixtureV21SpotlightReferencesBase64 from './fixtures/project-v21-spotligh
 import fixtureV22SoftSpotlightReferencesBase64 from './fixtures/project-v22-soft-spotlight-references.bvep.base64?raw'
 import fixtureV23ShapeGroupsReferencesBase64 from './fixtures/project-v23-shape-groups-references.bvep.base64?raw'
 import fixtureV24ArrowShapesReferencesBase64 from './fixtures/project-v24-arrow-shapes-references.bvep.base64?raw'
+import fixtureV25LineStylesReferencesBase64 from './fixtures/project-v25-line-styles-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -49,6 +50,7 @@ import {
   SOFT_SPOTLIGHT_SCHEMA_VERSION,
   SHAPE_GROUPS_SCHEMA_VERSION,
   ARROW_SHAPES_SCHEMA_VERSION,
+  LINE_STYLES_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1137,8 +1139,9 @@ describe('project file versioning', () => {
     // overlay redaction regions (#492); version 21 added entry and overlay
     // spotlight regions (#532); version 22 added a spotlight region's soft
     // edge (#533); version 23 added shape groups (#683); version 24 added
-    // arrows in shape groups (#684).
-    expect(PROJECT_SCHEMA_VERSION).toBe(24)
+    // arrows in shape groups (#684); version 25 added dashed and dotted
+    // shape borders (#688).
+    expect(PROJECT_SCHEMA_VERSION).toBe(25)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1163,6 +1166,7 @@ describe('project file versioning', () => {
     expect(SOFT_SPOTLIGHT_SCHEMA_VERSION).toBe(22)
     expect(SHAPE_GROUPS_SCHEMA_VERSION).toBe(23)
     expect(ARROW_SHAPES_SCHEMA_VERSION).toBe(24)
+    expect(LINE_STYLES_SCHEMA_VERSION).toBe(25)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4603,6 +4607,154 @@ describe('arrows in shape groups in project files (#684, schema version 24)', ()
       project: {
         clips: expectedProject.clips,
         timeline: { ...expectedProject.timeline, shapeGroups: arrowGroups },
+      },
+    })
+  })
+})
+
+// Line styles (#688, schema version 25): a dashed or dotted shape forces 25;
+// solid is written as no key, so an all-solid file keeps its version and its
+// bytes, and a #684 build still opens it.
+describe('line styles of shapes in project files (#688, schema version 25)', () => {
+  const lineGroups: ShapeGroup[] = [
+    {
+      id: 'g1',
+      offset: 1,
+      duration: 3,
+      shapes: [
+        {
+          id: 's1',
+          kind: 'rectangle',
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.2,
+          stroke: '#e53935',
+          strokeOpacity: 1,
+          thickness: 0.01,
+          fill: '#e53935',
+          fillOpacity: 0,
+          lineStyle: 'dashed',
+        },
+        {
+          id: 's2',
+          kind: 'ellipse',
+          x: 0.5,
+          y: 0.5,
+          width: 0.2,
+          height: 0.3,
+          stroke: '#000000',
+          strokeOpacity: 0.5,
+          thickness: 0.004,
+          fill: '#ffffff',
+          fillOpacity: 0,
+          lineStyle: 'dotted',
+        },
+        {
+          id: 'a1',
+          kind: 'arrow',
+          tailX: 0.2,
+          tailY: 0.7,
+          tipX: 0.45,
+          tipY: 0.4,
+          heads: 'both',
+          headSize: 'small',
+          stroke: '#ffeb3b',
+          strokeOpacity: 1,
+          thickness: 6 / 1080,
+          fill: '#ffeb3b',
+          fillOpacity: 0,
+          lineStyle: 'dashed',
+        },
+        {
+          id: 's3',
+          kind: 'rectangle',
+          x: 0.6,
+          y: 0.1,
+          width: 0.2,
+          height: 0.2,
+          stroke: '#000000',
+          strokeOpacity: 1,
+          thickness: 0.004,
+          fill: '#ffffff',
+          fillOpacity: 0,
+        },
+      ],
+    },
+  ]
+  const solidOnly: ShapeGroup[] = [
+    {
+      ...lineGroups[0],
+      shapes: lineGroups[0].shapes.map((shape) => {
+        const { lineStyle: _solid, ...rest } = shape
+        return rest
+      }),
+    },
+  ]
+
+  it('round-trips dashed, dotted and solid shapes together at version 25', async () => {
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: lineGroups })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(LINE_STYLES_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).shapeGroups).toEqual(lineGroups)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(lineGroups)
+  })
+
+  it('writes solid as no key, so an all-solid file keeps the version a #684 build opens', async () => {
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, shapeGroups: solidOnly }),
+    )
+    expect(document.schemaVersion).toBe(ARROW_SHAPES_SCHEMA_VERSION)
+    const shapes = ((document.timeline as Record<string, unknown>).shapeGroups as ShapeGroup[])[0].shapes
+    expect(shapes.some((shape) => 'lineStyle' in shape)).toBe(false)
+    // A shape explicitly set solid writes the same bytes as one never dashed.
+    const explicit = [{ ...solidOnly[0], shapes: solidOnly[0].shapes.map((shape) => ({ ...shape, lineStyle: 'solid' as const })) }]
+    expect(await serializeProject(library, { ...timeline, shapeGroups: explicit })).toEqual(
+      await serializeProject(library, { ...timeline, shapeGroups: solidOnly }),
+    )
+  })
+
+  it('opens a file without the field with every shape solid, and reads a written "solid" as no key', async () => {
+    const withShapes = (shapes: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: LINE_STYLES_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, shapeGroups: [{ ...lineGroups[0], shapes }] },
+    })
+    const result = await deserializeProject(
+      await gzipJson(withShapes(solidOnly[0].shapes.map((shape) => ({ ...shape, lineStyle: 'solid' })))),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(solidOnly)
+  })
+
+  it('refuses an unknown line style by name', async () => {
+    await expectRefusal(
+      await gzipJson({
+        ...validDocument(),
+        schemaVersion: LINE_STYLES_SCHEMA_VERSION,
+        timeline: {
+          ...validDocument().timeline,
+          shapeGroups: [{ ...lineGroups[0], shapes: [{ ...lineGroups[0].shapes[0], lineStyle: 'wavy' }] }],
+        },
+      }),
+      'timeline.shapeGroups[0].shapes[0].lineStyle "wavy" is not one of solid, dashed, dotted',
+    )
+  })
+
+  it('deserializes the committed v25 line-styles fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV25LineStylesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: { ...expectedProject.timeline, shapeGroups: lineGroups },
       },
     })
   })

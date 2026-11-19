@@ -39,13 +39,14 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 
 ## A shape's style
 
-**Where to find it.** A shape's block in the expanded group row › **Border**, **Thickness**, **Fill** and, on a rectangle, **Corners**.
+**Where to find it.** A shape's block in the expanded group row › **Border**, **Thickness**, **Line**, **Fill** and, on a rectangle, **Corners**.
 
-**What it does.** Sets the border and fill colours, how opaque each is, how thick the border is, and how rounded a rectangle's corners are.
+**What it does.** Sets the border and fill colours, how opaque each is, how thick the border is, whether it is solid, dashed or dotted, and how rounded a rectangle's corners are.
 
 **Details.**
 
 - **Border** is a colour and an opacity from 0 to 100 %. **Thickness** is in pixels of the current output frame; 0 means no border. The border is centred on the shape's outline.
+- **Line** is **Solid**, **Dashed** or **Dotted**. Every shape starts solid, and so does every shape in a project saved before this choice existed. A dash is {{SHAPE_DASH_LENGTH}} times the border's thickness long with a gap of {{SHAPE_DASH_GAP}} times it; a dot is a square as long as the border is thick, with a gap of the same. So the pattern grows with the thickness, and looks the same at every output size. On an arrow it breaks the shaft; the heads stay solid.
 - **Fill** is a colour and an opacity from 0 to 100 %. 0 % is a clear centre, which is where every new shape starts.
 - **Corners** is a rectangle's corner radius in pixels; 0 is a sharp corner. It is capped at half the rectangle's shorter side.
 - Thickness and corner radius are stored as a share of the frame's shorter side, so a shape looks the same at every output size. The pixels the field shows are worked out for the frame the preview is showing, so changing the [canvas preset](timeline.md#the-header) changes the number shown but not the shape's look.
@@ -65,7 +66,7 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 - **Tail** and **Tip** are each two fractions of the frame, **x** across and **y** down, from 0 to 1. The arrow is drawn from the tail to the tip and ends exactly at the tip.
 - **Heads** is **At the tip**, **Both ends** or **None (a line)**.
 - **Head size** is **Small**, **Medium** or **Large**. A head is 3, 4.5 or 6 times the border's thickness long, and as wide across its base as it is long, so a thicker arrow has a bigger head. However thin the arrow, a head is never shorter than 2 % of the frame's shorter side, about 22 px in a 1080p frame, so a 1 px line still ends in a head you can see. On a short arrow the heads shrink to fit. A line has no head, so the field is hidden while Heads is None.
-- An arrow is drawn entirely in its **Border** colour, opacity and **Thickness**, head included. It has no fill, so its block has no Fill field. With thickness 0 or opacity 0 % it draws nothing, and its block says *This arrow is invisible*.
+- An arrow is drawn entirely in its **Border** colour, opacity and **Thickness**, head included. Its **Line** dashes or dots the shaft only, so a dashed arrow still ends in a solid head. It has no fill, so its block has no Fill field. With thickness 0 or opacity 0 % it draws nothing, and its block says *This arrow is invisible*.
 
 **Related.** [A shape's style](#a-shape-s-style) · [The shapes in a group](#the-shapes-in-a-group)
 
@@ -104,7 +105,7 @@ Rectangles, ellipses and arrows drawn on the picture: a red circle with a clear 
 
 **Details.**
 
-- **Border** (colour and opacity), **Thickness**, **Fill** (colour and opacity), **Corners**, **Heads** and **Head size** are the row's own [style](#a-shape-s-style) and [arrow](#arrows-and-lines) fields, applied to every selected shape. Thickness and Corners are in pixels at the current output frame, as in the row.
+- **Border** (colour and opacity), **Thickness**, **Line**, **Fill** (colour and opacity), **Corners**, **Heads** and **Head size** are the row's own [style](#a-shape-s-style) and [arrow](#arrows-and-lines) fields, applied to every selected shape. Thickness and Corners are in pixels at the current output frame, as in the row.
 - A control that does not apply to every selected shape is greyed out: **Fill** while an arrow is selected, since an arrow draws no fill; **Corners** unless every selected shape is a rectangle; **Heads** and **Head size** unless every one is an arrow. With nothing selected the whole bar is greyed out except **Highlighter**, which then sets up the next rectangle (below).
 - Where the selected shapes differ, a box is empty with *mixed* in it, a colour reads *mixed* beside it, and a drop-down shows *Mixed*. Setting it gives every selected shape the same value.
 - **Highlighter** gives the selected rectangles no border and a 35 % yellow fill, like a highlighter pen over a line of text; other selected kinds are left alone, and it is greyed out when no rectangle is selected. With nothing selected it picks the **Rectangle** tool, and the next rectangle you draw is a highlighter.

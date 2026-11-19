@@ -30,6 +30,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_TEXT_DURATION',
   /** How long a newly added shape group shows, in seconds (#683). */
   'DEFAULT_SHAPE_GROUP_DURATION',
+  'SHAPE_DASH_LENGTH',
+  'SHAPE_DASH_GAP',
   /** The configured bare-arrow step, in seconds (a live setting, #286). */
   'STEP_SECONDS',
   /** The configured Shift+arrow step, in seconds (a live setting, #286). */

@@ -36,6 +36,8 @@ import {
   ARROW_HEAD_LABELS,
   ARROW_HEAD_SIZES,
   ARROW_HEAD_SIZE_LABELS,
+  LINE_STYLES,
+  LINE_STYLE_LABELS,
   MAX_CORNER_RADIUS,
   MAX_SHAPE_THICKNESS,
   SHAPE_KIND_LABELS,
@@ -47,7 +49,7 @@ import {
   shorterSideFraction,
   shorterSidePixels,
 } from '../lib/shapes'
-import type { ArrowHeadSize, ArrowHeads, Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
+import type { ArrowHeadSize, ArrowHeads, LineStyle, Shape, ShapeGroup, ShapeKind, ShapeStyle } from '../lib/shapes'
 import { shapeGroupsOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
@@ -866,6 +868,17 @@ export function ShapeEditor({
             step={1}
             disabled={none}
             onCommit={(value) => restyle({ thickness: Math.min(fromPx(value), MAX_SHAPE_THICKNESS) })}
+          />
+        </span>
+        <span className="shape-editor-style-item">
+          <span>Line</span>
+          <StyleSelect<LineStyle>
+            label={`Line style of ${what}`}
+            value={read?.lineStyle}
+            options={LINE_STYLES}
+            labels={LINE_STYLE_LABELS}
+            disabled={none}
+            onChange={(lineStyle) => restyle({ lineStyle })}
           />
         </span>
         <span className="shape-editor-style-item">

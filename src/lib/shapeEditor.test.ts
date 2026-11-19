@@ -272,6 +272,21 @@ describe('a selection of several shapes (#686)', () => {
     for (const shape of [box, ellipse, line]) expect(isValidShape(restyledShape(shape, change))).toBe(true)
   })
 
+  it('a line style restyles every kind, stores solid as no key, and reads "mixed" across a selection (#688)', () => {
+    const [box, ellipse, line] = three()
+    const dashed = [box, ellipse, line].map((shape) => restyledShape(shape, { lineStyle: 'dashed' }))
+    for (const shape of dashed) {
+      expect(shape.lineStyle).toBe('dashed')
+      expect(isValidShape(shape)).toBe(true)
+    }
+    expect(restyledShape(dashed[2], { lineStyle: 'solid' })).not.toHaveProperty('lineStyle')
+    // A change that does not name the line style leaves it alone.
+    expect(restyledShape(dashed[0], { stroke: '#123456' }).lineStyle).toBe('dashed')
+    expect(selectionStyle([box, line])!.lineStyle).toBe('solid')
+    expect(selectionStyle(dashed)!.lineStyle).toBe('dashed')
+    expect(selectionStyle([dashed[0], ellipse])!.lineStyle).toBe('mixed')
+  })
+
   it('the Highlighter preset is no border and a 35 % yellow fill', () => {
     expect(HIGHLIGHTER_STYLE).toEqual({ thickness: 0, fill: '#ffff00', fillOpacity: 0.35 })
     const lit = restyledShape(rect({ stroke: '#ff0000' }), HIGHLIGHTER_STYLE)

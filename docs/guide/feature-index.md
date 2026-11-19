@@ -177,6 +177,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Left edge** — an expanded overlay row; the placement rectangle's left edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Length** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
+- **Line style** — a shape in an expanded shape group row › Line; solid, dashed or dotted, for a border or an arrow's shaft. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **List** — View ▾; the list layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
 - **Look** — an expanded video or image row › Picture ▸; the preset grade. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 

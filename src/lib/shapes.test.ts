@@ -4,6 +4,7 @@ import {
   activeShapeGroups,
   arrowHeadLength,
   arrowOutline,
+  arrowPieces,
   ARROW_HEAD_SIZE_FACTORS,
   MIN_ARROW_HEAD,
   clampShapeGroup,
@@ -13,11 +14,15 @@ import {
   drawShapeGroups,
   isInvisibleShape,
   isValidShapeGroupSpec,
+  lineDashFor,
+  pickStyle,
+  shapeGroupsEqual,
   shapeGroupLabel,
   shapeGroupName,
   shapeGroupOpacityAt,
   shorterSideFraction,
   shorterSidePixels,
+  withLineStyle,
 } from './shapes'
 import { textOpacityAt } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
@@ -502,6 +507,176 @@ describe('shape-group row actions: Duplicate, Paste settings and Rename… (#687
     expect(isValidShapeGroupSpec({ ...spec, name: '' })).toBe(false)
     expect(isValidShapeGroupSpec({ ...spec, name: ' x' })).toBe(false)
     expect(isValidShapeGroupSpec({ ...spec, name: 'x' })).toBe(true)
+  })
+})
+
+describe('shape groups: dashed and dotted lines (#688)', () => {
+  /** Records draws, with the dash pattern and cap each one saw. */
+  function recorder() {
+    const calls: string[] = []
+    const stack: { dash: number[]; cap: string }[] = []
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineJoin: 'miter',
+      lineCap: 'butt',
+      globalAlpha: 1,
+      dash: [] as number[],
+      save() {
+        stack.push({ dash: this.dash, cap: this.lineCap })
+        calls.push('save')
+      },
+      restore() {
+        const top = stack.pop()
+        if (top !== undefined) {
+          this.dash = top.dash
+          this.lineCap = top.cap
+        }
+        calls.push('restore')
+      },
+      setLineDash(segments: number[]) {
+        this.dash = [...segments]
+        calls.push(`setLineDash ${segments.map((n) => n.toFixed(2)).join(',')}`)
+      },
+      beginPath: () => calls.push('beginPath'),
+      closePath: () => calls.push('closePath'),
+      moveTo: (x: number, y: number) => calls.push(`moveTo ${x.toFixed(1)} ${y.toFixed(1)}`),
+      lineTo: (x: number, y: number) => calls.push(`lineTo ${x.toFixed(1)} ${y.toFixed(1)}`),
+      arcTo: () => calls.push('arcTo'),
+      ellipse: () => calls.push('ellipse'),
+      rect: () => calls.push('rect'),
+      fill() {
+        calls.push(`fill ${this.fillStyle} ${this.globalAlpha.toFixed(3)}`)
+      },
+      stroke() {
+        calls.push(
+          `stroke ${this.strokeStyle} ${this.lineWidth.toFixed(2)} dash=[${this.dash
+            .map((n) => n.toFixed(2))
+            .join(',')}] cap=${this.lineCap}`,
+        )
+      },
+    }
+    return { context: context as unknown as ShapeContext, calls }
+  }
+  // A 1000 × 500 frame: thickness 0.02 of the shorter side is 10 px.
+  const W = 1000
+  const H = 500
+  const box = (lineStyle?: 'solid' | 'dashed' | 'dotted'): BoxShape => ({
+    ...defaultShape('r', 'rectangle'),
+    thickness: 0.02,
+    ...(lineStyle === undefined ? {} : { lineStyle }),
+  })
+
+  it('patterns scale with the line width: dashes 3 on 2, dots 1 on 1, solid none', () => {
+    expect(lineDashFor('dashed', 10)).toEqual([30, 20])
+    expect(lineDashFor('dotted', 10)).toEqual([10, 10])
+    expect(lineDashFor('dashed', 4)).toEqual([12, 8])
+    expect(lineDashFor('solid', 10)).toEqual([])
+    expect(lineDashFor(undefined, 10)).toEqual([])
+    expect(lineDashFor('dashed', 0)).toEqual([])
+  })
+
+  it('strokes a dashed or dotted border with its pattern and butt caps, and leaves the next shape solid', () => {
+    const { context, calls } = recorder()
+    const shapes = [box('dashed'), { ...box('dotted'), id: 'd' }, { ...box(), id: 's' }]
+    drawShapeGroups(context, [group({ shapes })], 3, W, H)
+    expect(calls.filter((call) => call.startsWith('stroke'))).toEqual([
+      'stroke #e53935 10.00 dash=[30.00,20.00] cap=butt',
+      'stroke #e53935 10.00 dash=[10.00,10.00] cap=butt',
+      // Restored after the dotted one: the solid shape draws unbroken.
+      'stroke #e53935 10.00 dash=[] cap=butt',
+    ])
+  })
+
+  it('leaves a solid shape exactly as before: no dash call at all, with or without the key', () => {
+    for (const shape of [box(), box('solid')]) {
+      const { context, calls } = recorder()
+      drawShapeGroups(context, [group({ shapes: [shape] })], 3, W, H)
+      expect(calls.some((call) => call.startsWith('setLineDash'))).toBe(false)
+      expect(calls.filter((call) => call === 'save')).toHaveLength(1)
+    }
+  })
+
+  /** An arrow along y = 250 from x 200 to x 800, 10 px thick. */
+  const arrow = (overrides: Partial<ArrowShape> = {}): ArrowShape => ({
+    ...defaultShape('a', 'arrow'),
+    tailX: 0.2,
+    tailY: 0.5,
+    tipX: 0.8,
+    tipY: 0.5,
+    thickness: 0.02,
+    lineStyle: 'dashed',
+    ...overrides,
+  })
+
+  it('splits a dashed arrow into solid head triangles and a shaft that ends at their bases', () => {
+    // Medium heads: 4.5 × 10 px = 45 px long and 45 px wide.
+    const tip = arrowPieces(arrow(), W, H)
+    expect(tip?.lineWidth).toBe(10)
+    expect(tip?.shaft).toEqual({ from: { x: 200, y: 250 }, to: { x: 755, y: 250 } })
+    expect(tip?.heads).toEqual([
+      [
+        { x: 755, y: 272.5 },
+        { x: 800, y: 250 },
+        { x: 755, y: 227.5 },
+      ],
+    ])
+    // The same triangle the solid outline draws at the tip.
+    const outline = arrowOutline(arrow(), W, H)
+    for (const point of tip?.heads[0] ?? []) expect(outline).toContainEqual(point)
+    const both = arrowPieces(arrow({ heads: 'both' }), W, H)
+    expect(both?.shaft).toEqual({ from: { x: 245, y: 250 }, to: { x: 755, y: 250 } })
+    expect(both?.heads).toHaveLength(2)
+    const line = arrowPieces(arrow({ heads: 'none' }), W, H)
+    expect(line?.shaft).toEqual({ from: { x: 200, y: 250 }, to: { x: 800, y: 250 } })
+    expect(line?.heads).toEqual([])
+    expect(arrowPieces(arrow({ thickness: 0 }), W, H)).toBeNull()
+  })
+
+  it('draws a dashed arrow as its filled heads, then its shaft stroked dashed, in the border colour', () => {
+    const { context, calls } = recorder()
+    const faded = group({
+      offset: 0,
+      duration: 4,
+      fadeIn: 2,
+      shapes: [arrow({ heads: 'both', stroke: '#00ff00', strokeOpacity: 0.8 })],
+    })
+    drawShapeGroups(context, [faded], 1, W, H)
+    expect(calls.filter((call) => call.startsWith('fill'))).toEqual([
+      'fill #00ff00 0.400',
+      'fill #00ff00 0.400',
+    ])
+    expect(calls.filter((call) => call.startsWith('stroke'))).toEqual([
+      'stroke #00ff00 10.00 dash=[30.00,20.00] cap=butt',
+    ])
+    const stroke = calls.findIndex((call) => call.startsWith('stroke'))
+    expect(calls.slice(stroke - 2, stroke)).toEqual(['moveTo 245.0 250.0', 'lineTo 755.0 250.0'])
+    // A solid arrow is still the one filled outline, with no stroke.
+    const { context: solid, calls: solidCalls } = recorder()
+    drawShapeGroups(solid, [group({ shapes: [arrow({ lineStyle: undefined })] })], 3, W, H)
+    expect(solidCalls.filter((call) => call.startsWith('fill'))).toHaveLength(1)
+    expect(solidCalls.some((call) => call.startsWith('stroke') || call.startsWith('setLineDash'))).toBe(false)
+  })
+
+  it('stores solid as no key, carries a dash to the next shape, and tells styles apart', () => {
+    const dashed = withLineStyle(box(), 'dashed')
+    expect(dashed.lineStyle).toBe('dashed')
+    expect('lineStyle' in withLineStyle(dashed, 'solid')).toBe(false)
+    const untouched = box()
+    expect(withLineStyle(untouched, 'solid')).toBe(untouched)
+    expect(pickStyle(dashed).lineStyle).toBe('dashed')
+    expect('lineStyle' in pickStyle({ ...box(), lineStyle: 'solid' })).toBe(false)
+    expect(defaultShape('n', 'ellipse', pickStyle(dashed)).lineStyle).toBe('dashed')
+    expect(shapeGroupsEqual(group({ shapes: [box()] }), group({ shapes: [dashed] }))).toBe(false)
+    expect(shapeGroupsEqual(group({ shapes: [box()] }), group({ shapes: [box('solid')] }))).toBe(true)
+  })
+
+  it('validates the line style', () => {
+    expect(isValidShapeGroupSpec(group({ shapes: [box('dotted')] }))).toBe(true)
+    expect(
+      isValidShapeGroupSpec(group({ shapes: [{ ...box(), lineStyle: 'wavy' as unknown as 'dashed' }] })),
+    ).toBe(false)
   })
 })
 
