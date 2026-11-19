@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { expectWithin } from './layout'
+import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { chooseEffect } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
@@ -187,12 +187,12 @@ for (const viewport of [
     }
     await expectWithin(dialog.getByTestId('trim-transition-end'), strip, { what: 'the transition span' })
     await expectWithin(warning, dialog, { what: 'the warning' })
-    // The window itself inside the viewport. Not expectNoHorizontalScroll:
-    // at 360px the editor column behind the modal already overflows once a
-    // transition exists, on main and without this window (#749).
+    // The window itself inside the viewport, and nothing behind it
+    // scrolling sideways (the transition row once did at 360px, #749).
     const box = (await dialog.boundingBox())!
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+    await expectNoHorizontalScroll(page, `the Trim window open at ${viewport.width}px`)
     await dialog.screenshot({ path: testInfo.outputPath(`trim-effects-${viewport.width}.png`) })
   })
 }

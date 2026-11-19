@@ -322,10 +322,16 @@
   color: inherit;
 }
 
-/* Boundary row: the transition into the *next* entry, drawn as a connector. */
+/* Boundary row: the transition into the *next* entry, drawn as a connector.
+   It wraps, as the zoom and remap rows above do (#749): unwrapped, its
+   type select (sized by its longest option, "Fade through white"), the
+   duration field and ✕ came to 294px with the indent, and that min-content
+   floored the timeline's 1fr track, so at 360px every panel grew 37px past
+   the editor column. */
 .timeline-transition {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.4rem;
   margin: 0.1rem 0 -0.65rem;
   padding: 0.3rem 0 0.3rem 1.25rem;

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openClipMenu } from './clipMenu'
@@ -96,6 +98,56 @@ test('no horizontal page scroll at an 800px viewport with a video clip in play (
   // `clientWidth` where this spec used `window.innerWidth`, which is
   // stricter by the scrollbar's width; see ./layout for why.
   await expectNoHorizontalScroll(page, 'video clip imported and on the timeline')
+})
+
+/**
+ * A transition row at 360px (#749). The boundary row between two entries —
+ * the type select, the duration field and ✕ behind a 1.25rem indent — did
+ * not wrap, and its min-content (294px, the select alone 149px because a
+ * select is as wide as its longest option) floored the timeline's `1fr`
+ * track the way #534's main line did: once a transition existed, every
+ * panel was 349px wide in a 360px column, the column's scrollWidth 397.
+ * #534's case below has three slates and no transition, so it never saw
+ * this row. Two real video entries, as the issue measured it.
+ */
+test('the editor column lays out within a 360px window with a transition between two clips (#749)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 })
+  await page.goto('./')
+  const clip = 'trim-clip.webm'
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: clip, mimeType: 'video/webm', buffer: await readFile(join('e2e', 'fixtures', clip)) }])
+  const add = page.getByRole('button', { name: `Add ${clip} to timeline`, exact: true })
+  await add.click()
+  await add.click()
+  await expect(page.getByRole('list', { name: 'Sequence' }).getByRole('listitem')).toHaveCount(2)
+  await expectNoHorizontalScroll(page, 'two clips at 360px, before the transition')
+
+  await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+  const boundary = 'between position 1 and 2'
+  const type = page.getByRole('combobox', { name: `Transition type ${boundary}` })
+  await expect(type).toBeVisible()
+  await expectNoHorizontalScroll(page, 'two clips and a transition at 360px')
+
+  const timeline = page.getByRole('main').locator(':scope > .panel', { has: page.getByRole('list', { name: 'Sequence' }) })
+  for (const [control, what] of [
+    [type, 'the transition type'],
+    [page.getByRole('spinbutton', { name: `Transition duration ${boundary} in seconds` }), 'the transition duration'],
+    [page.getByRole('button', { name: `Remove transition ${boundary}`, exact: true }), 'the remove-transition button'],
+  ] as const) {
+    await expectWithin(control, timeline, { axis: 'x', what: `${what} at 360px` })
+  }
+
+  // The row wraps only when it must: with room, select, duration and ✕
+  // still share one line, as before the fix.
+  await page.setViewportSize({ width: 1280, height: 740 })
+  const tops = await page.locator('.timeline-transition').evaluate((row) =>
+    Array.from(row.children, (child) => Math.round(child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2)),
+  )
+  expect(tops, 'the transition row is three controls').toHaveLength(3)
+  for (const top of tops) expect(Math.abs(top - tops[0]), `the row's centres ${tops.join(', ')} at 1280px`).toBeLessThanOrEqual(2)
 })
 
 /**
