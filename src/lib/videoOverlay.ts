@@ -10,6 +10,8 @@ import type { ShapeMask } from './shapeMask'
 import { shapeMasksEqual } from './shapeMask'
 import type { OverlayBorder } from './overlayBorder'
 import { overlayBordersEqual } from './overlayBorder'
+import type { OverlayShadow } from './overlayShadow'
+import { overlayShadowsEqual } from './overlayShadow'
 import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
 import type { RemapSpec } from './remap'
@@ -167,6 +169,14 @@ export interface VideoOverlay {
    * files stay byte-identical.
    */
   border?: OverlayBorder
+  /**
+   * A drop shadow (#698): a soft, offset copy of the overlay's silhouette —
+   * grown by its border, when it has one — drawn beneath it and kept only
+   * outside it (see overlayShadow.ts). Absent means off; the
+   * `video-overlay-shadow-set` reducer case stores the normalized form, so
+   * shadow-free states and files stay byte-identical.
+   */
+  shadow?: OverlayShadow
   /**
    * Zooms on the overlay's own picture (#699): each magnifies what the
    * placed rectangle shows, the way a sequence zoom (#63) magnifies the
@@ -560,6 +570,7 @@ export function videoOverlaysEqual(a: VideoOverlay, b: VideoOverlay): boolean {
     cropsEqual(a.crop, b.crop) &&
     shapeMasksEqual(a.shapeMask, b.shapeMask) &&
     overlayBordersEqual(a.border, b.border) &&
+    overlayShadowsEqual(a.shadow, b.shadow) &&
     overlayRemapsEqual(a.remaps, b.remaps)
   )
 }

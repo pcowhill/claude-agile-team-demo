@@ -780,6 +780,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetVideoOverlayBorder={(id, border) =>
             dispatchTimeline({ type: 'video-overlay-border-set', id, border })
           }
+          onSetVideoOverlayShadow={(id, shadow) =>
+            dispatchTimeline({ type: 'video-overlay-shadow-set', id, shadow })
+          }
           onAddVideoOverlayZoom={(overlayId, zoom) =>
             dispatchTimeline({
               type: 'video-overlay-zoom-added',

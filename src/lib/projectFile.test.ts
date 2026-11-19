@@ -32,6 +32,7 @@ import fixtureV25LineStylesReferencesBase64 from './fixtures/project-v25-line-st
 import fixtureV26OverlayZoomsReferencesBase64 from './fixtures/project-v26-overlay-zooms-references.bvep.base64?raw'
 import fixtureV27OverlayBordersReferencesBase64 from './fixtures/project-v27-overlay-borders-references.bvep.base64?raw'
 import fixtureV28OverlayRemapsReferencesBase64 from './fixtures/project-v28-overlay-remaps-references.bvep.base64?raw'
+import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-overlay-shadows-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -57,6 +58,7 @@ import {
   OVERLAY_ZOOMS_SCHEMA_VERSION,
   OVERLAY_BORDERS_SCHEMA_VERSION,
   OVERLAY_REMAPS_SCHEMA_VERSION,
+  OVERLAY_SHADOWS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1148,8 +1150,9 @@ describe('project file versioning', () => {
     // arrows in shape groups (#684); version 25 added dashed and dotted
     // shape borders (#688); version 26 added overlay zooms (#699); version
     // 27 added overlay borders (#697); version 28 added overlay speed
-    // segments and pauses (#700).
-    expect(PROJECT_SCHEMA_VERSION).toBe(28)
+    // segments and pauses (#700); version 29 added overlay drop shadows
+    // (#698).
+    expect(PROJECT_SCHEMA_VERSION).toBe(29)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1178,6 +1181,7 @@ describe('project file versioning', () => {
     expect(OVERLAY_ZOOMS_SCHEMA_VERSION).toBe(26)
     expect(OVERLAY_BORDERS_SCHEMA_VERSION).toBe(27)
     expect(OVERLAY_REMAPS_SCHEMA_VERSION).toBe(28)
+    expect(OVERLAY_SHADOWS_SCHEMA_VERSION).toBe(29)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4992,6 +4996,92 @@ describe('overlay speed segments and pauses in project files (#700, schema versi
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, remaps: overlayRemaps }])
+  })
+})
+
+describe('overlay drop shadows in project files (#698, schema version 29)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+    shapeMask: { kind: 'ellipse' as const },
+    border: { color: '#ff0000', thickness: 10 / 1080 },
+  }
+  const shadow = {
+    color: '#000000',
+    opacity: 0.5,
+    blur: 8 / 1080,
+    offsetX: 6 / 1080,
+    offsetY: -6 / 1080,
+  }
+  const shadowedTimeline = (withShadow: boolean): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', ...(withShadow ? { shadow } : {}) }],
+  })
+
+  it('round-trips an overlay shadow at version 29', async () => {
+    const bytes = await serializeProject(library, shadowedTimeline(true))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_SHADOWS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.shadow).toEqual(shadow)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, shadow }] },
+      },
+    })
+  })
+
+  it('writes a shadow-free overlay with no key, at the version it had before', async () => {
+    const bytes = await serializeProject(library, shadowedTimeline(false))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_BORDERS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect('shadow' in written).toBe(false)
+  })
+
+  it('refuses an out-of-range opacity, blur or offset, or an unstored colour, by path', async () => {
+    const withShadow = (value: unknown) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_SHADOWS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, shadow: value }] },
+    })
+    await expectRefusal(
+      await gzipJson(withShadow({ ...shadow, opacity: 1.5 })),
+      'timeline.videoOverlays[0].shadow.opacity must be within [0, 1]',
+    )
+    await expectRefusal(
+      await gzipJson(withShadow({ ...shadow, blur: -0.01 })),
+      'timeline.videoOverlays[0].shadow.blur must be within [0, 0.1]',
+    )
+    await expectRefusal(
+      await gzipJson(withShadow({ ...shadow, offsetY: -0.2 })),
+      'timeline.videoOverlays[0].shadow.offsetY must be within ±0.1',
+    )
+    await expectRefusal(
+      await gzipJson(withShadow({ ...shadow, color: '#FF0000' })),
+      'timeline.videoOverlays[0].shadow.color must be a lower-case #rrggbb colour',
+    )
+  })
+
+  it('deserializes the committed v29 overlay-shadows fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV29OverlayShadowsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, shadow }])
   })
 })
 

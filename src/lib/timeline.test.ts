@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
 import { MAX_OVERLAY_BORDER } from './overlayBorder'
+import { MAX_OVERLAY_SHADOW_BLUR, MAX_OVERLAY_SHADOW_OFFSET } from './overlayShadow'
 import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec, ChapterMarker } from './timeline'
 import {
   audioTrackFromClip,
@@ -3552,6 +3553,81 @@ describe('video-overlay shape mask (#266)', () => {
         { color: '#ff0000', thickness: 0.01 },
         { color: '#ff0000', thickness: 0.01 },
       ])
+    })
+  })
+
+  describe('video-overlay-shadow-set (#698)', () => {
+    const soft = { color: '#FF0000', opacity: 0.5, blur: 0.01, offsetX: 0.005, offsetY: -0.005 }
+    const stored = { ...soft, color: '#ff0000' }
+
+    it('stores the shadow normalized — colour lower-case — and null as no key', () => {
+      const shadowed = timelineReducer(withOverlay(), { type: 'video-overlay-shadow-set', id: 'v1', shadow: soft })
+      expect(videoOverlaysOf(shadowed)[0].shadow).toEqual(stored)
+      const off = timelineReducer(shadowed, { type: 'video-overlay-shadow-set', id: 'v1', shadow: null })
+      expect('shadow' in videoOverlaysOf(off)[0]).toBe(false)
+    })
+
+    it('clamps opacity, blur and each offset — both ways — to their ranges', () => {
+      const wild = timelineReducer(withOverlay(), {
+        type: 'video-overlay-shadow-set',
+        id: 'v1',
+        shadow: { color: '#000000', opacity: 3, blur: 5, offsetX: -5, offsetY: 5 },
+      })
+      expect(videoOverlaysOf(wild)[0].shadow).toEqual({
+        color: '#000000',
+        opacity: 1,
+        blur: MAX_OVERLAY_SHADOW_BLUR,
+        offsetX: -MAX_OVERLAY_SHADOW_OFFSET,
+        offsetY: MAX_OVERLAY_SHADOW_OFFSET,
+      })
+      const under = timelineReducer(withOverlay(), {
+        type: 'video-overlay-shadow-set',
+        id: 'v1',
+        shadow: { color: '#000000', opacity: -1, blur: -1, offsetX: 0, offsetY: 0 },
+      })
+      // Opacity 0 and blur 0 are still a shadow the row keeps showing: only
+      // turning it off removes the key.
+      expect(videoOverlaysOf(under)[0].shadow).toEqual({
+        color: '#000000',
+        opacity: 0,
+        blur: 0,
+        offsetX: 0,
+        offsetY: 0,
+      })
+    })
+
+    it('a re-commit, turning off a shadow-free overlay, or a bad input keeps the state reference', () => {
+      const shadowed = timelineReducer(withOverlay(), { type: 'video-overlay-shadow-set', id: 'v1', shadow: soft })
+      expect(timelineReducer(shadowed, { type: 'video-overlay-shadow-set', id: 'v1', shadow: stored })).toBe(shadowed)
+      const plain = withOverlay()
+      expect(timelineReducer(plain, { type: 'video-overlay-shadow-set', id: 'v1', shadow: null })).toBe(plain)
+      for (const shadow of [
+        { ...stored, color: 'black' },
+        { ...stored, opacity: Number.NaN },
+        { ...stored, blur: Number.POSITIVE_INFINITY },
+        { ...stored, offsetX: Number.NaN },
+        { ...stored, offsetY: Number.NaN },
+      ]) {
+        expect(timelineReducer(plain, { type: 'video-overlay-shadow-set', id: 'v1', shadow })).toBe(plain)
+      }
+      expect(timelineReducer(plain, { type: 'video-overlay-shadow-set', id: 'nope', shadow: soft })).toBe(plain)
+    })
+
+    it('the shadow survives placement edits and travels with a duplicate', () => {
+      const shadowed = timelineReducer(withOverlay(), { type: 'video-overlay-shadow-set', id: 'v1', shadow: soft })
+      const moved = timelineReducer(shadowed, {
+        type: 'video-overlay-updated',
+        id: 'v1',
+        placement: { offset: 2, inPoint: 0, outPoint: 8, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+      })
+      expect(videoOverlaysOf(moved)[0].shadow).toEqual(stored)
+      const duplicated = timelineReducer(moved, {
+        type: 'element-duplicated',
+        kind: 'video-overlay',
+        id: 'v1',
+        newId: 'v2',
+      })
+      expect(videoOverlaysOf(duplicated).map((item) => item.shadow)).toEqual([stored, stored])
     })
   })
 })

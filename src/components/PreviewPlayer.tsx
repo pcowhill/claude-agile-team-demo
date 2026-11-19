@@ -62,8 +62,16 @@ import {
   backdropRect,
 } from '../lib/backgroundFill'
 import { maskClipPath } from '../lib/shapeMask'
-import { HOLD_SEEK_EPSILON, drawLayerSource, drawOverlayBorder, fitRect, withLayerOrientation } from '../lib/exportVideo'
+import {
+  HOLD_SEEK_EPSILON,
+  drawLayerSource,
+  drawOverlayBorder,
+  drawOverlayShadow,
+  fitRect,
+  withLayerOrientation,
+} from '../lib/exportVideo'
 import type { OverlayBorder } from '../lib/overlayBorder'
+import type { OverlayShadow } from '../lib/overlayShadow'
 import type { VideoOverlay } from '../lib/videoOverlay'
 import type { RedactionRegion } from '../lib/redaction'
 import { drawRedactions } from '../lib/redaction'
@@ -661,6 +669,82 @@ function ShapeLayer({ groups, time }: { groups: readonly ShapeGroup[]; time: num
       ref={canvasRef}
       className="preview-shapes"
       data-testid="preview-shapes"
+      aria-hidden="true"
+    />
+  )
+}
+
+/**
+ * An overlay's drop shadow (#698), drawn on a frame-sized canvas by the
+ * export's own routine (`drawOverlayShadow`), so the preview and every
+ * export cast the same shadow — the OverlayBorderLayer pattern. It is the
+ * card's earliest sibling, so the border and the picture paint over it and
+ * a later overlay covers it, exactly the export's order. Rendered only while
+ * the overlay shows, so a shadow-free (or off-window) overlay adds nothing.
+ */
+function OverlayShadowLayer({
+  overlay,
+  testId,
+}: {
+  overlay: Pick<VideoOverlay, 'x' | 'y' | 'width' | 'height' | 'shapeMask' | 'border'> & {
+    shadow: OverlayShadow
+  }
+  testId: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const silhouetteRef = useRef<HTMLCanvasElement | null>(null)
+  const scratchRef = useRef<HTMLCanvasElement | null>(null)
+  const { x, y, width: w, height: h, shapeMask, border, shadow } = overlay
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (canvas === null) return
+    const paint = () => {
+      // Unlaid-out (or jsdom) canvases have no box to draw into.
+      if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return
+      // Device pixels, as the border's layer; blur and offsets are fractions
+      // of the shorter side, so the proportions are the export's.
+      const scale = window.devicePixelRatio || 1
+      const width = Math.round(canvas.clientWidth * scale)
+      const height = Math.round(canvas.clientHeight * scale)
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const buffers = [
+        (silhouetteRef.current ??= document.createElement('canvas')),
+        (scratchRef.current ??= document.createElement('canvas')),
+      ]
+      for (const buffer of buffers) {
+        if (buffer.width !== width) buffer.width = width
+        if (buffer.height !== height) buffer.height = height
+      }
+      const context = canvas.getContext('2d')
+      const silhouetteContext = buffers[0].getContext('2d')
+      const scratchContext = buffers[1].getContext('2d')
+      if (context === null || silhouetteContext === null || scratchContext === null) return
+      context.clearRect(0, 0, width, height)
+      drawOverlayShadow(
+        context,
+        { canvas: buffers[0], context: silhouetteContext },
+        { canvas: buffers[1], context: scratchContext },
+        shadow,
+        shapeMask,
+        border,
+        { x: x * width, y: y * height, width: w * width, height: h * height },
+        width,
+        height,
+      )
+    }
+    paint()
+    // A resize while paused redraws at the new size, as ShapeLayer does.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(paint)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [x, y, w, h, shapeMask, border, shadow])
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-shapes"
+      data-testid={testId}
       aria-hidden="true"
     />
   )
@@ -2644,8 +2728,15 @@ export function PreviewPlayer({
                 // inside the card, which clips them while it zooms.
                 const overlayZoom = overlayZoomAt(overlay, overlayTime)
                 const border = overlay.border
+                const shadow = overlay.shadow
                 return (
                   <Fragment key={overlay.id}>
+                  {active && shadow !== undefined && (
+                    <OverlayShadowLayer
+                      overlay={{ ...overlay, shadow }}
+                      testId={`preview-overlay-shadow-${index}`}
+                    />
+                  )}
                   {active && border !== undefined && (
                     <OverlayBorderLayer
                       overlay={{ ...overlay, border }}

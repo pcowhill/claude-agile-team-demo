@@ -3686,6 +3686,49 @@ describe("a row's Picture disclosure (#420)", () => {
     expect(colour).toHaveValue('#000000')
   })
 
+  it('gives an overlay a Shadow: the checkbox turns it on at its defaults in px at the output frame, and off again (#698)', async () => {
+    await addVideoEntry()
+    const position = await addOverlay()
+    await openPicture(position)
+
+    const toggle = screen.getByRole('checkbox', { name: `Shadow of ${position}` })
+    expect(toggle).not.toBeChecked()
+    // Off, the shadow has no fields to show.
+    expect(screen.queryByRole('spinbutton', { name: `Shadow blur of ${position} in pixels` })).toBeNull()
+    expect(appliedPictureGroups(position)).toEqual([])
+
+    fireEvent.click(toggle)
+    expect(toggle).toBeChecked()
+    expect(appliedPictureGroups(position)).toEqual(['Shadow'])
+    expect(screen.getByLabelText(`Shadow colour of ${position}`)).toHaveValue('#000000')
+    expect(screen.getByRole('spinbutton', { name: `Shadow opacity of ${position} in percent` })).toHaveValue(50)
+    const blur = screen.getByRole('spinbutton', { name: `Shadow blur of ${position} in pixels` })
+    // Defaults in px at the imported clip's 640×360 frame; a tenth of its
+    // shorter side is the cap on the blur and on each offset, either way.
+    expect(blur).toHaveValue(8)
+    expect(blur).toHaveAttribute('max', '36')
+    const offsetX = screen.getByRole('spinbutton', { name: `Shadow x offset of ${position} in pixels` })
+    expect(offsetX).toHaveValue(6)
+    expect(offsetX).toHaveAttribute('min', '-36')
+    expect(offsetX).toHaveAttribute('max', '36')
+    expect(screen.getByRole('spinbutton', { name: `Shadow y offset of ${position} in pixels` })).toHaveValue(6)
+
+    // An edit keeps every other field, and a negative offset falls up.
+    const offsetY = screen.getByRole('spinbutton', { name: `Shadow y offset of ${position} in pixels` })
+    fireEvent.change(offsetY, { target: { value: '-12' } })
+    fireEvent.blur(offsetY)
+    expect(offsetY).toHaveValue(-12)
+    expect(blur).toHaveValue(8)
+    fireEvent.change(screen.getByLabelText(`Shadow colour of ${position}`), { target: { value: '#ff0000' } })
+    expect(screen.getByLabelText(`Shadow colour of ${position}`)).toHaveValue('#ff0000')
+    expect(offsetY).toHaveValue(-12)
+
+    fireEvent.click(toggle)
+    expect(toggle).not.toBeChecked()
+    expect(appliedPictureGroups(position)).toEqual([])
+    expect(screen.queryByLabelText(`Shadow colour of ${position}`)).toBeNull()
+  })
+
   it('choosing a border colour with no border yet starts one at the default thickness (#697)', async () => {
     await addVideoEntry()
     const position = await addOverlay()
