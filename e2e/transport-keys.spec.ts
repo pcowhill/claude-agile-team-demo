@@ -80,13 +80,14 @@ test('? opens the shortcut cheat sheet; Escape closes it', async ({ page }) => {
   // dialog sits at its width cap:
   // 1. One <kbd> per alternative combo. #287's actual defect was both Redo
   //    alternatives joined in one <kbd> ('… or …'), which wraps mid-combo;
-  //    per-combo <kbd>s are what #289 split them into. 22 = 20 rows + Redo's
+  //    per-combo <kbd>s are what #289 split them into. 23 = 21 rows + Redo's
   //    and Delete's second alternatives (the I / O row joined in #417, M in
   //    #487, F1 in #478, R in #522, the shape editor's Delete / Backspace and
-  //    Ctrl/Cmd + D in #686, the Trim window's five rows in #707) — update
-  //    alongside shortcutsFor when a shortcut is added or changed.
+  //    Ctrl/Cmd + D in #686, the Trim window's five rows in #707, Q / W in
+  //    #710) — update alongside shortcutsFor when a shortcut is added or
+  //    changed.
   const combos = dialog.locator('.shortcut-row kbd')
-  await expect(combos).toHaveCount(22)
+  await expect(combos).toHaveCount(23)
   // 2. Every combo's box lies inside its own row — the box that actually
   //    breaks when a combo grows too wide. Measured before writing this: a
   //    nowrap combo wider than the 45% column does not wrap and does not

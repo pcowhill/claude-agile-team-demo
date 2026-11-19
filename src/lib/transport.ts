@@ -33,6 +33,9 @@ export type TransportAction =
   /** Step the preview's review speed to the next rate (#522) — R, cycling
    * 0.5× → 1× → 1.5× → 2× → 0.5×. */
   | { kind: 'review-speed' }
+  /** Trim the entry under the playhead to start (Q) or end (W) there
+   * (#710) — the desktop editors' trim-to-playhead keys. */
+  | { kind: 'trim-to-playhead'; edge: 'start' | 'end' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -107,6 +110,16 @@ export function transportActionForKey(
     case 'r':
     case 'R':
       return { kind: 'review-speed' }
+    // Q / W trim the entry under the playhead to start / end there (#710):
+    // the desktop editors' keys for exactly this. Not I / O, which mark the
+    // export range here (#417) and which the approved design (#703) had
+    // asked for before that collision was found. Either case, as I / O.
+    case 'q':
+    case 'Q':
+      return { kind: 'trim-to-playhead', edge: 'start' }
+    case 'w':
+    case 'W':
+      return { kind: 'trim-to-playhead', edge: 'end' }
     default:
       return null
   }

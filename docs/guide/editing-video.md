@@ -4,13 +4,21 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## Trimming
 
-**Where to find it.** An expanded sequence entry, audio track or video overlay › **In** and **Out**.
+**Where to find it.** An expanded sequence entry, audio track or video overlay › **In** and **Out**. For a sequence entry, also **Q** and **W** at the playhead.
 
 **What it does.** Sets where the clip starts and stops playing, in seconds into its source file.
 
 **Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry, **Trim…** beside the fields sets the same two numbers while you watch the clip: see [The Trim window](#the-trim-window). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
 
+**At the playhead, without a window:** in the preview, **Q** trims the clip under the playhead so that it starts on the frame showing, and **W** so that it ends there; the clip closes up to its neighbours, and one **Undo** puts it back.
+- The frame is the one the preview shows, through any [speed segment](#speed-segments-and-pauses): inside a pause, it is the held frame.
+- They do nothing over a still or slate, on the clip's own first or last frame, inside a [transition](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)'s blend, where less than a tenth of a second would be left, and wherever the preview's other keys [pause](preview-and-playback.md#when-the-shortcuts-pause).
+- Not **I** and **O**: in the preview those set the [export marks](preview-and-playback.md#export-marks).
+- As with any trim, the clip's zooms, speed segments and pauses stay at their seconds into the clip, so Q moves them with its start.
+
 **Related.** [The Trim window](#the-trim-window) · [A row](timeline.md#a-row) · [Time on the timeline](concepts.md#time-on-the-timeline)
+
+**Shortcuts.** Q · W.
 
 ## The Trim window
 

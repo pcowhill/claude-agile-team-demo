@@ -38,6 +38,7 @@ import {
   isTransitionOverlayActive,
   locateInSequence,
   navigationBoundaries,
+  playheadTrimAt,
   sequenceTimeAt,
   splitTargetAt,
 } from '../lib/playback'
@@ -128,6 +129,13 @@ interface PreviewPlayerProps {
    * the player renders without editing wiring (tests, read-only embeds).
    */
   onSplit?: (entryId: string, atSourceTime: number) => void
+  /**
+   * Trim the entry under the playhead to start (Q) or end (W) there (#710),
+   * as one `entry-trimmed`. The keys resolve here, where the playhead is;
+   * the trim is App's dispatch. Optional like `onSplit`: without it Q and W
+   * do nothing.
+   */
+  onTrimEntry?: (entryId: string, inPoint: number, outPoint: number) => void
   /**
    * Freeze frame (#379): the captured PNG of the playhead's composed frame,
    * with the output frame it was composed at, the sequence time it holds,
@@ -1009,6 +1017,7 @@ export function PreviewPlayer({
   layout = 'default',
   onSetLayout,
   onSplit,
+  onTrimEntry,
   onFreezeFrame,
   stepSeconds,
   largeStepSeconds,
@@ -2194,6 +2203,15 @@ export function PreviewPlayer({
           // next Play honours it.
           setReviewRate((rate) => nextReviewRate(rate))
           break
+        case 'trim-to-playhead': {
+          // Q / W (#710): the entry under the clamped playhead, trimmed to
+          // start or end on its frame. Inert wherever playheadTrimAt says
+          // there is nothing to trim (a still, an edge, a transition
+          // overlap, a kept part under the minimum) or without wiring.
+          const trim = playheadTrimAt(timeline, Math.min(sequenceTime, total), action.edge)
+          if (trim !== null) onTrimEntry?.(trim.entryId, trim.inPoint, trim.outPoint)
+          break
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -2214,6 +2232,7 @@ export function PreviewPlayer({
     sourceMode,
     onMarkIn,
     onMarkOut,
+    onTrimEntry,
   ])
 
   // Edits to the timeline invalidate the playback position (entries or

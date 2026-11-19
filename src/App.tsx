@@ -650,6 +650,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               newEntryId: crypto.randomUUID(),
             })
           }
+          onTrimEntry={(id, inPoint, outPoint) =>
+            dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
+          }
           onFreezeFrame={handleFreezeFrame}
           markIn={markIn}
           markOut={markOut}

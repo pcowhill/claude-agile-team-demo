@@ -42,6 +42,7 @@ The choice is remembered in this browser across page loads and is a view prefere
 - **↑** and **↓** [jump to the previous and next cut](#jumping-to-cuts).
 - **I** and **O** set the export [marks](#export-marks) in and out at the playhead.
 - **M** adds a [chapter marker](#chapter-markers) at the playhead.
+- **Q** and **W** [trim the clip under the playhead](editing-video.md#trimming) to start or end there.
 - **R** steps the [review speed](#review-speed) through 0.5× · 1× · 1.5× · 2×, wrapping round.
 - **?** opens the keyboard cheat sheet, **F1** the user guide; **Esc** leaves a [previewed library clip](#previewing-a-library-clip).
 
@@ -49,7 +50,7 @@ Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo)
 
 **Related.** [When the shortcuts pause](#when-the-shortcuts-pause)
 
-**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · R · ? · F1 · Esc.
+**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · Q / W · R · ? · F1 · Esc.
 
 ## Jumping to cuts
 
@@ -136,7 +137,7 @@ It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segme
 
 **What it does.** Shows one clip alone in the preview panel, without placing it on the timeline.
 
-**Details.** The panel switches to the clip with its own transport, and **Back to sequence** or **Esc** returns to the sequence exactly where it was. While a clip is previewed, **Space**, **←** / **→** and **Home** / **End** drive the previewed clip, not the sequence; **↑** / **↓**, **I**, **O** and **M** do nothing, since there is no sequence to jump in or mark; **?** and **F1** still open the cheat sheet and the guide. The full account is on [Media library](media-library.md#preview-a-clip).
+**Details.** The panel switches to the clip with its own transport, and **Back to sequence** or **Esc** returns to the sequence exactly where it was. While a clip is previewed, **Space**, **←** / **→** and **Home** / **End** drive the previewed clip, not the sequence; **↑** / **↓**, **I**, **O**, **M**, **Q** and **W** do nothing, since there is no sequence to jump in, mark or trim; **?** and **F1** still open the cheat sheet and the guide. The full account is on [Media library](media-library.md#preview-a-clip).
 
 **Related.** [Preview a clip](media-library.md#preview-a-clip)
 

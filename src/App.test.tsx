@@ -388,6 +388,52 @@ describe('undo and redo wait behind a modal dialog (#559)', () => {
   })
 })
 
+describe('Q and W trim at the playhead through the app (#710)', () => {
+  const probeMedia = (file: File) =>
+    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}`, kind: 'video' as const })
+  const press = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const field = (edge: 'in' | 'out') =>
+    screen.getByRole('spinbutton', { name: `Trim ${edge} point of clip.webm at position 1 in seconds` })
+
+  async function oneClip(user: ReturnType<typeof userEvent.setup>) {
+    render(<App probeMedia={probeMedia} />)
+    await user.upload(screen.getByTestId('clip-file-input'), new File(['x'], 'clip.webm', { type: 'video/webm' }))
+    await user.click(await screen.findByRole('button', { name: 'Add clip.webm to timeline' }))
+    expect(field('in')).toHaveValue(0)
+    expect(field('out')).toHaveValue(5)
+  }
+
+  it('Q, 1 s in, starts the entry on that frame and leaves it 1 s shorter; one Undo restores it', async () => {
+    const user = userEvent.setup()
+    await oneClip(user)
+    // Shift + → is the 1 s step.
+    press('ArrowRight', { shiftKey: true })
+    press('q')
+    expect(field('in')).toHaveValue(1)
+    expect(field('out')).toHaveValue(5)
+    expect(screen.getByText('plays 4s of 5s')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(field('in')).toHaveValue(0)
+    expect(field('out')).toHaveValue(5)
+  })
+
+  it('W, 1 s before the end, ends the entry on that frame; one Undo restores it', async () => {
+    const user = userEvent.setup()
+    await oneClip(user)
+    press('End')
+    press('ArrowLeft', { shiftKey: true })
+    press('w')
+    expect(field('in')).toHaveValue(0)
+    expect(field('out')).toHaveValue(4)
+    expect(screen.getByText('plays 4s of 5s')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(field('out')).toHaveValue(5)
+  })
+})
+
 describe('preview layout (#128, #667)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))

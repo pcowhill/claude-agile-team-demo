@@ -11,6 +11,7 @@ import {
   sequenceTimeAt,
   splitTargetAt,
   navigationBoundaries,
+  playheadTrimAt,
 } from './playback'
 import { timelineReducer, totalDuration } from './timeline'
 import { zoomAt } from './zoom'
@@ -549,6 +550,111 @@ describe('navigationBoundaries (#487)', () => {
     const beyond: TimelineState = { ...slates, markers: [{ id: 'z', time: 12, name: 'Later' }] }
     expect(navigationBoundaries(beyond)).toEqual([0, 5, 10])
     expect(navigationBoundaries({ entries: [], markers: [{ id: 'z', time: 1, name: 'Z' }] })).toEqual([])
+  })
+})
+
+describe('playheadTrimAt: Q and W trim at the playhead (#710)', () => {
+  it('Q moves In to the source instant under the playhead, W moves Out there', () => {
+    // 1.5 s into e2 (sequence 4.5): source 0 + 1.5. e2 keeps its other edge.
+    expect(playheadTrimAt(timeline, 4.5, 'start')).toEqual({ entryId: 'e2', inPoint: 1.5, outPoint: 10 })
+    expect(playheadTrimAt(timeline, 4.5, 'end')).toEqual({ entryId: 'e2', inPoint: 0, outPoint: 1.5 })
+    // 1 s into e1 (trimmed [2, 5]): source 3.
+    expect(playheadTrimAt(timeline, 1, 'start')).toEqual({ entryId: 'e1', inPoint: 3, outPoint: 5 })
+    expect(playheadTrimAt(timeline, 1, 'end')).toEqual({ entryId: 'e1', inPoint: 2, outPoint: 3 })
+  })
+
+  it('reads the playhead through a 2× speed segment, as the preview plays it', () => {
+    // e1 plays source [0, 10]; a 2× segment over source [2, 6] plays in 2 s
+    // of output. Output 3 is 1 s into that segment, which covers 2 s of
+    // source there: source 2 + 1 × 2 = 4. Worked by hand, not by the
+    // mapping under test.
+    const sped: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'speed', start: 2, end: 6, factor: 2 }],
+    }
+    expect(playheadTrimAt(sped, 3, 'start')).toEqual({ entryId: 'e1', inPoint: 4, outPoint: 10 })
+    expect(playheadTrimAt(sped, 3, 'end')).toEqual({ entryId: 'e1', inPoint: 0, outPoint: 4 })
+    // Output 5 is past the segment's 2 s of output (it ends at output 4, on
+    // source 6): source 6 + 1 = 7.
+    expect(playheadTrimAt(sped, 5, 'end')).toEqual({ entryId: 'e1', inPoint: 0, outPoint: 7 })
+  })
+
+  it('inside a pause trims at the held frame, and does nothing when that frame is the edge', () => {
+    const paused: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 4, hold: 2 }],
+    }
+    // Output 5 is inside the plateau (output [4, 6]) holding source 4.
+    expect(playheadTrimAt(paused, 5, 'start')).toEqual({ entryId: 'e1', inPoint: 4, outPoint: 10 })
+    expect(playheadTrimAt(paused, 5, 'end')).toEqual({ entryId: 'e1', inPoint: 0, outPoint: 4 })
+    const pausedAtStart: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      remaps: [{ id: 'r1', entryId: 'e1', kind: 'pause', at: 0, hold: 2 }],
+    }
+    // The plateau holds the first frame: that instant is In itself.
+    expect(playheadTrimAt(pausedAtStart, 1, 'start')).toBeNull()
+    expect(playheadTrimAt(pausedAtStart, 1, 'end')).toBeNull()
+  })
+
+  it('is null on an empty timeline, on an edge, and at the sequence end', () => {
+    expect(playheadTrimAt({ entries: [] }, 0, 'start')).toBeNull()
+    for (const edge of ['start', 'end'] as const) {
+      // The sequence start and the e1 → e2 cut resolve to an entry's In.
+      expect(playheadTrimAt(timeline, 0, edge)).toBeNull()
+      expect(playheadTrimAt(timeline, 3, edge)).toBeNull()
+      // The sequence end resolves to the last entry's Out.
+      expect(playheadTrimAt(timeline, 15, edge)).toBeNull()
+    }
+  })
+
+  it('is null where less than the minimum kept length would be left', () => {
+    // e3 is source [4, 6] at sequence [13, 15]. 0.05 s in, Q would keep
+    // 1.95 s, W only 0.05 s; 0.05 s from its end the reverse.
+    expect(playheadTrimAt(timeline, 13.05, 'start')).toEqual({ entryId: 'e3', inPoint: 4.05, outPoint: 6 })
+    expect(playheadTrimAt(timeline, 13.05, 'end')).toBeNull()
+    expect(playheadTrimAt(timeline, 14.95, 'start')).toBeNull()
+    expect(playheadTrimAt(timeline, 14.95, 'end')).toEqual({ entryId: 'e3', inPoint: 4, outPoint: 5.95 })
+    // Exactly the minimum is allowed, though 4.1 - 4 is 0.0999999999999996.
+    expect(playheadTrimAt(timeline, 13.1, 'end')).toEqual({ entryId: 'e3', inPoint: 4, outPoint: 4.1 })
+  })
+
+  it('keeps the instant to the millisecond, as the Trim window does', () => {
+    // 1/3 s into e2: source 0.333…, trimmed at 0.333.
+    expect(playheadTrimAt(timeline, 3 + 1 / 3, 'start')).toEqual({ entryId: 'e2', inPoint: 0.333, outPoint: 10 })
+    // Under half a millisecond into e2 rounds onto its In: nothing to cut.
+    expect(playheadTrimAt(timeline, 3.0004, 'start')).toBeNull()
+  })
+
+  it('is null over a still or a slate, and inside a transition overlap', () => {
+    const stills: TimelineState = {
+      entries: [
+        entry({ id: 'i1', kind: 'image', duration: 5, outPoint: 5 }),
+        entry({ id: 's1', kind: 'slate', duration: 5, outPoint: 5, url: '', color: '#ff0000' }),
+      ],
+    }
+    for (const edge of ['start', 'end'] as const) {
+      expect(playheadTrimAt(stills, 2, edge)).toBeNull()
+      expect(playheadTrimAt(stills, 7, edge)).toBeNull()
+    }
+    const withTransition: TimelineState = {
+      ...timeline,
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+    }
+    // The overlap covers sequence [2, 3): e1's tail and e2's head both play.
+    expect(playheadTrimAt(withTransition, 2.5, 'start')).toBeNull()
+    expect(playheadTrimAt(withTransition, 2.5, 'end')).toBeNull()
+    // Just before it, e1 trims normally.
+    expect(playheadTrimAt(withTransition, 1.5, 'end')).toEqual({ entryId: 'e1', inPoint: 2, outPoint: 3.5 })
+  })
+
+  it('applied through the reducer, Q shortens the entry by the playhead offset and starts on that frame', () => {
+    const trim = playheadTrimAt(timeline, 4, 'start')!
+    const after = timelineReducer(timeline, { type: 'entry-trimmed', id: trim.entryId, ...trim })
+    const e2 = after.entries[1]
+    expect([e2.inPoint, e2.outPoint]).toEqual([1, 10])
+    expect(totalDuration(after)).toBe(totalDuration(timeline) - 1)
+    // The frame under the playhead is now e2's first: the cut, at sequence 3.
+    expect(locateInSequence(after, 3)).toMatchObject({ index: 1, sourceTime: 1 })
   })
 })
 

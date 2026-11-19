@@ -94,6 +94,19 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('R', { shiftKey: true }))).toEqual({ kind: 'review-speed' })
   })
 
+  it('maps Q and W to trimming at the playhead, in either letter case, and never a chord (#710)', () => {
+    expect(transportActionForKey(key('q'))).toEqual({ kind: 'trim-to-playhead', edge: 'start' })
+    expect(transportActionForKey(key('Q', { shiftKey: true }))).toEqual({ kind: 'trim-to-playhead', edge: 'start' })
+    expect(transportActionForKey(key('w'))).toEqual({ kind: 'trim-to-playhead', edge: 'end' })
+    expect(transportActionForKey(key('W', { shiftKey: true }))).toEqual({ kind: 'trim-to-playhead', edge: 'end' })
+    // Ctrl/Cmd + W closes the browser tab, Ctrl/Cmd + Q quits it: never ours.
+    expect(transportActionForKey(key('w', { ctrlKey: true }))).toBeNull()
+    expect(transportActionForKey(key('q', { metaKey: true }))).toBeNull()
+    // I and O are still the export marks (#417).
+    expect(transportActionForKey(key('i'))).toEqual({ kind: 'mark', which: 'in' })
+    expect(transportActionForKey(key('o'))).toEqual({ kind: 'mark', which: 'out' })
+  })
+
   it('maps F1 to the user guide (#478), bare only', () => {
     expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
     expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()
