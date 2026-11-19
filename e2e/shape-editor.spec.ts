@@ -502,6 +502,39 @@ test('the Preview slider moves the picture under the shapes, and Show result ins
     .toBe('red')
 })
 
+test('the Badge tool places a numbered badge where clicked, and a placed badge moves by dragging (#689)', async ({
+  page,
+}) => {
+  const { editor, at } = await openEditor(page)
+  const centreOf = async (name: string) => ({
+    x: Number(await field(page, `Centre X of ${name} (0 to 1)`).inputValue()),
+    y: Number(await field(page, `Centre Y of ${name} (0 to 1)`).inputValue()),
+  })
+  // Two clicks, with the tool kept by a double-click, away from every guide
+  // (the thirds, the middle and the edges) so nothing snaps. The stated
+  // tolerance is `near`'s hundredth of the frame: Firefox clicks in whole
+  // pixels and the editor stores hundredths.
+  await tool(editor, 'Badge').dblclick()
+  const first = await at(0.22, 0.42)
+  await page.mouse.click(first.x, first.y)
+  const second = await at(0.6, 0.15)
+  await page.mouse.click(second.x, second.y)
+  const one = shapeName('Badge', 2)
+  const two = shapeName('Badge', 3)
+  await expectRead(() => centreOf(one), (centre) => near(centre, { x: 0.22, y: 0.42 }))
+  await expectRead(() => centreOf(two), (centre) => near(centre, { x: 0.6, y: 0.15 }))
+  await expect(field(page, `Number of ${one}`)).toHaveValue('1')
+  await expect(field(page, `Number of ${two}`)).toHaveValue('2')
+
+  // With Select, dragging the first badge by its body moves its centre.
+  await tool(editor, 'Select').click()
+  await drag(page, await at(0.22, 0.42), await at(0.12, 0.55), 'Alt')
+  await expectRead(() => centreOf(one), (centre) => near(centre, { x: 0.12, y: 0.55 }))
+  // One undo puts it back: the move was one edit.
+  await page.getByRole('button', { name: 'Undo last timeline edit' }).click()
+  await expectRead(() => centreOf(one), (centre) => near(centre, { x: 0.22, y: 0.42 }))
+})
+
 for (const width of [1280, 360]) {
   test(`the open shape editor, its style bar and Preview row stay inside its row at ${width}px (#685, #686)`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
@@ -517,7 +550,7 @@ for (const width of [1280, 360]) {
     await expectWithin(editor.getByTestId('frame-editor-frame'), row, { axis: 'x', what: 'the picture' })
     // Each tool, not the strip: a strip whose buttons overflow it keeps its
     // own box (measured, with the strip forced not to wrap).
-    for (const name of ['Select', 'Rectangle', 'Ellipse', 'Arrow']) {
+    for (const name of ['Select', 'Rectangle', 'Ellipse', 'Arrow', 'Badge']) {
       await expectWithin(tool(editor, name), editor, { axis: 'x', what: `the ${name} tool` })
     }
     // The canvas the shapes are drawn on covers the picture exactly.

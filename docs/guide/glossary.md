@@ -34,7 +34,7 @@ A block of text at a point in the frame for a window of time: a title, a caption
 
 ### Shape group
 
-Rectangles, ellipses and arrows drawn on the picture that appear, fade and disappear together, one row in the Shapes section. See [Shapes and annotations](shapes-and-annotations.md).
+Rectangles, ellipses, arrows and numbered badges drawn on the picture that appear, fade and disappear together, one row in the Shapes section. See [Shapes and annotations](shapes-and-annotations.md).
 
 ### Still
 

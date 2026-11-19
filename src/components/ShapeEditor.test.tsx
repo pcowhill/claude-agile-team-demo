@@ -390,6 +390,53 @@ describe('the shape editor (#685)', () => {
     expect(screen.getByTestId('shape-editor-status')).toHaveTextContent('Turn Show result off to edit')
   })
 
+  it('a click with the Badge tool places the next numbered badge there, as one undo step (#689)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    const tools = within(editor()).getByRole('toolbar')
+    await userEvent.click(within(tools).getByRole('button', { name: 'Badge tool' }))
+    // A click: press and release in one place, Alt so no guide pulls it.
+    fireEvent.pointerDown(layer(), { pointerId: 1, button: 0, altKey: true, ...at(0.27, 0.62) })
+    fireEvent.pointerUp(layer(), { pointerId: 1, altKey: true, ...at(0.27, 0.62) })
+    const first = shape('Badge', 2)
+    expect(field(`Centre X of ${first} (0 to 1)`)).toHaveValue(0.27)
+    expect(field(`Centre Y of ${first} (0 to 1)`)).toHaveValue(0.62)
+    expect(field(`Number of ${first}`)).toHaveValue(1)
+    expect(within(tools).getByRole('button', { name: 'Select tool' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(editor()).getByRole('img', { name: first })).toBeInTheDocument()
+
+    // A drag before letting go moves the new badge, and it takes the next number.
+    await userEvent.click(within(tools).getByRole('button', { name: 'Badge tool' }))
+    drag(layer(), { x: 0.4, y: 0.4 }, { x: 0.71, y: 0.18 })
+    const second = shape('Badge', 3)
+    expect(field(`Centre X of ${second} (0 to 1)`)).toHaveValue(0.71)
+    expect(field(`Centre Y of ${second} (0 to 1)`)).toHaveValue(0.18)
+    expect(field(`Number of ${second}`)).toHaveValue(2)
+
+    await userEvent.click(undo())
+    expect(screen.queryByRole('listitem', { name: second })).toBeNull()
+    expect(screen.getByRole('listitem', { name: first })).toBeInTheDocument()
+  })
+
+  it('a placed badge moves by its body with Select, and has no resize handles (#689)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(drawButton())
+    const tools = within(editor()).getByRole('toolbar')
+    await userEvent.click(within(tools).getByRole('button', { name: 'Badge tool' }))
+    fireEvent.pointerDown(layer(), { pointerId: 1, button: 0, altKey: true, ...at(0.27, 0.62) })
+    fireEvent.pointerUp(layer(), { pointerId: 1, altKey: true, ...at(0.27, 0.62) })
+    // Placed and selected: a circle outline, and no corner or edge grips.
+    const selection = screen.getByTestId('shape-editor-selection')
+    expect(selection.querySelector('circle.shape-editor-selected')).not.toBeNull()
+    expect(within(selection).queryByTestId('shape-editor-corner-se')).toBeNull()
+    drag(screen.getByTestId('shape-editor-shape-1'), { x: 0.27, y: 0.62 }, { x: 0.37, y: 0.52 })
+    const badge = shape('Badge', 2)
+    expect(field(`Centre X of ${badge} (0 to 1)`)).toHaveValue(0.37)
+    expect(field(`Centre Y of ${badge} (0 to 1)`)).toHaveValue(0.52)
+  })
+
   it('a field typed in the row moves the shape the editor shows: one value, two views', async () => {
     render(<App />)
     await chooseFromAddMenu(ADD_SHAPES)

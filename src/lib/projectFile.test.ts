@@ -33,10 +33,11 @@ import fixtureV26OverlayZoomsReferencesBase64 from './fixtures/project-v26-overl
 import fixtureV27OverlayBordersReferencesBase64 from './fixtures/project-v27-overlay-borders-references.bvep.base64?raw'
 import fixtureV28OverlayRemapsReferencesBase64 from './fixtures/project-v28-overlay-remaps-references.bvep.base64?raw'
 import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-overlay-shadows-references.bvep.base64?raw'
+import fixtureV30BadgeShapesReferencesBase64 from './fixtures/project-v30-badge-shapes-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
-import type { ShapeGroup } from './shapes'
+import type { Shape, ShapeGroup } from './shapes'
 import type { TextOverlay } from './textOverlay'
 import {
   AUDIO_FADES_SCHEMA_VERSION,
@@ -59,6 +60,7 @@ import {
   OVERLAY_BORDERS_SCHEMA_VERSION,
   OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
+  BADGE_SHAPES_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1151,8 +1153,8 @@ describe('project file versioning', () => {
     // shape borders (#688); version 26 added overlay zooms (#699); version
     // 27 added overlay borders (#697); version 28 added overlay speed
     // segments and pauses (#700); version 29 added overlay drop shadows
-    // (#698).
-    expect(PROJECT_SCHEMA_VERSION).toBe(29)
+    // (#698); version 30 added numbered badges in shape groups (#689).
+    expect(PROJECT_SCHEMA_VERSION).toBe(30)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1182,6 +1184,7 @@ describe('project file versioning', () => {
     expect(OVERLAY_BORDERS_SCHEMA_VERSION).toBe(27)
     expect(OVERLAY_REMAPS_SCHEMA_VERSION).toBe(28)
     expect(OVERLAY_SHADOWS_SCHEMA_VERSION).toBe(29)
+    expect(BADGE_SHAPES_SCHEMA_VERSION).toBe(30)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -5082,6 +5085,115 @@ describe('overlay drop shadows in project files (#698, schema version 29)', () =
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, shadow }])
+  })
+})
+
+// Numbered badges (#689, schema version 30): a badge in any shape group
+// forces 30; a badge-free file keeps its version and its bytes.
+describe('numbered badges in project files (#689, schema version 30)', () => {
+  const badge: Shape = {
+    id: 'b1',
+    kind: 'badge',
+    centerX: 0.25,
+    centerY: 0.4,
+    size: 0.08,
+    number: 1,
+    numberColor: '#ffffff',
+    stroke: '#ffffff',
+    strokeOpacity: 1,
+    thickness: 0,
+    fill: '#e53935',
+    fillOpacity: 1,
+  }
+  const badgeGroups: ShapeGroup[] = [
+    {
+      id: 'g1',
+      offset: 1,
+      duration: 3,
+      shapes: [
+        badge,
+        {
+          ...badge,
+          id: 'b2',
+          centerX: 0.5,
+          number: 12,
+          numberColor: '#000000',
+          fill: '#ffeb3b',
+          thickness: 0.004,
+          lineStyle: 'dashed',
+        },
+        {
+          id: 'e1',
+          kind: 'ellipse',
+          x: 0.6,
+          y: 0.3,
+          width: 0.2,
+          height: 0.3,
+          stroke: '#e53935',
+          strokeOpacity: 1,
+          thickness: 0.005,
+          fill: '#e53935',
+          fillOpacity: 0,
+        },
+      ],
+    },
+  ]
+
+  it('round-trips badges beside a box shape at version 30', async () => {
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: badgeGroups })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(BADGE_SHAPES_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).shapeGroups).toEqual(badgeGroups)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(badgeGroups)
+  })
+
+  it('keeps a group without badges at the version it had before', async () => {
+    const withoutBadges = [{ ...badgeGroups[0], shapes: [badgeGroups[0].shapes[2]] }]
+    const document = await gunzipJson(
+      await serializeProject(library, { ...timeline, shapeGroups: withoutBadges }),
+    )
+    expect(document.schemaVersion).toBe(SHAPE_GROUPS_SCHEMA_VERSION)
+  })
+
+  it('refuses a malformed badge by name', async () => {
+    const withShapes = (shapes: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: BADGE_SHAPES_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, shapeGroups: [{ ...badgeGroups[0], shapes }] },
+    })
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...badge, centerY: undefined }])),
+      'timeline.shapeGroups[0].shapes[0].centerY',
+    )
+    await expectRefusal(
+      await gzipJson(withShapes([{ ...badge, numberColor: 7 }])),
+      'timeline.shapeGroups[0].shapes[0].numberColor',
+    )
+    // A fractional number, a number past 999, a disc too small to read and
+    // a centre off the frame are each refused as an invalid shape.
+    for (const change of [{ number: 2.5 }, { number: 1000 }, { size: 0.01 }, { centerX: 1.2 }]) {
+      await expectRefusal(
+        await gzipJson(withShapes([{ ...badge, ...change }])),
+        'timeline.shapeGroups[0].shapes[0] is not a valid shape',
+      )
+    }
+  })
+
+  it('deserializes the committed v30 badge-shapes fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV30BadgeShapesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: { ...expectedProject.timeline, shapeGroups: badgeGroups },
+      },
+    })
   })
 })
 

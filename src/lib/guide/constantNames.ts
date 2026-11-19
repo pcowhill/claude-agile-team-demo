@@ -32,6 +32,12 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_SHAPE_GROUP_DURATION',
   'SHAPE_DASH_LENGTH',
   'SHAPE_DASH_GAP',
+  /** A numbered badge's highest number, first fill, and sizes in px at 1080p (#689). */
+  'MAX_BADGE_NUMBER',
+  'DEFAULT_BADGE_FILL',
+  'DEFAULT_BADGE_SIZE_1080',
+  'MIN_BADGE_SIZE_1080',
+  'MAX_BADGE_SIZE_1080',
   /** The configured bare-arrow step, in seconds (a live setting, #286). */
   'STEP_SECONDS',
   /** The configured Shift+arrow step, in seconds (a live setting, #286). */

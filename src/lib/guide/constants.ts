@@ -3,7 +3,15 @@ import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
 import { DEFAULT_SPOTLIGHT_DIM, MAX_SPOTLIGHT_SOFTEN } from '../spotlight'
-import { DEFAULT_SHAPE_GROUP_DURATION, LINE_DASH_FACTORS } from '../shapes'
+import {
+  DEFAULT_BADGE_SIZE,
+  DEFAULT_BADGE_STYLE,
+  DEFAULT_SHAPE_GROUP_DURATION,
+  LINE_DASH_FACTORS,
+  MAX_BADGE_NUMBER,
+  MAX_BADGE_SIZE,
+  MIN_BADGE_SIZE,
+} from '../shapes'
 import {
   DEFAULT_OVERLAY_SHADOW_BLUR_PX,
   DEFAULT_OVERLAY_SHADOW_OFFSET_PX,
@@ -77,6 +85,12 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     DEFAULT_SHAPE_GROUP_DURATION: String(DEFAULT_SHAPE_GROUP_DURATION),
     SHAPE_DASH_LENGTH: String(LINE_DASH_FACTORS.dashed[0]),
     SHAPE_DASH_GAP: String(LINE_DASH_FACTORS.dashed[1]),
+    MAX_BADGE_NUMBER: String(MAX_BADGE_NUMBER),
+    DEFAULT_BADGE_FILL: DEFAULT_BADGE_STYLE.fill.toUpperCase(),
+    // In a 1080p frame, whose shorter side is 1080 px, rounded to a whole pixel.
+    DEFAULT_BADGE_SIZE_1080: String(Math.round(DEFAULT_BADGE_SIZE * 1080)),
+    MIN_BADGE_SIZE_1080: String(Math.round(MIN_BADGE_SIZE * 1080)),
+    MAX_BADGE_SIZE_1080: String(Math.round(MAX_BADGE_SIZE * 1080)),
     STEP_SECONDS: String(settings.stepSeconds),
     LARGE_STEP_SECONDS: String(settings.largeStepSeconds),
     CROP_MIN_KEPT_PERCENT: percent(MIN_KEPT_FRACTION),

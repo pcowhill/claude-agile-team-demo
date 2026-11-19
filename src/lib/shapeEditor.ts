@@ -16,7 +16,8 @@
  * - drawing a shape from nothing, corner to corner or tail to tip;
  * - Shift's two constraints: a box square **in output pixels**, so a
  *   circle on a 16:9 frame is round, and an arrow snapped to 15° steps;
- * - an arrow's two ends, which are points rather than a box.
+ * - an arrow's two ends, which are points rather than a box;
+ * - a badge (#689), placed by its centre: a click puts one there.
  *
  * **Stored to two decimals**, the precision the row's fields show
  * (`formatSeconds` in `Timeline.tsx`), for #422's reason: the editor and
@@ -36,8 +37,18 @@ import {
   rectSnapOffset,
 } from './frameEditor'
 import type { FrameRect, RectBounds, RectGesture, RectKeyStep } from './frameEditor'
-import { MIN_SHAPE_SIZE, withLineStyle } from './shapes'
-import type { ArrowHeadSize, ArrowHeads, ArrowShape, BoxShape, LineStyle, Shape, ShapeKind, ShapeStyle } from './shapes'
+import { MAX_BADGE_SIZE, MIN_BADGE_SIZE, MIN_SHAPE_SIZE, drawsFill, isBoxShape, withLineStyle } from './shapes'
+import type {
+  ArrowHeadSize,
+  ArrowHeads,
+  ArrowShape,
+  BadgeShape,
+  BoxShape,
+  LineStyle,
+  Shape,
+  ShapeKind,
+  ShapeStyle,
+} from './shapes'
 
 /** What the tool strip offers: pick and edit, or draw one kind. */
 export type ShapeTool = 'select' | ShapeKind
@@ -98,9 +109,23 @@ export function arrowBounds(shape: Pick<ArrowShape, 'tailX' | 'tailY' | 'tipX' |
   return { x, y, width: Math.abs(shape.tipX - shape.tailX), height: Math.abs(shape.tipY - shape.tailY) }
 }
 
-/** The rectangle a shape occupies, whatever its kind. */
+/**
+ * A badge's place for moving and snapping (#689): its centre, as a
+ * zero-size rectangle. A badge's width in frame fractions depends on the
+ * output frame's aspect (its diameter is a fraction of the shorter side),
+ * which these frame-fraction rules do not know, so a badge moves and snaps
+ * by its centre — onto the edges, thirds and middle a rectangle's centre
+ * snaps to — and its centre is what is kept on the frame.
+ */
+export function badgeBounds(shape: Pick<BadgeShape, 'centerX' | 'centerY'>): FrameRect {
+  return { x: shape.centerX, y: shape.centerY, width: 0, height: 0 }
+}
+
+/** The rectangle a shape occupies, whatever its kind (a badge: its centre). */
 export function shapeBounds(shape: Shape): FrameRect {
-  return shape.kind === 'arrow' ? arrowBounds(shape) : boxRect(shape)
+  if (shape.kind === 'arrow') return arrowBounds(shape)
+  if (shape.kind === 'badge') return badgeBounds(shape)
+  return boxRect(shape)
 }
 
 /**
@@ -358,6 +383,34 @@ export function arrowAfterEndDrag(
 }
 
 /**
+ * Where the Badge tool puts a badge's centre for a pointer at `point`
+ * (#689): on the frame, snapped to the guides unless Alt is held, and on
+ * the stored grid.
+ */
+export function placedBadgeCenter(point: FramePoint, modifiers: { altKey?: boolean }): FramePoint {
+  const inside = { x: clamp(point.x, 0, 1), y: clamp(point.y, 0, 1) }
+  const placed = modifiers.altKey === true ? inside : snappedPoint(inside)
+  return { x: clamp(round(placed.x), 0, 1), y: clamp(round(placed.y), 0, 1) }
+}
+
+/**
+ * A badge moved by an offset (#689): its centre shifted, kept on the frame,
+ * and — unless Alt is held — snapped to the guides, as an arrow end is.
+ */
+export function movedBadge(
+  start: BadgeShape,
+  dx: number,
+  dy: number,
+  modifiers: { altKey?: boolean } = {},
+): BadgeShape {
+  const center = placedBadgeCenter({ x: start.centerX + dx, y: start.centerY + dy }, modifiers)
+  return { ...start, centerX: center.x, centerY: center.y }
+}
+
+/** How much `+` / `−` change a badge's diameter, as a fraction of the shorter side. */
+export const BADGE_SIZE_STEP = 0.01
+
+/**
  * What a gesture on a box shape's body or handles does: the free
  * rectangle's model, with Shift locking the shape's own proportions on a
  * corner, as the overlay editor's does.
@@ -382,6 +435,14 @@ export function boxAfterGesture(start: BoxShape, gesture: RectGesture): BoxShape
  * Returns the shape unchanged when the step has nowhere to go.
  */
 export function shapeAfterKeyStep(start: Shape, step: RectKeyStep, aspect: number): Shape {
+  if (start.kind === 'badge') {
+    if (step.kind === 'move') return movedBadge(start, step.dx, step.dy, { altKey: true })
+    // `+` / `−` grow or shrink the disc about its centre (#689).
+    const size = round(
+      clamp(start.size + (step.delta > 0 ? 1 : -1) * BADGE_SIZE_STEP, MIN_BADGE_SIZE, MAX_BADGE_SIZE),
+    )
+    return size === start.size ? start : { ...start, size }
+  }
   if (start.kind !== 'arrow') {
     return { ...start, ...rectAfterKeyStep(boxRect(start), step, SHAPE_BOUNDS) }
   }
@@ -450,6 +511,9 @@ export function selectionBounds(shapes: readonly Shape[]): FrameRect {
 /** One shape moved by an offset already known to keep it on the frame. */
 function shiftedShape(shape: Shape, dx: number, dy: number): Shape {
   const fit = (value: number) => clamp(round(value), 0, 1)
+  if (shape.kind === 'badge') {
+    return { ...shape, centerX: fit(shape.centerX + dx), centerY: fit(shape.centerY + dy) }
+  }
   if (shape.kind === 'arrow') {
     return {
       ...shape,
@@ -627,7 +691,7 @@ export interface SelectionStyle {
   thickness: Shared<number>
   /** Every kind has one (#688): a box's border, an arrow's shaft. */
   lineStyle: Shared<LineStyle>
-  /** Undefined when the selection holds an arrow, which draws no fill. */
+  /** Undefined when the selection holds an arrow, which draws no fill (a badge's disc is its fill). */
   fill?: Shared<string>
   fillOpacity?: Shared<number>
   /** Undefined unless every selected shape is a rectangle. */
@@ -645,7 +709,7 @@ function shared<T>(values: readonly T[]): Shared<T> {
  * The style bar's reading of a selection (#686): a field is present only
  * when it applies to **every** selected shape — the corner radius to an
  * all-rectangle selection, the heads to an all-arrow one, the fill to one
- * with no arrow — and reads `'mixed'` where the shapes disagree. Null for
+ * with no arrow (boxes and badges, #689) — and reads `'mixed'` where the shapes disagree. Null for
  * an empty selection.
  */
 export function selectionStyle(selected: readonly Shape[]): SelectionStyle | null {
@@ -656,13 +720,13 @@ export function selectionStyle(selected: readonly Shape[]): SelectionStyle | nul
     thickness: shared(selected.map((shape) => shape.thickness)),
     lineStyle: shared(selected.map((shape) => shape.lineStyle ?? 'solid')),
   }
-  const boxes = selected.filter((shape): shape is BoxShape => shape.kind !== 'arrow')
-  if (boxes.length === selected.length) {
-    result.fill = shared(boxes.map((shape) => shape.fill))
-    result.fillOpacity = shared(boxes.map((shape) => shape.fillOpacity))
-    if (boxes.every((shape) => shape.kind === 'rectangle')) {
-      result.cornerRadius = shared(boxes.map((shape) => shape.cornerRadius ?? 0))
-    }
+  if (selected.every((shape) => drawsFill(shape.kind))) {
+    result.fill = shared(selected.map((shape) => shape.fill))
+    result.fillOpacity = shared(selected.map((shape) => shape.fillOpacity))
+  }
+  const boxes = selected.filter(isBoxShape)
+  if (boxes.length === selected.length && boxes.every((shape) => shape.kind === 'rectangle')) {
+    result.cornerRadius = shared(boxes.map((shape) => shape.cornerRadius ?? 0))
   }
   const arrows = selected.filter((shape): shape is ArrowShape => shape.kind === 'arrow')
   if (arrows.length === selected.length) {

@@ -8,7 +8,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## Symbols and keys
 
-- **+ Add shape** — an expanded shape group row; adds a rectangle, an ellipse or an arrow. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **+ Add shape** — an expanded shape group row; adds a rectangle, an ellipse, an arrow or a numbered badge. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **+ Effect** — an expanded sequence entry or overlay, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
 - **?** — shows the keyboard cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **× (beside the playhead)** — the position readout, while the review speed is not 1×; how fast the preview is playing. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
@@ -57,6 +57,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Background fill** — an expanded sequence entry › Picture ▸. [Editing video › Background fill](editing-video.md#background-fill)
 - **Backspace** — the shape editor's picture, with shapes selected; removes them, as Delete does. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
+- **Badge** — + Add shape ▾ on a shape group; a filled circle with the group's next number in it. Also the shape editor's tool for placing one with a click. [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Bold** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Border colour** — a shape in an expanded shape group row › Border. Also the shape editor's style bar, for the selected shapes, and an expanded overlay row › Picture ▸ › Border. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor) · [Editing video › Overlay border](editing-video.md#overlay-border)
 - **Border opacity** — a shape in an expanded shape group row › Border; 0 to 100 %. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
@@ -68,8 +69,8 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
-- **Centre X** — an expanded text row; the block's centre across the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
-- **Centre Y** — an expanded text row; the block's centre down the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
+- **Centre X** — an expanded text row; the block's centre across the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
+- **Centre Y** — an expanded text row; the block's centre down the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 - **Chapter list** — the export dialog's Range group; the read-only field a refused copy falls back to. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
 - **Chapter marker** — the numbered tick under the preview's seek bar, one per marker inside the sequence, named for the marker and its time; press it for the marker's menu. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Chapter progress** — the export dialog, during an Each chapter run; which chapter is recording and how many there are. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
@@ -108,6 +109,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Default subtitle italic** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Default subtitle size** — the Subtitle style disclosure. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Delete** — the shape editor's picture, with shapes selected; removes them. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
+- **Diameter** — a badge in an expanded shape group row › Size, in pixels of the output frame. [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 - **Disable GIF export** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › GIF export](plugins.md#gif-export)
 - **Disable Shaped wipes** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Discard and open** — the *Discard unsaved changes?* dialog, raised by File ▾ › Open Project… while changes are unsaved; goes ahead and asks for the file. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
@@ -142,8 +144,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Fade-in** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Fade-out** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **File** — the header menu holding the project, plugin, settings and export actions. [Projects › New Project](projects.md#new-project)
-- **Fill colour** — a rectangle or ellipse in an expanded shape group row › Fill. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
-- **Fill opacity** — a rectangle or ellipse in an expanded shape group row › Fill; 0 % is a clear centre. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Fill colour** — a rectangle, ellipse or badge in an expanded shape group row › Fill. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Fill opacity** — a rectangle, ellipse or badge in an expanded shape group row › Fill; 0 % is a clear centre. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Fit to width** — the preview's View ▾; the picture takes the panel's whole width, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Flip H** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
@@ -198,6 +200,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Name of chapter marker** — the preview, while a marker's name is being edited — a new marker opens on it, and Rename… reopens it; Enter commits, Escape keeps what it had. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **New Project** — File ▾. [Projects › New Project](projects.md#new-project)
 - **New still or slate duration** — Settings. [Settings › New still or slate duration](settings.md#new-still-or-slate-duration)
+- **Number** — a badge in an expanded shape group row; the number it shows, a whole number 0 to 999. New badges count on from the group's highest. [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
+- **Number colour** — a badge in an expanded shape group row; the colour of its number. [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 
 ## O
 
