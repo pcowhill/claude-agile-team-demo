@@ -434,6 +434,78 @@ describe('Q and W trim at the playhead through the app (#710)', () => {
   })
 })
 
+describe('Q lands the playhead on the trimmed entry’s new start (#754)', () => {
+  const probeMedia = (file: File) =>
+    Promise.resolve({ duration: 5, url: `blob:probe/${file.name}`, kind: 'video' as const })
+  const press = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const playhead = () => Number(screen.getByRole('slider', { name: 'Seek within sequence' }).getAttribute('value'))
+  const inOf = (name: string, position: number) =>
+    screen.getByRole('spinbutton', { name: `Trim in point of ${name} at position ${position} in seconds` })
+
+  async function clips(user: ReturnType<typeof userEvent.setup>, names: string[]) {
+    render(<App probeMedia={probeMedia} />)
+    for (const name of names) {
+      await user.upload(screen.getByTestId('clip-file-input'), new File(['x'], name, { type: 'video/webm' }))
+      await user.click(await screen.findByRole('button', { name: `Add ${name} to timeline` }))
+    }
+  }
+
+  it('Q 2 s into the first entry trims In to 2 and moves the playhead to 0; Undo leaves it there', async () => {
+    const user = userEvent.setup()
+    await clips(user, ['clip.webm'])
+    press('ArrowRight', { shiftKey: true })
+    press('ArrowRight', { shiftKey: true })
+    expect(playhead()).toBe(2)
+    press('q')
+    expect(inOf('clip.webm', 1)).toHaveValue(2)
+    // The entry now starts on the frame that was showing, and so does the
+    // playhead: sequence 0 is source 2.
+    expect(playhead()).toBe(0)
+    // Undo restores the trim and, as any undo, leaves the playhead alone.
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(inOf('clip.webm', 1)).toHaveValue(0)
+    expect(playhead()).toBe(0)
+  })
+
+  it('Q 1 s into a second entry lands on that entry’s start, after the first', async () => {
+    const user = userEvent.setup()
+    await clips(user, ['a.webm', 'b.webm'])
+    // 6 s: 1 s into b.webm, which starts at 5 s.
+    for (let i = 0; i < 6; i++) press('ArrowRight', { shiftKey: true })
+    expect(playhead()).toBe(6)
+    press('q')
+    expect(inOf('b.webm', 2)).toHaveValue(1)
+    expect(inOf('a.webm', 1)).toHaveValue(0)
+    expect(playhead()).toBe(5)
+  })
+
+  it('W leaves the playhead where it was: already on the entry’s new end', async () => {
+    const user = userEvent.setup()
+    await clips(user, ['a.webm', 'b.webm'])
+    for (let i = 0; i < 3; i++) press('ArrowRight', { shiftKey: true })
+    press('w')
+    expect(screen.getByRole('spinbutton', { name: 'Trim out point of a.webm at position 1 in seconds' })).toHaveValue(3)
+    expect(playhead()).toBe(3)
+  })
+
+  it('an edit after a Q that did nothing does not move the playhead', async () => {
+    const user = userEvent.setup()
+    await clips(user, ['clip.webm'])
+    // At 0 the entry's own edge: Q is inert, so nothing waits to land.
+    press('q')
+    expect(inOf('clip.webm', 1)).toHaveValue(0)
+    press('ArrowRight', { shiftKey: true })
+    press('ArrowRight', { shiftKey: true })
+    // An ordinary edit through the row's field: the playhead stays at 2.
+    await user.clear(screen.getByRole('spinbutton', { name: 'Trim out point of clip.webm at position 1 in seconds' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Trim out point of clip.webm at position 1 in seconds' }), '4.5{Enter}')
+    expect(playhead()).toBe(2)
+  })
+})
+
 describe('preview layout (#128, #667)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))
