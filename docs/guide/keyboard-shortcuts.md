@@ -7,7 +7,7 @@ Every key the editor answers to, in one table. It is the same table **Help ▾**
 ```shortcuts
 ```
 
-The transport keys are explained on the Preview and playback page; Undo and Redo on the Undo and redo page; Escape's other job, leaving a previewed library clip, on [Preview a clip](media-library.md#preview-a-clip). The keys under *In the shape editor* work only while the shape editor's picture has the keyboard, on the shapes selected there; see [Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture).
+The transport keys are explained on the Preview and playback page; Undo and Redo on the Undo and redo page; Escape's other job, leaving a previewed library clip, on [Preview a clip](media-library.md#preview-a-clip). The keys under *In the shape editor* work only while the shape editor's picture has the keyboard, on the shapes selected there; see [Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture). The keys under *In the Trim window* work while a sequence entry's Trim window is open, in place of the rows above, which do nothing behind it; see [The Trim window](editing-video.md#the-trim-window).
 
 ## When the shortcuts pause
 

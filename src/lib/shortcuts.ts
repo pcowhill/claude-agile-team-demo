@@ -30,6 +30,13 @@ export interface Shortcut {
 /** The shape editor's own keys (#686): they act on its selection. */
 export const SHAPE_EDITOR_SCOPE = 'In the shape editor'
 
+/**
+ * The Trim window's own keys (#707). The window is a modal dialog, so the
+ * app-wide rows above are inert while it is open, and the same keys do
+ * these instead.
+ */
+export const TRIM_WINDOW_SCOPE = 'In the Trim window'
+
 export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): readonly Shortcut[] => [
   { keys: ['Space'], does: 'Play / pause the preview' },
   { keys: ['← / →'], does: `Step the playhead ${stepSeconds} s back / forward` },
@@ -50,6 +57,19 @@ export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): rea
     does: 'Duplicate the selected shapes, slightly offset',
     scope: SHAPE_EDITOR_SCOPE,
   },
+  { keys: ['Space'], does: 'Play / pause Play trim', scope: TRIM_WINDOW_SCOPE },
+  { keys: ['I / O'], does: 'Set the In / Out clamp at the playhead', scope: TRIM_WINDOW_SCOPE },
+  {
+    keys: ['← / →'],
+    does: `Move the focused clamp ${stepSeconds} s back / forward`,
+    scope: TRIM_WINDOW_SCOPE,
+  },
+  {
+    keys: ['Shift + ← / →'],
+    does: `Move the focused clamp ${largeStepSeconds} s back / forward`,
+    scope: TRIM_WINDOW_SCOPE,
+  },
+  { keys: ['Esc'], does: 'Close the window without applying', scope: TRIM_WINDOW_SCOPE },
 ]
 
 /**

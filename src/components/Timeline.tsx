@@ -133,6 +133,8 @@ import {
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
+import { TrimDialog } from './TrimDialog'
+import { DEFAULT_SETTINGS } from '../lib/settings'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
 import './dialog.css'
@@ -200,6 +202,13 @@ interface TimelineProps {
   onPasteSettings?: (kind: SettingsElementKind, id: string, settings: CopiedSettings) => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
+  /**
+   * The Trim window's clamp steps (#707): the nudge and jump sizes from
+   * Settings, as the transport's arrows use. Optional so tests that predate
+   * the window keep compiling; the defaults are Settings' own.
+   */
+  stepSeconds?: number
+  largeStepSeconds?: number
   /** Sets a still entry's on-screen duration (#140); stills have no trim. */
   onSetStillDuration: (id: string, duration: number) => void
   /** Appends a solid-color slate to the sequence (#143) — no import involved. */
@@ -1950,6 +1959,8 @@ export function Timeline({
   onPasteSettings,
   onRemoveEntry,
   onTrimEntry,
+  stepSeconds = DEFAULT_SETTINGS.stepSeconds,
+  largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
   onSetStillDuration,
   onAddSlate,
   onSetSlateColor,
@@ -2338,6 +2349,10 @@ export function Timeline({
   // one at a time, since the field takes the name's place in its row. View
   // state only; the committed name is the reducer's.
   const [renaming, setRenaming] = useState<string | null>(null)
+  // Which sequence entry's Trim window (#707) is open, if any: one at a
+  // time, since it is a modal dialog. View state only; Apply is the one
+  // edit it makes.
+  const [trimmingId, setTrimmingId] = useState<string | null>(null)
   const nameCell = (
     id: string,
     name: string,
@@ -2861,6 +2876,31 @@ export function Timeline({
                         onCommit={(outPoint) => onTrimEntry(entry.id, entry.inPoint, outPoint)}
                         unit="s"
                       />
+                      {/* The Trim window (#707): a second way to set the
+                          same two numbers, watching the clip. */}
+                      <button
+                        type="button"
+                        className="timeline-trim-open"
+                        aria-label={`Trim ${position} in the Trim window`}
+                        aria-haspopup="dialog"
+                        title="Trim in a window: watch the clip and drag In and Out on it"
+                        onClick={() => setTrimmingId(entry.id)}
+                      >
+                        Trim…
+                      </button>
+                      {trimmingId === entry.id && (
+                        <TrimDialog
+                          entry={entry}
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onApply={(inPoint, outPoint) => {
+                            setTrimmingId(null)
+                            onTrimEntry(entry.id, inPoint, outPoint)
+                          }}
+                          onClose={() => setTrimmingId(null)}
+                        />
+                      )}
                       <span className="timeline-entry-effective">
                         plays {formatSeconds(effectiveDuration(entry))}s of{' '}
                         {formatSeconds(entry.duration)}s

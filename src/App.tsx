@@ -658,6 +658,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
           }
+          stepSeconds={settings.stepSeconds}
+          largeStepSeconds={settings.largeStepSeconds}
           onSetStillDuration={(id, duration) =>
             dispatchTimeline({ type: 'still-duration-set', id, duration })
           }

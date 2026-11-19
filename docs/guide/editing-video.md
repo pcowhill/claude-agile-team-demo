@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -8,9 +8,36 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Sets where the clip starts and stops playing, in seconds into its source file.
 
-**Details.** Type a value and press Enter, or drag the slider beside the field. The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
+**Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry, **Trim…** beside the fields sets the same two numbers while you watch the clip: see [The Trim window](#the-trim-window). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
 
-**Related.** [A row](timeline.md#a-row) · [Time on the timeline](concepts.md#time-on-the-timeline)
+**Related.** [The Trim window](#the-trim-window) · [A row](timeline.md#a-row) · [Time on the timeline](concepts.md#time-on-the-timeline)
+
+## The Trim window
+
+**Where to find it.** An expanded video sequence entry › **Trim…**, beside **In** and **Out**.
+
+**What it does.** Opens a window over the editor where you watch the clip and drag its In and Out on a strip of the whole clip, then play just the part you keep, like *Trim Video* in a presentation app. It is a second way to set the entry's **In** and **Out**.
+
+**Details.**
+
+- **The picture** is the source clip itself, with none of the entry's effects (colour, crop, zoom), so nothing hides what is at its edges. Under it, the playhead's time and the clip's length.
+- **The strip** is the whole clip, left to right, with its sound's waveform. The parts outside the two clamps are darkened.
+  - **The In clamp** `[` and **the Out clamp** `]` are dragged along the strip; the picture follows the clamp you drag, showing the frame the kept part will start or end on.
+  - Each clamp is also a slider: Tab to it, then **←** and **→** move it by the nudge size and **Shift** by the jump size (both in [Settings](settings.md)); **Home** and **End** take it to its limit.
+  - The clamps cannot cross: the kept part is never shorter than a tenth of a second.
+  - Click or drag on the strip anywhere else to move the playhead and look at that moment, without moving a clamp.
+- **The buttons:**
+  - **▶ Play trim** plays from In and stops at Out. It starts from the playhead instead when the playhead is already inside the kept part, so a pause and a second press carry on. While it plays it reads **⏸ Pause**.
+  - **↻ Loop**, while it is on, takes Play trim back to In each time it reaches Out, until you pause.
+  - **⏮ In** and **Out ⏭** move the playhead to a clamp. **◀ frame** and **frame ▶** move it one frame (a thirtieth of a second).
+  - **Set In here (I)** and **Set Out here (O)** move a clamp to the playhead: play, then press **I** where you want the clip to begin and **O** where you want it to end. Between them, **kept** says how long the kept part is.
+  - **In** and **Out** at the bottom show the clamps' times exactly, to type into. A value past the other clamp stops a tenth of a second short of it.
+- **Nothing changes until Apply.** **Apply** sets the entry's In and Out together, as one undo step; it is greyed out until a clamp has moved. **Cancel**, **✕** and **Esc** close the window and change nothing. A click outside the window does not close it.
+- **Keys while it is open:** **Space** plays and pauses, **I** and **O** set the clamps, and **Esc** closes. They act on the window only: behind it, the editor's own keys do nothing, so I and O never set the [export marks](preview-and-playback.md#export-marks) while the window is open. In a field you are typing into, keys type; on a focused button, Space presses that button.
+
+**Shortcuts.** Space plays or pauses · I sets In · O sets Out · ← → move a focused clamp, Shift for the jump size · Esc closes without applying.
+
+**Related.** [Trimming](#trimming) · [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 
 ## Split at playhead
 

@@ -218,3 +218,49 @@ export async function expectCovers(
   expect(inner.x, `${what} left edge`).toBeCloseTo(outer.x, 0)
   expect(inner.y, `${what} top edge`).toBeCloseTo(outer.y, 0)
 }
+
+/**
+ * Every element of a locator lays its text on one line (no mid-word wrap),
+ * and there is at least one element to check. Moved here from
+ * `user-guide.spec.ts` when the Trim window's buttons needed it too (#707).
+ *
+ * Counted as the lines its **text** occupies: each text node's client rects,
+ * grouped by vertical overlap, so one line holding text of two sizes is
+ * still one line. Neither earlier measure could see a wrap everywhere (#603):
+ * - `scrollWidth <= clientWidth` compares boxes, and wrapped text fits its
+ *   box. On the inline Contents links it also read `0 <= 0` in Chromium,
+ *   which defines neither for an inline box (#586).
+ * - `getClientRects().length` counts an element's own boxes. An inline link
+ *   gets one per line, but a block-level element gets one however many lines
+ *   its text takes, and the shortcut table's `<kbd>`s are flex items, which
+ *   are blockified. Made to wrap onto three lines, every combo still read 1.
+ *
+ * The first element is awaited before the list is read: `all()` does not
+ * wait, and straight after the guide opens the Contents can hold 0 links, a
+ * loop over which asserts nothing.
+ */
+export async function expectNoWrap(items: Locator, what: string) {
+  await expect(items.first(), `no ${what} to check`).toBeVisible()
+  for (const item of await items.all()) {
+    const layout = await item.evaluate((node) => {
+      const rects: DOMRect[] = []
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+      const range = document.createRange()
+      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        range.selectNodeContents(text)
+        for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect)
+      }
+      rects.sort((a, b) => a.top - b.top)
+      let lines = 0
+      let lineBottom = -Infinity
+      for (const rect of rects) {
+        // A rect starting below the current line's bottom starts a new line.
+        // Half a pixel, for subpixel rounding between two rects of one line.
+        if (rect.top >= lineBottom - 0.5) lines++
+        lineBottom = Math.max(lineBottom, rect.bottom)
+      }
+      return { lines, text: node.textContent }
+    })
+    expect(layout.lines, `${what} "${layout.text}" wraps onto more than one line`).toBe(1)
+  }
+}

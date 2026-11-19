@@ -40,6 +40,7 @@ import { sineWav } from './sineWav'
  * - the five visual editors (#507): Crop, Zoom, Overlay, Text and
  *   Redaction, each from the Adjust visually… button on the row it edits,
  *   and the shape editor (#685) from a shape group's Draw shapes… button
+ * - the Trim window (#707), from a video entry's Trim… button
  * - the recording dialog, in all three of its states (#514) — counting
  *   down, recording, and paused
  * - the Save mode dialog, and the Open project dialog it writes the file
@@ -315,6 +316,38 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Arrow tool',
     to: 'Arrow',
     why: 'as above — the shape editor\'s Arrow tool (#685)',
+  },
+  // The Trim window (#707): its controls read as glyphs or short words on
+  // screen, and their accessible names say what each does.
+  {
+    from: 'Trim in the Trim window',
+    to: 'Trim…',
+    why: 'the button reads "Trim…"; the name says which entry it trims (#707)',
+  },
+  {
+    from: 'Close the Trim window without applying',
+    to: '✕ (close the Trim window)',
+    why: "the window's close is the ✕ glyph with no words; its accessible name says what closing does (#707)",
+  },
+  {
+    from: 'Back one frame',
+    to: '◀ frame',
+    why: 'the button reads "◀ frame"; the name spells the glyph out (#707)',
+  },
+  {
+    from: 'Forward one frame',
+    to: 'frame ▶',
+    why: 'as above, the button reads "frame ▶" (#707)',
+  },
+  {
+    from: 'In point to apply',
+    to: 'In',
+    why: 'the Trim window\'s field is labelled "In"; the name tells it apart from the row\'s own In, which it is applied to (#707)',
+  },
+  {
+    from: 'Out point to apply',
+    to: 'Out',
+    why: 'as above, the field is labelled "Out" (#707)',
   },
   {
     from: 'Close the Zoom editor',
@@ -894,6 +927,18 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     }),
     'the shape editor',
   )
+
+  // The Trim window (#707), from the first entry's Trim… button: a modal
+  // dialog over the editor rather than a visual editor under the row, so it
+  // is recorded on its own and closed with Escape.
+  await timeline
+    .getByRole('button', { name: `Trim ${firstEntry} in the Trim window`, exact: true })
+    .click()
+  const trimWindow = page.getByRole('dialog', { name: `Trim ${firstEntry}` })
+  await expect(trimWindow).toBeVisible()
+  await record('the Trim window', trimWindow)
+  await page.keyboard.press('Escape')
+  await expect(trimWindow).toHaveCount(0)
 
   // ── A speed segment and a pause (#525) ──────────────────────────────
   //

@@ -16,18 +16,21 @@ This list is checked against the running editor in CI: a control the app shows a
 - **↑ (move up)** — a sequence entry's main line; moves the entry up the sequence. [Timeline › A row](timeline.md#a-row)
 - **↑ / ↓** — jumps the playhead to the previous or next cut, transition edge or chapter marker. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
 - **↓ (move down)** — a sequence entry's main line; moves the entry down the sequence. [Timeline › A row](timeline.md#a-row)
-- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold, a redaction or spotlight region’s window, or a shape group’s window. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop)
+- **↻ Loop** — the preview transport, replaying the marked range on repeat; and a visual editor’s scrub row, replaying the zoom’s hold, a redaction or spotlight region’s window, or a shape group’s window. And the Trim window, taking Play trim back to In at Out. [Preview and playback › Loop](preview-and-playback.md#loop) · [Visual editors › Loop](visual-editors.md#loop) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **⇤ Mark out** — the preview transport; marks the export range's end at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⇥ Mark in** — the preview transport; marks the export range's start at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 - **⋯ menu** — a timeline row's main line, and a media library row. [Timeline › The ⋯ menu](timeline.md#the-menu) · [Media library › The ⋯ menu](media-library.md#the-menu)
 - **⏭ (next cut)** — the preview transport. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
 - **⏮ (previous cut)** — the preview transport. [Preview and playback › Jumping to cuts](preview-and-playback.md#jumping-to-cuts)
+- **⏮ In** — the Trim window; moves the playhead to the In clamp. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **▲ ▼ (fold all)** — the timeline header; collapses or expands every row at once. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
 - **▶ (preview a clip)** — a media library row; plays the source in place. [Media library › Preview a clip](media-library.md#preview-a-clip)
 - **▶ Play** — the preview transport. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **▾ (expand a row)** — a row's main line; shows the element's fields. [Timeline › A row](timeline.md#a-row)
 - **▾ (fold a section)** — a section heading; folds that whole section away. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
+- **◀ frame** — the Trim window; moves the playhead one frame back. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was, Escape included. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
+- **✕ (close the Trim window)** — the top-right of the Trim window; closes it without applying, as Cancel and Esc do. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
 - **✕ Marks** — the preview transport, once a mark is set; clears both. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
 
@@ -42,6 +45,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Adjust visually…** — beside the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
+- **Apply** — the Trim window; sets the entry's In and Out from the clamps, as one undo step. Greyed out until a clamp has moved. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Arrow** — + Add shape ▾ on a shape group; an arrow or a line from a tail to a tip. Also the shape editor's tool for drawing one, tail to tip. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Arrow heads** — an arrow in an expanded shape group row › Heads; at the tip, both ends, or none for a line. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
@@ -62,7 +66,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## C
 
-- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
+- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
 - **Centre X** — an expanded text row; the block's centre across the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Centre Y** — an expanded text row; the block's centre down the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
@@ -121,7 +125,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Embed media in the project file** — the Save project dialog; one self-contained file with the media data in it. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Enable GIF export** — File ▾ › Plugins…. [Plugins › GIF export](plugins.md#gif-export)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
-- **Esc** — leaves the source preview, back to the sequence. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
+- **Esc** — leaves the source preview, back to the sequence; closes the Trim window without applying. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Expanded** — the preview's View ▾; the preview as the page's full-width first row. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Export** — File ▾ › Export ▸, which opens the export dialog on a chosen format; and the export dialog's own Export button. [Export › Opening the export dialog](export.md#opening-the-export-dialog)
 - **Export frame rate** — the export dialog's Output group. [Export › Output settings](export.md#output-settings)
@@ -145,6 +149,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Font** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Frame** — the preview transport's menu of frame actions. [Preview and playback › The Frame ▾ menu](preview-and-playback.md#the-frame-menu)
+- **frame ▶** — the Trim window; moves the playhead one frame on. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Freeze frame — append after clip** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 - **Freeze frame — split & hold** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 
@@ -158,9 +163,10 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## I
 
-- **I / O** — marks the export range in or out at the playhead. [Preview and playback › Export marks](preview-and-playback.md#export-marks)
+- **I / O** — marks the export range in or out at the playhead; in the Trim window, sets the In or Out clamp at its playhead instead. [Preview and playback › Export marks](preview-and-playback.md#export-marks) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Import clips** — the media library header. [Media library › Importing clips](media-library.md#importing-clips)
-- **In** — an expanded video or audio row; where the clip starts playing. [Editing video › Trimming](editing-video.md#trimming)
+- **In** — an expanded video or audio row; where the clip starts playing. Also the Trim window's In field, the In clamp's time to type. [Editing video › Trimming](editing-video.md#trimming) · [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **In clamp** — the Trim window's strip, the `[` grip; where the kept part starts. Drag it, or Tab to it and use ← →. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Italic** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 
 ## K
@@ -196,7 +202,9 @@ This list is checked against the running editor in CI: a control the app shows a
 
 - **Open project** — the re-link dialog; applies the project once every clip is linked. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Open Project…** — File ▾. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
-- **Out** — an expanded video or audio row; where the clip stops playing. [Editing video › Trimming](editing-video.md#trimming)
+- **Out** — an expanded video or audio row; where the clip stops playing. Also the Trim window's Out field, the Out clamp's time to type. [Editing video › Trimming](editing-video.md#trimming) · [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **Out clamp** — the Trim window's strip, the `]` grip; where the kept part ends. Drag it, or Tab to it and use ← →. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **Out ⏭** — the Trim window; moves the playhead to the Out clamp. [Editing video › The Trim window](editing-video.md#the-trim-window)
 
 ## P
 
@@ -205,6 +213,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Pause position** — a pause on an expanded video entry; the second of the entry's trimmed range whose frame is frozen. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Pause recording** — the recording dialog; pauses the capture, and reads Resume recording while paused. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Picture** — an expanded video or image row; the disclosure holding the picture treatments. [Timeline › Picture ▸](timeline.md#picture)
+- **Play trim** — the Trim window; plays from In and stops at Out, reading ⏸ Pause while it plays. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
@@ -258,13 +267,15 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select tool** — the shape editor's tool strip; click a shape to select it, then drag it or its handles. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Send backward** — the shape editor's style bar; moves the selected shapes one step down the group's drawing order. [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
+- **Set In here (I)** — the Trim window; moves the In clamp to the playhead. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **Set Out here (O)** — the Trim window; moves the Out clamp to the playhead. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Settings…** — File ▾. [Settings › Opening Settings](settings.md#opening-settings)
 - **Shape group** — Add ▾. [Shapes and annotations › Adding a shape group](shapes-and-annotations.md#adding-a-shape-group)
 - **Shape mask** — an expanded overlay row › Picture ▸. [Editing video › Shape mask](editing-video.md#shape-mask)
 - **Shift + ← / →** — steps the playhead back and forward by the jump size. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Show result** — a visual editor’s scrub row; draws the frame the viewer gets instead of the outline. [Visual editors › Show result](visual-editors.md#show-result)
 - **Size** — an expanded text row; the line height as a fraction of the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
-- **Space** — plays or pauses the preview. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control)
+- **Space** — plays or pauses the preview; in the Trim window, plays or pauses Play trim. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Speed segment** — + Effect ▾ on a sequence entry. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Speed segment end** — a speed segment on an expanded video entry; the second of the entry's trimmed range its span runs to. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Speed segment factor** — a speed segment on an expanded video entry; the × its span plays at — below 1 slower, above 1 faster. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
@@ -297,6 +308,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Top edge** — an expanded overlay row; the placement rectangle's top edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Transition duration** — a transition control between two entries; how long the overlap lasts. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Transition type** — a transition control between two entries; which transition it is. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
+- **Trim…** — an expanded video sequence entry, beside In and Out; opens the Trim window. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Type** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 
 ## U
