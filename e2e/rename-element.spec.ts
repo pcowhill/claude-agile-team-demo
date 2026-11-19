@@ -4,6 +4,7 @@ import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseRowAction, rowMenuTrigger } from './timelineRowMenu'
+import { chooseClipAction } from './clipMenu'
 
 type Page = import('@playwright/test').Page
 
@@ -163,3 +164,90 @@ test('renaming an entry and an audio track relabels the rows and the preview; Ct
   await expect(page.getByRole('button', { name: 'Add clip.webm to timeline' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add tone.wav to timeline' })).toBeVisible()
 })
+
+/** A solid PNG, drawn in the page so the import probe accepts it. */
+async function solidPng(page: Page, width: number, height: number): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ({ width, height }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#36c'
+      ctx.fillRect(0, 0, width, height)
+      return canvas.toDataURL('image/png').split(',')[1]
+    },
+    { width, height },
+  )
+  return Buffer.from(base64, 'base64')
+}
+
+for (const width of [360, 1280]) {
+  test(`a long custom name ellipsizes on an entry, an audio track and an overlay at ${width}px, keeping the panel in the window (#717)`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000)
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('./')
+    // A populated project (development.md): a still entry, an audio track
+    // and an image overlay, each renamed to an 80-character name.
+    await page.getByTestId('clip-file-input').setInputFiles([
+      { name: 'base.png', mimeType: 'image/png', buffer: await solidPng(page, 320, 180) },
+      { name: 'cam.png', mimeType: 'image/png', buffer: await solidPng(page, 160, 160) },
+      { name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(2) },
+    ])
+    await page.getByRole('button', { name: 'Add base.png to timeline' }).click()
+    await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
+    await chooseClipAction(page, 'cam.png', 'Add as overlay')
+    const rows = [
+      page.getByRole('list', { name: 'Sequence' }).getByRole('listitem').first(),
+      page.getByRole('list', { name: 'Audio tracks' }).getByRole('listitem').first(),
+      page.getByRole('list', { name: 'Overlay layers' }).getByRole('listitem').first(),
+    ]
+    // Ordinary names show whole, before and after the fix (#717's 1280px
+    // criterion): a rule that let the name collapse would cut these short.
+    for (const [index, row] of rows.entries()) {
+      const name = row.locator('.clip-name').first()
+      await expect(name).toBeVisible()
+      expect(
+        await name.evaluate((element) => element.scrollWidth <= element.clientWidth),
+        `row ${index}'s ordinary name "${await name.textContent()}" shows whole`,
+      ).toBe(true)
+    }
+    const long = 'A very long name that someone typed for this row so it would be easy to find it!'
+    expect(long).toHaveLength(80)
+    for (const row of rows) {
+      await row.locator('.clip-name').first().dblclick()
+      const field = page.getByRole('textbox', { name: /^New name for / })
+      await field.fill(long)
+      await field.press('Enter')
+      await expect(row.locator('.clip-name').first()).toHaveText(long)
+    }
+    for (const [index, row] of rows.entries()) {
+      const name = row.locator('.clip-name').first()
+      // At 360px the 80 characters cannot fit: the name ellipsizes, its
+      // box narrower than its text, rather than widening the row.
+      if (width === 360) {
+        expect(
+          await name.evaluate((element) => element.scrollWidth > element.clientWidth),
+          `row ${index}'s name is cut short with an ellipsis`,
+        ).toBe(true)
+      }
+      await expectWithin(name, row, { axis: 'x', what: `row ${index}'s name` })
+      await expectWithin(row.getByRole('button', { name: /^More actions for / }), row, {
+        axis: 'x',
+        what: `row ${index}'s ⋯`,
+      })
+      await expectWithin(row.getByRole('button', { name: / from timeline$/ }), row, {
+        axis: 'x',
+        what: `row ${index}'s ✕`,
+      })
+      await expectWithin(row, page.locator('section.panel-wide'), { axis: 'x', what: `row ${index}` })
+    }
+    await expectWithin(page.locator('section.panel-wide'), page.locator('main'), {
+      axis: 'x',
+      what: 'the Timeline panel',
+    })
+    await expectNoHorizontalScroll(page, 'with three long names')
+  })
+}

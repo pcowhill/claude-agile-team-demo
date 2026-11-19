@@ -99,7 +99,7 @@ A shape group's one group is **Timing and fades**: when it shows (*Shows at*), f
 
 **What it does.** Gives a sequence entry, slate, audio track, overlay or shape group the name you want on the timeline.
 
-**Details.** The name becomes a field with the current name selected; Enter or clicking away commits, Escape cancels, an empty name reverts. The new name shows everywhere the row is named — its header, its controls' labels, the preview's now-playing line — is one undo step, and saves with the project. It never touches the library clip the row came from: the clip and each element made from it keep their own names. Text overlays are named by their content and are not renamed here.
+**Details.** The name becomes a field with the current name selected; Enter or clicking away commits, Escape cancels, an empty name reverts. The new name shows everywhere the row is named — its header, its controls' labels, the preview's now-playing line — is one undo step, and saves with the project. A name too long for its row is shortened with … at the end rather than widening the timeline; hover over it to read it whole. It never touches the library clip the row came from: the clip and each element made from it keep their own names. Text overlays are named by their content and are not renamed here.
 
 A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 ellipses + Arrow*). Its new name shows on its row, while its controls stay labelled by position (*shape group at position 1*). To go back to the name taken from its shapes, empty the field and press Enter.
 

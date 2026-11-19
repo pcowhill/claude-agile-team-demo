@@ -157,6 +157,18 @@
   white-space: nowrap;
 }
 
+/* Every renamable row's name (#717): the sequence entry, the audio track,
+   the overlay and the shape group all draw it through one cell. A name of
+   the user's own can be any length, and a nowrap string's min-content is
+   the whole string, which `min-width` (the 5rem `.clip-name` floor) does
+   not lower. So a long name set the row's minimum, and with it the
+   panel's: 654px at a 360px window. `width: 0` makes the 5rem floor its
+   minimum, and `flex: 1` still grows it into the row, so an ordinary name
+   shows whole as before. #687 found the same on shape groups first. */
+.timeline-name {
+  width: 0;
+}
+
 /* Every row's remaining actions — ↑ ↓ on a sequence entry, then ⋯ and ✕ —
    as one cluster pinned to the row's right edge (#419). One cluster rather
    than loose buttons is #416's lesson from the library row: loose buttons
