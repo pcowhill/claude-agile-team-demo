@@ -2363,7 +2363,7 @@ export function Timeline({
          plan's rule is frequent → visible. The double-click is why it
          could move without costing anyone a click. */
       <span
-        className="clip-name"
+        className="clip-name timeline-name"
         title={name}
         onDoubleClick={onRenameElement === undefined ? undefined : () => setRenaming(id)}
       >
