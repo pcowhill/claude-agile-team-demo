@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { preloadVisualEditors } from './visualEditors'
@@ -198,6 +198,62 @@ describe('visual crop editor (#423)', () => {
 
     // One gesture, one undo step, though several moves crossed the frame.
     await userEvent.click(undoButton())
+    expect(cropField(entry, 'left')).toHaveValue(0)
+  })
+
+  // A release that arrives before React has rendered the last move (#729):
+  // the move and the release are dispatched inside one act, so no render
+  // runs between them, as Firefox under load does. The region must be
+  // committed where the pointer was released, not where the last rendered
+  // move left it. The shape editor's #728 is the same race.
+  it('a release before the last move has rendered commits the region at the release point (#729)', async () => {
+    render(<App />)
+    await placeClips()
+    await openCropEditor(entry)
+    fireEvent.pointerDown(screen.getByTestId('frame-editor-edge-w'), {
+      pointerId: 1,
+      button: 0,
+      clientX: 0,
+      clientY: 112,
+    })
+    act(() => {
+      fireEvent.pointerMove(handles(), { pointerId: 1, clientX: 60, clientY: 112 })
+      fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 100, clientY: 112 })
+    })
+    expect(cropField(entry, 'left')).toHaveValue(25)
+  })
+
+  it('a body move released before its last move has rendered ends at the release point (#729)', async () => {
+    render(<App />)
+    await placeClips()
+    await openCropEditor(entry)
+    // Trim a quarter off the left first, so the kept region has room to move.
+    drag(screen.getByTestId('frame-editor-edge-w'), { x: 0, y: 112 }, { x: 100, y: 112 })
+    expect(cropField(entry, 'left')).toHaveValue(25)
+    fireEvent.pointerDown(region(), { pointerId: 1, button: 0, clientX: 250, clientY: 112 })
+    act(() => {
+      fireEvent.pointerMove(handles(), { pointerId: 1, clientX: 220, clientY: 112 })
+      fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 190, clientY: 112 })
+    })
+    // 60 px to the left is 15 % of the 400 px frame (the move alone, 30 px,
+    // would have been 7.5 %).
+    expect(cropField(entry, 'left')).toHaveValue(10)
+    expect(cropField(entry, 'right')).toHaveValue(15)
+  })
+
+  it('a press and release on a handle with no move leaves the region unchanged (#729)', async () => {
+    render(<App />)
+    await placeClips()
+    await openCropEditor(entry)
+    // Pressed a few pixels inside the edge, on its handle: recomputed at the
+    // release, the edge would jump to the press point.
+    fireEvent.pointerDown(screen.getByTestId('frame-editor-edge-w'), {
+      pointerId: 1,
+      button: 0,
+      clientX: 4,
+      clientY: 112,
+    })
+    fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 4, clientY: 112 })
     expect(cropField(entry, 'left')).toHaveValue(0)
   })
 

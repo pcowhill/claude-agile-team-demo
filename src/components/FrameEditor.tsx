@@ -210,6 +210,16 @@ export function FrameEditor({
   const frameRef = useRef<HTMLDivElement>(null)
   // The region, which holds the keyboard nudges (#662).
   const regionRef = useRef<SVGRectElement>(null)
+  /**
+   * The modifiers of the last pointermove of the current drag, or null
+   * before its first, set as the move is handled rather than when it
+   * renders (#729). A release reads it to tell a click (no move: the region
+   * stays as it was) from a drag (the region is recomputed at the release
+   * point, with the snapping the last move showed), and it must not wait
+   * for a render: a release dispatched before React has rendered the last
+   * move would otherwise see the drag one move short, as #728 did.
+   */
+  const lastMoveRef = useRef<{ altKey: boolean; shiftKey: boolean } | null>(null)
   const timelineRef = useRef(timeline)
   timelineRef.current = timeline
   // The stills rendered so far, by the instant that produced them. Scrubbing
@@ -375,7 +385,7 @@ export function FrameEditor({
     return () => observer.disconnect()
   }, [aspect, imageUrl])
 
-  const toFraction = (event: ReactPointerEvent) => {
+  const toFraction = (event: Pick<ReactPointerEvent, 'clientX' | 'clientY'>) => {
     const box = frameRef.current?.getBoundingClientRect()
     if (box === undefined || box.width === 0 || box.height === 0) return { x: 0, y: 0 }
     return { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height }
@@ -399,10 +409,14 @@ export function FrameEditor({
     ;(event.currentTarget as SVGGraphicsElement).ownerSVGElement?.setPointerCapture?.(
       event.pointerId,
     )
+    lastMoveRef.current = null
     setDrag({ pointerId: event.pointerId, start: rect, origin: toFraction(event), handle, live: rect })
   }
 
-  const gestureOf = (current: Drag, event: ReactPointerEvent): RectGesture => {
+  const gestureOf = (
+    current: Drag,
+    event: Pick<ReactPointerEvent, 'clientX' | 'clientY' | 'altKey' | 'shiftKey'>,
+  ): RectGesture => {
     const point = toFraction(event)
     // Both modifiers travel raw: this component says what the pointer did,
     // and the caller's handle model decides what Alt and Shift mean for it.
@@ -422,6 +436,7 @@ export function FrameEditor({
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (drag === null || event.pointerId !== drag.pointerId) return
+    lastMoveRef.current = { altKey: event.altKey, shiftKey: event.shiftKey }
     const live = applyGesture(drag.start, gestureOf(drag, event))
     setDrag({ ...drag, live })
     onLive?.(live)
@@ -431,7 +446,25 @@ export function FrameEditor({
     if (drag === null || event.pointerId !== drag.pointerId) return
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     setDrag(null)
-    onCommit(drag.live)
+    // A release after a move commits the region at its own position (#729),
+    // the same gesture the move handler applies, so it does not depend on
+    // the last move having rendered. Its modifiers are the last move's: the
+    // snapping (Alt) and mirroring (Shift) the drag showed are what it
+    // commits, even if a key was let go before the button. A press released
+    // with no move commits the region unchanged: recomputed, it would snap a
+    // clicked handle to wherever on the handle the press landed. A cancel
+    // has no release point worth committing to, and commits the drag as it
+    // stood.
+    const lastMove = lastMoveRef.current
+    lastMoveRef.current = null
+    const final =
+      lastMove !== null && event.type !== 'pointercancel'
+        ? applyGesture(
+            drag.start,
+            gestureOf(drag, { clientX: event.clientX, clientY: event.clientY, ...lastMove }),
+          )
+        : drag.live
+    onCommit(final)
   }
 
   const handleKeyDown = (event: ReactKeyboardEvent<SVGRectElement>) => {
