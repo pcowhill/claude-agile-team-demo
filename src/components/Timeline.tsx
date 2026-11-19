@@ -3900,6 +3900,36 @@ export function Timeline({
                       onCommit={(outPoint) => onTrimAudioTrack(track.id, track.inPoint, outPoint)}
                       unit="s"
                     />
+                    {/* The Trim window (#711), as a sequence entry has it
+                        (#707): with no picture, its strip is the waveform
+                        alone and Play trim plays the sound. A track has no
+                        zooms, speed segments or transitions, so there are
+                        no effects to mark. */}
+                    <button
+                      type="button"
+                      className="timeline-trim-open"
+                      aria-label={`Trim ${position} in the Trim window`}
+                      aria-haspopup="dialog"
+                      title="Trim in a window: listen to the track and drag In and Out on its waveform"
+                      onClick={() => setTrimmingId(track.id)}
+                    >
+                      Trim…
+                    </button>
+                    {trimmingId === track.id && (
+                      <TrimDialog
+                        entry={track}
+                        audioOnly
+                        position={position}
+                        stepSeconds={stepSeconds}
+                        largeStepSeconds={largeStepSeconds}
+                        onOpen={onPausePreview}
+                        onApply={(inPoint, outPoint) => {
+                          setTrimmingId(null)
+                          onTrimAudioTrack(track.id, inPoint, outPoint)
+                        }}
+                        onClose={() => setTrimmingId(null)}
+                      />
+                    )}
                     <span className="timeline-entry-effective">
                       plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
                     </span>
