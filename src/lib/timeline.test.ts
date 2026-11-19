@@ -4984,6 +4984,112 @@ describe('spotlight regions (#532)', () => {
   })
 })
 
+describe('zooms on an overlay (#699)', () => {
+  const overlay: VideoOverlay = {
+    id: 'o1',
+    clipId: 'c1',
+    name: 'cam.webm',
+    duration: 10,
+    url: 'blob:cam',
+    offset: 1,
+    inPoint: 2,
+    outPoint: 6,
+    x: 0.5,
+    y: 0.5,
+    width: 0.4,
+    height: 0.4,
+  }
+  const withOverlay: TimelineState = { ...emptyTimeline, videoOverlays: [overlay] }
+  const spec: ZoomSpec = { start: 0.5, rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.75, centerY: 0.5 }
+  const add = (state: TimelineState, id: string, zoom: ZoomSpec = spec) =>
+    timelineReducer(state, { type: 'video-overlay-zoom-added', overlayId: 'o1', zoom: { ...zoom, id } })
+  const zoomsOn = (state: TimelineState) => videoOverlaysOf(state)[0].zooms
+
+  it('adds, updates and removes a zoom, and removing the last leaves no key', () => {
+    const added = add(withOverlay, 'z1')
+    expect(zoomsOn(added)).toEqual([{ ...spec, id: 'z1' }])
+    const updated = timelineReducer(added, {
+      type: 'video-overlay-zoom-updated',
+      overlayId: 'o1',
+      id: 'z1',
+      zoom: { ...spec, scale: 3 },
+    })
+    expect(zoomsOn(updated)?.[0].scale).toBe(3)
+    const removed = timelineReducer(updated, { type: 'video-overlay-zoom-removed', overlayId: 'o1', id: 'z1' })
+    expect('zooms' in videoOverlaysOf(removed)[0]).toBe(false)
+  })
+
+  it('refuses a scale of 1, a taken id, and an unknown overlay as same-reference no-ops', () => {
+    expect(add(withOverlay, 'z1', { ...spec, scale: 1 })).toBe(withOverlay)
+    const added = add(withOverlay, 'z1')
+    expect(add(added, 'z1', { ...spec, start: 3 })).toBe(added)
+    expect(
+      timelineReducer(withOverlay, {
+        type: 'video-overlay-zoom-added',
+        overlayId: 'nope',
+        zoom: { ...spec, id: 'z1' },
+      }),
+    ).toBe(withOverlay)
+  })
+
+  it('clamps against the overlay window and the rectangle, and vetoes an add with no room left', () => {
+    // The trimmed window is 4 s; a zoom placed past it is pulled back in, and
+    // a centre too near the edge for 2x is pulled to 0.75.
+    const clamped = add(withOverlay, 'z1', { ...spec, start: 3.5, hold: 3, centerX: 0.95 })
+    const zoom = zoomsOn(clamped)?.[0]
+    expect(zoom?.start).toBe(3.5)
+    expect((zoom?.rampIn ?? 0) + (zoom?.hold ?? 0) + (zoom?.rampOut ?? 0)).toBeCloseTo(0.5)
+    expect(zoom?.centerX).toBe(0.75)
+    const full = add(withOverlay, 'z1', { ...spec, start: 0, rampIn: 0, hold: 4, rampOut: 0 })
+    expect(add(full, 'z2')).toBe(full)
+    // defaultZoomFor reads the same: nothing to offer once the window is full.
+    expect(defaultZoomFor(zoomsOn(full) ?? [], effectiveDuration(overlay))).toBeNull()
+  })
+
+  it('re-clamps the zooms when the overlay is retrimmed shorter', () => {
+    const added = add(withOverlay, 'z1', { ...spec, start: 2.5 })
+    const retrimmed = timelineReducer(added, {
+      type: 'video-overlay-updated',
+      id: 'o1',
+      placement: { offset: 1, inPoint: 2, outPoint: 4.5, x: 0.5, y: 0.5, width: 0.4, height: 0.4 },
+    })
+    const zoom = zoomsOn(retrimmed)?.[0]
+    expect((zoom?.start ?? 0) + (zoom?.rampIn ?? 0) + (zoom?.hold ?? 0) + (zoom?.rampOut ?? 0)).toBeLessThanOrEqual(2.5)
+  })
+
+  it('removing an overlay that carries a zoom removes the zoom with it', () => {
+    const added = add(withOverlay, 'z1')
+    const removed = timelineReducer(added, { type: 'video-overlay-removed', id: 'o1' })
+    expect(videoOverlaysOf(removed)).toEqual([])
+    // Nothing is left anywhere: the sequence's zoom list never held it.
+    expect(zoomsOf(removed)).toEqual([])
+  })
+
+  it('a duplicated overlay carries its own copy of the zooms, edited independently', () => {
+    const added = add(withOverlay, 'z1')
+    const duplicated = timelineReducer(added, {
+      type: 'element-duplicated',
+      kind: 'video-overlay',
+      id: 'o1',
+      newId: 'o2',
+    })
+    expect(videoOverlaysOf(duplicated)[1].zooms).toEqual([{ ...spec, id: 'z1' }])
+    const edited = timelineReducer(duplicated, {
+      type: 'video-overlay-zoom-updated',
+      overlayId: 'o2',
+      id: 'z1',
+      zoom: { ...spec, scale: 4 },
+    })
+    expect(videoOverlaysOf(edited)[0].zooms?.[0].scale).toBe(2)
+    expect(videoOverlaysOf(edited)[1].zooms?.[0].scale).toBe(4)
+  })
+
+  it('a zoom-free overlay keeps its reference through normalization', () => {
+    const state = normalizedTimelineState([], [], [], [], [], [], [overlay])
+    expect(videoOverlaysOf(state)[0]).toBe(overlay)
+  })
+})
+
 describe('copying a still overlay never carries audio into a paste (#332)', () => {
   // The user-visible regression: an image overlay (#294) lives in the same
   // lane as a video one, and the settings clipboard (#315) credited every

@@ -51,7 +51,7 @@ import type { ShapeMask } from './shapeMask'
 import { transitionLayerSpec } from './transitionRender'
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
-import { zoomAt } from './zoom'
+import { overlayZoomAt, zoomAt } from './zoom'
 import type { ZoomState } from './zoom'
 
 /**
@@ -216,6 +216,24 @@ export function zoomRect(
   return {
     x: frameWidth / 2 + scale * (rect.x - centerX * frameWidth),
     y: frameHeight / 2 + scale * (rect.y - centerY * frameHeight),
+    width: rect.width * scale,
+    height: rect.height * scale,
+  }
+}
+
+/**
+ * Maps a rectangle through an overlay's zoom (#699): `zoomRect`'s mapping,
+ * with the overlay's placement `box` standing in for the frame — each box
+ * fraction p maps to 0.5 + scale·(p − centre) per axis — so the region the
+ * zoom shows fills the box. The identity zoom returns `rect` itself, so an
+ * overlay that is not zooming draws exactly as before.
+ */
+export function zoomRectWithin(rect: FitRect, zoom: ZoomState, box: FitRect): FitRect {
+  const { scale, centerX, centerY } = zoom
+  if (scale === 1) return rect
+  return {
+    x: box.x + box.width / 2 + scale * (rect.x - box.x - centerX * box.width),
+    y: box.y + box.height / 2 + scale * (rect.y - box.y - centerY * box.height),
     width: rect.width * scale,
     height: rect.height * scale,
   }
@@ -1346,10 +1364,27 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           croppedDimensions({ width: picture.width, height: picture.height }, layer.crop),
           layer.orientation,
         )
-        const dest = overlayDestRect(layer, layerDims.width, layerDims.height, width, height)
+        const placed = {
+          x: layer.x * width,
+          y: layer.y * height,
+          width: layer.width * width,
+          height: layer.height * height,
+        }
+        const layerTime = audioTrackPlaybackAt(layer, sequenceTime).sourceTime
+        // The overlay's own zoom (#699) magnifies its picture inside the
+        // placed rectangle: the letterboxed picture box is mapped through
+        // the zoom about the rectangle, and everything drawn against it —
+        // the picture, its redactions and spotlights — follows, as they
+        // follow a zoomed sequence entry. Identity returns `dest` itself.
+        const layerZoom = overlayZoomAt(layer, layerTime)
+        const dest = zoomRectWithin(
+          overlayDestRect(layer, layerDims.width, layerDims.height, width, height),
+          layerZoom,
+          placed,
+        )
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
-        const paintOverlay = (target: CanvasRenderingContext2D) => {
+        const paintPicture = (target: CanvasRenderingContext2D) => {
           withLayerColorFilter(target, layer.colorAdjustments, () => {
             withLayerOrientation(target, layer.orientation, dest, (drawRect) => {
               drawLayerSource(
@@ -1367,7 +1402,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
                 context: target,
                 source: picture.source,
                 regions: layer.redactions,
-                sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
+                sourceTime: layerTime,
                 crop: layer.crop,
                 sourceWidth: picture.width,
                 sourceHeight: picture.height,
@@ -1378,7 +1413,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               drawSpotlights({
                 context: target,
                 regions: layer.spotlights,
-                sourceTime: audioTrackPlaybackAt(layer, sequenceTime).sourceTime,
+                sourceTime: layerTime,
                 crop: layer.crop,
                 sourceWidth: picture.width,
                 sourceHeight: picture.height,
@@ -1388,6 +1423,21 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               })
             })
           })
+        }
+        // A zoomed picture is larger than its rectangle, so it is clipped to
+        // it (#699); an unzoomed one never is, so its draw calls — and the
+        // output of every zoom-free project — stay exactly as they were.
+        const paintOverlay = (target: CanvasRenderingContext2D) => {
+          if (layerZoom.scale === 1) {
+            paintPicture(target)
+            return
+          }
+          target.save()
+          target.beginPath()
+          target.rect(placed.x, placed.y, placed.width, placed.height)
+          target.clip()
+          paintPicture(target)
+          target.restore()
         }
         if (layer.shapeMask === undefined) {
           // Mask-free overlays draw exactly as before #267 — same target,
@@ -1408,12 +1458,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         scratch.context.globalCompositeOperation = 'destination-in'
         scratch.context.fillStyle = '#fff'
         scratch.context.beginPath()
-        traceShapeMask(scratch.context, layer.shapeMask, {
-          x: layer.x * width,
-          y: layer.y * height,
-          width: layer.width * width,
-          height: layer.height * height,
-        })
+        traceShapeMask(scratch.context, layer.shapeMask, placed)
         scratch.context.fill()
         scratch.context.globalCompositeOperation = 'source-over'
         context.drawImage(scratch.canvas, 0, 0)

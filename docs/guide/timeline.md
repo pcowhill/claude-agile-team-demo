@@ -50,7 +50,7 @@ Under the main line runs the **coverage bar**: where the element plays within th
 
 The **thumbnail** on a video entry or video overlay is the first frame of its trimmed range, recaptured when the in point changes; an image shows itself, a slate its colour. Thumbnails are recomputed from the media and never stored in a project file.
 
-**Expanded**, a row shows its groups: the timing fields (In and Out for a clip, *Shows for* on a still or slate, *Starts at* on a track or overlay), the audio fields where the element has sound (Volume, Mute, Fade in and out), the [Picture ▸](#picture) disclosure on a video or image, and on a sequence entry the transitions and the [+ Effect ▾](#effect) menu. The number fields commit on Enter or when you leave them, and each carries a slider — see [The slider beside each number](editing-video.md#the-slider-beside-each-number). Each number field shows its unit inside the box, right after the number — **s** for seconds, **%** for percent, **px** for pixels, **×** for a speed or a zoom's scale — and a field that holds a fraction from 0 to 1, such as a volume, an overlay's placement or a centre, shows none.
+**Expanded**, a row shows its groups: the timing fields (In and Out for a clip, *Shows for* on a still or slate, *Starts at* on a track or overlay), the audio fields where the element has sound (Volume, Mute, Fade in and out), the [Picture ▸](#picture) disclosure on a video or image, on a sequence entry the transitions, and on a sequence entry or overlay the [+ Effect ▾](#effect) menu. The number fields commit on Enter or when you leave them, and each carries a slider — see [The slider beside each number](editing-video.md#the-slider-beside-each-number). Each number field shows its unit inside the box, right after the number — **s** for seconds, **%** for percent, **px** for pixels, **×** for a speed or a zoom's scale — and a field that holds a fraction from 0 to 1, such as a volume, an overlay's placement or a centre, shows none.
 
 **Related.** [Trimming](editing-video.md#trimming) · [Collapsing rows and folding sections](#collapsing-rows-and-folding-sections)
 
@@ -117,11 +117,11 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 ## + Effect ▾
 
-**Where to find it.** An expanded sequence entry, below its fields.
+**Where to find it.** An expanded sequence entry or overlay, below its fields.
 
-**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry.
+**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry, or a **Zoom** to the overlay.
 
-**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the entry leave no room for another, and a still or slate offers Zoom alone, since its one duration is already its timing. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
+**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the entry leave no room for another, and a still or slate offers Zoom alone, since its one duration is already its timing. An overlay offers Zoom alone. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
 
 **Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 

@@ -490,6 +490,14 @@
   z-index: 2;
 }
 
+/* The box an overlay's zoom (#699) transforms: it fills the card, and the
+   media and regions inside it fill it in turn, so with no zoom nothing
+   about them changes. */
+.preview-overlay-zoom {
+  position: absolute;
+  inset: 0;
+}
+
 /* Outside its window the element stays mounted (its source stays loaded for
    an instant re-entry) but shows nothing. */
 .preview-overlay-hidden {

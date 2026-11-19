@@ -9,6 +9,7 @@ import { cropsEqual } from './crop'
 import type { ShapeMask } from './shapeMask'
 import { shapeMasksEqual } from './shapeMask'
 import type { LibraryClip } from './mediaLibrary'
+import type { ZoomSpec } from './timeline'
 
 /**
  * Overlay video layers — picture-in-picture (#145): video clips composited
@@ -32,8 +33,9 @@ import type { LibraryClip } from './mediaLibrary'
  * rectangle fully on the frame: size first into its bounds, then position
  * into [0, 1 − size].
  *
- * Deliberately out of scope at first (#145): no transitions, zooms, or time
- * remapping on overlays — those belong to base sequence entries only.
+ * Deliberately out of scope at first (#145): no transitions or time
+ * remapping on overlays — those belong to base sequence entries only. Zooms
+ * came later (#699), as the overlay's own `zooms` below.
  *
  * The overlay's field shape is a superset of AudioTrack's (id, clipId,
  * name, duration, url, offset, inPoint, outPoint), which is what lets the
@@ -151,6 +153,25 @@ export interface VideoOverlay {
    * silhouette, never the source pixels.
    */
   shapeMask?: ShapeMask
+  /**
+   * Zooms on the overlay's own picture (#699): each magnifies what the
+   * placed rectangle shows, the way a sequence zoom (#63) magnifies the
+   * frame — the rectangle itself never grows or moves. The fields are a
+   * sequence zoom's, read against the overlay instead of the frame: `start`
+   * is seconds into the overlay's trimmed window (its own source clock less
+   * `inPoint`, as an entry's zoom is), and the centre is a fraction of the
+   * rectangle. Held on the overlay, like its redactions and spotlights, so
+   * removing or duplicating the overlay takes its zooms with it. Absent
+   * means none; normalization keeps the list sorted by start with disjoint
+   * windows, exactly as for an entry's zooms (#129).
+   */
+  zooms?: OverlayZoom[]
+}
+
+/** One zoom on an overlay (#699): a sequence zoom's spec plus its handle. */
+export interface OverlayZoom extends ZoomSpec {
+  /** Unique within its overlay — what update and remove act on. */
+  id: string
 }
 
 /**

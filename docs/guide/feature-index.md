@@ -9,7 +9,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## Symbols and keys
 
 - **+ Add shape** — an expanded shape group row; adds a rectangle, an ellipse or an arrow. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
-- **+ Effect** — an expanded sequence entry, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
+- **+ Effect** — an expanded sequence entry or overlay, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
 - **?** — shows the keyboard cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **× (beside the playhead)** — the position readout, while the review speed is not 1×; how fast the preview is playing. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **← / →** — steps the playhead back and forward by the nudge size. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
@@ -243,7 +243,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove speed segment** — a speed segment on an expanded video entry; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Remove spotlight region** — a spotlight region; takes it away. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Remove transition** — the ✕ on a transition control between two entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
-- **Remove zoom** — a zoom on an expanded sequence entry; takes it away. [Editing video › Zooms](editing-video.md#zooms)
+- **Remove zoom** — a zoom on an expanded sequence entry or overlay; takes it away. [Editing video › Zooms](editing-video.md#zooms)
 - **Rename…** — a media library row's ⋯ menu, a timeline row's ⋯ menu, and a chapter marker's menu. [Media library › Renaming a clip](media-library.md#renaming-a-clip) · [Timeline › Rename…](timeline.md#rename) · [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Reset color** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
 - **Reset crop** — an expanded video or image row › Picture ▸ › Crop, and the **Reset** button in the crop editor. [Editing video › Crop](editing-video.md#crop) · [Visual editors › Reset](visual-editors.md#reset)
@@ -334,11 +334,11 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## Z
 
-- **Zoom** — + Effect ▾ on a sequence entry. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom centre X** — a zoom on an expanded sequence entry; where it magnifies, across the frame. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom centre Y** — a zoom on an expanded sequence entry; where it magnifies, down the frame. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom hold** — a zoom on an expanded sequence entry; how long it stays at full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom ramp-in** — a zoom on an expanded sequence entry; how long it takes to reach full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom ramp-out** — a zoom on an expanded sequence entry; how long it takes to return, in seconds. [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom scale** — a zoom on an expanded sequence entry; how far it magnifies (the × field). [Editing video › Zooms](editing-video.md#zooms)
-- **Zoom start** — a zoom on an expanded sequence entry; where it begins, in seconds into the entry. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom** — + Effect ▾ on a sequence entry or overlay; on an overlay it magnifies the overlay's own picture. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom centre X** — a zoom on an expanded sequence entry or overlay; where it magnifies, across the frame (an overlay's rectangle). [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom centre Y** — a zoom on an expanded sequence entry or overlay; where it magnifies, down the frame (an overlay's rectangle). [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom hold** — a zoom on an expanded sequence entry or overlay; how long it stays at full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom ramp-in** — a zoom on an expanded sequence entry or overlay; how long it takes to reach full magnification, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom ramp-out** — a zoom on an expanded sequence entry or overlay; how long it takes to return, in seconds. [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom scale** — a zoom on an expanded sequence entry or overlay; how far it magnifies (the × field). [Editing video › Zooms](editing-video.md#zooms)
+- **Zoom start** — a zoom on an expanded sequence entry or overlay; where it begins, in seconds into the entry or the overlay's window. [Editing video › Zooms](editing-video.md#zooms)

@@ -14,7 +14,7 @@ Seven places on the timeline where a value can be dragged into place on a pictur
 
 ## What each editor shows
 
-**Where to find it.** The **Adjust visually…** button beside a zoom's fields, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, a redaction region's fields in Picture ▸ › Redact, or a spotlight region's fields in Picture ▸ › Spotlight; and **Draw shapes…** under a shape group's shapes.
+**Where to find it.** The **Adjust visually…** button beside a sequence entry's zoom fields, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, a redaction region's fields in Picture ▸ › Redact, or a spotlight region's fields in Picture ▸ › Spotlight; and **Draw shapes…** under a shape group's shapes.
 
 **What it does.** Opens a still under the row with the thing being placed drawn on it.
 

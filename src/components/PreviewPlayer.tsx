@@ -70,7 +70,7 @@ import { transitionLabel, transitionLayerSpec } from '../lib/transitionRender'
 import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
-import { IDENTITY_ZOOM, zoomAt } from '../lib/zoom'
+import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -715,6 +715,23 @@ function entryBackdrop(
  * (mask and clip-path intersect, exactly as the export's nested clips do),
  * mapped through the same inverse zoom when the incoming entry is zoomed.
  */
+/**
+ * An overlay's zoom (#699) as a CSS transform on the box that fills its
+ * card: each card fraction p lands at 0.5 + scale·(p − centre), the
+ * mapping `zoomRectWithin` gives the export. With the origin at the box's
+ * top-left, that is a scale followed by a translate of (0.5 − scale·centre)
+ * of the box, whose own size is the card's. No style at all for the
+ * identity zoom.
+ */
+function overlayZoomStyle(zoom: ZoomState): CSSProperties | undefined {
+  if (zoom.scale === 1) return undefined
+  const { scale, centerX, centerY } = zoom
+  return {
+    transformOrigin: '0 0',
+    transform: `translate(${(0.5 - scale * centerX) * 100}%, ${(0.5 - scale * centerY) * 100}%) scale(${scale})`,
+  }
+}
+
 function withZoom(
   style: CSSProperties | undefined,
   zoom: ZoomState,
@@ -2540,6 +2557,11 @@ export function PreviewPlayer({
                 // after crop/orientation shaped the picture inside. Mask-free
                 // overlays get no clipPath key at all (the #255 discipline).
                 const clipPath = maskClipPath(overlay.shapeMask, overlay)
+                const overlayTime = audioTrackPlaybackAt(overlay, sequenceTime).sourceTime
+                // The overlay's own zoom (#699), the export's
+                // `zoomRectWithin`: the picture and its regions magnify
+                // inside the card, which clips them while it zooms.
+                const overlayZoom = overlayZoomAt(overlay, overlayTime)
                 return (
                   <div
                     key={overlay.id}
@@ -2551,62 +2573,71 @@ export function PreviewPlayer({
                       width: `${overlay.width * 100}%`,
                       height: `${overlay.height * 100}%`,
                       ...(clipPath === undefined ? {} : { clipPath }),
+                      ...(overlayZoom.scale === 1 ? {} : { overflow: 'hidden' }),
                     }}
                   >
-                    {/* A still overlay (#294) is an <img>, exactly as a
-                        still sequence entry is (#140) — no element to drive,
-                        and a transparent PNG's alpha shows the layers below
-                        it through, since the card paints no background. */}
-                    {isImageOverlay(overlay) ? (
-                      <img
-                        ref={(element) => {
-                          overlayMediaRef(overlay.id).current = element
-                        }}
-                        src={overlay.url}
-                        alt=""
-                        className="preview-media"
-                        data-testid={`preview-overlay-${index}`}
-                        style={withColorFilter(
-                          croppedOrientedMediaStyle(
-                            overlay.crop,
-                            overlay.orientation,
-                            cardAspect,
-                            sourceAspectOf(overlay.url),
-                          ),
-                          overlay.colorAdjustments,
-                        )}
+                    {/* Always mounted, so a zoom starting or ending never
+                        remounts the media element (and reloads its source). */}
+                    <div
+                      className="preview-overlay-zoom"
+                      data-testid={`preview-overlay-zoom-${index}`}
+                      style={overlayZoomStyle(overlayZoom)}
+                    >
+                      {/* A still overlay (#294) is an <img>, exactly as a
+                          still sequence entry is (#140) — no element to drive,
+                          and a transparent PNG's alpha shows the layers below
+                          it through, since the card paints no background. */}
+                      {isImageOverlay(overlay) ? (
+                        <img
+                          ref={(element) => {
+                            overlayMediaRef(overlay.id).current = element
+                          }}
+                          src={overlay.url}
+                          alt=""
+                          className="preview-media"
+                          data-testid={`preview-overlay-${index}`}
+                          style={withColorFilter(
+                            croppedOrientedMediaStyle(
+                              overlay.crop,
+                              overlay.orientation,
+                              cardAspect,
+                              sourceAspectOf(overlay.url),
+                            ),
+                            overlay.colorAdjustments,
+                          )}
+                        />
+                      ) : (
+                        <video
+                          ref={(element) => {
+                            overlayRefs.current.set(overlay.id, element)
+                            overlayMediaRef(overlay.id).current = element
+                          }}
+                          src={overlay.url}
+                          preload="auto"
+                          playsInline
+                          className="preview-media"
+                          data-testid={`preview-overlay-${index}`}
+                          style={withColorFilter(
+                            croppedOrientedMediaStyle(
+                              overlay.crop,
+                              overlay.orientation,
+                              cardAspect,
+                              sourceAspectOf(overlay.url),
+                            ),
+                            overlay.colorAdjustments,
+                          )}
+                        />
+                      )}
+                      <RegionOverlay
+                        sourceRef={overlayMediaRef(overlay.id)}
+                        crop={overlay.crop}
+                        orientation={overlay.orientation}
+                        regions={overlay.redactions}
+                        spotlights={overlay.spotlights}
+                        sourceTime={overlayTime}
+                        testId={`preview-overlay-redactions-${index}`}
                       />
-                    ) : (
-                      <video
-                        ref={(element) => {
-                          overlayRefs.current.set(overlay.id, element)
-                          overlayMediaRef(overlay.id).current = element
-                        }}
-                        src={overlay.url}
-                        preload="auto"
-                        playsInline
-                        className="preview-media"
-                        data-testid={`preview-overlay-${index}`}
-                        style={withColorFilter(
-                          croppedOrientedMediaStyle(
-                            overlay.crop,
-                            overlay.orientation,
-                            cardAspect,
-                            sourceAspectOf(overlay.url),
-                          ),
-                          overlay.colorAdjustments,
-                        )}
-                      />
-                    )}
-                    <RegionOverlay
-                      sourceRef={overlayMediaRef(overlay.id)}
-                      crop={overlay.crop}
-                      orientation={overlay.orientation}
-                      regions={overlay.redactions}
-                      spotlights={overlay.spotlights}
-                      sourceTime={audioTrackPlaybackAt(overlay, sequenceTime).sourceTime}
-                      testId={`preview-overlay-redactions-${index}`}
-                    />
+                    </div>
                   </div>
                 )
               })}

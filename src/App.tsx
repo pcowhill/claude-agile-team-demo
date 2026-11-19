@@ -777,6 +777,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onSetVideoOverlayMask={(id, mask) =>
             dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
           }
+          onAddVideoOverlayZoom={(overlayId, zoom) =>
+            dispatchTimeline({
+              type: 'video-overlay-zoom-added',
+              overlayId,
+              zoom: { ...zoom, id: crypto.randomUUID() },
+            })
+          }
+          onUpdateVideoOverlayZoom={(overlayId, id, zoom) =>
+            dispatchTimeline({ type: 'video-overlay-zoom-updated', overlayId, id, zoom })
+          }
+          onRemoveVideoOverlayZoom={(overlayId, id) =>
+            dispatchTimeline({ type: 'video-overlay-zoom-removed', overlayId, id })
+          }
           onSetAudioTrackVolume={(id, volume) =>
             dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
           }

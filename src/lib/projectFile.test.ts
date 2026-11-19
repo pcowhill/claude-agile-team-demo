@@ -29,6 +29,7 @@ import fixtureV22SoftSpotlightReferencesBase64 from './fixtures/project-v22-soft
 import fixtureV23ShapeGroupsReferencesBase64 from './fixtures/project-v23-shape-groups-references.bvep.base64?raw'
 import fixtureV24ArrowShapesReferencesBase64 from './fixtures/project-v24-arrow-shapes-references.bvep.base64?raw'
 import fixtureV25LineStylesReferencesBase64 from './fixtures/project-v25-line-styles-references.bvep.base64?raw'
+import fixtureV26OverlayZoomsReferencesBase64 from './fixtures/project-v26-overlay-zooms-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -51,6 +52,7 @@ import {
   SHAPE_GROUPS_SCHEMA_VERSION,
   ARROW_SHAPES_SCHEMA_VERSION,
   LINE_STYLES_SCHEMA_VERSION,
+  OVERLAY_ZOOMS_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1141,7 +1143,7 @@ describe('project file versioning', () => {
     // edge (#533); version 23 added shape groups (#683); version 24 added
     // arrows in shape groups (#684); version 25 added dashed and dotted
     // shape borders (#688).
-    expect(PROJECT_SCHEMA_VERSION).toBe(25)
+    expect(PROJECT_SCHEMA_VERSION).toBe(26)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1167,6 +1169,7 @@ describe('project file versioning', () => {
     expect(SHAPE_GROUPS_SCHEMA_VERSION).toBe(23)
     expect(ARROW_SHAPES_SCHEMA_VERSION).toBe(24)
     expect(LINE_STYLES_SCHEMA_VERSION).toBe(25)
+    expect(OVERLAY_ZOOMS_SCHEMA_VERSION).toBe(26)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -4757,6 +4760,78 @@ describe('line styles of shapes in project files (#688, schema version 25)', () 
         timeline: { ...expectedProject.timeline, shapeGroups: lineGroups },
       },
     })
+  })
+})
+
+describe('overlay zooms in project files (#699, schema version 26)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+  }
+  const overlayZooms = [
+    { id: 'oz1', start: 0.25, rampIn: 0.25, hold: 1, rampOut: 0.25, scale: 2, centerX: 0.75, centerY: 0.5 },
+  ]
+  const zoomedTimeline = (zooms: typeof overlayZooms | []): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', zooms }],
+  })
+
+  it('round-trips an overlay zoom at version 26, without an entryId', async () => {
+    const bytes = await serializeProject(library, zoomedTimeline(overlayZooms))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_ZOOMS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.zooms).toEqual(overlayZooms)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, zooms: overlayZooms }] },
+      },
+    })
+  })
+
+  it('writes an overlay without zooms byte-identically, at the version it had before', async () => {
+    const zoomFree: TimelineState = { ...timeline, videoOverlays: [{ ...stored, url: 'blob:session/c2' }] }
+    const bytes = await serializeProject(library, zoomFree)
+    expect((await gunzipJson(bytes)).schemaVersion).toBe(REFERENCES_SCHEMA_VERSION)
+    // An empty list is no zoom at all, the redactions' rule.
+    expect(await serializeProject(library, zoomedTimeline([]))).toEqual(bytes)
+  })
+
+  it('refuses a zoom that is not a magnification, or a duplicated id, by path', async () => {
+    const withZooms = (zooms: unknown[]) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_ZOOMS_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, zooms }] },
+    })
+    await expectRefusal(
+      await gzipJson(withZooms([{ ...overlayZooms[0], scale: 1 }])),
+      'timeline.videoOverlays[0].zooms[0].scale must be greater than 1',
+    )
+    await expectRefusal(
+      await gzipJson(withZooms([overlayZooms[0], { ...overlayZooms[0], start: 2 }])),
+      'timeline.videoOverlays[0].zooms[1].id "oz1" is duplicated',
+    )
+  })
+
+  it('deserializes the committed v26 overlay-zooms fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV26OverlayZoomsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, zooms: overlayZooms }])
   })
 })
 
