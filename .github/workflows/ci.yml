@@ -47,9 +47,14 @@ jobs:
     # Both browsers' suites run here (#586): Firefox is part of this required
     # job rather than a job of its own, so it gates merges without a change
     # to branch protection. The browser install has hung silently for over an
-    # hour before (#68), hence a bound at all; it is 30 minutes now that the
-    # job runs two suites back to back.
-    timeout-minutes: 30
+    # hour before (#68), hence a bound at all. The bound must cover the worst
+    # case the step caps below allow, or a slow mirror that the retry does
+    # get through still cancels the job (#714, run 44343576004): the apt
+    # steps' caps on the cache-miss path are 2 + 4 + 8 + 6 + 2 + 2 = 24
+    # minutes, the two suites took 9.2 + 10.8 = 20 minutes on 2026-11-19
+    # (run 44429434748), and setup about one more. 45 minutes; 55 leaves
+    # room for the suites to grow.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +80,47 @@ jobs:
           # install (#586).
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium-firefox
 
+      # The system packages this job needs and the runner image lacks —
+      # Playwright's dependencies and PulseAudio, ~64 packages and 61 MB on
+      # ubuntu-26.04 — come from a cache of their .deb files, so a normal run
+      # never touches the apt mirror (#714). The mirror has hung for minutes
+      # at a time (#85): the retry below gets through it, but at a cost of up
+      # to 12 minutes and, three times in a week, a failed or cancelled job.
+      # The key holds the runner image's version, since what an image lacks
+      # and which versions fit it change with the image, and Playwright's
+      # version, since its dependency list changes with it. A new key misses
+      # once: that run installs from the mirror as before and fills the
+      # cache. `.github/scripts/apt-debs.sh` has the details.
+      - name: Resolve runner image
+        id: runner-image
+        # Both are set on GitHub-hosted runners; the fallback rotates weekly.
+        run: echo "id=${ImageOS:-unknown}-${ImageVersion:-$(date +%G-W%V)}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached system packages
+        id: apt-cache
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-${{ steps.runner-image.outputs.id }}-playwright-${{ steps.playwright-version.outputs.version }}-chromium-firefox-pulseaudio
+
+      # dpkg alone, no mirror. If it fails (a cache that no longer fits),
+      # the script purges what it added and the network steps below run as
+      # they did before the cache existed.
+      - name: Install system packages from the cache
+        id: deps-from-cache
+        if: steps.apt-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 2
+        continue-on-error: true
+        run: .github/scripts/apt-debs.sh install ~/apt-debs
+
+      # Everything from here to the cache's save step is the network path,
+      # taken only when the cache did not install the packages.
+      - name: Record installed packages
+        if: steps.deps-from-cache.outcome != 'success'
+        run: .github/scripts/apt-debs.sh snapshot "$RUNNER_TEMP/packages-before"
+
       # The runner image ships an apt source for Google Chrome, and
       # `install-deps` runs `apt-get update`, so every Playwright job depends
       # on a third-party index it has no use for: Chromium's system libraries
@@ -92,6 +138,7 @@ jobs:
       # move that helps, and it is safe — it uninstalls nothing, and matches
       # nothing (a silent no-op) on an image that stops shipping the list.
       - name: Drop the Google Chrome apt source
+        if: steps.deps-from-cache.outcome != 'success'
         run: |
           grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null \
             | xargs -r sudo rm -f
@@ -108,6 +155,7 @@ jobs:
       # retry runs; the retry's outcome is the one that counts.
       - name: Install Playwright system dependencies
         id: install-system-deps
+        if: steps.deps-from-cache.outcome != 'success'
         timeout-minutes: 4
         continue-on-error: true
         run: npx playwright install-deps chromium firefox
@@ -122,7 +170,10 @@ jobs:
       # ~2¼ minutes waiting out a dead mirror before apt falls back and makes
       # progress), plus that 2-minute bound.
       - name: Install Playwright system dependencies (retry)
-        if: steps.install-system-deps.outcome != 'success'
+        id: install-system-deps-retry
+        # Both conditions: on the cache path the first attempt is skipped,
+        # and a skipped step's outcome is not 'success' either.
+        if: steps.deps-from-cache.outcome != 'success' && steps.install-system-deps.outcome != 'success'
         timeout-minutes: 8
         run: |
           .github/scripts/settle-dpkg.sh 120
@@ -150,16 +201,47 @@ jobs:
       # nothing was left behind it finds nothing and returns at once. The
       # lock timeout covers any other holder, such as a background apt run.
       # 6 minutes: the 4 this step had before #643, plus the 2-minute wait.
+      # PulseAudio is among the cached packages (#714), so on the cache path
+      # it is already installed and apt is not run at all.
       - name: Audio output for Firefox (PulseAudio null sink)
+        id: audio-output
         if: ${{ !cancelled() }}
         timeout-minutes: 6
         run: |
           .github/scripts/settle-dpkg.sh 120
-          sudo apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=120 pulseaudio
+          command -v pulseaudio >/dev/null \
+            || sudo apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=120 pulseaudio
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=e2e_null
           pactl set-default-sink e2e_null
           pactl info | grep -E '^(Server Name|Default Sink):'
+
+      # Fills the cache on a miss (#714): every package the network steps
+      # installed, downloaded as .deb files at the versions installed. Only
+      # once both installs succeeded, so a partial set is never saved; it
+      # costs a few seconds, on the one run per key that misses. "Both"
+      # means install-deps (either attempt) and PulseAudio: the PulseAudio
+      # step runs under !cancelled() even after the retry has failed, and
+      # did succeed after one (run 44418008935), so its outcome alone would
+      # let a set without Playwright's libraries be saved — and every later
+      # hit would then skip install-deps on it. A hit that failed to install
+      # is not re-saved (a key cannot be overwritten), so such a key keeps
+      # taking the network path until the image moves on.
+      - name: Collect system packages for the cache
+        id: apt-collect
+        if: ${{ !cancelled() && steps.apt-cache.outputs.cache-hit != 'true' && (steps.install-system-deps.outcome == 'success' || steps.install-system-deps-retry.outcome == 'success') && steps.audio-output.outcome == 'success' }}
+        timeout-minutes: 2
+        continue-on-error: true
+        run: .github/scripts/apt-debs.sh collect "$RUNNER_TEMP/packages-before" ~/apt-debs
+
+      - name: Save system packages to the cache
+        if: ${{ !cancelled() && steps.apt-collect.outcome == 'success' }}
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
 
       - name: Browser tests (Firefox)
         # Run even when Chromium's step failed, so one run reports both.
