@@ -264,3 +264,40 @@ export async function expectNoWrap(items: Locator, what: string) {
     expect(layout.lines, `${what} "${layout.text}" wraps onto more than one line`).toBe(1)
   }
 }
+
+/**
+ * Adjacent controls share one height, with their tops and bottoms aligned
+ * (#792, from the customer's #787). `controls` matches the cluster's
+ * buttons — for a `Menu`, its `.menu-trigger`, not the wrapper. Returns the
+ * shared height, so a caller can check that something which should not
+ * change it (a taller glyph font) did not.
+ *
+ * A button with no height of its own is as tall as the line box of the
+ * font that draws its glyph, and glyphs such as ▶ ⋯ ✕ come from fallback
+ * symbol or emoji fonts that differ by platform (#470/#472) — so a
+ * cluster that lines up on CI's fonts need not on the customer's. Callers
+ * also measure under an injected style that enlarges the glyphs, which is
+ * what a taller platform font does to the line box.
+ *
+ * All the boxes come from one page read, so they describe one layout.
+ * The 1px tolerance is for sub-pixel rem heights rounding differently at
+ * different offsets; a misalignment the eye catches is several pixels.
+ */
+export async function expectAlignedRow(controls: Locator, what: string): Promise<number> {
+  await expect(controls.first(), `no ${what} to check`).toBeVisible()
+  const boxes = await controls.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { label: node.getAttribute('aria-label') ?? node.textContent, top: rect.top, bottom: rect.bottom, height: rect.height }
+    }),
+  )
+  expect(boxes.length, `${what}: fewer than two controls to align`).toBeGreaterThan(1)
+  const [first, ...rest] = boxes
+  for (const box of rest) {
+    const where = `${what}: ${JSON.stringify(box)} against ${JSON.stringify(first)}`
+    expect(Math.abs(box.height - first.height), `${where}: heights differ`).toBeLessThanOrEqual(1)
+    expect(Math.abs(box.top - first.top), `${where}: tops differ`).toBeLessThanOrEqual(1)
+    expect(Math.abs(box.bottom - first.bottom), `${where}: bottoms differ`).toBeLessThanOrEqual(1)
+  }
+  return first.height
+}

@@ -229,6 +229,27 @@
   min-width: 2rem;
 }
 
+/* One height for the cluster, tops and bottoms aligned (#792, from the
+   customer's #787), as the library row's (MediaLibrary.css) and the
+   header's (#472): ↑ ↓ ⋯ ✕ come from fallback symbol fonts that differ by
+   platform, so without a height of their own they are as tall as whichever
+   font draws them. The ⋯'s wrapper is made exactly its trigger's box, as
+   Menu's inline-block wrapper otherwise sits taller than its button. */
+.timeline-row-actions > button,
+.timeline-row-actions > .timeline-row-more > .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
+.timeline-row-actions > .timeline-row-more {
+  display: inline-flex;
+}
+
 .timeline-entry-trim {
   display: flex;
   /* Wraps (#665): with each box carrying its unit, `In [ ] out [ ]` and the
