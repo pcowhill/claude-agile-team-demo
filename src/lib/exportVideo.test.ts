@@ -4,6 +4,7 @@ import {
   activeVideoOverlays,
   advanceRemapReplay,
   AUDIO_DRIFT_EPSILON,
+  AUDIO_CLOCK_WINDOW_MS,
   AUDIO_START_TIMEOUT_MS,
   CURRENT_DATA_TIMEOUT_MS,
   type AudioCapture,
@@ -176,6 +177,7 @@ describe('MP4 candidates (#114)', () => {
 
 /** Minimal stand-in for the Web Audio graph, which jsdom does not implement. */
 function fakeAudioContext(state: AudioContextState = 'running') {
+  const createdAt = Date.now()
   const track = { kind: 'audio', stopped: false, stop() { this.stopped = true } }
   const streamDestination = { stream: { getAudioTracks: () => [track] } }
   const connectedTo: unknown[] = []
@@ -184,6 +186,21 @@ function fakeAudioContext(state: AudioContextState = 'running') {
     state,
     closed: false,
     resumeCount: 0,
+    /**
+     * Until when (a `Date.now()` instant) the clock stands still although the
+     * context runs — the stall #774 measured. 0: it runs as soon as started.
+     */
+    clockStalledUntil: 0,
+    /**
+     * Seconds rendered just after the context starts, before a stall: #618
+     * measured ~0.01 s. It is not there at the very first read.
+     */
+    clockHeadStart: 0,
+    /** Seconds; keeps pace with `Date.now()` while running, as a playing output's does. */
+    get currentTime() {
+      if (context.state !== 'running' || Date.now() === createdAt) return 0
+      return context.clockHeadStart + Math.max(0, Date.now() - context.clockStalledUntil) / 1000
+    },
     /** The speakers. Connecting here would play the export out loud. */
     destination: { name: 'speakers' },
     createMediaElementSource: (element: unknown) => {
@@ -364,10 +381,61 @@ describe('createAudioCapture', () => {
           result = capture
         },
       )
-      await vi.advanceTimersByTimeAsync(1000)
+      // Started at 1 s; the clock is then watched for one window, to see it run (#774).
+      await vi.advanceTimersByTimeAsync(1000 + AUDIO_CLOCK_WINDOW_MS)
       expect(result?.track).toBe(fake.track)
       expect(fake.context.closed).toBe(false)
       expect(vi.getTimerCount(), 'the bound is cleared once the context starts').toBe(0)
+    })
+
+    it('waits for a running context whose clock stands still, and captures once it moves (#774)', async () => {
+      // Chromium playing to a sound server: running at once, its clock still
+      // for ~1.5–2 s (#618). Recording through that gave an empty file.
+      vi.useFakeTimers()
+      const fake = fakeAudioContext('running')
+      // As measured: a few render quanta at once, then the clock stands still.
+      // A check for "the clock moved" passes on that head start, too early.
+      fake.context.clockHeadStart = 0.01
+      fake.context.clockStalledUntil = Date.now() + 2000
+      let result: AudioCapture | null | undefined
+      void createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)).then(
+        (capture) => {
+          result = capture
+        },
+      )
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(result, 'not captured while the clock stands still').toBeUndefined()
+      await vi.advanceTimersByTimeAsync(AUDIO_CLOCK_WINDOW_MS)
+      expect(result?.track).toBe(fake.track)
+      expect(fake.context.closed).toBe(false)
+      expect(vi.getTimerCount(), 'nothing is left polling').toBe(0)
+    })
+
+    it('falls back to video only when the clock has not moved by the bound (#774)', async () => {
+      vi.useFakeTimers()
+      const fake = fakeAudioContext('suspended')
+      // resume() settles at 1 s; the clock never moves. The bound counts from
+      // the start, not from resume(): one AUDIO_START_TIMEOUT_MS covers both.
+      fake.context.resume = () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            fake.context.state = 'running'
+            resolve()
+          }, 1000)
+        })
+      fake.context.clockStalledUntil = Number.POSITIVE_INFINITY
+      let result: AudioCapture | null | undefined
+      void createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context)).then(
+        (capture) => {
+          result = capture
+        },
+      )
+      await vi.advanceTimersByTimeAsync(AUDIO_START_TIMEOUT_MS - 1)
+      expect(result, 'still waiting just short of the bound').toBeUndefined()
+      await vi.advanceTimersByTimeAsync(AUDIO_CLOCK_WINDOW_MS)
+      expect(result).toBeNull()
+      expect(fake.context.closed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
     })
 
     it('still falls back when resume() rejects inside the bound', async () => {
