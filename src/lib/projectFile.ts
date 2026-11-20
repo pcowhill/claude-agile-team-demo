@@ -302,7 +302,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 31
+export const PROJECT_SCHEMA_VERSION = 32
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -410,6 +410,15 @@ export const BADGE_SHAPES_SCHEMA_VERSION = 30
  * *Fade* entrance writes no key and keeps its version and its bytes.
  */
 export const DRAW_ON_SCHEMA_VERSION = 31
+/**
+ * The version a Volume above 1 forces (#751). Volume runs to `MAX_VOLUME`
+ * since #692, and a build from before it refuses a boosted Volume as out of
+ * range — the whole file, with an error that reads like corruption. A file
+ * holding one refuses it by version instead, with the "newer version"
+ * message, as 4, 29 and 30 do for theirs; a file with no Volume above 1
+ * keeps its version and its bytes.
+ */
+export const BOOSTED_VOLUME_SCHEMA_VERSION = 32
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -790,6 +799,12 @@ export async function serializeProject(
   // Written only for the Draw on entrance (#690), so the key and the
   // version move together.
   const hasDrawOn = shapeGroupsOf(timeline).some((group) => group.drawOn !== undefined)
+  // A Volume above 1 (#751): every element kind that carries a Volume.
+  const boosted = (element: { volume?: number }) => (element.volume ?? 1) > 1
+  const hasBoostedVolume =
+    timeline.entries.some(boosted) ||
+    audioTracksOf(timeline).some(boosted) ||
+    videoOverlaysOf(timeline).some(boosted)
   const hasBadgeShapes = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => shape.kind === 'badge'),
   )
@@ -866,7 +881,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasDrawOn
+    schemaVersion: hasBoostedVolume
+      ? BOOSTED_VOLUME_SCHEMA_VERSION
+      : hasDrawOn
       ? DRAW_ON_SCHEMA_VERSION
       : hasBadgeShapes
       ? BADGE_SHAPES_SCHEMA_VERSION

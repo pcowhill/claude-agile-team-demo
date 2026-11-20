@@ -35,6 +35,7 @@ import fixtureV28OverlayRemapsReferencesBase64 from './fixtures/project-v28-over
 import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-overlay-shadows-references.bvep.base64?raw'
 import fixtureV30BadgeShapesReferencesBase64 from './fixtures/project-v30-badge-shapes-references.bvep.base64?raw'
 import fixtureV31DrawOnReferencesBase64 from './fixtures/project-v31-draw-on-references.bvep.base64?raw'
+import fixtureV32BoostedVolumeReferencesBase64 from './fixtures/project-v32-boosted-volume-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -63,6 +64,7 @@ import {
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
+  BOOSTED_VOLUME_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1169,7 +1171,7 @@ describe('project file versioning', () => {
     // segments and pauses (#700); version 29 added overlay drop shadows
     // (#698); version 30 added numbered badges in shape groups (#689);
     // version 31 added a shape group's Draw on entrance (#690).
-    expect(PROJECT_SCHEMA_VERSION).toBe(31)
+    expect(PROJECT_SCHEMA_VERSION).toBe(32)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1201,6 +1203,7 @@ describe('project file versioning', () => {
     expect(OVERLAY_SHADOWS_SCHEMA_VERSION).toBe(29)
     expect(BADGE_SHAPES_SCHEMA_VERSION).toBe(30)
     expect(DRAW_ON_SCHEMA_VERSION).toBe(31)
+    expect(BOOSTED_VOLUME_SCHEMA_VERSION).toBe(32)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -5293,6 +5296,90 @@ describe('the Draw on entrance in project files (#690, schema version 31)', () =
       project: {
         clips: expectedProject.clips,
         timeline: { ...expectedProject.timeline, shapeGroups: drawOnGroups },
+      },
+    })
+  })
+})
+
+// A Volume above 1 (#751, schema version 32): since #692 Volume runs to 4,
+// and a build from before it refuses a boosted Volume as out of range, so a
+// file holding one is written at 32 and an older build refuses it by
+// version instead. A file with no Volume above 1 keeps its version.
+describe('a Volume above 1 in project files (#751, schema version 32)', () => {
+  const boostLibrary: MediaLibraryState = {
+    ...library,
+    clips: [...library.clips, { id: 'a1', name: 'music.mp3', duration: 185, url: 'blob:session/a1', kind: 'audio' }],
+  }
+  const track = {
+    id: 't1', clipId: 'a1', name: 'music.mp3', duration: 185, url: 'blob:session/a1',
+    offset: 2, inPoint: 10, outPoint: 40,
+  }
+  const overlay = {
+    id: 'v1', clipId: 'c2', name: 'city.webm', duration: 4, url: 'blob:session/c2',
+    offset: 1.5, inPoint: 0.5, outPoint: 3, x: 0.6, y: 0.6, width: 0.35, height: 0.35,
+  }
+  /** The project with one element of `kind` at `volume`, and the rest unset. */
+  const withVolume = (kind: 'entry' | 'audio-track' | 'video-overlay', volume: number): TimelineState => ({
+    ...timeline,
+    entries: timeline.entries.map((entry, index) => (kind === 'entry' && index === 0 ? { ...entry, volume } : entry)),
+    audioTracks: [kind === 'audio-track' ? { ...track, volume } : track],
+    videoOverlays: [kind === 'video-overlay' ? { ...overlay, volume } : overlay],
+  })
+  const versionOf = async (state: TimelineState) =>
+    (await gunzipJson(await serializeProject(boostLibrary, state))).schemaVersion
+
+  it('writes version 32 when any one entry, track or overlay is above 1, and reads it back', async () => {
+    for (const kind of ['entry', 'audio-track', 'video-overlay'] as const) {
+      const bytes = await serializeProject(boostLibrary, withVolume(kind, 2))
+      expect((await gunzipJson(bytes)).schemaVersion, kind).toBe(BOOSTED_VOLUME_SCHEMA_VERSION)
+      const result = await deserializeProject(bytes)
+      expect(result.ok, kind).toBe(true)
+      if (!result.ok) continue
+      const read = result.project.timeline
+      const volume =
+        kind === 'entry' ? read.entries[0].volume : kind === 'audio-track' ? read.audioTracks?.[0].volume : read.videoOverlays?.[0].volume
+      expect(volume, kind).toBe(2)
+    }
+  })
+
+  it('keeps the version a project had before when no Volume is above 1, 1 itself included', async () => {
+    // The same project with no Volume set at all.
+    const unset = await versionOf({ ...timeline, audioTracks: [track], videoOverlays: [overlay] })
+    expect(unset).not.toBe(BOOSTED_VOLUME_SCHEMA_VERSION)
+    for (const kind of ['entry', 'audio-track', 'video-overlay'] as const) {
+      for (const volume of [0, 0.5, 1]) {
+        expect(await versionOf(withVolume(kind, volume)), `${kind} at ${volume}`).toBe(unset)
+      }
+    }
+    // The bound is strict: the smallest boost forces it.
+    expect(await versionOf(withVolume('audio-track', 1.01))).toBe(BOOSTED_VOLUME_SCHEMA_VERSION)
+  })
+
+  it('outranks every other version-forcing content: a boost beside a draw-on is still 32', async () => {
+    const drawing: ShapeGroup = {
+      id: 'g1', offset: 1, duration: 3, drawOn: 1,
+      shapes: [{
+        id: 's1', kind: 'ellipse', x: 0.3, y: 0.3, width: 0.4, height: 0.4,
+        stroke: '#e53935', strokeOpacity: 1, thickness: 0.01, fill: '#e53935', fillOpacity: 0,
+      }],
+    }
+    expect(await versionOf({ ...withVolume('entry', 3), shapeGroups: [drawing] })).toBe(BOOSTED_VOLUME_SCHEMA_VERSION)
+    expect(await versionOf({ ...withVolume('entry', 1), shapeGroups: [drawing] })).toBe(DRAW_ON_SCHEMA_VERSION)
+  })
+
+  it('deserializes the committed v32 boosted-volume fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV32BoostedVolumeReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: {
+          ...expectedProject.timeline,
+          entries: expectedProject.timeline.entries.map((entry, index) => (index === 0 ? { ...entry, volume: 2 } : entry)),
+        },
       },
     })
   })
