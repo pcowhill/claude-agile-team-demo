@@ -1,28 +1,18 @@
-import { chromium, expect, test } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { expect, test } from '@playwright/test'
+import { withFakeMedia } from './fakeMedia'
 
 /**
  * Screen recording (#225), against Chromium's fake display capture: the
- * flags below make `getDisplayMedia` auto-select the editor's own tab
+ * flags make `getDisplayMedia` auto-select the editor's own tab
  * (no picker UI exists headless) with permission auto-granted, and provide
  * a fake audio device so the capture's audio:true request can start in an
  * audio-less container (headless CI has no real audio subsystem). The
  * capture pipeline (getDisplayMedia → MediaRecorder → import path) runs for
  * real — the proxy evidence for the customer-verifiable real-window/display
- * criterion. The executable resolution mirrors playwright.config.ts, which
- * per-file launch options would otherwise drop.
+ * criterion. `withFakeMedia` (`fakeMedia.ts`) gives each browser its own
+ * fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: [
-      '--auto-select-tab-capture-source-by-title=Browser Video Editor',
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-    ],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test, ['--auto-select-tab-capture-source-by-title=Browser Video Editor'])
 
 /** Runs one screen capture through the Record menu, ~1s long, and stops it. */
 async function recordScreen(page: import('@playwright/test').Page) {

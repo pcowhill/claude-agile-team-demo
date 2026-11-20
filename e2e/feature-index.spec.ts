@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { choosePreviewLayout } from './previewView'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { chromium, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { withFakeMedia } from './fakeMedia'
 import { chooseClipAction, openClipMenu } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
@@ -84,16 +84,10 @@ import { sineWav } from './sineWav'
  * Chromium's fake media device, so the walk can open the recording dialog
  * (#507): `getUserMedia` delivers a generated tone and the permission is
  * auto-granted, which is the idiom `record-voice-over.spec.ts` and the other
- * recording specs use. The executable resolution mirrors playwright.config.ts,
- * which per-file launch options would otherwise drop.
+ * recording specs use.
+ * `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test)
 
 /** Stands in for a clip, row or section name while a label is normalized. */
 const ELEMENT = '‹element›'

@@ -44,18 +44,23 @@ const includeFirefox = Boolean(process.env.CI) || process.env.E2E_FIREFOX === '1
  * none of its tests can run under Firefox; otherwise the tests are listed by
  * title. The audit that produced them is in #586's PR.
  */
+// Headless Firefox has no display to share: its getDisplayMedia rejects with
+// NotFoundError ("The object can not be found here.", measured in CI run
+// 44760993364 for #599), and Chromium's --auto-select-tab-capture-source-by-
+// title has no Firefox counterpart. Headed Firefox under xvfb, with the same
+// fake-media prefs, does grant a screen (#580), so this is the CI's
+// environment, not the product.
+const NO_HEADLESS_SCREEN = 'Chromium-only: headless Firefox has no screen for getDisplayMedia to share (#599)'
 const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
-  { file: 'menu.spec.ts', why: '#599: test.use passes Chromium-only fake-media launch flags, so Firefox cannot start' },
-  { file: 'record-pause-countdown.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-screen-camera.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-screen.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-voice-over.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-webcam.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'feature-index.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'export-chapter-list.spec.ts', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
+  { file: 'record-screen.spec.ts', why: NO_HEADLESS_SCREEN },
+  { file: 'record-screen-camera.spec.ts', why: NO_HEADLESS_SCREEN },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
-  { title: 'the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
+  { title: 'a screen + camera take paused ten times delivers two clips whose lengths agree within three frames (#514)', why: NO_HEADLESS_SCREEN },
+  { title: 'a voice-over records into the library and plays on the timeline (#224)', why: '#789: the recorded voice-over is refused at import, "Timed out reading media metadata"' },
+  { title: 'a recorded clip autosaves and restores like any other clip (#224/#194)', why: '#789: the recorded voice-over is refused at import' },
+  { title: 'the countdown runs 3 · 2 · 1 before the recorder starts, Start now skips it, and Cancel records nothing (#514)', why: '#789: the recorded voice-over is refused at import' },
+  { title: 'a pause is absent from the file: one clip, shorter than the wall time, and Space toggles it (#514)', why: '#789: the recorded voice-over is refused at import' },
   { title: 'selecting MP4 exports a file that demuxes as MP4 (#114)', why: 'Chromium-only: Firefox\'s MediaRecorder cannot record MP4, so the picker rightly omits it (#114 covers that case)' },
 ]
 

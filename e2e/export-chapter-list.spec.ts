@@ -24,8 +24,12 @@ type Page = import('@playwright/test').Page
  */
 
 // Reading the clipboard back needs both, and the write needs the page to
-// own the clipboard at all.
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+// own the clipboard at all. The two names are Chromium's: Firefox rejects
+// them as unknown permissions, and its clipboard needs no grant (#599).
+test.use({
+  permissions: async ({ browserName }, provide) =>
+    provide(browserName === 'chromium' ? ['clipboard-read', 'clipboard-write'] : []),
+})
 
 const SEQUENCE_SECONDS = 105
 const copyButton = (page: Page) => page.getByRole('button', { name: 'Copy chapter list' })

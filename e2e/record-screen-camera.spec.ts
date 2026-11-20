@@ -1,5 +1,5 @@
-import { chromium, expect, test } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { expect, test } from '@playwright/test'
+import { withFakeMedia } from './fakeMedia'
 
 type Page = import('@playwright/test').Page
 
@@ -14,18 +14,9 @@ type Page = import('@playwright/test').Page
  * for real, only the devices are synthetic. Every pre-stop wait anchors on
  * media the streams actually delivered, never the wall clock (#373/#377),
  * and every poll anchors on states load cannot fake (#362).
+ * `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: [
-      '--auto-select-tab-capture-source-by-title=Browser Video Editor',
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-    ],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test, ['--auto-select-tab-capture-source-by-title=Browser Video Editor'])
 
 /** Records a ~1 s solid-color WebM to seed the timeline, so the placement
  * lands at a nonzero start the test can hold against the overlay's offset. */
