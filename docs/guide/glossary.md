@@ -110,7 +110,7 @@ The rectangle of the frame an overlay layer occupies, as fractions of the frame'
 
 ### Shape mask
 
-The silhouette an overlay is cut to — its rectangle, an inscribed ellipse or a rounded rectangle. See [Shape mask](editing-video.md#shape-mask).
+The silhouette an overlay's picture is cut to — the picture as it is, an inscribed ellipse or a rounded rectangle. See [Shape mask](editing-video.md#shape-mask).
 
 ## The picture
 

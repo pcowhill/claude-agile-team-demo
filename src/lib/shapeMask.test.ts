@@ -110,7 +110,7 @@ describe('roundedCornerRadius (#266)', () => {
 })
 
 describe('maskClipPath (#266)', () => {
-  const rect = { width: 0.4, height: 0.3 }
+  const rect = { x: 0.1, y: 0.2, width: 0.4, height: 0.3 }
 
   it('an absent mask styles nothing at all — the identity', () => {
     expect(maskClipPath(undefined, rect)).toBeUndefined()
@@ -127,5 +127,34 @@ describe('maskClipPath (#266)', () => {
     expect(maskClipPath({ kind: 'rounded', radius: 0.25 }, rect)).toBe(
       'inset(0 round min(10cqw, 7.5cqh))',
     )
+  })
+
+  describe('an outline narrower than the card (#791)', () => {
+    // The picture covers the middle half of the card's width: 0.2 of the
+    // frame's width, starting 0.1 in, and the card's full height.
+    const outline = { x: 0.2, y: 0.2, width: 0.2, height: 0.3 }
+
+    it('the ellipse is inscribed in the outline, in percentages of the card', () => {
+      expect(maskClipPath({ kind: 'ellipse' }, rect, outline)).toBe('ellipse(25% 50% at 50% 50%)')
+    })
+
+    it('the rounded rectangle insets to the outline and rounds by its shorter side', () => {
+      // 0.25 of the outline: min(0.25·20cqw, 0.25·30cqh).
+      expect(maskClipPath({ kind: 'rounded', radius: 0.25 }, rect, outline)).toBe(
+        'inset(0% 25% 0% 25% round min(5cqw, 7.5cqh))',
+      )
+    })
+
+    it('an off-centre outline moves the ellipse centre', () => {
+      const low = { x: 0.1, y: 0.35, width: 0.4, height: 0.15 }
+      expect(maskClipPath({ kind: 'ellipse' }, rect, low)).toBe('ellipse(50% 25% at 50% 75%)')
+    })
+
+    it('an outline that fills the card gives the unchanged strings', () => {
+      expect(maskClipPath({ kind: 'ellipse' }, rect, { ...rect })).toBe('ellipse(50% 50% at 50% 50%)')
+      expect(maskClipPath({ kind: 'rounded', radius: 0.25 }, rect, { ...rect })).toBe(
+        'inset(0 round min(10cqw, 7.5cqh))',
+      )
+    })
   })
 })

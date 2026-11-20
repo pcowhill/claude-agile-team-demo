@@ -277,7 +277,7 @@ export function scaleRectAboutCenter(
  * leaving the base composition visible — the transparent-gutter rule.
  */
 export function overlayDestRect(
-  overlay: VideoOverlay,
+  overlay: Pick<VideoOverlay, 'x' | 'y' | 'width' | 'height'>,
   sourceWidth: number,
   sourceHeight: number,
   frameWidth: number,
@@ -295,35 +295,62 @@ export function overlayDestRect(
 }
 
 /**
+ * An overlay's visible picture on a frame of `frameWidth` × `frameHeight`
+ * (#791): the source's kept region (crop, #256) in its oriented shape
+ * (#233), letterboxed inside the placement rectangle — `overlayDestRect`
+ * given the dimensions the picture actually has. This is the overlay's
+ * outline: its shape mask, border and shadow are drawn on it, so a crop
+ * that narrows the picture narrows them too, and the transparent gutters
+ * the letterbox leaves stay empty. Where the picture fills its rectangle
+ * (the common case) it IS the rectangle. The export calls it in canvas
+ * pixels and the preview in the frame's own units, so both trace one
+ * outline.
+ */
+export function overlayPictureRect(
+  overlay: Pick<VideoOverlay, 'x' | 'y' | 'width' | 'height' | 'crop' | 'orientation'>,
+  sourceWidth: number,
+  sourceHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+): FitRect {
+  const shown = orientedDimensions(
+    croppedDimensions({ width: sourceWidth, height: sourceHeight }, overlay.crop),
+    overlay.orientation,
+  )
+  return overlayDestRect(overlay, shown.width, shown.height, frameWidth, frameHeight)
+}
+
+/**
  * Traces an overlay's shape mask (#266/#267) as a canvas path over its
- * placed rectangle in canvas pixels — the geometry the preview clips with
- * (`maskClipPath` maps the same shared rule to CSS), consumed here as path
- * arguments so the two renderers cut the same silhouette. The caller begins
- * the path and decides what to do with it (the export fills it as a
- * `destination-in` alpha mask).
+ * outline in canvas pixels — the visible picture, `overlayPictureRect`
+ * (#791) — the geometry the preview clips with (`maskClipPath` maps the
+ * same shared rule to CSS), consumed here as path arguments so the two
+ * renderers cut the same silhouette. The caller begins the path and decides
+ * what to do with it (the export fills it as a `destination-in` alpha mask).
  */
 export function traceShapeMask(
   context: CanvasRenderingContext2D,
   mask: ShapeMask,
-  placed: FitRect,
+  outline: FitRect,
 ): void {
   if (mask.kind === 'ellipse') {
-    const shape = inscribedEllipse(placed)
+    const shape = inscribedEllipse(outline)
     context.ellipse(shape.cx, shape.cy, shape.rx, shape.ry, 0, 0, 2 * Math.PI)
     return
   }
   context.roundRect(
-    placed.x,
-    placed.y,
-    placed.width,
-    placed.height,
-    roundedCornerRadius(placed, mask.radius),
+    outline.x,
+    outline.y,
+    outline.width,
+    outline.height,
+    roundedCornerRadius(outline, mask.radius),
   )
 }
 
 /**
  * An overlay's border (#697) into `scratch`, then onto `context`: the
- * silhouette — the placed rectangle, or the shape its mask cuts — stroked at
+ * silhouette — the outline (the visible picture, `overlayPictureRect`,
+ * #791), or the shape its mask cuts from it — stroked at
  * twice the thickness, centred on the path, with the silhouette's inside
  * then removed by a `destination-out` fill. What remains is the outside
  * offset of the shape, so the picture keeps every pixel. A filled path's
@@ -336,15 +363,15 @@ export function drawOverlayBorder(
   scratchBuffer: { canvas: CanvasImageSource; context: CanvasRenderingContext2D },
   border: OverlayBorder,
   mask: ShapeMask | undefined,
-  placed: FitRect,
+  outline: FitRect,
   frameWidth: number,
   frameHeight: number,
 ): void {
   const scratch = scratchBuffer.context
   const trace = () => {
     scratch.beginPath()
-    if (mask === undefined) scratch.rect(placed.x, placed.y, placed.width, placed.height)
-    else traceShapeMask(scratch, mask, placed)
+    if (mask === undefined) scratch.rect(outline.x, outline.y, outline.width, outline.height)
+    else traceShapeMask(scratch, mask, outline)
   }
   scratch.clearRect(0, 0, frameWidth, frameHeight)
   trace()
@@ -371,8 +398,9 @@ export interface ScratchBuffer {
  * picture. Three steps, each chosen so both renderers agree and no engine's
  * antialiasing of `clip()` decides an edge (the #261 risk):
  *
- * 1. `silhouette` gets the overlay's silhouette, opaque: the placed
- *    rectangle or the shape its mask cuts, filled, and — with a border —
+ * 1. `silhouette` gets the overlay's silhouette, opaque: its outline (the
+ *    visible picture, `overlayPictureRect`, #791) or the shape its mask
+ *    cuts from it, filled, and — with a border —
  *    stroked at twice the border's thickness, which grows it to the
  *    bordered outline `drawOverlayBorder` paints.
  * 2. `shadow` gets that silhouette drawn **once**, with the canvas shadow
@@ -381,7 +409,9 @@ export interface ScratchBuffer {
  *    never compound their alpha where they overlap.
  * 3. The silhouette is removed from the shadow (`destination-out`), so the
  *    shadow lies only outside the overlay, as a CSS `box-shadow` does: a
- *    letterboxed picture or a transparent still never shows it through.
+ *    transparent still never shows it through. Since #791 the outline is
+ *    the picture, so a letterboxed or cropped picture casts from its own
+ *    edges and the shadow can fall in the gutters beside it.
  *
  * Blur is `shadowBlur`, which every engine draws (canvas `filter` is not
  * universal). The preview calls this same routine on a frame-sized canvas
@@ -394,15 +424,15 @@ export function drawOverlayShadow(
   shadow: OverlayShadow,
   mask: ShapeMask | undefined,
   border: OverlayBorder | undefined,
-  placed: FitRect,
+  outline: FitRect,
   frameWidth: number,
   frameHeight: number,
 ): void {
   const silhouette = silhouetteBuffer.context
   silhouette.clearRect(0, 0, frameWidth, frameHeight)
   silhouette.beginPath()
-  if (mask === undefined) silhouette.rect(placed.x, placed.y, placed.width, placed.height)
-  else traceShapeMask(silhouette, mask, placed)
+  if (mask === undefined) silhouette.rect(outline.x, outline.y, outline.width, outline.height)
+  else traceShapeMask(silhouette, mask, outline)
   silhouette.fillStyle = '#000'
   silhouette.fill()
   const grow = border === undefined ? 0 : shorterSidePixels(border.thickness, frameWidth, frameHeight)
@@ -416,10 +446,10 @@ export function drawOverlayShadow(
   target.clearRect(0, 0, frameWidth, frameHeight)
   // Only the bordered silhouette's box casts, so the engine blurs that box
   // rather than the whole frame — once per overlay per exported frame.
-  const left = Math.max(0, Math.floor(placed.x - grow - 1))
-  const top = Math.max(0, Math.floor(placed.y - grow - 1))
-  const right = Math.min(frameWidth, Math.ceil(placed.x + placed.width + grow + 1))
-  const bottom = Math.min(frameHeight, Math.ceil(placed.y + placed.height + grow + 1))
+  const left = Math.max(0, Math.floor(outline.x - grow - 1))
+  const top = Math.max(0, Math.floor(outline.y - grow - 1))
+  const right = Math.min(frameWidth, Math.ceil(outline.x + outline.width + grow + 1))
+  const bottom = Math.min(frameHeight, Math.ceil(outline.y + outline.height + grow + 1))
   if (right > left && bottom > top) {
     // Far enough left that the silhouette itself is wholly off the canvas;
     // the shadow offset brings its shadow back to where it falls.
@@ -1504,11 +1534,10 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // within the placement rectangle — the preview's swapped media box
         // at rectangle scale — and the draw rotates/flips into that box.
         // Its crop (#256) shapes the box first, crop before orientation
-        // (#255), and the draw paints only the kept source rectangle.
-        const layerDims = orientedDimensions(
-          croppedDimensions({ width: picture.width, height: picture.height }, layer.crop),
-          layer.orientation,
-        )
+        // (#255), and the draw paints only the kept source rectangle. That
+        // letterboxed picture is the overlay's outline (#791): the shape
+        // mask, border and shadow below are all drawn on it.
+        const outline = overlayPictureRect(layer, picture.width, picture.height, width, height)
         const placed = {
           x: layer.x * width,
           y: layer.y * height,
@@ -1524,11 +1553,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // the picture, its redactions and spotlights — follows, as they
         // follow a zoomed sequence entry. Identity returns `dest` itself.
         const layerZoom = overlayZoomAt(layer, layerTime)
-        const dest = zoomRectWithin(
-          overlayDestRect(layer, layerDims.width, layerDims.height, width, height),
-          layerZoom,
-          placed,
-        )
+        const dest = zoomRectWithin(outline, layerZoom, placed)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
         const paintPicture = (target: CanvasRenderingContext2D) => {
@@ -1597,7 +1622,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             layer.shadow,
             layer.shapeMask,
             layer.border,
-            placed,
+            outline,
             width,
             height,
           )
@@ -1611,7 +1636,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             maskScratch(),
             layer.border,
             layer.shapeMask,
-            placed,
+            outline,
             width,
             height,
           )
@@ -1626,16 +1651,16 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // to the shared rule's silhouette with a filled path composited
         // `destination-in` — antialias-safe, unlike engine `clip()`, whose
         // hard edge is the risk #261 flagged — and composite the cut result.
-        // The mask shapes the PLACED rectangle, exactly the card box the
-        // preview clips (#266): the picture letterboxes inside it first, so
-        // the cut intersects whatever the layer actually drew.
+        // The mask shapes the overlay's outline — the visible picture
+        // (#791), which the preview's card clip-path insets to as well — so
+        // an ellipse is inscribed in what a crop kept, not in the gutters.
         const scratch = maskScratch()
         scratch.context.clearRect(0, 0, width, height)
         paintOverlay(scratch.context)
         scratch.context.globalCompositeOperation = 'destination-in'
         scratch.context.fillStyle = '#fff'
         scratch.context.beginPath()
-        traceShapeMask(scratch.context, layer.shapeMask, placed)
+        traceShapeMask(scratch.context, layer.shapeMask, outline)
         scratch.context.fill()
         scratch.context.globalCompositeOperation = 'source-over'
         context.drawImage(scratch.canvas, 0, 0)
