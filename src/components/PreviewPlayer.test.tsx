@@ -2991,6 +2991,43 @@ describe('jump to cuts and snap on committed seek (#391)', () => {
     expect(tick.style.left).toBe(`${(4 / 7) * 100}%`)
   })
 
+  it('a snapped release holds against the slider’s trailing input, as Firefox sends it (#598)', () => {
+    // The order Firefox 153 fired in CI run 44744703399 for a press on the
+    // thumb near a cut: input (pointer value), pointerup, then — after the
+    // snap — one more input and change with the pointer value, then click.
+    vi.useFakeTimers()
+    try {
+      render(<PreviewPlayer timeline={twoClips} />)
+      fireEvent.pointerDown(slider())
+      fireEvent.change(slider(), { target: { value: '3.93' } })
+      fireEvent.pointerUp(slider())
+      expect(slider()).toHaveValue('4')
+      fireEvent.change(slider(), { target: { value: '3.93' } })
+      expect(slider()).toHaveValue('4')
+      fireEvent.click(slider())
+
+      // The hold ended with the click: the next scrub moves freely.
+      fireEvent.pointerDown(slider())
+      fireEvent.change(slider(), { target: { value: '2' } })
+      expect(slider()).toHaveValue('2')
+      fireEvent.pointerUp(slider())
+      expect(slider()).toHaveValue('2')
+
+      // A release that ends off the slider sends no click: the hold lapses
+      // on its own, and a keyboard step after it is a seek again.
+      fireEvent.change(slider(), { target: { value: '3.9' } })
+      fireEvent.pointerUp(slider())
+      expect(slider()).toHaveValue('4')
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      fireEvent.change(slider(), { target: { value: '4.01' } })
+      expect(slider()).toHaveValue('4.01')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('the tick clears itself after its flash', () => {
     vi.useFakeTimers()
     try {

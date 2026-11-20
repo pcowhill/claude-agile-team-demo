@@ -261,6 +261,15 @@ const playGain = (element: HTMLMediaElement, gain: number) => {
 const BOUNDARY_EPSILON = 0.02
 
 /**
+ * How long a snapped release ignores the slider's own value events when no
+ * `click` ends the gesture (#598). Firefox's trailing `input` / `change`
+ * arrive within a few milliseconds of `pointerup` (1–3 ms in CI); this is
+ * long enough for a loaded machine and far shorter than a deliberate
+ * follow-up seek, which begins with a press or a key that ends the hold.
+ */
+const SNAP_HOLD_MS = 250
+
+/**
  * Tolerance (seconds) between an audio track element's clock and the
  * position the sequence publishes (#103). Element clocks drift a few tens of
  * milliseconds apart; re-seeking on every frame would stutter the audio, so
@@ -1119,6 +1128,13 @@ export function PreviewPlayer({
   // a flash that says "the landing was adjusted", not a persistent marker.
   const [snapTick, setSnapTick] = useState<number | null>(null)
   const snapTickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // A release that snapped holds the slider for the rest of its gesture
+  // (#598): Firefox ends a range press or drag with one more `input` and
+  // `change` carrying its own pointer value, after `pointerup`, which would
+  // otherwise seek straight back off the cut the snap just landed on. Set
+  // by the snap; cleared by the gesture's `click`, the next press or key,
+  // or SNAP_HOLD_MS as a fallback for a release that ends off the slider.
+  const snapHold = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Intrinsic dimensions per source URL, probed off-DOM as sources join the
   // sequence, feeding the shared output-frame rule (frameSize.ts, #176) that
   // shapes the preview frame. Sources still probing simply don't contribute
@@ -2114,11 +2130,25 @@ export function PreviewPlayer({
     if (snapTickTimer.current !== null) clearTimeout(snapTickTimer.current)
     setSnapTick(snapped)
     snapTickTimer.current = setTimeout(() => setSnapTick(null), 800)
+    releaseSnapHold()
+    snapHold.current = setTimeout(releaseSnapHold, SNAP_HOLD_MS)
   }
-  // The tick never outlives the component.
+  const releaseSnapHold = () => {
+    if (snapHold.current !== null) clearTimeout(snapHold.current)
+    snapHold.current = null
+  }
+  // While a snap holds, the slider's own value events are the gesture's
+  // tail, not a new seek: ignoring them leaves the controlled value on the
+  // snapped time, which React writes back to the element.
+  const seekFromSlider = (value: number) => {
+    if (snapHold.current !== null) return
+    seek(value)
+  }
+  // The tick and the hold never outlive the component.
   useEffect(
     () => () => {
       if (snapTickTimer.current !== null) clearTimeout(snapTickTimer.current)
+      if (snapHold.current !== null) clearTimeout(snapHold.current)
     },
     [],
   )
@@ -3178,8 +3208,11 @@ export function PreviewPlayer({
                 max={total}
                 step={0.01}
                 value={Math.min(sequenceTime, total)}
-                onChange={(event) => seek(Number(event.target.value))}
+                onChange={(event) => seekFromSlider(Number(event.target.value))}
+                onPointerDown={releaseSnapHold}
                 onPointerUp={commitSeekWithSnap}
+                onClick={releaseSnapHold}
+                onKeyDown={releaseSnapHold}
               />
             </div>
             <span className="preview-position" data-testid="preview-position">
