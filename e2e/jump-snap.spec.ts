@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectFrameItemEnabled } from './frameMenu'
 import { expectWithin } from './layout'
+import { measureSeekMapping } from './seekSlider'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
@@ -102,12 +103,24 @@ test('a committed pointer seek snaps onto the cut with a tick; Alt or distance b
   const seek = page.getByRole('slider', { name: 'Seek within sequence' })
   const tick = page.getByTestId('preview-snap-tick')
   const box = (await seek.boundingBox())!
-  const y = box.y + box.height / 2
-  // A click within the thumb grabs it without moving the value (measured
-  // before writing this — clicks up to ~7 px off the thumb's center all kept
-  // the current value), so positioning by the slider's own keys and then
-  // clicking the thumb is a deterministic pointer commit at a known value.
-  const thumbX = (value: number) => box.x + (value / 10) * box.width
+  // A click within the thumb grabs it, so positioning by the slider's own
+  // keys and then clicking the thumb is a pointer commit at a known value.
+  // Where the thumb sits is measured in this browser (#598): Chromium keeps
+  // the value exactly; Firefox, whose pointer arrives on a whole pixel, can
+  // land it one pixel's worth off (4.93 for 4.94 in CI), which is still
+  // inside the snap zone and is why the Alt landings below allow a pixel.
+  const { xFor: thumbX, pixelSeconds, y } = await measureSeekMapping(page, seek)
+  await blurActive(page)
+  await page.keyboard.press('Home')
+  await expect(seek).toHaveValue('0')
+  /** The value an Alt release left, within one pixel of `value`. */
+  const expectAltLanding = async (value: number) => {
+    await expect
+      .poll(async () => Math.abs(Number(await seek.inputValue()) - value))
+      .toBeLessThanOrEqual(pixelSeconds + 0.005)
+    await expect(seek).not.toHaveValue('5')
+    return seek.inputValue()
+  }
   /** Steps the focused slider natively to `value` 0.01 s at a time. */
   const stepSliderTo = async (from: number, to: number) => {
     await seek.focus()
@@ -147,15 +160,16 @@ test('a committed pointer seek snaps onto the cut with a tick; Alt or distance b
   await page.keyboard.down('Alt')
   await page.mouse.click(thumbX(4.94), y)
   await page.keyboard.up('Alt')
-  await expect(seek).toHaveValue('4.94')
+  const altLanded = await expectAltLanding(4.94)
   await expect(tick).toHaveCount(0)
 
   // A release far from every boundary stands as dragged: no snap, no tick.
   // The landing value is a pixel estimate, so it is not asserted directly;
-  // the click has committed once the field has left the 4.94 asserted above,
-  // and only then is the one-shot read safe (quality-and-ci.md, #449, #552).
+  // the click has committed once the field has left the Alt landing read
+  // above, and only then is the one-shot read safe (quality-and-ci.md, #449,
+  // #552).
   await page.mouse.click(thumbX(2.5), y)
-  await expect(seek).not.toHaveValue('4.94')
+  await expect(seek).not.toHaveValue(altLanded)
   const free = Number(await seek.inputValue())
   expect(free).toBeGreaterThan(1.5)
   expect(free).toBeLessThan(3.5)

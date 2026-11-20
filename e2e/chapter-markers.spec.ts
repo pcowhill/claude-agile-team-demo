@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { chooseFromFrameMenu } from './frameMenu'
 import { expectNoHorizontalScroll } from './layout'
+import { measureSeekMapping } from './seekSlider'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
@@ -132,8 +133,11 @@ test('↑ / ↓ stop on markers and a released seek snaps onto one; Alt bypasses
   // The upper part of the slider, not its centre line: the marker's tick
   // sits just under the track and would take the click for its own menu —
   // which is the tick's job, and why a seek near a marker aims above it.
-  const y = box.y + box.height * 0.25
-  const thumbX = (value: number) => box.x + (value / 10) * box.width
+  const y = Math.round(box.y + box.height * 0.25)
+  // Where the thumb sits for a value is measured in this browser (#598,
+  // e2e/seekSlider.ts), pressing at the same height; Alt keeps the probes
+  // from snapping.
+  const { xFor: thumbX, pixelSeconds } = await measureSeekMapping(page, seek(page), 0.25)
   await seek(page).focus()
   await page.keyboard.press('Home')
   for (let i = 0; i < 244; i++) await page.keyboard.press('ArrowRight')
@@ -149,7 +153,12 @@ test('↑ / ↓ stop on markers and a released seek snaps onto one; Alt bypasses
   await page.keyboard.down('Alt')
   await page.mouse.click(thumbX(2.44), y)
   await page.keyboard.up('Alt')
-  await expect(seek(page)).toHaveValue('2.44')
+  // Within one pixel of 2.44, not on the marker: Firefox's whole-pixel
+  // pointer can move a grabbed thumb by that much (jump-snap.spec.ts).
+  await expect
+    .poll(async () => Math.abs(Number(await seek(page).inputValue()) - 2.44))
+    .toBeLessThanOrEqual(pixelSeconds + 0.005)
+  await expect(seek(page)).not.toHaveValue('2.5')
 })
 
 test('a tick’s menu renames, moves and removes; each is one undo step', async ({ page }) => {
