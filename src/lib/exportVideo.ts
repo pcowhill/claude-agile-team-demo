@@ -1946,8 +1946,9 @@ function defaultAudioContext(): AudioContext | null {
 }
 
 /**
- * How long `createAudioCapture` waits for a suspended context to start
- * before it gives up on sound and exports video only (#596), in ms.
+ * How long `createAudioCapture` waits for a suspended context to start, and
+ * for its clock then to run (#774), before it gives up on sound and exports
+ * video only (#596), in ms.
  *
  * A browser whose audio backend cannot open an output device (a machine
  * with no sound device, or a sound server that is down) leaves `resume()`
@@ -1960,6 +1961,36 @@ function defaultAudioContext(): AudioContext | null {
  * export, which runs in real time.
  */
 export const AUDIO_START_TIMEOUT_MS = 5000
+
+/**
+ * The window over which the export checks that the audio clock keeps pace
+ * with the wall clock before it records (#774), in ms. A playing output
+ * passes in one window, so this is all the wait costs in the normal case.
+ */
+export const AUDIO_CLOCK_WINDOW_MS = 100
+
+/**
+ * Whether `context.currentTime` runs at least half as fast as the wall
+ * clock over one AUDIO_CLOCK_WINDOW_MS before `deadline` (a `Date.now()`
+ * instant) (#774). Reporting `running` is not enough, and neither is the
+ * clock having moved: Chromium playing to a sound server rendered ~0.01 s
+ * at once and then held its clock for about 1.5–2 s (#618's measurement).
+ * Recording through that stall gave an empty file for a short export, and
+ * sound out of line with the picture for a longer one.
+ */
+async function clockRunsBy(context: AudioContext, deadline: number): Promise<boolean> {
+  let wall = Date.now()
+  let clock = context.currentTime
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, AUDIO_CLOCK_WINDOW_MS))
+    const nowWall = Date.now()
+    const nowClock = context.currentTime
+    if (nowClock - clock >= (nowWall - wall) / 1000 / 2) return true
+    if (nowWall >= deadline) return false
+    wall = nowWall
+    clock = nowClock
+  }
+}
 
 /**
  * Whether `promise` settles (either way) within `ms`. The timer is cleared
@@ -2062,7 +2093,8 @@ export function untilCurrentData(
  * one — so exports stay uniform whether or not the clips have sound.
  *
  * Returns null when Web Audio is unavailable, refuses an element, or does not
- * start within AUDIO_START_TIMEOUT_MS (#596). The caller treats that as
+ * start within AUDIO_START_TIMEOUT_MS (#596) — where starting means its clock
+ * keeps pace with the wall clock, not only that it reports `running` (#774). The caller treats that as
  * "export video only" rather than as a failure.
  */
 export async function createAudioCapture(
@@ -2103,6 +2135,9 @@ export async function createAudioCapture(
     // cannot start audio never settles resume(), and the export would
     // otherwise hang at 0%. Past the bound this is the same video-only
     // fallback as a context that fails outright.
+    // One bound covers both waits below: the context starting, and its clock
+    // then running (#774).
+    const deadline = Date.now() + AUDIO_START_TIMEOUT_MS
     if (context.state === 'suspended') {
       const resuming = context.resume()
       if (!(await settlesWithin(resuming, AUDIO_START_TIMEOUT_MS))) {
@@ -2110,6 +2145,11 @@ export async function createAudioCapture(
       }
       // Settled in time: a rejection still takes the fallback, as before.
       await resuming
+    }
+    // `running` is not playing (#774): the recorder starts only once the
+    // clock keeps pace, or the export would record through a stalled output.
+    if (!(await clockRunsBy(context, deadline))) {
+      throw new Error('The audio clock did not start.')
     }
     const track = destination.stream.getAudioTracks()[0] ?? null
     if (track === null) throw new Error('No audio track was produced.')
