@@ -124,6 +124,18 @@ interface FrameEditorProps {
    */
   silhouette?: ShapeMask
   /**
+   * The box the silhouette is drawn on, from the live rectangle and the
+   * frame's size in pixels (#795). Absent, it is the rectangle itself. An
+   * overlay's mask is cut from its *picture* — the crop letterboxed inside
+   * the placed rectangle (`overlayPictureRect`, #791) — so the overlay
+   * editor passes that rule, and the outline follows the picture while the
+   * rectangle is dragged. Returns frame pixels, as the rule does.
+   */
+  silhouetteOutline?: (
+    rect: FrameRect,
+    frame: { width: number; height: number },
+  ) => { x: number; y: number; width: number; height: number }
+  /**
    * Whether to dim the picture outside the rectangle (#493). On by default:
    * for a zoom, a placement and a crop, the outside is what the effect
    * leaves out. A redaction hides the *inside*, and dimming the outside
@@ -210,6 +222,7 @@ export function FrameEditor({
   guides,
   handles = DEFAULT_HANDLES,
   silhouette,
+  silhouetteOutline,
   shade = true,
   shadeHole = 'rect',
   outlines,
@@ -517,6 +530,14 @@ export function FrameEditor({
       : { x: at - EDGE_THICKNESS / 2, y: midY - along / 2, width: EDGE_THICKNESS, height: along }
   }
   const ellipse = inscribedEllipse(px)
+  // The silhouette's own box: the rectangle, unless the caller says the
+  // effect paints a smaller part of it (an overlay's picture, #795).
+  const outlinePx = (() => {
+    if (silhouetteOutline === undefined || size.width <= 0 || size.height <= 0) return px
+    const box = silhouetteOutline(shown, size)
+    return { x: toPx(box.x), y: toPx(box.y), width: toPx(box.width), height: toPx(box.height) }
+  })()
+  const silhouetteEllipse = inscribedEllipse(outlinePx)
   // Guides mark the alignment a gesture is holding, so they belong to the
   // gesture: at rest the default centre sits on one, and a permanent cross
   // through the frame would say nothing.
@@ -674,21 +695,21 @@ export function FrameEditor({
                   className="frame-editor-silhouette"
                   data-testid="frame-editor-silhouette"
                   data-shape="ellipse"
-                  cx={toPx(ellipse.cx)}
-                  cy={toPx(ellipse.cy)}
-                  rx={toPx(ellipse.rx)}
-                  ry={toPx(ellipse.ry)}
+                  cx={toPx(silhouetteEllipse.cx)}
+                  cy={toPx(silhouetteEllipse.cy)}
+                  rx={toPx(silhouetteEllipse.rx)}
+                  ry={toPx(silhouetteEllipse.ry)}
                 />
               ) : (
                 <rect
                   className="frame-editor-silhouette"
                   data-testid="frame-editor-silhouette"
                   data-shape="rounded"
-                  x={px.x}
-                  y={px.y}
-                  width={px.width}
-                  height={px.height}
-                  rx={toPx(roundedCornerRadius(px, silhouette.radius))}
+                  x={outlinePx.x}
+                  y={outlinePx.y}
+                  width={outlinePx.width}
+                  height={outlinePx.height}
+                  rx={toPx(roundedCornerRadius(outlinePx, silhouette.radius))}
                 />
               ))}
             {interactive &&
