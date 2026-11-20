@@ -1,6 +1,6 @@
 # Media library
 
-The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips) and [what shows while a file imports](#while-a-file-imports), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
+The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips) and [what shows while a file imports](#while-a-file-imports), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip), [downloading](#downloading-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
 
 Library changes are not undo steps. Importing, renaming and removing clips change the project (the file saves them, and the 💾 button shows the unsaved dot), but Undo and Redo cover the timeline only; see [Edits and everything else](concepts.md#edits-and-everything-else).
 
@@ -103,6 +103,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 - **Add as overlay** (video and image clips) places the clip above the sequence as an overlay layer — picture-in-picture in the bottom-right corner, {{DEFAULT_OVERLAY_SIZE_PERCENT}} % of the frame wide and high, starting at the beginning of the sequence; a video overlay plays the whole clip and an image overlay shows for the still duration. Reposition, resize and trim it from [its timeline row](timeline.md#a-row).
 - **Extract audio** (video clips) makes a new audio clip from the video's sound, named after the video with *(audio)* appended. It keeps working after the video is removed from the library, and a references-only project re-links it from the video file.
 - **Rename…** opens the name for editing; see [Renaming a clip](#renaming-a-clip).
+- **Download** saves the clip's file on its own; see [Downloading a clip](#downloading-a-clip).
 - **Remove** asks for confirmation; see [Removing a clip](#removing-a-clip).
 
 An audio clip's menu has no Add as overlay or Extract audio, since it has no picture to overlay and no video to extract from.
@@ -118,6 +119,16 @@ An audio clip's menu has no Add as overlay or Extract audio, since it has no pic
 **Details.** The name becomes a field with the current name selected. **Enter** or clicking elsewhere commits; **Escape** cancels; an empty name leaves the clip as it was. The new name shows in the library, in the re-link dialog and in the preview, sorts under Name, and saves with the project. The original filename is kept underneath — hovering the name shows it — so a references-only project still re-links from the file on disk, and the re-link dialog shows both. Timeline elements already made from the clip keep the names they were placed with; new placements take the current name.
 
 **Related.** [Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
+
+## Downloading a clip
+
+**Where to find it.** A row's **⋯** › **Download**.
+
+**What it does.** Saves one clip as a file of its own, through the browser's ordinary download — a recording, a freeze frame or any imported file, without the rest of the project.
+
+**Details.** What is saved is the clip's file exactly as it sits in the library: an imported clip downloads as the very file you imported, a recording as the file the recorder made. Trims, crops, effects and volume belong to the elements on the timeline, not to the clip, so none of them is applied; to save what the timeline makes of a clip, [export](export.md) instead. The file is named after the clip, with its current name; when a [rename](#renaming-a-clip) left the name without the original file's extension, that extension is added back (*Beach day* from *holiday.mp4* saves as *Beach day.mp4*), so the file still opens. An audio clip made by [Extract audio](audio.md#extract-audio) has no file of its own — it plays from the video's file — so it downloads as a **WAV** of its sound instead, named after the clip with *.wav* added, for example *holiday.mp4 (audio).wav*; that takes a moment while the sound is decoded. If the video's sound cannot be decoded, the library's failure list says so. Downloading changes nothing in the project: it is not an edit, and it adds nothing to the undo history.
+
+**Related.** [The ⋯ menu](#the-menu) · [Export](export.md)
 
 ## Removing a clip
 

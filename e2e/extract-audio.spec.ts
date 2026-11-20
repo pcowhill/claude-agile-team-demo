@@ -118,6 +118,7 @@ test('extracted audio lists as audio, survives removing the video, and exports a
     'Preview',
     'Add to timeline',
     'Rename…',
+    'Download',
     'Remove',
   ])
   await page.keyboard.press('Escape')
