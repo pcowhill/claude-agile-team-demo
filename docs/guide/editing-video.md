@@ -8,7 +8,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Sets where the clip starts and stops playing, in seconds into its source file.
 
-**Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry or an [audio track](audio.md#audio-tracks), **Trim…** beside the fields sets the same two numbers while you watch or listen to the clip: see [The Trim window](#the-trim-window). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
+**Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry, a video overlay or an [audio track](audio.md#audio-tracks), **Trim…** beside the fields sets the same two numbers while you watch or listen to the clip: see [The Trim window](#the-trim-window). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
 
 **At the playhead, without a window:** in the preview, **Q** trims the clip under the playhead so that it starts on the frame showing, and **W** so that it ends there; the clip closes up to its neighbours, and one **Undo** puts it back. After **Q** the playhead moves to the clip's new start, where the frame you pressed it on now plays, so the preview still shows that frame; after **W** it stays where it was, already on the clip's new end. Undo puts the trim back but does not move the playhead.
 - The frame is the one the preview shows, through any [speed segment](#speed-segments-and-pauses): inside a pause, it is the held frame.
@@ -22,9 +22,9 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## The Trim window
 
-**Where to find it.** An expanded video sequence entry, or an expanded [audio track](audio.md#audio-tracks) › **Trim…**, beside **In** and **Out**.
+**Where to find it.** An expanded video sequence entry, video overlay, or [audio track](audio.md#audio-tracks) › **Trim…**, beside **In** and **Out**. An image overlay has none: it has no source to trim, and its **Length** is its window.
 
-**What it does.** Opens a window over the editor where you watch the clip and drag its In and Out on a strip of the whole clip, then play just the part you keep, like *Trim Video* in a presentation app. It is a second way to set the entry's **In** and **Out**, or a track's.
+**What it does.** Opens a window over the editor where you watch the clip and drag its In and Out on a strip of the whole clip, then play just the part you keep, like *Trim Video* in a presentation app. It is a second way to set the entry's **In** and **Out**, or an overlay's or a track's.
 
 **Details.**
 
@@ -52,6 +52,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
   - **In** and **Out** at the bottom show the clamps' times exactly, to type into. A value past the other clamp stops a tenth of a second short of it.
 - **Nothing changes until Apply.** **Apply** sets the entry's In and Out together, as one undo step; it is greyed out until a clamp has moved. **Cancel**, **✕** and **Esc** close the window and change nothing. A click outside the window does not close it.
 - **On an audio track** the window is the same, without the picture: the strip is the track's waveform alone, **▶ Play trim** plays its sound, and there are no frames, so no frame row and no **◀ frame** / **frame ▶**. A track has no zooms, speed segments or transitions, so nothing is marked on the strip. **Apply** sets the track's In and Out, as one undo step, and leaves where it **Starts at** alone.
+- **On a video overlay** the window is the entry's, on the overlay's own clip: the picture, the frames and the waveform are that clip's, and the marks and the warning line are the overlay's own [zooms](#zooms), [speed segments and pauses](#speed-segments-and-pauses). An overlay sits on no boundary between entries, so nothing is hatched. **Apply** sets the overlay's In and Out, as one undo step, and leaves where it **Starts at** and its rectangle alone.
 - **Keys while it is open:** **Space** plays and pauses, **I** and **O** set the clamps, and **Esc** closes. They act on the window only: behind it, the editor's own keys do nothing, so I and O never set the [export marks](preview-and-playback.md#export-marks) while the window is open. In a field you are typing into, keys type; on a focused button, Space presses that button.
 
 **Shortcuts.** Space plays or pauses · I sets In · O sets Out · ← → move a focused clamp, Shift for the jump size · Esc closes without applying.

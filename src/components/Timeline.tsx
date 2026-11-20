@@ -89,7 +89,7 @@ import {
   TEXT_FONTS,
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
-import { MIN_OVERLAY_SIZE, overlayOutputDuration } from '../lib/videoOverlay'
+import { MIN_OVERLAY_SIZE, overlayOutputDuration, overlayPlacementOf } from '../lib/videoOverlay'
 import type {
   ArrowHeads,
   ArrowHeadSize,
@@ -159,7 +159,7 @@ import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { TrimDialog } from './TrimDialog'
-import { trimEffectsPreview } from '../lib/trimEffects'
+import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
@@ -422,33 +422,6 @@ function TextContentField({ label, value, onCommit }: TextContentFieldProps) {
     />
   )
 }
-
-/** A stored **video** overlay re-expressed as the placement `onUpdateVideoOverlay` takes. */
-const overlayPlacementOf = ({
-  offset,
-  inPoint,
-  outPoint,
-  x,
-  y,
-  width,
-  height,
-  volume,
-  muted,
-  fadeIn,
-  fadeOut,
-}: VideoOverlay): VideoOverlayPlacement => ({
-  offset,
-  inPoint,
-  outPoint,
-  x,
-  y,
-  width,
-  height,
-  volume,
-  muted,
-  ...(fadeIn === undefined ? {} : { fadeIn }),
-  ...(fadeOut === undefined ? {} : { fadeOut }),
-})
 
 /**
  * A stored **image** overlay re-expressed as its placement (#294): the
@@ -4142,6 +4115,36 @@ export function Timeline({
                           onCommit={(outPoint) => set({ outPoint })}
                           unit="s"
                         />
+                        {/* The Trim window (#711), as an entry has it (#707):
+                            watching the overlay's own source, with its own
+                            zooms, speed segments and pauses marked. An
+                            overlay sits on no boundary, so no transition
+                            spans. Apply is one `video-overlay-updated`. */}
+                        <button
+                          type="button"
+                          className="timeline-trim-open"
+                          aria-label={`Trim ${position} in the Trim window`}
+                          aria-haspopup="dialog"
+                          title="Trim in a window: watch the overlay's clip and drag In and Out on it"
+                          onClick={() => setTrimmingId(overlay.id)}
+                        >
+                          Trim…
+                        </button>
+                        {trimmingId === overlay.id && (
+                          <TrimDialog
+                            entry={overlay}
+                            position={position}
+                            stepSeconds={stepSeconds}
+                            largeStepSeconds={largeStepSeconds}
+                            onOpen={onPausePreview}
+                            onApply={(inPoint, outPoint) => {
+                              setTrimmingId(null)
+                              set({ inPoint, outPoint })
+                            }}
+                            onClose={() => setTrimmingId(null)}
+                            effectsFor={(range) => overlayTrimEffectsPreview(timeline, overlay.id, range)}
+                          />
+                        )}
                         <span className="timeline-entry-effective">
                           plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
                           {/* Its speed segments and pauses (#700) change
