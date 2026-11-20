@@ -1,5 +1,5 @@
-import { chromium, expect, test } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { expect, test } from '@playwright/test'
+import { withFakeMedia } from './fakeMedia'
 import { expectNoHorizontalScroll } from './layout'
 
 /**
@@ -9,16 +9,9 @@ import { expectNoHorizontalScroll } from './layout'
  * trigger), and what jsdom cannot measure — the open panel lying inside the
  * viewport at the default and the narrow (#208) widths with no sideways
  * page scroll. The fake-device flags stand in a camera so Enter on Webcam
- * really opens the recording dialog. The executable resolution mirrors
- * playwright.config.ts, which per-file launch options would otherwise drop.
+ * really opens the recording dialog. `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test)
 
 test('the Record menu is keyboard-operable end to end: ArrowDown opens, arrows move, Enter starts, Escape closes (#412)', async ({
   page,

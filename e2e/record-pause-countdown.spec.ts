@@ -1,12 +1,12 @@
-import { chromium, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { withFakeMedia } from './fakeMedia'
 import { chooseFromFileMenu } from './fileMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 
 /**
  * Pause / Resume and the countdown in the recording dialog (#514, from the
- * approved #494), against Chromium's fake capture devices — the flags below
+ * approved #494), against Chromium's fake capture devices — the flags
  * auto-grant the prompts and stand in a fake microphone and camera, and
  * `--auto-select-tab-capture-source-by-title` picks this tab for the screen
  * half of a paired take — so `MediaRecorder.pause()` / `resume()` really
@@ -17,18 +17,10 @@ import { expectNoHorizontalScroll, expectWithin } from './layout'
  * paired take's two files stay aligned across ten pauses, that the Settings
  * switch persists and takes effect, and the rendered evidence for the two
  * dialog states — countdown and paused — at both widths.
+ *
+ * `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: [
-      '--auto-select-tab-capture-source-by-title=Browser Video Editor',
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-    ],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test, ['--auto-select-tab-capture-source-by-title=Browser Video Editor'])
 
 const dialogFor = (page: Page, source: string) => page.getByRole('dialog', { name: source })
 const elapsed = (page: Page) => page.getByTestId('record-elapsed')

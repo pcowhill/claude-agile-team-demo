@@ -1,23 +1,16 @@
-import { chromium, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { withFakeMedia } from './fakeMedia'
 
 /**
  * Voice-over recording (#224), against Chromium's fake media device: the
- * flags below make `getUserMedia` deliver a generated tone with permission
+ * flags make `getUserMedia` deliver a generated tone with permission
  * auto-granted, so the capture pipeline (getUserMedia → MediaRecorder →
  * import path) runs for real — the proxy evidence for the
- * customer-verifiable real-microphone criterion. The executable resolution
- * mirrors playwright.config.ts, which per-file launch options would
- * otherwise drop.
+ * customer-verifiable real-microphone criterion.
+ * `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test)
 
 /** Records a short real WebM in-page (the preview.spec idiom), so the
  * voice-over has footage to narrate over and the preview can play. */

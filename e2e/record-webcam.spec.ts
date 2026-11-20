@@ -1,24 +1,17 @@
-import { chromium, expect, test } from '@playwright/test'
-import { resolveChromiumExecutableFromEnvironment } from '../tools/chromiumExecutable'
+import { expect, test } from '@playwright/test'
+import { withFakeMedia } from './fakeMedia'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * Webcam recording (#226), against Chromium's fake capture devices: the
- * flags below auto-grant the permission prompt and stand in a fake camera
+ * flags auto-grant the permission prompt and stand in a fake camera
  * and microphone (headless CI has neither), so the capture pipeline
  * (getUserMedia → MediaRecorder → import path) runs for real — the proxy
- * evidence for the customer-verifiable real-camera criterion. The
- * executable resolution mirrors playwright.config.ts, which per-file launch
- * options would otherwise drop.
+ * evidence for the customer-verifiable real-camera criterion.
+ * `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
  */
-const executablePath = resolveChromiumExecutableFromEnvironment(chromium.executablePath())
-test.use({
-  launchOptions: {
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
-    ...(executablePath === undefined ? {} : { executablePath }),
-  },
-})
+withFakeMedia(test)
 
 /** Runs one webcam capture through the Record menu, ~1s long, and stops it. */
 async function recordWebcam(page: import('@playwright/test').Page) {

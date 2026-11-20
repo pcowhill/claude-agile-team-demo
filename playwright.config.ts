@@ -45,21 +45,12 @@ const includeFirefox = Boolean(process.env.CI) || process.env.E2E_FIREFOX === '1
  * title. The audit that produced them is in #586's PR.
  */
 const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
-  { file: 'menu.spec.ts', why: '#599: test.use passes Chromium-only fake-media launch flags, so Firefox cannot start' },
-  { file: 'record-pause-countdown.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-screen-camera.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-screen.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-voice-over.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'record-webcam.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'feature-index.spec.ts', why: '#599: Chromium-only fake-media launch flags' },
-  { file: 'export-chapter-list.spec.ts', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
   { title: '↑ / ↓ stop on markers and a released seek snaps onto one', why: '#598: the click lands at 3.08 s, not 2.44 s; snap or spec geometry' },
   { title: 'a committed pointer seek snaps onto the cut with a tick', why: '#598: reads 4.93 where 5 was expected' },
   { title: 'a blurred region refuses to export where canvas filters are unavailable (#492)', why: '#598: not yet classified' },
   { title: 'the playhead keeps up with the picture at 2×, and so does an audio track (#522)', why: '#598: not yet classified' },
-  { title: 'the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', why: '#599: the clipboard-read/clipboard-write permission names are Chromium-only' },
   { title: 'selecting MP4 exports a file that demuxes as MP4 (#114)', why: 'Chromium-only: Firefox\'s MediaRecorder cannot record MP4, so the picker rightly omits it (#114 covers that case)' },
 ]
 

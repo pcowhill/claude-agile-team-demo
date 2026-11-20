@@ -73,11 +73,13 @@ test('the format note sits below the radios and the picker stays inside the dial
 
 test('the Copy chapter list row and its note stay inside the dialog at both viewports (#488)', async ({
   page,
+  browserName,
 }) => {
   // Reaching the widest state the row can be in: the button with the
   // confirmation beside it. Granted per-test rather than for the file, so
-  // the other cases here keep the default permissions.
-  await page.context().grantPermissions(['clipboard-write'])
+  // the other cases here keep the default permissions. The name is
+  // Chromium's; Firefox rejects it and needs no grant to write (#599).
+  if (browserName === 'chromium') await page.context().grantPermissions(['clipboard-write'])
   await page.goto('./')
   await chooseFromAddMenu(page, ADD_SLATE)
   // One marker, so the button is enabled and can be pressed.
