@@ -13,7 +13,7 @@ import { markedExportRange } from './lib/exportVideo'
 import type { FreezeTarget } from './lib/freezeFrame'
 import type { SourceDimensions } from './lib/frameSize'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
-import type { LibraryClip } from './lib/mediaLibrary'
+import type { LibraryClip, PendingImport } from './lib/mediaLibrary'
 import type { AudioTrack, TimelineEntry } from './lib/timeline'
 import {
   audioTrackFromClip,
@@ -157,11 +157,44 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   }>({ clips: emptyLibrary.clips, timeline: emptyTimeline })
   const dirty = library.clips !== savedState.clips || timeline !== savedState.timeline
 
+  // Files still being read (#798): one placeholder row each in the
+  // library, from the moment they are picked until their probe settles.
+  // Held here rather than in the library model, so a placeholder can never
+  // mark the project dirty or reach a project file or the autosave.
+  const [importing, setImporting] = useState<PendingImport[]>([])
+  // Ids whose Cancel was pressed. A cancelled file that has not started is
+  // skipped; one whose probe is in flight has its late result discarded
+  // and its object URL revoked, since the probe takes no abort signal.
+  const cancelledImports = useRef(new Set<string>())
+
+  const cancelImport = useCallback((id: string) => {
+    cancelledImports.current.add(id)
+    setImporting((pending) => pending.filter((entry) => entry.id !== id))
+  }, [])
+
   const importFiles = useCallback(async (files: File[]) => {
+    const entries = files.map((file) => ({ id: crypto.randomUUID(), name: file.name, file }))
+    // Every picked file shows at once, so a long batch is visible from the
+    // first moment, not one row at a time.
+    setImporting((pending) => [...pending, ...entries.map(({ id, name }) => ({ id, name }))])
+    const settle = (id: string) => {
+      cancelledImports.current.delete(id)
+      setImporting((pending) => pending.filter((entry) => entry.id !== id))
+    }
     // Sequential so clips appear in the order the user picked them.
-    for (const file of files) {
+    for (const { id, file } of entries) {
+      if (cancelledImports.current.has(id)) {
+        settle(id)
+        continue
+      }
       try {
         const { duration, url, kind, width, height } = await probeMedia(file)
+        if (cancelledImports.current.has(id)) {
+          // Cancelled while reading: nothing reaches the project, and the
+          // object URL the probe handed over is released here.
+          URL.revokeObjectURL(url)
+          continue
+        }
         dispatch({
           type: 'clip-added',
           // Dimensions are probed for images (#137); the spreads keep other
@@ -177,6 +210,9 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           },
         })
       } catch (error) {
+        // A cancelled file's failure is not reported: the user already
+        // chose not to import it.
+        if (cancelledImports.current.has(id)) continue
         dispatch({
           type: 'import-failed',
           failure: {
@@ -185,6 +221,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             reason: error instanceof Error ? error.message : `Could not import "${file.name}".`,
           },
         })
+      } finally {
+        settle(id)
       }
     }
   }, [probeMedia])
@@ -611,6 +649,8 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
         <MediaLibrary
           library={library}
           onImportFiles={handleImportFiles}
+          importing={importing}
+          onCancelImport={cancelImport}
           onRecordedPair={handleRecordedPair}
           countdownSeconds={settings.countdownSeconds}
           onRecordingFailed={(reason) =>

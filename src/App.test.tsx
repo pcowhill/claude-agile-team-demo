@@ -506,6 +506,139 @@ describe('Q lands the playhead on the trimmed entry’s new start (#754)', () =>
   })
 })
 
+describe('a placeholder row while a file imports (#798)', () => {
+  type Probed = { duration: number; url: string; kind: 'video' }
+
+  /** A probe whose results the test settles by hand, one per file name. */
+  function heldProbe() {
+    const pending = new Map<string, { resolve: (value: Probed) => void; reject: (error: Error) => void }>()
+    const started: string[] = []
+    const probeMedia = vi.fn(
+      (file: File) =>
+        new Promise<Probed>((resolve, reject) => {
+          started.push(file.name)
+          pending.set(file.name, { resolve, reject })
+        }),
+    )
+    const resolve = (name: string) =>
+      act(async () => {
+        pending.get(name)!.resolve({ duration: 5, url: `blob:probe/${name}`, kind: 'video' })
+      })
+    const reject = (name: string, reason: string) =>
+      act(async () => {
+        pending.get(name)!.reject(new Error(reason))
+      })
+    return { probeMedia, started, resolve, reject }
+  }
+
+  const upload = (user: ReturnType<typeof userEvent.setup>, names: string[]) =>
+    user.upload(
+      screen.getByTestId('clip-file-input'),
+      names.map((name) => new File(['x'], name, { type: 'video/webm' })),
+    )
+  const importingList = () => screen.queryByRole('list', { name: 'Importing clips' })
+  const clipNames = () =>
+    within(screen.getByRole('list', { name: 'Imported clips' }))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.clip-name')?.textContent)
+
+  it('shows the row, bar and Cancel while the probe is pending, then the clip in its place', async () => {
+    const user = userEvent.setup()
+    const probe = heldProbe()
+    render(<App probeMedia={probe.probeMedia} />)
+    await upload(user, ['long.webm'])
+    const row = within(importingList()!).getByRole('listitem')
+    expect(row).toHaveTextContent('Importing long.webm…')
+    expect(within(row).getByRole('progressbar', { name: 'Importing long.webm' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Cancel importing long.webm' })).toBeInTheDocument()
+    // The empty library's hint would contradict the row beside it.
+    expect(screen.queryByText(/No clips yet/)).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Imported clips' })).toBeNull()
+
+    await probe.resolve('long.webm')
+    expect(importingList()).toBeNull()
+    expect(clipNames()).toEqual(['long.webm'])
+    expect(screen.getByRole('button', { name: 'Add long.webm to timeline' })).toBeInTheDocument()
+  })
+
+  it('a failed probe removes the row and lists the file with its reason', async () => {
+    const user = userEvent.setup()
+    const probe = heldProbe()
+    render(<App probeMedia={probe.probeMedia} />)
+    await upload(user, ['broken.webm'])
+    expect(importingList()).not.toBeNull()
+    await probe.reject('broken.webm', '"broken.webm" is not a video this browser can decode.')
+    expect(importingList()).toBeNull()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '"broken.webm" is not a video this browser can decode.',
+    )
+    expect(screen.queryByRole('list', { name: 'Imported clips' })).toBeNull()
+  })
+
+  it('Cancel removes the row at once; the late result is discarded and its URL revoked', async () => {
+    const user = userEvent.setup()
+    const probe = heldProbe()
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    try {
+      render(<App probeMedia={probe.probeMedia} />)
+      await upload(user, ['long.webm'])
+      // A placeholder is not project content: the project stays clean.
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Cancel importing long.webm' }))
+      expect(importingList()).toBeNull()
+      // The library is empty again, and says so.
+      expect(screen.getByText(/No clips yet/)).toBeInTheDocument()
+
+      await probe.resolve('long.webm')
+      expect(screen.queryByRole('list', { name: 'Imported clips' })).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(revoke).toHaveBeenCalledWith('blob:probe/long.webm')
+      // Nothing was added, so nothing is unsaved.
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    } finally {
+      revoke.mockRestore()
+    }
+  })
+
+  it('a cancelled file whose probe later fails lists nothing', async () => {
+    const user = userEvent.setup()
+    const probe = heldProbe()
+    render(<App probeMedia={probe.probeMedia} />)
+    await upload(user, ['long.webm'])
+    await user.click(screen.getByRole('button', { name: 'Cancel importing long.webm' }))
+    await probe.reject('long.webm', 'Timed out reading media metadata from "long.webm".')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(importingList()).toBeNull()
+  })
+
+  it('several files show a row each at once; cancelling one still waiting skips it and the rest land in order', async () => {
+    const user = userEvent.setup()
+    const probe = heldProbe()
+    render(<App probeMedia={probe.probeMedia} />)
+    await upload(user, ['a.webm', 'b.webm', 'c.webm'])
+    expect(
+      within(importingList()!)
+        .getAllByRole('listitem')
+        .map((item) => item.querySelector('.import-name')?.textContent),
+    ).toEqual(['Importing a.webm…', 'Importing b.webm…', 'Importing c.webm…'])
+    // Sequential: only the first file is being read.
+    expect(probe.started).toEqual(['a.webm'])
+
+    await user.click(screen.getByRole('button', { name: 'Cancel importing b.webm' }))
+    expect(within(importingList()!).getAllByRole('listitem')).toHaveLength(2)
+
+    await probe.resolve('a.webm')
+    // b.webm is skipped without ever being read; c.webm is read next.
+    expect(probe.started).toEqual(['a.webm', 'c.webm'])
+    expect(clipNames()).toEqual(['a.webm'])
+    expect(within(importingList()!).getByRole('listitem')).toHaveTextContent('Importing c.webm…')
+
+    await probe.resolve('c.webm')
+    expect(importingList()).toBeNull()
+    expect(clipNames()).toEqual(['a.webm', 'c.webm'])
+  })
+})
+
 describe('preview layout (#128, #667)', () => {
   function fakeStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial))

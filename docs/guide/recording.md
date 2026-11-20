@@ -102,7 +102,7 @@ Stopping — the Stop button or the browser's *stop sharing* — delivers two cl
 
 **What it does.** Names each recording by its kind and a number, and imports it like a picked file.
 
-**Details.** The names are *Voice-over N*, *Screen recording N* and *Webcam recording N*, where N is one more than the highest number already used under that name in the library — so removing an old recording never reissues its name to a new one. The file extension follows the container the browser recorded to (`webm` where the browser prefers it; `m4a` or `ogg` for audio and `mp4` for video where it does not). A recording is probed for its duration like any import, so a recording the browser cannot read back is reported in the failure list rather than added.
+**Details.** The names are *Voice-over N*, *Screen recording N* and *Webcam recording N*, where N is one more than the highest number already used under that name in the library — so removing an old recording never reissues its name to a new one. The file extension follows the container the browser recorded to (`webm` where the browser prefers it; `m4a` or `ogg` for audio and `mp4` for video where it does not). A recording is probed for its duration like any import, so a recording the browser cannot read back is reported in the failure list rather than added. While it is read it shows as an [importing row](media-library.md#while-a-file-imports), with **Cancel**, as a picked file does; a Screen + camera take shows none, and its two clips appear together once both are read.
 
 **Related.** [Importing clips](media-library.md#importing-clips)
 

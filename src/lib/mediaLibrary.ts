@@ -59,6 +59,17 @@ export interface ImportFailure {
   reason: string
 }
 
+/**
+ * A file still being read for import (#798): the library shows a
+ * placeholder row for it until its probe settles. Transient UI state, held
+ * by the app outside `MediaLibraryState`, so it never reaches a project file.
+ */
+export interface PendingImport {
+  id: string
+  /** The picked file's name, shown as "Importing <name>…". */
+  name: string
+}
+
 export interface MediaLibraryState {
   clips: LibraryClip[]
   failures: ImportFailure[]

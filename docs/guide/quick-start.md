@@ -6,7 +6,7 @@ The editor has three panels. The **Media library** (top left) holds the clips yo
 
 ## 1. Import your clips
 
-Click **Import clips** in the Media library and choose one or more video files, or drag the files from your desktop anywhere onto the page. Each clip appears as a row with its name, a kind badge and its duration. Audio files and images import the same way.
+Click **Import clips** in the Media library and choose one or more video files, or drag the files from your desktop anywhere onto the page. Each clip appears as a row with its name, a kind badge and its duration; a long file shows an *Importing…* row with **Cancel** until it has been read ([While a file imports](media-library.md#while-a-file-imports)). Audio files and images import the same way.
 
 A file the browser cannot decode is listed under the library with the reason, so nothing disappears silently.
 
