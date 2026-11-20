@@ -91,6 +91,7 @@ import {
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE, overlayOutputDuration, overlayPlacementOf } from '../lib/videoOverlay'
 import type {
+  ArrowEnds,
   ArrowHeads,
   ArrowHeadSize,
   ArrowShape,
@@ -108,6 +109,7 @@ import {
   ARROW_HEAD_SIZE_LABELS,
   ARROW_HEAD_SIZES,
   ARROW_HEADS,
+  arrowHasLength,
   defaultShape,
   isInvisibleShape,
   LINE_STYLE_LABELS,
@@ -685,6 +687,33 @@ function ShapeFields({
   const toPx = (fraction: number) => shorterSidePixels(fraction, frameSize.width, frameSize.height)
   const fromPx = (px: number) => shorterSideFraction(px, frameSize.width, frameSize.height)
   const maxThicknessPx = Math.floor(toPx(MAX_SHAPE_THICKNESS))
+  // An arrow's ends are typed one coordinate at a time, so an edit on the way
+  // to a valid arrow can pass through one with no length, which the reducer
+  // refuses (#706). Such ends are held here as a draft, with a note saying
+  // so, and the next edit that gives the arrow a length applies them all as
+  // one edit. Nothing without a length reaches the timeline or a file.
+  const [draftEnds, setDraftEnds] = useState<ArrowEnds | null>(null)
+  const storedEnds: ArrowEnds | null =
+    shape.kind === 'arrow'
+      ? { tailX: shape.tailX, tailY: shape.tailY, tipX: shape.tipX, tipY: shape.tipY }
+      : null
+  // The stored ends moving by any other way (an undo, a drag in the shape
+  // editor, the draft applied) means the draft no longer describes them.
+  const endsKey = storedEnds === null ? '' : Object.values(storedEnds).join(' ')
+  useEffect(() => {
+    setDraftEnds(null)
+  }, [endsKey])
+  const ends = draftEnds ?? storedEnds
+  const commitEnd = (change: Partial<ArrowEnds>) => {
+    if (ends === null) return
+    const next = { ...ends, ...change }
+    if (arrowHasLength(next)) {
+      setDraftEnds(null)
+      onChange(next)
+    } else {
+      setDraftEnds(next)
+    }
+  }
   return (
     <li className="shape-row" aria-label={name}>
       <div className="text-overlay-controls">
@@ -739,14 +768,14 @@ function ShapeFields({
               <FractionField
                 text="x"
                 label={`Tail x of ${name} (0 to 1)`}
-                value={shape.tailX}
-                onCommit={(tailX) => onChange({ tailX })}
+                value={ends?.tailX ?? shape.tailX}
+                onCommit={(tailX) => commitEnd({ tailX })}
               />
               <FractionField
                 text="y"
                 label={`Tail y of ${name} (0 to 1)`}
-                value={shape.tailY}
-                onCommit={(tailY) => onChange({ tailY })}
+                value={ends?.tailY ?? shape.tailY}
+                onCommit={(tailY) => commitEnd({ tailY })}
               />
             </span>
             <span className="shape-row-point">
@@ -754,14 +783,14 @@ function ShapeFields({
               <FractionField
                 text="x"
                 label={`Tip x of ${name} (0 to 1)`}
-                value={shape.tipX}
-                onCommit={(tipX) => onChange({ tipX })}
+                value={ends?.tipX ?? shape.tipX}
+                onCommit={(tipX) => commitEnd({ tipX })}
               />
               <FractionField
                 text="y"
                 label={`Tip y of ${name} (0 to 1)`}
-                value={shape.tipY}
-                onCommit={(tipY) => onChange({ tipY })}
+                value={ends?.tipY ?? shape.tipY}
+                onCommit={(tipY) => commitEnd({ tipY })}
               />
             </span>
           </>
@@ -925,6 +954,12 @@ function ShapeFields({
           </LabelledField>
         )}
       </div>
+      {draftEnds !== null && (
+        <p className="shape-row-warning" role="note">
+          The tail and tip are at the same point, so this arrow has no length. Move either end to
+          apply the change; until then the arrow stays where it was.
+        </p>
+      )}
       {isInvisibleShape(shape) && (
         <p className="shape-row-warning" role="note">
           {shape.kind === 'arrow'

@@ -530,6 +530,19 @@ function isValidStyle(style: ShapeStyle): boolean {
   )
 }
 
+/** An arrow's two ends, each a point in frame fractions. */
+export type ArrowEnds = Pick<ArrowShape, 'tailX' | 'tailY' | 'tipX' | 'tipY'>
+
+/**
+ * Whether an arrow's ends are far enough apart to point somewhere: a
+ * zero-length arrow has no direction, so a shape is refused without this
+ * (`isValidShape`). The row holds ends that fail it as a draft rather than
+ * dropping what was typed (#706).
+ */
+export function arrowHasLength(ends: ArrowEnds): boolean {
+  return Math.hypot(ends.tipX - ends.tailX, ends.tipY - ends.tailY) >= MIN_SHAPE_SIZE
+}
+
 export function isValidShape(shape: Shape): boolean {
   if (typeof shape.id !== 'string' || shape.id === '' || !isShapeKind(shape.kind)) return false
   if (!isValidStyle(shape)) return false
@@ -553,8 +566,7 @@ export function isValidShape(shape: Shape): boolean {
       fraction(shape.tailY) &&
       fraction(shape.tipX) &&
       fraction(shape.tipY) &&
-      // A zero-length arrow has no direction to point in.
-      Math.hypot(shape.tipX - shape.tailX, shape.tipY - shape.tailY) >= MIN_SHAPE_SIZE &&
+      arrowHasLength(shape) &&
       isArrowHeads(shape.heads) &&
       isArrowHeadSize(shape.headSize)
     )
