@@ -76,7 +76,7 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **What it does.** Makes a new audio clip from the video's sound, so the sound can be placed as an audio track on its own — trimmed, faded and ducked independently of the picture.
 
-**Details.** The new clip is named after the video with *(audio)* appended, and it is the same imported bytes played as sound — no re-encoding, no loss, and no wait. Its lifetime is its own: removing the video from the library leaves the extracted clip working. In a project saved with references only, the extracted clip re-links from the original video file, since it has no file of its own on disk. A failure is reported in the library's failure list.
+**Details.** The new clip is named after the video with *(audio)* appended, and it is the same imported bytes played as sound — no re-encoding, no loss, and no wait. Its lifetime is its own: removing the video from the library leaves the extracted clip working. In a project saved with references only, the extracted clip re-links from the original video file, since it has no file of its own on disk. A failure is reported in the library's failure list. [Download](media-library.md#downloading-a-clip) saves the extracted clip as a WAV of its sound.
 
 **Related.** [The ⋯ menu](media-library.md#the-menu) · [Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 

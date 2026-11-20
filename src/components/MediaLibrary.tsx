@@ -8,6 +8,7 @@ import type {
   PendingImport,
 } from '../lib/mediaLibrary'
 import { clipFileName, formatDuration } from '../lib/mediaLibrary'
+import { downloadClip } from '../lib/clipDownload'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
 import { AudioWaveform } from './AudioWaveform'
@@ -273,6 +274,19 @@ export function MediaLibrary({
   // Inline rename (#404): which clip's name is being edited, if any — one
   // at a time, since the field takes the name's place in its row.
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // Download failures (#803): only an extracted audio clip can fail, when
+  // its video's sound will not decode. Shown in the failure list beside the
+  // import failures, and dismissed with them; transient like them.
+  const [downloadFailures, setDownloadFailures] = useState<{ id: string; reason: string }[]>([])
+  const startDownload = (clip: LibraryClip) => {
+    downloadClip(clip).catch((error: unknown) => {
+      const reason = error instanceof Error ? error.message : 'The download failed.'
+      setDownloadFailures((failures) => [
+        ...failures,
+        { id: crypto.randomUUID(), reason: `${clip.name} could not be downloaded: ${reason}` },
+      ])
+    })
+  }
 
   // A gap beside the scrollbar (#460, from feedback #457), only while the
   // list actually scrolls: CSS cannot see overflow, and an always-on right
@@ -373,17 +387,27 @@ export function MediaLibrary({
         onSelect: () => onExtractAudio(clip),
       })
     }
-    const identity: MenuItem[] =
-      onRenameClip === undefined
-        ? []
-        : [
-            {
-              kind: 'action',
-              label: 'Rename…',
-              title: 'Rename this clip (the original filename is kept for re-linking)',
-              onSelect: () => setRenamingId(clip.id),
-            },
-          ]
+    const identity: MenuItem[] = []
+    if (onRenameClip !== undefined) {
+      identity.push({
+        kind: 'action',
+        label: 'Rename…',
+        title: 'Rename this clip (the original filename is kept for re-linking)',
+        onSelect: () => setRenamingId(clip.id),
+      })
+    }
+    // Download (#803, the customer's #800): the clip's own file, unchanged,
+    // or a WAV of an extracted clip's sound (clipDownload.ts says why).
+    // With the identity items: it concerns the clip's file, not the timeline.
+    identity.push({
+      kind: 'action',
+      label: 'Download',
+      title:
+        clip.extractedFrom === undefined
+          ? "Save this clip's file on its own"
+          : "Save this clip's sound on its own, as a WAV file",
+      onSelect: () => startDownload(clip),
+    })
     const destructive: MenuItem[] = [
       {
         kind: 'action',
@@ -526,14 +550,23 @@ export function MediaLibrary({
         <Menu label="View" menuLabel="View menu" className="library-view-menu" items={viewItems} />
       </div>
 
-      {library.failures.length > 0 && (
+      {library.failures.length + downloadFailures.length > 0 && (
         <div className="import-errors" role="alert">
           <ul>
             {library.failures.map((failure) => (
               <li key={failure.id}>{failure.reason}</li>
             ))}
+            {downloadFailures.map((failure) => (
+              <li key={failure.id}>{failure.reason}</li>
+            ))}
           </ul>
-          <button type="button" onClick={onDismissFailures}>
+          <button
+            type="button"
+            onClick={() => {
+              setDownloadFailures([])
+              if (library.failures.length > 0) onDismissFailures()
+            }}
+          >
             Dismiss
           </button>
         </div>
