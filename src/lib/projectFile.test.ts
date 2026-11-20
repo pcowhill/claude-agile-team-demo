@@ -34,6 +34,7 @@ import fixtureV27OverlayBordersReferencesBase64 from './fixtures/project-v27-ove
 import fixtureV28OverlayRemapsReferencesBase64 from './fixtures/project-v28-overlay-remaps-references.bvep.base64?raw'
 import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-overlay-shadows-references.bvep.base64?raw'
 import fixtureV30BadgeShapesReferencesBase64 from './fixtures/project-v30-badge-shapes-references.bvep.base64?raw'
+import fixtureV31DrawOnReferencesBase64 from './fixtures/project-v31-draw-on-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -61,6 +62,7 @@ import {
   OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
+  DRAW_ON_SCHEMA_VERSION,
   SHAPE_MASK_SCHEMA_VERSION,
   COLOR_ADJUSTMENTS_SCHEMA_VERSION,
   ORIENTATION_SCHEMA_VERSION,
@@ -1165,8 +1167,9 @@ describe('project file versioning', () => {
     // shape borders (#688); version 26 added overlay zooms (#699); version
     // 27 added overlay borders (#697); version 28 added overlay speed
     // segments and pauses (#700); version 29 added overlay drop shadows
-    // (#698); version 30 added numbered badges in shape groups (#689).
-    expect(PROJECT_SCHEMA_VERSION).toBe(30)
+    // (#698); version 30 added numbered badges in shape groups (#689);
+    // version 31 added a shape group's Draw on entrance (#690).
+    expect(PROJECT_SCHEMA_VERSION).toBe(31)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1197,6 +1200,7 @@ describe('project file versioning', () => {
     expect(OVERLAY_REMAPS_SCHEMA_VERSION).toBe(28)
     expect(OVERLAY_SHADOWS_SCHEMA_VERSION).toBe(29)
     expect(BADGE_SHAPES_SCHEMA_VERSION).toBe(30)
+    expect(DRAW_ON_SCHEMA_VERSION).toBe(31)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -5204,6 +5208,91 @@ describe('numbered badges in project files (#689, schema version 30)', () => {
       project: {
         clips: expectedProject.clips,
         timeline: { ...expectedProject.timeline, shapeGroups: badgeGroups },
+      },
+    })
+  })
+})
+
+// The Draw on entrance (#690, schema version 31): a group that draws on
+// forces 31; a group with the Fade entrance writes no key and keeps its
+// version and its bytes.
+describe('the Draw on entrance in project files (#690, schema version 31)', () => {
+  const ellipse: Shape = {
+    id: 's1',
+    kind: 'ellipse',
+    x: 0.3,
+    y: 0.3,
+    width: 0.4,
+    height: 0.4,
+    stroke: '#e53935',
+    strokeOpacity: 1,
+    thickness: 0.01,
+    fill: '#e53935',
+    fillOpacity: 0,
+  }
+  const drawOnGroups: ShapeGroup[] = [
+    { id: 'g1', offset: 1, duration: 3, drawOn: 1, fadeOut: 0.5, shapes: [ellipse] },
+    { id: 'g2', offset: 5, duration: 2, fadeIn: 0.5, shapes: [{ ...ellipse, id: 's2' }] },
+  ]
+
+  it('round-trips a drawing group beside a fading one at version 31', async () => {
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: drawOnGroups })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(DRAW_ON_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).shapeGroups).toEqual(drawOnGroups)
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups).toEqual(drawOnGroups)
+  })
+
+  it('keeps a project whose groups all fade at the version and bytes it had before', async () => {
+    const fading = [drawOnGroups[1]]
+    const bytes = await serializeProject(library, { ...timeline, shapeGroups: fading })
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(SHAPE_GROUPS_SCHEMA_VERSION)
+    expect(JSON.stringify((document.timeline as Record<string, unknown>).shapeGroups)).not.toContain('drawOn')
+  })
+
+  it('opens a group without the key with the Fade entrance', async () => {
+    const result = await deserializeProject(
+      await serializeProject(library, { ...timeline, shapeGroups: [drawOnGroups[1]] }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.shapeGroups?.[0]).not.toHaveProperty('drawOn')
+  })
+
+  it('refuses a draw-on of no length, or one beside a fade-in, by name', async () => {
+    const withGroup = (group: Record<string, unknown>) => ({
+      ...validDocument(),
+      schemaVersion: DRAW_ON_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, shapeGroups: [group] },
+    })
+    await expectRefusal(
+      await gzipJson(withGroup({ ...drawOnGroups[0], drawOn: 0 })),
+      'timeline.shapeGroups[0].drawOn must be greater than 0',
+    )
+    await expectRefusal(
+      await gzipJson(withGroup({ ...drawOnGroups[0], drawOn: 'soon' })),
+      'timeline.shapeGroups[0].drawOn',
+    )
+    await expectRefusal(
+      await gzipJson(withGroup({ ...drawOnGroups[0], fadeIn: 0.5 })),
+      'timeline.shapeGroups[0] has both fadeIn and drawOn',
+    )
+  })
+
+  it('deserializes the committed v31 draw-on fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV31DrawOnReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result).toEqual({
+      ok: true,
+      project: {
+        clips: expectedProject.clips,
+        timeline: { ...expectedProject.timeline, shapeGroups: drawOnGroups },
       },
     })
   })

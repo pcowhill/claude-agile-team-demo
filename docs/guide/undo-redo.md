@@ -24,7 +24,7 @@ Every edit to the timeline can be taken back, and taken back again. This page co
 
 - placing, trimming, retiming, reordering, renaming and removing an element — a sequence entry, an audio track, an overlay layer or a text overlay — and adding a slate or a text overlay;
 - a transition set, changed or removed; a zoom, speed segment or pause added, changed or removed;
-- a colour, orientation, crop, background-fill or shape-mask change; a volume, mute, fade or duck change; any text property;
+- a colour, orientation, crop, background-fill or shape-mask change; a volume, mute, fade or duck change; a shape group's entrance; any text property;
 - the canvas preset; the default subtitle style; a chapter marker added, renamed, moved or removed;
 - Split at playhead, Freeze frame, Duplicate and Paste settings, each as one step;
 - adding several selected clips from the library at once, and the Screen + camera take landing as a screen entry plus a camera overlay — one step each;

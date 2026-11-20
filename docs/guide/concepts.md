@@ -11,7 +11,7 @@ The **media library** is the shelf: every file you import or record sits there a
 - **Sequence** — the video's spine. Its entries play one after another, and their combined length, less the transitions that overlap them, is the video's length. A sequence entry is a video clip, a still image, or a **slate**, a solid colour. Transitions live on the boundary between two entries.
 - **Audio** — **audio tracks**: sound clips placed at a start time, trimmed, overlapping freely, mixed with the sequence's own sound.
 - **Overlays** — **overlay layers**: a video or an image placed above the sequence inside a rectangle of the frame — picture-in-picture, a logo, a webcam bubble — with a start time and its own trim or duration.
-- **Shapes** — **shape groups**: rectangles, ellipses, arrows and numbered badges drawn on the picture, shown and faded together for a window of time. See [Shapes and annotations](shapes-and-annotations.md).
+- **Shapes** — **shape groups**: rectangles, ellipses, arrows and numbered badges drawn on the picture, shown, faded or drawn on together for a window of time. See [Shapes and annotations](shapes-and-annotations.md).
 - **Text** — **text overlays**: titles, captions and imported subtitles, each a block of text at a point in the frame for a window of time.
 
 Anything that would play past the end of the sequence is cut off there: the sequence decides how long the video is.

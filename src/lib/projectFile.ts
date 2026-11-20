@@ -114,6 +114,7 @@ import { MAX_VOLUME } from './volume'
  *       "canvasPreset": "16:9" | "9:16" | "1:1" | "4:5",          // (#273)
  *       "markers": [{ id, time, name }],                          // (#487)
  *       "shapeGroups": [{ id, name?, offset, duration, fadeIn?, fadeOut?,   // name: #687
+ *                         drawOn?,                               // (#690)
  *                         shapes: [{ id, kind, x, y, width, height,
  *                                    stroke, strokeOpacity, thickness,
  *                                    fill, fillOpacity,
@@ -301,7 +302,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 30
+export const PROJECT_SCHEMA_VERSION = 31
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -402,6 +403,13 @@ export const OVERLAY_SHADOWS_SCHEMA_VERSION = 29
  * keeps its version and its bytes.
  */
 export const BADGE_SHAPES_SCHEMA_VERSION = 30
+/**
+ * The version a *Draw on* entrance forces (#690). An earlier build would
+ * ignore the key and show the group appearing at once, with no entrance at
+ * all, so a file carrying one refuses it by version; a group with the
+ * *Fade* entrance writes no key and keeps its version and its bytes.
+ */
+export const DRAW_ON_SCHEMA_VERSION = 31
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -779,6 +787,9 @@ export async function serializeProject(
   const hasArrowShapes = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => shape.kind === 'arrow'),
   )
+  // Written only for the Draw on entrance (#690), so the key and the
+  // version move together.
+  const hasDrawOn = shapeGroupsOf(timeline).some((group) => group.drawOn !== undefined)
   const hasBadgeShapes = shapeGroupsOf(timeline).some((group) =>
     group.shapes.some((shape) => shape.kind === 'badge'),
   )
@@ -855,7 +866,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasBadgeShapes
+    schemaVersion: hasDrawOn
+      ? DRAW_ON_SCHEMA_VERSION
+      : hasBadgeShapes
       ? BADGE_SHAPES_SCHEMA_VERSION
       : hasOverlayShadows
       ? OVERLAY_SHADOWS_SCHEMA_VERSION
@@ -1111,6 +1124,7 @@ export async function serializeProject(
               duration: group.duration,
               ...(group.fadeIn === undefined ? {} : { fadeIn: group.fadeIn }),
               ...(group.fadeOut === undefined ? {} : { fadeOut: group.fadeOut }),
+              ...(group.drawOn === undefined ? {} : { drawOn: group.drawOn }),
               shapes: group.shapes.map(serializeShape),
             })),
           }),
@@ -2320,6 +2334,15 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       if (raw.fadeIn !== undefined) group.fadeIn = asNonNegative(raw.fadeIn, `${path}.fadeIn`)
       if (raw.fadeOut !== undefined) group.fadeOut = asNonNegative(raw.fadeOut, `${path}.fadeOut`)
+      if (raw.drawOn !== undefined) {
+        // The Draw on entrance (#690): a length, and never beside a
+        // fade-in, since the two are alternative entrances.
+        group.drawOn = asFinite(raw.drawOn, `${path}.drawOn`)
+        if (group.drawOn <= 0) throw new Error(`${path}.drawOn must be greater than 0`)
+        if (group.fadeIn !== undefined) {
+          throw new Error(`${path} has both fadeIn and drawOn; a group has one entrance`)
+        }
+      }
       if (shapeGroupIds.has(group.id)) throw new Error(`${path}.id "${group.id}" is duplicated`)
       shapeGroupIds.add(group.id)
       const shapeIds = new Set<string>()

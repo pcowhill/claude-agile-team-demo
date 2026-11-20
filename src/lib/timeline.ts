@@ -1828,12 +1828,18 @@ function reduceShapeGroupRowAction(
       const timing = action.settings['shape-timing']
       if (timing === undefined) return groups
       const original = groups[index]
-      const { fadeIn: _in, fadeOut: _out, ...rest } = original
+      const { fadeIn: _in, fadeOut: _out, drawOn: _drawOn, ...rest } = original
+      // The entrance travels with the timing (#690): a copied draw-on
+      // replaces the target's fade-in, and a copied fade replaces its draw-on.
       const candidate: ShapeGroup = {
         ...rest,
         offset: timing.offset,
         duration: timing.duration,
-        ...(timing.fadeIn > 0 ? { fadeIn: timing.fadeIn } : {}),
+        ...(timing.drawOn !== undefined
+          ? { drawOn: timing.drawOn }
+          : timing.fadeIn > 0
+            ? { fadeIn: timing.fadeIn }
+            : {}),
         ...(timing.fadeOut > 0 ? { fadeOut: timing.fadeOut } : {}),
       }
       // Invalid input refuses the whole paste, the `settings-pasted` rule.

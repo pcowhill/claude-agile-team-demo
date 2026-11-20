@@ -1047,6 +1047,9 @@ export function ShapeEditor({
                 group.duration,
                 group.fadeIn ?? 0,
                 group.fadeOut ?? 0,
+                // A draw-on (#690) changes what the composite shows at the
+                // scrubbed instant, so it belongs in the key as the fades do.
+                group.drawOn ?? null,
                 group.shapes,
               ])}`
             : `shape-editor#${group.id}`

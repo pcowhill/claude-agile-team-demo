@@ -16,7 +16,12 @@ import {
   arrowHeadLength,
   arrowOutline,
   arrowPieces,
+  arrowShaftAt,
   ARROW_HEAD_SIZE_FACTORS,
+  DEFAULT_DRAW_ON,
+  shapeGroupEntrance,
+  shapeGroupRevealAt,
+  withShapeEntrance,
   MIN_ARROW_HEAD,
   clampShapeGroup,
   defaultShape,
@@ -818,6 +823,232 @@ describe('shape groups: numbered badges (#689)', () => {
       `text 12 250 ${200 + fontPx * BADGE_DIGIT_DROP} #ffffff 0.500 ${badgeFont(fontPx)} center alphabetic`,
     ])
     expect(badgeFont(fontPx)).toBe('700 20px Arial, Helvetica, sans-serif')
+  })
+})
+
+describe('shape groups: the Draw on entrance (#690)', () => {
+  const drawing = (overrides: Partial<ShapeGroup> = {}) => group({ offset: 2, duration: 4, drawOn: 1, ...overrides })
+
+  it('reveals from 0 at the group start to 1 at the end of its draw-on, and holds there', () => {
+    const g = drawing()
+    expect(shapeGroupRevealAt(g, 2)).toBe(0)
+    expect(shapeGroupRevealAt(g, 2.25)).toBeCloseTo(0.25, 10)
+    expect(shapeGroupRevealAt(g, 2.5)).toBeCloseTo(0.5, 10)
+    expect(shapeGroupRevealAt(g, 3)).toBe(1)
+    expect(shapeGroupRevealAt(g, 5.9)).toBe(1)
+    // A group that fades in, or has no entrance, is always wholly drawn.
+    expect(shapeGroupRevealAt(group({ fadeIn: 1 }), 2)).toBe(1)
+    expect(shapeGroupRevealAt(group(), 2)).toBe(1)
+  })
+
+  it('is clamped into the window the way a fade-in is: the fade-out absorbs the shortfall', () => {
+    // A draw-on longer than the group is cut to the group's length, so the
+    // group still finishes drawing on its last instant…
+    const long = clampShapeGroup(drawing({ drawOn: 10, fadeOut: 1 }))
+    expect(long.drawOn).toBe(4)
+    expect(long).not.toHaveProperty('fadeOut')
+    expect(shapeGroupRevealAt(long, 4)).toBeCloseTo(0.5, 10)
+    // …and a fade-out shares the window with it as with a fade-in.
+    const shared = clampShapeGroup(drawing({ drawOn: 3, fadeOut: 2 }))
+    expect(shared).toMatchObject({ drawOn: 3, fadeOut: 1 })
+    expect(clampShapeGroup(group({ fadeIn: 3, fadeOut: 2 }))).toMatchObject({ fadeIn: 3, fadeOut: 1 })
+    // Nothing to clamp: the same object.
+    const fits = drawing({ fadeOut: 1 })
+    expect(clampShapeGroup(fits)).toBe(fits)
+  })
+
+  it('is one entrance or the other: a draw-on beside a fade-in, or of no length, is invalid', () => {
+    expect(isValidShapeGroupSpec(drawing())).toBe(true)
+    expect(isValidShapeGroupSpec(drawing({ fadeIn: 0.5 }))).toBe(false)
+    expect(isValidShapeGroupSpec(drawing({ drawOn: 0 }))).toBe(false)
+    expect(isValidShapeGroupSpec(drawing({ drawOn: Number.NaN }))).toBe(false)
+    expect(shapeGroupsEqual(drawing(), drawing({ drawOn: 2 }))).toBe(false)
+    expect(shapeGroupsEqual(drawing(), group())).toBe(false)
+  })
+
+  it('switching the entrance carries its length across, and back again', () => {
+    const fading = group({ fadeIn: 0.7, fadeOut: 0.5 })
+    expect(shapeGroupEntrance(fading)).toBe('fade')
+    const drawn = withShapeEntrance(fading, 'draw-on')
+    expect(shapeGroupEntrance(drawn)).toBe('draw-on')
+    expect(drawn).toMatchObject({ drawOn: 0.7, fadeOut: 0.5 })
+    expect(drawn).not.toHaveProperty('fadeIn')
+    expect(withShapeEntrance(drawn, 'fade')).toEqual(fading)
+    // No fade-in to keep: the default, or the whole window if shorter.
+    expect(withShapeEntrance(group(), 'draw-on').drawOn).toBe(DEFAULT_DRAW_ON)
+    expect(withShapeEntrance(group({ duration: 0.5 }), 'draw-on').drawOn).toBe(0.5)
+    expect(withShapeEntrance(fading, 'fade')).toBe(fading)
+  })
+
+  it('a group that draws on does not also fade in', () => {
+    expect(shapeGroupOpacityAt(drawing(), 2)).toBe(1)
+    expect(shapeGroupOpacityAt(drawing({ fadeOut: 2 }), 5)).toBeCloseTo(0.5, 10)
+  })
+
+  /** Records each call with its arguments rounded to 0.01 px. */
+  function recorder() {
+    const calls: string[] = []
+    const n = (value: number) => String(Math.round(value * 100) / 100)
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineJoin: 'miter',
+      lineCap: 'round',
+      globalAlpha: 1,
+      dash: [] as number[],
+      save: () => calls.push('save'),
+      restore: () => calls.push('restore'),
+      beginPath: () => calls.push('beginPath'),
+      closePath: () => calls.push('closePath'),
+      moveTo: (x: number, y: number) => calls.push(`moveTo ${n(x)} ${n(y)}`),
+      lineTo: (x: number, y: number) => calls.push(`lineTo ${n(x)} ${n(y)}`),
+      arcTo: () => calls.push('arcTo'),
+      ellipse: (x: number, y: number, rx: number, ry: number, _r: number, a0: number, a1: number) =>
+        calls.push(`ellipse ${n(x)} ${n(y)} ${n(rx)} ${n(ry)} ${n(a0 / Math.PI)}π ${n(a1 / Math.PI)}π`),
+      rect: (x: number, y: number, w: number, h: number) => calls.push(`rect ${x} ${y} ${w} ${h}`),
+      setLineDash(dash: number[]) {
+        this.dash = dash
+      },
+      fill() {
+        calls.push(`fill ${this.fillStyle} ${this.globalAlpha.toFixed(3)}`)
+      },
+      stroke() {
+        calls.push(`stroke ${this.strokeStyle} ${this.globalAlpha.toFixed(3)} ${this.lineCap} [${this.dash.join(',')}]`)
+      },
+      fillText: (text: string) => calls.push(`fillText ${text}`),
+    }
+    return { context: context as unknown as ShapeContext, calls }
+  }
+
+  const arrow = (overrides: Partial<ArrowShape> = {}): ArrowShape => ({
+    ...defaultShape('a', 'arrow'),
+    tailX: 0.1,
+    tailY: 0.5,
+    tipX: 0.9,
+    tipY: 0.5,
+    thickness: 0.01,
+    ...overrides,
+  })
+
+  it('grows an arrow\'s shaft from its tail to the base of its head, which comes only at the end', () => {
+    // 1000 × 1000: the arrow runs from x 100 to x 900 at y 500.
+    const shape = arrow()
+    const head = arrowPieces(shape, 1000, 1000)!.shaft.to.x
+    expect(head).toBeLessThan(900)
+    expect(arrowShaftAt(shape, 0.5, 1000, 1000)!.to.x).toBeCloseTo(100 + (head - 100) / 2, 10)
+    const { context, calls } = recorder()
+    drawShapeGroups(context, [drawing({ shapes: [shape] })], 2.5, 1000, 1000)
+    // One open stroke, butt-ended, from the tail halfway to the head's base;
+    // no filled outline, so no head.
+    expect(calls).toContain('moveTo 100 500')
+    expect(calls).toContain(`lineTo ${Math.round((100 + (head - 100) / 2) * 100) / 100} 500`)
+    expect(calls.filter((call) => call.startsWith('fill'))).toEqual([])
+    expect(calls.filter((call) => call.startsWith('stroke'))).toEqual(['stroke #e53935 1.000 butt []'])
+    // A tail head waits too: the shaft starts at its base.
+    expect(arrowShaftAt(arrow({ heads: 'both' }), 0, 1000, 1000)!.from.x).toBeGreaterThan(100)
+  })
+
+  it('after the draw-on, draws every shape exactly as a group with no entrance', () => {
+    const shapes: Shape[] = [
+      arrow(),
+      { ...ellipse('e'), fillOpacity: 0.5 },
+      { ...defaultShape('r', 'rectangle'), cornerRadius: 0.02, lineStyle: 'dashed' },
+      newBadge('b', []),
+    ]
+    for (const time of [3, 4.5]) {
+      const { context: drawn, calls: after } = recorder()
+      drawShapeGroups(drawn, [drawing({ shapes })], time, 1280, 720)
+      const { context: plain, calls: none } = recorder()
+      drawShapeGroups(plain, [group({ shapes })], time, 1280, 720)
+      expect(after).toEqual(none)
+    }
+  })
+
+  it('traces an ellipse\'s border from the top, clockwise, and fades its fill in with it', () => {
+    const shape: BoxShape = { ...ellipse('e'), x: 0.25, y: 0.25, width: 0.5, height: 0.5, fillOpacity: 0.8 }
+    const { context, calls } = recorder()
+    drawShapeGroups(context, [drawing({ shapes: [shape] })], 2.5, 1000, 1000)
+    // Half the border: from the top (−π/2), through the right (0), to the
+    // bottom (π/2) — canvas angles grow clockwise on screen. The bottom-left
+    // (3π/4) is still to come.
+    expect(calls).toContain('ellipse 500 500 250 250 -0.5π 0.5π')
+    expect(calls).toContain('fill #e53935 0.400')
+    expect(calls.filter((call) => call.startsWith('stroke'))).toEqual(['stroke #e53935 1.000 butt []'])
+  })
+
+  it('traces a rectangle\'s border from its top-left corner, clockwise, keeping its line style', () => {
+    const shape: BoxShape = {
+      ...defaultShape('r', 'rectangle'),
+      x: 0.1,
+      y: 0.1,
+      width: 0.6,
+      height: 0.2,
+      lineStyle: 'dashed',
+    }
+    // Frame 1000 × 1000: a 600 × 200 box, 1600 px around. At a quarter,
+    // 400 px: the whole top edge (600) is not yet done.
+    const { context, calls } = recorder()
+    drawShapeGroups(context, [drawing({ shapes: [shape] })], 2.25, 1000, 1000)
+    const path = calls.filter((call) => call.startsWith('moveTo') || call.startsWith('lineTo'))
+    expect(path).toEqual(['moveTo 100 100', 'lineTo 500 100'])
+    expect(calls.find((call) => call.startsWith('stroke'))).toMatch(/^stroke #e53935 1\.000 butt \[\d/)
+    // At three quarters, 1200 px: top (600), right side (200), and 400 of
+    // the bottom edge, running right to left.
+    const { context: later, calls: more } = recorder()
+    drawShapeGroups(later, [drawing({ shapes: [shape] })], 2.75, 1000, 1000)
+    expect(more.filter((call) => call.startsWith('moveTo') || call.startsWith('lineTo'))).toEqual([
+      'moveTo 100 100',
+      'lineTo 700 100',
+      'lineTo 700 300',
+      'lineTo 300 300',
+    ])
+  })
+
+  it('a rounded rectangle turns its corners as quarter arcs', () => {
+    const shape: BoxShape = { ...defaultShape('r', 'rectangle'), x: 0, y: 0, width: 1, height: 1, cornerRadius: 0.1 }
+    const { context, calls } = recorder()
+    // Almost all the way round: every corner but the last is a quarter arc.
+    drawShapeGroups(context, [drawing({ shapes: [shape] })], 2.99, 1000, 1000)
+    expect(calls.filter((call) => call.startsWith('ellipse'))).toEqual([
+      'ellipse 900 100 100 100 -0.5π 0π',
+      'ellipse 900 900 100 100 0π 0.5π',
+      'ellipse 100 900 100 100 0.5π 1π',
+      expect.stringMatching(/^ellipse 100 100 100 100 1π 1\.\d+π$/),
+    ])
+  })
+
+  it('fades a badge in whole, and draws nothing at the very start', () => {
+    const { context, calls } = recorder()
+    drawShapeGroups(context, [drawing({ shapes: [newBadge('b', [])] })], 2.5, 1000, 1000)
+    expect(calls).toContain(`fill ${DEFAULT_BADGE_STYLE.fill} 0.500`)
+    expect(calls).toContain('fillText 1')
+    const { context: start, calls: nothing } = recorder()
+    drawShapeGroups(start, [drawing({ shapes: [arrow(), ellipse(), newBadge('b', [])] })], 2, 1000, 1000)
+    expect(nothing.filter((call) => call.startsWith('fill') || call.startsWith('stroke'))).toEqual([])
+  })
+
+  it('Duplicate copies the entrance with the rest of the group', () => {
+    const state: TimelineState = { entries: [], shapeGroups: [drawing({ id: 'g1', drawOn: 1.5 })] }
+    const next = timelineReducer(state, { type: 'element-duplicated', kind: 'shape-group', id: 'g1', newId: 'g1b' })
+    expect(shapeGroupsOf(next)[1]).toMatchObject({ id: 'g1b', drawOn: 1.5 })
+  })
+
+  it('travels with Copy settings and Paste settings as part of the timing', () => {
+    const state: TimelineState = {
+      entries: [],
+      shapeGroups: [drawing({ id: 'g1', drawOn: 1.5, fadeOut: 0.5 }), group({ id: 'g2', offset: 9, fadeIn: 1 })],
+    }
+    const copied = copyElementSettings('shape-group', shapeGroupsOf(state)[0])!
+    const pasted = timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g2', settings: copied })
+    const target = shapeGroupsOf(pasted)[1]
+    expect(target).toMatchObject({ offset: 2, duration: 4, drawOn: 1.5, fadeOut: 0.5 })
+    expect(target).not.toHaveProperty('fadeIn')
+    // And back: a fading group's timing makes a drawing group fade.
+    const back = copyElementSettings('shape-group', shapeGroupsOf(state)[1])!
+    const undone = timelineReducer(state, { type: 'settings-pasted', kind: 'shape-group', id: 'g1', settings: back })
+    expect(shapeGroupsOf(undone)[0]).toMatchObject({ fadeIn: 1 })
+    expect(shapeGroupsOf(undone)[0]).not.toHaveProperty('drawOn')
   })
 })
 
