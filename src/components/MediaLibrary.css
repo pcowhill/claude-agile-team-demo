@@ -176,6 +176,33 @@
   padding-right: 0.45rem;
 }
 
+/* The cluster shares one height, tops and bottoms aligned (#792, from the
+   customer's #787) — #472's header rule. A button with no height of its
+   own is as tall as the line box of the font drawing its glyph, and ▶ and
+   ⋯ come from fallback symbol fonts that differ by platform, so ▶ stood
+   taller than Add on the customer's screen and not on CI's. The height is
+   the rule's now, with the glyph centred inside it. Direct children only:
+   the ⋯ panel's items are buttons inside this cluster too. */
+.clip-actions > button,
+.clip-actions > .clip-more > .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
+/* Menu's wrapper is inline-block (Menu.css), which keeps the line's strut
+   under the trigger, so the wrapper is taller than its button and the row
+   centres the wrapper (ProjectControls.css, #472). A flex wrapper is
+   exactly the trigger's box. */
+.clip-actions > .clip-more,
+.clip-card-actions > .clip-more {
+  display: inline-flex;
+}
+
 /* The kind badge (#101, #120) carries its meaning as text ("Audio"/"Video"),
    never by color alone; the per-kind colors only set the kinds apart at a
    glance. */
@@ -375,12 +402,26 @@
 .clip-card-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.25rem;
 }
 
 .clip-card-actions button {
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
+}
+
+/* The card's cluster shares one height too (#792), at the card's smaller
+   size; see .clip-actions above for why the height is the rule's. */
+.clip-card-actions > button,
+.clip-card-actions > .clip-more > .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
 }
 
 /* A card's own name gets the full card width and ellipsizes; the row
