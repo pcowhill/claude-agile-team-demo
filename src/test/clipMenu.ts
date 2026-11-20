@@ -14,7 +14,7 @@ import userEvent from '@testing-library/user-event'
  *   read "List", "Thumbnails", "Name".
  * - **⋯ per row** (`More actions for <name>`) — Preview and Add to
  *   timeline (which repeat the row's buttons, #621), Add as overlay,
- *   Extract audio, Rename… and Remove. Items say only what they do: the panel is
+ *   Extract audio, Rename…, Properties… (#804) and Remove. Items say only what they do: the panel is
  *   named for the clip, and a visible "Add as overlay" under an accessible
  *   name of "Add a.mp4 as overlay" would be a name that does not contain
  *   its own label.

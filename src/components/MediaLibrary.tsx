@@ -11,6 +11,7 @@ import { clipFileName, formatDuration } from '../lib/mediaLibrary'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
 import { AudioWaveform } from './AudioWaveform'
+import { ClipPropertiesDialog } from './ClipPropertiesDialog'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
@@ -273,6 +274,11 @@ export function MediaLibrary({
   // Inline rename (#404): which clip's name is being edited, if any — one
   // at a time, since the field takes the name's place in its row.
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // The clip whose Properties… dialog is open (#804), by id so a clip
+  // removed meanwhile simply closes it.
+  const [propertiesId, setPropertiesId] = useState<string | null>(null)
+  const closeProperties = useCallback(() => setPropertiesId(null), [])
+  const propertiesClip = library.clips.find((clip) => clip.id === propertiesId)
 
   // A gap beside the scrollbar (#460, from feedback #457), only while the
   // list actually scrolls: CSS cannot see overflow, and an always-on right
@@ -373,17 +379,23 @@ export function MediaLibrary({
         onSelect: () => onExtractAudio(clip),
       })
     }
-    const identity: MenuItem[] =
-      onRenameClip === undefined
-        ? []
-        : [
-            {
-              kind: 'action',
-              label: 'Rename…',
-              title: 'Rename this clip (the original filename is kept for re-linking)',
-              onSelect: () => setRenamingId(clip.id),
-            },
-          ]
+    const identity: MenuItem[] = []
+    if (onRenameClip !== undefined) {
+      identity.push({
+        kind: 'action',
+        label: 'Rename…',
+        title: 'Rename this clip (the original filename is kept for re-linking)',
+        onSelect: () => setRenamingId(clip.id),
+      })
+    }
+    // Properties… (#804, the customer's #800): what the clip's file is.
+    // With the identity items, after Rename…, as triage placed it.
+    identity.push({
+      kind: 'action',
+      label: 'Properties…',
+      title: "Show this clip's length, size, dimensions and other details",
+      onSelect: () => setPropertiesId(clip.id),
+    })
     const destructive: MenuItem[] = [
       {
         kind: 'action',
@@ -691,6 +703,14 @@ export function MediaLibrary({
             </li>
           ))}
         </ul>
+      )}
+
+      {propertiesClip !== undefined && (
+        <ClipPropertiesDialog
+          clip={propertiesClip}
+          placements={timelineUseCount(propertiesClip.id)}
+          onClose={closeProperties}
+        />
       )}
 
       {pendingRemoval && (
