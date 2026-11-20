@@ -1,6 +1,6 @@
 # Media library
 
-The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
+The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips) and [what shows while a file imports](#while-a-file-imports), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
 
 Library changes are not undo steps. Importing, renaming and removing clips change the project (the file saves them, and the 💾 button shows the unsaved dot), but Undo and Redo cover the timeline only; see [Edits and everything else](concepts.md#edits-and-everything-else).
 
@@ -12,7 +12,17 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Details.** The picker accepts video, audio and image files and lets you choose several at once; dropping files anywhere on the page does the same, and the page highlights while you drag over it. The kind is read from the file's type as the browser reports it, and from the extension when the browser reports none: `mp3`, `wav`, `m4a`, `aac`, `ogg`, `oga`, `opus`, `flac` and `weba` are audio, `png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp` and `avif` are images, and anything else is tried as video. A video or audio file is read for its duration, an image for its width and height in pixels. Reading a file's metadata gives up after a short wait rather than hanging, and reports the file in the failure list. The same file can be imported again, so an import that failed can be retried after the file is fixed.
 
-**Related.** [The failure list](#the-failure-list) · [Recording](recording.md) · [Quick Start](quick-start.md#1-import-your-clips)
+**Related.** [While a file imports](#while-a-file-imports) · [The failure list](#the-failure-list) · [Recording](recording.md) · [Quick Start](quick-start.md#1-import-your-clips)
+
+## While a file imports
+
+**Where to find it.** The media library, after the clips, from the moment you pick or drop files until each one has been read.
+
+**What it does.** Shows a row for each file still being read — *Importing long-take.webm…*, a moving bar and **Cancel** — so a long file is visibly working rather than silently absent.
+
+**Details.** Every file you pick at once gets its row straight away. They are read one at a time, in the order you picked them, and each row turns into its clip, at the end of the list, as soon as that file is ready; one that cannot be read leaves its row and goes to [the failure list](#the-failure-list) instead. The bar shows that the file is being read, not how far along it is: the browser does not report progress while it reads a video's length. **Cancel** removes the row at once, and the file is not added, nor listed as a failure; cancelling a file that is still waiting its turn means it is never read at all. A finished voice-over, screen or webcam recording shows the same row while it is read; a Screen + camera take does not, and its two clips appear together. The rows are not part of the project: they never mark it unsaved, and a project saved meanwhile does not include the files still being read. In the thumbnail view each row is a small card, with the name above the bar and **Cancel**. With your system set to reduce motion, the bar holds still.
+
+**Related.** [Importing clips](#importing-clips) · [The failure list](#the-failure-list)
 
 ## The failure list
 

@@ -410,3 +410,119 @@
   /* A checkbox over live media needs its own ground to stay findable. */
   background: rgba(0, 0, 0, 0.55);
 }
+
+/* Files still being read (#798): a list of their own after the clips, so a
+   placeholder lands where its clip will. It never shrinks — the clip list
+   above it does (#546's flex rule) — and past a few rows it scrolls, so a
+   large batch cannot push the panel past its bottom. */
+.import-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: none;
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+/* One row: the name takes the room and ellipsizes, then the bar, then
+   Cancel. A grid, so the bar and Cancel keep their sizes at any width and
+   the row stays one line down to 360px. */
+.import-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4rem auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed #3a3a3a;
+  border-radius: 6px;
+  background: #1d1d1d;
+  font-size: 0.9rem;
+}
+
+.import-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #bbb;
+}
+
+.import-cancel {
+  white-space: nowrap;
+}
+
+/* The busy bar: indeterminate — a segment sweeping across a track — since
+   the browser reports no progress while it reads a duration (#794). */
+.import-bar {
+  position: relative;
+  display: block;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: #333;
+  overflow: hidden;
+}
+
+.import-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: #4a90d9;
+  animation: import-bar-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes import-bar-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* Without motion the bar holds still, half filled: it still reads as
+   "working" beside "Importing…", and nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .import-bar::after {
+    animation: none;
+    width: 50%;
+    transform: none;
+  }
+}
+
+/* The thumbnail view's form: cards in the clip grid's own tracks, the name
+   above the bar and Cancel. */
+.import-list-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(9rem, 100%), 1fr));
+  gap: 0.5rem;
+  max-height: 12rem;
+}
+
+.import-item-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name name'
+    'bar cancel';
+  gap: 0.4rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.import-item-card .import-name {
+  grid-area: name;
+}
+
+.import-item-card .import-bar {
+  grid-area: bar;
+}
+
+.import-item-card .import-cancel {
+  grid-area: cancel;
+}

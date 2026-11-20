@@ -5,6 +5,7 @@ import type {
   ClipSortKey,
   LibraryClip,
   MediaLibraryState,
+  PendingImport,
 } from '../lib/mediaLibrary'
 import { clipFileName, formatDuration } from '../lib/mediaLibrary'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
@@ -21,6 +22,14 @@ import './MediaLibrary.css'
 interface MediaLibraryProps {
   library: MediaLibraryState
   onImportFiles: (files: File[]) => void
+  /**
+   * Files still being read (#798), in the order they were picked: each shows
+   * as a placeholder row with a busy bar and Cancel until it lands as a clip
+   * or a failure. Optional so tests predating it keep compiling.
+   */
+  importing?: readonly PendingImport[]
+  /** Cancels one pending import (#798): its row goes, and nothing is added. */
+  onCancelImport?: (id: string) => void
   /** Receives a finished screen + camera take (#388) — both files together,
    * so the app can import and place them as one arrival. Optional so tests
    * predating the paired source keep compiling; without it the source is
@@ -107,6 +116,8 @@ const VIEW_CONTROLS: readonly { view: LibraryView; label: string }[] = [
 export function MediaLibrary({
   library,
   onImportFiles,
+  importing = [],
+  onCancelImport,
   onRecordedPair,
   countdownSeconds,
   onRecordingFailed,
@@ -529,10 +540,14 @@ export function MediaLibrary({
       )}
 
       {library.clips.length === 0 ? (
-        <p className="placeholder">
-          No clips yet. Import video, audio, or image files, or drag and drop them anywhere in the
-          app.
-        </p>
+        // While the first files are still being read, their rows below say
+        // so; "No clips yet" beside them would contradict them.
+        importing.length > 0 ? null : (
+          <p className="placeholder">
+            No clips yet. Import video, audio, or image files, or drag and drop them anywhere in
+            the app.
+          </p>
+        )
       ) : (
         <>
           {/* Selection header (#292): Select-all plus, while anything is
@@ -635,6 +650,47 @@ export function MediaLibrary({
             )}
           </ul>
         </>
+      )}
+
+      {/* Files still being read (#798): one placeholder each, after the
+          clips, where each lands when its probe settles. A list of its own,
+          so the clip list's selection, scrolling and queries never see a
+          row that is not a clip yet. The bar says "working", not how far:
+          the browser reports no progress while it reads a duration. */}
+      {importing.length > 0 && (
+        <ul
+          className={['import-list', view === 'thumbnails' ? 'import-list-thumbnails' : null]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Importing clips"
+        >
+          {importing.map((entry) => (
+            <li
+              key={entry.id}
+              className={view === 'thumbnails' ? 'import-item import-item-card' : 'import-item'}
+            >
+              <span className="import-name" title={entry.name}>
+                Importing {entry.name}…
+              </span>
+              <span
+                className="import-bar"
+                role="progressbar"
+                aria-label={`Importing ${entry.name}`}
+                aria-valuetext="Reading the file"
+              />
+              {onCancelImport !== undefined && (
+                <button
+                  type="button"
+                  className="import-cancel"
+                  aria-label={`Cancel importing ${entry.name}`}
+                  onClick={() => onCancelImport(entry.id)}
+                >
+                  Cancel
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
 
       {pendingRemoval && (
