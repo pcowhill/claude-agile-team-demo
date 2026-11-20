@@ -8,6 +8,7 @@ import { LIBRARY_VIEW_KEY } from '../lib/libraryView'
 import { deserializeProject } from '../lib/projectFile'
 import type { SavePort } from '../lib/saveProject'
 import { peaksForClip } from '../lib/audioPeaks'
+import { downloadClip } from '../lib/clipDownload'
 import { thumbnailForTrim } from '../lib/thumbnails'
 import { chooseFromFileMenu } from '../test/fileMenu'
 import {
@@ -54,7 +55,16 @@ vi.mock('../lib/audioPeaks', async (importOriginal) => ({
   peaksForClip: vi.fn(() => Promise.resolve(null)),
 }))
 
+// jsdom has neither downloads nor Web Audio; what a download saves and
+// under which name is unit-tested in lib/clipDownload.test.ts, and the
+// bytes and the WAV in e2e/clip-download.spec.ts.
+vi.mock('../lib/clipDownload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/clipDownload')>()),
+  downloadClip: vi.fn(() => Promise.resolve()),
+}))
+
 const probeMock = vi.mocked(probeMediaFile)
+const downloadMock = vi.mocked(downloadClip)
 const extractMock = vi.mocked(extractAudioClip)
 const thumbnailMock = vi.mocked(thumbnailForTrim)
 const peaksMock = vi.mocked(peaksForClip)
@@ -1252,7 +1262,7 @@ describe('the row menu and View ▾ (#416)', () => {
 
     // A video has every item. The first group plays or places the clip:
     // the row's own Preview and Add (#621), then the overlay and extract.
-    // Properties… (#804) follows Rename… in the identity group, for every kind.
+    // Properties… (#804) and Download (#803) follow Rename… in the identity group, for every kind.
     expect(shapeOf(await openClipMenu('a.mp4'))).toEqual([
       'Preview',
       'Add to timeline',
@@ -1261,6 +1271,7 @@ describe('the row menu and View ▾ (#416)', () => {
       '—',
       'Rename…',
       'Properties…',
+      'Download',
       '—',
       'Remove',
     ])
@@ -1272,6 +1283,7 @@ describe('the row menu and View ▾ (#416)', () => {
       '—',
       'Rename…',
       'Properties…',
+      'Download',
       '—',
       'Remove',
     ])
@@ -1283,6 +1295,7 @@ describe('the row menu and View ▾ (#416)', () => {
       '—',
       'Rename…',
       'Properties…',
+      'Download',
       '—',
       'Remove',
     ])
@@ -1466,6 +1479,78 @@ describe('Properties… in the ⋯ menu (#804)', () => {
     expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('holiday.mp4')
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     expect(undo).toBeEnabled()
+  })
+})
+
+describe('Download in the ⋯ menu (#803)', () => {
+  const savingPort = (): SavePort => ({
+    kind: 'file-system-access',
+    pickDestination: () =>
+      Promise.resolve({
+        kind: 'picked' as const,
+        destination: { name: 'project.bvep', write: () => Promise.resolve() },
+      }),
+  })
+
+  /** Imports one clip and saves, so the project starts clean. */
+  async function importAndSave(name: string, kind: 'video' | 'audio' | 'image') {
+    probeMock.mockResolvedValueOnce(
+      kind === 'image'
+        ? { duration: 0, url: `blob:${name}`, kind, width: 64, height: 32 }
+        : { duration: 5, url: `blob:${name}`, kind },
+    )
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile(name))
+    await screen.findByText(name)
+    await userEvent.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as project.bvep')
+  }
+
+  beforeEach(() => {
+    downloadMock.mockClear()
+  })
+
+  it('downloads the clip it was chosen on, and leaves the project clean and the undo history empty', async () => {
+    render(<App savePort={savingPort()} />)
+    await importAndSave('holiday.mp4', 'video')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+
+    await chooseClipAction('holiday.mp4', 'Download')
+
+    expect(downloadMock).toHaveBeenCalledTimes(1)
+    expect(downloadMock.mock.calls[0][0]).toMatchObject({ name: 'holiday.mp4', url: 'blob:holiday.mp4' })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save (unsaved changes)' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Undo last timeline edit' })).toBeDisabled()
+  })
+
+  it('is offered for an audio and an image clip too', async () => {
+    render(<App savePort={savingPort()} />)
+    await importAndSave('tone.mp3', 'audio')
+    await chooseClipAction('tone.mp3', 'Download')
+    probeMock.mockResolvedValueOnce({ duration: 0, url: 'blob:still.png', kind: 'image', width: 64, height: 32 })
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('still.png'))
+    await screen.findByText('still.png')
+    await chooseClipAction('still.png', 'Download')
+    expect(downloadMock.mock.calls.map(([clip]) => clip.name)).toEqual(['tone.mp3', 'still.png'])
+  })
+
+  it('reports a failed download in the failure list, which Dismiss clears', async () => {
+    downloadMock.mockRejectedValueOnce(new Error('The video has no sound this browser can decode.'))
+    render(<App savePort={savingPort()} />)
+    await importAndSave('holiday.mp4', 'video')
+
+    await chooseClipAction('holiday.mp4', 'Download')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'holiday.mp4 could not be downloaded: The video has no sound this browser can decode.',
+    )
+    await userEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
   })
 })
 

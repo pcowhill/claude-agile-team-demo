@@ -198,6 +198,16 @@
 
 .effect-editor-header button {
   min-width: 2rem;
+  /* The crop editor's Reset beside ✕ (#793, from the customer's #787):
+     the ✕ comes from a fallback symbol font, so the two share a height
+     of the rule's rather than of whichever font draws each label. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
 }
 
 /* The scrub row (#421): the slider across the zoom's envelope, the instant

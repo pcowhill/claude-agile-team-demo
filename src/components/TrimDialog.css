@@ -229,6 +229,17 @@
 .trim-set button,
 .trim-footer button {
   white-space: nowrap;
+  /* One height for every button in the window's rows (#793, from the
+     customer's #787): ⏮ ◀ ▶ ⏭ ↻ come from fallback symbol fonts that
+     differ by platform, and a taller one made "◀ frame" 30px beside
+     "⏮ In"'s 28px. The height is the rule's, the label centred in it. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
 }
 
 .trim-loop[aria-pressed='true'] {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { expectAlignedRow, expectNoHorizontalScroll, expectWithin } from './layout'
 
 type Page = import('@playwright/test').Page
 
@@ -130,26 +130,14 @@ test('File ▾, Save and Export Project… share one height with their tops and 
   // made here: a test-only stylesheet raises the emoji's font-size by half,
   // which is what a taller emoji font does to the line box.
   await page.goto('./')
-  const controls = () => [
-    fileTrigger(page),
-    page.locator('.project-save-button'),
-    page.getByRole('button', { name: 'Export Project…' }),
-  ]
-  /** Every edge of Save's and Export's box within a pixel of File ▾'s; returns the shared height. */
-  const expectAligned = async (when: string): Promise<number> => {
-    const boxes = await Promise.all(controls().map(async (locator) => (await locator.boundingBox())!))
-    const [file, ...others] = boxes
-    for (const box of others) {
-      const where = `${when}: ${JSON.stringify(box)} against File ▾ ${JSON.stringify(file)}`
-      expect(Math.abs(box.height - file.height), `${where}: heights differ`).toBeLessThanOrEqual(1)
-      expect(Math.abs(box.y - file.y), `${where}: tops differ`).toBeLessThanOrEqual(1)
-      expect(
-        Math.abs(box.y + box.height - (file.y + file.height)),
-        `${where}: bottoms differ`,
-      ).toBeLessThanOrEqual(1)
-    }
-    return file.height
-  }
+  /** File ▾, Save and Export Project… in one page read (#793's shared check); returns the shared height. */
+  const expectAligned = (when: string): Promise<number> =>
+    expectAlignedRow(
+      fileTrigger(page)
+        .or(page.locator('.project-save-button'))
+        .or(page.getByRole('button', { name: 'Export Project…' })),
+      when,
+    )
   const tallGlyph = () =>
     page.addStyleTag({ content: '.project-save-button > span { font-size: 150%; }' })
 

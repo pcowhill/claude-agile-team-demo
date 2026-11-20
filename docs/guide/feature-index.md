@@ -115,6 +115,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Disable Shaped wipes** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
 - **Discard and open** — the *Discard unsaved changes?* dialog, raised by File ▾ › Open Project… while changes are unsaved; goes ahead and asks for the file. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Discard and start new** — the same dialog, raised by File ▾ › New Project while changes are unsaved; goes ahead and empties the project. [Projects › New Project](projects.md#new-project)
+- **Download** — a media library row's ⋯ menu; saves the clip's file on its own, or an extracted audio clip as a WAV. [Media library › Downloading a clip](media-library.md#downloading-a-clip)
 - **Draw shapes…** — an expanded shape group row, beside + Add shape ▾; opens the shape editor. [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Draw-on time** — an expanded shape group row whose Entrance is Draw on, labelled *over*; how long the shapes take to draw on, in seconds. [Shapes and annotations › Drawing the shapes on](shapes-and-annotations.md#drawing-the-shapes-on)
 - **Duck level** — beside Duck others while it is on; how far the other audio drops. [Audio › The duck level](audio.md#the-duck-level)
