@@ -9,7 +9,8 @@ import { withFakeMedia } from './fakeMedia'
  * audio-less container (headless CI has no real audio subsystem). The
  * capture pipeline (getDisplayMedia → MediaRecorder → import path) runs for
  * real — the proxy evidence for the customer-verifiable real-window/display
- * criterion. `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
+ * criterion. `withFakeMedia` (`fakeMedia.ts`) gives each browser its own
+ * fakes (#599).
  */
 withFakeMedia(test, ['--auto-select-tab-capture-source-by-title=Browser Video Editor'])
 

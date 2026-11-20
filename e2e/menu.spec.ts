@@ -9,7 +9,8 @@ import { expectNoHorizontalScroll } from './layout'
  * trigger), and what jsdom cannot measure — the open panel lying inside the
  * viewport at the default and the narrow (#208) widths with no sideways
  * page scroll. The fake-device flags stand in a camera so Enter on Webcam
- * really opens the recording dialog. `withFakeMedia` (`fakeMedia.ts`) gives each browser its own fakes (#599).
+ * really opens the recording dialog. `withFakeMedia` (`fakeMedia.ts`)
+ * gives each browser its own fakes (#599).
  */
 withFakeMedia(test)
 
