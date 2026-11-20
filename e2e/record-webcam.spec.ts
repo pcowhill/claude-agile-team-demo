@@ -13,7 +13,7 @@ import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
  */
 withFakeMedia(test)
 
-/** Runs one webcam capture through the Record menu, ~1s long, and stops it. */
+/** Runs one webcam capture through the Record menu, ~2s long, and stops it. */
 async function recordWebcam(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Record' }).click()
   await page.getByRole('menuitem', { name: 'Webcam' }).click()
@@ -25,8 +25,12 @@ async function recordWebcam(page: import('@playwright/test').Page) {
       page.getByTestId('record-preview').evaluate((el: HTMLVideoElement) => el.videoWidth),
     )
     .toBeGreaterThan(0)
-  // The elapsed readout ticks — capture at least a second.
-  await expect(page.getByTestId('record-elapsed')).toHaveText(/0:0[1-9]/, { timeout: 15_000 })
+  // The elapsed readout ticks. Stop at 0:02, not 0:01 (#812): with the fake
+  // camera the recorder starts ~0.4 s behind the readout's clock — a take
+  // stopped at 0:01 held only 0–586 ms of media in CI's Firefox (#788's
+  // measurement, run 44782336721) — so under load a 0:01 take can fall
+  // under half a second and list as 0:00. At 0:02 it holds ~1.6 s or more.
+  await expect(page.getByTestId('record-elapsed')).toHaveText(/0:0[2-9]/, { timeout: 15_000 })
   await page.getByRole('button', { name: 'Stop recording' }).click()
 }
 
