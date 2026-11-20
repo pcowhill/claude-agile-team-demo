@@ -1,6 +1,6 @@
 # Media library
 
-The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips) and [what shows while a file imports](#while-a-file-imports), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip), [downloading](#downloading-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
+The shelf the rest of the editor works from: every file you import or record sits here as a **clip**, untouched, until you place it on [the timeline](timeline.md). This page covers [importing](#importing-clips) and [what shows while a file imports](#while-a-file-imports), the [two views](#list-and-thumbnail-views) and the [View ▾](#view-layout-and-sorting) menu, [selecting several clips at once](#selecting-several-clips), [previewing a clip](#preview-a-clip) on its own, [Add](#add) and the [⋯ menu](#the-menu), [renaming](#renaming-a-clip), [a clip's properties](#a-clip-s-properties), [downloading](#downloading-a-clip) and [removing](#removing-a-clip). Recording into the library has its own page: [Recording](recording.md). How the library relates to the timeline is in [Concepts](concepts.md#the-media-library-and-the-timeline).
 
 Library changes are not undo steps. Importing, renaming and removing clips change the project (the file saves them, and the 💾 button shows the unsaved dot), but Undo and Redo cover the timeline only; see [Edits and everything else](concepts.md#edits-and-everything-else).
 
@@ -103,6 +103,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 - **Add as overlay** (video and image clips) places the clip above the sequence as an overlay layer — picture-in-picture in the bottom-right corner, {{DEFAULT_OVERLAY_SIZE_PERCENT}} % of the frame wide and high, starting at the beginning of the sequence; a video overlay plays the whole clip and an image overlay shows for the still duration. Reposition, resize and trim it from [its timeline row](timeline.md#a-row).
 - **Extract audio** (video clips) makes a new audio clip from the video's sound, named after the video with *(audio)* appended. It keeps working after the video is removed from the library, and a references-only project re-links it from the video file.
 - **Rename…** opens the name for editing; see [Renaming a clip](#renaming-a-clip).
+- **Properties…** shows what the clip's file is — its type, size, length, dimensions, sound and more; see [A clip's properties](#a-clip-s-properties).
 - **Download** saves the clip's file on its own; see [Downloading a clip](#downloading-a-clip).
 - **Remove** asks for confirmation; see [Removing a clip](#removing-a-clip).
 
@@ -119,6 +120,29 @@ An audio clip's menu has no Add as overlay or Extract audio, since it has no pic
 **Details.** The name becomes a field with the current name selected. **Enter** or clicking elsewhere commits; **Escape** cancels; an empty name leaves the clip as it was. The new name shows in the library, in the re-link dialog and in the preview, sorts under Name, and saves with the project. The original filename is kept underneath — hovering the name shows it — so a references-only project still re-links from the file on disk, and the re-link dialog shows both. Timeline elements already made from the clip keep the names they were placed with; new placements take the current name.
 
 **Related.** [Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
+
+## A clip's properties
+
+**Where to find it.** A row's **⋯** › **Properties…**.
+
+**What it does.** Opens a dialog, named *Properties of* the clip, listing what the editor can measure about the clip's file. It is read-only: renaming stays with [Rename…](#renaming-a-clip).
+
+**Details.** Each row appears only where it applies:
+
+- **Name**, and **Original filename** when a rename made them differ.
+- **Kind** — Video, Audio or Image.
+- **Extracted from** — for an audio clip made by [Extract audio](audio.md#extract-audio), the video it came from. Such a clip plays from the video's file, so its File type and File size describe that file and say so.
+- **File type** — the file's media type as the browser reports it, such as *video/webm*.
+- **File size** — in kB, MB or GB, with the exact number of bytes after it.
+- **Length** (video and audio) — as the library shows it and in seconds to two decimals, for example *1:05 (65.20 s)*.
+- **Dimensions** and **Aspect ratio** (video and images) — the picture's size in pixels, and its shape as *16:9*, *4:3* and so on, or as a decimal such as *1.78:1* when the whole-number terms would be unhelpful.
+- **Has sound** (video) — *Yes*, or *No* when the browser can decode no sound from it.
+- **Audio channels** (audio, and video with sound) — Mono, Stereo or a count.
+- **On the timeline** — how many elements were made from the clip, across the sequence, the overlay lane and the audio lane, or *Not placed*.
+
+Values that have to be read from the file show *Reading…* for a moment; a value the browser cannot report shows *Unknown*. Frame rate, sample rate and codecs are not listed yet. **Escape**, **Close** or a click outside the dialog closes it, and focus goes back to the row's ⋯. Opening it changes nothing in the project.
+
+**Related.** [The ⋯ menu](#the-menu) · [Renaming a clip](#renaming-a-clip)
 
 ## Downloading a clip
 

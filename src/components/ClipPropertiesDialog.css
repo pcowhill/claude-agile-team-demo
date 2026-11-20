@@ -1,0 +1,32 @@
+/* Properties… (#804): a label column sized to its longest label, which
+   never wraps, and a value column taking the rest, which may — a long
+   filename or MIME type breaks anywhere rather than pushing the dialog
+   wider than the window. */
+.clip-properties-dialog {
+  max-width: 28rem;
+}
+
+.clip-properties {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 1rem;
+  row-gap: 0.3rem;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+/* Each row's pair joins the parent grid, so the columns line up across rows. */
+.clip-properties-row {
+  display: contents;
+}
+
+.clip-properties dt {
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.clip-properties dd {
+  margin: 0;
+  color: #eee;
+  overflow-wrap: anywhere;
+}

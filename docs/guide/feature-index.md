@@ -231,6 +231,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Plugins…** — File ▾; opens the plugin manager. [Plugins › The plugin manager](plugins.md#the-plugin-manager)
 - **Preview** — a media library row's ⋯ menu, the same as the row's **▶**; and the slider under a visual editor’s still, which scrubs the zoom’s envelope, a redaction or spotlight region’s window, or a shape group’s window. [Media library › Preview a clip](media-library.md#preview-a-clip) · [Visual editors › The Preview slider](visual-editors.md#the-preview-slider)
+- **Properties…** — a media library row's ⋯ menu; opens a dialog of what the clip's file is: type, size, length, dimensions, sound and placements. [Media library › A clip's properties](media-library.md#a-clip-s-properties)
 
 ## Q
 

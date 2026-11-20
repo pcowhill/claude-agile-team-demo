@@ -12,6 +12,7 @@ import { downloadClip } from '../lib/clipDownload'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
 import { AudioWaveform } from './AudioWaveform'
+import { ClipPropertiesDialog } from './ClipPropertiesDialog'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
@@ -274,6 +275,11 @@ export function MediaLibrary({
   // Inline rename (#404): which clip's name is being edited, if any — one
   // at a time, since the field takes the name's place in its row.
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // The clip whose Properties… dialog is open (#804), by id so a clip
+  // removed meanwhile simply closes it.
+  const [propertiesId, setPropertiesId] = useState<string | null>(null)
+  const closeProperties = useCallback(() => setPropertiesId(null), [])
+  const propertiesClip = library.clips.find((clip) => clip.id === propertiesId)
   // Download failures (#803): only an extracted audio clip can fail, when
   // its video's sound will not decode. Shown in the failure list beside the
   // import failures, and dismissed with them; transient like them.
@@ -396,6 +402,14 @@ export function MediaLibrary({
         onSelect: () => setRenamingId(clip.id),
       })
     }
+    // Properties… (#804, the customer's #800): what the clip's file is.
+    // With the identity items, after Rename…, as triage placed it.
+    identity.push({
+      kind: 'action',
+      label: 'Properties…',
+      title: "Show this clip's length, size, dimensions and other details",
+      onSelect: () => setPropertiesId(clip.id),
+    })
     // Download (#803, the customer's #800): the clip's own file, unchanged,
     // or a WAV of an extracted clip's sound (clipDownload.ts says why).
     // With the identity items: it concerns the clip's file, not the timeline.
@@ -724,6 +738,14 @@ export function MediaLibrary({
             </li>
           ))}
         </ul>
+      )}
+
+      {propertiesClip !== undefined && (
+        <ClipPropertiesDialog
+          clip={propertiesClip}
+          placements={timelineUseCount(propertiesClip.id)}
+          onClose={closeProperties}
+        />
       )}
 
       {pendingRemoval && (

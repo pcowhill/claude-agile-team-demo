@@ -16,7 +16,7 @@ type Locator = import('@playwright/test').Locator
  *   read "List", "Thumbnails", "Name".
  * - **⋯ per row** (`More actions for <name>`) — Preview and Add to
  *   timeline (which repeat the row's buttons, #621), Add as overlay,
- *   Extract audio, Rename…, Download (#803) and Remove.
+ *   Extract audio, Rename…, Properties… (#804), Download (#803) and Remove.
  *
  * What the controls do is unchanged, so the specs that exercise them keep
  * their assertions and only change how they reach the control — these

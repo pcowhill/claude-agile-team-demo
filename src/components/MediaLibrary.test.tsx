@@ -1262,7 +1262,7 @@ describe('the row menu and View ▾ (#416)', () => {
 
     // A video has every item. The first group plays or places the clip:
     // the row's own Preview and Add (#621), then the overlay and extract.
-    // Download (#803) joins Rename… in the identity group, for every kind.
+    // Properties… (#804) and Download (#803) follow Rename… in the identity group, for every kind.
     expect(shapeOf(await openClipMenu('a.mp4'))).toEqual([
       'Preview',
       'Add to timeline',
@@ -1270,6 +1270,7 @@ describe('the row menu and View ▾ (#416)', () => {
       'Extract audio',
       '—',
       'Rename…',
+      'Properties…',
       'Download',
       '—',
       'Remove',
@@ -1281,6 +1282,7 @@ describe('the row menu and View ▾ (#416)', () => {
       'Add as overlay',
       '—',
       'Rename…',
+      'Properties…',
       'Download',
       '—',
       'Remove',
@@ -1292,6 +1294,7 @@ describe('the row menu and View ▾ (#416)', () => {
       'Add to timeline',
       '—',
       'Rename…',
+      'Properties…',
       'Download',
       '—',
       'Remove',
@@ -1427,6 +1430,55 @@ describe("the ⋯ repeats the row's Preview and Add (#621)", () => {
     await userEvent.keyboard('{Enter}')
     expect(screen.queryByRole('menu', { name: 'More actions for a.mp4' })).toBeNull()
     expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('a.mp4')
+  })
+})
+
+describe('Properties… in the ⋯ menu (#804)', () => {
+  it('opens a dialog named for the clip, which Escape closes with focus back on the ⋯, changing nothing', async () => {
+    const writes: Uint8Array<ArrayBuffer>[] = []
+    const port: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: () =>
+        Promise.resolve({
+          kind: 'picked' as const,
+          destination: {
+            name: 'project.bvep',
+            write: (bytes: Uint8Array<ArrayBuffer>) => {
+              writes.push(bytes)
+              return Promise.resolve()
+            },
+          },
+        }),
+    }
+    probeMock.mockResolvedValueOnce({ duration: 65.2, url: 'blob:holiday', kind: 'video' })
+    render(<App savePort={port} />)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), videoFile('holiday.mp4'))
+    await screen.findByText('holiday.mp4')
+    await userEvent.click(screen.getByRole('button', { name: 'Add holiday.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    const saveDialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(saveDialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(saveDialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as project.bvep')
+    const undo = screen.getByRole('button', { name: 'Undo last timeline edit' })
+    expect(undo).toBeEnabled()
+
+    await chooseClipAction('holiday.mp4', 'Properties…')
+    const dialog = screen.getByRole('dialog', { name: 'Properties of holiday.mp4' })
+    const value = (label: string) => within(dialog).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+    expect(value('Kind')).toBe('Video')
+    expect(value('Length')).toBe('1:05 (65.20 s)')
+    expect(value('On the timeline')).toBe('1 placement')
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus()
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'More actions for holiday.mp4' })).toHaveFocus()
+    // Escape closed the dialog and undid nothing: the placement is still
+    // there, the project still clean, and one undo step still waiting.
+    expect(screen.getByRole('list', { name: 'Sequence' })).toHaveTextContent('holiday.mp4')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(undo).toBeEnabled()
   })
 })
 

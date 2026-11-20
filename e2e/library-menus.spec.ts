@@ -110,6 +110,7 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
     'Add as overlay',
     'Extract audio',
     'Rename…',
+    'Properties…',
     'Download',
     'Remove',
   ])
@@ -127,6 +128,7 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
     'Preview',
     'Add to timeline',
     'Rename…',
+    'Properties…',
     'Download',
     'Remove',
   ])
@@ -143,14 +145,14 @@ test('⋯ offers what its buttons did, per kind, and removes a clip by keyboard 
   await expect(clipMenuTrigger(page, 'tone-0.wav')).toBeFocused()
 
   // Keyboard only, from the trigger: ArrowDown opens on the first item,
-  // four more land on Remove (past Download, #803), Enter selects it, and the confirmation takes
+  // five more land on Remove (past Properties…, #804, and Download, #803), Enter selects it, and the confirmation takes
   // over. Nothing here touches the mouse.
   await clipMenuTrigger(page, 'tone-0.wav').focus()
   await page.keyboard.press('ArrowDown')
   const opened = clipMenu(page, 'tone-0.wav')
   await expect(opened).toBeVisible()
   await expect(opened.getByRole('menuitem', { name: 'Preview' })).toBeFocused()
-  for (const item of ['Add to timeline', 'Rename…', 'Download', 'Remove']) {
+  for (const item of ['Add to timeline', 'Rename…', 'Properties…', 'Download', 'Remove']) {
     await page.keyboard.press('ArrowDown')
     await expect(opened.getByRole('menuitem', { name: item, exact: true })).toBeFocused()
   }
@@ -235,6 +237,7 @@ test("the ⋯'s Preview and Add to timeline act like the row's buttons, and the 
       'Add as overlay',
       'Extract audio',
       'Rename…',
+      'Properties…',
       'Download',
       'Remove',
     ])
@@ -461,6 +464,7 @@ test('the row keeps its actions together, and neither panel is clipped by the li
     'Preview',
     'Add to timeline',
     'Rename…',
+    'Properties…',
     'Download',
     'Remove',
   ])
