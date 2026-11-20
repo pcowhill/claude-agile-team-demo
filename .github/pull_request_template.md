@@ -8,7 +8,10 @@
 
 ## Related issue
 
-<!-- Use closing syntax when merge should close the issue, e.g. `Closes #123`. -->
+<!-- Use closing syntax when merge should close the issue, e.g. `Closes #123`.
+     A keyword followed by an issue number closes it on merge anywhere in
+     this body, so name an issue that stays open as `Part of #123`
+     (development.md, "Pull Requests"). -->
 
 ## Implementation decisions
 
