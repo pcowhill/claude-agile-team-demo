@@ -29,9 +29,13 @@ const button = (page: Page, name: string) => page.getByRole('button', { name })
 /**
  * The real duration of a library clip, in seconds: the clip is opened in the
  * source preview, whose media element carries the clip's blob URL, and the
- * probe's own seek-to-end trick resolves the streamed WebM's `Infinity`
- * duration to its real value. Read from the file itself rather than from
- * the library's rounded readout, because the criteria are in tenths.
+ * file is measured there. Read from the file itself rather than from the
+ * library's rounded readout, because the criteria are in tenths.
+ *
+ * Where the element reports `Infinity`, the audio is decoded and its length
+ * read. A seek to the end does not settle it everywhere: Firefox's own
+ * voice-over, even with Cues added, seeks there and never fires a finite
+ * `durationchange` (#789, dispatched run 44789226163).
  */
 async function clipDurationSeconds(page: Page, clipName: string): Promise<number> {
   await page.getByRole('button', { name: `Preview ${clipName}` }).click()
@@ -48,14 +52,10 @@ async function clipDurationSeconds(page: Page, clipName: string): Promise<number
       element.onerror = () => reject(new Error('could not load the clip'))
     })
     if (Number.isFinite(element.duration)) return element.duration
-    // MediaRecorder's WebM says Infinity until a seek to the end reveals it.
-    element.currentTime = 1e10
-    await new Promise<void>((resolve) => {
-      element.ondurationchange = () => {
-        if (Number.isFinite(element.duration)) resolve()
-      }
-    })
-    return element.duration
+    // MediaRecorder's WebM says Infinity: count the decoded samples instead.
+    const bytes = await (await fetch(src)).arrayBuffer()
+    const decoded = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(bytes)
+    return decoded.duration
   }, url as string)
   await page.getByTestId('source-back').click()
   return duration
