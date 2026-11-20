@@ -1,3 +1,4 @@
+import { gunzipSync } from 'node:zlib'
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { sampleExportedFrame, sampleExportedGrid } from './decodedFrame'
@@ -733,6 +734,59 @@ test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
   const corner = await sampleImage(page, gif, 'image/gif', { x: 0.02, y: 0.02, width: 0.08, height: 0.08 })
   expectColor(middle, { r: 255, g: 0, b: 0 }, 50, 'GIF, inside the red ellipse')
   expectColor(corner, SLATE, 50, 'GIF, outside the ellipse')
+})
+
+test('an arrow end typed onto the other end stays, with a note inside the row at 360px, and a save meanwhile opens (#706)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 900 })
+  // Saving downloads, as save.spec.ts's first test does.
+  await page.addInitScript(() => {
+    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker
+  })
+  await page.goto('./')
+  // Populated (development.md): a slate and a group holding an arrow.
+  await blueSlate(page)
+  await chooseFromAddMenu(page, ADD_SHAPES)
+  await addShape(page, 1, 'Arrow')
+  const name = shape('Arrow', 2)
+  const arrow = page.getByRole('listitem', { name })
+  // A new arrow runs (0.35, 0.5) → (0.65, 0.5). Tip x 0.35 puts the tip on
+  // the tail: the field keeps 0.35 (setField asserts it), and a note says why.
+  await setField(page, `Tip x of ${name} (0 to 1)`, '0.35')
+  const note = arrow.getByRole('note')
+  await expect(note).toContainText('The tail and tip are at the same point')
+  const row = page.getByRole('list', { name: 'Shape groups' }).locator('> li').first()
+  await expectWithin(note, arrow, { axis: 'x', what: 'the zero-length note' })
+  await expectWithin(arrow, row, { axis: 'x', what: 'the arrow with its note' })
+  // A note that widened its row would widen the timeline with it, so only
+  // the column's own scroll can see that (as in the layout test below).
+  await expectNoHorizontalScroll(page, 'with the zero-length note showing')
+  await arrow.screenshot({ path: testInfo.outputPath('arrow-zero-length-note-360.png') })
+
+  // A save now writes the arrow as it was, not the draft, and it opens.
+  await chooseFromFileMenu(page, 'Save As…')
+  const modeDialog = page.getByRole('dialog', { name: 'Save project' })
+  await modeDialog.getByRole('radio', { name: 'Store references only' }).check()
+  const downloadPromise = page.waitForEvent('download')
+  await modeDialog.getByRole('button', { name: 'Save…' }).click()
+  const projectBytes = await readFile((await (await downloadPromise).path())!)
+  const saved = JSON.parse(gunzipSync(projectBytes).toString('utf8'))
+  expect(saved.timeline.shapeGroups[0].shapes[1]).toMatchObject({ kind: 'arrow', tailX: 0.35, tipX: 0.65 })
+
+  // Tip y 0.8 gives the arrow a length: both ends apply, and the note goes.
+  await setField(page, `Tip y of ${name} (0 to 1)`, '0.8')
+  await expect(note).toHaveCount(0)
+  await expect(page.getByRole('spinbutton', { name: `Tip x of ${name} (0 to 1)`, exact: true })).toHaveValue('0.35')
+
+  // The file saved while the draft showed opens, with the arrow it held.
+  // (The unsaved-changes question belongs to File ▾ › Open Project…; the
+  // input itself opens directly, as in open.spec.ts.)
+  await page
+    .getByTestId('project-file-input')
+    .setInputFiles([{ name: 'arrow.bvep', mimeType: 'application/gzip', buffer: projectBytes }])
+  await expect(page.getByRole('spinbutton', { name: `Tip x of ${name} (0 to 1)`, exact: true })).toHaveValue('0.65')
+  await expect(page.getByRole('spinbutton', { name: `Tip y of ${name} (0 to 1)`, exact: true })).toHaveValue('0.5')
 })
 
 for (const width of [1280, 360]) {

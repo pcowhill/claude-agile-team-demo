@@ -69,6 +69,44 @@ describe('Arrows in shape groups (#684)', () => {
       'This arrow is invisible',
     )
   })
+
+  it('keeps a typed end that makes the arrow zero-length, says why, and applies it with the next end (#706)', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    await userEvent.click(screen.getByRole('button', { name: `Add a shape to ${group()}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Arrow' }))
+    const arrow = shape('Arrow', 2)
+    const field = (end: string) => screen.getByRole('spinbutton', { name: `${end} of ${arrow} (0 to 1)` })
+    const row = () => within(screen.getByRole('listitem', { name: arrow }))
+    const type = async (end: string, value: string) => {
+      await userEvent.clear(field(end))
+      await userEvent.type(field(end), value)
+      await userEvent.tab()
+    }
+    // A new arrow runs (0.35, 0.5) → (0.65, 0.5): Tip x 0.35 puts the tip on
+    // the tail. The value stays, and the row says why it is not applied.
+    await type('Tip x', '0.35')
+    expect(field('Tip x')).toHaveValue(0.35)
+    expect(row().getByRole('note')).toHaveTextContent('The tail and tip are at the same point')
+    // Nothing was applied: the timeline's last edit is still adding the arrow.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(screen.queryByRole('listitem', { name: arrow })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+
+    // Again, and this time on to a vertical arrow: Tip y applies both ends.
+    await type('Tip x', '0.35')
+    await type('Tip y', '0.8')
+    expect(field('Tail x')).toHaveValue(0.35)
+    expect(field('Tail y')).toHaveValue(0.5)
+    expect(field('Tip x')).toHaveValue(0.35)
+    expect(field('Tip y')).toHaveValue(0.8)
+    expect(row().queryByRole('note')).toBeNull()
+    // …as one edit: one undo returns the arrow to where it was.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(field('Tip x')).toHaveValue(0.65)
+    expect(field('Tip y')).toHaveValue(0.5)
+    expect(row().queryByRole('note')).toBeNull()
+  })
 })
 
 describe('Line styles in shape groups (#688)', () => {
