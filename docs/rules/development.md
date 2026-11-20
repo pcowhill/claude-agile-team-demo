@@ -108,7 +108,17 @@ does. Do not write ADRs for trivial or easily reversed choices.
 - Open a PR when implementation + tests are complete and pushed; use the
   template at `.github/pull_request_template.md`.
 - Link the issue with closing syntax (`Closes #123`) when merge should close
-  it.
+  it. The syntax works **wherever it appears**. GitHub closes the issue on
+  merge whenever a closing keyword is followed by an issue reference
+  anywhere in the PR body, even inside a sentence saying not to. The same
+  happens when such a commit message reaches `main`. The keywords are
+  close, closes, closed, fix, fixes, fixed, resolve, resolves and resolved.
+  To name an issue that must stay open, write `Part of #123` or
+  `Refs #123`. Phrase any follow-up so no keyword sits right before the
+  number, for example "#123 can be closed once …". #766 is the worked
+  example. It said it would leave #760 open until five Firefox runs had
+  been counted, then wrote the follow-up as a keyword-first sentence, and
+  the merge closed #760 before any run was counted (#778).
 - Explain what changed, why, key implementation decisions, how it was
   tested, and remaining risks or follow-up work.
 - Never state that tests passed unless they were actually run (locally or in
