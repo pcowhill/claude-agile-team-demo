@@ -158,6 +158,19 @@ Standing mechanics, customer-directed in #173:
   overtaken by events — the customer asked for something equivalent
   themselves, or another change makes it obsolete or out of scope — with a
   comment saying why, even if the customer never reviewed it.
+- **A proposed keyboard shortcut is checked before it is proposed.** This
+  applies to a suggestion, and equally to a design put to the customer as a
+  `customer-question`. When it gives a key a new meaning, grep
+  `src/lib/shortcuts.ts` for that key and say what the grep found: free, or
+  taken by what. That file is the app's one table of shortcuts (it renders
+  both the `?` cheat sheet and the guide's shortcuts page). Keys that work
+  only inside one editor or window carry a `scope` there ("In the Trim
+  window"), so the proposal names its scope too. A key can mean one thing
+  app-wide and another in a scope (the Trim window's I / O), but the
+  proposal says so. #703 is the worked example: it proposed I / O in the main
+  preview, which were already the export marks (#417). The clash surfaced
+  only after the customer had approved the design, and #710 shipped as
+  Q / W instead.
 
 The customer responds to a suggestion by commenting on it (#173). Handle
 responses as customer input:
