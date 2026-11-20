@@ -4388,20 +4388,51 @@ export function Timeline({
                   {/* The overlay's zooms (#699), in the entry's zoom-row
                       idiom: numbered in window order, the order the
                       normalized overlay stores them in. Their centre is a
-                      fraction of the overlay's rectangle. The entry's visual
-                      editor shows the sequence frame, not an overlay's
-                      picture, so an overlay zoom has fields only (#734). */}
-                  {(overlay.zooms ?? []).map((overlayZoom, zoomIndex) => (
-                    <ZoomFieldsRow
-                      key={overlayZoom.id}
-                      zoom={overlayZoom}
-                      zoomIndex={zoomIndex}
-                      position={position}
-                      maxStart={trimmedLength}
-                      onUpdate={(spec) => onUpdateVideoOverlayZoom?.(overlay.id, overlayZoom.id, spec)}
-                      onRemove={() => onRemoveVideoOverlayZoom?.(overlay.id, overlayZoom.id)}
-                    />
-                  ))}
+                      fraction of the overlay's rectangle, and the visual
+                      editor (#734) shows exactly that rectangle of the
+                      frame, with the zoom left out. */}
+                  {(overlay.zooms ?? []).map((overlayZoom, zoomIndex) => {
+                    const zoomName = `Zoom ${zoomIndex + 1}`
+                    const editing = editingZoomId === overlayZoom.id
+                    const update = (spec: ZoomSpec) =>
+                      onUpdateVideoOverlayZoom?.(overlay.id, overlayZoom.id, spec)
+                    return (
+                      <Fragment key={overlayZoom.id}>
+                        <ZoomFieldsRow
+                          zoom={overlayZoom}
+                          zoomIndex={zoomIndex}
+                          position={position}
+                          maxStart={trimmedLength}
+                          onUpdate={update}
+                          onRemove={() => onRemoveVideoOverlayZoom?.(overlay.id, overlayZoom.id)}
+                        >
+                          {visualEditors && (
+                            <button
+                              type="button"
+                              className="timeline-adjust-button"
+                              aria-label={`Adjust ${zoomName} of ${position} visually`}
+                              aria-expanded={editing}
+                              title="Drag the zoom's region on a still of the overlay's picture"
+                              onClick={() => setEditingZoomId(editing ? null : overlayZoom.id)}
+                            >
+                              Adjust visually…
+                            </button>
+                          )}
+                        </ZoomFieldsRow>
+                        {visualEditors && editing && (
+                          <ZoomEditor
+                            timeline={timeline}
+                            overlayId={overlay.id}
+                            zoom={overlayZoom}
+                            zoomName={zoomName}
+                            position={position}
+                            onUpdate={update}
+                            onClose={() => setEditingZoomId(null)}
+                          />
+                        )}
+                      </Fragment>
+                    )
+                  })}
                   {/* The overlay's speed segments and pauses (#700), in the
                       entry's rows. A still overlay carries none, as a still
                       entry does not. */}

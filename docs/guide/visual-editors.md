@@ -14,13 +14,14 @@ Seven places on the timeline where a value can be dragged into place on a pictur
 
 ## What each editor shows
 
-**Where to find it.** The **Adjust visually…** button beside a sequence entry's zoom fields, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, a redaction region's fields in Picture ▸ › Redact, or a spotlight region's fields in Picture ▸ › Spotlight; and **Draw shapes…** under a shape group's shapes.
+**Where to find it.** The **Adjust visually…** button beside a zoom's fields, on a sequence entry or an overlay, an overlay's **Rect** fields, the **Crop** fields in a Picture ▸ group, a text overlay's **Centre** fields, a redaction region's fields in Picture ▸ › Redact, or a spotlight region's fields in Picture ▸ › Spotlight; and **Draw shapes…** under a shape group's shapes.
 
 **What it does.** Opens a still under the row with the thing being placed drawn on it.
 
 **Details.** The still is rendered by the export's own composer, so what you drag against is what the viewer will see:
 
 - **Zoom** — the composed frame at the middle of the zoom's hold, with this zoom left out, and the region the zoom will fill drawn on it. The region keeps the frame's aspect and never leaves it.
+  - **On an overlay's zoom** the still is cut down to the overlay's rectangle: the frame at the middle of the hold, in the overlay's own time, with this zoom left out, showing only what lies inside the rectangle. That is the space an overlay zoom's centre is measured in, so the region keeps the rectangle's aspect and never leaves it. What you see there is what the frame shows there: anything drawn over the overlay, such as a text or a shape, shows too, and where the picture is letterboxed inside its rectangle, the bars show the frame beneath it.
 - **Overlay** — the frame at the middle of the overlay's own window, with this overlay left out, so the rectangle marks where it will go rather than covering the picture it is placed against. An overlay with a shape mask shows the silhouette it will be painted in inside the rectangle, so a bubble is placed as a bubble.
 - **Crop** — the element's **own source**, alone, uncropped and filling the frame, with the kept region drawn and the trimmed margins dimmed. A crop is a fraction of the source, not of the composed frame, so this picture makes a crop percentage a fraction of what you see; it is also what lets an overlay be cropped on its whole picture rather than inside the small rectangle it sits in.
 - **Text** — the frame at the middle of the overlay's window with the text **drawn**, since the text is what is being placed; a committed drag re-renders the still with the block in its new place. The block's box is measured from the text under its font, not stored, so the handle sits on the text you see.

@@ -8,6 +8,7 @@ import type { SpotlightRegion } from './spotlight'
 import { sequenceTimeAt } from './playback'
 import { MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_LINE_HEIGHT } from './textOverlay'
 import type { TextOverlay } from './textOverlay'
+import { outputTimeAtSource } from './remap'
 import { totalDuration, videoOverlaysOf, zoomsOf, zoomWindowDuration } from './timeline'
 import type { TimelineEntry, TimelineState, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
@@ -326,6 +327,43 @@ export function zoomEditorSequenceTime(
 ): number {
   const entry = state.entries[entryIndex]
   return sequenceTimeAt(state, entryIndex, entry.inPoint + entryOffset)
+}
+
+/** How far inside its half-open window an overlay zoom's last instant is shown, in seconds. */
+const OVERLAY_WINDOW_INSET = 0.001
+
+/**
+ * The overlay's counterpart of `zoomEditorSequenceTime` (#734): the
+ * sequence time at which the overlay's own source clock reads
+ * `inPoint + overlayOffset` — the clock an overlay zoom's `start` is in
+ * (`overlayZoomAt`). The inverse of `videoOverlayPlaybackAt`, through the
+ * overlay's speed segments and pauses as `sequenceTimeAt` is through an
+ * entry's: at a paused instant, the earliest time it shows.
+ *
+ * The overlay's window is half-open (`videoOverlayPlaybackAt`), so the
+ * instant its last source second maps to has it off screen. A zoom that
+ * runs to the end of the trim is scrubbed there, and the editor would then
+ * show the base frame where the overlay was; so the time is held a
+ * millisecond inside the window, where the overlay's last frame still
+ * draws. And it is clamped into the sequence, as `overlayEditorSequenceTime`
+ * is, because an overlay may run past the sequence's end and there is no
+ * frame out there.
+ *
+ * The overlay zoom editor shows the overlay's placement rectangle of that
+ * frame (`overlayRect`, as `FrameEditor`'s `view`): the export maps an
+ * overlay zoom about exactly that rectangle (`zoomRectWithin(…, placed)`),
+ * so a region drawn there is in the zoom's own fractions.
+ */
+export function overlayZoomEditorSequenceTime(
+  state: TimelineState,
+  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint' | 'remaps'>,
+  overlayOffset: number,
+): number {
+  const trimmedLength = overlay.outPoint - overlay.inPoint
+  const output = outputTimeAtSource(trimmedLength, overlay.remaps ?? [], overlayOffset)
+  const length = overlayOutputDuration(overlay)
+  const time = overlay.offset + Math.max(0, Math.min(output, length - OVERLAY_WINDOW_INSET))
+  return clamp(time, 0, Math.max(0, totalDuration(state)))
 }
 
 /**
@@ -841,6 +879,29 @@ export function withoutZoom(state: TimelineState, zoomId: string): TimelineState
   const zooms = zoomsOf(state)
   if (!zooms.some((zoom) => zoom.id === zoomId)) return state
   return { ...state, zooms: zooms.filter((zoom) => zoom.id !== zoomId) }
+}
+
+/**
+ * The timeline with one of an overlay's own zooms left out (#734), for the
+ * overlay zoom editor's snapshot — `withoutZoom`'s rule for the list an
+ * overlay carries. Same reference when either id is unknown.
+ */
+export function withoutOverlayZoom(
+  state: TimelineState,
+  overlayId: string,
+  zoomId: string,
+): TimelineState {
+  const overlays = videoOverlaysOf(state)
+  const overlay = overlays.find((candidate) => candidate.id === overlayId)
+  if (overlay === undefined || !(overlay.zooms ?? []).some((zoom) => zoom.id === zoomId)) return state
+  return {
+    ...state,
+    videoOverlays: overlays.map((candidate) =>
+      candidate === overlay
+        ? { ...overlay, zooms: (overlay.zooms ?? []).filter((zoom) => zoom.id !== zoomId) }
+        : candidate,
+    ),
+  }
 }
 
 /**

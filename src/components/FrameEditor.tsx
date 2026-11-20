@@ -149,6 +149,17 @@ interface FrameEditorProps {
   /** Aspect to show until the snapshot arrives (the output frame's, if known). */
   fallbackAspect?: number
   /**
+   * The part of the still to show, as frame fractions (#734); the whole
+   * still when absent. The editor's box is then that part alone, at its
+   * aspect, and every fraction this component measures or draws — the
+   * rectangle, its gestures, guides and outlines — is a fraction of the
+   * part rather than of the frame. An overlay zoom's centre is a fraction
+   * of the overlay's placement rectangle, so its editor passes that
+   * rectangle and draws the composed still's own pixels there: no second
+   * pipeline, and no mapping between the two spaces.
+   */
+  view?: FrameRect
+  /**
    * Reports the still's pixel size once it has loaded (#424) — the output
    * frame the snapshot composed, which is the resolution the frame's text
    * was drawn at. A caller whose rectangle is *measured* rather than stored
@@ -203,6 +214,7 @@ export function FrameEditor({
   shadeHole = 'rect',
   outlines,
   fallbackAspect = 16 / 9,
+  view,
   onFrame,
   layer,
   snapshot = snapshotTimelineFrame,
@@ -257,7 +269,9 @@ export function FrameEditor({
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [aspect, setAspect] = useState(fallbackAspect)
+  // The still's own aspect; what the box shows is `view`'s part of it.
+  const [stillAspect, setAspect] = useState(fallbackAspect)
+  const aspect = view === undefined ? stillAspect : (stillAspect * view.width) / view.height
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [drag, setDrag] = useState<Drag | null>(null)
 
@@ -523,6 +537,20 @@ export function FrameEditor({
             src={imageUrl}
             alt=""
             draggable={false}
+            // A view (#734) scales the whole still up behind the box, so the
+            // box's overflow clips it to exactly the part asked for.
+            style={
+              view === undefined
+                ? undefined
+                : {
+                    position: 'absolute',
+                    maxWidth: 'none',
+                    width: `${100 / view.width}%`,
+                    height: `${100 / view.height}%`,
+                    left: `${(-100 * view.x) / view.width}%`,
+                    top: `${(-100 * view.y) / view.height}%`,
+                  }
+            }
             onLoad={(event) => {
               const { naturalWidth, naturalHeight } = event.currentTarget
               if (naturalWidth > 0 && naturalHeight > 0) {
