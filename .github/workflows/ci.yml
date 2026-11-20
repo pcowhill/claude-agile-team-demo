@@ -5,6 +5,11 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # A session whose container has no Firefox measures in CI's Firefox by
+  # dispatching this workflow on its own branch, before writing the fix
+  # (#779, docs/rules/quality-and-ci.md). A dispatched run never deploys:
+  # deploy.yml acts only on a CI run whose event is a push to main.
+  workflow_dispatch:
 
 jobs:
   checks:

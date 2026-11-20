@@ -88,6 +88,21 @@ worse than no test, because it manufactures false confidence.
   had independently written the same shape). Measured on that spec with
   `npx playwright test e2e/crop-editor.spec.ts --workers=2 --repeat-each=5`:
   **2 failed** before the reads were polled, **0 of 20** after (#449).
+- **A Firefox measurement the container cannot take is taken in CI, before
+  the fix** (#779). Some session containers have no Playwright Firefox, and
+  the harness may forbid installing one. A fix written blind and judged by
+  its PR's CI is the guess #598's criteria rule out. Instead:
+  1. Push a measurement-only commit to the session's own branch, for
+     example a spec that logs the geometry or timing in question.
+  2. Dispatch `ci.yml` on that branch (`workflow_dispatch`), and read the
+     Firefox job's log.
+  3. Write the fix on the measured numbers. Keep the logging only if a
+     later reader needs it.
+
+  A dispatched run is not a PR and does not count against the WIP limit. It
+  never deploys. The route works only once the trigger is on `main`, so the
+  first session after #779 merges verifies that a session may dispatch at
+  all, and records the result on #779.
 - Never claim checks passed without CI evidence or an actual local run — and
   a local run is evidence only for the tree it ran on, which must be the
   tree that was pushed (see "Pull Requests" in `development.md`).
