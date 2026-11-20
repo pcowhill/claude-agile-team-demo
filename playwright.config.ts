@@ -68,12 +68,10 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 
 export default defineConfig({
   testDir: './e2e',
-  // MEASUREMENT ONLY (#789): run just the measurement spec, with stdout in the log.
-  testMatch: '**/measure-789.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: 0,
-  reporter: 'list',
+  retries: process.env.CI ? 2 : 0,
+  reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
