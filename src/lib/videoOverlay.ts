@@ -153,17 +153,20 @@ export interface VideoOverlay {
    */
   spotlights?: SpotlightRegion[]
   /**
-   * Shape mask (#266): clips the placed rectangle to an inscribed ellipse
-   * or a rounded rectangle. Absent behaves as the hard rectangle — today's
-   * outline — present exactly when a shape is set (normalized by the
+   * Shape mask (#266): clips the overlay's picture — its outline, the
+   * cropped and oriented picture letterboxed in the placed rectangle
+   * (`overlayPictureRect`, #791) — to an inscribed ellipse or a rounded
+   * rectangle. Absent behaves as the hard rectangle — today's outline —
+   * present exactly when a shape is set (normalized by the
    * `video-overlay-mask-set` reducer case). Applies in frame space, after
-   * crop and orientation have produced the picture: it shapes the placed
+   * crop and orientation have produced the picture: it shapes that
    * silhouette, never the source pixels.
    */
   shapeMask?: ShapeMask
   /**
    * A coloured border (#697): an outline drawn outside the overlay's
-   * silhouette — the placed rectangle, or the shape the mask cuts it to —
+   * silhouette — its outline (the visible picture, #791), or the shape the
+   * mask cuts from it —
    * in a colour and a thickness (see overlayBorder.ts). Absent means none,
    * present exactly when the thickness is above 0 (normalized by the
    * `video-overlay-border-set` reducer case), so border-free states and

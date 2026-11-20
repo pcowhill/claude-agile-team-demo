@@ -1,7 +1,8 @@
 /**
  * A coloured border around an overlay (#697): an outline in a colour and a
- * thickness, hugging the overlay's silhouette — the placed rectangle, or the
- * ellipse or rounded rectangle its shape mask (#266) cuts it to.
+ * thickness, hugging the overlay's silhouette — its outline (the visible
+ * picture, `overlayPictureRect`, #791), or the ellipse or rounded rectangle
+ * its shape mask (#266) cuts from it.
  *
  * The band is drawn **outside** the silhouette: the picture keeps every
  * pixel, and the outline sits around it. Both renderers make it the same
