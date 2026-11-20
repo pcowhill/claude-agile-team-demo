@@ -4,6 +4,9 @@ import {
   ZOOM_SCRUB_STEP,
   loopPositionAt,
   loopScrubStop,
+  overlayRect,
+  overlayZoomEditorSequenceTime,
+  withoutOverlayZoom,
   withoutZoom,
   zoomAfterGesture,
   zoomAfterKeyStep,
@@ -19,8 +22,8 @@ import {
 } from '../lib/frameEditor'
 import type { FrameRect, RectGesture, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
-import { effectiveDuration } from '../lib/timeline'
-import type { TimelineState, ZoomEffect, ZoomSpec } from '../lib/timeline'
+import { effectiveDuration, videoOverlaysOf } from '../lib/timeline'
+import type { TimelineState, ZoomSpec } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
 
 /**
@@ -53,6 +56,14 @@ import { FrameEditor } from './FrameEditor'
  * (the loop never leaves the hold, where the handles live), and in Show
  * result mode the committed values are what the next frame draws from.
  *
+ * #734 opens it on an **overlay's** zoom too. The picture is then the
+ * composed still with that zoom left out, shown only inside the overlay's
+ * placement rectangle (`FrameEditor`'s `view`), because an overlay zoom's
+ * centre is a fraction of that rectangle and the export maps the zoom about
+ * it. Everything else — the slider, Loop, Show result, the keys and one
+ * commit per gesture — is the entry's editor unchanged, in the overlay's
+ * clock (`overlayZoomEditorSequenceTime`).
+ *
  * Rendered inline under the zoom's row of fields rather than floating: it
  * is then anchored to exactly the row it edits, overlaps nothing, and needs
  * no viewport arithmetic inside the timeline's scrolling panel. Close,
@@ -63,10 +74,16 @@ const format = (value: number) => String(Math.round(value * 1000) / 1000)
 const seconds = (value: number) => `${value.toFixed(2)} s`
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
 
-interface ZoomEditorProps {
+/**
+ * Whose zoom it is: the sequence entry at `entryIndex`, or the video or
+ * image overlay `overlayId` (#734). Exactly one.
+ */
+type ZoomEditorSubject = { entryIndex: number; overlayId?: undefined } | { overlayId: string; entryIndex?: undefined }
+
+type ZoomEditorProps = ZoomEditorSubject & {
   timeline: TimelineState
-  entryIndex: number
-  zoom: ZoomEffect
+  /** The zoom: only its id and its spec are read, so an overlay's fits (#734). */
+  zoom: ZoomSpec & { id: string }
   /** "Zoom 1" — the row's numbering, so labels match the fields'. */
   zoomName: string
   /** The row's position string, so labels match the fields'. */
@@ -90,6 +107,7 @@ const specOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: ZoomS
 export function ZoomEditor({
   timeline,
   entryIndex,
+  overlayId,
   zoom,
   zoomName,
   position,
@@ -137,7 +155,18 @@ export function ZoomEditor({
   // clip shorter than the hold plays what exists and wraps. A timing edit in
   // the row's fields moves it, and the effect below restarts the loop from
   // the first frame of the new hold — the reversible choice.
-  const entryDuration = effectiveDuration(timeline.entries[entryIndex])
+  // An overlay's zoom is in the overlay's own trim (`overlayZoomAt`), which
+  // is as long as its source range.
+  const overlay =
+    overlayId === undefined
+      ? undefined
+      : videoOverlaysOf(timeline).find((candidate) => candidate.id === overlayId)
+  const entryDuration =
+    overlay !== undefined
+      ? overlay.outPoint - overlay.inPoint
+      : entryIndex !== undefined
+        ? effectiveDuration(timeline.entries[entryIndex])
+        : 0
   const hold = zoomHoldSpan(stored, entryDuration)
 
   // The loop's clock (#425). One tick a frame: where the loop is now, on the
@@ -160,6 +189,10 @@ export function ZoomEditor({
     tick()
     return () => cancelAnimationFrame(handle)
   }, [looping, hold.start, hold.end])
+
+  // The overlay's rectangle: the part of the frame its zoom's centre is a
+  // fraction of (#734). Absent for an entry, whose zoom is the whole frame's.
+  const view = overlay === undefined ? undefined : overlayRect(overlay)
 
   const applyGesture = (start: FrameRect, gesture: RectGesture): FrameRect =>
     zoomRect(zoomAfterGesture({ ...stored, ...zoomFromRect(start) }, gesture))
@@ -211,18 +244,36 @@ export function ZoomEditor({
       <FrameEditor
         // The result view draws the zoom; the editing view draws the source
         // the zoom will crop into, so the region shows what it will fill.
-        timeline={showResult ? timeline : withoutZoom(timeline, zoom.id)}
-        sequenceTime={zoomEditorSequenceTime(timeline, entryIndex, stored, scrub)}
+        timeline={
+          showResult
+            ? timeline
+            : overlay !== undefined
+              ? withoutOverlayZoom(timeline, overlay.id, zoom.id)
+              : withoutZoom(timeline, zoom.id)
+        }
+        sequenceTime={
+          overlay !== undefined
+            ? overlayZoomEditorSequenceTime(timeline, overlay, scrub)
+            : zoomEditorSequenceTime(timeline, entryIndex ?? 0, stored, scrub)
+        }
         // The editing still is the source with this zoom taken out, so a
         // committed drag cannot change it and the key stays the zoom's id.
         // The result still is the zoom applied, so there the committed
         // values belong in the key — otherwise the preview would go stale
         // the moment it was used.
         frameKey={
-          showResult
+          (showResult
             ? `${zoom.id}:result:${format(stored.scale)}:${format(stored.centerX)}:${format(stored.centerY)}`
-            : zoom.id
+            : zoom.id) +
+          // An overlay's picture is cut out of the composed frame at its
+          // rectangle (#734), so a still taken before the rectangle moved
+          // would show the wrong part of the frame: the rectangle is part
+          // of the key.
+          (view === undefined
+            ? ''
+            : `:view:${format(view.x)}:${format(view.y)}:${format(view.width)}:${format(view.height)}`)
         }
+        {...(view === undefined ? {} : { view })}
         rect={zoomRectAt(shown, scrub)}
         applyGesture={applyGesture}
         onLive={(rect) => setLive(specFromRect(rect))}

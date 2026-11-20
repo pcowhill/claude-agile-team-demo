@@ -81,6 +81,8 @@ import {
   spotlightResultFrameKey,
   spotlightResultTimeline,
   spotlightSourceTimeline,
+  overlayZoomEditorSequenceTime,
+  withoutOverlayZoom,
 } from './frameEditor'
 import { MIN_KEPT_FRACTION, cropsEqual, normalizeCrop } from './crop'
 import { DEFAULT_REGION_RECT, MIN_REGION_FRACTION } from './redaction'
@@ -94,6 +96,7 @@ import type { CropSubject, TextBlockShape } from './frameEditor'
 import { MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from './videoOverlay'
 import type { VideoOverlay } from './videoOverlay'
 import { zoomAt } from './zoom'
+import { videoOverlayPlaybackAt } from './playback'
 
 const zoom: ZoomSpec = { ...DEFAULT_ZOOM, scale: 2, centerX: 0.5, centerY: 0.5 }
 
@@ -1646,6 +1649,65 @@ describe('the spotlight editor’s stills (#533)', () => {
     expect(spotlightResultFrameKey(subject, [{ ...region, soften: 0.2 }])).not.toBe(before)
     expect(spotlightResultFrameKey(subject, [{ ...region, left: 0.2 }])).not.toBe(before)
     expect(before.startsWith(spotlightFrameKey(subject))).toBe(true)
+  })
+})
+
+describe('the overlay zoom editor’s still (#734)', () => {
+  const pip = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'o1',
+    clipId: 'clip-o',
+    name: 'pip.webm',
+    duration: 10,
+    url: 'blob:pip',
+    offset: 3,
+    inPoint: 1,
+    outPoint: 7,
+    x: 0.6,
+    y: 0.6,
+    width: 0.3,
+    height: 0.3,
+    ...overrides,
+  })
+  const tenSeconds: TimelineState = { entries: [entry('a', 10)], transitions: [] }
+
+  it('maps seconds into the overlay’s trim to the sequence through its offset', () => {
+    // 1 s into the trim is source 2, shown 1 s after the overlay starts at 3.
+    expect(overlayZoomEditorSequenceTime(tenSeconds, pip(), 1)).toBe(4)
+    expect(overlayZoomEditorSequenceTime(tenSeconds, pip(), 0)).toBe(3)
+  })
+
+  it('through a speed segment, the instant is the one at which the overlay’s own clock reads that source time', () => {
+    const slowed = pip({ remaps: [{ id: 's1', kind: 'speed', start: 0, end: 2, factor: 0.5 }] })
+    // Half speed over the trim's first 2 source seconds: source 1 s in is
+    // shown 2 s after the overlay starts.
+    const time = overlayZoomEditorSequenceTime(tenSeconds, slowed, 1)
+    expect(time).toBeCloseTo(5, 6)
+    // Round trip through the playback rule the export draws by.
+    expect(videoOverlayPlaybackAt(slowed, time).sourceTime).toBeCloseTo(slowed.inPoint + 1, 6)
+  })
+
+  it('the trim’s last second is held just inside the overlay’s half-open window, and inside the sequence', () => {
+    const time = overlayZoomEditorSequenceTime(tenSeconds, pip(), 6)
+    expect(time).toBeLessThan(9)
+    expect(time).toBeCloseTo(9, 2)
+    expect(videoOverlayPlaybackAt(pip(), time).shouldPlay).toBe(true)
+    // An overlay running past the sequence's end: there is no frame out there.
+    expect(overlayZoomEditorSequenceTime(tenSeconds, pip({ offset: 8 }), 4)).toBe(10)
+  })
+
+  it('withoutOverlayZoom leaves that overlay’s zoom out and nothing else', () => {
+    const z1 = { ...DEFAULT_ZOOM, id: 'z1' }
+    const z2 = { ...DEFAULT_ZOOM, id: 'z2', start: 3 }
+    const other = pip({ id: 'o2', zooms: [{ ...DEFAULT_ZOOM, id: 'z3' }] })
+    const state: TimelineState = { ...tenSeconds, videoOverlays: [pip({ zooms: [z1, z2] }), other] }
+    const bypassed = withoutOverlayZoom(state, 'o1', 'z1')
+    const [first, second] = videoOverlaysOf(bypassed)
+    expect(first.zooms?.map((item) => item.id)).toEqual(['z2'])
+    expect(second).toBe(other)
+    expect(bypassed.entries).toBe(state.entries)
+    // Unknown ids, or a zoom on another overlay, are same-reference no-ops.
+    expect(withoutOverlayZoom(state, 'o1', 'z3')).toBe(state)
+    expect(withoutOverlayZoom(state, 'nope', 'z1')).toBe(state)
   })
 })
 

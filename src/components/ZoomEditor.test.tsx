@@ -6,8 +6,10 @@ import { preloadVisualEditors } from './visualEditors'
 import { probeMediaFile } from '../lib/probeMedia'
 import { createSnapshotSession, snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { SETTINGS_KEY } from '../lib/settings'
-import { zoomsOf } from '../lib/timeline'
+import { DEFAULT_ZOOM, videoOverlaysOf, zoomsOf } from '../lib/timeline'
+import { DEFAULT_OVERLAY_RECT } from '../lib/videoOverlay'
 import type { TimelineState } from '../lib/timeline'
+import { chooseClipAction } from '../test/clipMenu'
 import { chooseFromFileMenu } from '../test/fileMenu'
 import { ADD_ZOOM, chooseEffect } from '../test/timelineRowMenu'
 
@@ -868,6 +870,128 @@ describe('Loop: the hold played on repeat inside the editor (#425)', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('frame-editor-updating')).not.toBeInTheDocument(),
     )
+  })
+})
+
+/**
+ * The zoom editor on an **overlay's** zoom (#734): the same editor, opened
+ * from the overlay's zoom row, showing the composed still with that zoom
+ * left out and only inside the overlay's rectangle — the space the zoom's
+ * centre is a fraction of — at the overlay's own clock. The entry's editor
+ * above is unchanged by this.
+ */
+describe('the zoom editor on an overlay zoom (#734)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const overlayField = (label: string) => screen.getByRole('spinbutton', { name: label })
+  const overlayCentreX = () => overlayField(`Zoom 1 centre X of ${OVERLAY} (0 to 1)`)
+  const overlayCentreY = () => overlayField(`Zoom 1 centre Y of ${OVERLAY} (0 to 1)`)
+  const overlayAdjust = () =>
+    screen.getByRole('button', { name: `Adjust Zoom 1 of ${OVERLAY} visually` })
+  const overlayEditor = () => screen.getByRole('dialog', { name: `Adjust Zoom 1 of ${OVERLAY}` })
+
+  beforeEach(() => {
+    probeMock.mockReset()
+    snapshotMock.mockReset()
+    snapshotMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:frame-still'),
+      revokeObjectURL: vi.fn(),
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      ...FRAME,
+      top: FRAME.y,
+      left: FRAME.x,
+      right: FRAME.x + FRAME.width,
+      bottom: FRAME.y + FRAME.height,
+      toJSON: () => ({}),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  /**
+   * An 8 s clip on the sequence and again as an overlay starting 3 s in,
+   * with one default zoom on the overlay. The sequence entry is what gives
+   * the frame its length: the editor's instant is clamped into it.
+   */
+  async function placeOverlayWithZoom() {
+    probeMock.mockResolvedValueOnce({ duration: 8, url: 'blob:cam.mp4', kind: 'video' })
+    await userEvent.upload(
+      screen.getByTestId('clip-file-input'),
+      new File(['content'], 'cam.mp4', { type: 'video/mp4' }),
+    )
+    await screen.findByText('cam.mp4')
+    await userEvent.click(screen.getByRole('button', { name: 'Add cam.mp4 to timeline' }))
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    const start = overlayField(`Start time of ${OVERLAY} in seconds`)
+    await userEvent.clear(start)
+    await userEvent.type(start, '3{Enter}')
+    await chooseEffect(OVERLAY, ADD_ZOOM)
+    expect(overlayCentreX()).toHaveValue(0.5)
+  }
+
+  it('opens from the overlay’s zoom row on the frame with that zoom left out, at the overlay’s clock, showing only its rectangle', async () => {
+    render(<App />)
+    await placeOverlayWithZoom()
+    await userEvent.click(overlayAdjust())
+    expect(overlayAdjust()).toHaveAttribute('aria-expanded', 'true')
+    const dialog = overlayEditor()
+
+    expect(snapshotMock).toHaveBeenCalledTimes(1)
+    const [timeline, sequenceTime] = snapshotMock.mock.calls[0] as [TimelineState, number]
+    // The overlay is still there, without its zoom: the picture the zoom fills.
+    const [overlay] = videoOverlaysOf(timeline)
+    expect(overlay.zooms ?? []).toEqual([])
+    // The default zoom holds at start + ramp-in + hold / 2 seconds into the
+    // overlay's trim; the overlay starts 3 s into the sequence.
+    expect(sequenceTime).toBeCloseTo(3 + DEFAULT_ZOOM.start + DEFAULT_ZOOM.rampIn + DEFAULT_ZOOM.hold / 2, 6)
+
+    // Only the overlay's rectangle of the still is shown: the image is the
+    // whole frame scaled by 1 / 0.35 and shifted so 0.62 lands at the edge.
+    const image = await within(dialog).findByTestId('frame-editor-image')
+    expect(image).toHaveAttribute('src', 'blob:frame-still')
+    expect(image.style.width).toBe(`${100 / DEFAULT_OVERLAY_RECT.width}%`)
+    expect(image.style.left).toBe(`${(-100 * DEFAULT_OVERLAY_RECT.x) / DEFAULT_OVERLAY_RECT.width}%`)
+    expect(image.style.top).toBe(`${(-100 * DEFAULT_OVERLAY_RECT.y) / DEFAULT_OVERLAY_RECT.height}%`)
+    // The region is drawn in the rectangle's fractions: scale 2 centred is
+    // the middle half of the box.
+    expect(region()).toHaveAttribute('x', '100')
+    expect(region()).toHaveAttribute('width', '200')
+  })
+
+  it('a drag commits the overlay zoom’s centre in its rectangle’s fractions, as one undo step', async () => {
+    render(<App />)
+    await placeOverlayWithZoom()
+    await userEvent.click(overlayAdjust())
+    // 40 px right in a 400 px box: a tenth of the overlay's rectangle.
+    drag(region(), { x: 200, y: 112.5 }, { x: 240, y: 112.5 })
+    expect(overlayCentreX()).toHaveValue(0.6)
+    expect(overlayCentreY()).toHaveValue(0.5)
+    // The still is not re-rendered by the edit: the zoom is left out of it.
+    expect(snapshotMock).toHaveBeenCalledTimes(1)
+    await userEvent.click(undoButton())
+    expect(overlayCentreX()).toHaveValue(0.5)
+  })
+
+  it('Show result draws the overlay’s zoom, and moving the rectangle re-renders the still for the new part of the frame', async () => {
+    render(<App />)
+    await placeOverlayWithZoom()
+    await userEvent.click(overlayAdjust())
+    await userEvent.click(within(overlayEditor()).getByRole('checkbox', { name: 'Show result' }))
+    const [withZoom] = snapshotMock.mock.calls.at(-1) as [TimelineState, number]
+    expect(videoOverlaysOf(withZoom)[0].zooms).toHaveLength(1)
+
+    const calls = snapshotMock.mock.calls.length
+    const left = overlayField(`Left edge of ${OVERLAY} (fraction of frame width)`)
+    await userEvent.clear(left)
+    await userEvent.type(left, '0.1{Enter}')
+    await waitFor(() => expect(snapshotMock.mock.calls.length).toBeGreaterThan(calls))
+    const image = await within(overlayEditor()).findByTestId('frame-editor-image')
+    expect(image.style.left).toBe(`${(-100 * 0.1) / DEFAULT_OVERLAY_RECT.width}%`)
   })
 })
 
