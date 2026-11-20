@@ -366,6 +366,28 @@ test('the control fits the transport at both widths, at 1× and at 2× (#522)', 
       // It sits on the row rather than stepping out of it: a `select` left
       // to the browser's own metrics is ~3px taller than the buttons beside
       // it, which reads as a kink in a row #395 was already raised about.
+      if (width === 1280 && rate === '1') {
+        // Logged, not asserted (#713): what each control is sized by, and
+        // the select's height with the shared one lifted. Those vary with
+        // the machine's fonts, and the shared height is what makes them
+        // irrelevant.
+        const metrics = await page.evaluate(() => {
+          const describe = (node: HTMLElement) => {
+            const style = getComputedStyle(node)
+            return `${node.getBoundingClientRect().height}px; font ${style.fontSize} ${style.fontFamily}, line-height ${style.lineHeight}, padding ${style.paddingTop}, border ${style.borderTopWidth}`
+          }
+          const select = document.querySelector<HTMLElement>('[data-testid="preview-review-speed"]')!
+          const loop = document.querySelector<HTMLElement>('[data-testid="preview-loop"]')!
+          const shared = describe(select)
+          select.style.height = 'auto'
+          const own = select.getBoundingClientRect().height
+          select.style.height = ''
+          return { select: shared, own, loop: describe(loop) }
+        })
+        console.log(
+          `[${test.info().project.name}] Review speed ${metrics.select} (its own height ${metrics.own}px); Loop ${metrics.loop}`,
+        )
+      }
       const loopBox = (await page.getByTestId('preview-loop').boundingBox())!
       const controlBox = (await reviewSpeed(page).boundingBox())!
       expect(

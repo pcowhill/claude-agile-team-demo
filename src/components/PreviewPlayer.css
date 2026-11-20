@@ -388,12 +388,25 @@
   color: #9aa8ff;
 }
 
+/* The transport's buttons and its Review speed select share one height.
+   Each is otherwise sized by its font, and the two use different fonts:
+   a button takes the browser's control font (Arial, 13.33px, in Chromium),
+   while the select inherits the page's system-ui at 0.8rem. So their
+   heights agreed only where those two fonts happen to measure alike, as
+   in CI's Chromium. In a session container, where system-ui is Inter, the
+   select stood 20.6px against 22px, and in Firefox 18.6px (#713). 22px is what the buttons already measured, so they do not move.
+   The Frame ▾ menu is not a direct child, so it keeps its own size. */
+.preview-controls > button,
+.preview-controls > .preview-review-speed {
+  height: 1.375rem;
+}
+
 /* The Review speed control (#522). The transport is otherwise all buttons,
    and a `select` left to the browser's own metrics stands ~3px taller than
-   they do — visible as a step in the row, which is the kind of thing only
-   looking finds. Borrowed from the timeline's own select (Timeline.css,
-   `.timeline-transition select`), with the padding trimmed until the boxes
-   measured the same height. It holds "0.5×" at its widest, so no width. */
+   they do. That shows as a step in the row, which is the kind of thing
+   only looking finds. Its look is borrowed from the timeline's own select
+   (Timeline.css, `.timeline-transition select`), and its height is the
+   shared one above. It holds "0.5×" at its widest, so it has no width. */
 .preview-controls .preview-review-speed {
   padding: 0.05rem 0.3rem;
   border: 1px solid #2c2c2c;
