@@ -301,3 +301,64 @@ export async function expectAlignedRow(controls: Locator, what: string): Promise
   }
   return first.height
 }
+
+/**
+ * `expectAlignedRow` for a cluster that wraps (#793): the controls are
+ * grouped into the lines they actually occupy, and each line of two or
+ * more is held to the same rule — one height, tops and bottoms within a
+ * pixel. Across lines, every control shares that one height too, since a
+ * cluster's height belongs to its rule rather than to whichever line a
+ * control wrapped onto. Returns the shared height.
+ *
+ * Two controls are on one line when their boxes overlap vertically. A
+ * misaligned pair still overlaps (that is what makes it look wrong), so
+ * misalignment cannot hide by splitting a line; wrapped lines are
+ * separated by the row's gap and do not overlap.
+ *
+ * Controls inside an open menu panel, and controls with no box (hidden),
+ * are not part of the cluster. All the boxes come from one page read.
+ */
+export async function expectAlignedLines(controls: Locator, what: string): Promise<number> {
+  await expect(controls.first(), `no ${what} to check`).toBeVisible()
+  const boxes = await controls.evaluateAll((nodes) =>
+    nodes
+      .filter((node) => node.closest('[role="menu"]') === null)
+      .map((node) => {
+        const rect = node.getBoundingClientRect()
+        return {
+          label: node.getAttribute('aria-label') ?? node.textContent,
+          top: rect.top,
+          bottom: rect.bottom,
+          height: rect.height,
+          width: rect.width,
+        }
+      })
+      .filter((box) => box.width > 0 && box.height > 0),
+  )
+  expect(boxes.length, `${what}: fewer than two controls to align`).toBeGreaterThan(1)
+  const lines: { top: number; bottom: number; boxes: typeof boxes }[] = []
+  for (const box of [...boxes].sort((a, b) => a.top - b.top)) {
+    const line = lines.find((l) => box.top < l.bottom && box.bottom > l.top)
+    if (line === undefined) {
+      lines.push({ top: box.top, bottom: box.bottom, boxes: [box] })
+    } else {
+      line.boxes.push(box)
+      line.top = Math.min(line.top, box.top)
+      line.bottom = Math.max(line.bottom, box.bottom)
+    }
+  }
+  const [first] = boxes
+  for (const [index, line] of lines.entries()) {
+    const [lead, ...rest] = line.boxes
+    for (const box of rest) {
+      const where = `${what}, line ${index + 1}: ${JSON.stringify(box)} against ${JSON.stringify(lead)}`
+      expect(Math.abs(box.top - lead.top), `${where}: tops differ`).toBeLessThanOrEqual(1)
+      expect(Math.abs(box.bottom - lead.bottom), `${where}: bottoms differ`).toBeLessThanOrEqual(1)
+    }
+    for (const box of line.boxes) {
+      const where = `${what}, line ${index + 1}: ${JSON.stringify(box)} against ${JSON.stringify(first)}`
+      expect(Math.abs(box.height - first.height), `${where}: heights differ`).toBeLessThanOrEqual(1)
+    }
+  }
+  return first.height
+}

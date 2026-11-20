@@ -5,7 +5,10 @@
    longer fits onto the next line whole. */
 .timeline-header {
   display: flex;
-  align-items: baseline;
+  /* Centre, not baseline (#793): the controls share one height (below),
+     and a baseline row lines up their text rather than their boxes, so a
+     glyph from a taller fallback font pushed its button's box down. */
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -14,6 +17,28 @@
 
 .timeline-header h2 {
   margin: 0;
+}
+
+/* Undo, Redo, ▲ ▼, Add ▾, Match levels and the Canvas select share one
+   height, tops and bottoms aligned (#793, from the customer's #787), as
+   the page header's do (#472): a button with no height of its own is as
+   tall as the line box of the font drawing ↺ ↻ ▲ ▼ ▾, which differs by
+   platform, and the select stood 19px against the buttons' 21-22px. */
+.timeline-header > button,
+.timeline-fold-group > button,
+.timeline-header > .timeline-add-menu > .menu-trigger,
+.timeline-header .project-canvas-preset > select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
+.timeline-header > .timeline-add-menu {
+  display: inline-flex;
 }
 
 /* Match levels (#691): one word pair on one line, so the header wraps
