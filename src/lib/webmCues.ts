@@ -20,10 +20,15 @@
  *   change; only the bytes before the first cluster and the Cues appended at
  *   the end of the segment are new.
  *
+ * A file with no video track is cued too, at each cluster's first audio
+ * block (#789): Firefox's own audio-only recording has one cluster a second,
+ * no Cues and no duration, and with nothing to seek by it reports nothing
+ * seekable at all, so the preview cannot place it.
+ *
  * Anything this does not fully understand returns `null`, and the caller
  * plays the file exactly as it came: a non-WebM, a WebM that already has
  * Cues, a truncated element, an unknown-size element other than a Cluster,
- * no video track, no keyframe.
+ * neither a video nor an audio track, no keyframe.
  */
 
 const ID = {
@@ -70,6 +75,7 @@ const LEVEL1 = new Set<number>([
 ])
 
 const VIDEO_TRACK_TYPE = 1
+const AUDIO_TRACK_TYPE = 2
 
 /** The bytes of an 8-byte "unknown size" field. */
 const UNKNOWN_SIZE_8 = Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff)
@@ -178,7 +184,8 @@ function docTypeIsWebm(bytes: Uint8Array, header: Header): boolean {
   return text.replace(/\0+$/, '') === 'webm'
 }
 
-function videoTrackNumbers(bytes: Uint8Array, tracks: Header): Set<number> | null {
+/** The numbers of the tracks of `trackType` (video 1, audio 2). */
+function trackNumbers(bytes: Uint8Array, tracks: Header, trackType: number): Set<number> | null {
   if (tracks.size === null) return null
   const entries = children(bytes, tracks.data, tracks.data + tracks.size)
   if (entries === null) return null
@@ -191,7 +198,7 @@ function videoTrackNumbers(bytes: Uint8Array, tracks: Header): Set<number> | nul
     const number = field(ID.TrackNumber)
     const type = field(ID.TrackType)
     if (number?.size == null || type?.size == null) continue
-    if (readUint(bytes, type.data, type.size) === VIDEO_TRACK_TYPE) {
+    if (readUint(bytes, type.data, type.size) === trackType) {
       numbers.add(readUint(bytes, number.data, number.size))
     }
   }
@@ -259,7 +266,9 @@ export function planWebmCues(bytes: Uint8Array): WebmCuesPlan | null {
 
   const level1: Level1[] = []
   const cues: CueEntry[] = []
-  let videoTracks: Set<number> | null = null
+  // The clusters are scanned after Tracks has been read (Tracks precedes
+  // them in every WebM), so which tracks to cue is known by then.
+  let cueTracks: CueTracks | null = null
 
   for (let pos = segment.data; pos < segmentEnd; ) {
     const header = readHeader(bytes, pos)
@@ -267,20 +276,28 @@ export function planWebmCues(bytes: Uint8Array): WebmCuesPlan | null {
     if (header.id === ID.Cues) return null // already seekable
     let end: number
     if (header.id === ID.Cluster) {
-      const scanned = scanCluster(bytes, header, segmentEnd, pos, videoTracks, cues)
+      const scanned = scanCluster(bytes, header, segmentEnd, pos, cueTracks, cues)
       if (scanned === null) return null
       end = scanned
     } else {
       if (header.size === null) return null
       end = header.data + header.size
       if (end > segmentEnd) return null
-      if (header.id === ID.Tracks) videoTracks = videoTrackNumbers(bytes, header)
+      if (header.id === ID.Tracks) {
+        const videoTracks = trackNumbers(bytes, header, VIDEO_TRACK_TYPE)
+        const audioTracks = trackNumbers(bytes, header, AUDIO_TRACK_TYPE)
+        if (videoTracks !== null && videoTracks.size > 0) {
+          cueTracks = { tracks: videoTracks, onePerCluster: false }
+        } else if (audioTracks !== null && audioTracks.size > 0) {
+          cueTracks = { tracks: audioTracks, onePerCluster: true }
+        }
+      }
     }
     level1.push({ id: header.id, start: pos, end })
     pos = end
   }
 
-  if (videoTracks === null || videoTracks.size === 0 || cues.length === 0) return null
+  if (cueTracks === null || cues.length === 0) return null
   const firstCluster = level1.findIndex((el) => el.id === ID.Cluster)
   if (firstCluster < 0) return null
 
@@ -343,17 +360,29 @@ export function planWebmCues(bytes: Uint8Array): WebmCuesPlan | null {
 }
 
 /**
- * Walks one cluster, appending a cue for each video keyframe in it. Returns
- * the offset one past the cluster, or null if it cannot be read.
+ * Which blocks get a cue: each video keyframe when the file has video, or
+ * else the first audio block of each cluster (#789). Every Opus frame
+ * decodes on its own, so an audio cue needs no keyframe flag, and one per
+ * cluster is what a seek needs to find its cluster.
+ */
+interface CueTracks {
+  tracks: Set<number>
+  onePerCluster: boolean
+}
+
+/**
+ * Walks one cluster, appending its cues (see `CueTracks`). Returns the
+ * offset one past the cluster, or null if it cannot be read.
  */
 function scanCluster(
   bytes: Uint8Array,
   cluster: Header,
   segmentEnd: number,
   clusterStart: number,
-  videoTracks: Set<number> | null,
+  cueTracks: CueTracks | null,
   cues: CueEntry[],
 ): number | null {
+  let cued = false
   const limit = cluster.size === null ? segmentEnd : cluster.data + cluster.size
   if (limit > segmentEnd) return null
   let timecode: number | null = null
@@ -379,12 +408,14 @@ function scanCluster(
         block = { data: inner.data, size: inner.size, keyframe: () => !referenced }
       }
     }
-    if (block !== null && videoTracks !== null) {
+    if (block !== null && cueTracks !== null && !(cueTracks.onePerCluster && cued)) {
       const parsed = blockHeader(bytes, block.data, block.size)
       if (parsed === null) return null
-      if (videoTracks.has(parsed.track) && block.keyframe(parsed.flags)) {
+      const cueable = cueTracks.onePerCluster || block.keyframe(parsed.flags)
+      if (cueTracks.tracks.has(parsed.track) && cueable) {
         if (timecode === null) return null
         cues.push({ time: Math.max(0, timecode + parsed.relative), track: parsed.track, clusterStart })
+        cued = true
       }
     }
     pos = end

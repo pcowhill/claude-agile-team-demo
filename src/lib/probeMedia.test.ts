@@ -10,6 +10,8 @@ class FakeMedia {
   onerror: (() => void) | null = null
   duration = Number.NaN
   currentTime = 0
+  // Seekable by default, as a file the far seek can measure is (#789).
+  seekable = { length: 1 }
   preload = ''
   muted = false
   src = ''
@@ -188,6 +190,86 @@ describe('probeMediaFile', () => {
     vi.advanceTimersByTime(15_000)
     await assertion
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
+  })
+})
+
+describe('probeMediaFile when nothing is seekable (#789)', () => {
+  const voiceOver = new File(['x'], 'Voice-over 1.webm', { type: 'audio/webm;codecs=opus' })
+  const keepFile = (f: File) => Promise.resolve(f)
+
+  /** An element as Firefox's audio-only recording loads: Infinity, nothing seekable. */
+  function unseekable() {
+    const fake = new FakeMedia()
+    fake.seekable = { length: 0 }
+    return fake
+  }
+
+  it('reads the duration by decoding, without a far seek', async () => {
+    const fake = unseekable()
+    const decode = vi.fn(() => Promise.resolve(2.9935))
+    const promise = probeMediaFile(voiceOver, asMedia(fake), undefined, keepFile, decode)
+    fake.duration = Number.POSITIVE_INFINITY
+    fake.onloadedmetadata?.()
+    await expect(promise).resolves.toEqual({ duration: 2.9935, url: 'blob:probe-test', kind: 'audio' })
+    expect(decode).toHaveBeenCalledExactlyOnceWith(voiceOver)
+    expect(fake.currentTime).toBe(0)
+  })
+
+  it('still far-seeks a file that is seekable, and never decodes it', async () => {
+    const fake = new FakeMedia()
+    const decode = vi.fn(() => Promise.resolve(9))
+    const promise = probeMediaFile(voiceOver, asMedia(fake), undefined, keepFile, decode)
+    fake.duration = Number.POSITIVE_INFINITY
+    fake.onloadedmetadata?.()
+    expect(fake.currentTime).toBeGreaterThan(1e6)
+    fake.duration = 1.5
+    fake.ondurationchange?.()
+    await expect(promise).resolves.toMatchObject({ duration: 1.5 })
+    expect(decode).not.toHaveBeenCalled()
+  })
+
+  it('rejects, and revokes the URL, when the decode fails', async () => {
+    const fake = unseekable()
+    const promise = probeMediaFile(voiceOver, asMedia(fake), undefined, keepFile, () =>
+      Promise.reject(new Error('EncodingError')),
+    )
+    fake.duration = Number.POSITIVE_INFINITY
+    fake.onloadedmetadata?.()
+    await expect(promise).rejects.toThrow('Could not read the duration of "Voice-over 1.webm".')
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:probe-test')
+  })
+
+  it('rejects a decode that yields no usable duration', async () => {
+    for (const duration of [0, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const fake = unseekable()
+      const promise = probeMediaFile(voiceOver, asMedia(fake), undefined, keepFile, () =>
+        Promise.resolve(duration),
+      )
+      fake.duration = Number.POSITIVE_INFINITY
+      fake.onloadedmetadata?.()
+      await expect(promise).rejects.toThrow('Could not read the duration')
+    }
+  })
+
+  it('a decode that finishes after the timeout changes nothing', async () => {
+    vi.useFakeTimers()
+    const fake = unseekable()
+    let finishDecode: (duration: number) => void = () => {}
+    const promise = probeMediaFile(voiceOver, asMedia(fake), undefined, keepFile, () =>
+      new Promise<number>((resolve) => {
+        finishDecode = resolve
+      }),
+    )
+    const assertion = expect(promise).rejects.toThrow('Timed out')
+    fake.duration = Number.POSITIVE_INFINITY
+    fake.onloadedmetadata?.()
+    vi.advanceTimersByTime(15_000)
+    await assertion
+    revokeObjectURL.mockClear()
+    finishDecode(3)
+    await Promise.resolve()
+    // Already settled: the late result neither resolves nor revokes again.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
   })
 })
 

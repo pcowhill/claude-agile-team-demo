@@ -57,8 +57,13 @@ export function detectMediaKind(file: File): MediaKind {
  * `webmCues.ts`). It runs alongside the probe, which reads the duration
  * from the file as it came; the index does not change the duration.
  *
- * `createElement`, `createImage` and `playable` are injectable for tests
- * (jsdom never fires media or image load events).
+ * A file whose element reports no finite duration *and* nothing seekable —
+ * Firefox's audio-only MediaRecorder WebM (#789) — has its duration read by
+ * decoding its audio (`decodeDuration`) instead of by the far seek.
+ *
+ * `createElement`, `createImage`, `playable` and `decodeDuration` are
+ * injectable for tests (jsdom never fires media or image load events, and
+ * has no audio decoder).
  */
 export function probeMediaFile(
   file: File,
@@ -66,6 +71,7 @@ export function probeMediaFile(
     document.createElement(kind === 'audio' ? 'audio' : 'video'),
   createImage: () => HTMLImageElement = () => new Image(),
   playable: (file: File) => Promise<Blob> = withWebmCues,
+  decodeDuration: (file: File) => Promise<number> = decodedAudioDuration,
 ): Promise<ProbedMedia> {
   const kind = detectMediaKind(file)
   if (kind === 'image') return probeImageFile(file, createImage)
@@ -82,8 +88,13 @@ export function probeMediaFile(
 
   return new Promise<ProbedMedia>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    // The decode fallback settles asynchronously, so it can arrive after the
+    // timeout has already concluded the probe; only the first outcome counts.
+    let settled = false
 
     const finish = (result: ProbedMedia | Error) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       media.onloadedmetadata = null
       media.ondurationchange = null
@@ -109,6 +120,21 @@ export function probeMediaFile(
 
     media.onloadedmetadata = () => {
       if (settleIfKnown()) return
+      if (media.seekable.length === 0) {
+        // No seekable range, so a seek is aborted before it starts (the HTML
+        // seek algorithm) and the far seek below could only wait out the
+        // timeout. Firefox's own audio-only recordings are like this (#789):
+        // Infinity, nothing seekable, no `seeking` or `durationchange` on
+        // any seek. Decoding the audio counts its samples instead.
+        decodeDuration(file).then(
+          (duration) =>
+            Number.isFinite(duration) && duration > 0
+              ? finish({ duration, url, kind })
+              : finish(new Error(`Could not read the duration of "${file.name}".`)),
+          () => finish(new Error(`Could not read the duration of "${file.name}".`)),
+        )
+        return
+      }
       // Streamed recordings (e.g. MediaRecorder WebM) report Infinity until
       // the browser is forced to scan to the end: seek far past it, then a
       // durationchange delivers the real value.
@@ -134,6 +160,23 @@ export function probeMediaFile(
     media.muted = true
     media.src = url
   })
+}
+
+/**
+ * The length of a file's audio, by decoding all of it (#789). Only reached
+ * for a file the media element cannot measure: audioPeaks.ts decodes the
+ * same file whole for its waveform anyway. Measured in CI's Firefox (run
+ * 44782336721) on fake-microphone voice-overs: 1.05 s and 2.99 s for takes
+ * whose readout showed 0:01 and 0:03, in 16 and 23 ms.
+ */
+async function decodedAudioDuration(file: File): Promise<number> {
+  if (typeof OfflineAudioContext === 'undefined') {
+    throw new Error('This browser has no audio decoder.')
+  }
+  // Decoding needs no audible context; the context's own length is unused.
+  const context = new OfflineAudioContext(1, 1, 44100)
+  const buffer = await context.decodeAudioData(await file.arrayBuffer())
+  return buffer.duration
 }
 
 /**
