@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
+import { expectAlignedRow, expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
@@ -36,11 +36,10 @@ test('Help ▾ sits beside File ▾ at its height, is keyboard-operable, and hol
     { width: 800, height: 1100 },
   ]) {
     await page.setViewportSize(viewport)
+    await expectAlignedRow(fileTrigger(page).or(helpTrigger(page)), `File ▾ and Help ▾ at ${viewport.width}px`)
     const file = (await fileTrigger(page).boundingBox())!
     const help = (await helpTrigger(page).boundingBox())!
     const where = `at ${viewport.width}px: Help ${JSON.stringify(help)} against File ${JSON.stringify(file)}`
-    expect(Math.abs(help.height - file.height), `${where}: heights differ`).toBeLessThanOrEqual(1)
-    expect(Math.abs(help.y - file.y), `${where}: tops differ`).toBeLessThanOrEqual(1)
     expect(help.x, `${where}: Help is not to the right of File`).toBeGreaterThan(file.x + file.width - 1)
   }
 

@@ -4,7 +4,7 @@ import { scanExportedFrames } from './decodedFrame'
 import type { SampleRect } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
-import { expectNoHorizontalScroll } from './layout'
+import { expectAlignedRow, expectNoHorizontalScroll } from './layout'
 import { sineWav } from './sineWav'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 import { chooseEffect } from './timelineRowMenu'
@@ -388,18 +388,12 @@ test('the control fits the transport at both widths, at 1× and at 2× (#522)', 
           `[${test.info().project.name}] Review speed ${metrics.select} (its own height ${metrics.own}px); Loop ${metrics.loop}`,
         )
       }
-      const loopBox = (await page.getByTestId('preview-loop').boundingBox())!
-      const controlBox = (await reviewSpeed(page).boundingBox())!
-      expect(
-        Math.abs(controlBox.height - loopBox.height),
-        `Review speed is ${controlBox.height}px tall against the Loop toggle's ${loopBox.height}px (${where})`,
-      ).toBeLessThanOrEqual(1)
-      expect(
-        Math.abs(
-          controlBox.y + controlBox.height / 2 - (loopBox.y + loopBox.height / 2),
-        ),
-        `Review speed's centre line is off the transport's (${where})`,
-      ).toBeLessThanOrEqual(1)
+      // One height, tops and bottoms aligned with the Loop toggle beside
+      // it: the shared check (#793) reads both boxes in one page read.
+      await expectAlignedRow(
+        page.getByTestId('preview-loop').or(reviewSpeed(page)),
+        `Review speed beside the Loop toggle (${where})`,
+      )
 
       // It sits inside the preview region with the rest of the transport,
       // and the readout — which is what makes the row longer at 2× — does

@@ -401,6 +401,26 @@
   height: 1.375rem;
 }
 
+/* Frame ▾ joins them (#793, from the customer's #787). #713 left it out as
+   not a direct child, and it stood 21px against 22px, 2px low, because
+   Menu's inline-block wrapper keeps the line's strut under its trigger; a
+   taller ▾ font made it 34px. The wrapper becomes exactly the trigger's
+   box, and the trigger takes the row's height with its label centred.
+   The panel's items are inside the wrapper too and keep Menu.css's size. */
+.preview-controls > .preview-frame-menu {
+  display: inline-flex;
+}
+
+.preview-controls > .preview-frame-menu > .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
 /* The Review speed control (#522). The transport is otherwise all buttons,
    and a `select` left to the browser's own metrics stands ~3px taller than
    they do. That shows as a step in the row, which is the kind of thing
