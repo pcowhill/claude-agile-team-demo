@@ -1,6 +1,6 @@
 # Shapes and annotations
 
-Rectangles, ellipses, arrows and numbered badges drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text, an arrow pointing at the thing to click, numbered dots walking through the clicks in order. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style), [arrows and lines](#arrows-and-lines), [numbered badges](#numbered-badges), [drawing shapes on the picture](#drawing-shapes-on-the-picture) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
+Rectangles, ellipses, arrows and numbered badges drawn on the picture: a red circle with a clear centre around the button you are talking about, a box around a setting, a highlight over a line of text, an arrow pointing at the thing to click, numbered dots walking through the clicks in order. Shapes come in **shape groups**. A group's shapes appear and disappear together, so three circles meant for the same moment are one row, not three. This page covers [adding a shape group](#adding-a-shape-group), [a group's timing and fades](#a-group-s-timing-and-fades), [drawing the shapes on](#drawing-the-shapes-on), [the shapes in a group](#the-shapes-in-a-group), [a shape's style](#a-shape-s-style), [arrows and lines](#arrows-and-lines), [numbered badges](#numbered-badges), [drawing shapes on the picture](#drawing-shapes-on-the-picture) and [how shapes render](#how-shapes-render). Where the Shapes section sits on the timeline is on [Timeline](timeline.md#the-five-sections).
 
 ## Adding a shape group
 
@@ -14,13 +14,31 @@ Rectangles, ellipses, arrows and numbered badges drawn on the picture: a red cir
 
 ## A group's timing and fades
 
-**Where to find it.** The expanded shape group row › **Shows at**, **for**, **Fade in** and **out**.
+**Where to find it.** The expanded shape group row › **Shows at**, **for**, **Entrance**, **Fade in** and **out**.
 
 **What it does.** Sets when the group's shapes appear, how long they stay, and how they fade in and out, all together.
 
-**Details.** **Shows at** is the second of the video the group appears, and **for** how many seconds it stays. Both are in the video's own time, not any clip's, so a group stays where you put it when you trim or reorder clips. Anything past the end of the video is cut off there. **Fade in** and **out** are in seconds and ramp the whole group's opacity linearly, exactly as a [text overlay's fades](text-and-subtitles.md#fade-in-and-fade-out) do: both start at zero, and together they never exceed the group's duration. Each committed change is one undo step.
+**Details.** **Shows at** is the second of the video the group appears, and **for** how many seconds it stays. Both are in the video's own time, not any clip's, so a group stays where you put it when you trim or reorder clips. Anything past the end of the video is cut off there. **Fade in** and **out** are in seconds and ramp the whole group's opacity linearly, exactly as a [text overlay's fades](text-and-subtitles.md#fade-in-and-fade-out) do: both start at zero, and together they never exceed the group's duration. **Entrance** is *Fade* for a new group, which is the fade-in; set it to *Draw on* to have the shapes [drawn on](#drawing-the-shapes-on) instead, and **Fade in** gives way to **over**, the draw-on time. Each committed change is one undo step.
 
-**Related.** [Text: fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Time on the timeline](concepts.md#time-on-the-timeline)
+**Related.** [Drawing the shapes on](#drawing-the-shapes-on) · [Text: fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Time on the timeline](concepts.md#time-on-the-timeline)
+
+## Drawing the shapes on
+
+**Where to find it.** The expanded shape group row › **Entrance** › *Draw on*, then **over**, the draw-on time in seconds.
+
+**What it does.** Draws the group's shapes onto the picture as it appears, the way a presenter would draw them, instead of fading them in.
+
+**Details.** Over the draw-on time, from the group's first moment:
+
+- an **arrow or line** grows from its tail towards its tip, and its head appears when the shaft is complete;
+- an **ellipse**'s border is traced around from the top, clockwise;
+- a **rectangle**'s border is traced from its top-left corner, clockwise along the top first, rounded corners included;
+- a **fill** fades in over the same time;
+- a **badge** fades in.
+
+A dashed or dotted border is drawn on dashed or dotted. Once the draw-on time is over, the shapes look exactly as they would with no entrance at all. *Draw on* takes the fade-in's place: a group either fades in or draws on, never both, and **Fade out** still works as before. Switching the entrance keeps its length, so a group with a 0.5 s fade-in draws on over 0.5 s, and switching back gives the fade-in back; a group with no fade-in draws on over {{DEFAULT_DRAW_ON}} s, or over its whole duration if that is shorter. The draw-on time fits inside the group the way a fade-in does: it never runs longer than the group, and the fade-out takes what is left. The entrance is part of the group's timing, so **Copy settings** / **Paste settings** carry it with the fades. Each change is one undo step. The preview, every export format, Save frame as PNG and the Animated GIF plugin all draw it the same way, so the frame you see while scrubbing is the frame in the file.
+
+**Related.** [A group's timing and fades](#a-group-s-timing-and-fades) · [Arrows and lines](#arrows-and-lines) · [How shapes render](#how-shapes-render)
 
 ## The shapes in a group
 
@@ -141,7 +159,7 @@ Rectangles, ellipses, arrows and numbered badges drawn on the picture: a red cir
 
 - **Preview** spans the group's window on the sequence, from its start time to its end (cut off at the end of the video). Moving it changes the picture under the shapes; the shapes stay where they are.
 - **↻ Loop** plays the window on repeat, resting a second on its first and last frame. The slider is read-only while it plays.
-- **Show result** shows the finished frame at the slider's moment, by the export's own drawing: the group in its place below any text, and faded as it will be — inside a fade-in or fade-out its shapes are partly see-through. While it is on, the shapes cannot be selected, drawn or restyled; turn it off to edit them.
+- **Show result** shows the finished frame at the slider's moment, by the export's own drawing: the group in its place below any text, and faded as it will be — inside a fade-in or fade-out its shapes are partly see-through, and inside a [draw-on](#drawing-the-shapes-on) they are only partly drawn. While it is on, the shapes cannot be selected, drawn or restyled; turn it off to edit them.
 
 **Related.** [A group's timing and fades](#a-group-s-timing-and-fades) · [How shapes render](#how-shapes-render)
 

@@ -30,6 +30,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_TEXT_DURATION',
   /** How long a newly added shape group shows, in seconds (#683). */
   'DEFAULT_SHAPE_GROUP_DURATION',
+  /** How long a shape group switched to Draw on draws on, in seconds, with no fade-in to keep (#690). */
+  'DEFAULT_DRAW_ON',
   'SHAPE_DASH_LENGTH',
   'SHAPE_DASH_GAP',
   /** A numbered badge's highest number, first fill, and sizes in px at 1080p (#689). */

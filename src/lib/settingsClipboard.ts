@@ -86,7 +86,8 @@ export interface TextStyleSettings {
 
 /**
  * The shape-timing group (#687, from the approved design #681 §9): a shape
- * group's window and fades — *Shows at*, *for*, *Fade in* and *out*. Its
+ * group's window and fades — *Shows at*, *for*, *Fade in* and *out*, and
+ * since #690 its *Entrance* with a draw-on's length. Its
  * shapes are never carried. Only shape groups hold it, so it never meets
  * another kind's settings: a paste between a shape group and any other row
  * offers nothing, the rule for kinds that share no group.
@@ -100,6 +101,13 @@ export interface ShapeTimingSettings {
   duration: number
   fadeIn: number
   fadeOut: number
+  /**
+   * The *Draw on* entrance's length (#690), present exactly when the source
+   * draws on. The entrance is part of how the group arrives, so it travels
+   * with the fades: pasting onto a group that fades in makes it draw on,
+   * and pasting a fading group's timing onto one that draws on makes it fade.
+   */
+  drawOn?: number
 }
 
 /**
@@ -271,6 +279,7 @@ export function copyElementSettings(
           duration: group.duration,
           fadeIn: group.fadeIn ?? 0,
           fadeOut: group.fadeOut ?? 0,
+          ...(group.drawOn === undefined ? {} : { drawOn: group.drawOn }),
         },
       }
     }

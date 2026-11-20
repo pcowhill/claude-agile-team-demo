@@ -687,6 +687,13 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     .getByRole('menuitem', { name: 'Badge', exact: true })
     .click()
   await expect(timeline.getByRole('listitem', { name: 'Badge 4 of shape group at position 1' })).toBeVisible()
+  // And the Draw on entrance (#690), whose draw-on time exists only once
+  // it is chosen; the Fade in field it replaces is still met on the text
+  // row and the audio track.
+  await timeline.getByRole('combobox', { name: 'Entrance of shape group at position 1' }).selectOption('draw-on')
+  await expect(
+    timeline.getByRole('spinbutton', { name: 'Draw-on time of shape group at position 1 in seconds' }),
+  ).toBeVisible()
 
   await record('the header', page.locator('header'))
   await record('the media library', library)

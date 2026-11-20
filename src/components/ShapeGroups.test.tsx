@@ -249,6 +249,38 @@ describe('Numbered badges in shape groups (#689)', () => {
   })
 })
 
+describe('The Draw on entrance (#690)', () => {
+  it('Entrance › Draw on swaps Fade in for a draw-on time, carrying its length; each switch is one undo step', async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_SHAPES)
+    const entrance = () => screen.getByRole('combobox', { name: `Entrance of ${group()}` })
+    const fadeIn = () => screen.queryByRole('spinbutton', { name: `Fade-in of ${group()} in seconds` })
+    const drawOn = () => screen.queryByRole('spinbutton', { name: `Draw-on time of ${group()} in seconds` })
+    // A new group fades in, as every group did before the choice existed.
+    expect(entrance()).toHaveValue('fade')
+    expect(drawOn()).toBeNull()
+    await userEvent.clear(fadeIn()!)
+    await userEvent.type(fadeIn()!, '0.6')
+    await userEvent.tab()
+
+    await userEvent.selectOptions(entrance(), 'draw-on')
+    expect(entrance()).toHaveValue('draw-on')
+    expect(fadeIn()).toBeNull()
+    // The fade-in's length became the draw-on's.
+    expect(drawOn()).toHaveValue(0.6)
+    await userEvent.clear(drawOn()!)
+    await userEvent.type(drawOn()!, '1.5')
+    await userEvent.tab()
+    expect(drawOn()).toHaveValue(1.5)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(drawOn()).toHaveValue(0.6)
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(entrance()).toHaveValue('fade')
+    expect(fadeIn()).toHaveValue(0.6)
+  })
+})
+
 describe('Shapes section (#683)', () => {
   it('Add ▾ › Shape group adds one red, transparent-centred ellipse at the playhead for 3 s', async () => {
     render(<App />)

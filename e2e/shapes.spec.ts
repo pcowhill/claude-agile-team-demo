@@ -617,6 +617,91 @@ test('an exported badge shows its fill at the disc edge and its number colour in
     .toBeGreaterThan(180)
 })
 
+/**
+ * The draw-on fixture (#690): a group from 1.5 s to the end of the 3 s
+ * slate, entering by *Draw on* over 1 s, holding
+ * - an arrow along y = 0.8 (288 px) from x 128 to its tip at 512, 20 px
+ *   thick: its head is 90 px long, so its shaft runs x 128–422;
+ * - an ellipse in the box x 0.35–0.65, y 0.1–0.6 (x 224–416, y 36–216),
+ *   with a 16 px border and no fill.
+ *
+ * Halfway through the draw-on (2.0 s, one second before the end) the shaft
+ * has grown to x 275 and the ellipse's border has been traced from its top
+ * through its right side to its bottom.
+ */
+async function drawOnFixture(page: Page): Promise<void> {
+  await blueSlate(page)
+  await chooseFromAddMenu(page, ADD_SHAPES)
+  await setField(page, `Start time of ${group()} in seconds`, '1.5')
+  await setField(page, `Duration of ${group()} in seconds`, '10')
+  const ellipse = shape('Ellipse', 1)
+  await setField(page, `Left edge of ${ellipse} (0 to 1)`, '0.35')
+  await setField(page, `Top edge of ${ellipse} (0 to 1)`, '0.1')
+  await setField(page, `Width of ${ellipse} (fraction of frame width)`, '0.3')
+  await setField(page, `Height of ${ellipse} (fraction of frame height)`, '0.5')
+  await setField(page, `Border thickness of ${ellipse} in pixels`, '16')
+  await addShape(page, 1, 'Arrow')
+  const arrow = shape('Arrow', 2)
+  await setField(page, `Tail x of ${arrow} (0 to 1)`, '0.2')
+  await setField(page, `Tail y of ${arrow} (0 to 1)`, '0.8')
+  await setField(page, `Tip x of ${arrow} (0 to 1)`, '0.8')
+  await setField(page, `Tip y of ${arrow} (0 to 1)`, '0.8')
+  await setField(page, `Border thickness of ${arrow} in pixels`, '20')
+  await page.getByRole('combobox', { name: `Entrance of ${group()}` }).selectOption('draw-on')
+  // A group with no fade-in to carry over draws on over a second.
+  await expect(page.getByRole('spinbutton', { name: `Draw-on time of ${group()} in seconds` })).toHaveValue('1')
+}
+
+/** Sample points for the draw-on fixture, on the arrow's axis and the ellipse's border line. */
+const DRAW_ON_POINTS: Record<'quarter' | 'threeQuarters' | 'head' | 'top' | 'right' | 'bottomLeft', SampleRect> = {
+  // 25 % and 75 % along the shaft (x 128–422): x 201.5 and 348.5.
+  quarter: { x: 197 / 640, y: 284 / 360, width: 10 / 640, height: 8 / 360 },
+  threeQuarters: { x: 344 / 640, y: 284 / 360, width: 10 / 640, height: 8 / 360 },
+  // Inside the head, off the shaft's 10 px half-width: only the head colours it.
+  head: { x: 466 / 640, y: 272 / 360, width: 8 / 640, height: 4 / 360 },
+  // The ellipse's border line (centre 320, 126; radii 96, 90) at its top,
+  // its right, and its bottom-left, 3π/4 round from the right. The trace
+  // starts exactly at the top with a square end, so the top's sample sits
+  // just clockwise of it (x 326–334), where the border has been drawn.
+  top: { x: 326 / 640, y: 33 / 360, width: 8 / 640, height: 6 / 360 },
+  right: { x: 413 / 640, y: 122 / 360, width: 6 / 640, height: 8 / 360 },
+  bottomLeft: { x: 249 / 640, y: 187 / 360, width: 6 / 640, height: 6 / 360 },
+}
+
+test('a Draw on entrance grows an arrow from its tail and traces an ellipse from its top, then draws them whole (#690)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await drawOnFixture(page)
+
+  const exported = await exportOnce(page)
+  // Halfway through the draw-on: 2.0 s, one second before the end.
+  const halfway = async (point: SampleRect) => await sampleExportedFrame(page, exported, 1, point)
+  expectColor(await halfway(DRAW_ON_POINTS.quarter), BORDER, 45, 'halfway, 25 % along the shaft')
+  expectColor(await halfway(DRAW_ON_POINTS.threeQuarters), SLATE, 30, 'halfway, 75 % along the shaft')
+  expectColor(await halfway(DRAW_ON_POINTS.head), SLATE, 30, 'halfway, where the head will be')
+  expectColor(await halfway(DRAW_ON_POINTS.top), BORDER, 45, "halfway, the ellipse's top")
+  expectColor(await halfway(DRAW_ON_POINTS.right), BORDER, 45, "halfway, the ellipse's right")
+  expectColor(await halfway(DRAW_ON_POINTS.bottomLeft), SLATE, 30, "halfway, the ellipse's bottom-left")
+
+  // After the draw-on (2.8 s): everything, head included, as with no entrance.
+  const after = async (point: SampleRect) => await sampleExportedFrame(page, exported, 0.2, point)
+  for (const name of ['quarter', 'threeQuarters', 'head', 'top', 'right', 'bottomLeft'] as const) {
+    expectColor(await after(DRAW_ON_POINTS[name]), BORDER, 45, `after the draw-on, ${name}`)
+  }
+
+  // The preview draws through the same routine: halfway, the same split.
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill('2')
+  await expect
+    .poll(async () => (await samplePreviewShapes(page, DRAW_ON_POINTS.quarter)).r, {
+      message: 'the preview has drawn the first part of the shaft',
+    })
+    .toBeGreaterThan(180)
+  expectColor(await samplePreviewShapes(page, DRAW_ON_POINTS.threeQuarters), SLATE, 30, 'preview, 75 % along the shaft')
+  expectColor(await samplePreviewShapes(page, DRAW_ON_POINTS.bottomLeft), SLATE, 30, "preview, the ellipse's bottom-left")
+})
+
 test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('./')
@@ -651,7 +736,7 @@ test('the GIF plugin draws shape groups too (#683)', async ({ page }) => {
 })
 
 for (const width of [1280, 360]) {
-  test(`an expanded shape group stays inside the timeline at ${width}px (#683, #684, #689)`, async ({
+  test(`an expanded shape group stays inside the timeline at ${width}px (#683, #684, #689, #690)`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
@@ -707,7 +792,22 @@ for (const width of [1280, 360]) {
     ]) {
       await expectWithin(control, row, { axis: 'x', what: `a field of ${badge}` })
     }
-    await expectNoHorizontalScroll(page, 'with an expanded shape group')
+    // The entrance (#690), in both its shapes: Fade with its Fade in field,
+    // and Draw on with its draw-on time in that field's place.
+    for (const entrance of ['fade', 'draw-on']) {
+      await page.getByRole('combobox', { name: `Entrance of ${group()}` }).selectOption(entrance)
+      const lead = entrance === 'fade' ? `Fade-in of ${group()} in seconds` : `Draw-on time of ${group()} in seconds`
+      for (const control of [
+        page.getByRole('combobox', { name: `Entrance of ${group()}` }),
+        page.getByRole('spinbutton', { name: lead }),
+        page.getByRole('spinbutton', { name: `Fade-out of ${group()} in seconds` }),
+      ]) {
+        await expectWithin(control, row, { axis: 'x', what: `a timing field (${entrance}) at ${width}px` })
+      }
+      // A control that widens the row widens the timeline with it, so only
+      // the column's own scroll can see that; it is measured per entrance.
+      await expectNoHorizontalScroll(page, `with an expanded shape group (${entrance})`)
+    }
     if (width === 1280) {
       await row.screenshot({ path: testInfo.outputPath(`shape-group-row-${width}.png`) })
     }

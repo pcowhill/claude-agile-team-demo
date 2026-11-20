@@ -100,7 +100,7 @@ A zoom's region takes drags only across its hold, where it is the zoom's own reg
 
 **Where to find it.** The **Show result** toggle in the zoom editor, and in the redaction, spotlight and shape editors.
 
-**What it does.** Swaps the picture for the frame the viewer gets at that instant — the zoom applied rather than bypassed, with no region drawn over it. In the redaction editor it draws every region on the element in its own style — blurred, pixelated or filled — through the same rule the preview and the export use, so what you see masked is what ships. In the spotlight editor it lights every region on the element at its dim, in its shape and with its soft edge, through the same rule again. In the shape editor it draws the group into the frame as the export does — below any text, and faded at that instant if it is inside a fade-in or fade-out — and the shapes cannot be edited until it is off.
+**What it does.** Swaps the picture for the frame the viewer gets at that instant — the zoom applied rather than bypassed, with no region drawn over it. In the redaction editor it draws every region on the element in its own style — blurred, pixelated or filled — through the same rule the preview and the export use, so what you see masked is what ships. In the spotlight editor it lights every region on the element at its dim, in its shape and with its soft edge, through the same rule again. In the shape editor it draws the group into the frame as the export does — below any text, and faded at that instant if it is inside a fade-in or fade-out, or partly drawn if it is inside a draw-on — and the shapes cannot be edited until it is off.
 
 **Details.** Turn it off to adjust the region again. The values it draws from are the committed ones.
 

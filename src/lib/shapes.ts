@@ -260,6 +260,16 @@ export interface ShapeGroupSpec {
   fadeIn?: number
   /** Fade-out seconds. Absent means none. */
   fadeOut?: number
+  /**
+   * The *Draw on* entrance's length in seconds (#690). Present means the
+   * group enters by drawing its shapes on over this many seconds from its
+   * start (`shapeGroupRevealAt`); absent is the *Fade* entrance, which
+   * every group saved before it reads as. The two entrances are
+   * alternatives, so a group never holds this and `fadeIn` together: it
+   * takes `fadeIn`'s place in the window, and `clampShapeGroup` fits it
+   * there exactly as it fits a fade-in. > 0.
+   */
+  drawOn?: number
   /** Bottom to top: a later shape draws over an earlier one. Never empty. */
   shapes: Shape[]
   /**
@@ -280,6 +290,40 @@ export const MAX_SHAPE_THICKNESS = 0.1
 export const MAX_CORNER_RADIUS = 0.5
 /** What Add ▾ › Shape group gives a new group, in seconds (#681 §1). */
 export const DEFAULT_SHAPE_GROUP_DURATION = 3
+
+/** The entrances a shape group can make (#690): fade in, or draw on. */
+export const SHAPE_ENTRANCES = ['fade', 'draw-on'] as const
+export type ShapeEntrance = (typeof SHAPE_ENTRANCES)[number]
+
+export const SHAPE_ENTRANCE_LABELS: Record<ShapeEntrance, string> = {
+  fade: 'Fade',
+  'draw-on': 'Draw on',
+}
+
+/** A group's entrance: *Draw on* exactly when it holds a draw-on time. */
+export function shapeGroupEntrance(group: Pick<ShapeGroupSpec, 'drawOn'>): ShapeEntrance {
+  return group.drawOn === undefined ? 'fade' : 'draw-on'
+}
+
+/** Seconds a group switched to *Draw on* takes, when it had no fade-in to keep. */
+export const DEFAULT_DRAW_ON = 1
+
+/**
+ * The group with its entrance switched (#690). The entrance's length moves
+ * with it: a fade-in becomes a draw-on of the same length and back, so
+ * switching twice returns the group it started from. A group with no
+ * fade-in draws on over `DEFAULT_DRAW_ON`, or its whole window if that is
+ * shorter. Same object when the entrance is already the one asked for.
+ */
+export function withShapeEntrance<T extends ShapeGroupSpec>(group: T, entrance: ShapeEntrance): T {
+  if (shapeGroupEntrance(group) === entrance) return group
+  const { fadeIn, drawOn, ...rest } = group
+  if (entrance === 'fade') {
+    return { ...rest, ...(drawOn === undefined || drawOn <= 0 ? {} : { fadeIn: drawOn }) } as T
+  }
+  const length = fadeIn !== undefined && fadeIn > 0 ? fadeIn : Math.min(DEFAULT_DRAW_ON, group.duration)
+  return { ...rest, drawOn: length } as T
+}
 
 /**
  * A badge's smallest diameter, as a fraction of the frame's shorter side:
@@ -538,6 +582,11 @@ export function isValidShapeGroupSpec(group: ShapeGroupSpec): boolean {
   if (!finite(group.duration) || group.duration <= 0) return false
   if (group.fadeIn !== undefined && (!finite(group.fadeIn) || group.fadeIn < 0)) return false
   if (group.fadeOut !== undefined && (!finite(group.fadeOut) || group.fadeOut < 0)) return false
+  if (group.drawOn !== undefined) {
+    if (!finite(group.drawOn) || group.drawOn <= 0) return false
+    // The entrances are alternatives (#690): a group draws on or fades in.
+    if (group.fadeIn !== undefined) return false
+  }
   if (
     group.name !== undefined &&
     (typeof group.name !== 'string' || group.name === '' || group.name !== group.name.trim())
@@ -560,19 +609,24 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
  * Clamps a group's fades into its window — the text rule (`clampTextOverlay`):
  * `fadeIn` keeps its value first and `fadeOut` absorbs the shortfall. A zero
  * fade is stored as no key, so a group never faded stays shaped as one.
+ * A draw-on (#690) takes the fade-in's place in that rule: it is clamped to
+ * the window, and the fade-out absorbs what it leaves. It stays a key even
+ * when clamped, since it is the entrance itself, not only its length.
  * Returns the same object when nothing changes.
  */
 export function clampShapeGroup(group: ShapeGroup): ShapeGroup {
-  const fadeIn = clamp(group.fadeIn ?? 0, 0, group.duration)
-  const fadeOut = clamp(group.fadeOut ?? 0, 0, group.duration - fadeIn)
+  const drawOn = group.drawOn === undefined ? undefined : Math.min(group.drawOn, group.duration)
+  const fadeIn = drawOn === undefined ? clamp(group.fadeIn ?? 0, 0, group.duration) : 0
+  const fadeOut = clamp(group.fadeOut ?? 0, 0, group.duration - (drawOn ?? fadeIn))
   const storedIn = fadeIn > 0 ? fadeIn : undefined
   const storedOut = fadeOut > 0 ? fadeOut : undefined
-  if (storedIn === group.fadeIn && storedOut === group.fadeOut) return group
-  const { fadeIn: _in, fadeOut: _out, ...rest } = group
+  if (storedIn === group.fadeIn && storedOut === group.fadeOut && drawOn === group.drawOn) return group
+  const { fadeIn: _in, fadeOut: _out, drawOn: _drawOn, ...rest } = group
   return {
     ...rest,
     ...(storedIn === undefined ? {} : { fadeIn: storedIn }),
     ...(storedOut === undefined ? {} : { fadeOut: storedOut }),
+    ...(drawOn === undefined ? {} : { drawOn }),
   }
 }
 
@@ -630,6 +684,7 @@ export function shapeGroupsEqual(a: ShapeGroup, b: ShapeGroup): boolean {
     a.duration === b.duration &&
     (a.fadeIn ?? 0) === (b.fadeIn ?? 0) &&
     (a.fadeOut ?? 0) === (b.fadeOut ?? 0) &&
+    a.drawOn === b.drawOn &&
     a.shapes.length === b.shapes.length &&
     a.shapes.every((shape, index) => shapesEqual(shape, b.shapes[index]))
   )
@@ -653,6 +708,20 @@ export function shapeGroupOpacityAt(group: ShapeGroupSpec, sequenceTime: number)
   const inRamp = fadeIn > 0 ? Math.min(into / fadeIn, 1) : 1
   const outRamp = fadeOut > 0 ? Math.min((group.duration - into) / fadeOut, 1) : 1
   return Math.min(inRamp, outRamp)
+}
+
+/**
+ * How much of a group's shapes is drawn at a sequence time (#690), 0..1: 1
+ * for a group that fades in (or none), and for a *Draw on* group the time
+ * into its window over its draw-on time, clamped — so it starts at 0 on
+ * the group's first instant and holds at 1 once the draw-on is over. The
+ * draw-on itself is clamped into the window by `clampShapeGroup`, as a
+ * fade-in is, so a group always finishes drawing before it ends.
+ */
+export function shapeGroupRevealAt(group: ShapeGroupSpec, sequenceTime: number): number {
+  const drawOn = group.drawOn
+  if (drawOn === undefined || drawOn <= 0) return 1
+  return clamp((sequenceTime - group.offset) / drawOn, 0, 1)
 }
 
 /**
@@ -937,6 +1006,211 @@ function drawBrokenArrow(
 }
 
 /**
+ * The part of an arrow's shaft a *Draw on* entrance shows at `reveal`
+ * (#690), in frame pixels: from the shaft's start — the tail, or the base
+ * of a tail head — to `reveal` of the way to its end, the tip or the base
+ * of the tip's head. The heads appear only once the shaft is complete,
+ * which is the whole arrow at `reveal` 1, so they are not part of this.
+ * Null when the arrow has no thickness or no length.
+ */
+export function arrowShaftAt(
+  shape: ArrowShape,
+  reveal: number,
+  frameWidth: number,
+  frameHeight: number,
+): { from: Point; to: Point; lineWidth: number } | null {
+  const pieces = arrowPieces(shape, frameWidth, frameHeight)
+  if (pieces === null) return null
+  const { from, to } = pieces.shaft
+  const r = clamp(reveal, 0, 1)
+  return {
+    from,
+    to: { x: from.x + (to.x - from.x) * r, y: from.y + (to.y - from.y) * r },
+    lineWidth: pieces.lineWidth,
+  }
+}
+
+/** One stretch of a box's border, for tracing part of it (#690). */
+type BorderPiece =
+  | { kind: 'line'; from: Point; to: Point; length: number }
+  | { kind: 'arc'; cx: number; cy: number; rx: number; ry: number; start: number; end: number; length: number }
+
+/**
+ * A box shape's border as the pieces a *Draw on* traces in order (#690),
+ * in frame pixels. An ellipse is one arc from the top, clockwise: a canvas
+ * angle grows clockwise on screen, so the top is −π/2. Its length is the
+ * angle swept, since only the order matters to the reveal and an ellipse
+ * is traced by angle. A rectangle starts at its top-left corner and runs
+ * clockwise along the top first; with rounded corners, its four corners
+ * are quarter arcs between the straight sides, each at its own length.
+ */
+function boxBorderPieces(shape: BoxShape, frameWidth: number, frameHeight: number): BorderPiece[] {
+  const x = shape.x * frameWidth
+  const y = shape.y * frameHeight
+  const width = shape.width * frameWidth
+  const height = shape.height * frameHeight
+  if (shape.kind === 'ellipse') {
+    return [
+      {
+        kind: 'arc',
+        cx: x + width / 2,
+        cy: y + height / 2,
+        rx: width / 2,
+        ry: height / 2,
+        start: -Math.PI / 2,
+        end: (3 * Math.PI) / 2,
+        length: 2 * Math.PI,
+      },
+    ]
+  }
+  const radius = Math.max(
+    0,
+    Math.min(shorterSidePixels(shape.cornerRadius ?? 0, frameWidth, frameHeight), width / 2, height / 2),
+  )
+  const line = (from: Point, to: Point): BorderPiece => ({
+    kind: 'line',
+    from,
+    to,
+    length: Math.hypot(to.x - from.x, to.y - from.y),
+  })
+  const corner = (cx: number, cy: number, start: number): BorderPiece => ({
+    kind: 'arc',
+    cx,
+    cy,
+    rx: radius,
+    ry: radius,
+    start,
+    end: start + Math.PI / 2,
+    length: (radius * Math.PI) / 2,
+  })
+  const right = x + width
+  const bottom = y + height
+  const pieces: BorderPiece[] = [
+    line({ x: x + radius, y }, { x: right - radius, y }),
+    corner(right - radius, y + radius, -Math.PI / 2),
+    line({ x: right, y: y + radius }, { x: right, y: bottom - radius }),
+    corner(right - radius, bottom - radius, 0),
+    line({ x: right - radius, y: bottom }, { x: x + radius, y: bottom }),
+    corner(x + radius, bottom - radius, Math.PI / 2),
+    line({ x, y: bottom - radius }, { x, y: y + radius }),
+    corner(x + radius, y + radius, Math.PI),
+  ]
+  return pieces.filter((piece) => piece.length > 0)
+}
+
+/**
+ * Traces the first `reveal` of a box shape's border as one open path
+ * (#690), in the order `boxBorderPieces` gives — the part a *Draw on*
+ * entrance has drawn so far, to be stroked like the whole border.
+ */
+function traceBorderPart(
+  context: ShapeContext,
+  shape: BoxShape,
+  reveal: number,
+  frameWidth: number,
+  frameHeight: number,
+) {
+  const pieces = boxBorderPieces(shape, frameWidth, frameHeight)
+  const total = pieces.reduce((sum, piece) => sum + piece.length, 0)
+  let left = clamp(reveal, 0, 1) * total
+  context.beginPath()
+  let started = false
+  for (const piece of pieces) {
+    if (left <= 0) break
+    const part = Math.min(1, left / piece.length)
+    left -= piece.length
+    if (piece.kind === 'line') {
+      if (!started) context.moveTo(piece.from.x, piece.from.y)
+      context.lineTo(
+        piece.from.x + (piece.to.x - piece.from.x) * part,
+        piece.from.y + (piece.to.y - piece.from.y) * part,
+      )
+    } else {
+      // An arc joins the path with a straight line from where it stands to
+      // the arc's start, which is exactly where the previous piece ended.
+      context.ellipse(
+        piece.cx,
+        piece.cy,
+        piece.rx,
+        piece.ry,
+        0,
+        piece.start,
+        piece.start + (piece.end - piece.start) * part,
+      )
+    }
+    started = true
+  }
+}
+
+/**
+ * A group's shape part-way through a *Draw on* entrance (#690), at
+ * `reveal` in [0, 1): an arrow's shaft grows from its tail, with its heads
+ * still to come; a box's border is traced on from the top (an ellipse) or
+ * the top-left corner (a rectangle), clockwise; a fill fades in over the
+ * same time, and a badge fades in whole. Every stroke keeps its own line
+ * style, so a dashed border draws on dashed. `opacity` is the group's fade.
+ */
+function drawShapePart(
+  context: ShapeContext,
+  shape: Shape,
+  reveal: number,
+  opacity: number,
+  frameWidth: number,
+  frameHeight: number,
+) {
+  if (reveal <= 0) return
+  if (shape.kind === 'badge') {
+    drawBadge(context, shape, opacity * reveal, frameWidth, frameHeight)
+    return
+  }
+  if (shape.kind === 'arrow') {
+    if (shape.strokeOpacity <= 0) return
+    const shaft = arrowShaftAt(shape, reveal, frameWidth, frameHeight)
+    if (shaft === null) return
+    strokePart(context, shape, shape.strokeOpacity * opacity, shaft.lineWidth, () => {
+      context.beginPath()
+      context.moveTo(shaft.from.x, shaft.from.y)
+      context.lineTo(shaft.to.x, shaft.to.y)
+    })
+    return
+  }
+  if (shape.fillOpacity > 0) {
+    traceShape(context, shape, frameWidth, frameHeight)
+    context.globalAlpha = shape.fillOpacity * opacity * reveal
+    context.fillStyle = shape.fill
+    context.fill()
+  }
+  const lineWidth = shorterSidePixels(shape.thickness, frameWidth, frameHeight)
+  if (lineWidth <= 0 || shape.strokeOpacity <= 0) return
+  strokePart(context, shape, shape.strokeOpacity * opacity, lineWidth, () =>
+    traceBorderPart(context, shape, reveal, frameWidth, frameHeight),
+  )
+}
+
+/**
+ * Strokes the open path `trace` builds in the shape's border colour, at
+ * `alpha` and `lineWidth`, in its line style, with butt ends: the end of a
+ * stroke still being drawn is where the pen is, not a rounded cap past it.
+ */
+function strokePart(
+  context: ShapeContext,
+  shape: ShapeStyle,
+  alpha: number,
+  lineWidth: number,
+  trace: () => void,
+) {
+  context.save()
+  context.setLineDash(lineDashFor(shape.lineStyle, lineWidth))
+  context.lineCap = 'butt'
+  context.globalAlpha = alpha
+  context.strokeStyle = shape.stroke
+  context.lineWidth = lineWidth
+  trace()
+  context.stroke()
+  context.restore()
+}
+
+/**
  * A badge's number size, as a fraction of its diameter, by how many digits
  * it has (#689): one digit large, three small enough to sit inside the disc.
  * Sized by count rather than measured, so every engine sets the same size.
@@ -1026,7 +1300,9 @@ function drawBadge(
  * outline as PowerPoint draws it; an arrow fills its one outline (shaft and
  * heads) in the border's colour; a badge fills its disc, rings it and sets
  * its number on top (#689). The group's fade multiplies each shape's
- * own opacities, so a group fading in brings its shapes up together.
+ * own opacities, so a group fading in brings its shapes up together. A
+ * group entering by *Draw on* (#690) draws each shape's revealed part
+ * until its draw-on is over (`drawShapePart`).
  */
 export function drawShapeGroups(
   context: ShapeContext,
@@ -1042,7 +1318,14 @@ export function drawShapeGroups(
   for (const group of active) {
     const opacity = shapeGroupOpacityAt(group, sequenceTime)
     if (opacity <= 0) continue
+    // A *Draw on* group still drawing (#690) takes the partial path; once
+    // its draw-on is over it draws exactly as a group with no entrance.
+    const reveal = shapeGroupRevealAt(group, sequenceTime)
     for (const shape of group.shapes) {
+      if (reveal < 1) {
+        drawShapePart(context, shape, reveal, opacity, frameWidth, frameHeight)
+        continue
+      }
       if (shape.kind === 'badge') {
         drawBadge(context, shape, opacity, frameWidth, frameHeight)
         continue

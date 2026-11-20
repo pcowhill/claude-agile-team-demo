@@ -99,6 +99,7 @@ import type {
   LineStyle,
   Shape,
   ShapeGroup,
+  ShapeEntrance,
   ShapeGroupSpec,
   ShapeKind,
 } from '../lib/shapes'
@@ -118,13 +119,17 @@ import {
   MIN_BADGE_SIZE,
   MIN_SHAPE_SIZE,
   newBadge,
+  SHAPE_ENTRANCE_LABELS,
+  SHAPE_ENTRANCES,
   SHAPE_KIND_LABELS,
   SHAPE_KINDS,
+  shapeGroupEntrance,
   shapeGroupName,
   shorterSideFraction,
   shorterSidePixels,
   styleForNextShape,
   withLineStyle,
+  withShapeEntrance,
 } from '../lib/shapes'
 import type { TextFontId } from '../lib/textOverlay'
 import {
@@ -4593,16 +4598,54 @@ export function Timeline({
                           onCommit={(duration) => set({ duration })}
                           unit="s"
                         />
-                        <LabelledField text="Fade in">
-                          <SecondsField
-                            label={`Fade-in of ${position} in seconds`}
-                            value={group.fadeIn ?? 0}
-                            max={group.duration}
-                            onCommit={(fadeIn) => set({ fadeIn })}
-                            unit="s"
-                          />
+                        {/* The entrance (#690): fade in, or draw the shapes
+                            on. Switching replaces the whole spec, since the
+                            two lengths are alternatives and one key must go;
+                            the length carries over (`withShapeEntrance`). */}
+                        <LabelledField text="Entrance">
+                          <select
+                            aria-label={`Entrance of ${position}`}
+                            value={shapeGroupEntrance(group)}
+                            onChange={(event) =>
+                              onUpdateShapeGroup?.(
+                                group.id,
+                                withShapeEntrance(
+                                  shapeGroupSpecOf(group),
+                                  event.target.value as ShapeEntrance,
+                                ),
+                              )
+                            }
+                          >
+                            {SHAPE_ENTRANCES.map((entrance) => (
+                              <option key={entrance} value={entrance}>
+                                {SHAPE_ENTRANCE_LABELS[entrance]}
+                              </option>
+                            ))}
+                          </select>
                         </LabelledField>
-                        <LabelledField text="out">
+                        {group.drawOn === undefined ? (
+                          <LabelledField text="Fade in">
+                            <SecondsField
+                              label={`Fade-in of ${position} in seconds`}
+                              value={group.fadeIn ?? 0}
+                              max={group.duration}
+                              onCommit={(fadeIn) => set({ fadeIn })}
+                              unit="s"
+                            />
+                          </LabelledField>
+                        ) : (
+                          <LabelledField text="over">
+                            <SecondsField
+                              label={`Draw-on time of ${position} in seconds`}
+                              value={group.drawOn}
+                              min={0.1}
+                              max={group.duration}
+                              onCommit={(drawOn) => set({ drawOn })}
+                              unit="s"
+                            />
+                          </LabelledField>
+                        )}
+                        <LabelledField text={group.drawOn === undefined ? 'out' : 'Fade out'}>
                           <SecondsField
                             label={`Fade-out of ${position} in seconds`}
                             value={group.fadeOut ?? 0}
