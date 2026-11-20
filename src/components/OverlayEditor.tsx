@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   FREE_RECT_HANDLES,
@@ -11,8 +11,11 @@ import {
 } from '../lib/frameEditor'
 import type { FrameRect, RectBounds, RectGesture, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
+import { overlayPictureRect } from '../lib/exportVideo'
+import { probeSourceSize } from '../lib/probeSourceSize'
+import type { SourceSize } from '../lib/probeSourceSize'
 import type { TimelineState } from '../lib/timeline'
-import { MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
+import { isImageOverlay, MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
 import type { VideoOverlay } from '../lib/videoOverlay'
 import { FrameEditor } from './FrameEditor'
 
@@ -77,6 +80,40 @@ export function OverlayEditor({
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
+
+  // The source's pixel size (#795), which says where the picture sits
+  // inside the rectangle. Unknown until the probe reports, and the
+  // silhouette stays on the whole rectangle until then — the outline the
+  // picture has whenever it fills its rectangle.
+  const [sourceSize, setSourceSize] = useState<SourceSize | null>(null)
+  const image = isImageOverlay(overlay)
+  useEffect(() => {
+    setSourceSize(null)
+    return probeSourceSize(overlay.url, image, setSourceSize)
+  }, [overlay.url, image])
+
+  // The silhouette is cut from the picture, not the rectangle (#791): the
+  // crop's kept region, oriented, letterboxed inside the live rectangle —
+  // the export's own rule, so the outline is the cut the export makes.
+  const { crop, orientation } = overlay
+  const pictureOutline = useCallback(
+    (rect: FrameRect, frame: { width: number; height: number }) =>
+      sourceSize === null
+        ? {
+            x: rect.x * frame.width,
+            y: rect.y * frame.height,
+            width: rect.width * frame.width,
+            height: rect.height * frame.height,
+          }
+        : overlayPictureRect(
+            { ...rect, crop, orientation },
+            sourceSize.width,
+            sourceSize.height,
+            frame.width,
+            frame.height,
+          ),
+    [sourceSize, crop, orientation],
+  )
 
   /**
    * The aspect a Shift-held corner drag keeps: the rectangle's own, as it
@@ -162,7 +199,9 @@ export function OverlayEditor({
         describedBy={hintId}
         handles={FREE_RECT_HANDLES}
         guides={rectGuides(shown)}
-        {...(overlay.shapeMask === undefined ? {} : { silhouette: overlay.shapeMask })}
+        {...(overlay.shapeMask === undefined
+          ? {}
+          : { silhouette: overlay.shapeMask, silhouetteOutline: pictureOutline })}
         {...(snapshot === undefined ? {} : { snapshot })}
       />
       <p className="effect-editor-readout">

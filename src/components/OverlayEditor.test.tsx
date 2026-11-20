@@ -350,6 +350,57 @@ describe('visual overlay placement editor (#422)', () => {
     expect(Number(rounded.getAttribute('rx'))).toBeCloseTo(0.15 * 78.75, 2)
   })
 
+  it('draws the silhouette on the picture once the source size is known, not on the whole rectangle (#795)', async () => {
+    // jsdom decodes no images: this stand-in reports cam.png's 320 × 320
+    // the way a loaded `new Image()` does, so the editor's probe resolves.
+    class LoadedImage {
+      onload: (() => void) | null = null
+      naturalWidth = 0
+      naturalHeight = 0
+      set src(url: string) {
+        if (url !== 'blob:cam.png') return
+        queueMicrotask(() => {
+          this.naturalWidth = 320
+          this.naturalHeight = 320
+          this.onload?.()
+        })
+      }
+      removeAttribute() {}
+    }
+    vi.stubGlobal('Image', LoadedImage)
+    render(<App />)
+    await placeOverlay()
+    await openPicture(position)
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: `Shape mask of ${position}` }),
+      'ellipse',
+    )
+    await userEvent.click(adjustButton())
+
+    // The square picture letterboxed in the 140 × 78.75 px rectangle is
+    // 78.75 px square, centred: the ellipse is a circle of radius 39.375,
+    // not the 70 × 39.375 ellipse inscribed in the rectangle.
+    const ellipse = screen.getByTestId('frame-editor-silhouette')
+    const attr = (element: Element, name: string) => Number(element.getAttribute(name))
+    await vi.waitFor(() => expect(attr(ellipse, 'rx')).toBeCloseTo(39.375, 1))
+    expect(attr(ellipse, 'ry')).toBeCloseTo(39.375, 1)
+    expect(attr(ellipse, 'cx')).toBeCloseTo(318, 1)
+
+    // Live while dragging: widen from the west edge by 40 px, and the circle
+    // stays the picture's — as tall as the rectangle, recentred on it.
+    fireEvent.pointerDown(screen.getByTestId('frame-editor-edge-w'), {
+      pointerId: 1,
+      button: 0,
+      clientX: 248,
+      clientY: 179,
+    })
+    fireEvent.pointerMove(handles(), { pointerId: 1, clientX: 208, clientY: 179, altKey: true })
+    const live = screen.getByTestId('frame-editor-silhouette')
+    expect(attr(live, 'rx')).toBeCloseTo(39.375, 1)
+    expect(attr(live, 'cx')).toBeCloseTo(298, 1)
+    fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 208, clientY: 179, altKey: true })
+  })
+
   it('is hidden when the Visual editors setting is off, rendering no frame', async () => {
     render(<App />)
     await placeOverlay()

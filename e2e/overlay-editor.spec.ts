@@ -272,22 +272,172 @@ test('Shift on a corner keeps the proportions, and the mask silhouette is drawn 
   await page.getByRole('combobox', { name: `Shape mask of ${position}` }).selectOption('ellipse')
   const silhouette = editor.getByTestId('frame-editor-silhouette')
   await expect(silhouette).toHaveAttribute('data-shape', 'ellipse')
-  // Inscribed in the rectangle the region draws, to a pixel. Both boxes are
-  // re-measured after the disclosure opened and the panel was scrolled.
+  // Inscribed in the *picture* (#795), the mask's real outline since #791:
+  // cam.png is square, and the Shift-kept box is far wider than tall in
+  // pixels, so the picture is a square as tall as the box, centred in it,
+  // and the ellipse is a circle of half the box's height. (Until #795 it
+  // was inscribed in the whole box, which is not what the preview or the
+  // export cuts.) The probe that sizes the picture reports after the
+  // editor opens, so the radius is polled. Both boxes are re-measured after
+  // the disclosure opened and the panel was scrolled.
   // The radius is held to 1.05 rather than 1, for the region's box. In
   // Chromium that box is the rect's geometry. In Firefox it includes the
-  // 2 px stroke and is rounded out to 1/60 px, so half its width is
+  // 2 px stroke and is rounded out to 1/60 px, so half its height is
   // 1 + 1/60 px over the radius (#598: 135.417 against an rx of 134.4). The
   // centre is unaffected, because the stroke is symmetric.
   const scrolledFrame = (await editor.getByTestId('frame-editor-frame').boundingBox())!
   const drawn = (await region.boundingBox())!
-  const measured = await silhouette.evaluate((node) => ({
-    cx: Number(node.getAttribute('cx')),
-    rx: Number(node.getAttribute('rx')),
-  }))
-  expect(Math.abs(measured.rx - drawn.width / 2)).toBeLessThanOrEqual(1.05)
+  const attrs = () =>
+    silhouette.evaluate((node) => ({
+      cx: Number(node.getAttribute('cx')),
+      rx: Number(node.getAttribute('rx')),
+      ry: Number(node.getAttribute('ry')),
+    }))
+  await expect.poll(async () => Math.abs((await attrs()).rx - drawn.height / 2)).toBeLessThanOrEqual(1.05)
+  const measured = await attrs()
+  expect(Math.abs(measured.ry - drawn.height / 2)).toBeLessThanOrEqual(1.05)
   expect(Math.abs(measured.cx - (drawn.x - scrolledFrame.x + drawn.width / 2))).toBeLessThan(1)
   await editor.screenshot({ path: testInfo.outputPath('overlay-editor-ellipse.png') })
+})
+
+/**
+ * The placed box (the region's own rect) and the ellipse silhouette's box,
+ * both in page pixels and in one page read, so the two come from one render
+ * (#733) — mid-drag, they move together.
+ */
+async function boxAndEllipse(editor: Locator) {
+  return editor.evaluate((node) => {
+    const frame = node.querySelector('[data-testid="frame-editor-frame"]')!.getBoundingClientRect()
+    const region = node.querySelector('[data-testid="frame-editor-rect"]')!
+    const ellipse = node.querySelector('[data-testid="frame-editor-silhouette"]')!
+    const read = (element: Element, name: string) => Number(element.getAttribute(name))
+    const [cx, cy, rx, ry] = ['cx', 'cy', 'rx', 'ry'].map((name) => read(ellipse, name))
+    return {
+      // The rect's geometry, not its bounding box: no stroke, in any browser.
+      box: {
+        x: frame.x + read(region, 'x'),
+        y: frame.y + read(region, 'y'),
+        width: read(region, 'width'),
+        height: read(region, 'height'),
+      },
+      ellipse: { x: frame.x + cx - rx, y: frame.y + cy - ry, width: rx * 2, height: ry * 2 },
+    }
+  })
+}
+
+/**
+ * Where a picture of `source` (w × h, after crop) sits inside the placed
+ * box: fitted, centred — `object-fit: contain`, the rule the preview and the
+ * export letterbox an overlay with. Written out here rather than imported, so
+ * the spec checks the editor against the rule, not against itself.
+ */
+function pictureIn(box: { x: number; y: number; width: number; height: number }, source: { width: number; height: number }) {
+  const scale = Math.min(box.width / source.width, box.height / source.height)
+  const width = source.width * scale
+  const height = source.height * scale
+  return { x: box.x + (box.width - width) / 2, y: box.y + (box.height - height) / 2, width, height }
+}
+
+test('a cropped overlay\'s silhouette is drawn on its picture, live while the box is resized (#795)', async ({
+  page,
+}, testInfo) => {
+  const editor = await openEditor(page)
+  await openPicture(page, position)
+  // 25 % off the left and the right, as #791's spec crops: the 240 × 240
+  // still keeps its middle 120 × 240, a portrait picture, letterboxed in the
+  // default 0.35 × 0.35 box, which on the 16:9 frame is wider than tall.
+  // (A crop on all four sides would leave the square square, and could not
+  // tell a picture that honours the crop from one that ignores it.)
+  for (const edge of ['left', 'right']) {
+    const field = page.getByRole('spinbutton', { name: `Crop ${edge} of ${position} (percent)` })
+    await field.fill('25')
+    await field.blur()
+    await expect(field).toHaveValue('25')
+  }
+  const kept = { width: 120, height: 240 }
+  await page.getByRole('combobox', { name: `Shape mask of ${position}` }).selectOption('ellipse')
+  await editor.scrollIntoViewIfNeeded()
+  const silhouette = editor.getByTestId('frame-editor-silhouette')
+  await expect(silhouette).toHaveAttribute('data-shape', 'ellipse')
+
+  // Half a pixel each way: the attributes are rounded to a hundredth, and
+  // the box is read from the rect's own geometry, so no stroke enters it.
+  const TOLERANCE = 0.5
+  const offPicture = async () => {
+    const { box, ellipse } = await boxAndEllipse(editor)
+    const picture = pictureIn(box, kept)
+    return Math.max(
+      Math.abs(ellipse.x - picture.x),
+      Math.abs(ellipse.y - picture.y),
+      Math.abs(ellipse.width - picture.width),
+      Math.abs(ellipse.height - picture.height),
+    )
+  }
+  const expectOnPicture = (what: string) =>
+    expect
+      .poll(offPicture, { message: `the silhouette's box against the picture's, ${what}` })
+      .toBeLessThanOrEqual(TOLERANCE)
+
+  await expectOnPicture('at rest')
+  // And it is not the box: a 1:2 picture in a wide box is far narrower.
+  const rest = await boxAndEllipse(editor)
+  expect(rest.ellipse.width).toBeLessThan(rest.box.width / 2)
+
+  // Mid-gesture: the east edge dragged 15 % of the frame left (Alt: no
+  // snapping), held down while the outline is measured.
+  const frameBox = (await editor.getByTestId('frame-editor-frame').boundingBox())!
+  const edge = (await editor.getByTestId('frame-editor-edge-e').boundingBox())!
+  const from = { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 }
+  await page.mouse.move(from.x, from.y)
+  await page.keyboard.down('Alt')
+  await page.mouse.down()
+  for (let step = 1; step <= 8; step++) {
+    await page.mouse.move(from.x - (frameBox.width * 0.15 * step) / 8, from.y)
+  }
+  await expect
+    .poll(async () => (await boxAndEllipse(editor)).box.width)
+    .toBeLessThan(rest.box.width - frameBox.width * 0.1)
+  await expectOnPicture('mid-drag')
+  await editor.screenshot({ path: testInfo.outputPath('overlay-editor-cropped-ellipse.png') })
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  await expect(
+    page.getByRole('spinbutton', { name: `Width of ${position} (fraction of frame width)` }),
+  ).not.toHaveValue('0.35')
+  await expectOnPicture('after the commit')
+
+  // Where the picture fills its rectangle, the silhouette is inscribed in
+  // the rectangle exactly as before #795: no crop, and a box 0.27 × 0.48 of
+  // the 16:9 frame, which is square in pixels like the still.
+  for (const edge of ['left', 'right']) {
+    const field = page.getByRole('spinbutton', { name: `Crop ${edge} of ${position} (percent)` })
+    await field.fill('0')
+    await field.blur()
+    await expect(field).toHaveValue('0')
+  }
+  for (const [name, value] of [
+    [`Width of ${position} (fraction of frame width)`, '0.27'],
+    [`Height of ${position} (fraction of frame height)`, '0.48'],
+  ] as const) {
+    const field = page.getByRole('spinbutton', { name })
+    await field.fill(value)
+    await field.press('Enter')
+    await expect(field).toHaveValue(value)
+  }
+  await expect
+    .poll(
+      async () => {
+        const { box, ellipse } = await boxAndEllipse(editor)
+        return Math.max(
+          Math.abs(ellipse.x - box.x),
+          Math.abs(ellipse.y - box.y),
+          Math.abs(ellipse.width - box.width),
+          Math.abs(ellipse.height - box.height),
+        )
+      },
+      { message: 'the silhouette against the rectangle, when the picture fills it' },
+    )
+    .toBeLessThanOrEqual(TOLERANCE)
 })
 
 test('the placement editor fits the timeline panel at both widths (#422)', async ({ page }) => {
