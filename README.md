@@ -124,6 +124,21 @@ pactl load-module module-null-sink sink_name=e2e_null
 pactl set-default-sink e2e_null
 ```
 
+**Run the Chromium project with the sink stopped** (#618). While a sound
+server is running, Chromium plays to it. In a session container its audio
+clock then stands still for about 1.5–2 s after each export starts, although
+the `AudioContext` already reports `running`. A 2 s export can end before
+the clock moves. It downloads as a 110-byte file, or its sound is silent or
+starts late.
+
+Without a server, Chromium uses its own fake output, which starts at once.
+CI relies on this: its Chromium step runs before the sink step. Locally, run
+Chromium first, or stop the sink before running it:
+
+```bash
+pulseaudio -k   # then: npx playwright test --project=chromium
+```
+
 What the Firefox project does not run yet, and the issue that owns each
 entry, is listed at the top of [`playwright.config.ts`](playwright.config.ts).
 
