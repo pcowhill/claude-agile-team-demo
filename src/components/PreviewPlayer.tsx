@@ -69,6 +69,7 @@ import {
   drawOverlayBorder,
   drawOverlayShadow,
   fitRect,
+  overlayPictureRect,
   withLayerOrientation,
 } from '../lib/exportVideo'
 import type { OverlayBorder } from '../lib/overlayBorder'
@@ -701,6 +702,29 @@ function ShapeLayer({ groups, time }: { groups: readonly ShapeGroup[]; time: num
       aria-hidden="true"
     />
   )
+}
+
+/**
+ * An overlay's outline (#791) in frame fractions: the visible picture —
+ * `overlayPictureRect`, the rule the export draws the mask, border and
+ * shadow on — given the source's probed dimensions and the frame. Before
+ * the probe reports, it is the placed rectangle itself, which is also
+ * what it equals whenever the picture fills its rectangle.
+ */
+function overlayOutline(
+  overlay: VideoOverlay,
+  dims: SourceDimensions | undefined,
+  frame: { width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  const placed = { x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height }
+  if (dims === undefined || frame.width <= 0 || frame.height <= 0) return placed
+  const picture = overlayPictureRect(overlay, dims.width, dims.height, frame.width, frame.height)
+  return {
+    x: picture.x / frame.width,
+    y: picture.y / frame.height,
+    width: picture.width / frame.width,
+    height: picture.height / frame.height,
+  }
 }
 
 /**
@@ -2817,11 +2841,18 @@ export function PreviewPlayer({
                 // the fractions' ratio (both resolve against the frame).
                 const cardAspect =
                   overlay.height > 0 ? previewAspect * (overlay.width / overlay.height) : 0
-                // Shape mask (#266): the card's box IS the placed rectangle,
-                // so the shared rule's clip-path cuts the placed silhouette —
-                // after crop/orientation shaped the picture inside. Mask-free
+                // The overlay's outline (#791): its picture — crop and
+                // orientation, letterboxed in the card — in frame fractions,
+                // the export's `overlayPictureRect`. The shape mask, border
+                // and shadow are drawn on it, so they follow what a crop
+                // kept. Until the source's dimensions are probed it is the
+                // card itself, as the crop placement waits for the same probe.
+                const outline = overlayOutline(overlay, sourceDims.get(overlay.url), frame)
+                // Shape mask (#266): the card's box is the placed rectangle,
+                // so the shared rule's clip-path insets to the outline inside
+                // it — after crop/orientation shaped the picture. Mask-free
                 // overlays get no clipPath key at all (the #255 discipline).
-                const clipPath = maskClipPath(overlay.shapeMask, overlay)
+                const clipPath = maskClipPath(overlay.shapeMask, overlay, outline)
                 const overlayTime = videoOverlayPlaybackAt(overlay, sequenceTime).sourceTime
                 // The overlay's own zoom (#699), the export's
                 // `zoomRectWithin`: the picture and its regions magnify
@@ -2833,13 +2864,13 @@ export function PreviewPlayer({
                   <Fragment key={overlay.id}>
                   {active && shadow !== undefined && (
                     <OverlayShadowLayer
-                      overlay={{ ...overlay, shadow }}
+                      overlay={{ ...overlay, ...outline, shadow }}
                       testId={`preview-overlay-shadow-${index}`}
                     />
                   )}
                   {active && border !== undefined && (
                     <OverlayBorderLayer
-                      overlay={{ ...overlay, border }}
+                      overlay={{ ...overlay, ...outline, border }}
                       testId={`preview-overlay-border-${index}`}
                     />
                   )}

@@ -3,12 +3,14 @@
  * overlay's silhouette in one colour, drawn beneath it, so the overlay reads
  * as lifted off the picture below.
  *
- * The shadow is cast by the overlay's **silhouette**: the placed rectangle,
- * or the ellipse or rounded rectangle its shape mask (#266) cuts it to, grown
- * by its border (#697) when it has one. It is not cast by the picture's own
- * alpha. It is kept only **outside** that silhouette, as a CSS `box-shadow`
- * is. A letterboxed picture, or a still with transparent areas, never shows
- * shadow through its own rectangle. Both renderers draw it with one routine
+ * The shadow is cast by the overlay's **silhouette**: its outline (the
+ * visible picture, `overlayPictureRect`, #791), or the ellipse or rounded
+ * rectangle its shape mask (#266) cuts from it, grown by its border (#697)
+ * when it has one. It is not cast by the picture's own alpha. It is kept
+ * only **outside** that silhouette, as a CSS `box-shadow` is. A still with
+ * transparent areas never shows shadow through itself; a letterboxed or
+ * cropped picture casts from its own edges, so its shadow can fall in the
+ * gutters of its rectangle. Both renderers draw it with one routine
  * (`drawOverlayShadow` in exportVideo.ts, which the preview calls on a
  * frame-sized canvas), so they cannot disagree.
  *

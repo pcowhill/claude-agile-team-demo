@@ -2338,6 +2338,49 @@ describe('overlay shape mask (#266)', () => {
     expect(card().style.clipPath).toBe('')
     expect(card().getAttribute('style')).not.toContain('clip-path')
   })
+
+  it('on a cropped picture the ellipse is inscribed in what the crop kept, once the source is probed (#791)', async () => {
+    /** An 800×450 photo, decoded at once. */
+    class InstantLandscapeImage {
+      onload: (() => void) | null = null
+      naturalWidth = 0
+      naturalHeight = 0
+      set src(_value: string) {
+        this.naturalWidth = 800
+        this.naturalHeight = 450
+        queueMicrotask(() => this.onload?.())
+      }
+      removeAttribute() {}
+    }
+    const base = maskedTimeline({ kind: 'ellipse' })
+    const [overlay] = base.videoOverlays ?? []
+    const cropped: TimelineState = {
+      ...base,
+      videoOverlays: [
+        {
+          ...overlay,
+          name: 'photo.png',
+          url: 'blob:photo',
+          kind: 'image',
+          crop: { left: 0.25, right: 0.25, top: 0, bottom: 0 },
+        },
+      ],
+    }
+    vi.stubGlobal('Image', InstantLandscapeImage)
+    try {
+      render(<PreviewPlayer timeline={cropped} />)
+      // Before the probe lands, the outline is the card.
+      expect(card().style.clipPath).toBe('ellipse(50% 50% at 50% 50%)')
+      await act(async () => {})
+      // The base video never probes in jsdom, so the frame is the 16:9
+      // fallback and the card is 0.35·16 by 0.4·9 = 5.6 by 3.6 units. The
+      // 400×450 kept region fits it 3.2 units wide, full height: an ellipse
+      // with x-radius 1.6 / 5.6 of the card, centred.
+      expect(card().style.clipPath).toBe('ellipse(28.5714% 50% at 50% 50%)')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe('transition handovers (#318)', () => {

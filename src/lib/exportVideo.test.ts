@@ -27,6 +27,7 @@ import {
   ExportUnsupportedError,
   resolveExportRange,
   overlayDestRect,
+  overlayPictureRect,
   pickExportMimeType,
   recorderStream,
   syncAudioTwin,
@@ -1109,6 +1110,45 @@ describe('overlayDestRect (#146)', () => {
   })
 })
 
+describe('overlayPictureRect (#791)', () => {
+  const placed = { x: 0.5, y: 0.5, width: 0.25, height: 0.25 }
+
+  it('is the placed rectangle when the picture fills it', () => {
+    // A 16:9 source in a 16:9-shaped box on a 640×360 frame.
+    expect(overlayPictureRect(placed, 320, 180, 640, 360)).toEqual({
+      x: 320,
+      y: 180,
+      width: 160,
+      height: 90,
+    })
+  })
+
+  it('narrows with a crop: the kept region letterboxes inside the box', () => {
+    // Half the width cropped away: 160×180 kept, fitted as 80×90 in 160×90.
+    const crop = { left: 0.25, right: 0.25, top: 0, bottom: 0 }
+    expect(overlayPictureRect({ ...placed, crop }, 320, 180, 640, 360)).toEqual({
+      x: 360,
+      y: 180,
+      width: 80,
+      height: 90,
+    })
+  })
+
+  it('crops before it orients, as the picture draw does', () => {
+    // 320×90 kept (bottom half cropped), turned a quarter: 90×320 in 160×90.
+    const rect = overlayPictureRect(
+      { ...placed, crop: { left: 0, right: 0, top: 0, bottom: 0.5 }, orientation: { rotation: 90 } },
+      320,
+      180,
+      640,
+      360,
+    )
+    expect(rect.height).toBeCloseTo(90)
+    expect(rect.width).toBeCloseTo((90 * 90) / 320)
+    expect(rect.x + rect.width / 2).toBeCloseTo(400)
+  })
+})
+
 describe('activeVideoOverlays (#146)', () => {
   const entries = [
     {
@@ -2179,10 +2219,13 @@ describe('frame composition of overlay shape masks (#267)', () => {
     // is cut, never how it is drawn.
     const unmaskedPaint = unmasked.main.ops.slice(2)
     expect(unmaskedPaint.length).toBeGreaterThan(1)
+    // The ellipse is inscribed in the picture (#791): the 120×45 kept region
+    // turned a quarter is 45×120, letterboxed in the 80×45 box as a
+    // 16.875×45 picture centred on (200, 112.5).
     expect(masked.buffers[1].ops).toEqual([
       'clear(0, 0, 320, 180)',
       ...unmaskedPaint,
-      'ellipse(200, 112.5, 40, 22.5)',
+      'ellipse(200, 112.5, 8.44, 22.5)',
       'fillPath(#fff, destination-in)',
     ])
   })
@@ -2302,6 +2345,67 @@ describe('frame composition of overlay shape masks (#267)', () => {
       'ellipse(200, 112.5, 40, 22.5)',
       'fillPath(#fff, destination-in)',
     ])
+  })
+
+  describe('a cropped picture is the outline its mask, border and shadow follow (#791)', () => {
+    // Crop 25% off each side of the 160×90 source: an 80×90 kept region,
+    // letterboxed in the 80×45 box as a 40×45 picture at (180, 90) — the
+    // 20 px either side of it are the transparent gutters.
+    const crop = { left: 0.25, right: 0.25, top: 0, bottom: 0 }
+
+    it('the picture draws into the 40×45 rect between the gutters', () => {
+      const { composer, main } = composerFor(overlayFor({ crop }))
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(main.ops.at(-1)).toMatch(/180, 90, 40, 45\], none\)$/)
+    })
+
+    it('an ellipse is inscribed in the picture, not the box', () => {
+      const { composer, buffers } = composerFor(overlayFor({ crop, shapeMask: { kind: 'ellipse' } }))
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(buffers[1].ops.slice(-2)).toEqual([
+        'ellipse(200, 112.5, 20, 22.5)',
+        'fillPath(#fff, destination-in)',
+      ])
+    })
+
+    it('a rounded mask rounds the picture by its own shorter side', () => {
+      const { composer, buffers } = composerFor(
+        overlayFor({ crop, shapeMask: { kind: 'rounded', radius: 0.2 } }),
+      )
+      composer.drawFrame(baseLayer, 0, 0)
+      // The picture's shorter side is 40, so 0.2 of it is 8 (the box's would be 9).
+      expect(buffers[1].ops.slice(-2)).toEqual([
+        'roundRect(180, 90, 40, 45, 8)',
+        'fillPath(#fff, destination-in)',
+      ])
+    })
+
+    it('a border follows the masked picture', () => {
+      const border = { color: '#00ff00', thickness: 0.05 }
+      const { composer, buffers } = composerFor(
+        overlayFor({ crop, border, shapeMask: { kind: 'ellipse' } }),
+      )
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(buffers[1].ops.slice(0, 5)).toEqual([
+        'clear(0, 0, 320, 180)',
+        'ellipse(200, 112.5, 20, 22.5)',
+        'strokePath(#00ff00, 18, miter)',
+        'ellipse(200, 112.5, 20, 22.5)',
+        'fillPath(#fff, destination-out)',
+      ])
+    })
+
+    it('a shadow is cast from the picture, so its box is the picture grown by the border', () => {
+      const shadow = { color: '#ff0000', opacity: 1, blur: 0, offsetX: 0.05, offsetY: 0.05 }
+      const border = { color: '#00ff00', thickness: 0.05 }
+      const { composer, buffers } = composerFor(overlayFor({ crop, shadow, border }))
+      composer.drawFrame(baseLayer, 0, 0)
+      // (180, 90, 40, 45) grown by the border's 9 px and 1 px of margin:
+      // 170 to 230 across, 80 to 145 down — not the box's 150 to 250.
+      expect(buffers[2].ops).toContain(
+        'draw(buffer-1, [170, 80, 60, 65, -471, 80, 60, 65], none) shadow(rgba(255, 0, 0, 1), 0, 650, 9)',
+      )
+    })
   })
 })
 
