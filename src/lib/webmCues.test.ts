@@ -215,6 +215,31 @@ describe('planWebmCues (#584)', () => {
     expect(points[0].cluster).toBeLessThan(points[1].cluster)
   })
 
+  it('cues an audio-only file at the first block of each cluster, keyframe flag or not (#789)', () => {
+    // Firefox's voice-over shape: one unknown-size cluster a second, no Cues.
+    const source = Uint8Array.from([
+      ...ebmlHeader(),
+      ...unsized(
+        0x18538067,
+        el(0x114d9b74),
+        info(),
+        tracks(track(1, AUDIO)),
+        unsized(0x1f43b675, timecode(6), block(1, 0, true), block(1, 20, true)),
+        unsized(0x1f43b675, timecode(1006), block(1, 0, false), block(1, 20, false)),
+        unsized(0x1f43b675, timecode(2006), block(1, 0, true)),
+      ),
+    ])
+    const out = applied(source)
+    const { points } = inspect(out)
+    expect(points.map((p) => [p.time, p.track])).toEqual([
+      [6, 1],
+      [1006, 1],
+      [2006, 1],
+    ])
+    expect(points.every((p) => read(out, p.cluster).id === 0x1f43b675)).toBe(true)
+    expect(planWebmCues(out)).toBeNull()
+  })
+
   it('reads a BlockGroup as a keyframe only when it references no other block', () => {
     const groupBlock = (relative: number, reference: boolean) =>
       el(
@@ -277,10 +302,10 @@ describe('planWebmCues (#584)', () => {
       return Uint8Array.from([...mkv, ...webm.subarray(ebmlHeader().length)])
     }],
     ['is not EBML at all', () => Uint8Array.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])],
-    ['has no video track', () =>
+    ['has neither a video nor an audio track', () =>
       Uint8Array.from([
         ...ebmlHeader(),
-        ...unsized(0x18538067, info(), tracks(track(1, AUDIO)), unsized(0x1f43b675, timecode(0), block(1, 0, true))),
+        ...unsized(0x18538067, info(), tracks(track(1, 0x11)), unsized(0x1f43b675, timecode(0), block(1, 0, true))),
       ])],
     ['has no keyframe', () =>
       Uint8Array.from([
