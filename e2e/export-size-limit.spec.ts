@@ -102,6 +102,15 @@ async function openExport(page: Page, megabytes: number | null) {
   return dialog
 }
 
+/**
+ * How far over its limit a Firefox export may land in the half-size test
+ * (#760). The worst of 15 measured CI tries was 105.7 % of the limit, and
+ * 10 % covers it with room to spare. A limit that did nothing would leave
+ * the file at twice the limit, which the separate 0.6 × unlimited check
+ * catches whatever this tolerance is.
+ */
+const FIREFOX_OVERSHOOT_TOLERANCE = 0.1
+
 /** Presses Export and returns the downloaded file's bytes. */
 async function exportBytes(page: Page): Promise<Buffer> {
   const download = page.waitForEvent('download', { timeout: 180_000 })
@@ -138,9 +147,23 @@ test('a Custom limit at half an unlimited export’s size brings the file under 
   // The unlimited file exceeded the limit (it is twice it), so the limit is
   // what brought the second one under.
   expect(unlimited.length).toBeGreaterThan(limitBytes)
-  expect(limited.length, `limited ${limited.length} B against a ${limitBytes} B limit`).toBeLessThanOrEqual(
-    limitBytes,
+  // The limit did the work: the rates it chose cut the file to about half.
+  // Measured over 15 CI tries per browser (#760): Firefox at most 52.9 % of
+  // the unlimited file, Chromium at most 43.6 %.
+  expect(limited.length, `limited ${limited.length} B against unlimited ${unlimited.length} B`).toBeLessThanOrEqual(
+    unlimited.length * 0.6,
   )
+  // Under the limit, as aimed. Firefox's recorder treats the rate as a
+  // target and overshoots it: across the same tries it landed at 80.2 % to
+  // 105.7 % of the limit (Chromium: 73.2 % to 87.1 %), so the 10 % margin
+  // does not always absorb it. The guide says the limit is aimed at, not
+  // guaranteed, and Export again smaller (#727) is the remedy. Firefox gets
+  // a stated tolerance over the worst try seen; Chromium stays exact (#760).
+  const tolerance = browserName === 'firefox' ? FIREFOX_OVERSHOOT_TOLERANCE : 0
+  expect(
+    limited.length,
+    `limited ${limited.length} B against a ${limitBytes} B limit (tolerance ${tolerance * 100} %)`,
+  ).toBeLessThanOrEqual(Math.floor(limitBytes * (1 + tolerance)))
   // A limited export stays open to state what the file came to.
   await expect(dialog.getByTestId('export-size-result')).toContainText(
     `Saved sequence-export.webm: ${(Math.round(limited.length / 100_000) / 10).toString()}`,
