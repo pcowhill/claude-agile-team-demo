@@ -64,10 +64,12 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 
 export default defineConfig({
   testDir: './e2e',
+  // MEASUREMENT ONLY (#789): the recording specs and the measurement, with stdout in the log.
+  testMatch: ['**/measure-789b.spec.ts', '**/record-voice-over.spec.ts', '**/record-pause-countdown.spec.ts'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? 'github' : 'list',
+  reporter: 'list',
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
