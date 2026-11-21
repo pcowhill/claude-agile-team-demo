@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { RemapEffect, TimelineState, ZoomEffect } from './timeline'
 import {
-  audioTracksOf,
-  markersOf,
   rangeCutPlanFor,
   remapsOf,
   slateEntry,
-  textsOf,
   timelineReducer,
   totalDuration,
   transitionsOf,
-  videoOverlaysOf,
   zoomsOf,
 } from './timeline'
 import { emptyTimelineHistory, timelineHistoryReducer } from './history'
@@ -385,32 +381,6 @@ describe('range-cut (#823)', () => {
       expect(run(['b', 'y'])).toBe(state)
       expect(run(['x', 'a'])).toBe(state)
     })
-  })
-
-  it('leaves everything placed in sequence time where it was (the ripple is #824)', () => {
-    let state = stateOf(['a'], ['b'])
-    state = timelineReducer(state, {
-      type: 'audio-track-added',
-      track: {
-        id: 't1',
-        clipId: 'clip-t',
-        name: 'music.mp3',
-        duration: 30,
-        url: 'blob:t',
-        offset: 12,
-        inPoint: 0,
-        outPoint: 5,
-      },
-    })
-    state = timelineReducer(state, {
-      type: 'marker-added',
-      marker: { id: 'm1', time: 15, name: 'Chapter 1' },
-    })
-    const next = cut(state, 2, 6)
-    expect(audioTracksOf(next)).toEqual(audioTracksOf(state))
-    expect(markersOf(next)).toEqual(markersOf(state))
-    expect(textsOf(next)).toEqual(textsOf(state))
-    expect(videoOverlaysOf(next)).toEqual(videoOverlaysOf(state))
   })
 
   it('is one undo step, and that step restores the state exactly', () => {

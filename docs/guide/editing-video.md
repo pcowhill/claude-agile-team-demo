@@ -98,8 +98,15 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 - **It works across cuts.** An entry the range starts or ends inside is cut there exactly as [Split at playhead](#split-at-playhead) cuts, and an entry lying wholly inside the range is removed. A mark exactly on a cut needs no split.
 - **Effects follow the razor.** Speed segments, pauses and zooms inside the range go with it; one across a mark is cut there, or kept, as Split at playhead would. A mark inside a pause keeps the part of its hold on the kept side, so exactly the marked time is removed.
 - **Transitions.** A transition on a cut inside the range goes with it, and the two sides meet at a hard cut. Transitions elsewhere stay.
-- **Afterwards** the marks are cleared, since the range they bounded no longer exists, and the playhead stands on the join. The whole cut is one undo step.
-- **Everything placed by its own start time stays put.** Audio tracks, overlays, text, shape groups and chapter markers keep their times, as they do when an entry is removed, so anything placed after the range now comes that much earlier in the picture.
+- **Everything placed by its own start time moves with the picture.** Audio tracks, video and image overlays, text and subtitles, shape groups and chapter markers follow what they were placed against:
+  - one that starts at or after the out mark moves earlier by the range's length;
+  - one lying wholly inside the range is removed;
+  - one that starts before the range and ends inside it loses its tail, and one that starts inside it and ends after it loses its head and then starts at the in mark;
+  - one that covers the whole range stays one element, shorter by the range's length. One element cannot skip its middle, so it keeps its beginning and loses the range's length **from its end**.
+- **How an element is shortened.** An audio track or a video overlay is trimmed: a lost head moves its In, a lost tail its Out. A video overlay's own speed segments, pauses and zooms are cut at that moment, as the razor cuts an entry's. Text, an image overlay or a shape group gets a shorter duration. Fades and a draw-on shrink to fit.
+- **Chapter markers.** A marker inside the range is removed. One exactly on the in mark stays, and one after the range moves earlier. A marker that would land on one that stays is removed instead, since two markers cannot share an instant.
+- **It asks first when anything besides clips would change.** The question is one line, for example *"Removes 4.2 s. 3 subtitles and 1 video overlay after it move earlier."* **Cut out** goes ahead; **Cancel** or Esc leaves everything as it was. When only clips are touched it cuts at once.
+- **Afterwards** the marks are cleared, since the range they bounded no longer exists, and the playhead stands on the join. The whole cut, with everything it moved, is one undo step.
 
 The item is disabled, and X does nothing, without a marked range; while either mark is inside a transition's blend, where Split at playhead is disabled too; and when the range is the whole video, since removing everything is what each row's ✕ is for. It is also disabled where a kept part would be nothing but a held frame: an in mark inside a pause on an entry's first frame, or an out mark inside a pause on its last frame.
 

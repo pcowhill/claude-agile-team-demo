@@ -3746,6 +3746,93 @@ describe('Cut out marked range (#823)', () => {
   })
 })
 
+describe("Cut out marked range's confirmation (#824)", () => {
+  // Two 10 s clips; the marks bound [8, 13), 5 s. Two subtitles and a video
+  // overlay sit after the range, a hand-made title before it.
+  const subtitle = (id: string, offset: number) => ({
+    id,
+    content: id,
+    offset,
+    duration: 2,
+    x: 0.5,
+    y: 0.9,
+    font: 'sans' as const,
+    size: 0.05,
+    color: '#ffffff',
+    bold: false,
+    italic: false,
+    subtitle: true,
+  })
+  const populated: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'c1', name: 'first.webm', duration: 10, url: 'blob:first', inPoint: 0, outPoint: 10 },
+      { id: 'e2', clipId: 'c2', name: 'second.webm', duration: 10, url: 'blob:second', inPoint: 0, outPoint: 10 },
+    ],
+    texts: [{ ...subtitle('title', 1), subtitle: undefined }, subtitle('s1', 14), subtitle('s2', 16)],
+    videoOverlays: [
+      {
+        id: 'o1',
+        clipId: 'c3',
+        name: 'pip.webm',
+        duration: 10,
+        url: 'blob:pip',
+        offset: 15,
+        inPoint: 0,
+        outPoint: 3,
+        x: 0.6,
+        y: 0.6,
+        width: 0.3,
+        height: 0.3,
+      },
+    ],
+  }
+  const confirmation = () => screen.queryByRole('dialog', { name: 'Cut out marked range?' })
+  const pressOnWindow = (key: string) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }))
+    })
+
+  it('asks first, saying what moves, and cuts only on Cut out', () => {
+    const onCutRange = vi.fn()
+    render(<PreviewPlayer timeline={populated} markIn={8} markOut={13} onCutRange={onCutRange} />)
+    fireEvent.click(frameMenuItem('preview-cut-range'))
+    expect(confirmation()).toHaveTextContent(
+      'Removes 5 s. 2 subtitles and 1 video overlay after it move earlier.',
+    )
+    expect(onCutRange).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Cut out' }))
+    expect(confirmation()).toBeNull()
+    expect(onCutRange).toHaveBeenCalledWith(8, 13)
+  })
+
+  it('Cancel and Esc leave the timeline alone; X asks as the item does', () => {
+    const onCutRange = vi.fn()
+    render(<PreviewPlayer timeline={populated} markIn={8} markOut={13} onCutRange={onCutRange} />)
+    pressOnWindow('x')
+    expect(confirmation()).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(confirmation()).toBeNull()
+    pressOnWindow('x')
+    // A second X behind the open dialog does nothing: it is modal.
+    pressOnWindow('x')
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    // Focus starts on Cancel; Esc there bubbles to the dialog's listener.
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
+    expect(confirmation()).toBeNull()
+    expect(onCutRange).not.toHaveBeenCalled()
+  })
+
+  it('does not ask when nothing placed in sequence time is touched', () => {
+    const onCutRange = vi.fn()
+    // Only the title, which ends before the range.
+    const early: TimelineState = { ...populated, texts: [populated.texts![0]], videoOverlays: [] }
+    render(<PreviewPlayer timeline={early} markIn={8} markOut={13} onCutRange={onCutRange} />)
+    fireEvent.click(frameMenuItem('preview-cut-range'))
+    expect(confirmation()).toBeNull()
+    expect(onCutRange).toHaveBeenCalledWith(8, 13)
+  })
+})
+
 describe('image overlay layers in the preview (#294)', () => {
   // A 10s base entry with a still overlay showing over sequence [2, 5).
   const baseEntry = {

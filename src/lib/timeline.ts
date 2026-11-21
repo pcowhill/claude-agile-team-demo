@@ -53,6 +53,8 @@ import {
 } from './remap'
 import type { RangeCutPlan } from './rangeCut'
 import { RANGE_CUT_EPSILON, planRangeCut } from './rangeCut'
+import type { RippleChange, RippleCollections } from './ripple'
+import { rippleCut, splitZoomAt } from './ripple'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -1819,7 +1821,64 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
   }
   const next = reduceTimelineCollections(state, action)
   if (next === state || action.type === 'timeline-replaced') return next
+  // Cut out marked range (#824): everything placed in sequence time follows
+  // the picture. Here, not in `cutRange`, because markers and shape groups
+  // are project-level fields that `withProjectFields` would otherwise copy
+  // back unchanged.
+  if (action.type === 'range-cut') return withRipple(state, next, action.from, action.to)
   return withProjectFields(next, state)
+}
+
+/** The collections the ripple (#824) acts on, read from a state. */
+function rippleCollectionsOf(state: TimelineState): RippleCollections {
+  return {
+    audioTracks: audioTracksOf(state),
+    videoOverlays: videoOverlaysOf(state),
+    texts: textsOf(state),
+    shapeGroups: shapeGroupsOf(state),
+    markers: markersOf(state),
+  }
+}
+
+/**
+ * What Cut out marked range (#824) would move, shorten or remove besides
+ * the sequence's entries: the same `rippleCut` the reducer applies, so the
+ * confirmation's counts are what the cut does. Empty when the cut touches
+ * nothing placed in sequence time.
+ */
+export function rangeCutRipple(state: TimelineState, from: number, to: number): RippleChange[] {
+  return rippleCut(rippleCollectionsOf(state), from, to).changes
+}
+
+/**
+ * The cut timeline with the ripple applied (see `ripple.ts`). `state` is the
+ * timeline before the cut, whose project-level fields are carried; `cut` is
+ * what `cutRange` made of its collections. Normalization runs on the result
+ * as on any edit, which clamps fades, draw-ons and effect windows to the
+ * shortened elements.
+ */
+function withRipple(state: TimelineState, cut: TimelineState, from: number, to: number): TimelineState {
+  // Tracks, overlays and text come from the cut; the project-level fields
+  // were not part of it, so they come from the state before.
+  const rippled = rippleCut(
+    { ...rippleCollectionsOf(cut), shapeGroups: shapeGroupsOf(state), markers: markersOf(state) },
+    from,
+    to,
+  )
+  const next = withEffects(
+    cut.entries,
+    transitionsOf(cut),
+    zoomsOf(cut),
+    rippled.audioTracks,
+    remapsOf(cut),
+    rippled.texts,
+    rippled.videoOverlays,
+  )
+  return withProjectFields(next, {
+    ...state,
+    markers: normalizedMarkers(rippled.markers),
+    shapeGroups: rippled.shapeGroups.map(clampShapeGroup),
+  })
 }
 
 /**
@@ -1834,7 +1893,9 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
  * hold shortened as the plan says (see `rangeCut.ts`).
  *
  * Elements placed in sequence time — tracks, overlays, text, shape groups,
- * chapter markers — keep their times, as removing an entry leaves them.
+ * chapter markers — are rippled afterwards by `timelineReducer`
+ * (`withRipple`, #824), because two of them are project-level fields this
+ * collection reducer does not hold.
  */
 function cutRange(
   state: TimelineState,
@@ -2190,27 +2251,22 @@ function reduceTimelineCollections(
       // asserted by its test.
       const splitZooms = zooms.flatMap((zoom): ZoomEffect[] => {
         if (zoom.entryId !== action.id) return [zoom]
-        if (zoom.start + zoomWindowDuration(zoom) <= splitRel) return [zoom]
-        if (zoom.start >= splitRel) {
-          return [{ ...zoom, entryId: action.newEntryId, start: zoom.start - splitRel }]
-        }
-        const holdStart = zoom.start + zoom.rampIn
-        if (splitRel >= holdStart && splitRel <= holdStart + zoom.hold) {
-          return [
-            { ...zoom, hold: splitRel - holdStart, rampOut: 0 },
-            {
-              ...zoom,
-              // Fresh ids derive from the (fresh) second-half entry id, so a
-              // cut piece can never collide with any existing effect id.
-              id: `${action.newEntryId}:${zoom.id}`,
-              entryId: action.newEntryId,
-              start: 0,
-              rampIn: 0,
-              hold: holdStart + zoom.hold - splitRel,
-            },
-          ]
-        }
-        return [zoom]
+        const { before, after } = splitZoomAt(zoom, splitRel)
+        return [
+          ...(before === null ? [] : [before]),
+          ...(after === null
+            ? []
+            : [
+                {
+                  ...after,
+                  // Fresh ids derive from the (fresh) second-half entry id,
+                  // so a cut piece can never collide with any existing
+                  // effect id; a zoom that moves whole keeps its own.
+                  id: before === null ? zoom.id : `${action.newEntryId}:${zoom.id}`,
+                  entryId: action.newEntryId,
+                },
+              ]),
+        ]
       })
       // Remap effects cut exactly in every case: a speed segment containing
       // the cut becomes two segments with the same factor (the piecewise

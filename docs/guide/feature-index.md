@@ -70,7 +70,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## C
 
-- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying, and the Split window without splitting. A media library row for a file still importing; stops that import and adds nothing. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports)
+- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying, and the Split window without splitting. The *Cut out marked range?* confirmation; leaves the project as it was. A media library row for a file still importing; stops that import and adds nothing. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
 - **Centre X** — an expanded text row; the block's centre across the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 - **Centre Y** — an expanded text row; the block's centre down the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
@@ -99,7 +99,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Custom range** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
 - **Custom range end** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
 - **Custom range start** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
-- **Cut out marked range** — Frame ▾; removes the time between the marks from the sequence. [Editing video › Cut out marked range](editing-video.md#cut-out-marked-range)
+- **Cut out** — the *Cut out marked range?* confirmation, raised when the cut would also move, shorten or remove tracks, overlays, text, shape groups or chapter markers; goes ahead with the cut. [Editing video › Cut out marked range](editing-video.md#cut-out-marked-range)
+- **Cut out marked range** — Frame ▾; removes the time between the marks from the sequence, and moves everything placed after it earlier with the picture. [Editing video › Cut out marked range](editing-video.md#cut-out-marked-range)
 
 ## D
 

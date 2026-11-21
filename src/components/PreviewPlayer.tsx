@@ -19,7 +19,9 @@ import {
   markersOf,
   nextMarkerName,
   rangeCutPlanFor,
+  rangeCutRipple,
 } from '../lib/timeline'
+import { rippleSummary } from '../lib/ripple'
 import { RANGE_CUT_EPSILON } from '../lib/rangeCut'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { activeShapeGroups, drawShapeGroups } from '../lib/shapes'
@@ -113,6 +115,7 @@ import type { PreviewLayout } from '../lib/previewLayout'
 import { NameField } from './NameField'
 import type { MenuItem } from './Menu'
 import { ShortcutHelpDialog } from './ShortcutHelpDialog'
+import { ConfirmDialog } from './ConfirmDialog'
 import { SourcePreview } from './SourcePreview'
 import { boostOf, previewBoostRoute, setMediaGain, wakePreviewAudio } from '../lib/mediaGain'
 import './PreviewPlayer.css'
@@ -1215,13 +1218,37 @@ export function PreviewPlayer({
   // arrives. `total` is the length that timeline will have, so an edit that
   // is not this cut (the cut refused, say) consumes the landing unused.
   const cutLandingRef = useRef<{ time: number; total: number } | null>(null)
+  // The ripple's confirmation (#824): open while it asks, holding the range
+  // and the one line it states.
+  const [pendingCut, setPendingCut] = useState<{ from: number; to: number; summary: string } | null>(
+    null,
+  )
+  const performCut = useCallback(
+    (from: number, to: number) => {
+      if (onCutRange === undefined) return
+      if (rangeCutPlanFor(timeline, from, to) === null) return
+      cutLandingRef.current = { time: from, total: total - (to - from) }
+      onCutRange(from, to)
+    },
+    [total, timeline, onCutRange],
+  )
   const cutMarkedRange = useCallback(() => {
     const span = markedExportRange(markIn, markOut, total)
     if (span === null || onCutRange === undefined) return
     if (rangeCutPlanFor(timeline, span.start, span.end) === null) return
-    cutLandingRef.current = { time: span.start, total: total - (span.end - span.start) }
-    onCutRange(span.start, span.end)
-  }, [markIn, markOut, total, timeline, onCutRange])
+    // When the cut would also move, shorten or remove anything placed in
+    // sequence time, it asks first and says what (#824). The counts come
+    // from the ripple the reducer applies, so they are what the cut does.
+    const summary = rippleSummary(
+      rangeCutRipple(timeline, span.start, span.end),
+      span.end - span.start,
+    )
+    if (summary !== null) {
+      setPendingCut({ from: span.start, to: span.end, summary })
+      return
+    }
+    performCut(span.start, span.end)
+  }, [markIn, markOut, total, timeline, onCutRange, performCut])
   // Loop (#459): plays the marked span on repeat, or the whole sequence
   // without one. Session-only like the marks, and the player's own state —
   // nothing else reads it, so it does not climb to App the way the marks
@@ -3375,6 +3402,18 @@ export function PreviewPlayer({
       )}
       {/* Rendered at the panel level, not inside the player block: `?`
           answers even while the timeline is empty (#203). */}
+      {pendingCut !== null && (
+        <ConfirmDialog
+          title="Cut out marked range?"
+          body={pendingCut.summary}
+          confirmLabel="Cut out"
+          onCancel={() => setPendingCut(null)}
+          onConfirm={() => {
+            setPendingCut(null)
+            performCut(pendingCut.from, pendingCut.to)
+          }}
+        />
+      )}
       {helpOpen && (
         <ShortcutHelpDialog
           onClose={() => setHelpOpen(false)}
