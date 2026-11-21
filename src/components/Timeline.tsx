@@ -69,7 +69,6 @@ import {
   entryOutputDuration,
   isSlateEntry,
   isImageOverlay,
-  isSplittablePoint,
   isStillEntry,
   remapsForEntry,
   remapsOf,
@@ -168,6 +167,7 @@ import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { TrimDialog } from './TrimDialog'
 import { SplitDialog } from './SplitDialog'
+import { entrySplitRefusal } from '../lib/playback'
 import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import './Timeline.css'
@@ -3530,7 +3530,7 @@ export function Timeline({
                           stepSeconds={stepSeconds}
                           largeStepSeconds={largeStepSeconds}
                           onOpen={onPausePreview}
-                          canSplitAt={(atSourceTime) => isSplittablePoint(entry, atSourceTime)}
+                          refusalAt={(atSourceTime) => entrySplitRefusal(timeline, entry.id, atSourceTime)}
                           onApply={(atSourceTime) => {
                             setSplittingId(null)
                             onSplitEntry(entry.id, atSourceTime)

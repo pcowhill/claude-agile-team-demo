@@ -81,7 +81,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 - **Moving the point.** It opens at the middle of the entry's trimmed range. Click or drag on the strip, use **◀ frame** and **frame ▶**, press **←** and **→** (by the nudge size in [Settings](settings.md); with **Shift**, by the jump size), or type the time in **Split at**, in seconds into the clip. The point stays between In and Out.
 - **Watching for the moment.** **▶ Play** (or **Space**) plays on from the point, and the point follows the picture; pause where you want the cut. Playing stops at Out.
 - **Apply.** It splits the entry at the point, using the same cut as [Split at playhead](#split-at-playhead), so the same rules hold: an untouched split plays and exports exactly as before, and speed segments, pauses and zooms follow the cut. The two entries meet exactly at the point and the video's length does not change. The line above the buttons shows the two parts' lengths. Apply is one undo step and closes the window.
-- **Where it cannot split.** Apply is greyed out with the point on In or on Out, and the line above the buttons says why.
+- **Where it cannot split.** Apply is greyed out where Split at playhead is disabled: with the point on In or on Out, and inside a transition at either end of the clip, where two clips play at once — splitting there would shorten the transition and lengthen the video. The line above the buttons says which.
 - **Nothing changes until Apply.** **Cancel**, **✕** and **Esc** close the window without splitting. Opening it pauses the preview, as the Trim window does.
 - The point is in the clip's own time, as In and Out are, so a speed segment does not change where on the picture the cut falls.
 

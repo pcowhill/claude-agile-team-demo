@@ -169,6 +169,48 @@ describe('the Split window (#825)', () => {
     expect(splitButton(SECOND)).toBeNull()
   })
 
+  it('disables Apply inside a transition at either end of the entry, where Split at playhead is disabled too', async () => {
+    render(<App />)
+    await addVideo()
+    // The same clip again, and a 1 s crossfade between the two: the
+    // overlap is the first entry's source [9, 10) and the second's [0, 1).
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add transition between position 1 and 2' }))
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:19')
+
+    const windowOf = (entry: string) => screen.getByRole('dialog', { name: `Split ${entry}` })
+    const tryPoint = async (entry: string, at: number) => {
+      const field = within(windowOf(entry)).getByRole('spinbutton', { name: 'Split point in seconds' })
+      await userEvent.clear(field)
+      await userEvent.type(field, `${at}{Enter}`)
+      return within(windowOf(entry)).getByRole('button', { name: 'Apply' })
+    }
+
+    await userEvent.click(splitButton()!)
+    // Inside the crossfade out of the first entry, from its start on.
+    for (const at of [9.5, 9]) {
+      expect(await tryPoint(ENTRY, at), `at ${at}`).toBeDisabled()
+      expect(within(windowOf(ENTRY)).getByTestId('split-parts')).toHaveTextContent(
+        'cannot split inside a transition',
+      )
+    }
+    expect(await tryPoint(ENTRY, 8.9)).toBeEnabled()
+    await userEvent.click(within(windowOf(ENTRY)).getByRole('button', { name: 'Cancel' }))
+
+    await userEvent.click(splitButton(SECOND)!)
+    // Inside the crossfade into the second entry; its end is the second
+    // entry's alone, and splits.
+    expect(await tryPoint(SECOND, 0.5)).toBeDisabled()
+    expect(within(windowOf(SECOND)).getByTestId('split-parts')).toHaveTextContent(
+      'cannot split inside a transition',
+    )
+    await userEvent.click(await tryPoint(SECOND, 1))
+    // The split there leaves the crossfade and the length as they were.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(inField('a.mp4 at position 3')).toHaveValue(1)
+    expect(screen.getByTestId('timeline-total')).toHaveTextContent('0:19')
+  })
+
   it('moves the point by the nudge size with ← →, by the jump size with Shift, held to the trimmed range', async () => {
     render(<App />)
     await addVideo()

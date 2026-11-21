@@ -37,12 +37,14 @@ interface SplitDialogProps {
   /** Called once as the window opens: the app pauses its preview, as for Trim… (#722). */
   onOpen?: () => void
   /**
-   * Whether the razor can cut at a source time: the reducer's own guard
-   * (`isSplittablePoint`), so Apply is enabled exactly where the split
-   * would be accepted. Defaults to strictly inside the trimmed range,
-   * which is that guard's rule.
+   * Why the razor refuses to cut at a source time, or null where it cuts:
+   * Split at playhead's own rule (`entrySplitRefusal`), so Apply is enabled
+   * exactly where that razor would cut — not on In or Out (`'edge'`), and
+   * not inside a transition's overlap at either end of the entry, where
+   * the split would re-clamp the transition (`'transition'`). Defaults to
+   * the edge rule alone, strictly inside the trimmed range.
    */
-  canSplitAt?: (atSourceTime: number) => boolean
+  refusalAt?: (atSourceTime: number) => 'edge' | 'transition' | null
   /** Injectable for tests (jsdom has no Web Audio or blob fetch). */
   peaksFor?: Parameters<typeof AudioWaveform>[0]['peaksFor']
   framesFor?: (url: string, duration: number) => Promise<(string | null)[]>
@@ -61,8 +63,9 @@ interface SplitDialogProps {
  * Out — the strip's dimmed parts are not part of the entry.
  *
  * **Nothing changes until Apply**, which hands the point to the row's
- * `onSplitEntry`. It is enabled exactly where the razor cuts: strictly
- * inside the trimmed range, so not on In or on Out.
+ * `onSplitEntry`. It is enabled exactly where Split at playhead's razor
+ * cuts: strictly inside the trimmed range, so not on In or on Out, and not
+ * inside a transition's overlap at either end of the entry.
  *
  * Its keys are its own, for the reason the Trim window's are: it is a
  * modal dialog (`modalDialogOpen`), so the app-wide keys stand down.
@@ -75,7 +78,7 @@ export function SplitDialog({
   onApply,
   onClose,
   onOpen,
-  canSplitAt,
+  refusalAt,
   peaksFor,
   framesFor = trimFramesFor,
 }: SplitDialogProps) {
@@ -175,7 +178,10 @@ export function SplitDialog({
     else play()
   }, [playing, pause, play])
 
-  const splittable = (canSplitAt ?? ((at: number) => at > entry.inPoint && at < entry.outPoint))(time)
+  const refusal = (
+    refusalAt ?? ((at: number) => (at > entry.inPoint && at < entry.outPoint ? null : 'edge'))
+  )(time)
+  const splittable = refusal === null
   const apply = () => {
     if (!splittable) return
     pause()
@@ -361,9 +367,11 @@ export function SplitDialog({
         {/* What Apply will leave: the two parts' lengths, in the clip's own
             seconds, or why it cannot split here. */}
         <p className="split-parts" data-testid="split-parts" role="status">
-          {splittable
+          {refusal === null
             ? `First part ${formatTrimTime(time - entry.inPoint)} · second part ${formatTrimTime(entry.outPoint - time)}`
-            : 'Move the split point inside the clip: it cannot split on In or Out.'}
+            : refusal === 'transition'
+              ? 'It cannot split inside a transition, where two clips play.'
+              : 'Move the split point inside the clip: it cannot split on In or Out.'}
         </p>
 
         <div className="trim-footer">
