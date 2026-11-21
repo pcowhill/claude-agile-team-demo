@@ -107,6 +107,14 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('o'))).toEqual({ kind: 'mark', which: 'out' })
   })
 
+  it('maps X to cutting out the marked range, in either letter case, and never a chord (#823)', () => {
+    expect(transportActionForKey(key('x'))).toEqual({ kind: 'cut-range' })
+    expect(transportActionForKey(key('X', { shiftKey: true }))).toEqual({ kind: 'cut-range' })
+    // Ctrl/Cmd + X is the browser's own cut: never ours.
+    expect(transportActionForKey(key('x', { ctrlKey: true }))).toBeNull()
+    expect(transportActionForKey(key('x', { metaKey: true }))).toBeNull()
+  })
+
   it('maps F1 to the user guide (#478), bare only', () => {
     expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
     expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()

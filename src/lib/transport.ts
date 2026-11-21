@@ -36,6 +36,8 @@ export type TransportAction =
   /** Trim the entry under the playhead to start (Q) or end (W) there
    * (#710) — the desktop editors' trim-to-playhead keys. */
   | { kind: 'trim-to-playhead'; edge: 'start' | 'end' }
+  /** Cut out the marked range (#823) — X, the editors' cut. */
+  | { kind: 'cut-range' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -120,6 +122,11 @@ export function transportActionForKey(
     case 'w':
     case 'W':
       return { kind: 'trim-to-playhead', edge: 'end' }
+    // X cuts the marked range out of the sequence (#823): the letter of
+    // Cut, unclaimed here and inside the Trim window. Either case, as I / O.
+    case 'x':
+    case 'X':
+      return { kind: 'cut-range' }
     default:
       return null
   }

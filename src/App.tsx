@@ -693,6 +693,16 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
           }
+          onCutRange={(from, to) => {
+            dispatchTimeline({
+              type: 'range-cut',
+              from,
+              to,
+              newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
+            })
+            // The range the marks bounded no longer exists (#823).
+            handleClearMarks()
+          }}
           onFreezeFrame={handleFreezeFrame}
           markIn={markIn}
           markOut={markOut}

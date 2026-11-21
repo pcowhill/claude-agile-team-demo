@@ -43,6 +43,7 @@ The choice is remembered in this browser across page loads and is a view prefere
 - **I** and **O** set the export [marks](#export-marks) in and out at the playhead.
 - **M** adds a [chapter marker](#chapter-markers) at the playhead.
 - **Q** and **W** [trim the clip under the playhead](editing-video.md#trimming) to start or end there.
+- **X** [cuts the marked range out](editing-video.md#cut-out-marked-range) of the sequence.
 - **R** steps the [review speed](#review-speed) through 0.5× · 1× · 1.5× · 2×, wrapping round.
 - **?** opens the keyboard cheat sheet, **F1** the user guide; **Esc** leaves a [previewed library clip](#previewing-a-library-clip).
 
@@ -50,7 +51,7 @@ Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo)
 
 **Related.** [When the shortcuts pause](#when-the-shortcuts-pause)
 
-**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · Q / W · R · ? · F1 · Esc.
+**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · Q / W · X · R · ? · F1 · Esc.
 
 ## Jumping to cuts
 
@@ -76,7 +77,7 @@ Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo)
 
 **Where to find it.** The transport's **⇥** (mark in) and **⇤** (mark out), or **I** and **O**; **✕ Marks** clears both.
 
-**What it does.** Bounds a range of the sequence, so the export dialog can export just that range.
+**What it does.** Bounds a range of the sequence, so the export dialog can export just that range, or [Cut out marked range](editing-video.md#cut-out-marked-range) can remove it.
 
 **Details.** Each mark is set at the playhead and shows at once as a bracket on the seek bar — opening right for in, left for out — so a lone mark is visible too. While the in mark lies before the out mark, the span between them is highlighted in amber and is the **marked range**: the [export dialog's Range line](export.md#the-range-line) offers it in every format, GIF and MP3 included. An inverted pair, or a single mark, is no range. A mark inside a transition or an effect exports exactly what the preview shows at that instant — mid-blend if that is where it sits, with no snapping. Marks are session-only: they are never saved into the project file and are gone after a reload.
 
@@ -125,6 +126,7 @@ It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segme
 **Details.**
 
 - **Split at playhead** cuts the entry under the playhead in two; disabled at a boundary and inside a transition's blend. See [Split at playhead](editing-video.md#split-at-playhead).
+- **Cut out marked range** (X) removes the time between the marks; disabled without a marked range, with a mark inside a transition's blend, or over the whole video. See [Cut out marked range](editing-video.md#cut-out-marked-range).
 - **Save frame as PNG…** downloads the exact frame under the playhead as a PNG at the output resolution, composed through the export's own draw path — transitions mid-blend, zooms, colour, orientation, overlays, shapes and text as an export of that instant would have them. Disabled while the timeline is empty, and while a snapshot is already being taken. A browser whose canvas cannot apply filters refuses to save a frame from a timeline with colour adjustments, as it refuses to export one; see [Colour adjustments](editing-video.md#colour-adjustments).
 - **Freeze frame — split & hold** and **Freeze frame — append after clip** capture the frame as a still on the timeline; disabled where a split would be. See [Freeze frame](editing-video.md#freeze-frame).
 - **Add chapter marker at playhead** (M); disabled while the timeline is empty. See [Chapter markers](#chapter-markers).
@@ -137,7 +139,7 @@ It **multiplies** with a clip's own [speed segment](editing-video.md#speed-segme
 
 **What it does.** Shows one clip alone in the preview panel, without placing it on the timeline.
 
-**Details.** The panel switches to the clip with its own transport, and **Back to sequence** or **Esc** returns to the sequence exactly where it was. While a clip is previewed, **Space**, **←** / **→** and **Home** / **End** drive the previewed clip, not the sequence; **↑** / **↓**, **I**, **O**, **M**, **Q** and **W** do nothing, since there is no sequence to jump in, mark or trim; **?** and **F1** still open the cheat sheet and the guide. The full account is on [Media library](media-library.md#preview-a-clip).
+**Details.** The panel switches to the clip with its own transport, and **Back to sequence** or **Esc** returns to the sequence exactly where it was. While a clip is previewed, **Space**, **←** / **→** and **Home** / **End** drive the previewed clip, not the sequence; **↑** / **↓**, **I**, **O**, **M**, **Q**, **W** and **X** do nothing, since there is no sequence to jump in, mark, trim or cut; **?** and **F1** still open the cheat sheet and the guide. The full account is on [Media library](media-library.md#preview-a-clip).
 
 **Related.** [Preview a clip](media-library.md#preview-a-clip)
 

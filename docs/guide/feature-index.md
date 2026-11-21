@@ -97,6 +97,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Custom range** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
 - **Custom range end** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
 - **Custom range start** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
+- **Cut out marked range** — Frame ▾; removes the time between the marks from the sequence. [Editing video › Cut out marked range](editing-video.md#cut-out-marked-range)
 
 ## D
 
@@ -353,6 +354,10 @@ This list is checked against the running editor in CI: a control the app shows a
 - **When a previous session is found** — Settings. [Settings › When a previous session is found](settings.md#when-a-previous-session-is-found)
 - **Whole project** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
 - **Width** — an expanded overlay row; the placement rectangle's width. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+
+## X
+
+- **X** — cuts the marked range out of the sequence. [Editing video › Cut out marked range](editing-video.md#cut-out-marked-range)
 
 ## Z
 
