@@ -26,10 +26,12 @@ This list is checked against the running editor in CI: a control the app shows a
 - **▲ ▼ (fold all)** — the timeline header; collapses or expands every row at once. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
 - **▶ (preview a clip)** — a media library row; plays the source in place. [Media library › Preview a clip](media-library.md#preview-a-clip)
 - **▶ Play** — the preview transport. [Preview and playback › The transport](preview-and-playback.md#the-transport)
+- **▶ Play (the Split window)** — the Split window; plays on from the split point, which follows the picture, reading ⏸ Pause while it plays. [Editing video › Split…](editing-video.md#split)
 - **▾ (expand a row)** — a row's main line; shows the element's fields. [Timeline › A row](timeline.md#a-row)
 - **▾ (fold a section)** — a section heading; folds that whole section away. [Timeline › Collapsing rows and folding sections](timeline.md#collapsing-rows-and-folding-sections)
-- **◀ frame** — the Trim window; moves the playhead one frame back. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **◀ frame** — the Trim window; moves the playhead one frame back. The Split window; moves the split point one frame back. [Editing video › The Trim window](editing-video.md#the-trim-window) · [Editing video › Split…](editing-video.md#split)
 - **✕ (close a visual editor)** — the top-right of any visual editor; leaves the value as committed, as Escape does. On the panel shown when an editor could not load, dismisses the panel and leaves the row as it was, Escape included. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows) · [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
+- **✕ (close the Split window)** — the top-right of the Split window; closes it without splitting, as Cancel and Esc do. [Editing video › Split…](editing-video.md#split)
 - **✕ (close the Trim window)** — the top-right of the Trim window; closes it without applying, as Cancel and Esc do. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **✕ (dismiss the Match levels report)** — the line under the timeline header after Match levels. [Audio › Match levels](audio.md#match-levels)
 - **✕ (remove from timeline)** — a row's main line; takes the element off the timeline, leaving the clip in the library. [Timeline › A row](timeline.md#a-row)
@@ -46,7 +48,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Add transition** — the **+ Transition** button between two adjacent sequence entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Adjust visually…** — beside a zoom's fields (on a sequence entry or an overlay), the crop fields, an overlay's placement fields, a text overlay's centre fields, a redaction region's fields and a spotlight region's fields. [Visual editors › What each editor shows](visual-editors.md#what-each-editor-shows)
 - **Animated GIF** — the export dialog's Format group, once the GIF export plugin is enabled. [Export › Animated GIF](export.md#animated-gif-plugin)
-- **Apply** — the Trim window; sets the entry's In and Out from the clamps, as one undo step. Greyed out until a clamp has moved. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **Apply** — the Trim window; sets the entry's In and Out from the clamps, as one undo step. Greyed out until a clamp has moved. The Split window; splits the entry at the split point, as one undo step, greyed out with the point on In or Out. [Editing video › The Trim window](editing-video.md#the-trim-window) · [Editing video › Split…](editing-video.md#split)
 - **Arrow** — + Add shape ▾ on a shape group; an arrow or a line from a tail to a tip. Also the shape editor's tool for drawing one, tail to tip. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Drawing shapes on the picture](shapes-and-annotations.md#drawing-shapes-on-the-picture)
 - **Arrow heads** — an arrow in an expanded shape group row › Heads; at the tip, both ends, or none for a line. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Audio fade-in** — an expanded video row's audio fields. [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
@@ -68,7 +70,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## C
 
-- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying. A media library row for a file still importing; stops that import and adds nothing. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports)
+- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying, and the Split window without splitting. A media library row for a file still importing; stops that import and adds nothing. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
 - **Centre X** — an expanded text row; the block's centre across the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 - **Centre Y** — an expanded text row; the block's centre down the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
@@ -157,7 +159,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Font** — an expanded text row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
 - **Frame** — the preview transport's menu of frame actions. [Preview and playback › The Frame ▾ menu](preview-and-playback.md#the-frame-menu)
-- **frame ▶** — the Trim window; moves the playhead one frame on. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **frame ▶** — the Trim window; moves the playhead one frame on. The Split window; moves the split point one frame on. [Editing video › The Trim window](editing-video.md#the-trim-window) · [Editing video › Split…](editing-video.md#split)
 - **Freeze frame — append after clip** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 - **Freeze frame — split & hold** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 
