@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead) and [Split…](#split), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -65,9 +65,27 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Cuts the sequence entry under the playhead into two entries, each trimmable and removable on its own.
 
-**Details.** An untouched split plays and exports exactly like the original. Effects follow the cut: speed segments and pauses split exactly where the razor falls, and a zoom moves to the half that shows it or splits with it. The item is disabled at entry boundaries and inside a transition's overlap, where there is nothing to split.
+**Details.** An untouched split plays and exports exactly like the original. Effects follow the cut: speed segments and pauses split exactly where the razor falls, and a zoom moves to the half that shows it or splits with it. The item is disabled at entry boundaries and inside a transition's overlap, where there is nothing to split. To pick the moment on one clip instead of moving the playhead to it, use [Split…](#split) on the clip's row.
 
-**Related.** [Trimming](#trimming) · [Freeze frame](#freeze-frame)
+**Related.** [Split…](#split) · [Trimming](#trimming) · [Freeze frame](#freeze-frame)
+
+## Split…
+
+**Where to find it.** An expanded video sequence entry › **Split…**, right after **Trim…**. Stills and slates have none; split them with [Split at playhead](#split-at-playhead).
+
+**What it does.** Opens the Split window on the clip, where you pick a moment on the clip itself and split the entry into two entries there.
+
+**Details.**
+
+- **The window.** It is the [Trim window](#the-trim-window)'s frame: the raw clip at the top, the whole clip as a strip of its frames over its waveform, and the parts outside In and Out darkened. It has one position on the strip, the **split point**, instead of two clamps. The point is the window's playhead: the picture always shows the frame the cut falls at.
+- **Moving the point.** It opens at the middle of the entry's trimmed range. Click or drag on the strip, use **◀ frame** and **frame ▶**, press **←** and **→** (by the nudge size in [Settings](settings.md); with **Shift**, by the jump size), or type the time in **Split at**, in seconds into the clip. The point stays between In and Out.
+- **Watching for the moment.** **▶ Play** (or **Space**) plays on from the point, and the point follows the picture; pause where you want the cut. Playing stops at Out.
+- **Apply.** It splits the entry at the point, using the same cut as [Split at playhead](#split-at-playhead), so the same rules hold: an untouched split plays and exports exactly as before, and speed segments, pauses and zooms follow the cut. The two entries meet exactly at the point and the video's length does not change. The line above the buttons shows the two parts' lengths. Apply is one undo step and closes the window.
+- **Where it cannot split.** Apply is greyed out with the point on In or on Out, and the line above the buttons says why.
+- **Nothing changes until Apply.** **Cancel**, **✕** and **Esc** close the window without splitting. Opening it pauses the preview, as the Trim window does.
+- The point is in the clip's own time, as In and Out are, so a speed segment does not change where on the picture the cut falls.
+
+**Related.** [Split at playhead](#split-at-playhead) · [The Trim window](#the-trim-window) · [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 
 ## Freeze frame
 

@@ -37,6 +37,13 @@ export const SHAPE_EDITOR_SCOPE = 'In the shape editor'
  */
 export const TRIM_WINDOW_SCOPE = 'In the Trim window'
 
+/**
+ * The Split window's own keys (#825): a modal dialog too, so the app-wide
+ * rows are inert while it is open. The arrows move the split point wherever
+ * the focus is in the window, but a field being typed in.
+ */
+export const SPLIT_WINDOW_SCOPE = 'In the Split window'
+
 export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): readonly Shortcut[] => [
   { keys: ['Space'], does: 'Play / pause the preview' },
   { keys: ['← / →'], does: `Step the playhead ${stepSeconds} s back / forward` },
@@ -71,6 +78,18 @@ export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): rea
     scope: TRIM_WINDOW_SCOPE,
   },
   { keys: ['Esc'], does: 'Close the window without applying', scope: TRIM_WINDOW_SCOPE },
+  { keys: ['Space'], does: 'Play on from the split point / pause', scope: SPLIT_WINDOW_SCOPE },
+  {
+    keys: ['← / →'],
+    does: `Move the split point ${stepSeconds} s back / forward`,
+    scope: SPLIT_WINDOW_SCOPE,
+  },
+  {
+    keys: ['Shift + ← / →'],
+    does: `Move the split point ${largeStepSeconds} s back / forward`,
+    scope: SPLIT_WINDOW_SCOPE,
+  },
+  { keys: ['Esc'], does: 'Close the window without splitting', scope: SPLIT_WINDOW_SCOPE },
 ]
 
 /**

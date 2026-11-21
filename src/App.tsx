@@ -731,6 +731,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
           onTrimEntry={(id, inPoint, outPoint) =>
             dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
           }
+          onSplitEntry={(id, atSourceTime) =>
+            dispatchTimeline({
+              type: 'entry-split',
+              id,
+              atSourceTime,
+              newEntryId: crypto.randomUUID(),
+            })
+          }
           stepSeconds={settings.stepSeconds}
           largeStepSeconds={settings.largeStepSeconds}
           onPausePreview={() => pausePreviewRef.current?.()}
