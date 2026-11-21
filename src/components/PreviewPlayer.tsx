@@ -18,7 +18,9 @@ import {
   markerAt,
   markersOf,
   nextMarkerName,
+  rangeCutPlanFor,
 } from '../lib/timeline'
+import { RANGE_CUT_EPSILON } from '../lib/rangeCut'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { activeShapeGroups, drawShapeGroups } from '../lib/shapes'
 import type { ShapeGroup } from '../lib/shapes'
@@ -137,6 +139,14 @@ interface PreviewPlayerProps {
    * do nothing.
    */
   onTrimEntry?: (entryId: string, inPoint: number, outPoint: number) => void
+  /**
+   * Cut out marked range (#823): remove the sequence time between the
+   * marks, as one `range-cut`. The preview owns the marks' display and the
+   * playhead, so Frame ▾'s item and X resolve here; the cut, and clearing
+   * the marks it used, are App's. Optional like `onSplit`: without it the
+   * item disables and X does nothing.
+   */
+  onCutRange?: (from: number, to: number) => void
   /**
    * Freeze frame (#379): the captured PNG of the playhead's composed frame,
    * with the output frame it was composed at, the sequence time it holds,
@@ -1051,6 +1061,7 @@ export function PreviewPlayer({
   onSetLayout,
   onSplit,
   onTrimEntry,
+  onCutRange,
   onFreezeFrame,
   stepSeconds,
   largeStepSeconds,
@@ -1193,6 +1204,24 @@ export function PreviewPlayer({
   // the highlight and the offered range can never disagree — and, since
   // #459, the span Loop repeats, so the loop and the highlight agree too.
   const markedSpan = markedExportRange(markIn, markOut, total)
+  // Cut out marked range (#823): enabled exactly where the reducer would
+  // carry the cut out — the one rule both read (`rangeCutPlanFor`) — so the
+  // item is never live on a range the cut would refuse.
+  const canCutRange =
+    onCutRange !== undefined &&
+    markedSpan !== null &&
+    rangeCutPlanFor(timeline, markedSpan.start, markedSpan.end) !== null
+  // Where the playhead lands after a cut: the join, once the cut timeline
+  // arrives. `total` is the length that timeline will have, so an edit that
+  // is not this cut (the cut refused, say) consumes the landing unused.
+  const cutLandingRef = useRef<{ time: number; total: number } | null>(null)
+  const cutMarkedRange = useCallback(() => {
+    const span = markedExportRange(markIn, markOut, total)
+    if (span === null || onCutRange === undefined) return
+    if (rangeCutPlanFor(timeline, span.start, span.end) === null) return
+    cutLandingRef.current = { time: span.start, total: total - (span.end - span.start) }
+    onCutRange(span.start, span.end)
+  }, [markIn, markOut, total, timeline, onCutRange])
   // Loop (#459): plays the marked span on repeat, or the whole sequence
   // without one. Session-only like the marks, and the player's own state —
   // nothing else reads it, so it does not climb to App the way the marks
@@ -2259,6 +2288,10 @@ export function PreviewPlayer({
           // next Play honours it.
           setReviewRate((rate) => nextReviewRate(rate))
           break
+        case 'cut-range':
+          // X (#823) does exactly what Frame ▾'s item does, guards included.
+          cutMarkedRange()
+          break
         case 'trim-to-playhead': {
           // Q / W (#710): the entry under the clamped playhead, trimmed to
           // start or end on its frame. Inert wherever playheadTrimAt says
@@ -2295,6 +2328,7 @@ export function PreviewPlayer({
     onMarkIn,
     onMarkOut,
     onTrimEntry,
+    cutMarkedRange,
   ])
 
   // Edits to the timeline invalidate the playback position (entries or
@@ -2348,6 +2382,18 @@ export function PreviewPlayer({
     setSequenceTime(start)
   }, [timeline])
 
+  // A cut's landing (#823): the playhead goes to the join, where the marked
+  // range began, since the instant it stood on may now be later material or
+  // past the end. Placed like Q's landing above, and consumed by any edit.
+  useEffect(() => {
+    const landing = cutLandingRef.current
+    if (landing === null) return
+    cutLandingRef.current = null
+    if (Math.abs(totalDuration(timeline) - landing.total) > RANGE_CUT_EPSILON) return
+    sequenceTimeRef.current = landing.time
+    setSequenceTime(landing.time)
+  }, [timeline])
+
   // Idle frame (#382): the video elements have no declarative src — cueing
   // is imperative, and before this effect it only happened on play, seek,
   // and the rAF tick. A player never yet played or seeked (the first clip
@@ -2393,6 +2439,16 @@ export function PreviewPlayer({
       onSelect: () => {
         if (splitTarget !== null) onSplit?.(splitTarget.entryId, splitTarget.atSourceTime)
       },
+    },
+    {
+      kind: 'action',
+      label: 'Cut out marked range',
+      shortcut: 'X',
+      title:
+        'Remove the part of the video between the in and out marks, closing the gap (X) — disabled without a marked range, when a mark is inside a transition, or when the range is the whole video',
+      testId: 'preview-cut-range',
+      disabled: !canCutRange,
+      onSelect: cutMarkedRange,
     },
     { kind: 'separator' },
     {

@@ -1601,6 +1601,8 @@ describe('Split at playhead (#190)', () => {
       Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
     ).toEqual([
       'Split at playhead',
+      // Cut out marked range (#823) joined the razor's group.
+      'Cut out marked rangeX',
       'Save frame as PNG…',
       'Freeze frame — split & hold',
       'Freeze frame — append after clip',
@@ -3632,6 +3634,115 @@ describe('review speed (#522)', () => {
       target: { value: '3' },
     })
     expect(track.playbackRate).toBe(2)
+  })
+})
+
+describe('Cut out marked range (#823)', () => {
+  const twoClips: TimelineState = {
+    entries: [
+      { id: 'e1', clipId: 'c1', name: 'first.webm', duration: 10, url: 'blob:first', inPoint: 0, outPoint: 10 },
+      { id: 'e2', clipId: 'c2', name: 'second.webm', duration: 10, url: 'blob:second', inPoint: 0, outPoint: 10 },
+    ],
+  }
+  const pressOnWindow = (key: string, init: Partial<KeyboardEventInit> = {}) =>
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }))
+    })
+  const slider = () => screen.getByRole('slider', { name: 'Seek within sequence' })
+
+  it('sits under Split at playhead, shows X, and cuts the marked span', () => {
+    const onCutRange = vi.fn()
+    render(<PreviewPlayer timeline={twoClips} markIn={8} markOut={13} onCutRange={onCutRange} />)
+    const menu = openFrameMenu()
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
+    ).toEqual([
+      'Split at playhead',
+      'Cut out marked rangeX',
+      'Save frame as PNG…',
+      'Freeze frame — split & hold',
+      'Freeze frame — append after clip',
+      'Add chapter marker at playheadM',
+    ])
+    expect(frameMenuItem('preview-cut-range')).toBeEnabled()
+    fireEvent.click(frameMenuItem('preview-cut-range'))
+    expect(onCutRange).toHaveBeenCalledWith(8, 13)
+  })
+
+  it('is disabled without a marked range, inside an overlap, over the whole video, or unwired', () => {
+    const onCutRange = vi.fn()
+    const { rerender } = render(<PreviewPlayer timeline={twoClips} onCutRange={onCutRange} />)
+    // No marks.
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    // A single mark, and an inverted pair, are no range.
+    rerender(<PreviewPlayer timeline={twoClips} markIn={5} onCutRange={onCutRange} />)
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    rerender(<PreviewPlayer timeline={twoClips} markIn={9} markOut={4} onCutRange={onCutRange} />)
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    // The whole video.
+    rerender(<PreviewPlayer timeline={twoClips} markIn={0} markOut={20} onCutRange={onCutRange} />)
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    // A mark inside a transition's overlap, which covers [9, 10).
+    const withTransition: TimelineState = {
+      ...twoClips,
+      transitions: [{ beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 }],
+    }
+    rerender(<PreviewPlayer timeline={withTransition} markIn={9.5} markOut={14} onCutRange={onCutRange} />)
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    rerender(<PreviewPlayer timeline={withTransition} markIn={10} markOut={14} onCutRange={onCutRange} />)
+    expect(frameMenuItem('preview-cut-range')).toBeEnabled()
+    // No wiring.
+    rerender(<PreviewPlayer timeline={twoClips} markIn={8} markOut={13} />)
+    expect(frameMenuItem('preview-cut-range')).toBeDisabled()
+    expect(onCutRange).not.toHaveBeenCalled()
+  })
+
+  it('X does what the item does, in either case, and only where the item is enabled', () => {
+    const onCutRange = vi.fn()
+    const { rerender } = render(<PreviewPlayer timeline={twoClips} onCutRange={onCutRange} />)
+    pressOnWindow('x')
+    expect(onCutRange).not.toHaveBeenCalled()
+    rerender(<PreviewPlayer timeline={twoClips} markIn={2} markOut={5} onCutRange={onCutRange} />)
+    pressOnWindow('X', { shiftKey: true })
+    expect(onCutRange).toHaveBeenCalledWith(2, 5)
+    // Typed into a field, the field keeps its letter.
+    const input = document.createElement('input')
+    input.type = 'text'
+    document.body.appendChild(input)
+    try {
+      input.focus()
+      fireEvent.keyDown(input, { key: 'x' })
+    } finally {
+      input.remove()
+    }
+    expect(onCutRange).toHaveBeenCalledTimes(1)
+    pressOnWindow('?', { shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveTextContent(
+      'Cut the marked range out of the sequence',
+    )
+  })
+
+  it('lands the playhead on the join once the cut timeline arrives', () => {
+    const cutTimeline: TimelineState = {
+      entries: [
+        { ...twoClips.entries[0], outPoint: 8 },
+        { ...twoClips.entries[1], id: 'tail', inPoint: 3 },
+      ],
+    }
+    const onCutRange = vi.fn()
+    const { rerender } = render(
+      <PreviewPlayer timeline={twoClips} markIn={8} markOut={13} onCutRange={onCutRange} />,
+    )
+    // The playhead stands on the Out mark, as it does right after pressing O.
+    fireEvent.change(slider(), { target: { value: '13' } })
+    pressOnWindow('x')
+    expect(onCutRange).toHaveBeenCalledWith(8, 13)
+    rerender(<PreviewPlayer timeline={cutTimeline} onCutRange={onCutRange} />)
+    expect(slider()).toHaveValue('8')
+    // Any other edit leaves the playhead where it is: the landing is spent.
+    fireEvent.change(slider(), { target: { value: '11' } })
+    rerender(<PreviewPlayer timeline={twoClips} onCutRange={onCutRange} />)
+    expect(slider()).toHaveValue('11')
   })
 })
 

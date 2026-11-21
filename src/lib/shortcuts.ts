@@ -46,6 +46,7 @@ export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): rea
   { keys: ['I / O'], does: 'Mark the export range in / out at the playhead' },
   { keys: ['M'], does: 'Add a chapter marker at the playhead' },
   { keys: ['Q / W'], does: 'Trim the clip under the playhead to start / end there' },
+  { keys: ['X'], does: 'Cut the marked range out of the sequence' },
   { keys: ['R'], does: 'Step the review speed: 0.5× · 1× · 1.5× · 2×' },
   { keys: ['Esc'], does: 'Leave the source preview, back to the sequence' },
   { keys: ['Ctrl/Cmd + Z'], does: 'Undo the last timeline edit' },
