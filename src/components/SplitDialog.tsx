@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { targetEditsText } from '../lib/history'
 import { targetClaimsKeys } from '../lib/transport'
 import {
@@ -19,17 +19,28 @@ import './TrimDialog.css'
 import './SplitDialog.css'
 
 interface SplitDialogProps {
-  /** The entry being split: its source and its current trim. */
+  /**
+   * The element being split — a sequence entry, a video overlay or an audio
+   * track (#826) — as its source and its current trim.
+   */
   entry: { name: string; url: string; duration: number; inPoint: number; outPoint: number }
+  /**
+   * An audio track (#826): no picture, as in the Trim window's mode for
+   * tracks (#711). The window plays the source through an `<audio>`
+   * element, the strip is its waveform alone, and there are no frames to
+   * step by.
+   */
+  audioOnly?: boolean
   /** "clip.webm at position 2": the row's own wording, as the Trim window's title. */
   position: string
   /** The arrow keys' steps: the nudge and jump sizes from Settings. */
   stepSeconds: number
   largeStepSeconds: number
   /**
-   * Apply: the split point, in source seconds. The caller dispatches
-   * `entry-split` with it, Split at playhead's own action (#190), so the
-   * rules are that razor's and the split is one undo step.
+   * Apply: the split point, in source seconds. The caller dispatches its
+   * own one action with it — `entry-split`, Split at playhead's razor
+   * (#190), or `element-split` for an overlay or a track (#826) — so the
+   * split is one undo step.
    */
   onApply: (atSourceTime: number) => void
   /** Cancel, ✕ and Escape: close, changing nothing. */
@@ -63,7 +74,8 @@ interface SplitDialogProps {
  * Out — the strip's dimmed parts are not part of the entry.
  *
  * **Nothing changes until Apply**, which hands the point to the row's
- * `onSplitEntry`. It is enabled exactly where Split at playhead's razor
+ * split callback (`onSplitEntry`, or `onSplitElement` for an overlay or a
+ * track, #826). It is enabled exactly where Split at playhead's razor
  * cuts: strictly inside the trimmed range, so not on In or on Out, and not
  * inside a transition's overlap at either end of the entry.
  *
@@ -73,6 +85,7 @@ interface SplitDialogProps {
 export function SplitDialog({
   entry,
   position,
+  audioOnly = false,
   stepSeconds,
   largeStepSeconds,
   onApply,
@@ -86,7 +99,8 @@ export function SplitDialog({
   const range: TrimRange = { inPoint: entry.inPoint, outPoint: entry.outPoint }
   const headingId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  // The window's own player: a <video>, or an <audio> for a track (#826).
+  const videoRef = useRef<HTMLMediaElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   /** A time, held to the entry's trimmed range. */
   const within = useCallback(
@@ -275,22 +289,38 @@ export function SplitDialog({
           </button>
         </div>
 
-        <div className="trim-preview">
-          <video
-            ref={videoRef}
-            className="trim-video"
-            data-testid="split-video"
+        {audioOnly ? (
+          // An audio track (#826): no picture, so no preview box, as in the
+          // Trim window's mode for tracks (#711). The element has no
+          // controls and takes no room; the window's own buttons play it.
+          <audio
+            ref={videoRef as RefObject<HTMLAudioElement>}
+            data-testid="split-audio"
             src={url}
-            playsInline
             preload="auto"
-            // Firefox drops a seek made while an element has only its
-            // metadata (#615): apply the point again once a frame is there.
             onLoadedData={(event) => {
               if (!playing) event.currentTarget.currentTime = timeRef.current
             }}
             onEnded={() => setPlaying(false)}
           />
-        </div>
+        ) : (
+          <div className="trim-preview">
+            <video
+              ref={videoRef as RefObject<HTMLVideoElement>}
+              className="trim-video"
+              data-testid="split-video"
+              src={url}
+              playsInline
+              preload="auto"
+              // Firefox drops a seek made while an element has only its
+              // metadata (#615): apply the point again once a frame is there.
+              onLoadedData={(event) => {
+                if (!playing) event.currentTarget.currentTime = timeRef.current
+              }}
+              onEnded={() => setPlaying(false)}
+            />
+          </div>
+        )}
         <p className="trim-position" data-testid="split-position">
           <output aria-label="Split point">{formatTrimTime(time)}</output> /{' '}
           {formatTrimTime(duration)}
@@ -298,7 +328,7 @@ export function SplitDialog({
 
         <div
           ref={stripRef}
-          className={`trim-strip${dragging ? ' trim-strip-dragging' : ''}`}
+          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${dragging ? ' trim-strip-dragging' : ''}`}
           data-testid="split-strip"
           onPointerDown={beginDrag}
           onPointerMove={onPointerMove}
@@ -308,6 +338,7 @@ export function SplitDialog({
           <StripPicture
             url={url}
             duration={duration}
+            audioOnly={audioOnly}
             peaksFor={peaksFor}
             framesFor={framesFor}
           />
@@ -337,14 +368,17 @@ export function SplitDialog({
         </div>
 
         <div className="trim-transport" role="group" aria-label="Split playback">
-          <button
-            type="button"
-            aria-label="Back one frame"
-            title="Back one frame"
-            onClick={() => seek(frameStep(timeRef.current, -1, duration))}
-          >
-            ◀ frame
-          </button>
+          {/* An audio track has no frames to step by (#826, as #711). */}
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Back one frame"
+              title="Back one frame"
+              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+            >
+              ◀ frame
+            </button>
+          )}
           <button
             type="button"
             className="trim-play"
@@ -354,14 +388,16 @@ export function SplitDialog({
           >
             {playing ? '⏸ Pause' : '▶ Play'}
           </button>
-          <button
-            type="button"
-            aria-label="Forward one frame"
-            title="Forward one frame"
-            onClick={() => seek(frameStep(timeRef.current, 1, duration))}
-          >
-            frame ▶
-          </button>
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Forward one frame"
+              title="Forward one frame"
+              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+            >
+              frame ▶
+            </button>
+          )}
         </div>
 
         {/* What Apply will leave: the two parts' lengths, in the clip's own

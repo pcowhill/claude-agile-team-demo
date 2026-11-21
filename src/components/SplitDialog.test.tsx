@@ -6,6 +6,7 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from '../lib/transport'
 import { TRIM_FRAME_STEP } from '../lib/trim'
 import { ADD_SLATE, chooseFromAddMenu } from '../test/timelineMenu'
+import { chooseClipAction } from '../test/clipMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -22,6 +23,131 @@ vi.mock('../lib/audioPeaks', async (importOriginal) => {
 })
 
 const probeMock = vi.mocked(probeMediaFile)
+
+/**
+ * Split… on an audio track and a video overlay (#826), through <App/>:
+ * offered after Trim… on both and not on an image overlay, the track's
+ * window without a picture, and Apply making two rows whose In and Out meet
+ * and whose start times are contiguous, as one undo step. The window in a
+ * real browser is `e2e/split-element.spec.ts`'s.
+ */
+describe('Split… on an audio track and a video overlay (#826)', () => {
+  beforeEach(() => {
+    probeMock.mockReset()
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve())
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const field = (label: string) => screen.getByRole('spinbutton', { name: label })
+  const fieldsOf = (element: string) => ({
+    start: field(`Start time of ${element} in seconds`),
+    in: field(`Trim in point of ${element} in seconds`),
+    out: field(`Trim out point of ${element} in seconds`),
+  })
+  const splitButton = (element: string) =>
+    screen.queryByRole('button', { name: `Split ${element} in the Split window` })
+  const trimButton = (element: string) =>
+    screen.getByRole('button', { name: `Trim ${element} in the Trim window` })
+
+  async function importClip(name: string, probed: Awaited<ReturnType<typeof probeMediaFile>>, type: string) {
+    probeMock.mockResolvedValueOnce(probed)
+    await userEvent.upload(screen.getByTestId('clip-file-input'), new File(['content'], name, { type }))
+    await screen.findByText(name)
+  }
+
+  it('on an audio track: no picture, and Apply makes two tracks that meet, as one undo step', async () => {
+    const TRACK = 'audio track music.mp3 at position 1'
+    const SECOND = 'audio track music.mp3 at position 2'
+    render(<App />)
+    await importClip('music.mp3', { duration: 30, url: 'blob:music.mp3', kind: 'audio' }, 'audio/mpeg')
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+    await userEvent.clear(fieldsOf(TRACK).start)
+    await userEvent.type(fieldsOf(TRACK).start, '4{Enter}')
+
+    // Right after Trim…, in the row that holds In and Out.
+    const button = splitButton(TRACK)
+    expect(button).toHaveTextContent('Split…')
+    expect(trimButton(TRACK).nextElementSibling).toBe(button)
+    await userEvent.click(button!)
+    const window = screen.getByRole('dialog', { name: `Split ${TRACK}` })
+    expect(window).toHaveAttribute('aria-modal', 'true')
+    expect(window.querySelector('video')).toBeNull()
+    expect(within(window).getByTestId('split-audio').tagName).toBe('AUDIO')
+    expect(await within(window).findByTestId('trim-waveform')).toBeInTheDocument()
+    expect(within(window).queryByTestId('trim-frames')).toBeNull()
+    expect(within(window).queryByRole('button', { name: 'Back one frame' })).toBeNull()
+    // Opens at the middle; ← moves it by the nudge size.
+    const point = within(window).getByRole('slider', { name: 'Split point' })
+    expect(Number(point.getAttribute('aria-valuenow'))).toBe(15)
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    const at = 15 - STEP_SECONDS
+    expect(Number(point.getAttribute('aria-valuenow'))).toBeCloseTo(at, 9)
+
+    await userEvent.click(within(window).getByRole('button', { name: 'Apply' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const first = fieldsOf(TRACK)
+    const second = fieldsOf(SECOND)
+    expect(first.start).toHaveValue(4)
+    expect(first.in).toHaveValue(0)
+    expect(Number((first.out as HTMLInputElement).value)).toBeCloseTo(at, 3)
+    expect(Number((second.in as HTMLInputElement).value)).toBeCloseTo(at, 3)
+    expect(second.out).toHaveValue(30)
+    expect(Number((second.start as HTMLInputElement).value)).toBeCloseTo(4 + at, 3)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(splitButton(SECOND)).toBeNull()
+    expect(fieldsOf(TRACK).out).toHaveValue(30)
+  })
+
+  it('on a video overlay: the picture, and Apply makes two overlays that meet; an image overlay has none', async () => {
+    const OVERLAY = 'overlay cam.mp4 at position 1'
+    const SECOND = 'overlay cam.mp4 at position 2'
+    render(<App />)
+    await importClip('cam.mp4', { duration: 8, url: 'blob:cam.mp4', kind: 'video' }, 'video/mp4')
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    await importClip(
+      'logo.png',
+      { duration: 0, url: 'blob:logo.png', kind: 'image', width: 640, height: 480 },
+      'image/png',
+    )
+    await chooseClipAction('logo.png', 'Add as overlay')
+    expect(splitButton('overlay logo.png at position 2')).toBeNull()
+    expect(screen.queryAllByRole('button', { name: /^Split overlay .* in the Split window$/ })).toHaveLength(1)
+
+    await userEvent.clear(fieldsOf(OVERLAY).start)
+    await userEvent.type(fieldsOf(OVERLAY).start, '3{Enter}')
+    const button = splitButton(OVERLAY)
+    expect(trimButton(OVERLAY).nextElementSibling).toBe(button)
+    await userEvent.click(button!)
+    const window = screen.getByRole('dialog', { name: `Split ${OVERLAY}` })
+    expect(within(window).getByTestId('split-video')).toBeInTheDocument()
+    expect(within(window).getByRole('button', { name: 'Back one frame' })).toBeInTheDocument()
+    await userEvent.click(within(window).getByRole('button', { name: 'Apply' }))
+
+    const first = fieldsOf(OVERLAY)
+    // The image overlay was added after cam.mp4, so the second part sits
+    // between them: it is listed right after the first.
+    const second = fieldsOf(SECOND)
+    expect(first.start).toHaveValue(3)
+    expect(first.in).toHaveValue(0)
+    expect(first.out).toHaveValue(4)
+    expect(second.in).toHaveValue(4)
+    expect(second.out).toHaveValue(8)
+    expect(second.start).toHaveValue(7)
+    expect(screen.getByRole('spinbutton', { name: 'Duration of overlay logo.png at position 3 in seconds' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(splitButton(SECOND)).toBeNull()
+    expect(fieldsOf(OVERLAY).out).toHaveValue(8)
+  })
+})
 
 /**
  * Split… on a sequence entry (#825), through <App/>: offered after Trim…

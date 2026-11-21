@@ -251,6 +251,12 @@ interface TimelineProps {
    */
   onSplitEntry?: (id: string, atSourceTime: number) => void
   /**
+   * Split… on an audio track or a video overlay (#826): split it at a source
+   * time picked in the Split window — `element-split`. Optional, as
+   * `onSplitEntry` is; the buttons render only when the app supplies it.
+   */
+  onSplitElement?: (kind: 'audio-track' | 'video-overlay', id: string, atSourceTime: number) => void
+  /**
    * The Trim window's clamp steps (#707): the nudge and jump sizes from
    * Settings, as the transport's arrows use. Optional so tests that predate
    * the window keep compiling; the defaults are Settings' own.
@@ -2511,6 +2517,7 @@ export function Timeline({
   onRemoveEntry,
   onTrimEntry,
   onSplitEntry,
+  onSplitElement,
   stepSeconds = DEFAULT_SETTINGS.stepSeconds,
   largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
   onPausePreview,
@@ -2914,7 +2921,8 @@ export function Timeline({
   // time, since it is a modal dialog. View state only; Apply is the one
   // edit it makes.
   const [trimmingId, setTrimmingId] = useState<string | null>(null)
-  // Which entry's Split window (#825) is open, if any — the same rule.
+  // Which entry's, overlay's or track's Split window (#825, #826) is open,
+  // if any — the same rule.
   const [splittingId, setSplittingId] = useState<string | null>(null)
   // Match levels (#691): whether a run is measuring, and the last run's
   // report — a status line under the header, not a dialog (#395), until
@@ -3986,6 +3994,36 @@ export function Timeline({
                         onClose={() => setTrimmingId(null)}
                       />
                     )}
+                    {/* Split… (#826): the Split window with no picture, as
+                        Trim… has for a track (#711); Apply makes two
+                        tracks that play exactly as this one did. */}
+                    {onSplitElement !== undefined && (
+                      <button
+                        type="button"
+                        className="timeline-trim-open"
+                        aria-label={`Split ${position} in the Split window`}
+                        aria-haspopup="dialog"
+                        title="Split in a window: pick the moment on the track's waveform and split it into two there"
+                        onClick={() => setSplittingId(track.id)}
+                      >
+                        Split…
+                      </button>
+                    )}
+                    {onSplitElement !== undefined && splittingId === track.id && (
+                      <SplitDialog
+                        entry={track}
+                        audioOnly
+                        position={position}
+                        stepSeconds={stepSeconds}
+                        largeStepSeconds={largeStepSeconds}
+                        onOpen={onPausePreview}
+                        onApply={(atSourceTime) => {
+                          setSplittingId(null)
+                          onSplitElement('audio-track', track.id, atSourceTime)
+                        }}
+                        onClose={() => setSplittingId(null)}
+                      />
+                    )}
                     <span className="timeline-entry-effective">
                       plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
                     </span>
@@ -4226,6 +4264,37 @@ export function Timeline({
                             }}
                             onClose={() => setTrimmingId(null)}
                             effectsFor={(range) => overlayTrimEffectsPreview(timeline, overlay.id, range)}
+                          />
+                        )}
+                        {/* Split… (#826): as an entry's (#825). Apply makes
+                            two overlays that play exactly as this one did,
+                            its speed segments, pauses and zooms cut by the
+                            razor's rules. An image overlay has no source to
+                            cut, so it has no Trim… and no Split…. */}
+                        {onSplitElement !== undefined && (
+                          <button
+                            type="button"
+                            className="timeline-trim-open"
+                            aria-label={`Split ${position} in the Split window`}
+                            aria-haspopup="dialog"
+                            title="Split in a window: pick the moment on the overlay's clip and split it into two there"
+                            onClick={() => setSplittingId(overlay.id)}
+                          >
+                            Split…
+                          </button>
+                        )}
+                        {onSplitElement !== undefined && splittingId === overlay.id && (
+                          <SplitDialog
+                            entry={overlay}
+                            position={position}
+                            stepSeconds={stepSeconds}
+                            largeStepSeconds={largeStepSeconds}
+                            onOpen={onPausePreview}
+                            onApply={(atSourceTime) => {
+                              setSplittingId(null)
+                              onSplitElement('video-overlay', overlay.id, atSourceTime)
+                            }}
+                            onClose={() => setSplittingId(null)}
                           />
                         )}
                         <span className="timeline-entry-effective">

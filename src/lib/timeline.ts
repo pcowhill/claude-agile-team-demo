@@ -55,6 +55,7 @@ import type { RangeCutPlan } from './rangeCut'
 import { RANGE_CUT_EPSILON, planRangeCut } from './rangeCut'
 import type { RippleChange, RippleCollections } from './ripple'
 import { rippleCut, splitZoomAt } from './ripple'
+import { splitAudioTrack, splitVideoOverlay } from './elementSplit'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -696,6 +697,24 @@ export type TimelineAction =
       kind: 'entry' | 'audio-track' | 'video-overlay' | 'text' | 'shape-group'
       id: string
       /** The copy's id, supplied by the caller like every element id. */
+      newId: string
+    }
+  | {
+      /**
+       * Split… on an audio track or a video overlay (#826): the element
+       * becomes two at a source instant, each playing exactly where the
+       * original did (see `elementSplit.ts` for the rule). The second part
+       * is listed right after the first, so overlay stacking is unchanged,
+       * and it is one action, so one undo step. Refused (same state) on In,
+       * on Out, outside the trim, on an image overlay, for an unknown id,
+       * and for a `newId` already taken.
+       */
+      type: 'element-split'
+      kind: 'audio-track' | 'video-overlay'
+      id: string
+      /** Absolute source-clip seconds; must be strictly inside (inPoint, outPoint). */
+      atSourceTime: number
+      /** The second part's id, supplied by the caller like every element id. */
       newId: string
     }
   | {
@@ -2308,6 +2327,27 @@ function reduceTimelineCollections(
         ]
       })
       return withEffects(entries, splitTransitions, splitZooms, audioTracks, splitRemaps, texts, videoOverlays)
+    }
+    case 'element-split': {
+      // Split… on a track or an overlay (#826): see elementSplit.ts. The
+      // second part goes right after the first in its list.
+      if (typeof action.newId !== 'string' || action.newId === '') return state
+      if (action.kind === 'audio-track') {
+        const index = audioTracks.findIndex((track) => track.id === action.id)
+        if (index === -1) return state
+        if (audioTracks.some((track) => track.id === action.newId)) return state
+        const parts = splitAudioTrack(audioTracks[index], action.atSourceTime, action.newId)
+        if (parts === null) return state
+        const nextTracks = [...audioTracks.slice(0, index), ...parts, ...audioTracks.slice(index + 1)]
+        return withEffects(state.entries, transitions, zooms, nextTracks, remaps, texts, videoOverlays)
+      }
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      if (videoOverlays.some((overlay) => overlay.id === action.newId)) return state
+      const parts = splitVideoOverlay(videoOverlays[index], action.atSourceTime, action.newId)
+      if (parts === null) return state
+      const nextOverlays = [...videoOverlays.slice(0, index), ...parts, ...videoOverlays.slice(index + 1)]
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, nextOverlays)
     }
     case 'frame-frozen': {
       // Freeze frame (#379): validate the still whole, then place it — see
