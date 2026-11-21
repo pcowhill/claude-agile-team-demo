@@ -41,6 +41,7 @@ import { sineWav } from './sineWav'
  *   Redaction, each from the Adjust visually… button on the row it edits,
  *   and the shape editor (#685) from a shape group's Draw shapes… button
  * - the Trim window (#707), from a video entry's Trim… button
+ * - the Cut window (#827), from the same entry's Cut… button
  * - the recording dialog, in all three of its states (#514) — counting
  *   down, recording, and paused
  * - the Save mode dialog, and the Open project dialog it writes the file
@@ -344,6 +345,22 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     from: 'Play from the split point',
     to: '▶ Play (the Split window)',
     why: 'the button reads "▶ Play"; the name says where it plays from (#825)',
+  },
+  // The Cut window (#827): the Trim window's frame again, named the same way.
+  {
+    from: 'Cut a part out in the Cut window',
+    to: 'Cut…',
+    why: 'the button reads "Cut…"; the name says which entry it cuts a part out of (#827)',
+  },
+  {
+    from: 'Close the Cut window without cutting',
+    to: '✕ (close the Cut window)',
+    why: "as the Trim window's ✕: a glyph, its name saying what closing does (#827)",
+  },
+  {
+    from: 'Play cut',
+    to: '▶ Play cut',
+    why: 'the button reads "▶ Play cut"; the name drops the glyph (#827)',
   },
   {
     from: 'Split point in seconds',
@@ -985,6 +1002,17 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await record('the Split window', splitWindow)
   await page.keyboard.press('Escape')
   await expect(splitWindow).toHaveCount(0)
+
+  // The Cut window (#827), from the same entry's Cut… button: modal, as the
+  // Trim and Split windows are, and closed the same way.
+  await timeline
+    .getByRole('button', { name: `Cut a part out of ${firstEntry} in the Cut window`, exact: true })
+    .click()
+  const cutWindow = page.getByRole('dialog', { name: `Cut ${firstEntry}` })
+  await expect(cutWindow).toBeVisible()
+  await record('the Cut window', cutWindow)
+  await page.keyboard.press('Escape')
+  await expect(cutWindow).toHaveCount(0)
 
   // ── A speed segment and a pause (#525) ──────────────────────────────
   //

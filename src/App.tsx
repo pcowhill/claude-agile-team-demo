@@ -749,6 +749,14 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               newEntryId: crypto.randomUUID(),
             })
           }
+          onCutRange={(from, to) =>
+            dispatchTimeline({
+              type: 'range-cut',
+              from,
+              to,
+              newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
+            })
+          }
           onSplitElement={(kind, id, atSourceTime) =>
             dispatchTimeline({
               type: 'element-split',

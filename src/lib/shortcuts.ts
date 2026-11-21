@@ -44,6 +44,12 @@ export const TRIM_WINDOW_SCOPE = 'In the Trim window'
  */
 export const SPLIT_WINDOW_SCOPE = 'In the Split window'
 
+/**
+ * The Cut window's own keys (#827): a modal dialog as well. Its clamps take
+ * the arrows only while focused, as the Trim window's do.
+ */
+export const CUT_WINDOW_SCOPE = 'In the Cut window'
+
 export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): readonly Shortcut[] => [
   { keys: ['Space'], does: 'Play / pause the preview' },
   { keys: ['← / →'], does: `Step the playhead ${stepSeconds} s back / forward` },
@@ -91,6 +97,19 @@ export const shortcutsFor = (stepSeconds: number, largeStepSeconds: number): rea
     scope: SPLIT_WINDOW_SCOPE,
   },
   { keys: ['Esc'], does: 'Close the window without splitting', scope: SPLIT_WINDOW_SCOPE },
+  { keys: ['Space'], does: 'Play / pause Play cut', scope: CUT_WINDOW_SCOPE },
+  {
+    keys: ['← / →'],
+    does: `Move the focused clamp ${stepSeconds} s back / forward`,
+    scope: CUT_WINDOW_SCOPE,
+  },
+  {
+    keys: ['Shift + ← / →'],
+    does: `Move the focused clamp ${largeStepSeconds} s back / forward`,
+    scope: CUT_WINDOW_SCOPE,
+  },
+  { keys: ['Home / End'], does: 'Move the focused clamp to In / Out', scope: CUT_WINDOW_SCOPE },
+  { keys: ['Esc'], does: 'Close the window without cutting', scope: CUT_WINDOW_SCOPE },
 ]
 
 /**

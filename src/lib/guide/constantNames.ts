@@ -83,6 +83,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'LOOP_REST_SECONDS',
   /** How many frames the Trim window's strip shows along the clip (#708). */
   'TRIM_FRAME_COUNT',
+  /** How many seconds ▶ Play cut plays before the Cut window's Cut from (#827). */
+  'PLAY_CUT_LEAD',
   /** The smallest side a redaction region can be dragged to, in percent of the source (#493). */
   'REDACTION_MIN_REGION_PERCENT',
   /** A rounded shape mask's corner radius: its ceiling and its starting value, in percent (#266). */
