@@ -17,6 +17,11 @@ const resolvedReaders = (): ClipPropertyReaders => ({
   file: vi.fn(async () => ({ type: 'video/webm', size: 2048 })),
   dimensions: vi.fn(async () => ({ width: 320, height: 180 })),
   channels: vi.fn(async () => 1),
+  container: vi.fn(async () => ({
+    container: 'WebM',
+    video: { codec: 'VP8', frameRate: { kind: 'constant' as const, fps: 30 } },
+    audio: { codec: 'Opus', sampleRate: 48000 },
+  })),
 })
 
 describe('ClipPropertiesDialog (#804)', () => {
@@ -32,6 +37,9 @@ describe('ClipPropertiesDialog (#804)', () => {
     expect(valueOf('Length')).toBe('0:06 (6.01 s)')
     expect(valueOf('On the timeline')).toBe('1 placement')
     expect(readers.file).toHaveBeenCalledWith('blob:v')
+    expect(valueOf('Frame rate')).toBe('30 fps')
+    expect(valueOf('Sample rate')).toBe('48,000 Hz')
+    expect(readers.container).toHaveBeenCalledWith('blob:v')
   })
 
   it('shows Reading… while a read runs and Unknown when it fails', async () => {
@@ -42,11 +50,16 @@ describe('ClipPropertiesDialog (#804)', () => {
         throw new Error('no metadata')
       },
       channels: async () => null,
+      container: async () => {
+        throw new Error('not a container this editor reads')
+      },
     }
     render(<ClipPropertiesDialog clip={video} placements={0} onClose={() => {}} readers={readers} />)
     expect(valueOf('File size')).toBe('Reading…')
     await waitFor(() => expect(valueOf('Dimensions')).toBe('Unknown'))
     expect(valueOf('Has sound')).toBe('No (none this browser can decode)')
+    await waitFor(() => expect(valueOf('Frame rate')).toBe('Unknown'))
+    expect(valueOf('Container')).toBe('Unknown')
     finish({ type: 'video/webm', size: 10 })
     await waitFor(() => expect(valueOf('File size')).toBe('10 bytes'))
   })
@@ -64,6 +77,7 @@ describe('ClipPropertiesDialog (#804)', () => {
     await waitFor(() => expect(readers.file).toHaveBeenCalled())
     expect(readers.dimensions).not.toHaveBeenCalled()
     expect(readers.channels).not.toHaveBeenCalled()
+    expect(readers.container).not.toHaveBeenCalled()
     expect(valueOf('Dimensions')).toBe('64 × 64 px')
   })
 

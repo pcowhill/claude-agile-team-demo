@@ -7,6 +7,8 @@ import {
   readVideoDimensions,
 } from '../lib/clipProperties'
 import type { ClipReads, Read } from '../lib/clipProperties'
+import { readClipContainer } from '../lib/containerInfo'
+import type { ContainerInfo } from '../lib/containerInfo'
 import './dialog.css'
 import './ClipPropertiesDialog.css'
 
@@ -15,12 +17,14 @@ export interface ClipPropertyReaders {
   file: (url: string) => Promise<{ type: string; size: number }>
   dimensions: (url: string) => Promise<{ width: number; height: number }>
   channels: (url: string) => Promise<number | null>
+  container: (url: string) => Promise<ContainerInfo>
 }
 
 const defaultReaders: ClipPropertyReaders = {
   file: readClipFile,
   dimensions: readVideoDimensions,
   channels: readAudioChannels,
+  container: readClipContainer,
 }
 
 interface ClipPropertiesDialogProps {
@@ -52,7 +56,12 @@ export function ClipPropertiesDialog({
 }: ClipPropertiesDialogProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const headingId = useId()
-  const [reads, setReads] = useState<ClipReads>({ file: reading, dimensions: reading, channels: reading })
+  const [reads, setReads] = useState<ClipReads>({
+    file: reading,
+    dimensions: reading,
+    channels: reading,
+    container: reading,
+  })
 
   useEffect(() => {
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -83,7 +92,10 @@ export function ClipPropertiesDialog({
     // Only what the rows will show is read: no metadata for a still, which
     // carries its size from import, and no decode for one either.
     if (clip.kind === 'video') settle('dimensions', readers.dimensions(clip.url))
-    if (clip.kind !== 'image') settle('channels', readers.channels(clip.url))
+    if (clip.kind !== 'image') {
+      settle('channels', readers.channels(clip.url))
+      settle('container', readers.container(clip.url))
+    }
     return () => {
       live = false
     }

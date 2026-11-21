@@ -80,7 +80,7 @@ const AUDIO_TRACK_TYPE = 2
 /** The bytes of an 8-byte "unknown size" field. */
 const UNKNOWN_SIZE_8 = Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff)
 
-interface Header {
+export interface Header {
   id: number
   /** Offset of the element's data. */
   data: number
@@ -89,7 +89,7 @@ interface Header {
 }
 
 /** Reads an element header at `pos`, or null if it is malformed or cut off. */
-function readHeader(bytes: Uint8Array, pos: number): Header | null {
+export function readHeader(bytes: Uint8Array, pos: number): Header | null {
   if (pos >= bytes.length) return null
   const first = bytes[pos]
   let idLength = 1

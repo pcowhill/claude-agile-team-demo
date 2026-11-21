@@ -1,3 +1,5 @@
+import { formatFrameRate, formatSampleRate } from './containerInfo'
+import type { ContainerInfo } from './containerInfo'
 import { clipFileName, formatDuration } from './mediaLibrary'
 import type { LibraryClip } from './mediaLibrary'
 
@@ -7,8 +9,9 @@ import type { LibraryClip } from './mediaLibrary'
  *
  * Every value is either known from the clip, read from its file, or
  * "Unknown". A read that has not settled yet is "Reading…". Nothing is
- * guessed. Frame rate, sample rate and codecs come from the file's
- * container headers and are #805's to add.
+ * guessed. The container, codecs, frame rate and sample rate are read from
+ * the file's container headers (#805, `containerInfo.ts`), and show "Not
+ * stated in the file" where the headers are readable but say nothing.
  */
 
 /** One row: what it is, and its value in words with units. */
@@ -28,6 +31,8 @@ export interface ClipReads {
   dimensions: Read<{ width: number; height: number }>
   /** Channels in the decoded sound; null when there is no sound the browser can decode. */
   channels: Read<number | null>
+  /** What the file's container headers state (#805). Not read for an image. */
+  container: Read<ContainerInfo>
 }
 
 export const READING = 'Reading…'
@@ -90,6 +95,17 @@ function shown<T>(read: Read<T>, show: (value: T) => string): string {
   return show(read.value)
 }
 
+/** Audio codec and Sample rate, from the container's first audio track. */
+function audioTrackRows(reads: ClipReads): PropertyRow[] {
+  return [
+    { label: 'Audio codec', value: shown(reads.container, ({ audio }) => audio?.codec ?? UNKNOWN) },
+    {
+      label: 'Sample rate',
+      value: shown(reads.container, ({ audio }) => (audio === null ? UNKNOWN : formatSampleRate(audio.sampleRate))),
+    },
+  ]
+}
+
 /**
  * The dialog's rows for `clip`, present only where they apply (#804's
  * table). `placements` is how many timeline elements were made from the
@@ -112,6 +128,9 @@ export function clipPropertyRows(
     label: 'File type',
     value: shown(reads.file, ({ type }) => (type === '' ? UNKNOWN : `${type}${ofSource}`)),
   })
+  if (clip.kind !== 'image') {
+    rows.push({ label: 'Container', value: shown(reads.container, ({ container }) => `${container}${ofSource}`) })
+  }
   rows.push({ label: 'File size', value: shown(reads.file, ({ size }) => `${formatFileSize(size)}${ofSource}`) })
 
   if (clip.kind !== 'image') rows.push({ label: 'Length', value: formatLength(clip.duration) })
@@ -130,6 +149,11 @@ export function clipPropertyRows(
       label: 'Aspect ratio',
       value: shown(reads.dimensions, ({ width, height }) => formatAspectRatio(width, height)),
     })
+    rows.push({
+      label: 'Frame rate',
+      value: shown(reads.container, ({ video }) => (video === null ? UNKNOWN : formatFrameRate(video.frameRate))),
+    })
+    rows.push({ label: 'Video codec', value: shown(reads.container, ({ video }) => video?.codec ?? UNKNOWN) })
     // Whether decoding yields sound: a decode that fails says there is none
     // this browser can play, which is what the editor can use, not a claim
     // about every player.
@@ -143,12 +167,17 @@ export function clipPropertyRows(
         value: shown(reads.channels, (channels) => (channels === null ? UNKNOWN : formatChannels(channels))),
       })
     }
+    // The sound's codec and rate as the container states them: a video
+    // whose container has no audio track has neither row. A track the
+    // browser cannot decode still has them — the file names its codec.
+    if (reads.container.state !== 'done' || reads.container.value.audio !== null) rows.push(...audioTrackRows(reads))
   }
   if (clip.kind === 'audio') {
     rows.push({
       label: 'Audio channels',
       value: shown(reads.channels, (channels) => (channels === null ? UNKNOWN : formatChannels(channels))),
     })
+    rows.push(...audioTrackRows(reads))
   }
 
   rows.push({

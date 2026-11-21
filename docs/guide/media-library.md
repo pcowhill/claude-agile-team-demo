@@ -131,16 +131,20 @@ An audio clip's menu has no Add as overlay or Extract audio, since it has no pic
 
 - **Name**, and **Original filename** when a rename made them differ.
 - **Kind** — Video, Audio or Image.
-- **Extracted from** — for an audio clip made by [Extract audio](audio.md#extract-audio), the video it came from. Such a clip plays from the video's file, so its File type and File size describe that file and say so.
+- **Extracted from** — for an audio clip made by [Extract audio](audio.md#extract-audio), the video it came from. Such a clip plays from the video's file, so its File type, Container and File size describe that file and say so.
 - **File type** — the file's media type as the browser reports it, such as *video/webm*.
+- **Container** (video and audio) — the file format the file's own headers declare: *WebM*, *Matroska*, *MP4*, *QuickTime (MOV)*, *WAV* or *MP3*.
 - **File size** — in kB, MB or GB, with the exact number of bytes after it.
 - **Length** (video and audio) — as the library shows it and in seconds to two decimals, for example *1:05 (65.20 s)*.
 - **Dimensions** and **Aspect ratio** (video and images) — the picture's size in pixels, and its shape as *16:9*, *4:3* and so on, or as a decimal such as *1.78:1* when the whole-number terms would be unhelpful.
+- **Frame rate** (video) — frames per second as the file states it, such as *30 fps* or *29.97 fps*. An MP4 whose frames do not all last equally long shows *Variable*, with the average in brackets.
+- **Video codec** (video) — how the picture is compressed: *VP8*, *VP9*, *AV1*, *H.264* and so on.
 - **Has sound** (video) — *Yes*, or *No* when the browser can decode no sound from it.
 - **Audio channels** (audio, and video with sound) — Mono, Stereo or a count.
+- **Audio codec** and **Sample rate** (audio, and video whose file has a sound track) — how the sound is compressed, such as *Opus*, *AAC*, *MP3* or *PCM*, and its samples per second as the file states it, such as *48,000 Hz*.
 - **On the timeline** — how many elements were made from the clip, across the sequence, the overlay lane and the audio lane, or *Not placed*.
 
-Values that have to be read from the file show *Reading…* for a moment; a value the browser cannot report shows *Unknown*. Frame rate, sample rate and codecs are not listed yet. **Escape**, **Close** or a click outside the dialog closes it, and focus goes back to the row's ⋯. Opening it changes nothing in the project.
+Values that have to be read from the file show *Reading…* for a moment; a value the browser cannot report shows *Unknown*. Container, codecs, frame rate and sample rate come from the file's own headers, read without playing or decoding the file, so they appear as quickly for a long video as for a short one. They are read for WebM, Matroska, MP4, MOV, WAV and MP3 files; for any other format, or a file whose headers are damaged, those rows show *Unknown*. *Not stated in the file* means the headers were read and simply do not record that value: a recording made in the browser often leaves out its frame rate, and the editor shows what the file says rather than estimating one. **Escape**, **Close** or a click outside the dialog closes it, and focus goes back to the row's ⋯. Opening it changes nothing in the project.
 
 **Related.** [The ⋯ menu](#the-menu) · [Renaming a clip](#renaming-a-clip)
 
