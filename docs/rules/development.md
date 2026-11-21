@@ -119,6 +119,12 @@ does. Do not write ADRs for trivial or easily reversed choices.
   example. It said it would leave #760 open until five Firefox runs had
   been counted, then wrote the follow-up as a keyword-first sentence, and
   the merge closed #760 before any run was counted (#778).
+  **An edit does not undo it.** When a PR is already open with a keyword
+  before an issue that must stay open, editing the body is not enough. The
+  link GitHub recorded when the PR was opened survived an edit to "Refs"
+  and closed the issue on merge (#817, by #818's merge; #820). So the merging
+  session checks the issue's state after merging, and if it closed,
+  reopens it with a comment saying why.
 - Explain what changed, why, key implementation decisions, how it was
   tested, and remaining risks or follow-up work.
 - Never state that tests passed unless they were actually run (locally or in
