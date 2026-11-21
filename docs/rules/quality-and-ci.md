@@ -62,6 +62,20 @@ worse than no test, because it manufactures false confidence.
   - **At five clean runs**, close the issue as `not_planned`, listing the
     five runs. Short of five, comment the count and its runs, but only
     when it has moved since the last such comment.
+  - **A measured cause ends the watch, and the count does not.** Once the
+    failure has been explained by a measurement and a fix can be named, it
+    is no longer a flake nobody can reproduce, so this rule stops applying.
+    The session that sees this:
+    - removes `flake-watch` and keeps `bug`;
+    - comments the measurement (run link and numbers) and the named fix;
+    - stops counting.
+
+    The issue is then an ordinary bug, fixed like any other, and closed by
+    the PR that fixes it. #788 is the worked example. At 17:29 its thread
+    measured the cause, a recorder starting about 0.4 s behind the readout,
+    and named the fix (stop the take at `0:02`). At 19:15 it closed by
+    count. It failed again at 19:59 and 20:05, and the fix shipped as #813
+    under a new issue, #812.
 
   Five is the customer's number. A local sighting starts the count, but
   only CI runs advance it, because a local run leaves nothing a later
