@@ -57,7 +57,6 @@ const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
   { title: 'a screen + camera take paused ten times delivers two clips whose lengths agree within three frames (#514)', why: NO_HEADLESS_SCREEN },
-  { title: 'a pause is absent from the file: one clip, shorter than the wall time, and Space toggles it (#514)', why: '#801: the paused take decodes to about half its recorded length (0.87–0.89 s of ~2 s, run 44790911804)' },
   { title: 'selecting MP4 exports a file that demuxes as MP4 (#114)', why: 'Chromium-only: Firefox\'s MediaRecorder cannot record MP4, so the picker rightly omits it (#114 covers that case)' },
 ]
 

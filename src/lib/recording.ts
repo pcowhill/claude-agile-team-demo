@@ -26,6 +26,8 @@ export interface RecorderLike {
   pause?(): void
   resume?(): void
   ondataavailable: ((event: { data: Blob }) => void) | null
+  /** The recorder has actually begun capturing (#801). */
+  onstart: (() => void) | null
   onstop: (() => void) | null
   onerror: ((event: unknown) => void) | null
   readonly mimeType: string
@@ -60,6 +62,15 @@ export interface RecordingClock {
 /** A clock that started recording at `now`. */
 export function startedClock(now: number): RecordingClock {
   return { bankedMs: 0, runningSince: now }
+}
+
+/**
+ * A take whose recorder has been told to start but has not started yet
+ * (#801): nothing recorded, nothing running. It runs from the recorder's
+ * `start` event (`RecordingSession.started`), via `resumedClock`.
+ */
+export function waitingClock(): RecordingClock {
+  return { bankedMs: 0, runningSince: null }
 }
 
 /** The clock after a pause at `now`: the current run is banked, and nothing runs. */
@@ -231,6 +242,15 @@ export interface RecordingSession {
   /** Starts the recorder, once; a no-op after that. Called for the caller
    * by `start…Recording` unless it asked for `deferStart` (#514). */
   begin(): void
+  /**
+   * Settles when the recorder has actually begun capturing: its `start`
+   * event (#801). Nothing before it reaches the file. Chromium fires it
+   * within milliseconds of `begin()`; Firefox fires it when the first media
+   * arrives from the track, which its fake microphone in CI delays by up
+   * to 2.2 s (#801's measurement). Never settles for a take that never
+   * starts, and never rejects.
+   */
+  readonly started: Promise<void>
   /** Pauses the capture (#514): the paused span is simply absent from the
    * one continuous file. A no-op before `begin`, while paused, after
    * conclusion, or where `canPause` is false. */
@@ -286,8 +306,13 @@ function recordStream(
   recorder.onerror = () => {
     failure = new Error('The recorder failed while recording.')
   }
+  let markStarted = () => {}
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  recorder.onstart = () => markStarted()
 
-  let started = false
+  let begun = false
   let paused = false
   let concluded = false
   const canPause = typeof recorder.pause === 'function' && typeof recorder.resume === 'function'
@@ -296,27 +321,28 @@ function recordStream(
     mimeType: sessionMimeType,
     stream,
     canPause,
+    started,
     begin(): void {
-      if (started || concluded) return
-      started = true
+      if (begun || concluded) return
+      begun = true
       recorder.start()
     },
     pause(): void {
       // MediaRecorder throws on a pause while inactive or already paused;
       // the guards make every call from the dialog safe to repeat.
-      if (!canPause || !started || paused || concluded) return
+      if (!canPause || !begun || paused || concluded) return
       paused = true
       recorder.pause?.()
     },
     resume(): void {
-      if (!canPause || !started || !paused || concluded) return
+      if (!canPause || !begun || !paused || concluded) return
       paused = false
       recorder.resume?.()
     },
     stop(fileName: string): Promise<File> {
       if (concluded) return Promise.reject(new Error('The recording is already concluded.'))
       concluded = true
-      if (!started) {
+      if (!begun) {
         // Nothing was ever captured: releasing is all there is to do, and
         // `MediaRecorder.stop()` on an inactive recorder would throw.
         releaseStream()
@@ -340,7 +366,7 @@ function recordStream(
       // The discard rule (#224): nothing reaches the library, whatever the
       // recorder still delivers after stop.
       recorder.ondataavailable = null
-      if (!started) {
+      if (!begun) {
         // Cancelled during the countdown (#514): the recorder never ran, so
         // there is nothing to stop — only devices to release.
         releaseStream()
@@ -513,6 +539,9 @@ export interface ScreenCameraRecordingSession {
   /** Starts both recorders back to back, once — the same gesture, so the
    * two captures stay aligned (#388); a no-op after that. */
   begin(): void
+  /** Settles once **both** recorders have begun capturing (#801), as
+   * `RecordingSession.started` does for one. */
+  readonly started: Promise<void>
   /** Pauses both recorders in the same task (#514), so the paused spans
    * absent from the two files begin on the same tick. */
   pause(): void
@@ -643,6 +672,7 @@ export async function startScreenCameraRecording(
     screenStream,
     cameraStream,
     canPause: screenSession.canPause && cameraSession.canPause,
+    started: Promise.all([screenSession.started, cameraSession.started]).then(() => undefined),
     begin(): void {
       screenSession.begin()
       cameraSession.begin()

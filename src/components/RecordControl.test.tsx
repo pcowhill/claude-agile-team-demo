@@ -53,6 +53,7 @@ const fakeSession = (
   mimeType,
   stream: {} as MediaStream,
   canPause,
+  started: Promise.resolve(),
   begin: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
@@ -307,6 +308,7 @@ describe('screen + camera recording (#388)', () => {
     screenStream,
     cameraStream,
     canPause: true,
+    started: Promise.resolve(),
     begin: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
@@ -604,6 +606,8 @@ describe('countdown, Pause / Resume and Space (#514)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
     // Pause takes the focus once the take runs, so Space lands in the dialog.
     expect(pauseButton()).toHaveFocus()
+    // The recorder's start event settles `started` (#801); the clock runs from it.
+    await act(async () => {})
 
     // Record 2 s.
     await advance(2000)
@@ -632,6 +636,48 @@ describe('countdown, Pause / Resume and Space (#514)', () => {
     expect(session.stop).toHaveBeenCalledWith('Voice-over 1.webm')
     const list = await screen.findByRole('list', { name: 'Imported clips' })
     expect(list).toHaveTextContent('Voice-over 1.webm')
+  })
+
+  it('the readout stands at 0:00 until the recorder has started, and counts only from then (#801)', async () => {
+    let markStarted = () => {}
+    const session = {
+      ...fakeSession(),
+      started: new Promise<void>((resolve) => {
+        markStarted = resolve
+      }),
+    }
+    startMock.mockResolvedValue(session)
+    render(<App />)
+    const dialog = await openMicrophone()
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }))
+    expect(session.begin).toHaveBeenCalledTimes(1)
+
+    // Told to start, not yet capturing (Firefox's fake microphone held its
+    // start event back 0.9-2.2 s): nothing is in the file, so 0:00 stands.
+    await advance(2000)
+    expect(elapsed()).toHaveTextContent('0:00')
+
+    // A Pause and a Resume in that window reach the recorder, and the
+    // clock is still stopped: a Resume does not start it ahead of the
+    // recorder.
+    fireEvent.click(pauseButton())
+    expect(session.pause).toHaveBeenCalledTimes(1)
+    fireEvent.click(resumeButton())
+    expect(session.resume).toHaveBeenCalledTimes(1)
+    await advance(1000)
+    expect(elapsed()).toHaveTextContent('0:00')
+
+    // Paused when the recorder starts: still nothing runs.
+    fireEvent.click(pauseButton())
+    await act(async () => markStarted())
+    await advance(2000)
+    expect(elapsed()).toHaveTextContent('0:00')
+    expect(dialog).toHaveTextContent('Paused')
+
+    // Resumed: the clock runs from here, and only from here.
+    fireEvent.click(resumeButton())
+    await advance(2000)
+    expect(elapsed()).toHaveTextContent('0:02')
   })
 
   it('Space toggles Pause / Resume in the dialog and never fires a focused Stop or Cancel', async () => {
@@ -685,6 +731,7 @@ describe('countdown, Pause / Resume and Space (#514)', () => {
       screenStream: {} as MediaStream,
       cameraStream: {} as MediaStream,
       canPause: true,
+      started: Promise.resolve(),
       begin: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
