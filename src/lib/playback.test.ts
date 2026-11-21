@@ -10,6 +10,7 @@ import {
   sequenceBoundaries,
   sequenceTimeAt,
   splitTargetAt,
+  entrySplitRefusal,
   navigationBoundaries,
   playheadTrimAt,
 } from './playback'
@@ -472,6 +473,93 @@ describe('splitTargetAt and split playback equivalence (#190)', () => {
         `zoom at ${time}`,
       ).toEqual(zoomAt(before, original?.index ?? 0, original?.sourceTime ?? 0))
     }
+  })
+})
+
+describe('entrySplitRefusal: the Split window asks the razor about one entry (#825)', () => {
+  const six = (id: string) => entry({ id, clipId: id, url: `blob:${id}`, duration: 6, outPoint: 6 })
+  // a [0, 6) and b [5, 11): a 1 s crossfade overlaps a's last second and
+  // b's first. Total 11.
+  const crossfaded: TimelineState = {
+    entries: [six('a'), six('b')],
+    transitions: [{ beforeId: 'a', afterId: 'b', type: 'crossfade', duration: 1 }],
+  }
+  const split = (state: TimelineState, id: string, atSourceTime: number) =>
+    timelineReducer(state, { type: 'entry-split', id, atSourceTime, newEntryId: 'new' })
+
+  it("refuses In, Out and outside the trim as 'edge'", () => {
+    expect(entrySplitRefusal(crossfaded, 'a', 0)).toBe('edge')
+    expect(entrySplitRefusal(crossfaded, 'b', 6)).toBe('edge')
+    expect(entrySplitRefusal(crossfaded, 'a', 7)).toBe('edge')
+    expect(entrySplitRefusal(crossfaded, 'missing', 3)).toBe('edge')
+  })
+
+  it("refuses either end's transition overlap as 'transition' — where the reducer's split would re-clamp the crossfade", () => {
+    // The cuts the window must not offer: each lengthens the video, because
+    // the crossfade re-clamps to the shorter half.
+    for (const [id, at] of [
+      ['a', 5.5],
+      ['b', 0.5],
+    ] as const) {
+      expect(entrySplitRefusal(crossfaded, id, at), `${id} at ${at}`).toBe('transition')
+      expect(totalDuration(split(crossfaded, id, at)), `${id} at ${at}`).toBeGreaterThan(11)
+    }
+    // The outgoing overlap's start already has two clips playing, as for
+    // Split at playhead.
+    expect(entrySplitRefusal(crossfaded, 'a', 5)).toBe('transition')
+  })
+
+  it('allows the middle, and the incoming overlap\'s end, and the split there plays as before', () => {
+    for (const [id, at] of [
+      ['a', 3],
+      ['a', 4.99],
+      ['b', 1],
+      ['b', 3],
+    ] as const) {
+      expect(entrySplitRefusal(crossfaded, id, at), `${id} at ${at}`).toBeNull()
+      expect(totalDuration(split(crossfaded, id, at)), `${id} at ${at}`).toBeCloseTo(11, 10)
+    }
+  })
+
+  it('agrees with splitTargetAt at the moment that source time first shows, under transitions, a speed segment and a pause', () => {
+    const state: TimelineState = {
+      entries: [
+        entry({ id: 'e1', clipId: 'clip-a', inPoint: 2, outPoint: 5 }),
+        entry({ id: 'e2', clipId: 'clip-b', url: 'blob:clip-b' }),
+        entry({ id: 'e3', clipId: 'clip-a', inPoint: 4, outPoint: 8 }),
+      ],
+      transitions: [
+        { beforeId: 'e1', afterId: 'e2', type: 'crossfade', duration: 1 },
+        { beforeId: 'e2', afterId: 'e3', type: 'slide-from-left', duration: 1.5 },
+      ],
+      remaps: [
+        // Half speed at e2's start, so its incoming overlap spans less source.
+        { id: 'r1', entryId: 'e2', kind: 'speed', start: 0, end: 1, factor: 0.5 },
+        { id: 'r2', entryId: 'e2', kind: 'pause', at: 6, hold: 1 },
+      ],
+    }
+    let refused = 0
+    let allowed = 0
+    state.entries.forEach((candidate, index) => {
+      // Off the 0.05 grid, so no sample sits exactly on an overlap's edge.
+      for (let at = candidate.inPoint + 0.013; at < candidate.outPoint; at += 0.05) {
+        const target = splitTargetAt(state, sequenceTimeAt(state, index, at))
+        const razorCuts =
+          target !== null && target.entryId === candidate.id && Math.abs(target.atSourceTime - at) < 1e-9
+        const refusal = entrySplitRefusal(state, candidate.id, at)
+        expect(refusal === null, `${candidate.id} at ${at}`).toBe(razorCuts)
+        if (refusal === null) {
+          allowed++
+          expect(totalDuration(split(state, candidate.id, at)), `${candidate.id} at ${at}`).toBeCloseTo(
+            totalDuration(state),
+            9,
+          )
+        } else refused++
+      }
+    })
+    // Both verdicts were exercised.
+    expect(refused).toBeGreaterThan(10)
+    expect(allowed).toBeGreaterThan(10)
   })
 })
 

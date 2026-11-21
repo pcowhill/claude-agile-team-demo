@@ -328,6 +328,28 @@ const ALIASES: { from: string; to: string; why: string }[] = [
     to: '✕ (close the Trim window)',
     why: "the window's close is the ✕ glyph with no words; its accessible name says what closing does (#707)",
   },
+  // The Split window (#825): the Trim window's frame, its controls named
+  // the same way.
+  {
+    from: 'Split in the Split window',
+    to: 'Split…',
+    why: 'the button reads "Split…"; the name says which entry it splits (#825)',
+  },
+  {
+    from: 'Close the Split window without splitting',
+    to: '✕ (close the Split window)',
+    why: "as the Trim window's ✕: a glyph, its name saying what closing does (#825)",
+  },
+  {
+    from: 'Play from the split point',
+    to: '▶ Play (the Split window)',
+    why: 'the button reads "▶ Play"; the name says where it plays from (#825)',
+  },
+  {
+    from: 'Split point in seconds',
+    to: 'Split at',
+    why: 'the field is labelled "Split at"; the name says what it holds (#825)',
+  },
   {
     from: 'Back one frame',
     to: '◀ frame',
@@ -952,6 +974,17 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await record('the Trim window', trimWindow)
   await page.keyboard.press('Escape')
   await expect(trimWindow).toHaveCount(0)
+
+  // The Split window (#825), from the same entry's Split… button: modal, as
+  // the Trim window is, and closed the same way.
+  await timeline
+    .getByRole('button', { name: `Split ${firstEntry} in the Split window`, exact: true })
+    .click()
+  const splitWindow = page.getByRole('dialog', { name: `Split ${firstEntry}` })
+  await expect(splitWindow).toBeVisible()
+  await record('the Split window', splitWindow)
+  await page.keyboard.press('Escape')
+  await expect(splitWindow).toHaveCount(0)
 
   // ── A speed segment and a pause (#525) ──────────────────────────────
   //

@@ -166,6 +166,8 @@ import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { TrimDialog } from './TrimDialog'
+import { SplitDialog } from './SplitDialog'
+import { entrySplitRefusal } from '../lib/playback'
 import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import './Timeline.css'
@@ -241,6 +243,13 @@ interface TimelineProps {
   onPasteSettings?: (kind: SettingsElementKind, id: string, settings: CopiedSettings) => void
   onRemoveEntry: (id: string) => void
   onTrimEntry: (id: string, inPoint: number, outPoint: number) => void
+  /**
+   * Split… on a video entry (#825): split it at a source time, picked in the
+   * Split window — Split at playhead's own `entry-split` (#190). Optional so
+   * tests that predate it keep compiling; the button renders only when the
+   * app supplies it.
+   */
+  onSplitEntry?: (id: string, atSourceTime: number) => void
   /**
    * The Trim window's clamp steps (#707): the nudge and jump sizes from
    * Settings, as the transport's arrows use. Optional so tests that predate
@@ -2501,6 +2510,7 @@ export function Timeline({
   onPasteSettings,
   onRemoveEntry,
   onTrimEntry,
+  onSplitEntry,
   stepSeconds = DEFAULT_SETTINGS.stepSeconds,
   largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
   onPausePreview,
@@ -2904,6 +2914,8 @@ export function Timeline({
   // time, since it is a modal dialog. View state only; Apply is the one
   // edit it makes.
   const [trimmingId, setTrimmingId] = useState<string | null>(null)
+  // Which entry's Split window (#825) is open, if any — the same rule.
+  const [splittingId, setSplittingId] = useState<string | null>(null)
   // Match levels (#691): whether a run is measuring, and the last run's
   // report — a status line under the header, not a dialog (#395), until
   // dismissed or replaced by the next run's.
@@ -3493,6 +3505,37 @@ export function Timeline({
                           }}
                           onClose={() => setTrimmingId(null)}
                           effectsFor={(range) => trimEffectsPreview(timeline, entry.id, range)}
+                        />
+                      )}
+                      {/* Split… (#825): the moment picked on the clip's own
+                          strip, then Split at playhead's razor. After
+                          Trim…, in the order the customer named (Trim…,
+                          Cut…, Split…). */}
+                      {onSplitEntry !== undefined && (
+                        <button
+                          type="button"
+                          className="timeline-trim-open"
+                          aria-label={`Split ${position} in the Split window`}
+                          aria-haspopup="dialog"
+                          title="Split in a window: pick the moment on the clip and split it into two there"
+                          onClick={() => setSplittingId(entry.id)}
+                        >
+                          Split…
+                        </button>
+                      )}
+                      {onSplitEntry !== undefined && splittingId === entry.id && (
+                        <SplitDialog
+                          entry={entry}
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
+                          refusalAt={(atSourceTime) => entrySplitRefusal(timeline, entry.id, atSourceTime)}
+                          onApply={(atSourceTime) => {
+                            setSplittingId(null)
+                            onSplitEntry(entry.id, atSourceTime)
+                          }}
+                          onClose={() => setSplittingId(null)}
                         />
                       )}
                       <span className="timeline-entry-effective">

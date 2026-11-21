@@ -132,22 +132,6 @@ export function TrimDialog({
   }, [])
   useEffect(() => stopTicking, [stopTicking])
 
-  // The strip's frames (#708), decoded in the background and cached per
-  // clip. Nothing waits for them: until they arrive the strip is its bar,
-  // and the clamps, playhead and buttons already work (#703 §5).
-  const [frames, setFrames] = useState<(string | null)[] | null>(null)
-  useEffect(() => {
-    // An audio track has no frames (#711): nothing to decode.
-    if (audioOnly) return
-    let stale = false
-    void framesFor(url, duration).then((captured) => {
-      if (!stale) setFrames(captured)
-    })
-    return () => {
-      stale = true
-    }
-  }, [audioOnly, framesFor, url, duration])
-
   // Focus starts on the window itself, so Space plays at once rather than
   // pressing whichever button would otherwise hold the focus.
   useEffect(() => {
@@ -437,27 +421,13 @@ export function TrimDialog({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          {frames !== null && frames.some((frame) => frame !== null) && (
-            <div className="trim-strip-frames" data-testid="trim-frames" aria-hidden="true">
-              {frames.map((frame, index) =>
-                frame === null ? (
-                  <span key={index} className="trim-frame" />
-                ) : (
-                  <img key={index} className="trim-frame" src={frame} alt="" data-testid="trim-frame" />
-                ),
-              )}
-            </div>
-          )}
-          <div className="trim-strip-waveform">
-            <AudioWaveform
-              url={url}
-              duration={duration}
-              inPoint={0}
-              outPoint={duration}
-              data-testid="trim-waveform"
-              {...(peaksFor === undefined ? {} : { peaksFor })}
-            />
-          </div>
+          <StripPicture
+            url={url}
+            duration={duration}
+            audioOnly={audioOnly}
+            peaksFor={peaksFor}
+            framesFor={framesFor}
+          />
           <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
           <div
             className="trim-strip-dim"
@@ -641,13 +611,75 @@ export function TrimDialog({
 }
 
 /**
+ * The strip's picture, under whatever marks a window draws on it: the row
+ * of the clip's frames (#708) over its waveform, the whole source left to
+ * right. The Trim window and the Split window (#825) share it, so the two
+ * strips show a clip identically.
+ */
+export function StripPicture({
+  url,
+  duration,
+  audioOnly = false,
+  peaksFor,
+  framesFor = trimFramesFor,
+}: {
+  url: string
+  duration: number
+  /** An audio track (#711): no frames to decode, the waveform alone. */
+  audioOnly?: boolean
+  peaksFor?: Parameters<typeof AudioWaveform>[0]['peaksFor']
+  framesFor?: (url: string, duration: number) => Promise<(string | null)[]>
+}) {
+  // The strip's frames (#708), decoded in the background and cached per
+  // clip. Nothing waits for them: until they arrive the strip is its bar,
+  // and the clamps, playhead and buttons already work (#703 §5).
+  const [frames, setFrames] = useState<(string | null)[] | null>(null)
+  useEffect(() => {
+    // An audio track has no frames (#711): nothing to decode.
+    if (audioOnly) return
+    let stale = false
+    void framesFor(url, duration).then((captured) => {
+      if (!stale) setFrames(captured)
+    })
+    return () => {
+      stale = true
+    }
+  }, [audioOnly, framesFor, url, duration])
+  return (
+    <>
+      {frames !== null && frames.some((frame) => frame !== null) && (
+        <div className="trim-strip-frames" data-testid="trim-frames" aria-hidden="true">
+          {frames.map((frame, index) =>
+            frame === null ? (
+              <span key={index} className="trim-frame" />
+            ) : (
+              <img key={index} className="trim-frame" src={frame} alt="" data-testid="trim-frame" />
+            ),
+          )}
+        </div>
+      )}
+      <div className="trim-strip-waveform">
+        <AudioWaveform
+          url={url}
+          duration={duration}
+          inPoint={0}
+          outPoint={duration}
+          data-testid="trim-waveform"
+          {...(peaksFor === undefined ? {} : { peaksFor })}
+        />
+      </div>
+    </>
+  )
+}
+
+/**
  * The exact In or Out, for typing: the row's field idiom — the unit inside
  * the box, a commit on Enter or blur, and a spinner click in Firefox (which
  * never focuses the box, #593) committing at once. The clamps' rules apply
  * to what is typed, so a value past the other clamp lands the minimum short
- * of it.
+ * of it. The Split window (#825) types its split point in the same field.
  */
-function TrimField({
+export function TrimField({
   label,
   value,
   max,

@@ -280,6 +280,45 @@ export function splitTargetAt(state: TimelineState, sequenceTime: number): Split
   return { entryId: entry.id, atSourceTime: sourceTime }
 }
 
+/**
+ * Why the razor refuses to cut entry `entryId` at `atSourceTime`, or null
+ * where it cuts — `splitTargetAt`'s rule asked of a source time on one entry
+ * instead of a playhead, for the Split window (#825):
+ *
+ * - `'edge'`: on In, on Out, or outside the trimmed range (`isSplittablePoint`);
+ * - `'transition'`: inside the transition overlap at either end of the
+ *   entry, where a half would come out shorter than the transition and
+ *   re-clamp it, so the split would no longer play back identically.
+ *
+ * The point maps to output time through the entry's remaps (#138) as
+ * `sequenceTimeAt` does — under a pause, the earliest moment the frame shows.
+ * Where this is null, `splitTargetAt` at that moment cuts the same entry at
+ * the same instant.
+ */
+export function entrySplitRefusal(
+  state: TimelineState,
+  entryId: string,
+  atSourceTime: number,
+): 'edge' | 'transition' | null {
+  const index = state.entries.findIndex((candidate) => candidate.id === entryId)
+  if (index === -1) return 'edge'
+  const entry = state.entries[index]
+  if (!isSplittablePoint(entry, atSourceTime)) return 'edge'
+  const overlaps = boundaryTransitions(state)
+  const intoEntry = outputTimeAtSource(
+    effectiveDuration(entry),
+    remapsForEntry(state, entry.id),
+    atSourceTime - entry.inPoint,
+  )
+  const length = entryOutputDuration(entry, remapsOf(state))
+  // The incoming overlap is [0, d) into the entry: its end belongs to this
+  // entry alone (`locateInSequence` sends it here), so it may be cut. The
+  // outgoing overlap is [length - d, length): two clips play from its start.
+  const incoming = index > 0 ? (overlaps[index - 1]?.duration ?? 0) : 0
+  const outgoing = overlaps[index]?.duration ?? 0
+  return intoEntry < incoming || intoEntry >= length - outgoing ? 'transition' : null
+}
+
 /** The trim Q or W (#710) would apply: an `entry-trimmed`'s fields. */
 export interface PlayheadTrim {
   entryId: string
