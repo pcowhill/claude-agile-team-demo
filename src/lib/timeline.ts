@@ -230,7 +230,8 @@ export interface TimelineEntry {
  * requirement, #100).
  *
  * `offset` is in **absolute timeline seconds** and is never re-anchored or
- * clamped by video edits: when transitions or trims shorten the video
+ * clamped by video edits — Cut out marked range aside, which ripples it
+ * with the picture (#824, ripple.ts): when transitions or trims shorten the video
  * sequence, a track keeps its offset even if it now extends past the
  * sequence's end — the video simply ends while the audio plays on
  * (allowed-and-silent-tail, decided in #102). Clamping instead would
@@ -401,7 +402,8 @@ export interface TimelineState {
    * their stacking order: where two overlap on screen, the later-added one
    * renders on top. Anchored to sequence time and independent of the
    * entries, like audio tracks (#102) — video edits never retime or drop
-   * one. Optional like `remaps`, and the key is written only while overlays
+   * one, except Cut out marked range, which ripples them (#824, ripple.ts).
+   * Optional like `remaps`, and the key is written only while overlays
    * exist, so every pre-text state stays shaped exactly as before.
    */
   texts?: TextOverlay[]
@@ -410,7 +412,8 @@ export interface TimelineState {
    * added, which is also their stacking order: where two rectangles overlap,
    * the later-added one renders on top. Anchored to sequence time and
    * independent of the entries, like audio tracks (#102) — video edits never
-   * retime or drop one. Optional like `remaps`, and the key is written only
+   * retime or drop one, except Cut out marked range, which ripples them
+   * (#824, ripple.ts). Optional like `remaps`, and the key is written only
    * while overlays exist, so every earlier state stays shaped as before.
    */
   videoOverlays?: VideoOverlay[]
@@ -443,7 +446,8 @@ export interface TimelineState {
    * Chapter markers (#487, the approved #461): named points in sequence
    * time, kept sorted by time. A marker is not attached to an entry and
    * does not move when clips are edited — a chapter is a point in the
-   * finished video, and the user places it against the picture. Project
+   * finished video, and the user places it against the picture. Cut out
+   * marked range is the one edit that moves it, with the picture (#824). Project
    * content: saved and restored like the collections, undoable like every
    * edit. Optional and written only while any exist, so every earlier state
    * (and file) stays shaped exactly as before. Carried across other edits
@@ -455,7 +459,8 @@ export interface TimelineState {
    * Shape groups (#683, the approved design #681): timed groups of
    * rectangles, ellipses and arrows (#684) drawn on the output frame, between the overlay
    * layers and the text. Anchored to sequence time and never retimed by a
-   * video edit, like text — so they are project-level here, carried across
+   * video edit but Cut out marked range (#824), like text — so they are
+   * project-level here, carried across
    * every other edit by `withProjectFields` exactly as markers are, rather
    * than rebuilt by `withEffects`. In add order; the order matters only
    * between groups that start together (later start draws on top, #681 §4).
