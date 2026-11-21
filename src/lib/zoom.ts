@@ -137,11 +137,24 @@ type ZoomSpecLike = Pick<
 >
 
 /** The eased ramp fraction g of one zoom at `t` seconds into its window. */
+/**
+ * How far a zoom's window edges stretch to absorb floating-point error
+ * (#840): a nanosecond, far below any frame. A cut re-keys a zoom to end
+ * (or start) exactly at the cut, with no ramp, and the frame on the cut
+ * then computes its offset into the window by a different sum than the
+ * window's length — `(1.84 − 0.4) − 0.6` is 0.8400000000000001, while
+ * `0.5 + 0.33999999999999986` is 0.84 — so without it the held frame of a
+ * pause on the cut fell one ulp outside the zoom and showed none. A ramped
+ * edge is unaffected: its fraction is already 0 there.
+ */
+const ZOOM_EDGE_EPSILON = 1e-9
+
 function rampFraction(zoom: Pick<ZoomEffect, 'rampIn' | 'hold' | 'rampOut'>, t: number): number {
   const total = zoom.rampIn + zoom.hold + zoom.rampOut
-  if (t < 0 || t > total) return 0
-  if (t < zoom.rampIn) return smoothstep(t / zoom.rampIn)
-  // A zero rampIn lands here at t = 0: the zoom starts at full, by request.
-  if (t <= zoom.rampIn + zoom.hold) return 1
+  if (t < -ZOOM_EDGE_EPSILON || t > total + ZOOM_EDGE_EPSILON) return 0
+  // A zero rampIn falls through to the hold, so the zoom starts at full, by
+  // request — at t = 0, or a rounding error before it.
+  if (zoom.rampIn > 0 && t < zoom.rampIn) return smoothstep(t / zoom.rampIn)
+  if (t <= zoom.rampIn + zoom.hold + ZOOM_EDGE_EPSILON) return 1
   return smoothstep((total - t) / zoom.rampOut)
 }
