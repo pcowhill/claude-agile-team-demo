@@ -229,10 +229,11 @@ describe('the Split window (#825)', () => {
     const button = splitButton()
     expect(button).toHaveTextContent('Split…')
     expect(button).toHaveAttribute('aria-haspopup', 'dialog')
-    // On the In / Out line, directly after Trim….
+    // On the In / Out line, after Trim… and Cut… (#827): Trim… Cut… Split…,
+    // the customer's order.
     const trim = screen.getByRole('button', { name: `Trim ${ENTRY} in the Trim window` })
     expect(button!.parentElement).toContainElement(inField())
-    expect(trim.nextElementSibling).toBe(button)
+    expect(trim.nextElementSibling?.nextElementSibling).toBe(button)
     // Only the video entry has one: not the still, not the slate.
     expect(splitButton('logo.png at position 2')).toBeNull()
     expect(screen.queryAllByRole('button', { name: /in the Split window$/ })).toHaveLength(1)

@@ -47,6 +47,7 @@ import { RECORDING_KEYFRAME_INTERVAL_MS } from '../recording'
 import { DEFAULT_PAUSE_HOLD, DEFAULT_SPEED_FACTOR, DEFAULT_SPEED_LENGTH } from '../remap'
 import { PROJECT_FILE_EXTENSION } from '../saveProject'
 import { TRIM_FRAME_COUNT } from '../trimFrames'
+import { PLAY_CUT_LEAD } from '../cutWindow'
 import type { AppSettings } from '../settings'
 import {
   DEFAULT_COUNTDOWN_SECONDS,
@@ -127,6 +128,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     TEXT_SIZE_STEP: String(TEXT_SIZE_STEP),
     LOOP_REST_SECONDS: String(LOOP_PAUSE_MS / 1000),
     TRIM_FRAME_COUNT: String(TRIM_FRAME_COUNT),
+    PLAY_CUT_LEAD: String(PLAY_CUT_LEAD),
     REDACTION_MIN_REGION_PERCENT: percent(MIN_REGION_FRACTION),
     MAX_ROUNDED_RADIUS_PERCENT: percent(MAX_ROUNDED_RADIUS),
     DEFAULT_ROUNDED_RADIUS_PERCENT: percent(DEFAULT_ROUNDED_RADIUS),

@@ -156,10 +156,11 @@ for (const viewport of [
     const row = page.getByRole('list', { name: 'Sequence' }).getByRole('listitem').first()
     const split = row.getByRole('button', { name: `Split ${ENTRY} in the Split window` })
     await expectWithin(split, row, { what: `the row's Split… ${what}` })
+    // Trim… Cut… Split… since #827, the customer's order.
     const pair = row.locator('.timeline-trim-open')
-    await expect(pair).toHaveCount(2)
-    await expectNoWrap(pair, `the row's Trim… / Split… ${what}`)
-    await expectAlignedRow(pair, `Trim… and Split… ${what}`)
+    await expect(pair).toHaveCount(3)
+    await expectNoWrap(pair, `the row's Trim… / Cut… / Split… ${what}`)
+    await expectAlignedRow(pair, `Trim…, Cut… and Split… ${what}`)
     await expectNoHorizontalScroll(page, `with Split… on the row ${what}`)
 
     const dialog = await openSplit(page)

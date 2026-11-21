@@ -26,7 +26,7 @@ Every edit to the timeline can be taken back, and taken back again. This page co
 - a transition set, changed or removed; a zoom, speed segment or pause added, changed or removed;
 - a colour, orientation, crop, background-fill or shape-mask change; a volume, mute, fade or duck change; a shape group's entrance; any text property;
 - the canvas preset; the default subtitle style; a chapter marker added, renamed, moved or removed;
-- Split at playhead, Split…, Cut out marked range, Freeze frame, Duplicate and Paste settings, each as one step;
+- Split at playhead, Split…, Cut…, Cut out marked range, Freeze frame, Duplicate and Paste settings, each as one step;
 - adding several selected clips from the library at once, and the Screen + camera take landing as a screen entry plus a camera overlay — one step each;
 - importing an `.srt` file, however many cues it holds — one step;
 - [Match levels](audio.md#match-levels), however many Volumes it sets — one step;

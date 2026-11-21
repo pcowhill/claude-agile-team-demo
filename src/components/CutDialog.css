@@ -1,0 +1,55 @@
+/* The Cut window (#827): the Trim window's frame and strip, with the part
+   between its two clamps shaded as removed — the reverse of the Trim
+   window, where the part outside the clamps is. */
+
+/* The removed part: red hatching over the frames and waveform, bordered so
+   its two ends read as the cut's edges. */
+.cut-strip-removed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(220, 50, 50, 0.7) 0 5px,
+    rgba(120, 0, 0, 0.55) 5px 10px
+  );
+  border-left: 2px solid #ff6b6b;
+  border-right: 2px solid #ff6b6b;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Where Apply is disabled: the same shading, greyed, as the Split window
+   greys its refused point. */
+.cut-strip-removed-refused {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(140, 140, 140, 0.55) 0 5px,
+    rgba(60, 60, 60, 0.5) 5px 10px
+  );
+  border-color: #999;
+}
+
+/* The clamps bound a removed part, so they are red where the Trim
+   window's are yellow. */
+.cut-clamp {
+  background: #ff6b6b;
+}
+
+/* One line held open while empty, so the buttons below never move as the
+   reason comes and goes. */
+.cut-status {
+  min-height: 1.3em;
+  margin: 0;
+  text-align: center;
+  color: #ffcf70;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+/* The picture a little shorter than the Trim window's 45vh: this window has
+   one line more (the reason line above), and at 1280×720 the Trim window's
+   height left it 0.23px past the viewport's foot. */
+.cut-dialog .trim-video {
+  max-height: 40vh;
+}

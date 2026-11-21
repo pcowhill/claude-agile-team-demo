@@ -71,6 +71,7 @@ import {
   isImageOverlay,
   isStillEntry,
   remapsForEntry,
+  rangeCutRipple,
   remapsOf,
   shapeGroupsOf,
   textsOf,
@@ -167,6 +168,10 @@ import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
 import { TrimDialog } from './TrimDialog'
 import { SplitDialog } from './SplitDialog'
+import { CutDialog } from './CutDialog'
+import type { CutClamps } from '../lib/cutWindow'
+import { entryCutRefusal, entryCutSpan } from '../lib/cutWindow'
+import { rippleSummary } from '../lib/ripple'
 import { entrySplitRefusal } from '../lib/playback'
 import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
@@ -250,6 +255,13 @@ interface TimelineProps {
    * app supplies it.
    */
   onSplitEntry?: (id: string, atSourceTime: number) => void
+  /**
+   * Cut… on a video entry (#827): remove a span of sequence time, the part
+   * of the entry between the Cut window's two clamps — Cut out marked
+   * range's own `range-cut` (#823), ripple included (#824). Optional, as
+   * `onSplitEntry` is; the button renders only when the app supplies it.
+   */
+  onCutRange?: (from: number, to: number) => void
   /**
    * Split… on an audio track or a video overlay (#826): split it at a source
    * time picked in the Split window — `element-split`. Optional, as
@@ -2517,6 +2529,7 @@ export function Timeline({
   onRemoveEntry,
   onTrimEntry,
   onSplitEntry,
+  onCutRange,
   onSplitElement,
   stepSeconds = DEFAULT_SETTINGS.stepSeconds,
   largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
@@ -2924,6 +2937,32 @@ export function Timeline({
   // Which entry's, overlay's or track's Split window (#825, #826) is open,
   // if any — the same rule.
   const [splittingId, setSplittingId] = useState<string | null>(null)
+  // Which entry's Cut window (#827) is open, if any — the same rule.
+  const [cuttingId, setCuttingId] = useState<string | null>(null)
+  // The ripple's confirmation for a Cut window's Apply (#827, #824's): open
+  // while it asks, holding the span and the one line it states.
+  const [pendingEntryCut, setPendingEntryCut] = useState<{
+    from: number
+    to: number
+    summary: string
+  } | null>(null)
+  /**
+   * Cut…'s Apply (#827): the clamps become their span of sequence time, cut
+   * out by Cut out marked range. When the cut would also move, shorten or
+   * remove anything placed in sequence time, it asks first and says what,
+   * with the counts from the ripple the reducer applies — the Frame ▾
+   * item's own confirmation (#824).
+   */
+  const cutEntryPart = (entryId: string, clamps: CutClamps) => {
+    setCuttingId(null)
+    if (onCutRange === undefined) return
+    if (entryCutRefusal(timeline, entryId, clamps) !== null) return
+    const span = entryCutSpan(timeline, entryId, clamps)
+    if (span === null) return
+    const summary = rippleSummary(rangeCutRipple(timeline, span.from, span.to), span.to - span.from)
+    if (summary !== null) setPendingEntryCut({ ...span, summary })
+    else onCutRange(span.from, span.to)
+  }
   // Match levels (#691): whether a run is measuring, and the last run's
   // report — a status line under the header, not a dialog (#395), until
   // dismissed or replaced by the next run's.
@@ -3513,6 +3552,34 @@ export function Timeline({
                           }}
                           onClose={() => setTrimmingId(null)}
                           effectsFor={(range) => trimEffectsPreview(timeline, entry.id, range)}
+                        />
+                      )}
+                      {/* Cut… (#827): Trim…'s inverse, the part between two
+                          clamps removed and the rest closing up — Cut out
+                          marked range over the entry's span. Between Trim…
+                          and Split…, in the order the customer named. */}
+                      {onCutRange !== undefined && (
+                        <button
+                          type="button"
+                          className="timeline-trim-open"
+                          aria-label={`Cut a part out of ${position} in the Cut window`}
+                          aria-haspopup="dialog"
+                          title="Cut in a window: mark a part of the clip and remove it, the rest closing up"
+                          onClick={() => setCuttingId(entry.id)}
+                        >
+                          Cut…
+                        </button>
+                      )}
+                      {onCutRange !== undefined && cuttingId === entry.id && (
+                        <CutDialog
+                          entry={entry}
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
+                          refusalFor={(clamps) => entryCutRefusal(timeline, entry.id, clamps)}
+                          onApply={(clamps) => cutEntryPart(entry.id, clamps)}
+                          onClose={() => setCuttingId(null)}
                         />
                       )}
                       {/* Split… (#825): the moment picked on the clip's own
@@ -5077,6 +5144,18 @@ export function Timeline({
               filterSettings(copiedSettings, chosen),
             )
             setPendingPaste(null)
+          }}
+        />
+      )}
+      {pendingEntryCut !== null && (
+        <ConfirmDialog
+          title="Cut out this part?"
+          body={pendingEntryCut.summary}
+          confirmLabel="Cut out"
+          onCancel={() => setPendingEntryCut(null)}
+          onConfirm={() => {
+            setPendingEntryCut(null)
+            onCutRange?.(pendingEntryCut.from, pendingEntryCut.to)
           }}
         />
       )}
