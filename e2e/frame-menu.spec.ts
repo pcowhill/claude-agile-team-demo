@@ -93,6 +93,50 @@ test('I and O mark the range at the playhead; Frame ▾ opens by keyboard and En
   await expect(frameMenuTrigger(page)).toBeFocused()
 })
 
+test('at 360 px the open Frame ▾ lies inside the window, sliding left when neither side of its trigger has the room (#831)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('./')
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await chooseFromAddMenu(page, ADD_SLATE)
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:10')
+  await blurActive(page)
+  // Marks set, as when the menu's range items are live.
+  await page.keyboard.press('i')
+  await page.keyboard.press('End')
+  await page.keyboard.press('o')
+  await expect(page.getByTestId('preview-clear-marks')).toBeVisible()
+
+  const expectPanelInside = async (what: string) => {
+    await frameMenuTrigger(page).click()
+    const menu = frameMenu(page)
+    await expect(menu).toBeVisible()
+    const view = await page.evaluate(() => ({
+      width: document.documentElement.clientWidth,
+      height: window.innerHeight,
+    }))
+    const box = (await menu.boundingBox())!
+    expect(box.x, `${what}: panel left`).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, `${what}: panel right`).toBeLessThanOrEqual(view.width)
+    expect(box.y, `${what}: panel top`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${what}: panel bottom`).toBeLessThanOrEqual(view.height)
+    await expectNoHorizontalScroll(page, `${what}, Frame menu open`)
+    await page.screenshot({ path: testInfo.outputPath(`frame-menu-360-${what.replace(/\W+/g, '-')}.png`) })
+    await closeFrameMenu(page)
+  }
+
+  // As this browser renders it. In Chromium the panel fits on its natural
+  // side with about a pixel to spare; in CI's Firefox its wider text made
+  // it about 270 px, which fits on neither side of the trigger (#831).
+  await expectPanelInside('as rendered')
+
+  // The Firefox case, made to happen in every browser: the panel held to
+  // 270 px, the width CI measured. Without the slide it ends near 378.
+  await page.addStyleTag({ content: '.preview-frame-menu .menu-panel { min-width: 270px }' })
+  await expectPanelInside('270px panel')
+})
+
 test('the transport fits one line at the default width, stays inside the panel at 800 px, and Frame ▾ opens inside the viewport (#417)', async ({
   page,
 }, testInfo) => {
