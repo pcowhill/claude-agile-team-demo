@@ -11,13 +11,13 @@ import {
   recordingFileExtension,
   resumedClock,
   screenRecordingName,
-  startedClock,
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
   startWebcamRecording,
   videoRecordingFileExtension,
   voiceOverName,
+  waitingClock,
   webcamRecordingName,
 } from '../lib/recording'
 import type {
@@ -183,6 +183,11 @@ export function RecordControl({
   const [elapsed, setElapsed] = useState(0)
   const [stopping, setStopping] = useState(false)
   const captureRef = useRef<ActiveCapture | null>(null)
+  // Whether the current take's recorder has started (#801), and whether the
+  // user has it paused: the clock runs only while both say so. Refs, since
+  // the recorder's start event lands outside any render.
+  const recorderLiveRef = useRef(false)
+  const pausedRef = useRef(false)
   // The Stop handler, reachable from the screen capture's share-ended hook
   // without a stale closure: the browser's own "stop sharing" must conclude
   // whatever capture is current at that moment.
@@ -202,12 +207,28 @@ export function RecordControl({
     [],
   )
 
-  /** Starts the recorder(s) and the recorded-time clock — the end of the countdown, or Start now. */
+  /**
+   * Starts the recorder(s) — the end of the countdown, or Start now — and
+   * the recorded-time clock, which runs only once the recorder has actually
+   * begun capturing (#801). Until its `start` event the file holds
+   * nothing, so the readout stands at 0:00: Firefox's fake microphone in CI
+   * held that event back 0.9–2.2 s, and a readout counting from `begin()`
+   * then promised seconds the take never had. A Pause in that window
+   * leaves the clock stopped when the recorder does start.
+   */
   const startTake = useCallback((active: ActiveCapture) => {
     active.session.begin()
-    setClock(startedClock(Date.now()))
+    recorderLiveRef.current = false
+    pausedRef.current = false
+    setClock(waitingClock())
     setElapsed(0)
     setPhase('recording')
+    void active.session.started.then(() => {
+      if (captureRef.current !== active) return
+      recorderLiveRef.current = true
+      if (pausedRef.current) return
+      setClock((current) => (current === null ? current : resumedClock(current, Date.now())))
+    })
   }, [])
 
   // The countdown (#514): one number a second, then the take begins. The
@@ -365,11 +386,14 @@ export function RecordControl({
     if (capture === null || clock === null || stopping || !capture.session.canPause) return
     if (phase === 'recording') {
       capture.session.pause()
+      pausedRef.current = true
       setClock(pausedClock(clock, Date.now()))
       setPhase('paused')
     } else if (phase === 'paused') {
       capture.session.resume()
-      setClock(resumedClock(clock, Date.now()))
+      pausedRef.current = false
+      // Before the recorder has started, the clock stays stopped (#801).
+      if (recorderLiveRef.current) setClock(resumedClock(clock, Date.now()))
       setPhase('recording')
     }
   }

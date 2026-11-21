@@ -82,6 +82,7 @@ function fakeRecordingWorld(options?: {
         requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'audio/webm',
         ondataavailable: null,
+        onstart: null,
         onstop: null,
         onerror: null,
         start() {
@@ -263,6 +264,7 @@ function fakeScreenWorld(options?: {
         requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null,
+        onstart: null,
         onstop: null,
         onerror: null,
         start() {
@@ -442,6 +444,7 @@ function fakeScreenCameraWorld(options?: {
         requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null as ((event: { data: Blob }) => void) | null,
+        onstart: null as (() => void) | null,
         onstop: null as (() => void) | null,
         onerror: null,
         start() {
@@ -636,6 +639,7 @@ function fakeWebcamWorld(options?: {
         requestedOptions: recorderOptions,
         mimeType: recorderOptions.mimeType ?? 'video/webm',
         ondataavailable: null,
+        onstart: null,
         onstop: null,
         onerror: null,
         start() {
@@ -863,6 +867,38 @@ describe('the recorder type follows the tracks the capture has (#579)', () => {
     const session = await startWebcamRecording(world.dependencies)
     expect(world.recorder().requestedMime).toBe('video/webm;codecs=vp9')
     session.cancel()
+  })
+})
+
+describe("the take's start is the recorder's start event (#801)", () => {
+  /** Whether `promise` has settled once every pending microtask has run. */
+  const settled = async (promise: Promise<unknown>) => {
+    let done = false
+    void promise.then(() => (done = true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return done
+  }
+
+  it('started settles on the start event, not on begin', async () => {
+    const world = fakeRecordingWorld()
+    const session = await startMicrophoneRecording(world.dependencies, { deferStart: true })
+    session.begin()
+    expect(world.calls).toEqual(['start'])
+    // Told to start, but not capturing yet: Firefox's fake microphone held
+    // this back 0.9-2.2 s, and nothing before it reached the file.
+    expect(await settled(session.started)).toBe(false)
+    world.recorder().onstart?.()
+    expect(await settled(session.started)).toBe(true)
+  })
+
+  it('a paired take has started only once both recorders have', async () => {
+    const world = fakeScreenCameraWorld()
+    const session = await startScreenCameraRecording(() => {}, world.dependencies)
+    expect(await settled(session.started)).toBe(false)
+    world.recorders[0].onstart?.()
+    expect(await settled(session.started)).toBe(false)
+    world.recorders[1].onstart?.()
+    expect(await settled(session.started)).toBe(true)
   })
 })
 
