@@ -1,0 +1,35 @@
+/* The Split window (#825): the Trim window's frame and strip, with one
+   position on it instead of two clamps. */
+
+/* The split point: a grip straddling its time, taller than the strip as
+   the Trim window's clamps are, but white and narrow — a cut, not a range
+   edge. Its line runs through the strip so the frame it falls at is clear. */
+.split-point {
+  position: absolute;
+  top: -0.45rem;
+  bottom: -0.45rem;
+  width: 0.5rem;
+  margin-left: -0.25rem;
+  background: #fff;
+  border: 1px solid #222;
+  border-radius: 3px;
+  box-sizing: border-box;
+  cursor: ew-resize;
+}
+.split-point:focus-visible {
+  outline: 2px solid #f0c040;
+  outline-offset: 1px;
+}
+/* On In or Out, where the razor cannot cut: dimmed, as Apply is. */
+.split-point-refused {
+  background: #888;
+}
+/* One line held open, so the text changing does not move the buttons. */
+.split-parts {
+  min-height: 1.3em;
+  margin: 0;
+  text-align: center;
+  color: #ccc;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
