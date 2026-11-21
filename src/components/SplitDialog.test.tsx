@@ -71,10 +71,10 @@ describe('Split… on an audio track and a video overlay (#826)', () => {
     await userEvent.clear(fieldsOf(TRACK).start)
     await userEvent.type(fieldsOf(TRACK).start, '4{Enter}')
 
-    // Right after Trim…, in the row that holds In and Out.
+    // After Trim… and Cut… (#828), in the row that holds In and Out.
     const button = splitButton(TRACK)
     expect(button).toHaveTextContent('Split…')
-    expect(trimButton(TRACK).nextElementSibling).toBe(button)
+    expect(trimButton(TRACK).nextElementSibling?.nextElementSibling).toBe(button)
     await userEvent.click(button!)
     const window = screen.getByRole('dialog', { name: `Split ${TRACK}` })
     expect(window).toHaveAttribute('aria-modal', 'true')
@@ -124,7 +124,7 @@ describe('Split… on an audio track and a video overlay (#826)', () => {
     await userEvent.clear(fieldsOf(OVERLAY).start)
     await userEvent.type(fieldsOf(OVERLAY).start, '3{Enter}')
     const button = splitButton(OVERLAY)
-    expect(trimButton(OVERLAY).nextElementSibling).toBe(button)
+    expect(trimButton(OVERLAY).nextElementSibling?.nextElementSibling).toBe(button)
     await userEvent.click(button!)
     const window = screen.getByRole('dialog', { name: `Split ${OVERLAY}` })
     expect(within(window).getByTestId('split-video')).toBeInTheDocument()

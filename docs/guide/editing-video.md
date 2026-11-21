@@ -8,7 +8,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Sets where the clip starts and stops playing, in seconds into its source file.
 
-**Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry, a video overlay or an [audio track](audio.md#audio-tracks), **Trim…** beside the fields sets the same two numbers while you watch or listen to the clip: see [The Trim window](#the-trim-window). To remove a part from the middle of a sequence entry instead of its ends, use [Cut…](#cut). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
+**Details.** Type a value and press Enter, or drag the slider beside the field. On a sequence entry, a video overlay or an [audio track](audio.md#audio-tracks), **Trim…** beside the fields sets the same two numbers while you watch or listen to the clip: see [The Trim window](#the-trim-window). To remove a part from the middle of a clip instead of its ends, use [Cut…](#cut). The thumbnail follows the in point, the coverage bar and the **Total** follow the new length, and any transition on the entry's boundaries stays on the boundary. Trimming never touches the library clip. A still or slate has no source to trim; its **Shows for** field is its length.
 
 **At the playhead, without a window:** in the preview, **Q** trims the clip under the playhead so that it starts on the frame showing, and **W** so that it ends there; the clip closes up to its neighbours, and one **Undo** puts it back. After **Q** the playhead moves to the clip's new start, where the frame you pressed it on now plays, so the preview still shows that frame; after **W** it stays where it was, already on the clip's new end. Undo puts the trim back but does not move the playhead.
 - The frame is the one the preview shows, through any [speed segment](#speed-segments-and-pauses): inside a pause, it is the held frame.
@@ -61,37 +61,45 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## Cut…
 
-**Where to find it.** An expanded video sequence entry › **Cut…**, between **Trim…** and **Split…**. Stills and slates have none, as they have no Trim…; video overlays and audio tracks have none yet.
+**Where to find it.** An expanded video sequence entry, video overlay or [audio track](audio.md#audio-tracks) › **Cut…**, between **Trim…** and **Split…**. Stills and slates have none, as they have no Trim…. An image overlay has none either, since it has no clip to cut.
 
 **What it does.** Opens the Cut window on the clip, where you mark a part in the middle of the clip and remove it. What lies either side of the part then plays back to back. It is the reverse of [the Trim window](#the-trim-window), which keeps the part between its clamps.
 
 **Details.**
 
 - **The window.** It is the Trim window's frame: the raw clip at the top, and under it the whole clip as a strip of its frames over its waveform, with the parts outside In and Out darkened. It has two clamps, **Cut from** `]` and **Cut to** `[`, both red. The part **between** them is hatched red: that is what Apply removes. Under the strip, **removes** says how long that part is.
+  - On an audio track there is no picture. The strip is the track's waveform alone, ▶ Play cut plays the sound, and there are no frame buttons.
 - **Moving the clamps.** They open on the middle third of the clip's trimmed range.
   - Drag a clamp along the strip, and the picture follows it, showing the frame the cut starts or ends on.
   - Each clamp is also a slider: Tab to it, then **←** and **→** move it by the nudge size and **Shift** by the jump size (both in [Settings](settings.md)). **Home** and **End** take it to In and Out.
   - Click or drag on the strip anywhere else to move the playhead and look at that moment. **◀ frame** and **frame ▶** step the playhead, and **Cut from here** and **Cut to here** move a clamp to it.
   - **Cut from** and **Cut to** at the bottom show the clamps' times exactly, to type into, in seconds into the clip. A clamp stays between In and Out.
 - **▶ Play cut** (or **Space**) plays the clip as it will be after the cut. It starts {{PLAY_CUT_LEAD}} seconds before *Cut from*, or at In if that is closer. At *Cut from* it goes straight on from *Cut to*, so you hear and see the join before you apply it, and it stops at Out. While it plays it reads **⏸ Pause**.
-- **Apply** is exactly [Cut out marked range](#cut-out-marked-range) over the part of the video the clamps mark, so the same rules hold:
+- **Apply on a sequence entry** is exactly [Cut out marked range](#cut-out-marked-range) over the part of the video the clamps mark, so the same rules hold:
   - the clip becomes two entries meeting at a hard cut, and the video is shorter by the part's length;
   - speed segments, pauses and zooms inside the part go with it, and one across a clamp is cut there;
   - everything placed by its own start time after the part (audio tracks, overlays, text and subtitles, shape groups and chapter markers) moves earlier with the picture.
 
   When anything besides clips would change, it asks first in one line, for example *"Removes 2 s. 1 subtitle after it moves earlier."* **Cut out** goes ahead, and **Cancel** or Esc leaves everything as it was. The whole cut is one undo step. Unlike Cut out marked range, it leaves the [export marks](preview-and-playback.md#export-marks) where they were.
+- **Apply on a video overlay or an audio track** cuts that one element, and **nothing else moves**:
+  - it becomes two rows: the earlier part keeps its **Starts at**, and the later part starts where the earlier one now ends, so it plays on without a gap and finishes earlier by the part's length;
+  - the video, the other overlays and tracks, text and subtitles, shape groups and chapter markers all stay where they were, because an overlay or a track is placed by its own start time. So it never asks first;
+  - both parts keep every setting. The fade-in stays on the earlier part and the fade-out on the later one;
+  - an overlay's speed segments, pauses and zooms are cut as on a sequence entry: inside the part they go, and one across a clamp is cut there.
+
+  It is one undo step.
 - **Where it cannot cut.** Apply is greyed out, and the line above the buttons says why, in these cases:
   - *Cut from* is on In or *Cut to* is on Out. That removes the start or the end of the clip, which is a trim, so use [Trim…](#the-trim-window) for it.
   - *Cut to* is not after *Cut from*, so there is nothing between them.
-  - A clamp is inside a [transition](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) at either end of the clip, where two clips play at once. Cut out marked range refuses that too.
+  - On a sequence entry, a clamp is inside a [transition](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) at either end of the clip, where two clips play at once. Cut out marked range refuses that too.
 
   The hatching turns grey while Apply is greyed out.
 - **Nothing changes until Apply.** **Cancel**, **✕** and **Esc** close the window without cutting. A click outside the window does not close it. Opening it pauses the preview, as the Trim window does.
-- **The clamps are in the clip's own time**, as In and Out are. With a speed segment on the clip, the time removed from the video is the part's sped-up or slowed-down length.
+- **The clamps are in the clip's own time**, as In and Out are. With a speed segment on the clip or overlay, the time removed is the part's sped-up or slowed-down length.
 
 **Shortcuts.** Space plays or pauses · ← → move a focused clamp, Shift for the jump size · Home and End take it to In and Out · Esc closes without cutting.
 
-**Related.** [The Trim window](#the-trim-window) · [Cut out marked range](#cut-out-marked-range) · [Split…](#split) · [Trimming](#trimming)
+**Related.** [The Trim window](#the-trim-window) · [Cut out marked range](#cut-out-marked-range) · [Split…](#split) · [Trimming](#trimming) · [Audio tracks](audio.md#audio-tracks)
 
 ## Split at playhead
 
@@ -105,7 +113,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## Split…
 
-**Where to find it.** An expanded video sequence entry, video overlay or audio track › **Split…**, after **Trim…** (and on a sequence entry after [Cut…](#cut)). Stills and slates have none; split them with [Split at playhead](#split-at-playhead). An image overlay has none either, since it has no clip to cut: it has no Trim… for the same reason.
+**Where to find it.** An expanded video sequence entry, video overlay or audio track › **Split…**, after **Trim…** and [Cut…](#cut). Stills and slates have none; split them with [Split at playhead](#split-at-playhead). An image overlay has none either, since it has no clip to cut: it has no Trim… for the same reason.
 
 **What it does.** Opens the Split window on the clip, where you pick a moment on the clip itself and split the entry, overlay or track into two there.
 

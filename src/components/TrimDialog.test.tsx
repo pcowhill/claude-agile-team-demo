@@ -65,8 +65,10 @@ describe('the Trim window on an audio track (#711)', () => {
     await addClip('music.mp3', 'audio', 30)
     const button = trimButton()
     expect(button).toHaveTextContent('Trim…')
-    expect(button!.parentElement).toContainElement(field('in'))
-    expect(button!.parentElement).toContainElement(field('out'))
+    // On the line with In and Out, in the Trim… Cut… Split… group (#828).
+    expect(button!.parentElement).toHaveClass('timeline-trim-group')
+    expect(button!.parentElement!.parentElement).toContainElement(field('in'))
+    expect(button!.parentElement!.parentElement).toContainElement(field('out'))
 
     await userEvent.click(button!)
     const window = dialog()
@@ -173,8 +175,10 @@ describe('the Trim window on a video overlay (#711)', () => {
     await addOverlay()
     const button = trimButton()
     expect(button).toHaveTextContent('Trim…')
-    expect(button!.parentElement).toContainElement(inField())
-    expect(button!.parentElement).toContainElement(outField())
+    // On the line with In and Out, in the Trim… Cut… Split… group (#828).
+    expect(button!.parentElement).toHaveClass('timeline-trim-group')
+    expect(button!.parentElement!.parentElement).toContainElement(inField())
+    expect(button!.parentElement!.parentElement).toContainElement(outField())
 
     await importClip(
       'logo.png',

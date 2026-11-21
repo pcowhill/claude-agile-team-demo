@@ -156,10 +156,11 @@ for (const viewport of [
       ['Audio tracks', TRACK],
     ] as const) {
       const row = page.getByRole('list', { name: list }).getByRole('listitem').first()
+      // Trim… Cut… Split… since #828 put Cut… between them.
       const pair = row.locator('.timeline-trim-open')
-      await expect(pair).toHaveCount(2)
-      await expect(pair.nth(1)).toHaveAccessibleName(`Split ${element} in the Split window`)
-      await expectWithin(pair.nth(1), row, { what: `the ${list} row's Split… ${what}` })
+      await expect(pair).toHaveCount(3)
+      await expect(pair.nth(2)).toHaveAccessibleName(`Split ${element} in the Split window`)
+      await expectWithin(pair.nth(2), row, { what: `the ${list} row's Split… ${what}` })
       await expectNoWrap(pair, `the ${list} row's Trim… / Split… ${what}`)
       await expectAlignedRow(pair, `the ${list} row's Trim… and Split… ${what}`)
     }
