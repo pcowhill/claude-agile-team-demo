@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
-import { openClipMenu } from './clipMenu'
+import { chooseClipAction, chooseView, openClipMenu } from './clipMenu'
 import { sineWav } from './sineWav'
 import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
@@ -148,6 +148,53 @@ test('the editor column lays out within a 360px window with a transition between
   )
   expect(tops, 'the transition row is three controls').toHaveLength(3)
   for (const top of tops) expect(Math.abs(top - tops[0]), `the row's centres ${tops.join(', ')} at 1280px`).toBeLessThanOrEqual(2)
+})
+
+/**
+ * Long clip names at 360px (#809). A name is `nowrap` with an ellipsis and
+ * its slot has a 5rem floor (#208), so it is meant to ellipsize rather than
+ * widen its row. Measured on `main` at `1d27b46`, one clip in the library:
+ * `opening-shot-of-the-beach-first-take-before-the-long-walk.webm` widened
+ * the library panel to 510px in the 360px column, and a 60-character
+ * renamed name with spaces to 451px. #534's case above passes because its
+ * name is 29 characters.
+ */
+test('long clip names ellipsize inside their rows at 360px, in both views, and the column does not scroll sideways (#809)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('./')
+  const imported = 'opening-shot-of-the-beach-first-take-before-the-long-walk.webm'
+  const renamed = 'Opening shot of the beach, first take, before the long walk.'
+  expect(renamed).toHaveLength(60)
+  const fixture = (name: string) => readFile(join('e2e', 'fixtures', name))
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: imported, mimeType: 'video/webm', buffer: await fixture('trim-clip.webm') },
+    { name: 'take-2.webm', mimeType: 'video/webm', buffer: await fixture('trim-colours.webm') },
+  ])
+  const library = page.getByRole('list', { name: 'Imported clips' })
+  await expect(library.getByRole('listitem')).toHaveCount(2)
+  await chooseClipAction(page, 'take-2.webm', 'Rename…')
+  const field = page.getByRole('textbox', { name: 'New name for take-2.webm', exact: true })
+  await field.fill(renamed)
+  await field.press('Enter')
+  await expect(library.getByRole('listitem').filter({ hasText: renamed })).toHaveCount(1)
+
+  const panel = page.locator('.library-panel')
+  for (const view of ['List', 'Thumbnails'] as const) {
+    await chooseView(page, view)
+    const where = `${view} view at 360×800 with two long names`
+    await expectNoHorizontalScroll(page, where)
+    await expectWithin(panel, page.getByRole('main'), { axis: 'x', what: `the library panel, ${where}` })
+    for (const name of [imported, renamed]) {
+      const row = library.getByRole('listitem').filter({ hasText: name })
+      await expectWithin(row.locator('.clip-name'), row, { axis: 'x', what: `"${name}" in its row, ${where}` })
+      // It ellipsizes: the text is longer than the box it is drawn in.
+      const clipped = await row.locator('.clip-name').evaluate((el) => el.scrollWidth > el.clientWidth)
+      expect(clipped, `"${name}" is cut short with an ellipsis, ${where}`).toBe(true)
+    }
+    await panel.screenshot({ path: testInfo.outputPath(`library-long-names-${view.toLowerCase()}-360.png`) })
+  }
 })
 
 /**

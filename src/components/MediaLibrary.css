@@ -183,6 +183,18 @@
   gap: 0.25rem;
 }
 
+/* A library name of any length (#809). A nowrap string's min-content is
+   the whole string, and `min-width` (the 5rem floor above) raises a
+   minimum but never lowers one, so a long name still set the row's
+   minimum, and with it the panel's: 510px at a 360px window. `width: 0`
+   makes the floor its minimum, and `flex: 1` still grows it into the
+   slot, so an ordinary name shows whole as before. The timeline's names
+   (#717) and shape groups (#687) had already met this; the library row
+   had not. */
+.clip-name-wrap > .clip-name {
+  width: 0;
+}
+
 /* A row's actions stay together when the row wraps (#416) — ▶ Preview, Add
    and ⋯ read as one cluster, and a lone ⋯ on its own line reads as a
    mistake. The card view has its own cluster (.clip-card-actions), which
