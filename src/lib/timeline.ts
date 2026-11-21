@@ -51,6 +51,8 @@ import {
   remapSpecsEqual,
   remapStart,
 } from './remap'
+import type { RangeCutPlan } from './rangeCut'
+import { RANGE_CUT_EPSILON, planRangeCut } from './rangeCut'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -605,6 +607,21 @@ export type TimelineAction =
     }
   | {
       /**
+       * Cut out marked range (#823): remove the sequence's output time
+       * `[from, to)`, splitting the entries at both marks with the razor
+       * above and removing what lies between, as one action — so one undo
+       * step. Refused (same state) exactly where `rangeCutPlanFor` returns
+       * null. `newEntryIds` name the pieces the two splits create, supplied
+       * by the caller like every entry id; the second names the kept part
+       * after the range when its mark falls inside an entry.
+       */
+      type: 'range-cut'
+      from: number
+      to: number
+      newEntryIds: readonly [string, string]
+    }
+  | {
+      /**
        * Freeze frame (#379): insert the captured frame's still entry at the
        * playhead's placement, splitting the entry under it when the razor
        * can cut there — capture, cut, and insert as ONE action so the
@@ -1028,6 +1045,26 @@ export function isSplittablePoint(
 ): boolean {
   return (
     Number.isFinite(atSourceTime) && atSourceTime > entry.inPoint && atSourceTime < entry.outPoint
+  )
+}
+
+/**
+ * The plan for Cut out marked range (#823) over the output time
+ * `[from, to)`, or null where the cut is refused — see `planRangeCut`.
+ * The one rule the `range-cut` action and the Frame ▾ item both read.
+ */
+export function rangeCutPlanFor(state: TimelineState, from: number, to: number): RangeCutPlan | null {
+  const remaps = remapsOf(state)
+  return planRangeCut(
+    state.entries.map((entry) => ({
+      id: entry.id,
+      inPoint: entry.inPoint,
+      outPoint: entry.outPoint,
+      remaps: remaps.filter((remap) => remap.entryId === entry.id),
+    })),
+    boundaryTransitions(state).map((transition) => transition?.duration ?? 0),
+    from,
+    to,
   )
 }
 
@@ -1786,6 +1823,119 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
 }
 
 /**
+ * Cut out marked range (#823): carries out `rangeCutPlanFor`'s plan as one
+ * state change. Each mark inside an entry is cut by the razor
+ * (`entry-split`, #190) — the Out mark first, so that an In mark in the same
+ * entry still finds that entry's first half under its own id — then the
+ * pieces strictly between the two marks are removed. Effects on removed
+ * pieces go with them, and a transition on a removed boundary goes too:
+ * `withEffects` keeps only transitions on boundaries that still exist, so
+ * the two sides meet at a hard cut. A pause the marks fall inside has its
+ * hold shortened as the plan says (see `rangeCut.ts`).
+ *
+ * Elements placed in sequence time — tracks, overlays, text, shape groups,
+ * chapter markers — keep their times, as removing an entry leaves them.
+ */
+function cutRange(
+  state: TimelineState,
+  action: Extract<TimelineAction, { type: 'range-cut' }>,
+): TimelineState {
+  const plan = rangeCutPlanFor(state, action.from, action.to)
+  if (plan === null) return state
+  const [midId, tailId] = action.newEntryIds
+  // Ids are the handles every entry-scoped action acts on — never two alike.
+  if (midId === tailId) return state
+  if (state.entries.some((entry) => entry.id === midId || entry.id === tailId)) return state
+  const withHold = (list: RemapEffect[], pauseId: string, seconds: number): RemapEffect[] =>
+    seconds > RANGE_CUT_EPSILON
+      ? list.map((remap) =>
+          remap.id === pauseId && remap.kind === 'pause' ? { ...remap, hold: seconds } : remap,
+        )
+      : list.filter((remap) => remap.id !== pauseId)
+  if (plan.kind === 'within-hold') {
+    return withEffects(
+      state.entries,
+      transitionsOf(state),
+      zoomsOf(state),
+      audioTracksOf(state),
+      withHold(remapsOf(state), plan.pauseId, plan.seconds),
+      textsOf(state),
+      videoOverlaysOf(state),
+    )
+  }
+  const { from, to } = plan
+  // The last piece kept before the range and the first kept after it, by
+  // id — undefined at the sequence's start or end. A split keeps the
+  // entry's id on its first half, so the head is the entry itself.
+  const headId =
+    from.kind === 'boundary' ? state.entries[from.index - 1]?.id : state.entries[from.index].id
+  const tailFirstId =
+    to.kind === 'boundary'
+      ? state.entries[to.index]?.id
+      : to.kind === 'split'
+        ? tailId
+        : state.entries[to.index].id
+  let next = state
+  if (to.kind === 'split') {
+    next = reduceTimelineCollections(next, {
+      type: 'entry-split',
+      id: state.entries[to.index].id,
+      atSourceTime: to.atSourceTime,
+      newEntryId: tailId,
+    })
+    if (next === state) return state
+  }
+  if (from.kind === 'split') {
+    const split = reduceTimelineCollections(next, {
+      type: 'entry-split',
+      id: state.entries[from.index].id,
+      atSourceTime: from.atSourceTime,
+      newEntryId: midId,
+    })
+    if (split === next) return state
+    next = split
+  }
+  let remaps = remapsOf(next)
+  if (from.kind === 'split' && from.hold !== undefined) {
+    remaps = withHold(remaps, from.hold.pauseId, from.hold.seconds)
+  }
+  if (from.kind === 'hold') remaps = withHold(remaps, from.pauseId, from.seconds)
+  if (to.kind === 'hold') remaps = withHold(remaps, to.pauseId, to.seconds)
+  if (to.kind === 'split' && to.hold !== undefined && to.hold.seconds > RANGE_CUT_EPSILON) {
+    // The razor kept the pause whole on the removed first half; what is left
+    // of its hold after the Out mark opens the kept second half. Listed
+    // first, so a speed segment also starting at 0 sorts after it rather
+    // than pushing it off the first frame.
+    remaps = [
+      {
+        id: `${tailId}:held`,
+        entryId: tailId,
+        kind: 'pause',
+        at: 0,
+        hold: to.hold.seconds,
+      },
+      ...remaps,
+    ]
+  }
+  const headIndex =
+    headId === undefined ? -1 : next.entries.findIndex((entry) => entry.id === headId)
+  const tailIndex =
+    tailFirstId === undefined
+      ? next.entries.length
+      : next.entries.findIndex((entry) => entry.id === tailFirstId)
+  const entries = [...next.entries.slice(0, headIndex + 1), ...next.entries.slice(tailIndex)]
+  return withEffects(
+    entries,
+    transitionsOf(next),
+    zoomsOf(next),
+    audioTracksOf(next),
+    remaps,
+    textsOf(next),
+    videoOverlaysOf(next),
+  )
+}
+
+/**
  * The row actions every timeline row shares, on a shape group (#687):
  * Duplicate, Paste settings and Rename…. Returns the new list (the same
  * reference when nothing changes), or `undefined` when the action is not
@@ -2145,6 +2295,8 @@ function reduceTimelineCollections(
       const entries = [...state.entries.slice(0, at), still, ...state.entries.slice(at)]
       return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
     }
+    case 'range-cut':
+      return cutRange(state, action)
     case 'recording-pair-placed': {
       // Screen + camera in one take (#388): validate both pieces whole, then
       // append the entry and start the overlay exactly at its start — the

@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead) and [Split…](#split), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Split at playhead](#split-at-playhead) and [Split…](#split), [Cut out marked range](#cut-out-marked-range), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF plugin and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -67,7 +67,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **Details.** An untouched split plays and exports exactly like the original. Effects follow the cut: speed segments and pauses split exactly where the razor falls, and a zoom moves to the half that shows it or splits with it. The item is disabled at entry boundaries and inside a transition's overlap, where there is nothing to split. To pick the moment on one clip instead of moving the playhead to it, use [Split…](#split) on the clip's row.
 
-**Related.** [Split…](#split) · [Trimming](#trimming) · [Freeze frame](#freeze-frame)
+**Related.** [Split…](#split) · [Trimming](#trimming) · [Cut out marked range](#cut-out-marked-range) · [Freeze frame](#freeze-frame)
 
 ## Split…
 
@@ -86,6 +86,26 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 - The point is in the clip's own time, as In and Out are, so a speed segment does not change where on the picture the cut falls.
 
 **Related.** [Split at playhead](#split-at-playhead) · [The Trim window](#the-trim-window) · [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
+
+## Cut out marked range
+
+**Where to find it.** Preview › **Frame ▾** › **Cut out marked range**, or **X**.
+
+**What it does.** Removes the part of the video between the in and out [marks](preview-and-playback.md#export-marks), and the video either side of it then plays back to back.
+
+**Details.** Set the in mark where a fumble starts and the out mark where it ends, then cut: the marked time is gone in one step.
+
+- **It works across cuts.** An entry the range starts or ends inside is cut there exactly as [Split at playhead](#split-at-playhead) cuts, and an entry lying wholly inside the range is removed. A mark exactly on a cut needs no split.
+- **Effects follow the razor.** Speed segments, pauses and zooms inside the range go with it; one across a mark is cut there, or kept, as Split at playhead would. A mark inside a pause keeps the part of its hold on the kept side, so exactly the marked time is removed.
+- **Transitions.** A transition on a cut inside the range goes with it, and the two sides meet at a hard cut. Transitions elsewhere stay.
+- **Afterwards** the marks are cleared, since the range they bounded no longer exists, and the playhead stands on the join. The whole cut is one undo step.
+- **Everything placed by its own start time stays put.** Audio tracks, overlays, text, shape groups and chapter markers keep their times, as they do when an entry is removed, so anything placed after the range now comes that much earlier in the picture.
+
+The item is disabled, and X does nothing, without a marked range; while either mark is inside a transition's blend, where Split at playhead is disabled too; and when the range is the whole video, since removing everything is what each row's ✕ is for. It is also disabled where a kept part would be nothing but a held frame: an in mark inside a pause on an entry's first frame, or an out mark inside a pause on its last frame.
+
+**Related.** [Export marks](preview-and-playback.md#export-marks) · [Split at playhead](#split-at-playhead) · [Trimming](#trimming)
+
+**Shortcuts.** X.
 
 ## Freeze frame
 
