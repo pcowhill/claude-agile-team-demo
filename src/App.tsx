@@ -749,6 +749,15 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               newEntryId: crypto.randomUUID(),
             })
           }
+          onSplitElement={(kind, id, atSourceTime) =>
+            dispatchTimeline({
+              type: 'element-split',
+              kind,
+              id,
+              atSourceTime,
+              newId: crypto.randomUUID(),
+            })
+          }
           stepSeconds={settings.stepSeconds}
           largeStepSeconds={settings.largeStepSeconds}
           onPausePreview={() => pausePreviewRef.current?.()}

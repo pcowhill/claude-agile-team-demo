@@ -71,9 +71,9 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## Split…
 
-**Where to find it.** An expanded video sequence entry › **Split…**, right after **Trim…**. Stills and slates have none; split them with [Split at playhead](#split-at-playhead).
+**Where to find it.** An expanded video sequence entry, video overlay or audio track › **Split…**, right after **Trim…**. Stills and slates have none; split them with [Split at playhead](#split-at-playhead). An image overlay has none either, since it has no clip to cut: it has no Trim… for the same reason.
 
-**What it does.** Opens the Split window on the clip, where you pick a moment on the clip itself and split the entry into two entries there.
+**What it does.** Opens the Split window on the clip, where you pick a moment on the clip itself and split the entry, overlay or track into two there.
 
 **Details.**
 
@@ -84,6 +84,13 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 - **Where it cannot split.** Apply is greyed out where Split at playhead is disabled: with the point on In or on Out, and inside a transition at either end of the clip, where two clips play at once — splitting there would shorten the transition and lengthen the video. The line above the buttons says which.
 - **Nothing changes until Apply.** **Cancel**, **✕** and **Esc** close the window without splitting. Opening it pauses the preview, as the Trim window does.
 - The point is in the clip's own time, as In and Out are, so a speed segment does not change where on the picture the cut falls.
+- **On a video overlay or an audio track.** Apply makes two overlays, or two tracks, that play and export exactly as the one did, until you edit either:
+  - The first keeps the *Starts at* and In, and ends at the point. The second starts at the point and begins where the first ends in the video. With a speed segment or a pause on the overlay, that is after the first part's sped-up or held time, so the join stays seamless.
+  - Both keep every setting: volume, mute and ducking on a track; placement, colour, orientation, crop, shape mask, border, shadow, redactions and spotlights on an overlay.
+  - The first keeps the fade-in and the second the fade-out, so the join plays straight through. A fade that runs across the point cannot be divided, so it is shortened to fit its part and ramps faster.
+  - An overlay's speed segments, pauses and zooms are cut as an entry's are.
+  - The second is listed right after the first, so an overlay's place in the stacking order does not change.
+  - A track's window has no picture, as its [Trim window](#the-trim-window) has none: the strip is its waveform, **▶ Play** plays the sound, and there are no frame buttons.
 
 **Related.** [Split at playhead](#split-at-playhead) · [The Trim window](#the-trim-window) · [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 
