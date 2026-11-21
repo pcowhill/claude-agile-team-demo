@@ -14,6 +14,13 @@ export interface Placement {
   end: boolean
   /** Flip vertically, above the anchor. */
   up: boolean
+  /**
+   * Slide a root panel this many pixels along x from its natural place
+   * (#831) — present, and negative, only when the panel fits the bounds but
+   * on neither side of its anchor. Absent otherwise, so every placement
+   * that needed no slide reads exactly as it did before.
+   */
+  shift?: number
 }
 
 /** A box, as `getBoundingClientRect` reports one — the part this needs. */
@@ -72,12 +79,24 @@ export function placementFor(
 ): Placement {
   const flippedLeft =
     anchor === undefined ? bounds.left : (submenu ? anchor.left : anchor.right) - panel.width
-  return {
-    end: panel.right > bounds.right && flippedLeft >= bounds.left,
-    up:
-      panel.bottom > bounds.bottom &&
-      (anchor === undefined || anchor.top - panel.height >= bounds.top),
+  const overflowsRight = panel.right > bounds.right
+  const end = overflowsRight && flippedLeft >= bounds.left
+  const up =
+    panel.bottom > bounds.bottom &&
+    (anchor === undefined || anchor.top - panel.height >= bounds.top)
+  // Neither side of the anchor has the room, but the bounds may (#831): a
+  // 270px Frame ▾ under a trigger at 109 → 172 in a 360px window overflowed
+  // by 18px on its natural side and by 98px flipped, while fitting the
+  // window with 90px to spare. Slide it left just far enough that its right
+  // edge meets the bound — and never past the left bound, so a panel wider
+  // than the bounds keeps its start (its labels' beginnings) in view. Root
+  // panels only: a submenu slid under its parent would cover the item that
+  // opened it, and no submenu is wide enough to need this.
+  if (!submenu && anchor !== undefined && overflowsRight && !end) {
+    const left = Math.max(bounds.left, bounds.right - panel.width)
+    if (left < panel.left) return { end, up, shift: left - panel.left }
   }
+  return { end, up }
 }
 
 /**

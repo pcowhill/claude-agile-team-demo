@@ -30,7 +30,9 @@ import './Menu.css'
  * - only one menu is open at a time, whichever component owns it;
  * - the panel stays inside the viewport: it opens to the left of its right
  *   edge when it would overflow the window (the header menus sit at the
- *   page's right), and above the trigger when it would overflow the bottom —
+ *   page's right), slides left just far enough to fit when neither side of
+ *   its trigger has the room (#831), and above the trigger when it would
+ *   overflow the bottom —
  *   the app's own bottom and right, where a host page's header and footer
  *   leave the app less than the window (#653);
  * - a panel whose trigger sits inside a scrolling box (a media library
@@ -210,12 +212,17 @@ function MenuPanel({
       { width: document.documentElement.clientWidth, height: window.innerHeight },
       panel.closest('.app')?.getBoundingClientRect(),
     )
-    // Flip only when the other side actually has the room; otherwise the
-    // natural side is the lesser evil. The arithmetic is `placementFor`,
+    // Flip only when the other side actually has the room; when neither
+    // side has it, a root panel slides along instead (#831). The arithmetic is `placementFor`,
     // which knows a submenu flips against a different anchor edge (#430).
     const next = placementFor(rect, anchor, bounds, submenu)
     if (submenu || anchor === undefined || clippingAncestorOf(panel) === null) {
-      if (next.end || next.up) setPlacement(next)
+      // A slide (#831) goes onto the element as well as into state, for the
+      // reason given for the lifted offsets below: a re-run clears the
+      // inline style before measuring, and React would not write back a
+      // value its props already held.
+      if (next.shift !== undefined) panel.style.left = `${next.shift}px`
+      if (next.end || next.up || next.shift !== undefined) setPlacement(next)
       return
     }
     // The panel is a descendant of a box that clips its overflow — the
@@ -244,7 +251,7 @@ function MenuPanel({
     // back.
     const gap = rect.top - anchor.bottom
     const target = {
-      left: next.end ? anchor.right - rect.width : rect.left,
+      left: next.end ? anchor.right - rect.width : rect.left + (next.shift ?? 0),
       top: next.up ? anchor.top - gap - rect.height : rect.top,
     }
     panel.style.position = 'fixed'
@@ -386,9 +393,11 @@ function MenuPanel({
       aria-label={label}
       className={className}
       style={
-        lifted === null
-          ? undefined
-          : { position: 'fixed', margin: 0, top: lifted.top, left: lifted.left }
+        lifted !== null
+          ? { position: 'fixed', margin: 0, top: lifted.top, left: lifted.left }
+          : placement.shift !== undefined
+            ? { left: placement.shift }
+            : undefined
       }
       tabIndex={-1}
       onKeyDown={handleKeyDown}

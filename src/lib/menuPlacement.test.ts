@@ -93,6 +93,35 @@ describe('placementFor (#430)', () => {
       expect(placementFor(panel, anchor, narrow, false).end).toBe(false)
     })
 
+    it('slides a panel that fits on neither side until its right edge meets the bound (#831)', () => {
+      // Frame ▾ in CI's Firefox at 360px: the trigger at 108.6 → 171.7, the
+      // panel about 269.6 wide. Natural, it ends at 378.2; flipped, it would
+      // start at 171.7 − 269.6 < 0.
+      const anchor = box(108.6, 40, 63.1, 24)
+      const panel = box(108.6, 68, 269.6, 200)
+      const window360 = { left: 0, top: 0, right: 360, bottom: 800 }
+      const placement = placementFor(panel, anchor, window360, false)
+      expect(placement.end).toBe(false)
+      expect(placement.shift).toBeCloseTo(360 - 269.6 - 108.6, 6)
+      expect(panel.left + placement.shift!).toBeCloseTo(360 - 269.6, 6)
+    })
+
+    it('slides a panel wider than the bounds only as far as the left bound (#831)', () => {
+      const anchor = box(60, 40, 100, 24)
+      const panel = box(60, 68, 300, 100)
+      const narrow = { left: 20, top: 0, right: 200, bottom: 800 }
+      // Right-aligned it would start at −100; the left bound (20) wins.
+      expect(placementFor(panel, anchor, narrow, false).shift).toBe(20 - 60)
+    })
+
+    it('does not slide a panel that fits, or one a flip already fits (#831)', () => {
+      const anchor = box(100, 40, 80, 24)
+      expect(placementFor(box(100, 68, 200, 300), anchor, viewport, false).shift).toBeUndefined()
+      const flipping = placementFor(box(880, 68, 200, 300), box(880, 40, 100, 24), viewport, false)
+      expect(flipping).toEqual({ end: true, up: false })
+      expect('shift' in flipping).toBe(false)
+    })
+
     it('flips at exactly zero room, the boundary being inclusive', () => {
       const anchor = box(100, 40, 100, 24) // right edge 200
       const panel = box(100, 68, 200, 100) // 200 - 200 = 0
@@ -123,6 +152,14 @@ describe('placementFor (#430)', () => {
       expect(anchor.right - panel.width).toBeGreaterThanOrEqual(0) // the old rule said yes
       expect(anchor.left - panel.width).toBeLessThan(0) // the truth says no
       expect(placementFor(panel, anchor, narrow, true).end).toBe(false)
+    })
+
+    it('never slides, even where a root panel would (#831)', () => {
+      const anchor = box(60, 40, 100, 24)
+      const panel = box(160, 40, 300, 100)
+      const narrow = { left: 0, top: 0, right: 300, bottom: 800 }
+      expect(placementFor(panel, anchor, narrow, true)).toEqual({ end: false, up: false })
+      expect('shift' in placementFor(panel, anchor, narrow, true)).toBe(false)
     })
 
     it('decides the same panel differently depending on which kind it is', () => {
