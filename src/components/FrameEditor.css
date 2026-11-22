@@ -237,6 +237,15 @@
   text-align: right;
 }
 
+/* The overlay editor's "Editing: …" line (#835): which placement a drag
+   changes. It reads as one phrase, so it never breaks inside itself; at a
+   narrow width the scrub row wraps it whole onto its own line instead. */
+.effect-editor-scrub .overlay-editor-editing {
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
 .effect-editor-result {
   display: flex;
   align-items: center;

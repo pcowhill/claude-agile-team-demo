@@ -1046,6 +1046,15 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     timeline.getByRole('spinbutton', { name: 'Move 1 glide of overlay clip.webm at position 1 in seconds' }),
   ).toBeVisible()
   await record('an overlay with a Move', timeline)
+  // Its placement editor (#835): with a Move it gains the Preview slider
+  // and the line naming which place a drag edits.
+  await walkEditor(
+    timeline.getByRole('button', {
+      name: 'Adjust the placement of overlay clip.webm at position 1 visually',
+      exact: true,
+    }),
+    'the placement editor of an overlay with a Move',
+  )
 
   // ── The recording dialog (#507) ─────────────────────────────────────
   //

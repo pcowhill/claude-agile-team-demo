@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { preloadVisualEditors } from './visualEditors'
@@ -10,6 +10,7 @@ import type { TimelineState } from '../lib/timeline'
 import { chooseFromFileMenu } from '../test/fileMenu'
 import { chooseClipAction } from '../test/clipMenu'
 import { openPicture } from '../test/pictureDisclosure'
+import { effectItem } from '../test/timelineRowMenu'
 
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
@@ -399,6 +400,127 @@ describe('visual overlay placement editor (#422)', () => {
     expect(attr(live, 'rx')).toBeCloseTo(39.375, 1)
     expect(attr(live, 'cx')).toBeCloseTo(298, 1)
     fireEvent.pointerUp(handles(), { pointerId: 1, clientX: 208, clientY: 179, altKey: true })
+  })
+
+  describe('on an overlay with Moves: the placement at the Preview time (#835)', () => {
+    const moveField = (n: number, what: string) => field(`Move ${n} ${what} of ${position}${
+      what === 'left edge' || what === 'width'
+        ? ' (fraction of frame width)'
+        : what === 'top edge' || what === 'height'
+          ? ' (fraction of frame height)'
+          : ' in seconds'
+    }`)
+    const setField = async (element: HTMLElement, value: string) => {
+      await userEvent.clear(element)
+      await userEvent.type(element, `${value}{Enter}`)
+      expect(element).toHaveValue(Number(value))
+    }
+    const slider = () => screen.getByRole('slider', { name: `Preview time of ${position} in seconds` })
+    const editing = () => screen.getByTestId('overlay-editor-editing')
+    const scrubTo = (seconds: number) => fireEvent.change(slider(), { target: { value: String(seconds) } })
+    const lastStillTime = () => (snapshotMock.mock.calls.at(-1) as [TimelineState, number])[1]
+
+    /**
+     * The 5 s overlay at (0.62, 0.62), with Move 1 gliding 1 → 2 s to
+     * (0.05, 0.05) and Move 2 gliding 3 → 4 s to (0.5, 0.05), both keeping
+     * the 0.35 size. Both are added from + Effect ▾ and typed in.
+     */
+    async function placeOverlayWithMoves() {
+      await placeOverlay()
+      await userEvent.click(await effectItem(position, 'Move'))
+      await setField(moveField(1, 'start'), '1')
+      await setField(moveField(1, 'left edge'), '0.05')
+      await setField(moveField(1, 'top edge'), '0.05')
+      // The default second Move starts where the first ends, at its place.
+      await userEvent.click(await effectItem(position, 'Move'))
+      expect(moveField(2, 'start')).toHaveValue(2)
+      await setField(moveField(2, 'start'), '3')
+      await setField(moveField(2, 'left edge'), '0.5')
+    }
+
+    it('names and draws the placement that holds where the slider is, on the still from there', async () => {
+      render(<App />)
+      await placeOverlayWithMoves()
+      await userEvent.click(adjustButton())
+      // It opens where it always has, the window's middle: after Move 1.
+      expect(slider()).toHaveValue('2.5')
+      expect(lastStillTime()).toBeCloseTo(2.5, 6)
+      expect(editing()).toHaveTextContent('Editing: after Move 1')
+      expect(region()).toHaveAttribute('x', '20')
+
+      for (const [time, label, x] of [
+        [0.5, 'Editing: starting placement', '248'],
+        // Exactly at a Move's start, that Move's destination holds.
+        [1, 'Editing: after Move 1', '20'],
+        // Inside Move 2's glide the box is its destination, not in flight.
+        [3.5, 'Editing: after Move 2', '200'],
+        [5, 'Editing: after Move 2', '200'],
+      ] as const) {
+        scrubTo(time)
+        expect(editing()).toHaveTextContent(label)
+        expect(region()).toHaveAttribute('x', x)
+        // The still follows the slider: the frame under the overlay then.
+        // A still renders once the previous one has, so it is awaited.
+        await waitFor(() => expect(lastStillTime()).toBeCloseTo(time, 6))
+      }
+    })
+
+    it('a drag after Move 1 changes Move 1\'s destination and nothing else, one undo step', async () => {
+      render(<App />)
+      await placeOverlayWithMoves()
+      await userEvent.click(adjustButton())
+      // Move 1's box spans x 20–160, y 11.25–90 px; 40 px right and 22.5 px
+      // down is +0.1 of each axis; Alt keeps the guides out of it.
+      drag(region(), { x: 90, y: 50 }, { x: 130, y: 72.5 }, { altKey: true })
+      expect(moveField(1, 'left edge')).toHaveValue(0.15)
+      expect(moveField(1, 'top edge')).toHaveValue(0.15)
+      expect(moveField(1, 'width')).toHaveValue(0.35)
+      // Its timing, the overlay's own placement and Move 2 are untouched.
+      expect(moveField(1, 'start')).toHaveValue(1)
+      expect(moveField(1, 'glide')).toHaveValue(1)
+      expect(left()).toHaveValue(0.62)
+      expect(top()).toHaveValue(0.62)
+      expect(moveField(2, 'left edge')).toHaveValue(0.5)
+      expect(moveField(2, 'top edge')).toHaveValue(0.05)
+
+      await userEvent.click(undoButton())
+      expect(moveField(1, 'left edge')).toHaveValue(0.05)
+      expect(moveField(1, 'top edge')).toHaveValue(0.05)
+    })
+
+    it('a drag before the first Move changes the overlay\'s own placement and no Move', async () => {
+      render(<App />)
+      await placeOverlayWithMoves()
+      await userEvent.click(adjustButton())
+      scrubTo(0.5)
+      drag(region(), { x: 318, y: 179 }, { x: 278, y: 156.5 }, { altKey: true })
+      expect(left()).toHaveValue(0.52)
+      expect(top()).toHaveValue(0.52)
+      expect(moveField(1, 'left edge')).toHaveValue(0.05)
+      expect(moveField(2, 'left edge')).toHaveValue(0.5)
+
+      await userEvent.click(undoButton())
+      expect(left()).toHaveValue(0.62)
+    })
+
+    it('an arrow key nudges the placement that holds there', async () => {
+      render(<App />)
+      await placeOverlayWithMoves()
+      await userEvent.click(adjustButton())
+      scrubTo(3.5)
+      fireEvent.keyDown(region(), { key: 'ArrowDown' })
+      expect(moveField(2, 'top edge')).toHaveValue(0.06)
+      expect(moveField(1, 'top edge')).toHaveValue(0.05)
+      expect(top()).toHaveValue(0.62)
+    })
+
+    it('an overlay without Moves has no slider and no Editing line', async () => {
+      render(<App />)
+      await placeOverlay()
+      await userEvent.click(adjustButton())
+      expect(within(editor()).queryByRole('slider')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('overlay-editor-editing')).not.toBeInTheDocument()
+    })
   })
 
   it('is hidden when the Visual editors setting is off, rendering no frame', async () => {

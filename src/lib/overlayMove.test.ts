@@ -7,6 +7,9 @@ import type { OverlayMove } from './overlayMove'
 import {
   DEFAULT_MOVE_GLIDE,
   defaultMoveFor,
+  editablePlacementAt,
+  editablePlacementLabel,
+  editablePlacementRect,
   moveEase,
   overlayPlacedAt,
   overlayRectAt,
@@ -273,6 +276,56 @@ describe('defaultMoveFor (#834)', () => {
   it('shortens the glide to the room left, and is null with none', () => {
     expect(defaultMoveFor(overlay({ moves: [move('m', 0, 9.5)] }))?.glide).toBeCloseTo(0.5, 12)
     expect(defaultMoveFor(overlay({ moves: [move('m', 0, 10)] }))).toBeNull()
+  })
+})
+
+describe('editablePlacementAt: what the Overlay visual editor edits (#835)', () => {
+  // Move 1 glides 1 → 3 s, Move 2 glides 6 → 7 s, both in on-screen time.
+  const m1 = move('m1', 1, 2)
+  const m2 = move('m2', 6, 1, { x: 0, y: 0.6, width: 0.3, height: 0.3 })
+  const o = overlay({ moves: [m1, m2] })
+
+  it('is the overlay\'s own placement before the first Move starts', () => {
+    expect(editablePlacementAt(o, 0)).toEqual({ kind: 'own' })
+    expect(editablePlacementAt(o, 0.999)).toEqual({ kind: 'own' })
+  })
+
+  it('is Move 1\'s destination exactly at its start, inside its glide and after it', () => {
+    for (const t of [1, 2, 3, 4.5]) {
+      expect(editablePlacementAt(o, t)).toEqual({ kind: 'move', index: 0, id: 'm1' })
+    }
+  })
+
+  it('is Move 2\'s from its start on, between and after the glides', () => {
+    expect(editablePlacementAt(o, 5.999)).toEqual({ kind: 'move', index: 0, id: 'm1' })
+    for (const t of [6, 6.5, 7, 10]) {
+      expect(editablePlacementAt(o, t)).toEqual({ kind: 'move', index: 1, id: 'm2' })
+    }
+  })
+
+  it('is always the overlay\'s own with no Moves', () => {
+    for (const t of [0, 5, 100]) {
+      expect(editablePlacementAt(overlay(), t)).toEqual({ kind: 'own' })
+    }
+  })
+
+  it('gives the later of two Moves starting together, the earlier one\'s span being empty', () => {
+    const jump = move('jump', 2, 0)
+    const glide = move('glide', 2, 1, { x: 0, y: 0, width: 0.3, height: 0.3 })
+    const both = normalized(overlay({ moves: [jump, glide] }))
+    expect(editablePlacementAt(both, 2)).toEqual({ kind: 'move', index: 1, id: 'glide' })
+  })
+
+  it('editablePlacementRect reads the placement it names, and the label names it', () => {
+    expect(editablePlacementRect(o, { kind: 'own' })).toEqual({ x: 0.1, y: 0.1, width: 0.2, height: 0.2 })
+    expect(editablePlacementRect(o, { kind: 'move', index: 1, id: 'm2' })).toEqual({
+      x: 0,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+    })
+    expect(editablePlacementLabel({ kind: 'own' })).toBe('Editing: starting placement')
+    expect(editablePlacementLabel({ kind: 'move', index: 1, id: 'm2' })).toBe('Editing: after Move 2')
   })
 })
 
