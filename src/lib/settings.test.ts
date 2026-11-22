@@ -59,6 +59,7 @@ describe('settings defaults (#286)', () => {
       visualEditors: true,
       countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
       matchTargetDb: DEFAULT_MATCH_TARGET_DB,
+      timeFormat: 'seconds',
     })
   })
 
@@ -104,6 +105,7 @@ describe('settings validation (#286)', () => {
     visualEditors: false,
     countdownSeconds: 0,
     matchTargetDb: -26,
+    timeFormat: 'minutes',
   }
 
   it('keeps every recognized stored value', () => {
@@ -139,6 +141,19 @@ describe('settings validation (#286)', () => {
       visualEditors: DEFAULT_SETTINGS.visualEditors,
       countdownSeconds: DEFAULT_SETTINGS.countdownSeconds,
       matchTargetDb: DEFAULT_SETTINGS.matchTargetDb,
+      timeFormat: DEFAULT_SETTINGS.timeFormat,
+    })
+  })
+
+  it('reads the time format, and a store from before it existed means seconds (#848)', () => {
+    expect(parseSettings({ ...stored, timeFormat: 'seconds' }).timeFormat).toBe('seconds')
+    expect(parseSettings({ ...stored, timeFormat: 'minutes' }).timeFormat).toBe('minutes')
+    const { timeFormat: _dropped, ...older } = stored
+    expect(parseSettings(older).timeFormat).toBe('seconds')
+    // Only the offered formats: an unknown one costs this setting alone.
+    expect(parseSettings({ ...stored, timeFormat: 'timecode' })).toEqual({
+      ...stored,
+      timeFormat: 'seconds',
     })
   })
 

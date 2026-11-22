@@ -22,6 +22,7 @@ import type { CropSubject, FrameRect, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import type { RedactionRegion } from '../lib/redaction'
 import { FrameEditor } from './FrameEditor'
+import { TimeReadout } from './TimeReadout'
 
 /**
  * The visual redaction editor (#493, part 2 of #489's approved suggestion;
@@ -56,7 +57,6 @@ import { FrameEditor } from './FrameEditor'
 
 /** A fraction as the percent its own field shows — two decimals, like the row's. */
 const percent = (value: number) => String(Math.round(value * 10000) / 100)
-const seconds = (value: number) => `${value.toFixed(2)} s`
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
 
 interface RedactionEditorProps {
@@ -235,7 +235,7 @@ export function RedactionEditor({
           disabled={looping}
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
-        <output aria-label={`${regionName} preview time (live)`}>{seconds(scrub)}</output>
+        <output aria-label={`${regionName} preview time (live)`}><TimeReadout seconds={scrub} /></output>
         <label className="effect-editor-result">
           <input
             type="checkbox"

@@ -28,6 +28,7 @@ import {
 } from '../lib/videoOverlay'
 import type { VideoOverlay } from '../lib/videoOverlay'
 import { FrameEditor } from './FrameEditor'
+import { TimeReadout } from './TimeReadout'
 
 /**
  * The visual overlay placement editor (#422, from #402's design D4 / #396):
@@ -70,7 +71,6 @@ const format = (value: number) => String(Math.round(value * 1000) / 1000)
 const BOUNDS: RectBounds = { minSize: MIN_OVERLAY_SIZE, maxSize: MAX_OVERLAY_SIZE }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
-const seconds = (value: number) => `${value.toFixed(2)} s`
 
 interface OverlayEditorProps {
   timeline: TimelineState
@@ -275,7 +275,7 @@ export function OverlayEditor({
               setScrubbed(Number(event.target.value))
             }}
           />
-          <output aria-label={`${position} preview time (live)`}>{seconds(scrub)}</output>
+          <output aria-label={`${position} preview time (live)`}><TimeReadout seconds={scrub} /></output>
           <output
             className="overlay-editor-editing"
             aria-label={`${position} placement being edited`}

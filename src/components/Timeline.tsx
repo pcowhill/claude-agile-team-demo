@@ -177,6 +177,13 @@ import { rippleSummary } from '../lib/ripple'
 import { entrySplitRefusal } from '../lib/playback'
 import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
+import {
+  formatMinutesField,
+  minutesFieldCommit,
+  parseMinutesField,
+  steppedTime,
+} from '../lib/timeFormat'
+import { useTimeFormat } from './timeFormatContext'
 import './Timeline.css'
 // PasteSettingsDialog below renders the shared modal idiom directly.
 import './dialog.css'
@@ -1143,7 +1150,12 @@ function SecondsField({
   unit,
   mark,
 }: SecondsFieldProps) {
-  const [draft, setDraft] = useState(() => formatSeconds(value))
+  // Minutes and seconds (#848): a seconds field shows and takes `m:ss.mmm`
+  // in a text box, since a number box cannot hold a colon. Every other
+  // unit is untouched by the setting.
+  const minutes = useTimeFormat() === 'minutes' && unit === 's'
+  const show = minutes ? formatMinutesField : formatSeconds
+  const [draft, setDraft] = useState(() => show(value))
   // Whether the slider has moved since it last committed (#426). A gesture
   // ends on a pointer-up, a key-up or a blur, and those fire for far more
   // than this control's own gestures: a release over a slider nobody
@@ -1154,10 +1166,19 @@ function SecondsField({
   const slid = useRef(false)
 
   useEffect(() => {
-    setDraft(formatSeconds(value))
-  }, [value])
+    setDraft(minutes ? formatMinutesField(value) : formatSeconds(value))
+  }, [value, minutes])
 
   const commitText = (text: string) => {
+    if (minutes) {
+      // Equal to the stored value at the millisecond the box shows is no
+      // change: a focus-and-blur, or retyping what is there, must not
+      // round a finer stored value (#848's criterion 4).
+      const parsed = minutesFieldCommit(text, value)
+      if (parsed !== null) onCommit(parsed)
+      setDraft(formatMinutesField(value))
+      return
+    }
     const parsed = Number(text)
     if (text.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
     // If the reducer rejected (or clamped to) the same value, no prop change
@@ -1168,6 +1189,15 @@ function SecondsField({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') event.currentTarget.blur()
+    // A text box has no spinner, so ↑ / ↓ step it as the number box's
+    // arrows would, committing at once (#848's criterion 5).
+    if (minutes && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault()
+      const from = parseMinutesField(draft) ?? value
+      const next = steppedTime(from, step, event.key === 'ArrowUp' ? 1 : -1, min, max)
+      if (next !== value) onCommit(next)
+      setDraft(formatMinutesField(value))
+    }
   }
 
   const endGesture = () => {
@@ -1178,13 +1208,23 @@ function SecondsField({
 
   const number = (
     <input
-      type="number"
-      inputMode="decimal"
-      step={step}
-      min={min}
-      max={max}
+      {...(minutes
+        ? {
+            type: 'text',
+            className: 'timeline-unit-input timeline-time-input',
+            // Wide enough for what it holds, hours included, rather than a
+            // fixed width that clips `1:02:05.250`.
+            style: { width: `${Math.max(draft.length, 8) + 1}ch` },
+          }
+        : {
+            type: 'number',
+            inputMode: 'decimal',
+            step,
+            min,
+            max,
+            className: unit === undefined ? undefined : 'timeline-unit-input',
+          })}
       aria-label={label}
-      className={unit === undefined ? undefined : 'timeline-unit-input'}
       value={draft}
       onChange={(event) => {
         // Firefox's spinner arrows step the value without focusing the field
@@ -1212,12 +1252,15 @@ function SecondsField({
     ) : (
       <span className="timeline-unit-box">
         {number}
-        <span
-          className="timeline-unit"
-          aria-hidden={word !== undefined && label.includes(word) ? true : undefined}
-        >
-          {unit}
-        </span>
+        {/* In minutes the colon says what the number is (#848). */}
+        {!minutes && (
+          <span
+            className="timeline-unit"
+            aria-hidden={word !== undefined && label.includes(word) ? true : undefined}
+          >
+            {unit}
+          </span>
+        )}
       </span>
     )
   if (!slider) return field
@@ -1227,7 +1270,7 @@ function SecondsField({
   // or snaps back. Clamped as well, because the number field lets a value
   // outside the range be typed (the reducer clamps it) and a range would
   // silently pin itself to an end without saying so.
-  const drafted = Number(draft)
+  const drafted = minutes ? (parseMinutesField(draft) ?? Number.NaN) : Number(draft)
   const position =
     draft.trim() !== '' && Number.isFinite(drafted)
       ? Math.min(Math.max(drafted, min), max)
@@ -1242,7 +1285,7 @@ function SecondsField({
       value={position}
       onChange={(event) => {
         slid.current = true
-        setDraft(event.target.value)
+        setDraft(minutes ? formatMinutesField(Number(event.target.value)) : event.target.value)
       }}
       // Not on change: that fires on every step of a drag, and each one
       // would be its own undo step. Release ends the gesture — by pointer,

@@ -15,10 +15,17 @@ import {
   timeAtStripFraction,
 } from '../lib/trim'
 import type { TrimRange } from '../lib/trim'
+import {
+  formatMinutesField,
+  minutesFieldCommit,
+  parseMinutesField,
+  steppedTime,
+} from '../lib/timeFormat'
 import { trimFramesFor } from '../lib/trimFrames'
 import { trimWarningText } from '../lib/trimEffects'
 import type { TrimEffectsPreview } from '../lib/trimEffects'
 import { AudioWaveform } from './AudioWaveform'
+import { useTimeFormat } from './timeFormatContext'
 import './dialog.css'
 import './TrimDialog.css'
 
@@ -690,24 +697,41 @@ export function TrimField({
   max: number
   onCommit: (value: number) => void
 }) {
-  const text = String(value)
+  // Minutes and seconds (#848): `m:ss.mmm` in a text box, ↑ / ↓ standing
+  // in for the spinner, as the timeline's seconds fields do.
+  const minutes = useTimeFormat() === 'minutes'
+  const text = minutes ? formatMinutesField(value) : String(value)
   const [draft, setDraft] = useState(text)
   useEffect(() => setDraft(text), [text])
   const commitText = (typed: string) => {
-    const parsed = Number(typed)
-    if (typed.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
+    if (minutes) {
+      // The same value to the millisecond shown is no change (#848).
+      const parsed = minutesFieldCommit(typed, value)
+      if (parsed !== null) onCommit(parsed)
+    } else {
+      const parsed = Number(typed)
+      if (typed.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
+    }
     setDraft(text)
   }
   return (
     <span className="timeline-unit-box">
       <input
-        type="number"
-        inputMode="decimal"
-        className="timeline-unit-input"
+        {...(minutes
+          ? {
+              type: 'text',
+              className: 'timeline-unit-input timeline-time-input',
+              style: { width: `${Math.max(draft.length, 8) + 1}ch` },
+            }
+          : {
+              type: 'number',
+              inputMode: 'decimal',
+              className: 'timeline-unit-input',
+              min: 0,
+              max,
+              step: 0.1,
+            })}
         aria-label={label}
-        min={0}
-        max={max}
-        step={0.1}
         value={draft}
         onChange={(event) => {
           if (document.activeElement !== event.currentTarget) commitText(event.target.value)
@@ -716,11 +740,20 @@ export function TrimField({
         onBlur={() => commitText(draft)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur()
+          if (minutes && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+            event.preventDefault()
+            const from = parseMinutesField(draft) ?? value
+            const next = steppedTime(from, 0.1, event.key === 'ArrowUp' ? 1 : -1, 0, max)
+            if (next !== value) onCommit(next)
+            setDraft(text)
+          }
         }}
       />
-      <span className="timeline-unit" aria-hidden="true">
-        s
-      </span>
+      {!minutes && (
+        <span className="timeline-unit" aria-hidden="true">
+          s
+        </span>
+      )}
     </span>
   )
 }

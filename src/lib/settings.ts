@@ -1,5 +1,7 @@
 import { DEFAULT_MATCH_TARGET_DB } from './matchLevels'
 import { DEFAULT_STILL_DURATION } from './timeline'
+import { TIME_FORMAT_CHOICES } from './timeFormat'
+import type { TimeFormat } from './timeFormat'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from './transport'
 
 /**
@@ -76,6 +78,13 @@ export interface AppSettings {
    * Volumes it produces are what travels with the project.
    */
   matchTargetDb: number
+  /**
+   * How every time field shows and takes a time (#848, from #847): plain
+   * seconds, as the editor always has, or `m:ss.mmm`. A preference, not
+   * project state: the times themselves are stored in seconds either way,
+   * and the same project reads the same in both.
+   */
+  timeFormat: TimeFormat
 }
 
 /** The countdown's length when it is on, in seconds (#514). */
@@ -118,6 +127,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   visualEditors: true,
   countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
   matchTargetDb: DEFAULT_MATCH_TARGET_DB,
+  timeFormat: 'seconds',
 }
 
 /** The slice of Storage this needs; injectable so tests stay deterministic. */
@@ -179,6 +189,10 @@ export function parseSettings(stored: unknown): AppSettings {
     ),
     // A store from before Match levels existed has no key: the default.
     matchTargetDb: pickNumber(raw.matchTargetDb, MATCH_TARGET_CHOICES, DEFAULT_SETTINGS.matchTargetDb),
+    // A store from before the setting existed has no key: seconds, as before.
+    timeFormat: TIME_FORMAT_CHOICES.includes(raw.timeFormat as TimeFormat)
+      ? (raw.timeFormat as TimeFormat)
+      : DEFAULT_SETTINGS.timeFormat,
   }
 }
 

@@ -14,6 +14,8 @@ import {
   sessionRestoreLabel,
 } from '../lib/settings'
 import type { AppSettings, SessionRestoreMode } from '../lib/settings'
+import { TIME_FORMAT_CHOICES, timeFormatLabel } from '../lib/timeFormat'
+import type { TimeFormat } from '../lib/timeFormat'
 import './dialog.css'
 import './SettingsControl.css'
 
@@ -198,6 +200,26 @@ export function SettingsControl({
                 STILL_DURATION_CHOICES,
                 'stillDurationSeconds',
               )}
+              <SettingRow
+                label="Time fields"
+                hint="How the boxes where you type a time show it: start, duration, trim points, fades and the rest, and the Trim, Split and Cut windows. Either way you can type plain seconds."
+              >
+                {(describedBy) => (
+                  <select
+                    value={settings.timeFormat}
+                    aria-describedby={describedBy}
+                    onChange={(event) =>
+                      onChange({ ...settings, timeFormat: event.target.value as TimeFormat })
+                    }
+                  >
+                    {TIME_FORMAT_CHOICES.map((format) => (
+                      <option key={format} value={format}>
+                        {timeFormatLabel(format)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </SettingRow>
               <SettingRow
                 label="When a previous session is found"
                 hint="Autosave keeps recording either way — this is only about the offer to restore."
