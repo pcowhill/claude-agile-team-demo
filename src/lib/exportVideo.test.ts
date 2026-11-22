@@ -56,6 +56,7 @@ import type { TimelineState } from './timeline'
 import { CANVAS_PRESETS, FALLBACK_FRAME, outputFrameSize, presetFrame } from './frameSize'
 import { locateInSequence } from './playback'
 import { sourceTimeAtOutput } from './remap'
+import { overlayRectAt } from './overlayMove'
 import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
 import { attachBoost, setMediaGain } from './mediaGain'
@@ -3166,6 +3167,68 @@ describe('frame composition of still overlay layers (#295)', () => {
       'draw(base, [0, 0, 320, 180], none)',
       'draw(buffer, [0, 0], none)',
     ])
+  })
+
+  // Overlay Moves (#834): the export draws a moving overlay's picture at
+  // `overlayPictureRect` of `overlayRectAt` at each frame's time. A square
+  // picture letterboxes inside the 16:9-ish rectangles, so the drawn rect is
+  // the picture, not the placed box, and the check covers the letterbox too.
+  const drawnRect = (ops: string[], tag: string): number[] => {
+    const op = ops.find((each) => each.startsWith(`draw(${tag}, [`))
+    expect(op, `a draw of ${tag}`).toBeDefined()
+    return /\[([^\]]+)\]/.exec(op!)![1].split(', ').map(Number)
+  }
+  const expectDrawnAt = (ops: string[], tag: string, overlay: VideoOverlay, sequenceTime: number, size: [number, number]) => {
+    const rect = overlayRectAt(overlay, sequenceTime - overlay.offset)
+    const expected = overlayPictureRect({ ...overlay, ...rect }, size[0], size[1], 320, 180)
+    const [x, y, width, height] = drawnRect(ops, tag)
+    // Within 1 px, the issue's stated tolerance; the draw is exact here.
+    expect(Math.abs(x - expected.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(y - expected.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(width - expected.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(height - expected.height)).toBeLessThanOrEqual(1)
+    return [x, y, width, height]
+  }
+
+  it('draws a moving still overlay at overlayRectAt a quarter of the way through a glide and at its midpoint (#834)', () => {
+    // On screen from 1 s; the Move glides on-screen 1 → 3 (sequence 2 → 4)
+    // from the top-left quarter to the bottom-right half.
+    const moving = stillOverlay({
+      offset: 1,
+      x: 0,
+      y: 0,
+      width: 0.25,
+      height: 0.25,
+      moves: [{ id: 'm', start: 1, glide: 2, x: 0.5, y: 0.5, width: 0.5, height: 0.5 }],
+    })
+    const stills = { 'blob:logo': decodedImage('logo-img', 90, 90) }
+    const drawn: number[][] = []
+    for (const sequenceTime of [2.5, 3]) {
+      const { composer, main } = composerFor([moving], stills)
+      composer.drawFrame(baseLayer, 0, sequenceTime)
+      drawn.push(expectDrawnAt(main.ops, 'logo-img', moving, sequenceTime, [90, 90]))
+    }
+    // The two frames differ, and the midpoint is the halfway box: a 0.375
+    // frame-wide rectangle at 0.25, 0.25, letterboxing a square picture.
+    expect(drawn[0]).not.toEqual(drawn[1])
+    expect(drawn[1]).toEqual([80 + (120 - 67.5) / 2, 45, 67.5, 67.5])
+  })
+
+  it('draws a moving video overlay at overlayRectAt at the glide\'s midpoint, before it and after it (#834)', () => {
+    const moving = videoOverlay({
+      moves: [{ id: 'm', start: 1, glide: 1, x: 0.75, y: 0.75, width: 0.25, height: 0.25 }],
+    })
+    const replays = [{ overlay: moving, element: videoElement('cam-element') }]
+    for (const [sequenceTime, expected] of [
+      [0.5, [0, 0, 80, 45]],
+      [1.5, [120, 67.5, 80, 45]],
+      [3, [240, 135, 80, 45]],
+    ] as const) {
+      const { composer, main } = composerFor([moving], undefined, replays)
+      composer.drawFrame(baseLayer, 0, sequenceTime)
+      expect(drawnRect(main.ops, 'cam-element')).toEqual(expected)
+      expectDrawnAt(main.ops, 'cam-element', moving, sequenceTime, [160, 90])
+    }
   })
 
   it('interleaves both overlay kinds in add order', () => {

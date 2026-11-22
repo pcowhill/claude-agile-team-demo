@@ -34,6 +34,7 @@ import type { AudioTrack } from './timeline'
 import type { OverlayRemap, VideoOverlay } from './videoOverlay'
 import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
 import { splitZoomAt } from './ripple'
+import { splitMovesAt } from './overlayMove'
 
 /**
  * Whether a track or overlay can split at `atSourceTime`: strictly inside
@@ -144,5 +145,12 @@ export function splitVideoOverlay(
     'zooms',
     zooms?.flatMap(({ after }) => (after === null ? [] : [after])),
   )
+  // Moves (#834) are keyed to on-screen time: divided where the first part
+  // ends, the second taking the placement the overlay had there as its own.
+  if (overlay.moves !== undefined) {
+    const moves = splitMovesAt(overlay, overlayOutputDuration(first))
+    first = withList(first, 'moves', moves.before)
+    second = withList({ ...second, ...moves.afterRect }, 'moves', moves.after)
+  }
   return [first, second]
 }

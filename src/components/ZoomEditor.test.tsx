@@ -963,6 +963,25 @@ describe('the zoom editor on an overlay zoom (#734)', () => {
     expect(region()).toHaveAttribute('width', '200')
   })
 
+  it('cuts out the overlay where a Move has placed it at the still’s moment, not at its own placement (#834)', async () => {
+    render(<App />)
+    await placeOverlayWithZoom()
+    // A Move that jumps the overlay to the left edge as soon as it appears,
+    // so it is there at the zoom's hold, the moment the editor shows.
+    await chooseEffect(OVERLAY, 'Move')
+    const glide = overlayField(`Move 1 glide of ${OVERLAY} in seconds`)
+    await userEvent.clear(glide)
+    await userEvent.type(glide, '0{Enter}')
+    const moveLeft = overlayField(`Move 1 left edge of ${OVERLAY} (fraction of frame width)`)
+    await userEvent.clear(moveLeft)
+    await userEvent.type(moveLeft, '0.1{Enter}')
+    await userEvent.click(overlayAdjust())
+    const image = await within(overlayEditor()).findByTestId('frame-editor-image')
+    // The view is the moved rectangle, (0.1, 0.62), not (0.62, 0.62).
+    expect(image.style.left).toBe(`${(-100 * 0.1) / DEFAULT_OVERLAY_RECT.width}%`)
+    expect(image.style.top).toBe(`${(-100 * DEFAULT_OVERLAY_RECT.y) / DEFAULT_OVERLAY_RECT.height}%`)
+  })
+
   it('a drag commits the overlay zoom’s centre in its rectangle’s fractions, as one undo step', async () => {
     render(<App />)
     await placeOverlayWithZoom()

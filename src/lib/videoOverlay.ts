@@ -15,6 +15,7 @@ import { overlayShadowsEqual } from './overlayShadow'
 import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
 import type { RemapSpec } from './remap'
+import type { OverlayMove } from './overlayMove'
 import { remappedDuration, remapSpecsEqual, sweptRemaps } from './remap'
 import { clampVolume } from './volume'
 
@@ -208,6 +209,19 @@ export interface VideoOverlay {
    * the trim, by the entries' sweep (`sweptRemaps`).
    */
   remaps?: OverlayRemap[]
+  /**
+   * Moves (#834): glides of the placed rectangle to new placements during
+   * the overlay's window, on a video or an image overlay. Each `start` is
+   * seconds since the overlay appears (its on-screen time from `offset`, not
+   * its source clock), so speed segments and pauses never change when the
+   * box moves. Before the first Move the overlay sits at `x`/`y`/`width`/
+   * `height`; the drawn placement at any moment is `overlayRectAt`
+   * (overlayMove.ts). Held on the overlay, like its zooms, so removing or
+   * duplicating it takes them along. Absent means none; normalization
+   * (`withOverlayMovesClamped`) keeps the list sorted and disjoint, every
+   * glide inside the on-screen window, and every destination on the frame.
+   */
+  moves?: OverlayMove[]
 }
 
 /** One speed segment or pause on an overlay (#700): an entry's spec plus its handle. */

@@ -49,6 +49,7 @@ import {
 import type { SubtitleStyle, SubtitleStyleField, TextOverlay } from './textOverlay'
 import type { OverlayRemap, OverlayZoom, VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
+import type { OverlayMove } from './overlayMove'
 import {
   isTextFontId,
   isValidTextColor,
@@ -146,7 +147,9 @@ import { MAX_VOLUME } from './volume'
  *                           remaps?: [{ id, kind: "speed", start, end, factor } |
  *                                     { id, kind: "pause", at, hold }], // (#700)
  *                           shadow?: { color, opacity, blur,
- *                                      offsetX, offsetY } }]    // (#698)
+ *                                      offsetX, offsetY },      // (#698)
+ *                           moves?: [{ id, start, glide,
+ *                                      x, y, width, height }] }] // (#834)
  *     }
  *   }
  *
@@ -302,7 +305,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 32
+export const PROJECT_SCHEMA_VERSION = 33
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -419,6 +422,13 @@ export const DRAW_ON_SCHEMA_VERSION = 31
  * keeps its version and its bytes.
  */
 export const BOOSTED_VOLUME_SCHEMA_VERSION = 32
+/**
+ * The version an overlay's Moves force (#834). An earlier build would
+ * ignore the key and show the overlay standing still where a Move glides
+ * it, so a file holding one refuses it by version; a Move-free file keeps
+ * its version and its bytes.
+ */
+export const OVERLAY_MOVES_SCHEMA_VERSION = 33
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -801,6 +811,10 @@ export async function serializeProject(
   const hasDrawOn = shapeGroupsOf(timeline).some((group) => group.drawOn !== undefined)
   // A Volume above 1 (#751): every element kind that carries a Volume.
   const boosted = (element: { volume?: number }) => (element.volume ?? 1) > 1
+  // Length-based, like the overlay's zooms: written only while one exists.
+  const hasOverlayMoves = videoOverlaysOf(timeline).some(
+    (overlay) => (overlay.moves?.length ?? 0) > 0,
+  )
   const hasBoostedVolume =
     timeline.entries.some(boosted) ||
     audioTracksOf(timeline).some(boosted) ||
@@ -881,7 +895,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasBoostedVolume
+    schemaVersion: hasOverlayMoves
+      ? OVERLAY_MOVES_SCHEMA_VERSION
+      : hasBoostedVolume
       ? BOOSTED_VOLUME_SCHEMA_VERSION
       : hasDrawOn
       ? DRAW_ON_SCHEMA_VERSION
@@ -1171,7 +1187,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow, moves }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1266,6 +1282,20 @@ export async function serializeProject(
                               factor: remap.factor,
                             },
                       ),
+                    }),
+                // The overlay's Moves (#834), written only while any exist.
+                ...(moves === undefined || moves.length === 0
+                  ? {}
+                  : {
+                      moves: moves.map(({ id, start, glide, x, y, width, height }) => ({
+                        id,
+                        start,
+                        glide,
+                        x,
+                        y,
+                        width,
+                        height,
+                      })),
                     }),
               }),
             ),
@@ -1796,6 +1826,43 @@ function asOverlayShadow(value: unknown, path: string): OverlayShadow {
     return value
   }
   return { color, opacity, blur, offsetX: offset('offsetX'), offsetY: offset('offsetY') }
+}
+
+/**
+ * An overlay's Moves (#834) as stored: a non-negative start and glide, and a
+ * destination held to the overlay's own rectangle rules (a size within
+ * (0, 1], the rectangle on the frame), with ids unique within the overlay.
+ */
+function asOverlayMoves(value: unknown, path: string): OverlayMove[] {
+  const ids = new Set<string>()
+  return asArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const raw = asRecord(item, itemPath)
+    const move: OverlayMove = {
+      id: asString(raw.id, `${itemPath}.id`),
+      start: asNonNegative(raw.start, `${itemPath}.start`),
+      glide: asNonNegative(raw.glide, `${itemPath}.glide`),
+      x: asNonNegative(raw.x, `${itemPath}.x`),
+      y: asNonNegative(raw.y, `${itemPath}.y`),
+      width: asFinite(raw.width, `${itemPath}.width`),
+      height: asFinite(raw.height, `${itemPath}.height`),
+    }
+    for (const [field, size] of [
+      ['width', move.width],
+      ['height', move.height],
+    ] as const) {
+      if (size <= 0 || size > 1) throw new Error(`${itemPath}.${field} must be within (0, 1]`)
+    }
+    for (const [field, edge] of [
+      ['x', move.x + move.width],
+      ['y', move.y + move.height],
+    ] as const) {
+      if (edge > 1) throw new Error(`${itemPath}.${field} places the rectangle beyond the frame edge`)
+    }
+    if (ids.has(move.id)) throw new Error(`${itemPath}.id "${move.id}" is duplicated`)
+    ids.add(move.id)
+    return move
+  })
 }
 
 /**
@@ -2659,6 +2726,13 @@ function validateProject(document: Record<string, unknown>): Project {
         }
         const overlayRemaps = asOverlayRemaps(raw.remaps, `${path}.remaps`)
         if (overlayRemaps.length > 0) overlay.remaps = overlayRemaps
+      }
+      // The overlay's Moves (#834), video or image: each destination held
+      // to the overlay's own rectangle rules; fitting them into its window
+      // is open-time normalization's, as for its zooms.
+      if (raw.moves !== undefined) {
+        const overlayMoves = asOverlayMoves(raw.moves, `${path}.moves`)
+        if (overlayMoves.length > 0) overlay.moves = overlayMoves
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

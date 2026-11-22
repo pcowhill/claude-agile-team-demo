@@ -23,6 +23,7 @@ import {
 import type { FrameRect, RectGesture, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { effectiveDuration, videoOverlaysOf } from '../lib/timeline'
+import { overlayPlacedAt } from '../lib/overlayMove'
 import type { TimelineState, ZoomSpec } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
 
@@ -190,9 +191,18 @@ export function ZoomEditor({
     return () => cancelAnimationFrame(handle)
   }, [looping, hold.start, hold.end])
 
+  // The still's moment in the video: the scrub position, through the
+  // overlay's or the entry's own clock.
+  const stillTime =
+    overlay !== undefined
+      ? overlayZoomEditorSequenceTime(timeline, overlay, scrub)
+      : zoomEditorSequenceTime(timeline, entryIndex ?? 0, stored, scrub)
+
   // The overlay's rectangle: the part of the frame its zoom's centre is a
   // fraction of (#734). Absent for an entry, whose zoom is the whole frame's.
-  const view = overlay === undefined ? undefined : overlayRect(overlay)
+  // With Moves (#834) it is where the overlay is placed at the still's
+  // moment, so the cut-out is the overlay's picture wherever it has glided.
+  const view = overlay === undefined ? undefined : overlayRect(overlayPlacedAt(overlay, stillTime))
 
   const applyGesture = (start: FrameRect, gesture: RectGesture): FrameRect =>
     zoomRect(zoomAfterGesture({ ...stored, ...zoomFromRect(start) }, gesture))
@@ -251,11 +261,7 @@ export function ZoomEditor({
               ? withoutOverlayZoom(timeline, overlay.id, zoom.id)
               : withoutZoom(timeline, zoom.id)
         }
-        sequenceTime={
-          overlay !== undefined
-            ? overlayZoomEditorSequenceTime(timeline, overlay, scrub)
-            : zoomEditorSequenceTime(timeline, entryIndex ?? 0, stored, scrub)
-        }
+        sequenceTime={stillTime}
         // The editing still is the source with this zoom taken out, so a
         // committed drag cannot change it and the key stays the zoom's id.
         // The result still is the zoom applied, so there the committed
