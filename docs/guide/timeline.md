@@ -120,11 +120,11 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 **Where to find it.** An expanded sequence entry or overlay, below its fields.
 
-**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry or video overlay, or a **Zoom** to an image overlay.
+**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry or video overlay, or a **Zoom** to an image overlay. On an overlay of either kind it also offers **Move**, which glides the overlay to a new place ([Overlay move](editing-video.md#overlay-move)).
 
-**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the row leave no room for another, and a still, a slate or an image overlay offers Zoom alone, since its one duration is already its timing. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
+**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the row leave no room for another, and a still or a slate offers Zoom alone, and an image overlay Zoom and Move, since its one duration is already its timing. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
 
-**Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
+**Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses) · [Overlay move](editing-video.md#overlay-move)
 
 ## Collapsing rows and folding sections
 

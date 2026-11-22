@@ -91,6 +91,8 @@ import {
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE, overlayOutputDuration, overlayPlacementOf } from '../lib/videoOverlay'
+import type { OverlayMoveSpec } from '../lib/overlayMove'
+import { defaultMoveFor } from '../lib/overlayMove'
 import type {
   ArrowEnds,
   ArrowHeads,
@@ -386,6 +388,10 @@ interface TimelineProps {
   onAddVideoOverlayRemap?: (overlayId: string, remap: RemapSpec) => void
   onUpdateVideoOverlayRemap?: (overlayId: string, id: string, remap: RemapSpec) => void
   onRemoveVideoOverlayRemap?: (overlayId: string, id: string) => void
+  /** Adds a Move to an overlay (#834); the id is the caller's to mint. */
+  onAddVideoOverlayMove?: (overlayId: string, move: OverlayMoveSpec) => void
+  onUpdateVideoOverlayMove?: (overlayId: string, id: string, move: OverlayMoveSpec) => void
+  onRemoveVideoOverlayMove?: (overlayId: string, id: string) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -584,6 +590,99 @@ function ZoomFieldsRow({
         ✕
       </button>
       {children}
+    </div>
+  )
+}
+
+/**
+ * One Move's fields on an overlay's row (#834), in the zoom rows' pattern:
+ * when it starts (seconds since the overlay appears), how long it glides,
+ * and the destination rectangle in the placement fields' units.
+ */
+function MoveFieldsRow({
+  move,
+  moveIndex,
+  position,
+  maxStart,
+  onUpdate,
+  onRemove,
+}: {
+  move: OverlayMoveSpec
+  moveIndex: number
+  position: string
+  /** The overlay's on-screen length: the time fields' upper bound. */
+  maxStart: number
+  onUpdate: (spec: OverlayMoveSpec) => void
+  onRemove: () => void
+}) {
+  const moveName = `Move ${moveIndex + 1}`
+  const { start, glide, x, y, width, height } = move
+  const set = (change: Partial<OverlayMoveSpec>) =>
+    onUpdate({ start, glide, x, y, width, height, ...change })
+  return (
+    <div className="timeline-entry-zoom timeline-overlay-move">
+      <span>{moveName} at</span>
+      <SecondsField
+        label={`${moveName} start of ${position} in seconds`}
+        value={start}
+        max={maxStart}
+        onCommit={(value) => set({ start: value })}
+        unit="s"
+      />
+      <span>glide</span>
+      <SecondsField
+        label={`${moveName} glide of ${position} in seconds`}
+        value={glide}
+        max={maxStart}
+        onCommit={(value) => set({ glide: value })}
+        unit="s"
+      />
+      <span>to</span>
+      <LabelledField text="left">
+        <SecondsField
+          label={`${moveName} left edge of ${position} (fraction of frame width)`}
+          value={x}
+          max={1}
+          step={0.05}
+          onCommit={(value) => set({ x: value })}
+        />
+      </LabelledField>
+      <LabelledField text="top">
+        <SecondsField
+          label={`${moveName} top edge of ${position} (fraction of frame height)`}
+          value={y}
+          max={1}
+          step={0.05}
+          onCommit={(value) => set({ y: value })}
+        />
+      </LabelledField>
+      <LabelledField text="width">
+        <SecondsField
+          label={`${moveName} width of ${position} (fraction of frame width)`}
+          value={width}
+          min={MIN_OVERLAY_SIZE}
+          max={1}
+          step={0.05}
+          onCommit={(value) => set({ width: value })}
+        />
+      </LabelledField>
+      <LabelledField text="height">
+        <SecondsField
+          label={`${moveName} height of ${position} (fraction of frame height)`}
+          value={height}
+          min={MIN_OVERLAY_SIZE}
+          max={1}
+          step={0.05}
+          onCommit={(value) => set({ height: value })}
+        />
+      </LabelledField>
+      <button
+        type="button"
+        aria-label={`Remove move ${moveIndex + 1} from ${position}`}
+        onClick={onRemove}
+      >
+        ✕
+      </button>
     </div>
   )
 }
@@ -2594,6 +2693,9 @@ export function Timeline({
   onUpdateVideoOverlayZoom,
   onRemoveVideoOverlayZoom,
   onAddVideoOverlayRemap,
+  onAddVideoOverlayMove,
+  onUpdateVideoOverlayMove,
+  onRemoveVideoOverlayMove,
   onUpdateVideoOverlayRemap,
   onRemoveVideoOverlayRemap,
   onSetEntryBackgroundFill,
@@ -4738,6 +4840,21 @@ export function Timeline({
                       </Fragment>
                     )
                   })}
+                  {/* The overlay's Moves (#834), after its zooms, in the
+                      zoom rows' idiom: numbered in time order, the order
+                      the normalized overlay stores them in. Times are
+                      seconds since the overlay appears. */}
+                  {(overlay.moves ?? []).map((overlayMove, moveIndex) => (
+                    <MoveFieldsRow
+                      key={overlayMove.id}
+                      move={overlayMove}
+                      moveIndex={moveIndex}
+                      position={position}
+                      maxStart={outputLength}
+                      onUpdate={(spec) => onUpdateVideoOverlayMove?.(overlay.id, overlayMove.id, spec)}
+                      onRemove={() => onRemoveVideoOverlayMove?.(overlay.id, overlayMove.id)}
+                    />
+                  ))}
                   {/* The overlay's speed segments and pauses (#700), in the
                       entry's rows. A still overlay carries none, as a still
                       entry does not. */}
@@ -4790,6 +4907,17 @@ export function Timeline({
                         },
                       )
                     }
+                    // Move (#834), last, on a video or an image overlay: a glide
+                    // after the last Move, to where the overlay already is,
+                    // so adding one changes nothing until it is edited.
+                    const addableMove = defaultMoveFor(overlay)
+                    items.push({
+                      kind: 'action',
+                      label: 'Move',
+                      disabled: addableMove === null || onAddVideoOverlayMove === undefined,
+                      onSelect: () =>
+                        addableMove !== null && onAddVideoOverlayMove?.(overlay.id, addableMove),
+                    })
                     return (
                       <div className="timeline-entry-effects">
                         <Menu

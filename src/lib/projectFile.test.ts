@@ -36,6 +36,7 @@ import fixtureV29OverlayShadowsReferencesBase64 from './fixtures/project-v29-ove
 import fixtureV30BadgeShapesReferencesBase64 from './fixtures/project-v30-badge-shapes-references.bvep.base64?raw'
 import fixtureV31DrawOnReferencesBase64 from './fixtures/project-v31-draw-on-references.bvep.base64?raw'
 import fixtureV32BoostedVolumeReferencesBase64 from './fixtures/project-v32-boosted-volume-references.bvep.base64?raw'
+import fixtureV33OverlayMovesReferencesBase64 from './fixtures/project-v33-overlay-moves-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -62,6 +63,7 @@ import {
   OVERLAY_BORDERS_SCHEMA_VERSION,
   OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
+  OVERLAY_MOVES_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
   BOOSTED_VOLUME_SCHEMA_VERSION,
@@ -1170,8 +1172,9 @@ describe('project file versioning', () => {
     // 27 added overlay borders (#697); version 28 added overlay speed
     // segments and pauses (#700); version 29 added overlay drop shadows
     // (#698); version 30 added numbered badges in shape groups (#689);
-    // version 31 added a shape group's Draw on entrance (#690).
-    expect(PROJECT_SCHEMA_VERSION).toBe(32)
+    // version 31 added a shape group's Draw on entrance (#690); version 32
+    // a Volume above 1 (#751); version 33 an overlay's Moves (#834).
+    expect(PROJECT_SCHEMA_VERSION).toBe(33)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1204,6 +1207,7 @@ describe('project file versioning', () => {
     expect(BADGE_SHAPES_SCHEMA_VERSION).toBe(30)
     expect(DRAW_ON_SCHEMA_VERSION).toBe(31)
     expect(BOOSTED_VOLUME_SCHEMA_VERSION).toBe(32)
+    expect(OVERLAY_MOVES_SCHEMA_VERSION).toBe(33)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -5382,6 +5386,95 @@ describe('a Volume above 1 in project files (#751, schema version 32)', () => {
         },
       },
     })
+  })
+})
+
+// Overlay Moves (#834, schema version 33): a Move on any overlay forces 33;
+// a Move-free file keeps its version and its bytes.
+describe('overlay Moves in project files (#834, schema version 33)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+  }
+  const moves = [
+    { id: 'm1', start: 0.5, glide: 1, x: 0.05, y: 0.6, width: 0.35, height: 0.35 },
+    { id: 'm2', start: 2, glide: 0.25, x: 0.05, y: 0.05, width: 0.2, height: 0.2 },
+  ]
+  const movingTimeline = (withMoves: boolean): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', ...(withMoves ? { moves } : {}) }],
+  })
+
+  it('round-trips an overlay\'s Moves at version 33', async () => {
+    expect(OVERLAY_MOVES_SCHEMA_VERSION).toBe(33)
+    const bytes = await serializeProject(library, movingTimeline(true))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_MOVES_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.moves).toEqual(moves)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, moves }] },
+      },
+    })
+  })
+
+  it('writes a Move-free overlay with no key, byte-identical to a file written without the field', async () => {
+    const bytes = await serializeProject(library, movingTimeline(false))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBeLessThan(OVERLAY_MOVES_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect('moves' in written).toBe(false)
+    const emptied = await serializeProject(library, {
+      ...timeline,
+      videoOverlays: [{ ...stored, url: 'blob:session/c2', moves: [] }],
+    })
+    expect(Array.from(emptied)).toEqual(Array.from(bytes))
+  })
+
+  it('refuses a malformed Move by path', async () => {
+    const withMoves = (value: unknown) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_MOVES_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, moves: value }] },
+    })
+    await expectRefusal(
+      await gzipJson(withMoves([{ ...moves[0], glide: -1 }])),
+      'timeline.videoOverlays[0].moves[0].glide must not be negative',
+    )
+    await expectRefusal(
+      await gzipJson(withMoves([{ ...moves[0], width: 1.5 }])),
+      'timeline.videoOverlays[0].moves[0].width must be within (0, 1]',
+    )
+    await expectRefusal(
+      await gzipJson(withMoves([moves[0], { ...moves[1], x: 0.9 }])),
+      'timeline.videoOverlays[0].moves[1].x places the rectangle beyond the frame edge',
+    )
+    await expectRefusal(
+      await gzipJson(withMoves([moves[0], { ...moves[1], id: 'm1' }])),
+      'timeline.videoOverlays[0].moves[1].id "m1" is duplicated',
+    )
+  })
+
+  it('deserializes the committed v33 overlay-moves fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV33OverlayMovesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, moves }])
   })
 })
 

@@ -40,6 +40,7 @@ import { cutClampsRefusal } from './cutWindow'
 import type { CutClamps } from './cutWindow'
 import { outputTimeAtSource } from './remap'
 import { splitRemapsAtOutput, splitZoomAt } from './ripple'
+import { splitMovesAt } from './overlayMove'
 
 /** The element without the given optional key: zero is stored as no key. */
 function without<T extends object>(element: T, key: keyof T): T {
@@ -130,5 +131,16 @@ export function cutVideoOverlay(
       return after === null ? [] : [after]
     }),
   )
+  // Moves (#834) are keyed to on-screen time: the head keeps those before
+  // Cut from's output instant, and the tail those after Cut to's, from the
+  // placement the overlay had there.
+  if (overlay.moves !== undefined) {
+    const length = overlayOutputDuration(overlay)
+    const atFrom = remaps.length === 0 ? from : outputTimeAtSource(trimmedLength, remaps, from)
+    const atTo = remaps.length === 0 ? to : outputTimeAtSource(trimmedLength, remaps, to)
+    head = withList(head, 'moves', splitMovesAt(overlay, Math.min(atFrom, length)).before)
+    const later = splitMovesAt(overlay, Math.min(atTo, length))
+    tail = withList({ ...tail, ...later.afterRect }, 'moves', later.after)
+  }
   return [head, tail]
 }

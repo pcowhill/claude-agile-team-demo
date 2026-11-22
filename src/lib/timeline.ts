@@ -57,6 +57,8 @@ import type { RippleChange, RippleCollections } from './ripple'
 import { rippleCut, splitZoomAt } from './ripple'
 import { splitAudioTrack, splitVideoOverlay } from './elementSplit'
 import { cutAudioTrack, cutVideoOverlay } from './elementCut'
+import type { OverlayMove, OverlayMoveSpec } from './overlayMove'
+import { isValidMoveSpec, moveSpecsEqual, withOverlayMovesClamped } from './overlayMove'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -886,6 +888,14 @@ export type TimelineAction =
   | { type: 'video-overlay-remap-added'; overlayId: string; remap: OverlayRemap }
   | { type: 'video-overlay-remap-updated'; overlayId: string; id: string; remap: RemapSpec }
   | { type: 'video-overlay-remap-removed'; overlayId: string; id: string }
+  /**
+   * Moves on an overlay (#834), video or image: the zoom actions' shape. An
+   * add whose glide normalization leaves no room is vetoed, and an update
+   * that clamps back to what is stored is a no-op. Each is one undo step.
+   */
+  | { type: 'video-overlay-move-added'; overlayId: string; move: OverlayMove }
+  | { type: 'video-overlay-move-updated'; overlayId: string; id: string; move: OverlayMoveSpec }
+  | { type: 'video-overlay-move-removed'; overlayId: string; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -1696,12 +1706,13 @@ function withEffects(
     // never re-anchored (see the TimelineState field comment). Only their
     // own ranges clamp. The key exists only while overlays do.
     // Each overlay's own zooms (#699) clamp against its trimmed window after
-    // the window itself clamps, as an entry's do against its trim.
+    // the window itself clamps, as an entry's do against its trim; its Moves
+    // (#834) against its on-screen window, which the remaps just settled.
     ...(videoOverlays.length === 0
       ? {}
       : {
           videoOverlays: videoOverlays.map((overlay) =>
-            withOverlayZoomsClamped(clampVideoOverlay(overlay)),
+            withOverlayMovesClamped(withOverlayZoomsClamped(clampVideoOverlay(overlay))),
           ),
         }),
     // Audio tracks are deliberately untouched by video edits: offsets are
@@ -3252,6 +3263,65 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (remaining.length === 0) delete next.remaps
       else next.remaps = remaining
+      overlays[index] = next
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+    }
+    case 'video-overlay-move-added': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const existing = overlay.moves ?? []
+      // Ids are the handle updates and removals act on — never two alike.
+      if (typeof action.move.id !== 'string' || action.move.id === '') return state
+      if (existing.some((move) => move.id === action.move.id)) return state
+      if (!isValidMoveSpec(action.move)) return state
+      const overlays = [...videoOverlays]
+      overlays[index] = { ...overlay, moves: [...existing, action.move] }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].moves?.find((move) => move.id === action.move.id)
+      // No room left in the overlay's window: veto, as a zoom's add does.
+      if (applied === undefined || applied.glide <= 0) return state
+      return next
+    }
+    case 'video-overlay-move-updated': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const stored = overlay.moves?.find((move) => move.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidMoveSpec(action.move)) return state
+      const candidate: OverlayMove = {
+        id: stored.id,
+        start: action.move.start,
+        glide: action.move.glide,
+        x: action.move.x,
+        y: action.move.y,
+        width: action.move.width,
+        height: action.move.height,
+      }
+      const overlays = [...videoOverlays]
+      overlays[index] = {
+        ...overlay,
+        moves: (overlay.moves ?? []).map((move) => (move.id === action.id ? candidate : move)),
+      }
+      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const applied = next.videoOverlays?.[index].moves?.find((move) => move.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference.
+      if (moveSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'video-overlay-move-removed': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const remaining = (overlay.moves ?? []).filter((move) => move.id !== action.id)
+      if (remaining.length === (overlay.moves ?? []).length) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all, so a Move-free overlay saves as before.
+      const next = { ...overlay }
+      if (remaining.length === 0) delete next.moves
+      else next.moves = remaining
       overlays[index] = next
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
     }

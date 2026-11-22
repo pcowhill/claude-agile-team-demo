@@ -22,6 +22,7 @@ import {
   rangeCutRipple,
 } from '../lib/timeline'
 import { rippleSummary } from '../lib/ripple'
+import { overlayPlacedAt } from '../lib/overlayMove'
 import { RANGE_CUT_EPSILON } from '../lib/rangeCut'
 import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { activeShapeGroups, drawShapeGroups } from '../lib/shapes'
@@ -2915,8 +2916,13 @@ export function PreviewPlayer({
                   picture-in-picture. Visibility is declarative from the
                   published time (hidden outside the window); playback and
                   audio follow via syncVideoOverlays each frame. */}
-              {videoOverlays.map((overlay, index) => {
-                const active = videoOverlayPlaybackAt(overlay, Math.min(sequenceTime, total)).shouldPlay
+              {videoOverlays.map((stored, index) => {
+                const active = videoOverlayPlaybackAt(stored, Math.min(sequenceTime, total)).shouldPlay
+                // Its Moves (#834): the placement at this moment of its
+                // window, the export's `overlayPlacedAt`. The card, outline,
+                // mask, border and shadow below all read it; with no Moves
+                // it is the stored overlay itself.
+                const overlay = overlayPlacedAt(stored, Math.min(sequenceTime, total))
                 // The overlay's card is its fractional rectangle; the media
                 // element inside carries the clip's own looks (filter,
                 // orientation) — the base slots' split, at rectangle scale.

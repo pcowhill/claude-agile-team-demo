@@ -9,6 +9,7 @@ import type {
   VideoOverlay,
 } from './timeline'
 import { colorFilterFor } from './colorAdjustments'
+import { overlayPlacedAt } from './overlayMove'
 import {
   audioTracksOf,
   boundaryTransitions,
@@ -1537,12 +1538,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // (#255), and the draw paints only the kept source rectangle. That
         // letterboxed picture is the overlay's outline (#791): the shape
         // mask, border and shadow below are all drawn on it.
-        const outline = overlayPictureRect(layer, picture.width, picture.height, width, height)
+        // Its Moves (#834): the placement at this moment of its window, which
+        // everything below — outline, mask, border, shadow — is drawn on.
+        const at = overlayPlacedAt(layer, sequenceTime)
+        const outline = overlayPictureRect(at, picture.width, picture.height, width, height)
         const placed = {
-          x: layer.x * width,
-          y: layer.y * height,
-          width: layer.width * width,
-          height: layer.height * height,
+          x: at.x * width,
+          y: at.y * height,
+          width: at.width * width,
+          height: at.height * height,
         }
         // The overlay's own source clock, through its speed segments and
         // pauses (#700) — the instant its replay element is driven to.

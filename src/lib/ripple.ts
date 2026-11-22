@@ -45,6 +45,7 @@ import type { TextOverlay } from './textOverlay'
 import type { AudioTrack, ChapterMarker, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
+import { splitMovesAt } from './overlayMove'
 
 const EPSILON = RANGE_CUT_EPSILON
 
@@ -225,6 +226,37 @@ function withList<T extends object, K extends keyof T>(element: T, key: K, list:
  * earlier by `head`. A tail cut leaves them; normalization clamps the zooms.
  */
 function shortenOverlay(overlay: VideoOverlay, start: number, head: number, tail: number): VideoOverlay {
+  return withMovesShortened(overlay, shortenOverlayWindow(overlay, start, head, tail), head, tail)
+}
+
+/**
+ * The shortened overlay's Moves (#834), which are keyed to its on-screen
+ * time: a tail cut keeps those before the new end, and a head cut keeps
+ * those after the cut, shifted earlier by `head`, with the placement it had
+ * at the cut as its own — `splitMovesAt`, as Split… and Cut… divide them.
+ */
+function withMovesShortened(
+  overlay: VideoOverlay,
+  next: VideoOverlay,
+  head: number,
+  tail: number,
+): VideoOverlay {
+  if (overlay.moves === undefined) return next
+  if (tail > 0) {
+    const { before } = splitMovesAt(overlay, overlayOutputDuration(overlay) - tail)
+    return withList(next, 'moves', before)
+  }
+  const { after, afterRect } = splitMovesAt(overlay, head)
+  return withList({ ...next, ...afterRect }, 'moves', after)
+}
+
+/** `shortenOverlay`'s window, picture and effects, Moves aside. */
+function shortenOverlayWindow(
+  overlay: VideoOverlay,
+  start: number,
+  head: number,
+  tail: number,
+): VideoOverlay {
   if (isImageOverlay(overlay)) {
     const duration = overlay.duration - head - tail
     let next: VideoOverlay = { ...overlay, offset: start, duration, inPoint: 0, outPoint: duration }

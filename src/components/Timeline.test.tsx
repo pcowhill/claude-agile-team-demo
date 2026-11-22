@@ -4363,7 +4363,8 @@ describe('zooms on an overlay row (#699)', () => {
 
   it('offers + Effect ▾ › Zoom, and adding one shows its fields', async () => {
     await addOverlay(8)
-    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    // Move (#834) comes last, after the effects an entry has too.
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
     await closeEffectMenu(OVERLAY)
     await chooseEffect(OVERLAY, ADD_ZOOM)
     expect(screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toHaveValue(2)
@@ -4429,7 +4430,7 @@ describe('speed segments and pauses on an overlay row (#700)', () => {
     expect(screen.getByText(/plays 10s of 10s — 13s remapped/)).toBeInTheDocument()
   })
 
-  it('offers Zoom alone on an image overlay, which has no time to remap', async () => {
+  it('offers Zoom and Move on an image overlay, which has no time to remap', async () => {
     render(<App />)
     probeMock.mockResolvedValueOnce({
       duration: 0,
@@ -4444,7 +4445,8 @@ describe('speed segments and pauses on an overlay row (#700)', () => {
     )
     await screen.findByText('logo.png')
     await chooseClipAction('logo.png', 'Add as overlay')
-    expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM])
+    // No Speed segment or Pause; Move (#834) places the still, not its time.
+    expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM, 'Move'])
   })
 })
 

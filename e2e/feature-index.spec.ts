@@ -176,6 +176,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "the same shape again: a speed segment's fields name which of an entry's segments they edit (#525). Both cases, because Remove says it in lower case. The stem keeps the effect's whole name — the entry is Speed segment factor, not Speed factor, because Speed segment is what the + Effect ▾ item and the row both call it",
   },
   {
+    pattern: /\b([Mm])ove \d+/g,
+    replacement: '$1ove',
+    why: "an overlay Move's fields name which of its Moves they edit (#834), a position in a list, as the zoom's do. Safe beside Move up and Move down, which carry no number: the digit is what this matches",
+  },
+  {
     pattern: /\b([Pp])ause \d+/g,
     replacement: '$1ause',
     why: "as the speed segment above (#525). Safe beside Pause and Pause recording, which carry no number: the digit is what this matches",
@@ -1030,6 +1035,17 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     timeline.getByRole('spinbutton', { name: `Pause 1 hold of ${firstEntry} in seconds` }),
   ).toBeVisible()
   await record('an entry with a speed segment and a pause', timeline)
+
+  // ── An overlay Move (#834) ──────────────────────────────────────────
+  //
+  // + Effect ▾ › Move's fields exist only once a Move does, as the zoom's
+  // and the remaps' do. It goes on the video overlay; an image overlay's
+  // row draws the same fields.
+  await chooseEffect(page, 'overlay clip.webm at position 1', 'Move')
+  await expect(
+    timeline.getByRole('spinbutton', { name: 'Move 1 glide of overlay clip.webm at position 1 in seconds' }),
+  ).toBeVisible()
+  await record('an overlay with a Move', timeline)
 
   // ── The recording dialog (#507) ─────────────────────────────────────
   //
