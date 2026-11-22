@@ -150,7 +150,8 @@ for (const viewport of [
       [moveField(page, 1, 'left edge'), MOVE_1.x + 0.2],
       [moveField(page, 1, 'top edge'), MOVE_1.y + 0.2],
     ] as const) {
-      await expect.poll(async () => Number(await field.inputValue())).toBeCloseTo(want, 1)
+      // Within 0.005: a placement is stored to a hundredth of the frame.
+      await expect.poll(async () => Number(await field.inputValue())).toBeCloseTo(want, 2)
     }
     await expect(moveField(page, 1, 'start')).toHaveValue('0.5')
     await expect(moveField(page, 2, 'left edge')).toHaveValue('0.6')
