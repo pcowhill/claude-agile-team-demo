@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineEntry, TimelineState } from './timeline'
+import { timelineReducer, videoOverlaysOf, zoomsOf } from './timeline'
+import type { VideoOverlay } from './videoOverlay'
+import { videoOverlayPlaybackAt } from './playback'
 import { IDENTITY_ZOOM, overlayZoomAt, smoothstep, zoomAt, zoomStateAt } from './zoom'
 
 const entry: TimelineEntry = {
@@ -271,6 +274,92 @@ describe('overlayZoomAt (#699)', () => {
 
   it('is the identity for an overlay with no zooms', () => {
     expect(overlayZoomAt({ inPoint: 0 }, 1)).toEqual(IDENTITY_ZOOM)
+  })
+})
+
+describe('a cut on a pause inside a zoom\'s hold keeps the held frame zoomed (#840)', () => {
+  // #840's measured case. The cut falls on a pause's instant, source 1.84,
+  // inside the zoom's hold. The first part's zoom is re-keyed to end exactly
+  // at the cut: its hold is 1.44 − 1.1 = 0.33999999999999986, so its window
+  // totals 0.84, while the held frame's offset into it is computed as
+  // (1.84 − 0.4) − 0.6 = 0.8400000000000001, one ulp past the end. Before
+  // the fix, the whole pause showed no zoom.
+  const zoom = { id: 'z', start: 0.6, rampIn: 0.5, hold: 0.57, rampOut: 0.5, scale: 2, centerX: 0.3, centerY: 0.7 }
+  const CUT = 1.84
+
+  it('on an entry: entry-split leaves the first part zoomed at its Out, the held frame', () => {
+    const state: TimelineState = {
+      entries: [
+        { id: 'a', clipId: 'c', name: 'a.mp4', duration: 10, url: 'blob:a', inPoint: 0.4, outPoint: 3.43 },
+      ],
+      remaps: [{ id: 'p', entryId: 'a', kind: 'pause', at: 1.44, hold: 0.78 }],
+      zooms: [{ ...zoom, entryId: 'a' }],
+    }
+    expect(zoomAt(state, 0, CUT).scale).toBe(2)
+    const after = timelineReducer(state, { type: 'entry-split', id: 'a', atSourceTime: CUT, newEntryId: 'b' })
+    expect(after.entries.map((entry) => entry.outPoint)).toEqual([CUT, 3.43])
+    // The first part's zoom now ends exactly at the cut.
+    expect(zoomsOf(after).find((z) => z.entryId === 'a')).toMatchObject({ hold: 0.33999999999999986, rampOut: 0 })
+    expect(zoomAt(after, 0, CUT)).toEqual({ scale: 2, centerX: 0.3, centerY: 0.7 })
+    // The second part starts at full zoom, as before.
+    expect(zoomAt(after, 1, CUT).scale).toBe(2)
+  })
+
+  it('on a video overlay: element-split leaves the first part zoomed for the whole pause', () => {
+    const overlay: VideoOverlay = {
+      id: 'pip',
+      clipId: 'c',
+      name: 'pip.mp4',
+      duration: 10,
+      url: 'blob:pip',
+      offset: 0.58,
+      inPoint: 0.4,
+      outPoint: 3.43,
+      x: 0.6,
+      y: 0.6,
+      width: 0.3,
+      height: 0.3,
+      remaps: [{ id: 'p', kind: 'pause', at: 1.44, hold: 0.78 }],
+      zooms: [zoom],
+    }
+    const state: TimelineState = { entries: [], videoOverlays: [overlay] }
+    const after = timelineReducer(state, {
+      type: 'element-split',
+      kind: 'video-overlay',
+      id: 'pip',
+      atSourceTime: CUT,
+      newId: 'pip-2',
+    })
+    const [first] = videoOverlaysOf(after)
+    expect(first.outPoint).toBe(CUT)
+    // The pause holds source 1.84 from 2.02 s to 2.80 s in the sequence.
+    let samples = 0
+    for (let at = 2.1; at <= 2.7; at += 0.01) {
+      const before = videoOverlayPlaybackAt(overlay, at)
+      const now = videoOverlayPlaybackAt(first, at)
+      expect(now.holding).toBe(true)
+      expect(overlayZoomAt(overlay, before.sourceTime).scale).toBe(2)
+      expect(overlayZoomAt(first, now.sourceTime).scale).toBe(2)
+      samples++
+    }
+    expect(samples).toBeGreaterThan(55)
+  })
+
+  it('treats a zoom\'s edges to within a nanosecond, and no further', () => {
+    // An end with no ramp out, one ulp past it: still full; a microsecond
+    // past it: gone.
+    const end = { rampIn: 0.5, hold: 0.33999999999999986, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }
+    expect(zoomStateAt(end, 0.8400000000000001).scale).toBe(2)
+    expect(zoomStateAt(end, 0.84 + 1e-6)).toEqual(IDENTITY_ZOOM)
+    // A start with no ramp in, one ulp before it: already full (the second
+    // part of a split starts so); a microsecond before it: not yet.
+    const start = { rampIn: 0, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 }
+    expect(zoomStateAt(start, -1e-16).scale).toBe(2)
+    expect(zoomStateAt(start, -1e-6)).toEqual(IDENTITY_ZOOM)
+    // A ramped edge is unchanged: zero at the very ends either way.
+    const ramped = { rampIn: 0.5, hold: 1, rampOut: 0.5, scale: 2, centerX: 0.5, centerY: 0.5 }
+    expect(zoomStateAt(ramped, -1e-16)).toEqual(IDENTITY_ZOOM)
+    expect(zoomStateAt(ramped, 2 + 1e-16)).toEqual(IDENTITY_ZOOM)
   })
 })
 
