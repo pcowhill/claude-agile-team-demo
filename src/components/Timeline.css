@@ -1085,3 +1085,14 @@
   padding: 0.1rem 0.45rem;
   white-space: nowrap;
 }
+
+/* Trim… Cut… Split… on an overlay's or a track's row (#828): one unit
+   that wraps whole, at the row's own gap. The row is a single wrapping
+   line (Starts at, In, Out, then these), and with a third button the line
+   broke between Cut… and Split… at 360px, leaving Split… alone below. */
+.timeline-trim-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+}

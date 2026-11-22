@@ -269,6 +269,19 @@ interface TimelineProps {
    */
   onSplitElement?: (kind: 'audio-track' | 'video-overlay', id: string, atSourceTime: number) => void
   /**
+   * Cut… on an audio track or a video overlay (#828): remove the part
+   * between the Cut window's two clamps (source seconds) from that one
+   * element, the later part closing up behind the earlier — `element-cut`.
+   * Nothing else moves, so there is no confirmation. Optional, as
+   * `onSplitElement` is; the button renders only when the app supplies it.
+   */
+  onCutElement?: (
+    kind: 'audio-track' | 'video-overlay',
+    id: string,
+    from: number,
+    to: number,
+  ) => void
+  /**
    * The Trim window's clamp steps (#707): the nudge and jump sizes from
    * Settings, as the transport's arrows use. Optional so tests that predate
    * the window keep compiling; the defaults are Settings' own.
@@ -2531,6 +2544,7 @@ export function Timeline({
   onSplitEntry,
   onCutRange,
   onSplitElement,
+  onCutElement,
   stepSeconds = DEFAULT_SETTINGS.stepSeconds,
   largeStepSeconds = DEFAULT_SETTINGS.largeStepSeconds,
   onPausePreview,
@@ -2937,7 +2951,8 @@ export function Timeline({
   // Which entry's, overlay's or track's Split window (#825, #826) is open,
   // if any — the same rule.
   const [splittingId, setSplittingId] = useState<string | null>(null)
-  // Which entry's Cut window (#827) is open, if any — the same rule.
+  // Which entry's, overlay's or track's Cut window (#827, #828) is open, if
+  // any — the same rule.
   const [cuttingId, setCuttingId] = useState<string | null>(null)
   // The ripple's confirmation for a Cut window's Apply (#827, #824's): open
   // while it asks, holding the span and the one line it states.
@@ -4031,66 +4046,103 @@ export function Timeline({
                       onCommit={(outPoint) => onTrimAudioTrack(track.id, track.inPoint, outPoint)}
                       unit="s"
                     />
-                    {/* The Trim window (#711), as a sequence entry has it
-                        (#707): with no picture, its strip is the waveform
-                        alone and Play trim plays the sound. A track has no
-                        zooms, speed segments or transitions, so there are
-                        no effects to mark. */}
-                    <button
-                      type="button"
-                      className="timeline-trim-open"
-                      aria-label={`Trim ${position} in the Trim window`}
-                      aria-haspopup="dialog"
-                      title="Trim in a window: listen to the track and drag In and Out on its waveform"
-                      onClick={() => setTrimmingId(track.id)}
-                    >
-                      Trim…
-                    </button>
-                    {trimmingId === track.id && (
-                      <TrimDialog
-                        entry={track}
-                        audioOnly
-                        position={position}
-                        stepSeconds={stepSeconds}
-                        largeStepSeconds={largeStepSeconds}
-                        onOpen={onPausePreview}
-                        onApply={(inPoint, outPoint) => {
-                          setTrimmingId(null)
-                          onTrimAudioTrack(track.id, inPoint, outPoint)
-                        }}
-                        onClose={() => setTrimmingId(null)}
-                      />
-                    )}
-                    {/* Split… (#826): the Split window with no picture, as
-                        Trim… has for a track (#711); Apply makes two
-                        tracks that play exactly as this one did. */}
-                    {onSplitElement !== undefined && (
+                    {/* Trim… Cut… Split… (#828) wrap as one group: the row
+                        is a wrapping line, and at 360px a third button
+                        left Split… alone on the next line. */}
+                    <span className="timeline-trim-group">
+                      {/* The Trim window (#711), as a sequence entry has it
+                          (#707): with no picture, its strip is the waveform
+                          alone and Play trim plays the sound. A track has no
+                          zooms, speed segments or transitions, so there are
+                          no effects to mark. */}
                       <button
                         type="button"
                         className="timeline-trim-open"
-                        aria-label={`Split ${position} in the Split window`}
+                        aria-label={`Trim ${position} in the Trim window`}
                         aria-haspopup="dialog"
-                        title="Split in a window: pick the moment on the track's waveform and split it into two there"
-                        onClick={() => setSplittingId(track.id)}
+                        title="Trim in a window: listen to the track and drag In and Out on its waveform"
+                        onClick={() => setTrimmingId(track.id)}
                       >
-                        Split…
+                        Trim…
                       </button>
-                    )}
-                    {onSplitElement !== undefined && splittingId === track.id && (
-                      <SplitDialog
-                        entry={track}
-                        audioOnly
-                        position={position}
-                        stepSeconds={stepSeconds}
-                        largeStepSeconds={largeStepSeconds}
-                        onOpen={onPausePreview}
-                        onApply={(atSourceTime) => {
-                          setSplittingId(null)
-                          onSplitElement('audio-track', track.id, atSourceTime)
-                        }}
-                        onClose={() => setSplittingId(null)}
-                      />
-                    )}
+                      {trimmingId === track.id && (
+                        <TrimDialog
+                          entry={track}
+                          audioOnly
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
+                          onApply={(inPoint, outPoint) => {
+                            setTrimmingId(null)
+                            onTrimAudioTrack(track.id, inPoint, outPoint)
+                          }}
+                          onClose={() => setTrimmingId(null)}
+                        />
+                      )}
+                      {/* Cut… (#828): the Cut window with no picture, as
+                          Split… has for a track (#826). Apply removes the
+                          part between the clamps and the later part closes
+                          up; nothing else moves. Between Trim… and Split…,
+                          in the order the customer named. */}
+                      {onCutElement !== undefined && (
+                        <button
+                          type="button"
+                          className="timeline-trim-open"
+                          aria-label={`Cut a part out of ${position} in the Cut window`}
+                          aria-haspopup="dialog"
+                          title="Cut in a window: mark a part of the track on its waveform and remove it, the rest closing up"
+                          onClick={() => setCuttingId(track.id)}
+                        >
+                          Cut…
+                        </button>
+                      )}
+                      {onCutElement !== undefined && cuttingId === track.id && (
+                        <CutDialog
+                          entry={track}
+                          audioOnly
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
+                          onApply={(clamps) => {
+                            setCuttingId(null)
+                            onCutElement('audio-track', track.id, clamps.from, clamps.to)
+                          }}
+                          onClose={() => setCuttingId(null)}
+                        />
+                      )}
+                      {/* Split… (#826): the Split window with no picture, as
+                          Trim… has for a track (#711); Apply makes two
+                          tracks that play exactly as this one did. */}
+                      {onSplitElement !== undefined && (
+                        <button
+                          type="button"
+                          className="timeline-trim-open"
+                          aria-label={`Split ${position} in the Split window`}
+                          aria-haspopup="dialog"
+                          title="Split in a window: pick the moment on the track's waveform and split it into two there"
+                          onClick={() => setSplittingId(track.id)}
+                        >
+                          Split…
+                        </button>
+                      )}
+                      {onSplitElement !== undefined && splittingId === track.id && (
+                        <SplitDialog
+                          entry={track}
+                          audioOnly
+                          position={position}
+                          stepSeconds={stepSeconds}
+                          largeStepSeconds={largeStepSeconds}
+                          onOpen={onPausePreview}
+                          onApply={(atSourceTime) => {
+                            setSplittingId(null)
+                            onSplitElement('audio-track', track.id, atSourceTime)
+                          }}
+                          onClose={() => setSplittingId(null)}
+                        />
+                      )}
+                    </span>
                     <span className="timeline-entry-effective">
                       plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
                     </span>
@@ -4303,67 +4355,101 @@ export function Timeline({
                           onCommit={(outPoint) => set({ outPoint })}
                           unit="s"
                         />
-                        {/* The Trim window (#711), as an entry has it (#707):
-                            watching the overlay's own source, with its own
-                            zooms, speed segments and pauses marked. An
-                            overlay sits on no boundary, so no transition
-                            spans. Apply is one `video-overlay-updated`. */}
-                        <button
-                          type="button"
-                          className="timeline-trim-open"
-                          aria-label={`Trim ${position} in the Trim window`}
-                          aria-haspopup="dialog"
-                          title="Trim in a window: watch the overlay's clip and drag In and Out on it"
-                          onClick={() => setTrimmingId(overlay.id)}
-                        >
-                          Trim…
-                        </button>
-                        {trimmingId === overlay.id && (
-                          <TrimDialog
-                            entry={overlay}
-                            position={position}
-                            stepSeconds={stepSeconds}
-                            largeStepSeconds={largeStepSeconds}
-                            onOpen={onPausePreview}
-                            onApply={(inPoint, outPoint) => {
-                              setTrimmingId(null)
-                              set({ inPoint, outPoint })
-                            }}
-                            onClose={() => setTrimmingId(null)}
-                            effectsFor={(range) => overlayTrimEffectsPreview(timeline, overlay.id, range)}
-                          />
-                        )}
-                        {/* Split… (#826): as an entry's (#825). Apply makes
-                            two overlays that play exactly as this one did,
-                            its speed segments, pauses and zooms cut by the
-                            razor's rules. An image overlay has no source to
-                            cut, so it has no Trim… and no Split…. */}
-                        {onSplitElement !== undefined && (
+                        {/* Trim… Cut… Split… (#828) wrap as one group, as on
+                            a track's row. */}
+                        <span className="timeline-trim-group">
+                          {/* The Trim window (#711), as an entry has it (#707):
+                              watching the overlay's own source, with its own
+                              zooms, speed segments and pauses marked. An
+                              overlay sits on no boundary, so no transition
+                              spans. Apply is one `video-overlay-updated`. */}
                           <button
                             type="button"
                             className="timeline-trim-open"
-                            aria-label={`Split ${position} in the Split window`}
+                            aria-label={`Trim ${position} in the Trim window`}
                             aria-haspopup="dialog"
-                            title="Split in a window: pick the moment on the overlay's clip and split it into two there"
-                            onClick={() => setSplittingId(overlay.id)}
+                            title="Trim in a window: watch the overlay's clip and drag In and Out on it"
+                            onClick={() => setTrimmingId(overlay.id)}
                           >
-                            Split…
+                            Trim…
                           </button>
-                        )}
-                        {onSplitElement !== undefined && splittingId === overlay.id && (
-                          <SplitDialog
-                            entry={overlay}
-                            position={position}
-                            stepSeconds={stepSeconds}
-                            largeStepSeconds={largeStepSeconds}
-                            onOpen={onPausePreview}
-                            onApply={(atSourceTime) => {
-                              setSplittingId(null)
-                              onSplitElement('video-overlay', overlay.id, atSourceTime)
-                            }}
-                            onClose={() => setSplittingId(null)}
-                          />
-                        )}
+                          {trimmingId === overlay.id && (
+                            <TrimDialog
+                              entry={overlay}
+                              position={position}
+                              stepSeconds={stepSeconds}
+                              largeStepSeconds={largeStepSeconds}
+                              onOpen={onPausePreview}
+                              onApply={(inPoint, outPoint) => {
+                                setTrimmingId(null)
+                                set({ inPoint, outPoint })
+                              }}
+                              onClose={() => setTrimmingId(null)}
+                              effectsFor={(range) => overlayTrimEffectsPreview(timeline, overlay.id, range)}
+                            />
+                          )}
+                          {/* Cut… (#828): as an entry's (#827), but Apply
+                              closes up this overlay alone: the part between
+                              the clamps goes, the later part starts where the
+                              earlier now ends, and nothing else moves. */}
+                          {onCutElement !== undefined && (
+                            <button
+                              type="button"
+                              className="timeline-trim-open"
+                              aria-label={`Cut a part out of ${position} in the Cut window`}
+                              aria-haspopup="dialog"
+                              title="Cut in a window: mark a part of the overlay's clip and remove it, the rest closing up"
+                              onClick={() => setCuttingId(overlay.id)}
+                            >
+                              Cut…
+                            </button>
+                          )}
+                          {onCutElement !== undefined && cuttingId === overlay.id && (
+                            <CutDialog
+                              entry={overlay}
+                              position={position}
+                              stepSeconds={stepSeconds}
+                              largeStepSeconds={largeStepSeconds}
+                              onOpen={onPausePreview}
+                              onApply={(clamps) => {
+                                setCuttingId(null)
+                                onCutElement('video-overlay', overlay.id, clamps.from, clamps.to)
+                              }}
+                              onClose={() => setCuttingId(null)}
+                            />
+                          )}
+                          {/* Split… (#826): as an entry's (#825). Apply makes
+                              two overlays that play exactly as this one did,
+                              its speed segments, pauses and zooms cut by the
+                              razor's rules. An image overlay has no source to
+                              cut, so it has no Trim… and no Split…. */}
+                          {onSplitElement !== undefined && (
+                            <button
+                              type="button"
+                              className="timeline-trim-open"
+                              aria-label={`Split ${position} in the Split window`}
+                              aria-haspopup="dialog"
+                              title="Split in a window: pick the moment on the overlay's clip and split it into two there"
+                              onClick={() => setSplittingId(overlay.id)}
+                            >
+                              Split…
+                            </button>
+                          )}
+                          {onSplitElement !== undefined && splittingId === overlay.id && (
+                            <SplitDialog
+                              entry={overlay}
+                              position={position}
+                              stepSeconds={stepSeconds}
+                              largeStepSeconds={largeStepSeconds}
+                              onOpen={onPausePreview}
+                              onApply={(atSourceTime) => {
+                                setSplittingId(null)
+                                onSplitElement('video-overlay', overlay.id, atSourceTime)
+                              }}
+                              onClose={() => setSplittingId(null)}
+                            />
+                          )}
+                        </span>
                         <span className="timeline-entry-effective">
                           plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
                           {/* Its speed segments and pauses (#700) change

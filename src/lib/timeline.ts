@@ -56,6 +56,7 @@ import { RANGE_CUT_EPSILON, planRangeCut } from './rangeCut'
 import type { RippleChange, RippleCollections } from './ripple'
 import { rippleCut, splitZoomAt } from './ripple'
 import { splitAudioTrack, splitVideoOverlay } from './elementSplit'
+import { cutAudioTrack, cutVideoOverlay } from './elementCut'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -715,6 +716,27 @@ export type TimelineAction =
       /** Absolute source-clip seconds; must be strictly inside (inPoint, outPoint). */
       atSourceTime: number
       /** The second part's id, supplied by the caller like every element id. */
+      newId: string
+    }
+  | {
+      /**
+       * Cut… on an audio track or a video overlay (#828): the part between
+       * two source instants is removed and the later part closes up behind
+       * the earlier, so the element plays on without a gap (see
+       * `elementCut.ts` for the rule). Nothing else moves: an overlay or a
+       * track is placed independently. The later part is listed right after
+       * the earlier, so overlay stacking is unchanged, and it is one action,
+       * so one undo step. Refused (same state) with a clamp on In or Out,
+       * the clamps inverted or equal, on an image overlay, for an unknown
+       * id, and for a `newId` already taken.
+       */
+      type: 'element-cut'
+      kind: 'audio-track' | 'video-overlay'
+      id: string
+      /** Absolute source-clip seconds: the removed part is [from, to). */
+      from: number
+      to: number
+      /** The later part's id, supplied by the caller like every element id. */
       newId: string
     }
   | {
@@ -2345,6 +2367,28 @@ function reduceTimelineCollections(
       if (index === -1) return state
       if (videoOverlays.some((overlay) => overlay.id === action.newId)) return state
       const parts = splitVideoOverlay(videoOverlays[index], action.atSourceTime, action.newId)
+      if (parts === null) return state
+      const nextOverlays = [...videoOverlays.slice(0, index), ...parts, ...videoOverlays.slice(index + 1)]
+      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, nextOverlays)
+    }
+    case 'element-cut': {
+      // Cut… on a track or an overlay (#828): see elementCut.ts. The later
+      // part goes right after the earlier in its list.
+      if (typeof action.newId !== 'string' || action.newId === '') return state
+      const clamps = { from: action.from, to: action.to }
+      if (action.kind === 'audio-track') {
+        const index = audioTracks.findIndex((track) => track.id === action.id)
+        if (index === -1) return state
+        if (audioTracks.some((track) => track.id === action.newId)) return state
+        const parts = cutAudioTrack(audioTracks[index], clamps, action.newId)
+        if (parts === null) return state
+        const nextTracks = [...audioTracks.slice(0, index), ...parts, ...audioTracks.slice(index + 1)]
+        return withEffects(state.entries, transitions, zooms, nextTracks, remaps, texts, videoOverlays)
+      }
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
+      if (index === -1) return state
+      if (videoOverlays.some((overlay) => overlay.id === action.newId)) return state
+      const parts = cutVideoOverlay(videoOverlays[index], clamps, action.newId)
       if (parts === null) return state
       const nextOverlays = [...videoOverlays.slice(0, index), ...parts, ...videoOverlays.slice(index + 1)]
       return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, nextOverlays)

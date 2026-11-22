@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  RefObject,
+} from 'react'
 import { targetEditsText } from '../lib/history'
 import { targetClaimsKeys } from '../lib/transport'
 import { formatTrimTime, frameStep, sourceTime, stripFraction, timeAtStripFraction } from '../lib/trim'
@@ -21,17 +25,29 @@ import './TrimDialog.css'
 import './CutDialog.css'
 
 interface CutDialogProps {
-  /** The sequence entry being cut: its source and its current trim. */
+  /**
+   * The element being cut — a sequence entry (#827), or a video overlay or
+   * an audio track (#828) — as its source and its current trim.
+   */
   entry: { name: string; url: string; duration: number; inPoint: number; outPoint: number }
+  /**
+   * An audio track (#828): no picture, as in the Trim and Split windows'
+   * mode for tracks (#711, #826). The window plays the source through an
+   * `<audio>` element, the strip is its waveform alone, and there are no
+   * frames to step by.
+   */
+  audioOnly?: boolean
   /** "clip.webm at position 2": the row's own wording, as the Trim window's title. */
   position: string
   /** The clamps' arrow steps: the nudge and jump sizes from Settings. */
   stepSeconds: number
   largeStepSeconds: number
   /**
-   * Apply: the part to remove, in source seconds. The caller cuts it out
-   * with Cut out marked range (#823) over the same span of sequence time,
-   * ripple and confirmation included (#824), as one undo step.
+   * Apply: the part to remove, in source seconds. On a sequence entry the
+   * caller cuts it out with Cut out marked range (#823) over the same span
+   * of sequence time, ripple and confirmation included (#824); on an
+   * overlay or a track with `element-cut` (#828), which closes the element
+   * up and moves nothing else. Either way, one undo step.
    */
   onApply: (clamps: CutClamps) => void
   /** Cancel, ✕ and Escape: close, changing nothing. */
@@ -73,6 +89,7 @@ type Grip = 'from' | 'to' | 'playhead'
  */
 export function CutDialog({
   entry,
+  audioOnly = false,
   position,
   stepSeconds,
   largeStepSeconds,
@@ -87,7 +104,8 @@ export function CutDialog({
   const range: TrimRange = { inPoint: entry.inPoint, outPoint: entry.outPoint }
   const headingId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  // The window's own player: a <video>, or an <audio> for a track (#828).
+  const videoRef = useRef<HTMLMediaElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const [clamps, setClamps] = useState<CutClamps>(() => initialCutClamps(range))
   // The playhead: what the picture shows, in source seconds. It opens on
@@ -303,22 +321,38 @@ export function CutDialog({
           </button>
         </div>
 
-        <div className="trim-preview">
-          <video
-            ref={videoRef}
-            className="trim-video"
-            data-testid="cut-video"
+        {audioOnly ? (
+          // An audio track (#828): no picture, so no preview box, as in the
+          // Split window's mode for tracks (#826). The element has no
+          // controls and takes no room; the window's own buttons play it.
+          <audio
+            ref={videoRef as RefObject<HTMLAudioElement>}
+            data-testid="cut-audio"
             src={url}
-            playsInline
             preload="auto"
-            // Firefox drops a seek made while an element has only its
-            // metadata (#615): apply the playhead again once a frame is there.
             onLoadedData={(event) => {
               if (!playing) event.currentTarget.currentTime = timeRef.current
             }}
             onEnded={() => setPlaying(false)}
           />
-        </div>
+        ) : (
+          <div className="trim-preview">
+            <video
+              ref={videoRef as RefObject<HTMLVideoElement>}
+              className="trim-video"
+              data-testid="cut-video"
+              src={url}
+              playsInline
+              preload="auto"
+              // Firefox drops a seek made while an element has only its
+              // metadata (#615): apply the playhead again once a frame is there.
+              onLoadedData={(event) => {
+                if (!playing) event.currentTarget.currentTime = timeRef.current
+              }}
+              onEnded={() => setPlaying(false)}
+            />
+          </div>
+        )}
         <p className="trim-position" data-testid="cut-position">
           <output aria-label="Cut window playhead">{formatTrimTime(time)}</output> /{' '}
           {formatTrimTime(duration)}
@@ -329,14 +363,20 @@ export function CutDialog({
             clamps, and the playhead. */}
         <div
           ref={stripRef}
-          className={`trim-strip${grip === null ? '' : ' trim-strip-dragging'}`}
+          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
           data-testid="cut-strip"
           onPointerDown={beginDrag('playhead')}
           onPointerMove={onStripPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          <StripPicture url={url} duration={duration} peaksFor={peaksFor} framesFor={framesFor} />
+          <StripPicture
+            url={url}
+            duration={duration}
+            audioOnly={audioOnly}
+            peaksFor={peaksFor}
+            framesFor={framesFor}
+          />
           <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
           <div className="trim-strip-dim" style={{ left: outAt, right: 0 }} aria-hidden="true" />
           <div
@@ -382,14 +422,16 @@ export function CutDialog({
         </div>
 
         <div className="trim-transport" role="group" aria-label="Cut playback">
-          <button
-            type="button"
-            aria-label="Back one frame"
-            title="Back one frame"
-            onClick={() => seek(frameStep(timeRef.current, -1, duration))}
-          >
-            ◀ frame
-          </button>
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Back one frame"
+              title="Back one frame"
+              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+            >
+              ◀ frame
+            </button>
+          )}
           <button
             type="button"
             className="trim-play"
@@ -403,14 +445,16 @@ export function CutDialog({
           >
             {playing ? '⏸ Pause' : '▶ Play cut'}
           </button>
-          <button
-            type="button"
-            aria-label="Forward one frame"
-            title="Forward one frame"
-            onClick={() => seek(frameStep(timeRef.current, 1, duration))}
-          >
-            frame ▶
-          </button>
+          {!audioOnly && (
+            <button
+              type="button"
+              aria-label="Forward one frame"
+              title="Forward one frame"
+              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+            >
+              frame ▶
+            </button>
+          )}
         </div>
 
         <div className="trim-set">
