@@ -243,3 +243,47 @@ export function splitMovesAt<T extends OverlayMove>(
   }
   return { before, after, afterRect: atCut }
 }
+
+/**
+ * Which placement the Overlay visual editor edits (#835): the overlay's
+ * own, or one Move's destination. `index` is the Move's place in the
+ * normalized (time-ordered) list, so `index + 1` is the number its row shows.
+ */
+export type EditablePlacement = { kind: 'own' } | { kind: 'move'; index: number; id: string }
+
+/**
+ * The placement that holds at on-screen time `t` (#835), the one a drag in
+ * the Overlay visual editor changes there: the overlay's own before its
+ * first Move starts, and Move *k*'s destination from Move *k*'s start until
+ * Move *k+1*'s, its glide included. Inside a glide that is where the
+ * overlay is going, not where it is, since the destination is what a Move
+ * stores. Moves must be normalized (sorted), as any published state's are;
+ * of two Moves starting together the later one holds, since the earlier
+ * one's span is empty.
+ */
+export function editablePlacementAt(
+  overlay: { moves?: readonly OverlayMove[] },
+  t: number,
+): EditablePlacement {
+  let editable: EditablePlacement = { kind: 'own' }
+  for (const [index, move] of (overlay.moves ?? []).entries()) {
+    if (t < move.start) break
+    editable = { kind: 'move', index, id: move.id }
+  }
+  return editable
+}
+
+/** The rectangle an editable placement stores: the overlay's own, or that Move's destination. */
+export function editablePlacementRect(
+  overlay: OverlayRect & { moves?: readonly OverlayMove[] },
+  editable: EditablePlacement,
+): OverlayRect {
+  const move = editable.kind === 'move' ? overlay.moves?.[editable.index] : undefined
+  const source = move ?? overlay
+  return { x: source.x, y: source.y, width: source.width, height: source.height }
+}
+
+/** The Overlay visual editor's "Editing: …" line for a placement (#835), in #829's words. */
+export function editablePlacementLabel(editable: EditablePlacement): string {
+  return editable.kind === 'own' ? 'Editing: starting placement' : `Editing: after Move ${editable.index + 1}`
+}

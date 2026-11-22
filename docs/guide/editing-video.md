@@ -347,7 +347,7 @@ The dimming shows in the preview as you play, and is drawn into the export, a [s
 - **Everything moves with it.** The overlay's [shape mask](#shape-mask), [border](#overlay-border) and [shadow](#overlay-shadow) are drawn on its picture wherever it is, and its zoom magnifies inside the moving rectangle. The preview and every export place it identically.
 - **Editing elsewhere.** [Split…](#split), [Cut…](#cut) and [Cut out marked range](#cut-out-marked-range) keep each Move at its moment in the video. A part that starts in the middle of the overlay's time starts from where the overlay was then.
 - **Duplicating and removing.** [Duplicate](timeline.md#duplicate) copies the Moves with the overlay, and removing the overlay removes them. Copy settings does not carry them, as it does not carry zooms. Adding, editing and removing a Move is one undo step each, and Moves save with the project.
-- **Not here yet.** Moves are typed into their fields; dragging a Move's place in the [visual editor](visual-editors.md) is not available. **Adjust visually…** beside the **Rect** fields still edits the overlay's own place, the one it has before its first Move.
+- **Dragging a Move's place.** **Adjust visually…** beside the **Rect** fields opens the [overlay editor](visual-editors.md#what-each-editor-shows) with a Preview slider. It edits the place that holds where the slider is: the overlay's own before its first Move, and a Move's destination from that Move's start on. A line beside the slider says which, for example *Editing: after Move 1*.
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Placement rectangle](glossary.md#placement-rectangle) · [Zooms](#zooms)
 

@@ -2,20 +2,30 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   FREE_RECT_HANDLES,
+  loopScrubStop,
   overlayEditorSequenceTime,
   overlayRect,
   rectAfterGesture,
   rectAfterKeyStep,
   rectGuides,
   withoutOverlay,
+  ZOOM_SCRUB_STEP,
 } from '../lib/frameEditor'
 import type { FrameRect, RectBounds, RectGesture, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { overlayPictureRect } from '../lib/exportVideo'
 import { probeSourceSize } from '../lib/probeSourceSize'
 import type { SourceSize } from '../lib/probeSourceSize'
+import { totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
-import { isImageOverlay, MAX_OVERLAY_SIZE, MIN_OVERLAY_SIZE } from '../lib/videoOverlay'
+import { editablePlacementAt, editablePlacementLabel, editablePlacementRect } from '../lib/overlayMove'
+import type { EditablePlacement, OverlayMoveSpec } from '../lib/overlayMove'
+import {
+  isImageOverlay,
+  MAX_OVERLAY_SIZE,
+  MIN_OVERLAY_SIZE,
+  overlayOutputDuration,
+} from '../lib/videoOverlay'
 import type { VideoOverlay } from '../lib/videoOverlay'
 import { FrameEditor } from './FrameEditor'
 
@@ -40,6 +50,15 @@ import { FrameEditor } from './FrameEditor'
  * underneath is the one the overlay is actually over; and this overlay's
  * layer is left out of that still, so the rectangle shows where it will go
  * instead of covering the frame it is being placed against.
+ *
+ * An overlay with Moves (#835, from #829) has more than one placement: its
+ * own, and one destination per Move. The editor then gains a Preview slider
+ * across the overlay's window on the sequence, and edits the placement that
+ * holds at the slider (`editablePlacementAt`), naming it in an "Editing: …"
+ * line. Inside a glide that is the Move's destination, drawn there rather
+ * than in flight, because the destination is what the drag changes. An
+ * overlay without Moves has neither the slider nor the line, and keeps its
+ * still at the middle of its window, exactly as before.
  */
 
 const format = (value: number) => String(Math.round(value * 1000) / 1000)
@@ -50,6 +69,9 @@ const format = (value: number) => String(Math.round(value * 1000) / 1000)
  */
 const BOUNDS: RectBounds = { minSize: MIN_OVERLAY_SIZE, maxSize: MAX_OVERLAY_SIZE }
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+const seconds = (value: number) => `${value.toFixed(2)} s`
+
 interface OverlayEditorProps {
   timeline: TimelineState
   overlay: VideoOverlay
@@ -57,6 +79,11 @@ interface OverlayEditorProps {
   position: string
   /** Commits a placement change — the row's own `set`/`setImage`. */
   onUpdate: (rect: { x: number; y: number; width: number; height: number }) => void
+  /**
+   * Commits a Move's whole spec with its destination changed (#835) — the
+   * row's own Move fields' callback. Its timing is passed back unchanged.
+   */
+  onUpdateMove?: (id: string, move: OverlayMoveSpec) => void
   onClose: () => void
   /** Injectable for tests (see FrameEditor). */
   snapshot?: typeof snapshotTimelineFrame
@@ -67,6 +94,7 @@ export function OverlayEditor({
   overlay,
   position,
   onUpdate,
+  onUpdateMove,
   onClose,
   snapshot,
 }: OverlayEditorProps) {
@@ -74,7 +102,27 @@ export function OverlayEditor({
   const hintId = useId()
   // The rectangle mid-drag; null when the stored placement is what to show.
   const [live, setLive] = useState<FrameRect | null>(null)
-  const stored = overlayRect(overlay)
+
+  // Moves (#835): the Preview slider spans the overlay's window on the
+  // sequence, its on-screen length, clamped into the sequence as the
+  // still's time always was. It opens at the window's middle, the still
+  // this editor has always shown, and keeps its place, clamped, when the
+  // window is edited in the row while the editor is open.
+  const moves = overlay.moves ?? []
+  const hasMoves = moves.length > 0
+  const total = Math.max(0, totalDuration(timeline))
+  const span = {
+    start: clamp(overlay.offset, 0, total),
+    end: clamp(overlay.offset + overlayOutputDuration(overlay), 0, total),
+  }
+  const [scrubbed, setScrubbed] = useState(() =>
+    loopScrubStop(overlayEditorSequenceTime(timeline, overlay), span.start, span.end),
+  )
+  const scrub = clamp(scrubbed, span.start, span.end)
+  const editable: EditablePlacement = hasMoves
+    ? editablePlacementAt(overlay, scrub - overlay.offset)
+    : { kind: 'own' }
+  const stored = hasMoves ? editablePlacementRect(overlay, editable) : overlayRect(overlay)
   const shown = live ?? stored
 
   useEffect(() => {
@@ -142,7 +190,14 @@ export function OverlayEditor({
       next.width !== stored.width ||
       next.height !== stored.height
     ) {
-      onUpdate(next)
+      if (editable.kind === 'own') {
+        onUpdate(next)
+        return
+      }
+      // A Move's destination: its timing goes back as it is stored, so the
+      // edit changes where it goes and nothing else.
+      const move = moves[editable.index]
+      onUpdateMove?.(move.id, { start: move.start, glide: move.glide, ...next })
     }
   }
 
@@ -182,7 +237,7 @@ export function OverlayEditor({
         // Without this overlay's own layer: the rectangle marks where it
         // will sit, and an overlay drawn over that frame would hide it.
         timeline={withoutOverlay(timeline, overlay.id)}
-        sequenceTime={overlayEditorSequenceTime(timeline, overlay)}
+        sequenceTime={hasMoves ? scrub : overlayEditorSequenceTime(timeline, overlay)}
         // The still is the frame minus this overlay, so a committed drag
         // cannot change it — the key stays the overlay's id, exactly as the
         // zoom editor's editing still stays keyed on the zoom's.
@@ -204,6 +259,32 @@ export function OverlayEditor({
           : { silhouette: overlay.shapeMask, silhouetteOutline: pictureOutline })}
         {...(snapshot === undefined ? {} : { snapshot })}
       />
+      {hasMoves && (
+        <div className="effect-editor-scrub">
+          <span>Preview</span>
+          <input
+            type="range"
+            aria-label={`Preview time of ${position} in seconds`}
+            min={span.start}
+            max={span.end}
+            step={ZOOM_SCRUB_STEP}
+            value={scrub}
+            onChange={(event) => {
+              // A drag in progress belongs to the placement it started on.
+              setLive(null)
+              setScrubbed(Number(event.target.value))
+            }}
+          />
+          <output aria-label={`${position} preview time (live)`}>{seconds(scrub)}</output>
+          <output
+            className="overlay-editor-editing"
+            aria-label={`${position} placement being edited`}
+            data-testid="overlay-editor-editing"
+          >
+            {editablePlacementLabel(editable)}
+          </output>
+        </div>
+      )}
       <p className="effect-editor-readout">
         <span>
           X <output aria-label={`${position} left edge (live)`}>{format(shown.x)}</output>
@@ -222,6 +303,9 @@ export function OverlayEditor({
         Arrow keys nudge the rectangle, Shift for five times as far; + and − resize it. Hold Shift
         while dragging a corner to keep its proportions, or Alt while dragging to ignore the guides.
         Timing stays in the fields above, and each change is one undo step.
+        {hasMoves
+          ? ' With Moves, the rectangle is the placement that holds at the Preview time: the starting placement before the first Move, and a Move’s destination from its start on.'
+          : ''}
       </p>
     </div>
   )

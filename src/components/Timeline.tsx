@@ -4676,6 +4676,8 @@ export function Timeline({
                       overlay={overlay}
                       position={position}
                       onUpdate={(rect) => (isImage ? setImage(rect) : set(rect))}
+                      // A Move's destination (#835): the Move fields' own callback.
+                      onUpdateMove={(id, move) => onUpdateVideoOverlayMove?.(overlay.id, id, move)}
                       onClose={() => setEditingOverlayId(null)}
                     />
                   )}
