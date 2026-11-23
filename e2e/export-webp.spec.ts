@@ -154,6 +154,8 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
           frameCount: null,
           durationsMs: null,
           samples: [{ time: 0, pixel: { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) } }],
+          controlReadable: null,
+          firstFrame: null,
         }
       }
       const decoder = new ImageDecoder({ data, type: 'image/webp' })
@@ -183,10 +185,43 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
         image.close()
       }
       decoder.close()
+      // Firefox's ImageDecoder has been measured handing back frames with no
+      // pixels at all (#858, CI run 45267050150: "No media resource in
+      // VideoFrame") while an <img> displays the same file. To tell a
+      // decoder that yields no pixels from a file it cannot read, the same
+      // decoder reads a control: a still WebP this browser's own canvas
+      // encoded. And the first frame is read the way an <img> reads it.
+      let controlReadable: boolean | null = null
+      let firstFrame = null
+      if (samples.some((sample) => sample.pixel === null)) {
+        const canvas = document.createElement('canvas')
+        canvas.width = 16
+        canvas.height = 16
+        const context = canvas.getContext('2d')!
+        context.fillStyle = '#808080'
+        context.fillRect(0, 0, 16, 16)
+        const still = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, 'image/webp', 0.8),
+        )
+        const before = errors.length
+        if (still !== null) {
+          const control = new ImageDecoder({ data: await still.arrayBuffer(), type: 'image/webp' })
+          await control.tracks.ready
+          const { image } = await control.decode()
+          controlReadable = (await pixelOf(image)) !== null
+          image.close()
+          control.close()
+        }
+        errors.splice(before, errors.length - before, `control still read: ${controlReadable}`)
+        const bitmap = await createImageBitmap(blob)
+        firstFrame = { time: 0, pixel: { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) } }
+      }
       return {
         decoder: 'ImageDecoder' as const,
         imgSize,
         errors,
+        controlReadable,
+        firstFrame,
         width,
         height,
         frameCount: track.frameCount,
@@ -312,12 +347,23 @@ test('the enabled More export formats plugin exports a slate timeline as a valid
     expect(decoded.frameCount).toBe(webp.frames.length)
     expect(decoded.durationsMs).toEqual(webp.frames.map((frame) => frame.durationMs))
   }
+  const unreadable = decoded.samples.some((sample) => sample.pixel === null)
+  if (unreadable) {
+    // Only a decoder that yields no pixels for any WebP excuses this file's
+    // frames being unreadable; if this browser reads its own still through
+    // the same decoder, the fault is the file's.
+    expect(
+      decoded.controlReadable,
+      `ImageDecoder reads this browser's own still WebP, but not this file's frames: ${decoded.errors.join('; ')}`,
+    ).toBe(false)
+    // Then parity is judged on the first frame, read as an <img> reads it.
+    const first = decoded.firstFrame!
+    expectClose(first.pixel, await previewCentre(page, 0), 'WebP first frame against the preview at 0 s')
+    return
+  }
   const pixels: Rgb[] = []
   for (const sample of decoded.samples) {
-    const pixel = sample.pixel
-    if (pixel === null) {
-      throw new Error(`no way to read the WebP frame at ${sample.time} s: ${decoded.errors.join('; ')}`)
-    }
+    const pixel = sample.pixel!
     pixels.push(pixel)
     const preview = await previewCentre(page, sample.time)
     expectClose(pixel, preview, `WebP at ${sample.time} s against the preview`)
