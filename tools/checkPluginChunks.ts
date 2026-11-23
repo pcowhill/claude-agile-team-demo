@@ -88,7 +88,11 @@ export interface LazyModuleRule {
  * its first commit. Adding a line here is therefore a step in adding a
  * plugin, not something CI can remind anyone of.
  */
-const PLUGIN_CHUNKS = ['src/plugins/gif/index.ts', 'src/plugins/shapedWipes/index.ts']
+const PLUGIN_CHUNKS = [
+  'src/plugins/gif/index.ts',
+  'src/plugins/shapedWipes/index.ts',
+  'src/plugins/patternTransitions/index.ts',
+]
 
 /** The seven visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565, #685). */
 const VISUAL_EDITORS = ['Crop', 'Overlay', 'Redaction', 'Shape', 'Spotlight', 'Text', 'Zoom'].map(

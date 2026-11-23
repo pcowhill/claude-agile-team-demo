@@ -84,8 +84,18 @@ import type { RedactionRegion } from '../lib/redaction'
 import { drawRedactions } from '../lib/redaction'
 import type { SpotlightRegion } from '../lib/spotlight'
 import { drawSpotlights } from '../lib/spotlight'
-import { transitionLabel, transitionLayerSpec } from '../lib/transitionRender'
-import type { TransitionClipRect, TransitionEllipse } from '../lib/transitionRender'
+import {
+  transitionLabel,
+  transitionLayerSpec,
+  transitionRegistry,
+  windRevealPolygons,
+} from '../lib/transitionRender'
+import type {
+  TransitionClipRect,
+  TransitionEllipse,
+  TransitionPoint,
+  TransitionPolygon,
+} from '../lib/transitionRender'
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
@@ -345,14 +355,18 @@ const HAVE_CURRENT_DATA = 2
  * cross-zoom (#181) adds a scale about the element centre to each layer;
  * fades through a color (#181) put a full-frame veil above both elements.
  */
-function transitionLayerStyles(overlap: TransitionOverlap): {
+function transitionLayerStyles(
+  overlap: TransitionOverlap,
+  aspect: number,
+): {
   outgoing: CSSProperties
   incoming: CSSProperties
   incomingClip: TransitionClipRect | null
   incomingEllipse: TransitionEllipse | null
+  incomingPolygons: readonly TransitionPolygon[] | null
   veil: CSSProperties | null
 } {
-  const spec = transitionLayerSpec(overlap.type, overlap.progress)
+  const spec = transitionLayerSpec(overlap.type, overlap.progress, transitionRegistry, aspect)
   // A push's translate and a cross-zoom's scale never co-occur today, but
   // composing them in this order (translate outermost, matching the export's
   // scale-about-centre-then-offset) keeps any future combination drift-free.
@@ -379,6 +393,7 @@ function transitionLayerStyles(overlap: TransitionOverlap): {
     },
     incomingClip: spec.incomingClip,
     incomingEllipse: spec.incomingEllipse,
+    incomingPolygons: spec.incomingPolygons,
     veil:
       spec.veil === null ? null : { backgroundColor: spec.veil.color, opacity: spec.veil.alpha },
   }
@@ -959,8 +974,11 @@ function withZoom(
   zoom: ZoomState,
   frameClip: TransitionClipRect | null = null,
   frameEllipse: TransitionEllipse | null = null,
+  framePolygons: readonly (readonly TransitionPoint[])[] | null = null,
 ): CSSProperties | undefined {
-  if (zoom.scale === 1 && frameClip === null && frameEllipse === null) return style
+  if (zoom.scale === 1 && frameClip === null && frameEllipse === null && framePolygons === null) {
+    return style
+  }
   const { scale, centerX, centerY } = zoom
   const half = 1 / (2 * scale)
   const pct = (value: number) => `${value * 100}%`
@@ -987,6 +1005,49 @@ function withZoom(
       const mask = `radial-gradient(ellipse ${rx}% ${ry}% ${at}, ${stops})`
       maskStyle = { maskImage: mask, WebkitMaskImage: mask }
     }
+  }
+  if (framePolygons !== null) {
+    // A pattern reveal (#857): the polygons, in frame fractions and wound
+    // alike (`windRevealPolygons`), drawn as one SVG path filled under the
+    // non-zero rule — the export's canvas clip fills the same path the same
+    // way — and used as the element's mask. Each frame-fraction point maps
+    // through the inverse zoom to the element's pre-transform space, as the
+    // ellipse's centre and radii do above; the SVG's unit viewBox stretched
+    // over the element (preserveAspectRatio none) makes those fractions its
+    // coordinates directly. An empty path is a fully transparent mask, so a
+    // zero-area reveal hides the card, as it must at progress 0.
+    const round = (value: number) => Number(value.toFixed(5))
+    const path = framePolygons
+      .filter((polygon) => polygon.length > 0)
+      .map(
+        (polygon) =>
+          `M${polygon
+            .map(
+              (point) =>
+                `${round(centerX + (point.x - 0.5) / scale)} ${round(centerY + (point.y - 0.5) / scale)}`,
+            )
+            .join('L')}Z`,
+      )
+      .join('')
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none">` +
+      `<path fill="#000" fill-rule="nonzero" d="${path}"/></svg>`
+    const polygonMask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+    // A card with an ellipse as well paints only where both allow — the
+    // export intersects its successive clips the same way. No registered
+    // transition sets both today.
+    const ellipseMask = maskStyle.maskImage
+    maskStyle =
+      maskStyle.visibility === 'hidden'
+        ? maskStyle
+        : {
+            maskImage: ellipseMask === undefined ? polygonMask : `${polygonMask}, ${ellipseMask}`,
+            WebkitMaskImage:
+              ellipseMask === undefined ? polygonMask : `${polygonMask}, ${ellipseMask}`,
+            maskSize: '100% 100%',
+            maskRepeat: 'no-repeat',
+            ...(ellipseMask === undefined ? {} : { maskComposite: 'intersect' }),
+          }
   }
   // The zoom's visible region in the element's pre-transform space; the
   // identity zoom sees the whole element.
@@ -2525,7 +2586,6 @@ export function PreviewPlayer({
     ? location?.transition
     : undefined
 
-  const layerStyles = overlap ? transitionLayerStyles(overlap) : undefined
   // Which layers are stills (#140): a still renders in the same stacked slot
   // a video element would occupy, styled identically — an <img> for an image
   // still, a solid-color div for a slate (#143).
@@ -2632,6 +2692,14 @@ export function PreviewPlayer({
     timeline.canvasPreset,
   )
   const previewAspect = frameAspect(frame)
+  // The transition's layer styles, from the frame's own aspect (#857): a
+  // pattern reveal that keeps its proportions is drawn from it, exactly as
+  // the export does.
+  const layerStyles = overlap ? transitionLayerStyles(overlap, previewAspect) : undefined
+  // A pattern transition's reveal (#857), wound for the mask once per
+  // render for every incoming layer that carries it.
+  const incomingFramePolygons =
+    layerStyles?.incomingPolygons == null ? null : windRevealPolygons(layerStyles.incomingPolygons)
   useEffect(() => {
     onFrameSize?.({ width: frame.width, height: frame.height })
   }, [onFrameSize, frame.width, frame.height])
@@ -2715,7 +2783,7 @@ export function PreviewPlayer({
     return {
       card: {
         className: `preview-video preview-video-incoming${videoOverlap ? '' : ' preview-video-idle'}`,
-        style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null) : undefined,
+        style: videoOverlap ? withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null, incomingFramePolygons) : undefined,
         'data-testid': videoOverlap ? 'preview-video-incoming-card' : undefined,
       },
       media: {
@@ -2864,7 +2932,7 @@ export function PreviewPlayer({
                   className="preview-video preview-video-incoming"
                   data-testid="preview-slate-incoming"
                   style={{
-                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null),
+                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null, incomingFramePolygons),
                     backgroundColor: overlap.entry.color,
                   }}
                 />
@@ -2874,7 +2942,7 @@ export function PreviewPlayer({
                   <div
                     className="preview-video preview-video-incoming"
                     data-testid="preview-image-incoming-card"
-                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null)}
+                    style={withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null, incomingFramePolygons)}
                   >
                     {entryBackdrop(overlap.entry, stillIncomingImageRef)}
                     <img

@@ -60,6 +60,7 @@ import {
   formatSeconds,
 } from '../settings'
 import { GIF_FRAME_RATE, GIF_MAX_DIMENSION } from '../../plugins/gifLimits'
+import { BLIND_SLATS, CHECKER_COLUMNS, CHECKER_ROWS } from '../../plugins/patternTransitionsIds'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -159,6 +160,9 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     EXPORT_SIZE_PRESETS: EXPORT_SIZE_PRESETS.map((preset) => preset.label).join(', '),
     GIF_FPS: String(GIF_FRAME_RATE),
     GIF_MAX_PX: String(GIF_MAX_DIMENSION),
+    PATTERN_BLIND_SLATS: String(BLIND_SLATS),
+    PATTERN_CHECKER_COLUMNS: String(CHECKER_COLUMNS),
+    PATTERN_CHECKER_ROWS: String(CHECKER_ROWS),
     MP3_KBPS: String(MP3_KBPS),
     SIZE_LIMIT_MARGIN_PERCENT: percent(SIZE_LIMIT_MARGIN),
     RESERVED_AUDIO_KBPS: String(RESERVED_AUDIO_BITRATE / 1000),

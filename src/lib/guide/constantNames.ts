@@ -138,6 +138,10 @@ export const GUIDE_CONSTANT_NAMES = [
   /** The GIF plugin's sampling rate and longer-side cap (#198). */
   'GIF_FPS',
   'GIF_MAX_PX',
+  /** The Pattern transitions plugin's slat count and checkerboard grid (#857). */
+  'PATTERN_BLIND_SLATS',
+  'PATTERN_CHECKER_COLUMNS',
+  'PATTERN_CHECKER_ROWS',
   /** The MP3 export's bitrate, in kbps (#269). */
   'MP3_KBPS',
   /** The Size limit's safety margin, as a percentage of the limit (#726). */
