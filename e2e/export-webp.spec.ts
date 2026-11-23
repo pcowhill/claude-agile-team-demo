@@ -93,7 +93,10 @@ function walkWebp(bytes: Buffer) {
 /**
  * What the browser's own decoder reports for an animated WebP, plus the
  * centre pixel of the frames showing at `times`. Each frame is decoded
- * once, in order, and sampled during that pass. Also: whether an `<img>`
+ * once, in order, and sampled during that pass: Firefox's `ImageDecoder`
+ * handed back frames with no pixels ("No media resource in VideoFrame")
+ * when an index was decoded a second time, and read every frame in one
+ * pass (#858, CI runs 45272145766 and 45277109106). Also: whether an `<img>`
  * displays the file (decoded, at its own size), and its first frame as an
  * `<img>` reads it.
  *
