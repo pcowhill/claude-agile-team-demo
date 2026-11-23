@@ -2751,6 +2751,12 @@ export function Timeline({
   // enabled plugin changes at runtime — subscribe so the select re-renders.
   useSyncExternalStore(transitionRegistry.subscribe, () => transitionRegistry.version)
   const transitionOptions = transitionRegistry.list()
+  // The rows' "plays 6.01s of 6.01s" summaries follow Settings › Time
+  // fields as the boxes beside them do (#849): `plays 0:06.010 of 0:06.010`
+  // on minutes and seconds, today's text byte for byte on seconds.
+  const timeFormat = useTimeFormat()
+  const summaryTime = (seconds: number) =>
+    timeFormat === 'minutes' ? formatMinutesField(seconds) : `${formatSeconds(seconds)}s`
   const transitions = boundaryTransitions(timeline)
   const audioTracks = audioTracksOf(timeline)
   const texts = textsOf(timeline)
@@ -3774,14 +3780,14 @@ export function Timeline({
                         />
                       )}
                       <span className="timeline-entry-effective">
-                        plays {formatSeconds(effectiveDuration(entry))}s of{' '}
-                        {formatSeconds(entry.duration)}s
+                        plays {summaryTime(effectiveDuration(entry))} of{' '}
+                        {summaryTime(entry.duration)}
                         {/* Time-remap effects (#141) change what the entry
                             occupies in the sequence — say so where the trim
                             math is shown. */}
                         {entryOutputDuration(entry, remapsOf(timeline)) !==
                           effectiveDuration(entry) &&
-                          ` — ${formatSeconds(entryOutputDuration(entry, remapsOf(timeline)))}s remapped`}
+                          ` — ${summaryTime(entryOutputDuration(entry, remapsOf(timeline)))} remapped`}
                       </span>
                     </div>
                     <div className="timeline-entry-audio">
@@ -4289,7 +4295,7 @@ export function Timeline({
                       )}
                     </span>
                     <span className="timeline-entry-effective">
-                      plays {formatSeconds(trimmedLength)}s of {formatSeconds(track.duration)}s
+                      plays {summaryTime(trimmedLength)} of {summaryTime(track.duration)}
                     </span>
                   </div>
                   <div className="audio-track-gain">
@@ -4479,7 +4485,7 @@ export function Timeline({
                           unit="s"
                         />
                         <span className="timeline-entry-effective">
-                          shows {formatSeconds(overlay.duration)}s
+                          shows {summaryTime(overlay.duration)}
                         </span>
                       </>
                     ) : (
@@ -4596,12 +4602,12 @@ export function Timeline({
                           )}
                         </span>
                         <span className="timeline-entry-effective">
-                          plays {formatSeconds(trimmedLength)}s of {formatSeconds(overlay.duration)}s
+                          plays {summaryTime(trimmedLength)} of {summaryTime(overlay.duration)}
                           {/* Its speed segments and pauses (#700) change
                               how long it shows — said where the trim math
                               is, as on an entry (#141). */}
                           {outputLength !== trimmedLength &&
-                            ` — ${formatSeconds(outputLength)}s remapped`}
+                            ` — ${summaryTime(outputLength)} remapped`}
                         </span>
                       </>
                     )}
