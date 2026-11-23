@@ -16,6 +16,7 @@ import { ClipPropertiesDialog } from './ClipPropertiesDialog'
 import { ClipThumbnail } from './ClipThumbnail'
 import { ConfirmDialog } from './ConfirmDialog'
 import { RecordControl } from './RecordControl'
+import type { ScreenRecordingQuality } from '../lib/recording'
 import { Menu } from './Menu'
 import type { MenuItem } from './Menu'
 import { NameField } from './NameField'
@@ -39,6 +40,8 @@ interface MediaLibraryProps {
   onRecordedPair?: (files: { screen: File; camera: File }) => void
   /** The recording dialog's countdown, in seconds; 0 is off (#514, a setting). */
   countdownSeconds?: number
+  /** The bitrate screen recordings ask for (#853, a setting). */
+  screenRecordingQuality?: ScreenRecordingQuality
   /** Routes a recording failure into the library's failure list (#224). */
   onRecordingFailed: (reason: string) => void
   onDismissFailures: () => void
@@ -122,6 +125,7 @@ export function MediaLibrary({
   onCancelImport,
   onRecordedPair,
   countdownSeconds,
+  screenRecordingQuality,
   onRecordingFailed,
   onDismissFailures,
   onAddToTimeline,
@@ -543,6 +547,9 @@ export function MediaLibrary({
           onRecordedPair={onRecordedPair}
           onFailed={onRecordingFailed}
           {...(countdownSeconds === undefined ? {} : { countdownSeconds })}
+          {...(screenRecordingQuality === undefined
+            ? {}
+            : { screenQuality: screenRecordingQuality })}
         />
         <input
           ref={inputRef}

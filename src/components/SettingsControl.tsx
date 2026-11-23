@@ -16,6 +16,8 @@ import {
 import type { AppSettings, SessionRestoreMode } from '../lib/settings'
 import { TIME_FORMAT_CHOICES, timeFormatLabel } from '../lib/timeFormat'
 import type { TimeFormat } from '../lib/timeFormat'
+import { SCREEN_RECORDING_QUALITY_CHOICES, screenRecordingQualityLabel } from '../lib/recording'
+import type { ScreenRecordingQuality } from '../lib/recording'
 import './dialog.css'
 import './SettingsControl.css'
 
@@ -275,6 +277,29 @@ export function SettingsControl({
                     {COUNTDOWN_CHOICES.map((choice) => (
                       <option key={choice} value={String(choice)}>
                         {countdownLabel(choice)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </SettingRow>
+              <SettingRow
+                label="Screen recording quality"
+                hint="For Screen and Screen + camera. High keeps small text sharp when the clip is zoomed or cropped, in larger files; Standard leaves it to the browser."
+              >
+                {(describedBy) => (
+                  <select
+                    value={settings.screenRecordingQuality}
+                    aria-describedby={describedBy}
+                    onChange={(event) =>
+                      onChange({
+                        ...settings,
+                        screenRecordingQuality: event.target.value as ScreenRecordingQuality,
+                      })
+                    }
+                  >
+                    {SCREEN_RECORDING_QUALITY_CHOICES.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {screenRecordingQualityLabel(choice)}
                       </option>
                     ))}
                   </select>

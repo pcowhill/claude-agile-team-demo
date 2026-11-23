@@ -91,6 +91,13 @@ describe('settings dialog (#286)', () => {
     expect(within(dialog).getByLabelText('When a previous session is found')).toHaveValue('ask')
     expect(within(dialog).getByLabelText('Countdown before recording')).toHaveValue('3')
     expect(within(dialog).getByLabelText('Match levels target')).toHaveValue('-20')
+    // The one default that is not today's behaviour, on purpose (#853).
+    expect(within(dialog).getByLabelText('Screen recording quality')).toHaveValue('high')
+    expect(
+      within(within(dialog).getByLabelText('Screen recording quality'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Standard (smaller files)', 'High (sharper text)'])
     // Exactly the values the product used before it had settings, read from
     // an empty store — the "a fresh visitor sees today's behaviour" promise,
     // observed through the UI rather than only in the module's own tests.
@@ -223,6 +230,7 @@ describe('settings persistence (#286)', () => {
     await openSettings()
     await choose('New still or slate duration', '3')
     await choose('When a previous session is found', 'never')
+    await choose('Screen recording quality', 'standard')
     await closeSettings()
 
     // Written through immediately, not on unmount: a crash or a closed tab
@@ -231,6 +239,7 @@ describe('settings persistence (#286)', () => {
       ...DEFAULT_SETTINGS,
       stillDurationSeconds: 3,
       sessionRestore: 'never',
+      screenRecordingQuality: 'standard',
     })
 
     // A fresh mount is a page load: the stored values come back.
@@ -239,6 +248,7 @@ describe('settings persistence (#286)', () => {
     const dialog = await openSettings()
     expect(within(dialog).getByLabelText('New still or slate duration')).toHaveValue('3')
     expect(within(dialog).getByLabelText('When a previous session is found')).toHaveValue('never')
+    expect(within(dialog).getByLabelText('Screen recording quality')).toHaveValue('standard')
   })
 
   it('keeps the settings out of the saved project, in the browser store instead', async () => {

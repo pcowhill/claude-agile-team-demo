@@ -19,6 +19,7 @@ import {
 } from './settings'
 import type { AppSettings } from './settings'
 import { DEFAULT_MATCH_TARGET_DB } from './matchLevels'
+import { SCREEN_RECORDING_QUALITY_CHOICES } from './recording'
 import { DEFAULT_STILL_DURATION } from './timeline'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from './transport'
 
@@ -60,6 +61,10 @@ describe('settings defaults (#286)', () => {
       countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
       matchTargetDb: DEFAULT_MATCH_TARGET_DB,
       timeFormat: 'seconds',
+      // The one default that is not today's behaviour, on purpose (#853):
+      // the customer found the browser's own screen-recording rate too
+      // compressed (#852).
+      screenRecordingQuality: 'high',
     })
   })
 
@@ -72,6 +77,7 @@ describe('settings defaults (#286)', () => {
     expect(SESSION_RESTORE_CHOICES).toContain(DEFAULT_SETTINGS.sessionRestore)
     expect(COUNTDOWN_CHOICES).toContain(DEFAULT_SETTINGS.countdownSeconds)
     expect(MATCH_TARGET_CHOICES).toContain(DEFAULT_SETTINGS.matchTargetDb)
+    expect(SCREEN_RECORDING_QUALITY_CHOICES).toContain(DEFAULT_SETTINGS.screenRecordingQuality)
   })
 
   it('labels each choice for the dialog', () => {
@@ -106,6 +112,7 @@ describe('settings validation (#286)', () => {
     countdownSeconds: 0,
     matchTargetDb: -26,
     timeFormat: 'minutes',
+    screenRecordingQuality: 'standard',
   }
 
   it('keeps every recognized stored value', () => {
@@ -142,6 +149,21 @@ describe('settings validation (#286)', () => {
       countdownSeconds: DEFAULT_SETTINGS.countdownSeconds,
       matchTargetDb: DEFAULT_SETTINGS.matchTargetDb,
       timeFormat: DEFAULT_SETTINGS.timeFormat,
+      screenRecordingQuality: DEFAULT_SETTINGS.screenRecordingQuality,
+    })
+  })
+
+  it('reads the screen recording quality, and a store from before it existed means High (#853)', () => {
+    expect(parseSettings({ ...stored, screenRecordingQuality: 'high' }).screenRecordingQuality).toBe('high')
+    expect(parseSettings({ ...stored, screenRecordingQuality: 'standard' }).screenRecordingQuality).toBe(
+      'standard',
+    )
+    const { screenRecordingQuality: _dropped, ...older } = stored
+    expect(parseSettings(older).screenRecordingQuality).toBe('high')
+    // Only the offered choices: an unknown one costs this setting alone.
+    expect(parseSettings({ ...stored, screenRecordingQuality: 'lossless' })).toEqual({
+      ...stored,
+      screenRecordingQuality: 'high',
     })
   })
 

@@ -43,6 +43,27 @@ const row = (page: Page, label: string) =>
   page.locator('.settings-row').filter({ hasText: label })
 const select = (page: Page, label: string) => dialog(page).getByLabel(label)
 
+/**
+ * A row's label and its <select> share one line (#853): their boxes overlap
+ * vertically, read in one page read. Containment alone would pass a select
+ * that wrapped under its label inside a taller row.
+ */
+async function expectLabelBesideSelect(page: Page, label: string, when: string) {
+  const boxes = await row(page, label)
+    .locator('.settings-field')
+    .evaluate((field) => {
+      const box = (node: Element | null) => {
+        const rect = node!.getBoundingClientRect()
+        return { top: rect.top, bottom: rect.bottom }
+      }
+      return { label: box(field.querySelector('.settings-label')), select: box(field.querySelector('select')) }
+    })
+  expect(
+    boxes.select.top < boxes.label.bottom && boxes.label.top < boxes.select.bottom,
+    `"${label}" at ${when}: select ${JSON.stringify(boxes.select)} is not beside label ${JSON.stringify(boxes.label)}`,
+  ).toBe(true)
+}
+
 test('every settings row lays out inside the dialog, at a wide viewport and a narrow one (#286)', async ({
   page,
 }) => {
@@ -69,9 +90,16 @@ test('every settings row lays out inside the dialog, at a wide viewport and a na
     // whose box nobody measured — the same omission, in a test's per-row
     // list, that left the hint itself describing only zooms.
     'Visual editors',
+    // #853. A long label beside two long option labels, and the second-
+    // longest hint: the row most likely to push its <select> out.
+    'Screen recording quality',
   ]
   for (const label of labels) {
     const settingRow = row(page, label)
+    // The rows scroll inside the dialog (SettingsControl.css): with the
+    // tenth setting (#853) they no longer all fit 868px of dialog at once,
+    // so each row is measured where a user would see it, scrolled to.
+    await settingRow.scrollIntoViewIfNeeded()
     await expectWithin(settingRow, dialog(page), { what: `row "${label}"` })
     await expectWithin(settingRow.locator('select'), settingRow, {
       what: `control of "${label}"`,
@@ -94,6 +122,7 @@ test('every settings row lays out inside the dialog, at a wide viewport and a na
   }
 
   await expectNoHorizontalScroll(page, 'settings dialog open at 1280px')
+  await expectLabelBesideSelect(page, 'Screen recording quality', '1280px')
 
   // A narrow, short window: the ⚙ has to remain reachable in the wrapped
   // header, the dialog has to stay inside the viewport (it caps its own
@@ -104,6 +133,11 @@ test('every settings row lays out inside the dialog, at a wide viewport and a na
     what: 'settings dialog at 800x420',
   })
   await expectNoHorizontalScroll(page, 'settings dialog open at 800px')
+  await row(page, 'Screen recording quality').scrollIntoViewIfNeeded()
+  await expectWithin(row(page, 'Screen recording quality').locator('select'), dialog(page), {
+    what: 'Screen recording quality control at 800x420',
+  })
+  await expectLabelBesideSelect(page, 'Screen recording quality', '800px')
   // Close without scrolling to it: the rows take the overflow, the dialog's
   // heading and actions do not move. A Close button that needed a scroll
   // *inside* a modal is one a user does not find.

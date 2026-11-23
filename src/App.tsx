@@ -656,6 +656,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             onCancelImport={cancelImport}
             onRecordedPair={handleRecordedPair}
             countdownSeconds={settings.countdownSeconds}
+            screenRecordingQuality={settings.screenRecordingQuality}
             onRecordingFailed={(reason) =>
               dispatch({
                 type: 'import-failed',

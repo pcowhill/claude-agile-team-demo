@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  HIGH_SCREEN_BITS_PER_PIXEL,
+  MAX_SCREEN_BITRATE,
   RECORDING_KEYFRAME_INTERVAL_MS,
   pausedClock,
   recordedClipName,
   recordedSeconds,
   recordingFileExtension,
   resumedClock,
+  screenRecordingBitrate,
   screenRecordingName,
+  screenRecordingQualityLabel,
+  SCREEN_RECORDING_QUALITY_CHOICES,
   startedClock,
   startMicrophoneRecording,
   startScreenCameraRecording,
@@ -17,6 +22,7 @@ import {
   webcamRecordingName,
 } from './recording'
 import type {
+  CaptureSize,
   RecorderLike,
   RecorderOptions,
   RecordingDependencies,
@@ -224,17 +230,21 @@ function fakeScreenWorld(options?: {
   failConstruction?: Error
   /** The browser grants no tab/system audio — Firefox, always (#579). */
   withoutAudio?: boolean
+  /** What the video track's `getSettings()` reports; absent, it has no such method (#853). */
+  videoSettings?: CaptureSize
 }) {
   const stopTrack = vi.fn()
   // Collected so a test can simulate the browser's own "stop sharing" UI
   // ending the shared surface.
   const endedListeners: (() => void)[] = []
+  const videoSettings = options?.videoSettings
   const videoTrack = {
     stop: stopTrack,
     addEventListener: (name: string, listener: () => void) => {
       expect(name).toBe('ended')
       endedListeners.push(listener)
     },
+    ...(videoSettings === undefined ? {} : { getSettings: () => videoSettings }),
   }
   const audioTrack = { stop: stopTrack }
   const audioTracks = options?.withoutAudio ? [] : [audioTrack]
@@ -382,18 +392,22 @@ function fakeScreenCameraWorld(options?: {
   cameraWithoutPause?: boolean
   /** The browser grants no tab/system audio — Firefox, always (#579). */
   screenWithoutAudio?: boolean
+  /** What the screen's video track reports from `getSettings()` (#853). */
+  screenSettings?: CaptureSize
 }) {
   const stopScreenTrack = vi.fn()
   const stopCameraTrack = vi.fn()
   const endedListeners: (() => void)[] = []
   /** Every recorder method called, tagged with its stream, in order (#514). */
   const calls: string[] = []
+  const screenSettings = options?.screenSettings
   const screenVideoTrack = {
     stop: stopScreenTrack,
     addEventListener: (name: string, listener: () => void) => {
       expect(name).toBe('ended')
       endedListeners.push(listener)
     },
+    ...(screenSettings === undefined ? {} : { getSettings: () => screenSettings }),
   }
   const screenAudioTracks = options?.screenWithoutAudio ? [] : [{ stop: stopScreenTrack }]
   const screenStream = {
@@ -899,6 +913,103 @@ describe("the take's start is the recorder's start event (#801)", () => {
     expect(await settled(session.started)).toBe(false)
     world.recorders[1].onstart?.()
     expect(await settled(session.started)).toBe(true)
+  })
+})
+
+describe('screen recording quality (#853)', () => {
+  it('lists Standard then High, each labelled with what it trades', () => {
+    expect(SCREEN_RECORDING_QUALITY_CHOICES).toEqual(['standard', 'high'])
+    expect(SCREEN_RECORDING_QUALITY_CHOICES.map(screenRecordingQualityLabel)).toEqual([
+      'Standard (smaller files)',
+      'High (sharper text)',
+    ])
+  })
+
+  it("asks for a quarter of a bit per pixel per frame of the capture's own size", () => {
+    // 1920 × 1080 × 30 × 0.25 — the 1080p30 rate #853 measured as helping.
+    expect(screenRecordingBitrate({ width: 1920, height: 1080, frameRate: 30 })).toBe(15_552_000)
+    expect(screenRecordingBitrate({ width: 1280, height: 720, frameRate: 30 })).toBe(6_912_000)
+    // A 1440p screen still gets its full rate: under the ceiling.
+    expect(screenRecordingBitrate({ width: 2560, height: 1440, frameRate: 30 })).toBe(27_648_000)
+    expect(HIGH_SCREEN_BITS_PER_PIXEL).toBe(0.25)
+  })
+
+  it('caps the rate, so a 4K or 60 fps capture never asks for more than the ceiling', () => {
+    expect(screenRecordingBitrate({ width: 3840, height: 2160, frameRate: 30 })).toBe(MAX_SCREEN_BITRATE)
+    expect(screenRecordingBitrate({ width: 3840, height: 2160, frameRate: 60 })).toBe(MAX_SCREEN_BITRATE)
+    expect(MAX_SCREEN_BITRATE).toBe(40_000_000)
+  })
+
+  it('falls back to full HD at 30 fps for each value the track does not report', () => {
+    expect(screenRecordingBitrate({})).toBe(15_552_000)
+    // Width and height known, frame rate missing: only the rate is assumed.
+    expect(screenRecordingBitrate({ width: 1280, height: 720 })).toBe(6_912_000)
+    // A zero or non-finite value is no measurement either.
+    expect(screenRecordingBitrate({ width: 0, height: 1080, frameRate: Number.NaN })).toBe(15_552_000)
+  })
+
+  it("High: the screen recorder is asked for the rate worked out from its track's settings", async () => {
+    const world = fakeScreenWorld({ videoSettings: { width: 1280, height: 720, frameRate: 30 } })
+    const session = await startScreenRecording(() => {}, world.dependencies, { screenQuality: 'high' })
+    expect(world.recorder().requestedOptions).toEqual({
+      mimeType: 'video/webm;codecs=vp9,opus',
+      videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+      videoBitsPerSecond: 6_912_000,
+    })
+    session.cancel()
+  })
+
+  it('High on a track without getSettings asks for the full-HD fallback rate', async () => {
+    const world = fakeScreenWorld()
+    const session = await startScreenRecording(() => {}, world.dependencies, { screenQuality: 'high' })
+    expect(world.recorder().requestedOptions.videoBitsPerSecond).toBe(15_552_000)
+    session.cancel()
+  })
+
+  it('Standard, and no quality at all, ask for no bitrate: the browser chooses, as before', async () => {
+    for (const options of [{ screenQuality: 'standard' as const }, {}]) {
+      const world = fakeScreenWorld({ videoSettings: { width: 1920, height: 1080, frameRate: 30 } })
+      const session = await startScreenRecording(() => {}, world.dependencies, options)
+      expect(world.recorder().requestedOptions).toEqual({
+        mimeType: 'video/webm;codecs=vp9,opus',
+        videoKeyFrameIntervalDuration: RECORDING_KEYFRAME_INTERVAL_MS,
+      })
+      session.cancel()
+    }
+  })
+
+  it('screen + camera at High: the screen half gets the rate, the camera half none', async () => {
+    const world = fakeScreenCameraWorld({ screenSettings: { width: 2560, height: 1440, frameRate: 30 } })
+    const session = await startScreenCameraRecording(() => {}, world.dependencies, {
+      screenQuality: 'high',
+    })
+    expect(world.recorders[0].requestedOptions.videoBitsPerSecond).toBe(27_648_000)
+    expect(world.recorders[1].requestedOptions).not.toHaveProperty('videoBitsPerSecond')
+    session.cancel()
+  })
+
+  it('screen + camera at Standard: neither half is asked for a bitrate', async () => {
+    const world = fakeScreenCameraWorld({ screenSettings: { width: 2560, height: 1440, frameRate: 30 } })
+    const session = await startScreenCameraRecording(() => {}, world.dependencies, {
+      screenQuality: 'standard',
+    })
+    expect(world.recorders[0].requestedOptions).not.toHaveProperty('videoBitsPerSecond')
+    expect(world.recorders[1].requestedOptions).not.toHaveProperty('videoBitsPerSecond')
+    session.cancel()
+  })
+
+  it('the webcam and the microphone ignore the quality', async () => {
+    const webcam = fakeWebcamWorld()
+    const webcamSession = await startWebcamRecording(webcam.dependencies, { screenQuality: 'high' })
+    expect(webcam.recorder().requestedOptions).not.toHaveProperty('videoBitsPerSecond')
+    webcamSession.cancel()
+
+    const microphone = fakeRecordingWorld()
+    const micSession = await startMicrophoneRecording(microphone.dependencies, {
+      screenQuality: 'high',
+    })
+    expect(microphone.recorder().requestedOptions).not.toHaveProperty('videoBitsPerSecond')
+    micSession.cancel()
   })
 })
 

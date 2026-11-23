@@ -44,6 +44,105 @@ export interface RecorderLike {
  */
 export interface StartOptions {
   deferStart?: boolean
+  /**
+   * The bitrate a screen capture asks its recorder for (#853). Read only
+   * by the screen sources — Screen, and the screen half of Screen +
+   * camera; the microphone and the camera ignore it. Absent means
+   * `'standard'`: the browser picks its own rate, as it always did.
+   */
+  screenQuality?: ScreenRecordingQuality
+}
+
+/**
+ * How hard a screen capture's recorder is asked to work (#853, from
+ * customer feedback #852). `'standard'` requests no bitrate, so the
+ * browser chooses: in Chromium that measured the same as asking for
+ * 2.5 Mbit/s, which leaves a 1080p screen of small text visibly
+ * compressed once it is zoomed or cropped. `'high'` asks for a rate
+ * scaled to what is being captured (`screenRecordingBitrate`).
+ */
+export type ScreenRecordingQuality = 'standard' | 'high'
+
+/** The choices in the order the Settings dialog lists them. */
+export const SCREEN_RECORDING_QUALITY_CHOICES: readonly ScreenRecordingQuality[] = ['standard', 'high']
+
+/** How the Settings dialog labels a choice, each with what it costs or buys. */
+export function screenRecordingQualityLabel(quality: ScreenRecordingQuality): string {
+  return quality === 'high' ? 'High (sharper text)' : 'Standard (smaller files)'
+}
+
+/**
+ * Bits per pixel per frame a High screen capture asks for (#853). Measured
+ * for #853 in Chromium's VP9 recorder on a 1920×1080, 30 fps canvas of
+ * dense 13px text with 1 s keyframes: asking for 8 Mbit/s (0.13) left the
+ * text's steady-state PSNR where the default had it, about 47.8 dB, while
+ * 16 Mbit/s (0.257) lifted it to about 55 dB for 31% more bytes on still
+ * text. The browser's recorder is a real-time encoder and its rate control
+ * steps rather than slides, so the constant sits at the rate that was seen
+ * to help rather than between the two.
+ */
+export const HIGH_SCREEN_BITS_PER_PIXEL = 0.25
+
+/**
+ * The most a High screen capture asks for, in bits per second (#853).
+ * 0.25 bits per pixel at 4K and 60 fps would be about 124 Mbit/s — about
+ * 0.9 GB a minute in the autosave and in a project file that embeds its
+ * media, for an encoder that does not use what it is given on still
+ * content anyway (16 Mbit/s produced 7.5 Mbit/s of file for still text).
+ * 40 Mbit/s is 2.5 times the measured 1080p30 rate: a 1440p capture at
+ * 30 fps (27.6 Mbit/s) gets its full rate, and 4K at 30 fps (62 Mbit/s)
+ * gets 0.16 bits per pixel, still above the 0.13 at which 1080p text
+ * already held its default quality.
+ */
+export const MAX_SCREEN_BITRATE = 40_000_000
+
+/**
+ * The capture size assumed when the track does not report its own (#853):
+ * a full-HD display at the 30 fps the browsers deliver a screen at by
+ * default.
+ */
+const FALLBACK_CAPTURE = { width: 1920, height: 1080, frameRate: 30 }
+
+/** The slice of a track's `getSettings()` the bitrate reads. */
+export interface CaptureSize {
+  width?: number
+  height?: number
+  frameRate?: number
+}
+
+function usable(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+/**
+ * The `videoBitsPerSecond` a High screen capture asks for (#853): its own
+ * width × height × frame rate at `HIGH_SCREEN_BITS_PER_PIXEL`, capped at
+ * `MAX_SCREEN_BITRATE` and rounded to a whole bit per second. Each value
+ * the track does not report (or reports as zero) falls back on its own to
+ * the full-HD, 30 fps assumption.
+ */
+export function screenRecordingBitrate(size: CaptureSize): number {
+  const width = usable(size.width, FALLBACK_CAPTURE.width)
+  const height = usable(size.height, FALLBACK_CAPTURE.height)
+  const frameRate = usable(size.frameRate, FALLBACK_CAPTURE.frameRate)
+  return Math.min(MAX_SCREEN_BITRATE, Math.round(width * height * frameRate * HIGH_SCREEN_BITS_PER_PIXEL))
+}
+
+/**
+ * The recorder options for a screen capture's stream (#853): the keyframe
+ * interval every video capture has (#468), plus a bitrate at High. The size
+ * is read from the stream's first video track; a stream with none, or a
+ * track without `getSettings`, takes the fallback size.
+ */
+export function screenRecorderOptions(
+  stream: MediaStream,
+  quality: ScreenRecordingQuality = 'standard',
+): RecorderOptions {
+  if (quality !== 'high') return VIDEO_RECORDER_OPTIONS
+  const track = stream.getVideoTracks()[0]
+  const size: CaptureSize =
+    track !== undefined && typeof track.getSettings === 'function' ? track.getSettings() : {}
+  return { ...VIDEO_RECORDER_OPTIONS, videoBitsPerSecond: screenRecordingBitrate(size) }
 }
 
 /**
@@ -102,6 +201,8 @@ export function recordedSeconds(clock: RecordingClock, now: number): number {
 export interface RecorderOptions {
   mimeType?: string
   videoKeyFrameIntervalDuration?: number
+  /** The video bitrate asked for; only a High screen capture sets it (#853). */
+  videoBitsPerSecond?: number
 }
 
 export interface RecordingDependencies {
@@ -508,7 +609,7 @@ export async function startScreenRecording(
     videoMimeCandidates(stream),
     'video/webm',
     'The screen recorder could not start.',
-    VIDEO_RECORDER_OPTIONS,
+    screenRecorderOptions(stream, options.screenQuality),
     options.deferStart === true,
   )
   // The browser's "stop sharing" control ends the video track outside our
@@ -640,7 +741,7 @@ export async function startScreenCameraRecording(
     videoMimeCandidates(screenStream),
     'video/webm',
     'The screen recorder could not start.',
-    VIDEO_RECORDER_OPTIONS,
+    screenRecorderOptions(screenStream, options.screenQuality),
     true,
   )
   let cameraSession: RecordingSession

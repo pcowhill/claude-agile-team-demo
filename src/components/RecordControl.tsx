@@ -24,6 +24,7 @@ import type {
   RecordingClock,
   RecordingSession,
   ScreenCameraRecordingSession,
+  ScreenRecordingQuality,
 } from '../lib/recording'
 import { formatDuration } from '../lib/mediaLibrary'
 import { DEFAULT_SETTINGS } from '../lib/settings'
@@ -111,6 +112,11 @@ interface RecordControlProps {
    * behaves the same wherever it is rendered.
    */
   countdownSeconds?: number
+  /**
+   * The bitrate the screen sources ask for (#853): the Settings value
+   * (`screenRecordingQuality`) in the app, and its default here.
+   */
+  screenQuality?: ScreenRecordingQuality
   /** Injectable for tests: jsdom has no getUserMedia or MediaRecorder. */
   startRecording?: typeof startMicrophoneRecording
   supported?: boolean
@@ -167,6 +173,7 @@ export function RecordControl({
   onRecordedPair,
   onFailed,
   countdownSeconds = DEFAULT_SETTINGS.countdownSeconds,
+  screenQuality = DEFAULT_SETTINGS.screenRecordingQuality,
   startRecording = startMicrophoneRecording,
   supported = isRecordingSupported(),
   startScreenCapture = startScreenRecording,
@@ -427,6 +434,9 @@ export function RecordControl({
   // start defers the recorder (#514): the dialog begins the take itself,
   // after the countdown or at once.
   const deferred = { deferStart: true }
+  // The screen sources also carry the Settings' quality (#853); the
+  // microphone and the camera have no use for it.
+  const deferredScreen = { deferStart: true, screenQuality }
   const sources: MenuItem[] = []
   if (supported) {
     sources.push({
@@ -455,7 +465,7 @@ export function RecordControl({
           async () => ({
             kind: 'single',
             source: 'screen',
-            session: await startScreenCapture(() => stopRef.current(), undefined, deferred),
+            session: await startScreenCapture(() => stopRef.current(), undefined, deferredScreen),
           }),
           SOURCE_LABELS.screen.failure,
         ),
@@ -484,7 +494,11 @@ export function RecordControl({
         void begin(
           async () => ({
             kind: 'pair',
-            session: await startScreenCameraCapture(() => stopRef.current(), undefined, deferred),
+            session: await startScreenCameraCapture(
+              () => stopRef.current(),
+              undefined,
+              deferredScreen,
+            ),
           }),
           PAIR_LABELS.failure,
         ),
