@@ -52,7 +52,7 @@ import type { ShapeMask } from './shapeMask'
 import type { OverlayBorder } from './overlayBorder'
 import type { OverlayShadow } from './overlayShadow'
 import { shadowRgba } from './overlayShadow'
-import { transitionLayerSpec } from './transitionRender'
+import { transitionLayerSpec, transitionRegistry, windRevealPolygons } from './transitionRender'
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
@@ -1211,7 +1211,12 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
   ) => {
     context.fillStyle = '#000'
     context.fillRect(0, 0, width, height)
-    const spec = overlay !== null ? transitionLayerSpec(overlay.type, overlay.progress) : null
+    // The frame's own aspect reaches the rule (#857): a pattern reveal that
+    // keeps its proportions is drawn from it, exactly as the preview does.
+    const spec =
+      overlay !== null
+        ? transitionLayerSpec(overlay.type, overlay.progress, transitionRegistry, width / height)
+        : null
     // The entry's orientation (#233): the fit sees the oriented shape — a
     // quarter-turned clip letterboxes like a portrait source — and the draw
     // below rotates/flips the source pixels into that box, exactly the
@@ -1359,7 +1364,10 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       // An iris's reveal ellipse (#181), likewise card-space — the same
       // region the preview masks with a radial gradient.
       const clipToEllipse = spec.incomingEllipse !== null
-      if (clipToCard || clipToReveal || clipToEllipse) context.save()
+      // A pattern's reveal polygons (#857), likewise card-space — the same
+      // union the preview masks with an SVG path.
+      const clipToPolygons = spec.incomingPolygons !== null
+      if (clipToCard || clipToReveal || clipToEllipse || clipToPolygons) context.save()
       if (clipToCard) {
         context.beginPath()
         context.rect(
@@ -1411,6 +1419,29 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           2 * Math.PI,
         )
         context.clip(invert ? 'evenodd' : 'nonzero')
+      }
+      if (spec.incomingPolygons !== null) {
+        // The pattern reveal (#857): every polygon in one path, filled
+        // under the non-zero rule — `windRevealPolygons` winds them all
+        // the same way, so overlapping pieces join instead of cutting
+        // holes, exactly as the preview's SVG mask fills them. Points map
+        // through the card's scale about the centre and its offset, as the
+        // reveal rectangle above does.
+        context.beginPath()
+        for (const polygon of windRevealPolygons(spec.incomingPolygons)) {
+          polygon.forEach((point, index) => {
+            const x =
+              width / 2 + (point.x * width - width / 2) * incomingScale +
+              spec.incomingOffsetXFraction * width
+            const y =
+              height / 2 + (point.y * height - height / 2) * incomingScale +
+              spec.incomingOffsetYFraction * height
+            if (index === 0) context.moveTo(x, y)
+            else context.lineTo(x, y)
+          })
+          context.closePath()
+        }
+        context.clip('nonzero')
       }
       // The incoming entry's own color adjustments (#195) cover its whole
       // card — backing included — exactly as the preview's CSS filter covers
@@ -1487,7 +1518,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           },
         )
       })
-      if (clipToCard || clipToReveal || clipToEllipse) context.restore()
+      if (clipToCard || clipToReveal || clipToEllipse || clipToPolygons) context.restore()
       context.globalCompositeOperation = 'source-over'
     }
     if (spec !== null && spec.veil !== null) {

@@ -8,6 +8,7 @@ import {
   transitionLayerSpec,
   transitionRegistry,
   unregisteredTransitionTypes,
+  windRevealPolygons,
 } from './transitionRender'
 import type { TransitionDefinition, TransitionLayerSpec } from './transitionRender'
 import { TRANSITION_TYPES } from './timeline'
@@ -27,6 +28,7 @@ const base: TransitionLayerSpec = {
   incomingScale: 1,
   veil: null,
   incomingEllipse: null,
+  incomingPolygons: null,
 }
 
 /** A minimal fixture definition for registry tests. */
@@ -129,6 +131,59 @@ describe('registry resolution: fallback, labels, unknown types (#199)', () => {
         registry,
       ),
     ).toEqual(['star-wipe', 'other'])
+  })
+})
+
+describe('pattern reveals (#857)', () => {
+  /** Twice the signed area (shoelace); positive is clockwise on screen. */
+  const doubledArea = (polygon: readonly { x: number; y: number }[]) =>
+    polygon.reduce((sum, a, index) => {
+      const b = polygon[(index + 1) % polygon.length]
+      return sum + a.x * b.y - b.x * a.y
+    }, 0)
+
+  it('winds every polygon clockwise, keeping its vertices and leaving the input alone', () => {
+    const clockwise = [
+      { x: 0, y: 0 },
+      { x: 0.5, y: 0 },
+      { x: 0.5, y: 0.5 },
+    ]
+    const counter = [
+      { x: 0.25, y: 0.25 },
+      { x: 0.25, y: 0.75 },
+      { x: 0.75, y: 0.75 },
+    ]
+    const counterCopy = counter.map((point) => ({ ...point }))
+    const wound = windRevealPolygons([clockwise, counter])
+    expect(wound[0]).toEqual(clockwise)
+    expect(wound[1]).toEqual([...counterCopy].reverse())
+    for (const polygon of wound) expect(doubledArea(polygon)).toBeGreaterThan(0)
+    // The definition's own array is not reversed in place.
+    expect(counter).toEqual(counterCopy)
+  })
+
+  it('a rule receives the frame aspect it is resolved for; the default is 16:9', () => {
+    const registry = new TransitionRegistry()
+    const seen: number[] = []
+    registry.register({
+      id: 'aspect-probe',
+      name: 'Aspect probe',
+      layerSpec: (_progress, aspect) => {
+        seen.push(aspect)
+        return { ...base }
+      },
+    })
+    transitionLayerSpec('aspect-probe', 0.5, registry, 9 / 16)
+    transitionLayerSpec('aspect-probe', 0.5, registry)
+    expect(seen).toEqual([9 / 16, 16 / 9])
+  })
+
+  it('no core transition cuts with polygons', () => {
+    for (const type of TRANSITION_TYPES) {
+      for (const progress of [0, 0.5, 1]) {
+        expect(transitionLayerSpec(type, progress).incomingPolygons, type).toBeNull()
+      }
+    }
   })
 })
 

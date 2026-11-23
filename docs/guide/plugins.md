@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the two plugins — [GIF export](#gif-export) and [Shaped wipes](#shaped-wipes) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the three plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes) and [Pattern transitions](#pattern-transitions) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -20,7 +20,7 @@
 
 **Details.** The dialog says what it holds — *Optional features, loaded only when enabled. Your choices are remembered in this browser* — and lists each plugin's name, version and what it adds, with an **Enable** or **Disable** button. Enabling downloads the plugin's code and activates it; the button reads *Enabling…* meanwhile, and a download or activation that fails is reported on the row as *Could not enable: …*, leaving the plugin off. Disabling takes effect at once — the plugin's contributions leave the menus they were in — but never tears down work in flight: an export that started under the plugin's encoder runs to completion. The list is short by design; a build with no plugins would say so.
 
-**Related.** [GIF export](#gif-export) · [Shaped wipes](#shaped-wipes)
+**Related.** [GIF export](#gif-export) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions)
 
 ## GIF export
 
@@ -42,6 +42,24 @@
 
 **Related.** [Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) · [Projects that need a plugin](#projects-that-need-a-plugin)
 
+## Pattern transitions
+
+**Where to find it.** **File ▾** › **Plugins…** › *Pattern transitions*; once enabled, five more kinds in a transition's type menu.
+
+**What it does.** Adds transitions whose reveal is a pattern: slats, a grid of cells, or a pointed shape.
+
+**Details.** The five are:
+
+- **Blinds (horizontal)**: {{PATTERN_BLIND_SLATS}} horizontal slats, each opening downward from its own top edge, all at the same time.
+- **Blinds (vertical)**: the same with {{PATTERN_BLIND_SLATS}} vertical slats, each opening to the right.
+- **Checkerboard**: a grid of {{PATTERN_CHECKER_COLUMNS}} × {{PATTERN_CHECKER_ROWS}} cells. Alternate cells fill over the first half of the transition, so the picture is a checkerboard of the two clips at the midpoint, and the remaining cells fill over the second half. Each cell fills from its left edge.
+- **Diamond iris**: a diamond grows from the centre.
+- **Star iris**: a five-pointed star, one point up, grows from the centre.
+
+The two irises keep their shape on any frame, whether landscape, portrait or square. Each one finishes covering the frame exactly at the end of the transition. The slats and cells divide the frame itself, so they stretch with it. Like Shaped wipes, these render identically in the preview and every export, through the same rule. A project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin. A pattern transition already on the timeline when the plugin is disabled stays there. It plays as a crossfade, and its type menu shows it as *unavailable*.
+
+**Related.** [Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) · [Projects that need a plugin](#projects-that-need-a-plugin)
+
 ## Enabled plugins and this browser
 
 **Where to find it.** Nothing to operate.
@@ -58,6 +76,6 @@
 
 **What it does.** Records in the project file which plugins its features come from, and offers to enable them when the file is opened.
 
-**Details.** Saving a project that uses a plugin's feature — a shaped wipe on the timeline — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
+**Details.** Saving a project that uses a plugin's feature — a shaped wipe or a pattern transition on the timeline — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
 
-**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes)
+**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions)

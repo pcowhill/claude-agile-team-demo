@@ -29,6 +29,11 @@ const healthyManifest = (): Manifest => ({
     src: 'src/plugins/shapedWipes/index.ts',
     imports: ['_shared-def.js'],
   },
+  'src/plugins/patternTransitions/index.ts': {
+    file: 'assets/index-vwx.js',
+    src: 'src/plugins/patternTransitions/index.ts',
+    imports: ['_shared-def.js'],
+  },
   'src/guide/UserGuide.tsx': {
     file: 'assets/UserGuide-jkl.js',
     src: 'src/guide/UserGuide.tsx',
@@ -47,7 +52,11 @@ const healthyManifest = (): Manifest => ({
   '_FrameEditor-pqr.js': { file: 'assets/FrameEditor-pqr.js', imports: ['_shared-def.js'] },
 })
 const EDITOR_KEYS = EDITORS.map((name) => `src/components/${name}Editor.tsx`)
-const PLUGIN_KEYS = ['src/plugins/gif/index.ts', 'src/plugins/shapedWipes/index.ts']
+const PLUGIN_KEYS = [
+  'src/plugins/gif/index.ts',
+  'src/plugins/shapedWipes/index.ts',
+  'src/plugins/patternTransitions/index.ts',
+]
 
 /** The plugin rule alone, for the tests written against it before #478. */
 const PLUGIN_RULES = LAZY_MODULE_RULES.filter((rule) => rule.label === 'plugin')
@@ -110,7 +119,10 @@ describe('findLazyChunkProblems (#197)', () => {
     // the entry bundle.
     delete manifest['src/plugins/gif/index.ts']
     const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
-    expect(lazyKeys.plugin).toEqual(['src/plugins/shapedWipes/index.ts'])
+    expect(lazyKeys.plugin).toEqual([
+      'src/plugins/shapedWipes/index.ts',
+      'src/plugins/patternTransitions/index.ts',
+    ])
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('plugin module "src/plugins/gif/index.ts"')
     expect(problems[0]).toContain('not emitted as its own chunk')
