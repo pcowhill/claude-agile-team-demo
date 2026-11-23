@@ -79,11 +79,22 @@ function walkWebp(bytes: Buffer) {
   return { ids, flags, canvas, frames }
 }
 
-/** What the browser's own decoder reports, plus the centre pixel of the frames showing at `times`. */
+/**
+ * What the browser's own decoder reports, plus the centre pixel of the
+ * frames showing at `times`. Also whether an `<img>` displays the file —
+ * the way a person, a chat tool or a documentation page shows it.
+ *
+ * A decoded frame's pixels are read the first way the browser allows:
+ * drawing the `VideoFrame` onto a canvas, then `createImageBitmap` of it,
+ * then `copyTo` into an RGBA buffer. Each refusal is recorded, so a failure
+ * names what the browser said instead of stopping at the first throw.
+ */
 async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
   return await page.evaluate(
     async ({ base64, times }) => {
       const data = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const blob = new Blob([data], { type: 'image/webp' })
+      const errors: string[] = []
       const centre = (source: CanvasImageSource, width: number, height: number) => {
         const canvas = document.createElement('canvas')
         canvas.width = width
@@ -93,15 +104,56 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
         const [r, g, b] = context.getImageData(Math.floor(width / 2), Math.floor(height / 2), 1, 1).data
         return { r, g, b }
       }
+      const pixelOf = async (image: VideoFrame) => {
+        const width = image.displayWidth
+        const height = image.displayHeight
+        try {
+          return { via: 'drawImage', ...centre(image, width, height) }
+        } catch (error) {
+          errors.push(`drawImage: ${(error as Error).message}`)
+        }
+        try {
+          const bitmap = await createImageBitmap(image)
+          return { via: 'createImageBitmap', ...centre(bitmap, width, height) }
+        } catch (error) {
+          errors.push(`createImageBitmap: ${(error as Error).message}`)
+        }
+        try {
+          const rect = { x: Math.floor(width / 2), y: Math.floor(height / 2), width: 1, height: 1 }
+          const pixel = new Uint8Array(4)
+          await image.copyTo(pixel, { rect, format: 'RGBA' } as VideoFrameCopyToOptions)
+          return { via: 'copyTo', r: pixel[0], g: pixel[1], b: pixel[2] }
+        } catch (error) {
+          errors.push(`copyTo: ${(error as Error).message}`)
+        }
+        return null
+      }
+
+      // An <img> displays it: decoded, at the file's own size.
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.src = url
+      let imgSize: { width: number; height: number } | null = null
+      try {
+        await img.decode()
+        imgSize = { width: img.naturalWidth, height: img.naturalHeight }
+      } catch (error) {
+        errors.push(`<img>: ${(error as Error).message}`)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+
       if (typeof ImageDecoder === 'undefined') {
-        const bitmap = await createImageBitmap(new Blob([data], { type: 'image/webp' }))
+        const bitmap = await createImageBitmap(blob)
         return {
           decoder: 'createImageBitmap' as const,
+          imgSize,
+          errors,
           width: bitmap.width,
           height: bitmap.height,
           frameCount: null,
           durationsMs: null,
-          samples: [{ time: 0, pixel: centre(bitmap, bitmap.width, bitmap.height) }],
+          samples: [{ time: 0, pixel: { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) } }],
         }
       }
       const decoder = new ImageDecoder({ data, type: 'image/webp' })
@@ -127,12 +179,14 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
         // The frame showing at `time`: the last one starting at or before it.
         const index = starts.filter((start) => start <= time * 1000).length - 1
         const { image } = await decoder.decode({ frameIndex: index })
-        samples.push({ time, pixel: centre(image, image.displayWidth, image.displayHeight) })
+        samples.push({ time, pixel: await pixelOf(image) })
         image.close()
       }
       decoder.close()
       return {
         decoder: 'ImageDecoder' as const,
+        imgSize,
+        errors,
         width,
         height,
         frameCount: track.frameCount,
@@ -176,6 +230,7 @@ function expectClose(actual: Rgb, expected: Rgb, where: string) {
 
 test('the enabled More export formats plugin exports a slate timeline as a valid animated WebP', async ({
   page,
+  browserName,
 }) => {
   await page.goto('./')
 
@@ -243,6 +298,13 @@ test('the enabled More export formats plugin exports a slate timeline as a valid
   // 2. A real decoder, and 3. the preview at the same times.
   const times = [0.5, 1.5]
   const decoded = await decodeWebp(page, bytes, times)
+  // Which decoder and pixel path this browser took, for a reader of the CI log.
+  console.log(
+    `[${browserName}] WebP decoded by ${decoded.decoder}: ${decoded.frameCount} frames, ` +
+      `<img> ${JSON.stringify(decoded.imgSize)}, samples ${JSON.stringify(decoded.samples)}, ` +
+      `refusals ${JSON.stringify(decoded.errors)}`,
+  )
+  expect(decoded.imgSize, 'an <img> displays the file').toEqual(webp.canvas)
   expect({ width: decoded.width, height: decoded.height }).toEqual(webp.canvas)
   if (decoded.decoder === 'ImageDecoder') {
     expect(decoded.animated).toBe(true)
@@ -250,13 +312,19 @@ test('the enabled More export formats plugin exports a slate timeline as a valid
     expect(decoded.frameCount).toBe(webp.frames.length)
     expect(decoded.durationsMs).toEqual(webp.frames.map((frame) => frame.durationMs))
   }
+  const pixels: Rgb[] = []
   for (const sample of decoded.samples) {
+    const pixel = sample.pixel
+    if (pixel === null) {
+      throw new Error(`no way to read the WebP frame at ${sample.time} s: ${decoded.errors.join('; ')}`)
+    }
+    pixels.push(pixel)
     const preview = await previewCentre(page, sample.time)
-    expectClose(sample.pixel, preview, `WebP at ${sample.time} s against the preview`)
+    expectClose(pixel, preview, `WebP at ${sample.time} s against the preview`)
   }
   if (decoded.decoder === 'ImageDecoder') {
     // The two samples really are the two slates, not one colour twice.
-    expect(decoded.samples[0].pixel.r).toBeGreaterThan(decoded.samples[1].pixel.r + 100)
-    expect(decoded.samples[1].pixel.b).toBeGreaterThan(decoded.samples[0].pixel.b + 100)
+    expect(pixels[0].r).toBeGreaterThan(pixels[1].r + 100)
+    expect(pixels[1].b).toBeGreaterThan(pixels[0].b + 100)
   }
 })
