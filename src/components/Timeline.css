@@ -609,6 +609,24 @@
   text-align: right;
 }
 
+/* Minutes and seconds (#848): the same borderless input, as a text box
+   holding `m:ss.mmm`. Its width is set inline from what it holds, so the
+   row rules that size number boxes (4.5rem) do not clip it. The rows'
+   own `input` rules (`.timeline-entry-trim input`, 0-1-1) would also give
+   it a border and background of its own inside the box's; the class pair
+   (0-2-0) outranks them, as the number box's attribute selector does. */
+.timeline-unit-box .timeline-time-input {
+  padding: 0.15rem 0 0.15rem 0.3rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  text-align: right;
+}
+
 /* The focus ring is the box's, so it surrounds the unit too. */
 .timeline-unit-box:focus-within {
   outline: auto;

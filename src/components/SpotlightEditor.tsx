@@ -22,6 +22,7 @@ import type { CropSubject, FrameRect, RectKeyStep } from '../lib/frameEditor'
 import type { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import type { SpotlightRegion } from '../lib/spotlight'
 import { FrameEditor } from './FrameEditor'
+import { TimeReadout } from './TimeReadout'
 
 /**
  * The visual spotlight editor (#533, part 2 of #531's approved suggestion;
@@ -52,7 +53,6 @@ import { FrameEditor } from './FrameEditor'
 
 /** A fraction as the percent its own field shows — two decimals, like the row's. */
 const percent = (value: number) => String(Math.round(value * 10000) / 100)
-const seconds = (value: number) => `${value.toFixed(2)} s`
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
 
 interface SpotlightEditorProps {
@@ -229,7 +229,7 @@ export function SpotlightEditor({
           disabled={looping}
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
-        <output aria-label={`${regionName} preview time (live)`}>{seconds(scrub)}</output>
+        <output aria-label={`${regionName} preview time (live)`}><TimeReadout seconds={scrub} /></output>
         <label className="effect-editor-result">
           <input
             type="checkbox"

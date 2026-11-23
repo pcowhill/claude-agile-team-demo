@@ -350,6 +350,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Tail y** — an arrow in an expanded shape group row › Tail; the tail's distance down the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Text overlay** — Add ▾. [Text and subtitles › Adding a text overlay](text-and-subtitles.md#adding-a-text-overlay)
 - **Thumbnails** — View ▾; the thumbnail layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
+- **Time fields** — Settings; shows the boxes where you type a time in seconds or as minutes and seconds (1:23.500). [Settings › Time fields](settings.md#time-fields)
 - **Tip x** — an arrow in an expanded shape group row › Tip; the tip's distance across the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Tip y** — an arrow in an expanded shape group row › Tip; the tip's distance down the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Top edge** — an expanded overlay row; the placement rectangle's top edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)

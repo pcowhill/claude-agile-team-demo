@@ -58,6 +58,7 @@ import { shapeGroupsOf, totalDuration } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
 import './ShapeEditor.css'
+import { TimeReadout } from './TimeReadout'
 
 /**
  * The shape editor (#685 part 1, #686 part 2, from the approved design #681
@@ -95,7 +96,6 @@ const DRAG_THRESHOLD = 3
 
 const isEdge = (handle: RectHandle): handle is Edge => handle.length === 1
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
-const seconds = (value: number) => `${value.toFixed(2)} s`
 /** A number as the style bar shows it: at most two decimals, like the row. */
 const shown = (value: number) => String(Math.round(value * 100) / 100)
 
@@ -1157,7 +1157,7 @@ export function ShapeEditor({
           disabled={looping}
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
-        <output aria-label={`${position} preview time (live)`}>{seconds(scrub)}</output>
+        <output aria-label={`${position} preview time (live)`}><TimeReadout seconds={scrub} /></output>
         <label className="effect-editor-result">
           <input
             type="checkbox"

@@ -1,6 +1,6 @@
 # Settings
 
-Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [Match levels target](#match-levels-target), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
+Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [how time fields show a time](#time-fields), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [Match levels target](#match-levels-target), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
 
 ## Opening Settings
 
@@ -31,6 +31,20 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 **Details.** One of {{STILL_DURATION_CHOICES}}; {{DEFAULT_STILL_DURATION}} s unless changed. As the hint says, it applies to new stills, colour slates and image overlay layers — anything already on the timeline keeps its own duration, which is stored on the element and saved with the project. The setting is a starting point, never saved state.
 
 **Related.** [Add](media-library.md#add) · [The header](timeline.md#the-header)
+
+## Time fields
+
+**Where to find it.** Settings › **Time fields**: **Seconds (83.5 s)** or **Minutes and seconds (1:23.500)**.
+
+**What it does.** Decides how every box where you type a time shows it: plain seconds, or minutes, seconds and milliseconds.
+
+**Details.** **Seconds** is the default, and the boxes read as they always have — `83.5`, with **s** inside the box. **Minutes and seconds** shows the same value as `1:23.500`: always three decimals, and hours in front from an hour on (`1:02:05.250`). The **s** is not drawn then, since the colon says what the number is. It covers every time box on the timeline — start, duration, In and Out, fades, transition lengths, zooms, speed segments and pauses, Moves, redaction and spotlight windows, shape timings — and the time box of the [Trim](editing-video.md#the-trim-window), [Cut](editing-video.md#cut) and [Split](editing-video.md#split) windows, and the preview-time readout of each [visual editor](visual-editors.md). Readouts that already show minutes, such as the preview's `0:12 / 1:05` and the Trim window's `0:12.50`, stay as they are.
+
+In minutes mode a box takes `1:23.5`, `1:23.500`, `1:23` or `1:02:05.25`, and plain seconds too: `83.5` is read as 1:23.500. A seconds or minutes part after a colon of 60 or more, such as `1:75`, is not a time; the box goes back to the value it held. Enter or leaving the box commits, as in seconds mode, and **↑** / **↓** step the value by the box's step, as the number box's arrows do. Leaving a box as it shows, or typing the same time again, changes nothing — not even a value stored more finely than the millisecond the box shows.
+
+The times themselves are the same in both modes, so a project reads alike either way; like every setting, this one is a preference for this browser and never part of a project.
+
+**Related.** [A row](timeline.md#a-row) · [The Trim window](editing-video.md#the-trim-window)
 
 ## When a previous session is found
 
@@ -88,6 +102,6 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **What it does.** Says what settings are, and are not.
 
-**Details.** Settings describe how you like to work — the arrow steps, a new still's length, the restore offer, the export format, the visual editors, the recording countdown, the Match levels target — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
+**Details.** Settings describe how you like to work — the arrow steps, a new still's length, how time fields show a time, the restore offer, the export format, the visual editors, the recording countdown, the Match levels target — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
 
 **Related.** [What is saved where](concepts.md#what-is-saved-where) · [What is never in a project file](projects.md#what-is-never-in-a-project-file)

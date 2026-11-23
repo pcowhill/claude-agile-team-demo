@@ -26,6 +26,7 @@ import { effectiveDuration, videoOverlaysOf } from '../lib/timeline'
 import { overlayPlacedAt } from '../lib/overlayMove'
 import type { TimelineState, ZoomSpec } from '../lib/timeline'
 import { FrameEditor } from './FrameEditor'
+import { TimeReadout } from './TimeReadout'
 
 /**
  * The visual Zoom editor (#413 and #421, from #402 / #396): the zoom's
@@ -72,7 +73,6 @@ import { FrameEditor } from './FrameEditor'
  */
 
 const format = (value: number) => String(Math.round(value * 1000) / 1000)
-const seconds = (value: number) => `${value.toFixed(2)} s`
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
 
 /**
@@ -314,7 +314,7 @@ export function ZoomEditor({
           disabled={looping}
           onChange={(event) => setScrubbed(Number(event.target.value))}
         />
-        <output aria-label={`${zoomName} preview time (live)`}>{seconds(scrub)}</output>
+        <output aria-label={`${zoomName} preview time (live)`}><TimeReadout seconds={scrub} /></output>
         <label className="effect-editor-result">
           <input
             type="checkbox"

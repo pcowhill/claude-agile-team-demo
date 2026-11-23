@@ -38,6 +38,7 @@ import { levelsForClip } from './lib/audioPeaks'
 import type { ClipLevels } from './lib/audioLevels'
 import { levelElements, matchReport, planMatchLevels } from './lib/matchLevels'
 import type { AppSettings } from './lib/settings'
+import { TimeFormatContext } from './components/timeFormatContext'
 import { guideConstants } from './lib/guide/constants'
 import { useGuideLocation } from './lib/guide/useGuideLocation'
 import { probeMediaFile } from './lib/probeMedia'
@@ -615,358 +616,361 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
   }
 
   return (
-    <div
-      className={isDragTarget ? 'app app-drag-target' : 'app'}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      <header className="app-header">
-        <div>
-          <h1>Browser Video Editor</h1>
-          <p className="tagline">Import, arrange, trim, preview, export — all in your browser.</p>
-        </div>
-        <ProjectControls
-          library={library}
-          timeline={timeline}
-          dirty={dirty}
-          onSaved={setSavedState}
-          onProjectReplaced={handleProjectReplaced}
-          port={savePort}
-          probeMedia={probeMedia}
-          autosave={autosaveStore}
-          settings={settings}
-          onSetSettings={handleSetSettings}
-          exportRange={exportRange}
-          onOpenGuide={guide.open}
-          onOpenShortcutHelp={openShortcutHelp}
-        />
-      </header>
-      {/* The editor and, while open, the guide docked beside it (#478). */}
-      <div className="app-body">
-        <main className={MAIN_CLASS[previewLayout]}>
-        <MediaLibrary
-          library={library}
-          onImportFiles={handleImportFiles}
-          importing={importing}
-          onCancelImport={cancelImport}
-          onRecordedPair={handleRecordedPair}
-          countdownSeconds={settings.countdownSeconds}
-          onRecordingFailed={(reason) =>
-            dispatch({
-              type: 'import-failed',
-              failure: { id: crypto.randomUUID(), name: 'Voice-over', reason },
-            })
-          }
-          onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
-          onAddToTimeline={handleAddToTimeline}
-          onAddClipsToTimeline={handleAddClipsToTimeline}
-          onAddOverlay={handleAddOverlay}
-          onExtractAudio={handleExtractAudio}
-          onPreviewClip={handlePreviewClip}
-          onRenameClip={(clip, name) => dispatch({ type: 'clip-renamed', id: clip.id, name })}
-          onRemoveClip={handleRemoveClip}
-          onRemoveClips={handleRemoveClips}
-          onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
-          timelineUseCount={timelineUseCount}
-          view={libraryView}
-          onSetView={handleSetLibraryView}
-        />
-        <PreviewPlayer
-          timeline={timeline}
-          playheadRef={playheadRef}
-          pauseRef={pausePreviewRef}
-          onFrameSize={setOutputFrame}
-          layout={previewLayout}
-          onSetLayout={handleSetPreviewLayout}
-          stepSeconds={settings.stepSeconds}
-          largeStepSeconds={settings.largeStepSeconds}
-          onSplit={(id, atSourceTime) =>
-            dispatchTimeline({
-              type: 'entry-split',
-              id,
-              atSourceTime,
-              newEntryId: crypto.randomUUID(),
-            })
-          }
-          onTrimEntry={(id, inPoint, outPoint) =>
-            dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
-          }
-          onCutRange={(from, to) => {
-            dispatchTimeline({
-              type: 'range-cut',
-              from,
-              to,
-              newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
-            })
-            // The range the marks bounded no longer exists (#823).
-            handleClearMarks()
-          }}
-          onFreezeFrame={handleFreezeFrame}
-          markIn={markIn}
-          markOut={markOut}
-          onMarkIn={setMarkIn}
-          onMarkOut={setMarkOut}
-          onClearMarks={handleClearMarks}
-          sourceClip={sourceClip}
-          onExitSourcePreview={handleExitSourcePreview}
-          onAddSourceToTimeline={handleAddToTimeline}
-          onAddSourceAsOverlay={handleAddOverlay}
-          onAddMarker={(marker) => dispatchTimeline({ type: 'marker-added', marker })}
-          onRenameMarker={(id, name) => dispatchTimeline({ type: 'marker-renamed', id, name })}
-          onMoveMarker={(id, time) => dispatchTimeline({ type: 'marker-moved', id, time })}
-          onRemoveMarker={(id) => dispatchTimeline({ type: 'marker-removed', id })}
-          onShortcutHelp={openShortcutHelp}
-          onOpenGuide={guide.open}
-        />
-        <Timeline
-          timeline={timeline}
-          canUndo={history.past.length > 0}
-          canRedo={history.future.length > 0}
-          onUndo={() => dispatchTimeline({ type: 'edit-undone' })}
-          onRedo={() => dispatchTimeline({ type: 'edit-redone' })}
-          onMatchLevels={handleMatchLevels}
-          onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
-          onDuplicate={(kind, id) =>
-            dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })
-          }
-          onRenameElement={(id, name) => dispatchTimeline({ type: 'element-renamed', id, name })}
-          visualEditors={settings.visualEditors}
-          onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
-          onPasteSettings={(kind, id, settings) =>
-            dispatchTimeline({ type: 'settings-pasted', kind, id, settings })
-          }
-          onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
-          onTrimEntry={(id, inPoint, outPoint) =>
-            dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
-          }
-          onSplitEntry={(id, atSourceTime) =>
-            dispatchTimeline({
-              type: 'entry-split',
-              id,
-              atSourceTime,
-              newEntryId: crypto.randomUUID(),
-            })
-          }
-          onCutRange={(from, to) =>
-            dispatchTimeline({
-              type: 'range-cut',
-              from,
-              to,
-              newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
-            })
-          }
-          onCutElement={(kind, id, from, to) =>
-            dispatchTimeline({ type: 'element-cut', kind, id, from, to, newId: crypto.randomUUID() })
-          }
-          onSplitElement={(kind, id, atSourceTime) =>
-            dispatchTimeline({
-              type: 'element-split',
-              kind,
-              id,
-              atSourceTime,
-              newId: crypto.randomUUID(),
-            })
-          }
-          stepSeconds={settings.stepSeconds}
-          largeStepSeconds={settings.largeStepSeconds}
-          onPausePreview={() => pausePreviewRef.current?.()}
-          onSetStillDuration={(id, duration) =>
-            dispatchTimeline({ type: 'still-duration-set', id, duration })
-          }
-          onAddSlate={() =>
-            dispatchTimeline({
-              type: 'entry-added',
-              // The default color (#143) with the configured duration (#286).
-              entry: slateEntry(crypto.randomUUID(), undefined, stillDuration),
-            })
-          }
-          onSetSlateColor={(id, color) => dispatchTimeline({ type: 'slate-color-set', id, color })}
-          onSetTransition={(beforeId, afterId, transition) =>
-            dispatchTimeline({ type: 'transition-set', beforeId, afterId, transition })
-          }
-          onRemoveTransition={(beforeId, afterId) =>
-            dispatchTimeline({ type: 'transition-removed', beforeId, afterId })
-          }
-          onAddZoom={(entryId, zoom) =>
-            dispatchTimeline({
-              type: 'zoom-added',
-              zoom: { ...zoom, id: crypto.randomUUID(), entryId },
-            })
-          }
-          onUpdateZoom={(id, zoom) => dispatchTimeline({ type: 'zoom-updated', id, zoom })}
-          onRemoveZoom={(id) => dispatchTimeline({ type: 'zoom-removed', id })}
-          onAddRemap={(entryId, remap) =>
-            dispatchTimeline({
-              type: 'remap-added',
-              remap: { ...remap, id: crypto.randomUUID(), entryId },
-            })
-          }
-          onUpdateRemap={(id, remap) => dispatchTimeline({ type: 'remap-updated', id, remap })}
-          onRemoveRemap={(id) => dispatchTimeline({ type: 'remap-removed', id })}
-          onAddText={() =>
-            dispatchTimeline({
-              type: 'text-added',
-              text: { ...DEFAULT_TEXT, id: crypto.randomUUID() },
-            })
-          }
-          onImportSubtitles={handleImportSubtitles}
-          subtitleStyle={timeline.subtitleStyle}
-          onSetSubtitleStyle={(style) => dispatchTimeline({ type: 'subtitle-style-set', style })}
-          onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
-          frameSize={outputFrame}
-          onAddShapeGroup={() =>
-            dispatchTimeline({
-              type: 'shape-group-added',
-              group: defaultShapeGroup(
-                crypto.randomUUID(),
-                crypto.randomUUID(),
-                Math.min(playheadRef.current, totalDuration(timeline)),
-              ),
-            })
-          }
-          onUpdateShapeGroup={(id, group) =>
-            dispatchTimeline({ type: 'shape-group-updated', id, group })
-          }
-          onRemoveShapeGroup={(id) => dispatchTimeline({ type: 'shape-group-removed', id })}
-          onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
-          onUpdateVideoOverlay={(id, placement) =>
-            dispatchTimeline({ type: 'video-overlay-updated', id, placement })
-          }
-          onRemoveVideoOverlay={(id) => dispatchTimeline({ type: 'video-overlay-removed', id })}
-          onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
-          onRetimeAudioTrack={(id, offset) =>
-            dispatchTimeline({ type: 'audio-track-retimed', id, offset })
-          }
-          onTrimAudioTrack={(id, inPoint, outPoint) =>
-            dispatchTimeline({ type: 'audio-track-trimmed', id, inPoint, outPoint })
-          }
-          onSetEntryVolume={(id, volume) =>
-            dispatchTimeline({ type: 'entry-volume-set', id, volume })
-          }
-          onSetEntryMuted={(id, muted) => dispatchTimeline({ type: 'entry-mute-set', id, muted })}
-          onSetEntryFades={(id, fadeIn, fadeOut) =>
-            dispatchTimeline({ type: 'entry-fades-set', id, fadeIn, fadeOut })
-          }
-          onSetEntryColor={(id, adjustments) =>
-            dispatchTimeline({ type: 'entry-color-set', id, adjustments })
-          }
-          onSetVideoOverlayColor={(id, adjustments) =>
-            dispatchTimeline({ type: 'video-overlay-color-set', id, adjustments })
-          }
-          onSetEntryOrientation={(id, orientation) =>
-            dispatchTimeline({ type: 'entry-orient-set', id, orientation })
-          }
-          onSetVideoOverlayOrientation={(id, orientation) =>
-            dispatchTimeline({ type: 'video-overlay-orient-set', id, orientation })
-          }
-          onSetEntryCrop={(id, crop) => dispatchTimeline({ type: 'entry-crop-set', id, crop })}
-          onSetEntryRedactions={(id, redactions) =>
-            dispatchTimeline({ type: 'entry-redactions-set', id, redactions })
-          }
-          onSetEntrySpotlights={(id, spotlights) =>
-            dispatchTimeline({ type: 'entry-spotlights-set', id, spotlights })
-          }
-          onSetEntryBackgroundFill={(id, fill) =>
-            dispatchTimeline({ type: 'entry-background-fill-set', id, fill })
-          }
-          onSetVideoOverlayCrop={(id, crop) =>
-            dispatchTimeline({ type: 'video-overlay-crop-set', id, crop })
-          }
-          onSetVideoOverlayRedactions={(id, redactions) =>
-            dispatchTimeline({ type: 'video-overlay-redactions-set', id, redactions })
-          }
-          onSetVideoOverlaySpotlights={(id, spotlights) =>
-            dispatchTimeline({ type: 'video-overlay-spotlights-set', id, spotlights })
-          }
-          onSetVideoOverlayMask={(id, mask) =>
-            dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
-          }
-          onSetVideoOverlayBorder={(id, border) =>
-            dispatchTimeline({ type: 'video-overlay-border-set', id, border })
-          }
-          onSetVideoOverlayShadow={(id, shadow) =>
-            dispatchTimeline({ type: 'video-overlay-shadow-set', id, shadow })
-          }
-          onAddVideoOverlayZoom={(overlayId, zoom) =>
-            dispatchTimeline({
-              type: 'video-overlay-zoom-added',
-              overlayId,
-              zoom: { ...zoom, id: crypto.randomUUID() },
-            })
-          }
-          onUpdateVideoOverlayZoom={(overlayId, id, zoom) =>
-            dispatchTimeline({ type: 'video-overlay-zoom-updated', overlayId, id, zoom })
-          }
-          onRemoveVideoOverlayZoom={(overlayId, id) =>
-            dispatchTimeline({ type: 'video-overlay-zoom-removed', overlayId, id })
-          }
-          onAddVideoOverlayRemap={(overlayId, remap) =>
-            dispatchTimeline({
-              type: 'video-overlay-remap-added',
-              overlayId,
-              remap: { ...remap, id: crypto.randomUUID() },
-            })
-          }
-          onUpdateVideoOverlayRemap={(overlayId, id, remap) =>
-            dispatchTimeline({ type: 'video-overlay-remap-updated', overlayId, id, remap })
-          }
-          onRemoveVideoOverlayRemap={(overlayId, id) =>
-            dispatchTimeline({ type: 'video-overlay-remap-removed', overlayId, id })
-          }
-          onAddVideoOverlayMove={(overlayId, move) =>
-            dispatchTimeline({
-              type: 'video-overlay-move-added',
-              overlayId,
-              move: { ...move, id: crypto.randomUUID() },
-            })
-          }
-          onUpdateVideoOverlayMove={(overlayId, id, move) =>
-            dispatchTimeline({ type: 'video-overlay-move-updated', overlayId, id, move })
-          }
-          onRemoveVideoOverlayMove={(overlayId, id) =>
-            dispatchTimeline({ type: 'video-overlay-move-removed', overlayId, id })
-          }
-          onSetAudioTrackVolume={(id, volume) =>
-            dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
-          }
-          onSetAudioTrackFades={(id, fadeIn, fadeOut) =>
-            dispatchTimeline({ type: 'audio-track-fades-set', id, fadeIn, fadeOut })
-          }
-          onSetAudioTrackDuck={(id, duck, duckLevel) =>
-            dispatchTimeline({ type: 'audio-track-duck-set', id, duck, duckLevel })
-          }
-        />
-        </main>
-        {guide.location !== null && (
-          <Suspense
-            fallback={
-              <aside className="user-guide user-guide-loading" aria-label="User Guide" aria-busy="true">
-                Loading the user guide…
-              </aside>
+    // The Time fields setting (#848) reaches every time box through context.
+    <TimeFormatContext value={settings.timeFormat}>
+      <div
+        className={isDragTarget ? 'app app-drag-target' : 'app'}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <header className="app-header">
+          <div>
+            <h1>Browser Video Editor</h1>
+            <p className="tagline">Import, arrange, trim, preview, export — all in your browser.</p>
+          </div>
+          <ProjectControls
+            library={library}
+            timeline={timeline}
+            dirty={dirty}
+            onSaved={setSavedState}
+            onProjectReplaced={handleProjectReplaced}
+            port={savePort}
+            probeMedia={probeMedia}
+            autosave={autosaveStore}
+            settings={settings}
+            onSetSettings={handleSetSettings}
+            exportRange={exportRange}
+            onOpenGuide={guide.open}
+            onOpenShortcutHelp={openShortcutHelp}
+          />
+        </header>
+        {/* The editor and, while open, the guide docked beside it (#478). */}
+        <div className="app-body">
+          <main className={MAIN_CLASS[previewLayout]}>
+          <MediaLibrary
+            library={library}
+            onImportFiles={handleImportFiles}
+            importing={importing}
+            onCancelImport={cancelImport}
+            onRecordedPair={handleRecordedPair}
+            countdownSeconds={settings.countdownSeconds}
+            onRecordingFailed={(reason) =>
+              dispatch({
+                type: 'import-failed',
+                failure: { id: crypto.randomUUID(), name: 'Voice-over', reason },
+              })
             }
-          >
-            <UserGuide
-              location={guide.location}
-              constants={constants}
-              onNavigate={guide.navigate}
-              onClose={guide.close}
-            />
-          </Suspense>
+            onDismissFailures={() => dispatch({ type: 'failures-dismissed' })}
+            onAddToTimeline={handleAddToTimeline}
+            onAddClipsToTimeline={handleAddClipsToTimeline}
+            onAddOverlay={handleAddOverlay}
+            onExtractAudio={handleExtractAudio}
+            onPreviewClip={handlePreviewClip}
+            onRenameClip={(clip, name) => dispatch({ type: 'clip-renamed', id: clip.id, name })}
+            onRemoveClip={handleRemoveClip}
+            onRemoveClips={handleRemoveClips}
+            onSortClips={(key, direction) => dispatch({ type: 'clips-sorted', key, direction })}
+            timelineUseCount={timelineUseCount}
+            view={libraryView}
+            onSetView={handleSetLibraryView}
+          />
+          <PreviewPlayer
+            timeline={timeline}
+            playheadRef={playheadRef}
+            pauseRef={pausePreviewRef}
+            onFrameSize={setOutputFrame}
+            layout={previewLayout}
+            onSetLayout={handleSetPreviewLayout}
+            stepSeconds={settings.stepSeconds}
+            largeStepSeconds={settings.largeStepSeconds}
+            onSplit={(id, atSourceTime) =>
+              dispatchTimeline({
+                type: 'entry-split',
+                id,
+                atSourceTime,
+                newEntryId: crypto.randomUUID(),
+              })
+            }
+            onTrimEntry={(id, inPoint, outPoint) =>
+              dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
+            }
+            onCutRange={(from, to) => {
+              dispatchTimeline({
+                type: 'range-cut',
+                from,
+                to,
+                newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
+              })
+              // The range the marks bounded no longer exists (#823).
+              handleClearMarks()
+            }}
+            onFreezeFrame={handleFreezeFrame}
+            markIn={markIn}
+            markOut={markOut}
+            onMarkIn={setMarkIn}
+            onMarkOut={setMarkOut}
+            onClearMarks={handleClearMarks}
+            sourceClip={sourceClip}
+            onExitSourcePreview={handleExitSourcePreview}
+            onAddSourceToTimeline={handleAddToTimeline}
+            onAddSourceAsOverlay={handleAddOverlay}
+            onAddMarker={(marker) => dispatchTimeline({ type: 'marker-added', marker })}
+            onRenameMarker={(id, name) => dispatchTimeline({ type: 'marker-renamed', id, name })}
+            onMoveMarker={(id, time) => dispatchTimeline({ type: 'marker-moved', id, time })}
+            onRemoveMarker={(id) => dispatchTimeline({ type: 'marker-removed', id })}
+            onShortcutHelp={openShortcutHelp}
+            onOpenGuide={guide.open}
+          />
+          <Timeline
+            timeline={timeline}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            onUndo={() => dispatchTimeline({ type: 'edit-undone' })}
+            onRedo={() => dispatchTimeline({ type: 'edit-redone' })}
+            onMatchLevels={handleMatchLevels}
+            onMoveEntry={(id, direction) => dispatchTimeline({ type: 'entry-moved', id, direction })}
+            onDuplicate={(kind, id) =>
+              dispatchTimeline({ type: 'element-duplicated', kind, id, newId: crypto.randomUUID() })
+            }
+            onRenameElement={(id, name) => dispatchTimeline({ type: 'element-renamed', id, name })}
+            visualEditors={settings.visualEditors}
+            onSetCanvasPreset={(preset) => dispatchTimeline({ type: 'canvas-preset-set', preset })}
+            onPasteSettings={(kind, id, settings) =>
+              dispatchTimeline({ type: 'settings-pasted', kind, id, settings })
+            }
+            onRemoveEntry={(id) => dispatchTimeline({ type: 'entry-removed', id })}
+            onTrimEntry={(id, inPoint, outPoint) =>
+              dispatchTimeline({ type: 'entry-trimmed', id, inPoint, outPoint })
+            }
+            onSplitEntry={(id, atSourceTime) =>
+              dispatchTimeline({
+                type: 'entry-split',
+                id,
+                atSourceTime,
+                newEntryId: crypto.randomUUID(),
+              })
+            }
+            onCutRange={(from, to) =>
+              dispatchTimeline({
+                type: 'range-cut',
+                from,
+                to,
+                newEntryIds: [crypto.randomUUID(), crypto.randomUUID()],
+              })
+            }
+            onCutElement={(kind, id, from, to) =>
+              dispatchTimeline({ type: 'element-cut', kind, id, from, to, newId: crypto.randomUUID() })
+            }
+            onSplitElement={(kind, id, atSourceTime) =>
+              dispatchTimeline({
+                type: 'element-split',
+                kind,
+                id,
+                atSourceTime,
+                newId: crypto.randomUUID(),
+              })
+            }
+            stepSeconds={settings.stepSeconds}
+            largeStepSeconds={settings.largeStepSeconds}
+            onPausePreview={() => pausePreviewRef.current?.()}
+            onSetStillDuration={(id, duration) =>
+              dispatchTimeline({ type: 'still-duration-set', id, duration })
+            }
+            onAddSlate={() =>
+              dispatchTimeline({
+                type: 'entry-added',
+                // The default color (#143) with the configured duration (#286).
+                entry: slateEntry(crypto.randomUUID(), undefined, stillDuration),
+              })
+            }
+            onSetSlateColor={(id, color) => dispatchTimeline({ type: 'slate-color-set', id, color })}
+            onSetTransition={(beforeId, afterId, transition) =>
+              dispatchTimeline({ type: 'transition-set', beforeId, afterId, transition })
+            }
+            onRemoveTransition={(beforeId, afterId) =>
+              dispatchTimeline({ type: 'transition-removed', beforeId, afterId })
+            }
+            onAddZoom={(entryId, zoom) =>
+              dispatchTimeline({
+                type: 'zoom-added',
+                zoom: { ...zoom, id: crypto.randomUUID(), entryId },
+              })
+            }
+            onUpdateZoom={(id, zoom) => dispatchTimeline({ type: 'zoom-updated', id, zoom })}
+            onRemoveZoom={(id) => dispatchTimeline({ type: 'zoom-removed', id })}
+            onAddRemap={(entryId, remap) =>
+              dispatchTimeline({
+                type: 'remap-added',
+                remap: { ...remap, id: crypto.randomUUID(), entryId },
+              })
+            }
+            onUpdateRemap={(id, remap) => dispatchTimeline({ type: 'remap-updated', id, remap })}
+            onRemoveRemap={(id) => dispatchTimeline({ type: 'remap-removed', id })}
+            onAddText={() =>
+              dispatchTimeline({
+                type: 'text-added',
+                text: { ...DEFAULT_TEXT, id: crypto.randomUUID() },
+              })
+            }
+            onImportSubtitles={handleImportSubtitles}
+            subtitleStyle={timeline.subtitleStyle}
+            onSetSubtitleStyle={(style) => dispatchTimeline({ type: 'subtitle-style-set', style })}
+            onUpdateText={(id, text) => dispatchTimeline({ type: 'text-updated', id, text })}
+            frameSize={outputFrame}
+            onAddShapeGroup={() =>
+              dispatchTimeline({
+                type: 'shape-group-added',
+                group: defaultShapeGroup(
+                  crypto.randomUUID(),
+                  crypto.randomUUID(),
+                  Math.min(playheadRef.current, totalDuration(timeline)),
+                ),
+              })
+            }
+            onUpdateShapeGroup={(id, group) =>
+              dispatchTimeline({ type: 'shape-group-updated', id, group })
+            }
+            onRemoveShapeGroup={(id) => dispatchTimeline({ type: 'shape-group-removed', id })}
+            onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
+            onUpdateVideoOverlay={(id, placement) =>
+              dispatchTimeline({ type: 'video-overlay-updated', id, placement })
+            }
+            onRemoveVideoOverlay={(id) => dispatchTimeline({ type: 'video-overlay-removed', id })}
+            onRemoveAudioTrack={(id) => dispatchTimeline({ type: 'audio-track-removed', id })}
+            onRetimeAudioTrack={(id, offset) =>
+              dispatchTimeline({ type: 'audio-track-retimed', id, offset })
+            }
+            onTrimAudioTrack={(id, inPoint, outPoint) =>
+              dispatchTimeline({ type: 'audio-track-trimmed', id, inPoint, outPoint })
+            }
+            onSetEntryVolume={(id, volume) =>
+              dispatchTimeline({ type: 'entry-volume-set', id, volume })
+            }
+            onSetEntryMuted={(id, muted) => dispatchTimeline({ type: 'entry-mute-set', id, muted })}
+            onSetEntryFades={(id, fadeIn, fadeOut) =>
+              dispatchTimeline({ type: 'entry-fades-set', id, fadeIn, fadeOut })
+            }
+            onSetEntryColor={(id, adjustments) =>
+              dispatchTimeline({ type: 'entry-color-set', id, adjustments })
+            }
+            onSetVideoOverlayColor={(id, adjustments) =>
+              dispatchTimeline({ type: 'video-overlay-color-set', id, adjustments })
+            }
+            onSetEntryOrientation={(id, orientation) =>
+              dispatchTimeline({ type: 'entry-orient-set', id, orientation })
+            }
+            onSetVideoOverlayOrientation={(id, orientation) =>
+              dispatchTimeline({ type: 'video-overlay-orient-set', id, orientation })
+            }
+            onSetEntryCrop={(id, crop) => dispatchTimeline({ type: 'entry-crop-set', id, crop })}
+            onSetEntryRedactions={(id, redactions) =>
+              dispatchTimeline({ type: 'entry-redactions-set', id, redactions })
+            }
+            onSetEntrySpotlights={(id, spotlights) =>
+              dispatchTimeline({ type: 'entry-spotlights-set', id, spotlights })
+            }
+            onSetEntryBackgroundFill={(id, fill) =>
+              dispatchTimeline({ type: 'entry-background-fill-set', id, fill })
+            }
+            onSetVideoOverlayCrop={(id, crop) =>
+              dispatchTimeline({ type: 'video-overlay-crop-set', id, crop })
+            }
+            onSetVideoOverlayRedactions={(id, redactions) =>
+              dispatchTimeline({ type: 'video-overlay-redactions-set', id, redactions })
+            }
+            onSetVideoOverlaySpotlights={(id, spotlights) =>
+              dispatchTimeline({ type: 'video-overlay-spotlights-set', id, spotlights })
+            }
+            onSetVideoOverlayMask={(id, mask) =>
+              dispatchTimeline({ type: 'video-overlay-mask-set', id, mask })
+            }
+            onSetVideoOverlayBorder={(id, border) =>
+              dispatchTimeline({ type: 'video-overlay-border-set', id, border })
+            }
+            onSetVideoOverlayShadow={(id, shadow) =>
+              dispatchTimeline({ type: 'video-overlay-shadow-set', id, shadow })
+            }
+            onAddVideoOverlayZoom={(overlayId, zoom) =>
+              dispatchTimeline({
+                type: 'video-overlay-zoom-added',
+                overlayId,
+                zoom: { ...zoom, id: crypto.randomUUID() },
+              })
+            }
+            onUpdateVideoOverlayZoom={(overlayId, id, zoom) =>
+              dispatchTimeline({ type: 'video-overlay-zoom-updated', overlayId, id, zoom })
+            }
+            onRemoveVideoOverlayZoom={(overlayId, id) =>
+              dispatchTimeline({ type: 'video-overlay-zoom-removed', overlayId, id })
+            }
+            onAddVideoOverlayRemap={(overlayId, remap) =>
+              dispatchTimeline({
+                type: 'video-overlay-remap-added',
+                overlayId,
+                remap: { ...remap, id: crypto.randomUUID() },
+              })
+            }
+            onUpdateVideoOverlayRemap={(overlayId, id, remap) =>
+              dispatchTimeline({ type: 'video-overlay-remap-updated', overlayId, id, remap })
+            }
+            onRemoveVideoOverlayRemap={(overlayId, id) =>
+              dispatchTimeline({ type: 'video-overlay-remap-removed', overlayId, id })
+            }
+            onAddVideoOverlayMove={(overlayId, move) =>
+              dispatchTimeline({
+                type: 'video-overlay-move-added',
+                overlayId,
+                move: { ...move, id: crypto.randomUUID() },
+              })
+            }
+            onUpdateVideoOverlayMove={(overlayId, id, move) =>
+              dispatchTimeline({ type: 'video-overlay-move-updated', overlayId, id, move })
+            }
+            onRemoveVideoOverlayMove={(overlayId, id) =>
+              dispatchTimeline({ type: 'video-overlay-move-removed', overlayId, id })
+            }
+            onSetAudioTrackVolume={(id, volume) =>
+              dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
+            }
+            onSetAudioTrackFades={(id, fadeIn, fadeOut) =>
+              dispatchTimeline({ type: 'audio-track-fades-set', id, fadeIn, fadeOut })
+            }
+            onSetAudioTrackDuck={(id, duck, duckLevel) =>
+              dispatchTimeline({ type: 'audio-track-duck-set', id, duck, duckLevel })
+            }
+          />
+          </main>
+          {guide.location !== null && (
+            <Suspense
+              fallback={
+                <aside className="user-guide user-guide-loading" aria-label="User Guide" aria-busy="true">
+                  Loading the user guide…
+                </aside>
+              }
+            >
+              <UserGuide
+                location={guide.location}
+                constants={constants}
+                onNavigate={guide.navigate}
+                onClose={guide.close}
+              />
+            </Suspense>
+          )}
+        </div>
+        {/* The cheat sheet (#203), owned here since #478 so Help ▾ and `?`
+            open the same one; rendered at the app level so it answers while
+            the timeline is empty, as it always did. */}
+        {shortcutHelpOpen && (
+          <ShortcutHelpDialog
+            onClose={closeShortcutHelp}
+            stepSeconds={settings.stepSeconds}
+            largeStepSeconds={settings.largeStepSeconds}
+          />
         )}
       </div>
-      {/* The cheat sheet (#203), owned here since #478 so Help ▾ and `?`
-          open the same one; rendered at the app level so it answers while
-          the timeline is empty, as it always did. */}
-      {shortcutHelpOpen && (
-        <ShortcutHelpDialog
-          onClose={closeShortcutHelp}
-          stepSeconds={settings.stepSeconds}
-          largeStepSeconds={settings.largeStepSeconds}
-        />
-      )}
-    </div>
+    </TimeFormatContext>
   )
 }
 
