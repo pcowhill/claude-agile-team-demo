@@ -301,6 +301,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Save…** — the Save project dialog; writes the file in the mode chosen above it. [Projects › Save and Save As…](projects.md#save-and-save-as)
 - **Screen** — Record ▾. [Recording › Screen](recording.md#screen)
 - **Screen + camera** — Record ▾. [Recording › Screen + camera](recording.md#screen-camera)
+- **Screen recording quality** — Settings; High (sharper text, larger files) or Standard (the browser's own rate). [Settings › Screen recording quality](settings.md#screen-recording-quality)
 - **Seek bar** — the preview transport; drag it to move the playhead. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **Select a clip** — the checkbox on a media library row. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)

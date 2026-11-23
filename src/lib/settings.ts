@@ -2,6 +2,8 @@ import { DEFAULT_MATCH_TARGET_DB } from './matchLevels'
 import { DEFAULT_STILL_DURATION } from './timeline'
 import { TIME_FORMAT_CHOICES } from './timeFormat'
 import type { TimeFormat } from './timeFormat'
+import { SCREEN_RECORDING_QUALITY_CHOICES } from './recording'
+import type { ScreenRecordingQuality } from './recording'
 import { LARGE_STEP_SECONDS, STEP_SECONDS } from './transport'
 
 /**
@@ -85,6 +87,14 @@ export interface AppSettings {
    * and the same project reads the same in both.
    */
   timeFormat: TimeFormat
+  /**
+   * The bitrate a screen recording asks for (#853, from customer feedback
+   * #852): Standard leaves it to the browser, as it always was; High asks
+   * for a rate scaled to the capture (`screenRecordingBitrate`). A
+   * preference, not project state: it decides how the next recording is
+   * made, and the recording itself is what a project keeps.
+   */
+  screenRecordingQuality: ScreenRecordingQuality
 }
 
 /** The countdown's length when it is on, in seconds (#514). */
@@ -117,7 +127,12 @@ export const COUNTDOWN_CHOICES: readonly number[] = [DEFAULT_COUNTDOWN_SECONDS, 
  */
 export const MATCH_TARGET_CHOICES: readonly number[] = [-30, -26, -23, DEFAULT_MATCH_TARGET_DB, -16]
 
-/** Exactly today's behaviour, so a first visit changes nothing. */
+/**
+ * Today's behaviour, so a first visit changes nothing — with one deliberate
+ * exception: screen recordings default to High (#853), because the
+ * customer reported the browser's own rate as too compressed (#852), and
+ * Standard is there for anyone who wants the old, smaller files back.
+ */
 export const DEFAULT_SETTINGS: AppSettings = {
   stepSeconds: STEP_SECONDS,
   largeStepSeconds: LARGE_STEP_SECONDS,
@@ -128,6 +143,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
   matchTargetDb: DEFAULT_MATCH_TARGET_DB,
   timeFormat: 'seconds',
+  screenRecordingQuality: 'high',
 }
 
 /** The slice of Storage this needs; injectable so tests stay deterministic. */
@@ -193,6 +209,12 @@ export function parseSettings(stored: unknown): AppSettings {
     timeFormat: TIME_FORMAT_CHOICES.includes(raw.timeFormat as TimeFormat)
       ? (raw.timeFormat as TimeFormat)
       : DEFAULT_SETTINGS.timeFormat,
+    // A store from before the setting existed has no key: High, the default (#853).
+    screenRecordingQuality: SCREEN_RECORDING_QUALITY_CHOICES.includes(
+      raw.screenRecordingQuality as ScreenRecordingQuality,
+    )
+      ? (raw.screenRecordingQuality as ScreenRecordingQuality)
+      : DEFAULT_SETTINGS.screenRecordingQuality,
   }
 }
 

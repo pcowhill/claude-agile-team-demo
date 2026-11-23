@@ -589,6 +589,7 @@ describe('countdown, Pause / Resume and Space (#514)', () => {
     await screen.findByRole('dialog', { name: 'Recording screen' })
     expect(startScreenMock).toHaveBeenCalledWith(expect.any(Function), undefined, {
       deferStart: true,
+      screenQuality: 'high',
     })
 
     act(() => shareEnded())
@@ -765,6 +766,51 @@ describe('countdown, Pause / Resume and Space (#514)', () => {
     expect(dialog).toHaveTextContent('Recording')
     expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Start now' })).not.toBeInTheDocument()
+  })
+})
+
+describe('screen recording quality reaches the screen sources (#853)', () => {
+  it.each([
+    ['a store from before the setting existed', {}, 'high'],
+    ['Standard', { screenRecordingQuality: 'standard' }, 'standard'],
+    ['High', { screenRecordingQuality: 'high' }, 'high'],
+  ] as const)('%s: Screen and Screen + camera start with that quality', async (_label, stored, expected) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ countdownSeconds: 0, ...stored }))
+    startScreenMock.mockResolvedValue(fakeSession('video/webm;codecs=vp9,opus', 'video/webm'))
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen' }))
+    await screen.findByRole('dialog', { name: 'Recording screen' })
+    expect(startScreenMock).toHaveBeenCalledWith(expect.any(Function), undefined, {
+      deferStart: true,
+      screenQuality: expected,
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    startScreenCameraMock.mockRejectedValue(new Error('denied'))
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Screen + camera' }))
+    expect(startScreenCameraMock).toHaveBeenCalledWith(expect.any(Function), undefined, {
+      deferStart: true,
+      screenQuality: expected,
+    })
+  })
+
+  it('the microphone and the webcam are started without it', async () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ countdownSeconds: 0, screenRecordingQuality: 'standard' }),
+    )
+    startMock.mockRejectedValue(new Error('denied'))
+    startWebcamMock.mockRejectedValue(new Error('denied'))
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Microphone' }))
+    expect(startMock).toHaveBeenCalledWith(undefined, { deferStart: true })
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
+    expect(startWebcamMock).toHaveBeenCalledWith(undefined, { deferStart: true })
   })
 })
 

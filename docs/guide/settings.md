@@ -1,6 +1,6 @@
 # Settings
 
-Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [how time fields show a time](#time-fields), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [Match levels target](#match-levels-target), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
+Preferences for the way you work, kept on this device: [opening Settings](#opening-settings), the [step sizes](#step-sizes-playhead-nudge-and-jump) for the arrow keys, [how long a new still shows](#new-still-or-slate-duration), [how time fields show a time](#time-fields), [what happens when a previous session is found](#when-a-previous-session-is-found), the [Visual editors](#visual-editors) switch, the [countdown before recording](#countdown-before-recording), the [screen recording quality](#screen-recording-quality), the [Match levels target](#match-levels-target), the [default export format](#default-export-format), and [where settings live](#where-settings-live). None of them is part of a project; the dividing line is in [What is saved where](concepts.md#what-is-saved-where).
 
 ## Opening Settings
 
@@ -76,6 +76,20 @@ The times themselves are the same in both modes, so a project reads alike either
 
 **Related.** [The countdown](recording.md#the-countdown) · [The recording dialog](recording.md#the-recording-dialog)
 
+## Screen recording quality
+
+**Where to find it.** Settings › **Screen recording quality**: **Standard (smaller files)** or **High (sharper text)**.
+
+**What it does.** Decides how much detail a [screen recording](recording.md#screen) keeps, and so how large its file is.
+
+**Details.** **High** is the default. It asks the browser's recorder for a rate worked out from what is being captured: a quarter of a bit for each pixel of each frame, which is about 15.6 Mbit/s for a 1920 × 1080 screen at 30 frames a second, capped at 40 Mbit/s for very large or very fast captures. Small text then stays sharp when the clip is zoomed or cropped. **Standard** asks for no rate, so the browser picks its own, as the editor always did before this setting. That rate is lower, so the files are smaller, but text shows compression blur once it is magnified.
+
+The hint sums it up: *For Screen and Screen + camera. High keeps small text sharp when the clip is zoomed or cropped, in larger files; Standard leaves it to the browser.* In a test on a full-HD screen of small text, High made a file about a third larger than Standard while the text stood still, and over four-fifths larger while it scrolled. A long recording at High takes correspondingly more room in the autosave and in a project file that keeps its media.
+
+The setting covers **Screen** and the screen half of **Screen + camera**. The webcam and the microphone record as they always have. It applies to the next recording; clips already in the library keep the quality they were recorded at. Like every setting, it is a preference for this browser and never part of a project.
+
+**Related.** [Screen](recording.md#screen) · [Screen + camera](recording.md#screen-camera)
+
 ## Match levels target
 
 **Where to find it.** Settings › **Match levels target**: {{MATCH_TARGET_CHOICES}}.
@@ -102,6 +116,6 @@ The times themselves are the same in both modes, so a project reads alike either
 
 **What it does.** Says what settings are, and are not.
 
-**Details.** Settings describe how you like to work — the arrow steps, a new still's length, how time fields show a time, the restore offer, the export format, the visual editors, the recording countdown, the Match levels target — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
+**Details.** Settings describe how you like to work — the arrow steps, a new still's length, how time fields show a time, the restore offer, the export format, the visual editors, the recording countdown, the screen recording quality, the Match levels target — and are stored in this browser, per device. Anything that describes the edit itself — a track's volume, a duck level, the project's subtitle style, the choices made for one export — is project state and travels with the project file instead. So settings are never in a project file or the autosave snapshot; another computer, or a browser with nothing stored, uses the defaults and behaves exactly as the editor did before there were settings — except that screen recordings default to the [High quality](#screen-recording-quality) the browser alone did not give them. A stored value this version does not recognise falls back to the default for that one setting, leaving the others as you set them. Changing a setting is not an edit: Undo never touches it.
 
 **Related.** [What is saved where](concepts.md#what-is-saved-where) · [What is never in a project file](projects.md#what-is-never-in-a-project-file)

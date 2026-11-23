@@ -54,6 +54,7 @@ const NO_HEADLESS_SCREEN = 'Chromium-only: headless Firefox has no screen for ge
 const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'record-screen.spec.ts', why: NO_HEADLESS_SCREEN },
   { file: 'record-screen-camera.spec.ts', why: NO_HEADLESS_SCREEN },
+  { file: 'record-screen-quality.spec.ts', why: NO_HEADLESS_SCREEN },
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
   { title: 'a screen + camera take paused ten times delivers two clips whose lengths agree within three frames (#514)', why: NO_HEADLESS_SCREEN },
