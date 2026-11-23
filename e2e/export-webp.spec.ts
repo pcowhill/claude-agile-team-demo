@@ -22,6 +22,17 @@ import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
  *    lossy encode.
  */
 
+/**
+ * A reference animated WebP made by libwebp's own animation encoder, the
+ * control for the decoder check below: `ffmpeg -f lavfi -i
+ * "color=c=0xc03020:s=64x36:r=10:d=0.5" -f lavfi -i
+ * "color=c=0x2050d0:s=64x36:r=10:d=0.5" -filter_complex
+ * "[0][1]concat=n=2:v=1" -c:v libwebp_anim -lossless 0 -quality 80 -loop 0`
+ * (FFmpeg 6.1.1). libwebp merges the identical frames: two frames, red for
+ * 0.5 s, then blue.
+ */
+const REFERENCE_ANIMATION = 'e2e/fixtures/reference-anim.webp'
+
 const RED = '#c03020'
 const BLUE = '#2050d0'
 
@@ -80,9 +91,11 @@ function walkWebp(bytes: Buffer) {
 }
 
 /**
- * What the browser's own decoder reports, plus the centre pixel of the
- * frames showing at `times`. Also whether an `<img>` displays the file —
- * the way a person, a chat tool or a documentation page shows it.
+ * What the browser's own decoder reports for an animated WebP, plus the
+ * centre pixel of the frames showing at `times`. Each frame is decoded
+ * once, in order, and sampled during that pass. Also: whether an `<img>`
+ * displays the file (decoded, at its own size), and its first frame as an
+ * `<img>` reads it.
  *
  * A decoded frame's pixels are read the first way the browser allows:
  * drawing the `VideoFrame` onto a canvas, then `createImageBitmap` of it,
@@ -142,20 +155,22 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
       } finally {
         URL.revokeObjectURL(url)
       }
+      const bitmap = await createImageBitmap(blob)
+      const firstFrame = { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) }
 
       if (typeof ImageDecoder === 'undefined') {
-        const bitmap = await createImageBitmap(blob)
         return {
           decoder: 'createImageBitmap' as const,
           imgSize,
           errors,
+          firstFrame,
           width: bitmap.width,
           height: bitmap.height,
           frameCount: null,
+          animated: null,
+          repetitionCount: null,
           durationsMs: null,
-          samples: [{ time: 0, pixel: { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) } }],
-          controlReadable: null,
-          firstFrame: null,
+          samples: [] as { time: number; pixel: ReturnType<typeof centre> | null }[],
         }
       }
       const decoder = new ImageDecoder({ data, type: 'image/webp' })
@@ -163,64 +178,30 @@ async function decodeWebp(page: Page, bytes: Buffer, times: number[]) {
       await decoder.completed
       const track = decoder.tracks.selectedTrack!
       const durationsMs: number[] = []
-      const starts: number[] = []
+      const samples: { time: number; pixel: ReturnType<typeof centre> | null }[] = []
       let width = 0
       let height = 0
       let clock = 0
       for (let index = 0; index < track.frameCount; index += 1) {
         const { image } = await decoder.decode({ frameIndex: index })
-        starts.push(clock)
-        durationsMs.push((image.duration ?? 0) / 1000)
-        clock += (image.duration ?? 0) / 1000
+        const duration = (image.duration ?? 0) / 1000
+        // Sampled now, for every requested time this frame is showing at.
+        for (const time of times) {
+          if (time * 1000 >= clock && time * 1000 < clock + duration) {
+            samples.push({ time, pixel: await pixelOf(image) })
+          }
+        }
+        durationsMs.push(duration)
+        clock += duration
         width = image.displayWidth
         height = image.displayHeight
         image.close()
       }
-      const samples = []
-      for (const time of times) {
-        // The frame showing at `time`: the last one starting at or before it.
-        const index = starts.filter((start) => start <= time * 1000).length - 1
-        const { image } = await decoder.decode({ frameIndex: index })
-        samples.push({ time, pixel: await pixelOf(image) })
-        image.close()
-      }
       decoder.close()
-      // Firefox's ImageDecoder has been measured handing back frames with no
-      // pixels at all (#858, CI run 45267050150: "No media resource in
-      // VideoFrame") while an <img> displays the same file. To tell a
-      // decoder that yields no pixels from a file it cannot read, the same
-      // decoder reads a control: a still WebP this browser's own canvas
-      // encoded. And the first frame is read the way an <img> reads it.
-      let controlReadable: boolean | null = null
-      let firstFrame = null
-      if (samples.some((sample) => sample.pixel === null)) {
-        const canvas = document.createElement('canvas')
-        canvas.width = 16
-        canvas.height = 16
-        const context = canvas.getContext('2d')!
-        context.fillStyle = '#808080'
-        context.fillRect(0, 0, 16, 16)
-        const still = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, 'image/webp', 0.8),
-        )
-        const before = errors.length
-        if (still !== null) {
-          const control = new ImageDecoder({ data: await still.arrayBuffer(), type: 'image/webp' })
-          await control.tracks.ready
-          const { image } = await control.decode()
-          controlReadable = (await pixelOf(image)) !== null
-          image.close()
-          control.close()
-        }
-        errors.splice(before, errors.length - before, `control still read: ${controlReadable}`)
-        const bitmap = await createImageBitmap(blob)
-        firstFrame = { time: 0, pixel: { via: 'createImageBitmap', ...centre(bitmap, bitmap.width, bitmap.height) } }
-      }
       return {
         decoder: 'ImageDecoder' as const,
         imgSize,
         errors,
-        controlReadable,
         firstFrame,
         width,
         height,
@@ -346,31 +327,33 @@ test('the enabled More export formats plugin exports a slate timeline as a valid
     expect(decoded.repetitionCount).toBe(Infinity)
     expect(decoded.frameCount).toBe(webp.frames.length)
     expect(decoded.durationsMs).toEqual(webp.frames.map((frame) => frame.durationMs))
+    expect(decoded.samples.map((sample) => sample.time)).toEqual(times)
   }
-  const unreadable = decoded.samples.some((sample) => sample.pixel === null)
-  if (unreadable) {
-    // Only a decoder that yields no pixels for any WebP excuses this file's
-    // frames being unreadable; if this browser reads its own still through
-    // the same decoder, the fault is the file's.
+
+  const readable = decoded.decoder === 'ImageDecoder' && decoded.samples.every((sample) => sample.pixel !== null)
+  if (decoded.decoder === 'ImageDecoder' && !readable) {
+    // Only a decoder that yields no pixels for animated WebP at all excuses
+    // this file's frames being unreadable. The control is a reference
+    // animation from libwebp's own encoder (FFmpeg's libwebp_anim, red then
+    // blue), read by exactly the same procedure: if this browser reads its
+    // frames, the fault is this file's.
+    const reference = await decodeWebp(page, await readFile(REFERENCE_ANIMATION), [0.25, 0.75])
+    console.log(`[${browserName}] reference animation: ${JSON.stringify(reference.samples)}, refusals ${JSON.stringify(reference.errors)}`)
     expect(
-      decoded.controlReadable,
-      `ImageDecoder reads this browser's own still WebP, but not this file's frames: ${decoded.errors.join('; ')}`,
-    ).toBe(false)
-    // Then parity is judged on the first frame, read as an <img> reads it.
-    const first = decoded.firstFrame!
-    expectClose(first.pixel, await previewCentre(page, 0), 'WebP first frame against the preview at 0 s')
+      reference.samples.every((sample) => sample.pixel === null),
+      `this browser reads libwebp's reference animation but not this file's frames: ${decoded.errors.join('; ')}`,
+    ).toBe(true)
+  }
+  if (!readable) {
+    // Parity is then judged on the first frame, read as an <img> reads it.
+    expectClose(decoded.firstFrame, await previewCentre(page, 0), 'WebP first frame against the preview at 0 s')
     return
   }
-  const pixels: Rgb[] = []
-  for (const sample of decoded.samples) {
-    const pixel = sample.pixel!
-    pixels.push(pixel)
-    const preview = await previewCentre(page, sample.time)
-    expectClose(pixel, preview, `WebP at ${sample.time} s against the preview`)
+  const pixels = decoded.samples.map((sample) => sample.pixel!)
+  for (const [index, sample] of decoded.samples.entries()) {
+    expectClose(pixels[index], await previewCentre(page, sample.time), `WebP at ${sample.time} s against the preview`)
   }
-  if (decoded.decoder === 'ImageDecoder') {
-    // The two samples really are the two slates, not one colour twice.
-    expect(pixels[0].r).toBeGreaterThan(pixels[1].r + 100)
-    expect(pixels[1].b).toBeGreaterThan(pixels[0].b + 100)
-  }
+  // The two samples really are the two slates, not one colour twice.
+  expect(pixels[0].r).toBeGreaterThan(pixels[1].r + 100)
+  expect(pixels[1].b).toBeGreaterThan(pixels[0].b + 100)
 })
