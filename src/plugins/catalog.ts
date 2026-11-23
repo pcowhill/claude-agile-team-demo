@@ -41,4 +41,15 @@ export const builtInPlugins: readonly PluginSpec[] = [
     usedByProject: (_library, timeline) =>
       transitionsOf(timeline).some((transition) => isShapedWipeTransition(transition.type)),
   },
+  {
+    id: 'more-export-formats',
+    name: 'More export formats',
+    description:
+      'Adds an "Animated WebP" format to the export dialog: the composed timeline as a ' +
+      'soundless, looping animation in full colour, usually smaller than a GIF.',
+    version: '1.0.0',
+    load: () => import('./moreFormats/index'),
+    // Export formats are outputs, not project state, so no project depends
+    // on this plugin (#858), as with GIF export.
+  },
 ]

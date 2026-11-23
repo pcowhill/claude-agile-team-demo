@@ -1,6 +1,6 @@
 # Export
 
-Turning the arrangement into a file: [opening the export dialog](#opening-the-export-dialog), the [formats](#formats-and-what-decides-them) and what decides which are offered, the [output settings](#output-settings) and their presets, the [Size limit](#the-size-limit), [the Range line](#the-range-line), the two [Audio only](#audio-only-webm-opus-and-mp3) formats, [Animated GIF](#animated-gif-plugin) through its plugin, and [what can stop an export](#what-can-stop-an-export). The exported file carries the preview's mix, and draws every frame through the same rule the preview uses — see [The output frame](concepts.md#the-output-frame). A single frame is saved from the preview's **Frame ▾** › **Save frame as PNG…** instead.
+Turning the arrangement into a file: [opening the export dialog](#opening-the-export-dialog), the [formats](#formats-and-what-decides-them) and what decides which are offered, the [output settings](#output-settings) and their presets, the [Size limit](#the-size-limit), [the Range line](#the-range-line), the two [Audio only](#audio-only-webm-opus-and-mp3) formats, [Animated GIF](#animated-gif-plugin) and [Animated WebP](#animated-webp-plugin) through their plugins, and [what can stop an export](#what-can-stop-an-export). The exported file carries the preview's mix, and draws every frame through the same rule the preview uses — see [The output frame](concepts.md#the-output-frame). A single frame is saved from the preview's **Frame ▾** › **Save frame as PNG…** instead.
 
 ## Opening the export dialog
 
@@ -18,9 +18,9 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 
 **What it does.** Lists the formats this browser can produce, and shows the selected format's note beneath them.
 
-**Details.** The list is decided by the browser, not the app. **WebM** and **MP4** record through the browser's own recorder, so each appears only where the browser can encode it — Firefox offers WebM alone, and MP4 needs a recent Chromium or Safari. **Audio only (WebM/Opus)** records the same way; **Audio only (MP3)** encodes in the page and needs only the browser's audio engine, so it is offered wherever sound plays at all. **Animated GIF** appears while the GIF export plugin is enabled. WebM is listed first and is the fallback when a preferred format is missing. A format with a stated limit — the GIF's frame rate and size, an audio-only format's *no video track* — shows it right under the group.
+**Details.** The list is decided by the browser, not the app. **WebM** and **MP4** record through the browser's own recorder, so each appears only where the browser can encode it — Firefox offers WebM alone, and MP4 needs a recent Chromium or Safari. **Audio only (WebM/Opus)** records the same way; **Audio only (MP3)** encodes in the page and needs only the browser's audio engine, so it is offered wherever sound plays at all. **Animated GIF** appears while the GIF export plugin is enabled, and **Animated WebP** while the More export formats plugin is. WebM is listed first and is the fallback when a preferred format is missing. A format with a stated limit — an animation's frame rate and size, an audio-only format's *no video track* — shows it right under the group.
 
-**Related.** [Audio only](#audio-only-webm-opus-and-mp3) · [Animated GIF](#animated-gif-plugin) · [Plugins](plugins.md) · [Browser support](troubleshooting.md#browser-support-and-feature-detection)
+**Related.** [Audio only](#audio-only-webm-opus-and-mp3) · [Animated GIF](#animated-gif-plugin) · [Animated WebP](#animated-webp-plugin) · [Plugins](plugins.md) · [Browser support](troubleshooting.md#browser-support-and-feature-detection)
 
 ## Output settings
 
@@ -46,7 +46,7 @@ Turning the arrangement into a file: [opening the export dialog](#opening-the-ex
 - **WebM picks the codec that holds the rate.** With a limit set, a WebM export records with VP8 rather than VP9: in Chromium, VP9's recorder came out at nearly twice a tight limit, where VP8 stayed under it. Without a limit WebM records as before, with VP9 where the browser has it, which makes the smaller file for the same picture.
 - **Too small to export.** A limit that leaves the picture nothing once the sound has its share, or one too small for sound alone, says so and disables **Export**.
 - **Each chapter.** With [Each chapter](#exporting-each-chapter-as-its-own-file), the limit applies to **every chapter file** on its own, sized by that chapter's length, because an upload cap is per file. The estimate reads the longest chapter, the one the limit squeezes hardest, and the finished list gives each file's size and says which are over; **Export again smaller** is offered for a single-file export only, so a chapter file that came out over is re-exported as a Custom range.
-- **Which formats.** WebM, MP4 and **Audio only (WebM/Opus)** offer the limit; for the audio-only format the whole budget goes to the sound. **MP3** has its own fixed rate and **Animated GIF** its own limits, so neither shows the control.
+- **Which formats.** WebM, MP4 and **Audio only (WebM/Opus)** offer the limit; for the audio-only format the whole budget goes to the sound. **MP3** has its own fixed rate, and **Animated GIF** and **Animated WebP** their own limits, so none of them shows the control.
 
 **Related.** [Output settings](#output-settings) · [The Range line](#the-range-line) · [Audio only: WebM/Opus and MP3](#audio-only-webm-opus-and-mp3)
 
@@ -106,7 +106,17 @@ The times are rounded **down**, so a chapter never starts after the moment you m
 
 **Details.** The GIF samples at {{GIF_FPS}} fps and is scaled down so its longer side is at most {{GIF_MAX_PX}} px, whatever size the Output group asks for — the composition is drawn at the requested size and then shrunk, so nothing is misplaced — and each frame gets its own 256-colour palette. The note under the Format group states these limits. The plugin's code downloads when the plugin is first enabled, not with the editor. Disabling the plugin removes the format from the list; an export already running finishes.
 
-**Related.** [GIF export](plugins.md#gif-export) · [Plugins](plugins.md)
+**Related.** [GIF export](plugins.md#gif-export) · [Animated WebP](#animated-webp-plugin) · [Plugins](plugins.md)
+
+## Animated WebP (plugin)
+
+**Where to find it.** **Format** › **Animated WebP**, once **File ▾** › **Plugins…** › *More export formats* is enabled.
+
+**What it does.** Encodes the composed timeline — transitions, zooms, overlays, shapes and text included — as a soundless, looping animated WebP in full colour.
+
+**Details.** Like the GIF, the WebP samples at {{WEBP_FPS}} fps and is scaled down so its longer side is at most {{WEBP_MAX_PX}} px, whatever size the Output group asks for. Unlike the GIF, it keeps every colour, so gradients do not band and text in a screen recording stays clean, and it usually comes out smaller: about a quarter to two fifths smaller than the GIF of the same timeline, in the two clips measured when it was added. The note under the Format group states the limits. Every current browser plays an animated WebP. The format is offered only where the browser can encode WebP pictures, which current Chromium and Firefox can. The plugin's code downloads when the plugin is first enabled, not with the editor. Disabling the plugin removes the format from the list; an export already running finishes.
+
+**Related.** [More export formats](plugins.md#more-export-formats) · [Animated GIF](#animated-gif-plugin) · [Plugins](plugins.md)
 
 ## What can stop an export
 

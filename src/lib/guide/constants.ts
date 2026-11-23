@@ -60,6 +60,7 @@ import {
   formatSeconds,
 } from '../settings'
 import { GIF_FRAME_RATE, GIF_MAX_DIMENSION } from '../../plugins/gifLimits'
+import { WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../../plugins/moreFormatsLimits'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -159,6 +160,8 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     EXPORT_SIZE_PRESETS: EXPORT_SIZE_PRESETS.map((preset) => preset.label).join(', '),
     GIF_FPS: String(GIF_FRAME_RATE),
     GIF_MAX_PX: String(GIF_MAX_DIMENSION),
+    WEBP_FPS: String(WEBP_FRAME_RATE),
+    WEBP_MAX_PX: String(WEBP_MAX_DIMENSION),
     MP3_KBPS: String(MP3_KBPS),
     SIZE_LIMIT_MARGIN_PERCENT: percent(SIZE_LIMIT_MARGIN),
     RESERVED_AUDIO_KBPS: String(RESERVED_AUDIO_BITRATE / 1000),

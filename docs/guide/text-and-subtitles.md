@@ -48,7 +48,7 @@ The number fields commit on Enter or when you leave them; in Firefox, a click on
 
 **What it does.** Draws the block above the composed frame — above the sequence, its transitions and zooms, above the overlay layers, and above [shapes](shapes-and-annotations.md#how-shapes-render) — for its window, in the preview and identically in the exported file.
 
-**Details.** Size and position are fractions of the output frame, so an overlay keeps its proportion and its place whatever the frame's pixel size, and the export draws it at the output resolution with the same font, size, position and fade envelope the preview used. Frame snapshots and the GIF plugin draw through the same rule. The block is measured from its text under its font, not stored — its width is whatever the widest line comes out as — which is why the visual editor can put a handle exactly on the text you see.
+**Details.** Size and position are fractions of the output frame, so an overlay keeps its proportion and its place whatever the frame's pixel size, and the export draws it at the output resolution with the same font, size, position and fade envelope the preview used. Frame snapshots and the GIF and WebP plugin formats draw through the same rule. The block is measured from its text under its font, not stored — its width is whatever the widest line comes out as — which is why the visual editor can put a handle exactly on the text you see.
 
 **Related.** [Preview and playback](preview-and-playback.md) · [The output frame](concepts.md#the-output-frame)
 

@@ -835,14 +835,14 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await record(`the ${item.replace('…', '')} dialog`, dialog)
-    // Both plugins on, so the formats and transitions they add exist below.
+    // Every plugin on, so the formats and transitions they add exist below.
     if (item === 'Plugins…') {
-      for (const plugin of ['GIF export', 'Shaped wipes'] as const) {
+      for (const plugin of ['GIF export', 'Shaped wipes', 'More export formats'] as const) {
         const enable = dialog.getByRole('button', { name: `Enable ${plugin}`, exact: true })
         if ((await enable.count()) > 0) await enable.click()
         await expect(dialog.getByRole('button', { name: `Disable ${plugin}`, exact: true })).toBeVisible()
       }
-      await record('the Plugins dialog, both enabled', dialog)
+      await record('the Plugins dialog, all enabled', dialog)
     }
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)

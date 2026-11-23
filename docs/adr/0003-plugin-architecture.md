@@ -128,6 +128,19 @@ extension point is built until a concrete plugin needs it**.
   composed frame; composition coordinates stay at the requested
   resolution), and a per-frame 256-color palette; the numbers and the why
   live in `gifSink.ts`, and the format's `note` states them in the UI.
+- **More export formats plugin** (`src/plugins/moreFormats/`, #858, from
+  the customer's pick of idea 12 on #856): export formats beyond the core
+  set, one per issue, Animated WebP first. No new extension point and no
+  new dependency. The format is a frame sink on the shared pipeline, as
+  GIF is. Browsers have no animated-WebP encoder, so the sink encodes
+  each kept frame with `canvas.toBlob(…, 'image/webp')` and a small
+  hand-written muxer (`webpMux.ts`) wraps those stills' bitstream chunks
+  in `ANMF` frames. Support is probed with `toDataURL('image/webp')`,
+  because a browser that cannot encode WebP silently returns PNG. The
+  WebP keeps the GIF's 10 fps and 480 px: standalone still frames cost
+  about a key frame each, and measured on #858 a faster rate or a larger
+  frame made the WebP larger than the GIF it improves on. The table and
+  the reasoning live in `moreFormatsLimits.ts`, which the guide reads.
 - **Transition registry** (`src/lib/transitionRender.ts`, built in phase 4
   #199 because the Shaped wipes pack needs it — the deferral this list
   recorded): a definition carries an id (what timeline state and project
