@@ -3,7 +3,9 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { probeMediaFile } from '../lib/probeMedia'
+import { chooseClipAction } from '../test/clipMenu'
 import { chooseFromFileMenu } from '../test/fileMenu'
+import { ADD_SPEED, chooseEffect } from '../test/timelineRowMenu'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../lib/settings'
 import type { TimeFormat } from '../lib/timeFormat'
 import { TimeFormatContext } from './timeFormatContext'
@@ -19,6 +21,17 @@ import { TrimField } from './TrimDialog'
 vi.mock('../lib/probeMedia', () => ({
   probeMediaFile: vi.fn(),
 }))
+
+// jsdom has no Web Audio: an audio track's waveform decode is mocked, as in
+// Timeline.test.tsx, so the row renders without a rejected decode.
+vi.mock('../lib/audioPeaks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/audioPeaks')>()
+  return {
+    ...actual,
+    peaksForClip: vi.fn(() => Promise.resolve(new Float32Array([0.2, 0.8, 0.5, 0.3]))),
+    levelsForClip: vi.fn(() => Promise.resolve(null)),
+  }
+})
 
 const probeMock = vi.mocked(probeMediaFile)
 
@@ -67,9 +80,11 @@ describe('Time fields: minutes and seconds on the timeline (#848)', () => {
     await userEvent.clear(outField)
     await userEvent.type(outField, `${typed}{Enter}`)
 
-    expect(outField).toHaveValue(seconds === 83 ? '1:23.000' : '1:23.500')
-    // The stored value, read through the row's seconds summary.
-    expect(screen.getByText(`plays ${seconds}s of 90s`)).toBeInTheDocument()
+    const shown = seconds === 83 ? '1:23.000' : '1:23.500'
+    expect(outField).toHaveValue(shown)
+    // The stored value, read through the row's summary, which follows the
+    // setting too (#849).
+    expect(screen.getByText(`plays ${shown} of 1:30.000`)).toBeInTheDocument()
   })
 
   it.each(['1:75', 'abc', ''])('commits nothing for %j and shows the stored value again', async (typed) => {
@@ -113,6 +128,68 @@ describe('Time fields: minutes and seconds on the timeline (#848)', () => {
     expect(screen.getByRole('textbox', { name: OUT })).toHaveValue('1:30.000')
     await userEvent.selectOptions(select, 'seconds')
     expect(screen.getByRole('spinbutton', { name: OUT })).toHaveValue(90)
+  })
+})
+
+describe('Time fields: the rows\' seconds summaries follow the setting (#849)', () => {
+  const importMedia = async (name: string, kind: 'video' | 'audio' | 'image', duration: number) => {
+    probeMock.mockResolvedValueOnce(
+      kind === 'image'
+        ? { duration: 0, url: `blob:${name}`, kind, width: 640, height: 480 }
+        : { duration, url: `blob:${name}`, kind },
+    )
+    const type = kind === 'image' ? 'image/png' : kind === 'audio' ? 'audio/mpeg' : 'video/mp4'
+    await userEvent.upload(screen.getByTestId('clip-file-input'), new File(['content'], name, { type }))
+    await screen.findByText(name)
+  }
+
+  it('reads a sequence entry\'s plays, of and remapped in m:ss.mmm, with no s', async () => {
+    storeTimeFormat('minutes')
+    render(<App />)
+    await addClip()
+
+    const outField = screen.getByRole('textbox', { name: OUT })
+    await userEvent.clear(outField)
+    await userEvent.type(outField, '1:23.5{Enter}')
+    expect(screen.getByText('plays 1:23.500 of 1:30.000')).toBeInTheDocument()
+
+    // A 2 s span at 0.5× plays for 4 s: 83.5 − 2 + 4 = 85.5 s in the sequence.
+    await chooseEffect('a.mp4 at position 1', ADD_SPEED)
+    expect(screen.getByText('plays 1:23.500 of 1:30.000 — 1:25.500 remapped')).toBeInTheDocument()
+  })
+
+  it('reads an audio track\'s plays and of in m:ss.mmm', async () => {
+    storeTimeFormat('minutes')
+    render(<App />)
+    await importMedia('music.mp3', 'audio', 75.25)
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+
+    expect(screen.getByText('plays 1:15.250 of 1:15.250')).toBeInTheDocument()
+  })
+
+  it('reads a video overlay\'s plays, of and remapped, and an image overlay\'s shows, in m:ss.mmm', async () => {
+    storeTimeFormat('minutes')
+    render(<App />)
+    await importMedia('cam.mp4', 'video', 10)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    await chooseEffect('overlay cam.mp4 at position 1', ADD_SPEED)
+    // A 2 s span at 0.5× shows for 4 s: 10 − 2 + 4 = 12 s on screen.
+    expect(screen.getByText('plays 0:10.000 of 0:10.000 — 0:12.000 remapped')).toBeInTheDocument()
+
+    await importMedia('logo.png', 'image', 0)
+    await chooseClipAction('logo.png', 'Add as overlay')
+    expect(screen.getByText('shows 0:05.000')).toBeInTheDocument()
+  })
+
+  it('switches back to today\'s seconds text with no reload', async () => {
+    storeTimeFormat('minutes')
+    render(<App />)
+    await addClip()
+    expect(screen.getByText('plays 1:30.000 of 1:30.000')).toBeInTheDocument()
+
+    await chooseFromFileMenu('Settings…')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Time fields' }), 'seconds')
+    expect(screen.getByText('plays 90s of 90s')).toBeInTheDocument()
   })
 })
 

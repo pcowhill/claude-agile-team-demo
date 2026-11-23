@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { chooseClipAction } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
@@ -164,6 +165,72 @@ for (const viewport of [
     expect(dialogWrong, 'Trim window boxes whose text is clipped').toEqual([])
     await expectNoHorizontalScroll(page, `with the Trim window open at ${viewport.width}px`)
     await dialog.screenshot({ path: testInfo.outputPath(`time-fields-trim-${viewport.width}.png`) })
+  })
+}
+
+/**
+ * The rows' summaries (#849): with minutes on, `plays 0:06.008 of 0:06.008 —
+ * 0:08.008 remapped` is longer than the seconds text it replaces, so each
+ * summary is measured against its own row and the column, on a project
+ * holding every kind of row that prints one — a sequence entry and a video
+ * overlay, each with a speed segment so the remapped part shows, and an
+ * audio track. Tolerance 1px, `expectWithin`'s default, for sub-pixel edges.
+ */
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 360, height: 740 },
+]) {
+  test(`every row's seconds summary reads in minutes and stays inside its row at ${viewport.width}px (#849)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport)
+    await minutesMode(page)
+    await page.goto('./')
+    const fixture = async (name: string, mimeType: string) => ({
+      name,
+      mimeType,
+      buffer: await readFile(join('e2e', 'fixtures', name)),
+    })
+    await page
+      .getByTestId('clip-file-input')
+      .setInputFiles([
+        await fixture(CLIP, 'video/webm'),
+        await fixture('tone.ogg', 'audio/ogg'),
+        await fixture('overlay-colours.webm', 'video/webm'),
+      ])
+    await page.getByRole('button', { name: `Add ${CLIP} to timeline` }).click()
+    await chooseEffect(page, ENTRY, 'Speed segment')
+    await page.getByRole('button', { name: 'Add tone.ogg to timeline' }).click()
+    await chooseClipAction(page, 'overlay-colours.webm', 'Add as overlay')
+    await chooseEffect(page, 'overlay overlay-colours.webm at position 1', 'Speed segment')
+
+    const summaries = page.locator('.timeline-entry-effective')
+    // Entry, track and overlay: fewer means a row kind went missing.
+    await expect(summaries).toHaveCount(3)
+    await expect(summaries.filter({ hasText: / remapped$/ })).toHaveCount(2)
+    const column = page.locator('main')
+    for (let index = 0; index < 3; index++) {
+      const summary = summaries.nth(index)
+      const text = (await summary.textContent()) ?? ''
+      expect(text, 'a summary in minutes mode').toMatch(/^plays \d+:\d\d\.\d\d\d of \d+:\d\d\.\d\d\d( — \d+:\d\d\.\d\d\d remapped)?$/)
+      // Measured where it lies, not scrolled to: scrolling it into view would
+      // also scroll an overflowing column sideways and bring it back inside.
+      await expectWithin(summary, summary.locator('xpath=ancestor::li[1]'), {
+        axis: 'x',
+        what: `"${text}" in its row`,
+      })
+      await expectWithin(summary, column, { axis: 'x', what: `"${text}" in the column` })
+      // The row and the column can widen with a summary that will not wrap,
+      // so the window's own width is the edge that cannot move with it.
+      const box = await summary.boundingBox()
+      expect(box, `"${text}" is laid out`).not.toBeNull()
+      expect(box!.x + box!.width, `"${text}" right edge against the ${viewport.width}px window`).toBeLessThanOrEqual(
+        viewport.width + 1,
+      )
+    }
+    await expectNoHorizontalScroll(page, `with minutes summaries at ${viewport.width}px`)
+    await summaries.first().scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`time-fields-summaries-${viewport.width}.png`) })
   })
 }
 
