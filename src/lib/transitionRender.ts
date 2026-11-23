@@ -55,6 +55,57 @@ export interface TransitionEllipse {
   invert: boolean
 }
 
+/** A point of a reveal polygon (#857), in fractions of the frame. */
+export interface TransitionPoint {
+  x: number
+  y: number
+}
+
+/**
+ * One closed reveal polygon (#857): its vertices in order, implicitly
+ * closed, in fractions of the frame on each axis like `incomingClip` —
+ * (0, 0) the top-left corner, (1, 1) the bottom-right.
+ */
+export type TransitionPolygon = readonly TransitionPoint[]
+
+/**
+ * The frame aspect (width / height) `transitionLayerSpec` assumes when its
+ * caller names none — the 16:9 frame most projects have. Only callers with
+ * no frame at all rely on it (unit tests of aspect-free rules); both
+ * renderers always pass the frame they draw. No core or Shaped-wipes rule
+ * reads the aspect, so for them it changes nothing.
+ */
+export const DEFAULT_TRANSITION_ASPECT = 16 / 9
+
+/** Twice the signed area of a polygon (shoelace); positive is clockwise on screen. */
+function doubledSignedArea(polygon: TransitionPolygon): number {
+  let sum = 0
+  for (let index = 0; index < polygon.length; index += 1) {
+    const a = polygon[index]
+    const b = polygon[(index + 1) % polygon.length]
+    sum += a.x * b.y - b.x * a.y
+  }
+  return sum
+}
+
+/**
+ * A pattern reveal's polygons as both renderers draw them (#857): every
+ * polygon wound the same way (clockwise on screen).
+ *
+ * Both renderers fill the polygons as one path under the non-zero rule — the
+ * export as a canvas clip, the preview as an SVG mask — and under that rule
+ * a polygon wound against an overlapping neighbour would cut a hole instead
+ * of joining the union. Normalizing the winding here, in the one place both
+ * renderers resolve the reveal through, makes `incomingPolygons` mean "the
+ * union" for any overlapping simple polygons, whichever order a definition
+ * listed their vertices in.
+ */
+export function windRevealPolygons(polygons: readonly TransitionPolygon[]): TransitionPoint[][] {
+  return polygons.map((polygon) =>
+    doubledSignedArea(polygon) < 0 ? [...polygon].reverse() : [...polygon],
+  )
+}
+
 /**
  * The radius fraction at which the iris ellipse covers the whole frame: an
  * ellipse with radii `r·width` and `r·height` contains the corner
@@ -119,6 +170,18 @@ export interface TransitionLayerSpec {
    * Null means no elliptical cut, as every pre-iris type always had.
    */
   incomingEllipse: TransitionEllipse | null
+  /**
+   * Polygonal region of the incoming card that paints (#857) — the union of
+   * the polygons, in the card's own space like `incomingClip` (frame
+   * fractions while the card is unoffset). Null means no polygonal cut, as
+   * every core and Shaped-wipes type has; an empty list (or only zero-area
+   * polygons) paints nothing. When several reveals are set, the card paints
+   * only where all of them allow. A shape that must keep its proportions —
+   * a star, a diamond — is drawn from the frame aspect its rule receives
+   * (`TransitionDefinition.layerSpec`), since frame fractions stretch with
+   * the frame.
+   */
+  incomingPolygons: readonly TransitionPolygon[] | null
 }
 
 /**
@@ -196,6 +259,7 @@ export const BASE_TRANSITION_SPEC: TransitionLayerSpec = {
   incomingScale: 1,
   veil: null,
   incomingEllipse: null,
+  incomingPolygons: null,
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
@@ -315,8 +379,14 @@ export interface TransitionDefinition {
    * The pure layer rule at a progress in [0, 1] — the same
    * `TransitionLayerSpec` vocabulary core transitions use, driving the
    * preview's CSS and the export's canvas identically by construction.
+   *
+   * `aspect` is the frame's width / height (#857). Frame-fraction regions
+   * stretch with the frame, so a rule whose shape must keep its proportions
+   * on every aspect, or must reach exact cover of a non-square frame at
+   * progress 1, reads it; a rule that needs neither ignores it, as every
+   * core and Shaped-wipes rule does.
    */
-  layerSpec: (progress: number) => TransitionLayerSpec
+  layerSpec: (progress: number, aspect: number) => TransitionLayerSpec
 }
 
 /**
@@ -434,9 +504,10 @@ export function transitionLayerSpec(
   type: TransitionType,
   progress: number,
   registry: TransitionRegistry = transitionRegistry,
+  aspect: number = DEFAULT_TRANSITION_ASPECT,
 ): TransitionLayerSpec {
   const definition = registry.find(type)
-  if (definition !== undefined) return definition.layerSpec(progress)
+  if (definition !== undefined) return definition.layerSpec(progress, aspect)
   return coreLayerSpec('crossfade', progress)
 }
 

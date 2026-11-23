@@ -29,6 +29,11 @@ const healthyManifest = (): Manifest => ({
     src: 'src/plugins/shapedWipes/index.ts',
     imports: ['_shared-def.js'],
   },
+  'src/plugins/patternTransitions/index.ts': {
+    file: 'assets/index-vwx.js',
+    src: 'src/plugins/patternTransitions/index.ts',
+    imports: ['_shared-def.js'],
+  },
   'src/plugins/moreFormats/index.ts': {
     file: 'assets/index-yza.js',
     src: 'src/plugins/moreFormats/index.ts',
@@ -55,6 +60,7 @@ const EDITOR_KEYS = EDITORS.map((name) => `src/components/${name}Editor.tsx`)
 const PLUGIN_KEYS = [
   'src/plugins/gif/index.ts',
   'src/plugins/shapedWipes/index.ts',
+  'src/plugins/patternTransitions/index.ts',
   'src/plugins/moreFormats/index.ts',
 ]
 
@@ -121,6 +127,7 @@ describe('findLazyChunkProblems (#197)', () => {
     const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
     expect(lazyKeys.plugin).toEqual([
       'src/plugins/shapedWipes/index.ts',
+      'src/plugins/patternTransitions/index.ts',
       'src/plugins/moreFormats/index.ts',
     ])
     expect(problems).toHaveLength(1)

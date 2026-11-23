@@ -1,5 +1,6 @@
 import type { PluginSpec } from '../lib/plugins'
 import { transitionsOf } from '../lib/timeline'
+import { isPatternTransition } from './patternTransitionsIds'
 import { isShapedWipeTransition } from './shapedWipesIds'
 
 /**
@@ -40,6 +41,19 @@ export const builtInPlugins: readonly PluginSpec[] = [
     // (top-level wiring), never the plugin's lazy chunk.
     usedByProject: (_library, timeline) =>
       transitionsOf(timeline).some((transition) => isShapedWipeTransition(transition.type)),
+  },
+  {
+    id: 'pattern-transitions',
+    name: 'Pattern transitions',
+    description:
+      'Adds five transitions with patterned reveals: horizontal and vertical blinds, ' +
+      'a checkerboard, and diamond and star irises.',
+    version: '1.0.0',
+    load: () => import('./patternTransitions/index'),
+    // As with Shaped wipes (#199): pattern transitions live in the
+    // timeline, so a project carrying one depends on this plugin (#857).
+    usedByProject: (_library, timeline) =>
+      transitionsOf(timeline).some((transition) => isPatternTransition(transition.type)),
   },
   {
     id: 'more-export-formats',

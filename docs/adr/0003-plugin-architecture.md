@@ -165,6 +165,38 @@ extension point is built until a concrete plugin needs it**.
   every definition the base spec plus a single reveal rectangle, the same
   vocabulary the core wipes use, so the pack ships zero rendering code and
   no dependencies.
+- **Transition registry, widened for patterns** (#857, the Pattern
+  transitions plugin the customer picked on #856). Two contract changes,
+  both for that concrete need. **(1)** `TransitionLayerSpec` gains
+  `incomingPolygons`: a list of polygons in frame fractions, and the
+  incoming card paints inside their union. One vocabulary covers every
+  patterned reveal: the separate pieces of blinds and a checkerboard, the
+  pointed outlines of a diamond or a star, and, sampled finely, the clock
+  sweep and heart that part 2 (#863) needs. Both renderers resolve it
+  through `windRevealPolygons`, which winds every polygon the same way, so
+  the non-zero fill each renderer uses means "union" whatever order a
+  definition lists its vertices in. The export fills one canvas path and
+  clips to it. The preview draws the same path into an SVG used as the
+  incoming element's `mask-image`. `clip-path: polygon()` takes only one
+  polygon, and `clip-path: path()` takes pixel coordinates the style does
+  not know, while an SVG with a unit `viewBox` stretched over the element
+  (`preserveAspectRatio="none"`) takes the frame fractions as they are.
+  **(2)** `layerSpec(progress, aspect)` now receives the frame's width ÷
+  height, and `transitionLayerSpec` passes it on. Both renderers pass the
+  frame they draw, and callers with no frame get `DEFAULT_TRANSITION_ASPECT`
+  (16:9). Frame fractions stretch with the frame. A star drawn in them
+  would be 1.78× too wide on 16:9, and a shape defined in a fixed square
+  covers a 16:9 frame at about 78% of the transition and then sits still.
+  Only a rule that knows the aspect can keep a shape's proportions *and*
+  reach exact cover at progress 1. Core and Shaped-wipes rules ignore the
+  argument and are unchanged, so their tests pass with only the shared
+  fixture gaining the new field's `null`.
+- **Pattern transitions plugin** (`src/plugins/patternTransitions/`,
+  #857): horizontal and vertical blinds, a checkerboard, and diamond and
+  star irises. Each is the base spec plus one polygon reveal, with no
+  dependencies. Its ids and pattern sizes are top-level wiring
+  (`src/plugins/patternTransitionsIds.ts`), as with Shaped wipes, so
+  dependency recording and the guide read them without loading the chunk.
 
 ### Projects that use plugin features: prompt-and-enable
 
