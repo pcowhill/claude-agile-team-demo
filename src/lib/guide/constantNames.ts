@@ -142,6 +142,9 @@ export const GUIDE_CONSTANT_NAMES = [
   'PATTERN_BLIND_SLATS',
   'PATTERN_CHECKER_COLUMNS',
   'PATTERN_CHECKER_ROWS',
+  /** The Pattern transitions plugin's Spiral grid (#863). */
+  'PATTERN_SPIRAL_COLUMNS',
+  'PATTERN_SPIRAL_ROWS',
   /** The More export formats plugin's Animated WebP sampling rate and longer-side cap (#858). */
   'WEBP_FPS',
   'WEBP_MAX_PX',

@@ -11,10 +11,19 @@ import {
   CHECKER_COLUMNS,
   CHECKER_ROWS,
   PATTERN_TRANSITION_IDS,
+  SPIRAL_COLUMNS,
+  SPIRAL_ROWS,
   isPatternTransition,
 } from '../patternTransitionsIds'
 import { SHAPED_WIPE_TRANSITION_IDS } from '../shapedWipesIds'
-import { activate, patternTransitionDefinitions } from './index'
+import {
+  HEART_VERTICES,
+  activate,
+  heartCoverScale,
+  heartPoint,
+  patternTransitionDefinitions,
+  spiralOrder,
+} from './index'
 
 /**
  * The Pattern transitions plugin (#857). Like the Shaped wipes tests (#199)
@@ -138,6 +147,273 @@ describe('Pattern transitions activate/deactivate (#857)', () => {
     const asTimeline = (value: unknown) => value as Parameters<typeof usedByProject>[1]
     expect(usedByProject(library, asTimeline(timelineWith('checkerboard')))).toBe(true)
     expect(usedByProject(library, asTimeline(timelineWith('crossfade')))).toBe(false)
+  })
+})
+
+/**
+ * The area of the reveal that falls inside the frame, exactly: each polygon
+ * clipped to the unit square (Sutherland–Hodgman, which is exact for any
+ * polygon against a convex window), then summed. The sweeps reach far past
+ * the frame, so their raw area says nothing about what is seen. Sums are
+ * the union only where polygons do not overlap, as for the one-fan sweeps.
+ */
+function frameArea(id: string, progress: number, aspect: number): number {
+  const reveal = transitionLayerSpec(id, progress, transitionRegistry, aspect).incomingPolygons!
+  const clipEdge = (
+    polygon: TransitionPoint[],
+    inside: (point: TransitionPoint) => boolean,
+    cross: (a: TransitionPoint, b: TransitionPoint) => TransitionPoint,
+  ) => {
+    const out: TransitionPoint[] = []
+    polygon.forEach((current, index) => {
+      const previous = polygon[(index + polygon.length - 1) % polygon.length]
+      if (inside(current)) {
+        if (!inside(previous)) out.push(cross(previous, current))
+        out.push(current)
+      } else if (inside(previous)) out.push(cross(previous, current))
+    })
+    return out
+  }
+  const atX = (x: number) => (a: TransitionPoint, b: TransitionPoint) => ({
+    x,
+    y: a.y + ((b.y - a.y) * (x - a.x)) / (b.x - a.x),
+  })
+  const atY = (y: number) => (a: TransitionPoint, b: TransitionPoint) => ({
+    x: a.x + ((b.x - a.x) * (y - a.y)) / (b.y - a.y),
+    y,
+  })
+  return windRevealPolygons(reveal).reduce((sum, polygon) => {
+    let clipped = clipEdge([...polygon], (point) => point.x >= 0, atX(0))
+    clipped = clipEdge(clipped, (point) => point.x <= 1, atX(1))
+    clipped = clipEdge(clipped, (point) => point.y >= 0, atY(0))
+    clipped = clipEdge(clipped, (point) => point.y <= 1, atY(1))
+    let doubled = 0
+    clipped.forEach((a, index) => {
+      const b = clipped[(index + 1) % clipped.length]
+      doubled += a.x * b.y - b.x * a.y
+    })
+    return sum + Math.abs(doubled) / 2
+  }, 0)
+}
+
+describe('Pattern transitions, part 2 (#863)', () => {
+  it('clock wipe: the swept part of the frame grows steadily, a quarter at each quarter', () => {
+    deactivate = activate()
+    for (const aspect of ASPECTS) {
+      // At a quarter the hand points at 3 o'clock and has swept the
+      // top-right quarter exactly; at a half, the right half; and so on.
+      for (const quarter of [0.25, 0.5, 0.75]) {
+        expect(frameArea('clock-wipe', quarter, aspect), `${quarter}, aspect ${aspect}`).toBeCloseTo(
+          quarter,
+          9,
+        )
+      }
+      // In between it never stalls or jumps: each twentieth of the
+      // transition adds some of the frame, and no more than a tenth.
+      let previous = 0
+      for (let step = 1; step < 20; step += 1) {
+        const swept = frameArea('clock-wipe', step / 20, aspect)
+        expect(swept - previous, `step ${step}, aspect ${aspect}`).toBeGreaterThan(0.01)
+        expect(swept - previous, `step ${step}, aspect ${aspect}`).toBeLessThan(0.1)
+        previous = swept
+      }
+    }
+  })
+
+  it('clock wipe: the hand starts at 12 o’clock and turns clockwise, at the same angle on every aspect', () => {
+    deactivate = activate()
+    for (const [width, height] of [
+      [1920, 1080],
+      [1080, 1920],
+      [1080, 1080],
+    ]) {
+      const aspect = width / height
+      // A point 30° clockwise from 12, and its mirror 30° anticlockwise, both
+      // 0.3 frame heights out: at a twelfth (30°) of the turn the first is
+      // on the hand, so test either side of it.
+      const at = (degrees: number) => ({
+        x: 0.5 + (0.3 * Math.sin((degrees * Math.PI) / 180) * height) / width,
+        y: 0.5 - 0.3 * Math.cos((degrees * Math.PI) / 180),
+      })
+      expect(revealed('clock-wipe', 1 / 12, aspect, at(25))).toBe(true)
+      expect(revealed('clock-wipe', 1 / 12, aspect, at(35))).toBe(false)
+      expect(revealed('clock-wipe', 1 / 12, aspect, at(-25))).toBe(false)
+    }
+  })
+
+  it('clock and radial wipes: the arc never enters the frame, so the only edges seen are the hands', () => {
+    deactivate = activate()
+    for (const id of ['clock-wipe', 'radial-wipe']) {
+      for (const aspect of ASPECTS) {
+        const [fan] = transitionLayerSpec(id, 0.6, transitionRegistry, aspect).incomingPolygons!
+        // In frame heights from the centre, the corners are this far out.
+        const corner = Math.hypot(aspect, 1) / 2
+        const arc = fan.slice(1).map((point) => ({ x: (point.x - 0.5) * aspect, y: point.y - 0.5 }))
+        for (let index = 0; index + 1 < arc.length; index += 1) {
+          const a = arc[index]
+          const b = arc[index + 1]
+          // The chord's nearest approach to the centre.
+          const length = Math.hypot(b.x - a.x, b.y - a.y)
+          const distance = Math.abs(a.x * b.y - b.x * a.y) / length
+          expect(distance, `${id} chord ${index}, aspect ${aspect}`).toBeGreaterThan(corner)
+        }
+      }
+    }
+  })
+
+  it('radial wipe: two hands from 12 o’clock, mirror images, meeting at 6', () => {
+    deactivate = activate()
+    for (const aspect of ASPECTS) {
+      // Half-way, the hands point at 3 and 9: the top half is revealed.
+      expect(frameArea('radial-wipe', 0.5, aspect)).toBeCloseTo(0.5, 9)
+      expect(revealed('radial-wipe', 0.5, aspect, { x: 0.1, y: 0.4 })).toBe(true)
+      expect(revealed('radial-wipe', 0.5, aspect, { x: 0.9, y: 0.6 })).toBe(false)
+      for (const point of frameGrid(10)) {
+        const mirror = { x: 1 - point.x, y: point.y }
+        expect(revealed('radial-wipe', 0.3, aspect, point)).toBe(revealed('radial-wipe', 0.3, aspect, mirror))
+      }
+      // Just before the end, only a sliver either side of 6 o'clock is left.
+      expect(revealed('radial-wipe', 0.97, aspect, { x: 0.5, y: 0.95 })).toBe(false)
+      expect(revealed('radial-wipe', 0.97, aspect, { x: 0.5, y: 0.05 })).toBe(true)
+    }
+  })
+
+  it('spiral: visits every cell once, clockwise from the top-left corner inward, each a neighbour of the last', () => {
+    const cells = spiralOrder(SPIRAL_COLUMNS, SPIRAL_ROWS)
+    expect(cells).toHaveLength(SPIRAL_COLUMNS * SPIRAL_ROWS)
+    expect(new Set(cells.map(({ column, row }) => `${column},${row}`)).size).toBe(cells.length)
+    expect(cells[0]).toEqual({ column: 0, row: 0, travel: 'right' })
+    // The top row first, then down the right column.
+    expect(cells[SPIRAL_COLUMNS - 1]).toEqual({ column: SPIRAL_COLUMNS - 1, row: 0, travel: 'right' })
+    expect(cells[SPIRAL_COLUMNS]).toEqual({ column: SPIRAL_COLUMNS - 1, row: 1, travel: 'down' })
+    const step = { right: [1, 0], down: [0, 1], left: [-1, 0], up: [0, -1] } as const
+    for (let index = 1; index < cells.length; index += 1) {
+      const [dx, dy] = step[cells[index].travel]
+      expect(cells[index].column - cells[index - 1].column, `cell ${index}`).toBe(dx)
+      expect(cells[index].row - cells[index - 1].row, `cell ${index}`).toBe(dy)
+    }
+    // Other grids keep the same properties, a single row or column included.
+    for (const [columns, rows] of [
+      [1, 1],
+      [5, 1],
+      [1, 4],
+      [5, 5],
+      [8, 6],
+    ]) {
+      const order = spiralOrder(columns, rows)
+      expect(new Set(order.map(({ column, row }) => `${column},${row}`)).size).toBe(columns * rows)
+    }
+  })
+
+  it('spiral: the cells fill one after another, each from the side the path enters it', () => {
+    deactivate = activate()
+    const cells = spiralOrder(SPIRAL_COLUMNS, SPIRAL_ROWS)
+    const centre = ({ column, row }: { column: number; row: number }) => ({
+      x: (column + 0.5) / SPIRAL_COLUMNS,
+      y: (row + 0.5) / SPIRAL_ROWS,
+    })
+    // At k / N, exactly the first k cells are revealed.
+    for (const k of [1, 5, 9, 16, 23]) {
+      cells.forEach((cell, index) => {
+        expect(revealed('spiral', k / cells.length, 16 / 9, centre(cell)), `cell ${index} at ${k}`).toBe(
+          index < k,
+        )
+      })
+    }
+    // Half-way through its share, a cell is half full from its entry side:
+    // a point a quarter in from that side shows, a quarter from the far
+    // side does not.
+    const width = 1 / SPIRAL_COLUMNS
+    const height = 1 / SPIRAL_ROWS
+    for (const travel of ['right', 'down', 'left', 'up'] as const) {
+      const index = cells.findIndex((cell) => cell.travel === travel && cell.row > 0 && cell.row < 3)
+      const target = index === -1 ? cells.findIndex((cell) => cell.travel === travel) : index
+      const { column, row } = cells[target]
+      const progress = (target + 0.5) / cells.length
+      const x0 = column * width
+      const y0 = row * height
+      const near = {
+        right: { x: x0 + 0.25 * width, y: y0 + 0.5 * height },
+        left: { x: x0 + 0.75 * width, y: y0 + 0.5 * height },
+        down: { x: x0 + 0.5 * width, y: y0 + 0.25 * height },
+        up: { x: x0 + 0.5 * width, y: y0 + 0.75 * height },
+      }[travel]
+      const far = { x: 2 * (x0 + 0.5 * width) - near.x, y: 2 * (y0 + 0.5 * height) - near.y }
+      expect(revealed('spiral', progress, 16 / 9, near), `${travel}: near side`).toBe(true)
+      expect(revealed('spiral', progress, 16 / 9, far), `${travel}: far side`).toBe(false)
+    }
+  })
+
+  it('heart iris: the outline is star-shaped about its centre, so it only ever grows', () => {
+    // The angle around the origin turns the same way at every vertex and
+    // goes round exactly once: each ray from the centre crosses the outline
+    // once, so a larger heart contains every smaller one.
+    let total = 0
+    let previous = Math.atan2(heartPoint(0).y, heartPoint(0).x)
+    for (let index = 1; index <= HEART_VERTICES; index += 1) {
+      const point = heartPoint((2 * Math.PI * index) / HEART_VERTICES)
+      const angle = Math.atan2(point.y, point.x)
+      let turn = angle - previous
+      if (turn > Math.PI) turn -= 2 * Math.PI
+      if (turn < -Math.PI) turn += 2 * Math.PI
+      expect(turn, `vertex ${index}`).toBeGreaterThan(0)
+      total += turn
+      previous = angle
+    }
+    expect(Math.abs(total)).toBeCloseTo(2 * Math.PI, 9)
+  })
+
+  it('heart iris: point down, the same shape on every aspect, and smooth at 1080p at its largest', () => {
+    deactivate = activate()
+    for (const [width, height] of [
+      [1920, 1080],
+      [1080, 1920],
+      [1080, 1080],
+    ]) {
+      const aspect = width / height
+      const [heart] = transitionLayerSpec('heart-iris', 0.3, transitionRegistry, aspect).incomingPolygons!
+      const xs = heart.map((point) => point.x * width)
+      const ys = heart.map((point) => point.y * height)
+      const pixelWidth = Math.max(...xs) - Math.min(...xs)
+      const pixelHeight = Math.max(...ys) - Math.min(...ys)
+      // 32 wide by 28.92 tall, in the curve's own units.
+      expect(pixelWidth / pixelHeight).toBeCloseTo(32 / (17 + 11.923251973), 3)
+      // The point (t = π, vertex 128) is the lowest vertex, below the centre.
+      const point = heart[HEART_VERTICES / 2]
+      expect(point.y * height).toBeCloseTo(Math.max(...ys), 9)
+      expect(point.x).toBeCloseTo(0.5, 9)
+
+      // At the cover scale, the largest the heart gets, no chord strays half
+      // a pixel from the true curve: its mid-parameter point is within
+      // 0.5 px of the chord.
+      const scale = heartCoverScale(aspect) * height
+      let worst = 0
+      for (let index = 0; index < HEART_VERTICES; index += 1) {
+        const t0 = (2 * Math.PI * index) / HEART_VERTICES
+        const t1 = (2 * Math.PI * (index + 1)) / HEART_VERTICES
+        const a = heartPoint(t0)
+        const b = heartPoint(t1)
+        const middle = heartPoint((t0 + t1) / 2)
+        const length = Math.hypot(b.x - a.x, b.y - a.y)
+        const away = Math.abs((middle.x - a.x) * (b.y - a.y) - (middle.y - a.y) * (b.x - a.x)) / length
+        worst = Math.max(worst, away * scale)
+      }
+      expect(worst, `${width}×${height}`).toBeLessThan(0.5)
+    }
+  })
+
+  it('heart iris: finishes covering the frame exactly at the end, not sooner', () => {
+    deactivate = activate()
+    for (const aspect of ASPECTS) {
+      // The frame's outline, finely sampled, a hair inside the frame.
+      const edge: TransitionPoint[] = []
+      for (let index = 0; index <= 400; index += 1) {
+        const f = Math.min(1 - 1e-6, Math.max(1e-6, index / 400))
+        edge.push({ x: f, y: 1e-6 }, { x: f, y: 1 - 1e-6 }, { x: 1e-6, y: f }, { x: 1 - 1e-6, y: f })
+      }
+      expect(edge.every((point) => revealed('heart-iris', 1, aspect, point)), `aspect ${aspect}`).toBe(true)
+      expect(edge.every((point) => revealed('heart-iris', 0.98, aspect, point)), `aspect ${aspect}`).toBe(false)
+    }
   })
 })
 

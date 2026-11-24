@@ -46,8 +46,8 @@ export const builtInPlugins: readonly PluginSpec[] = [
     id: 'pattern-transitions',
     name: 'Pattern transitions',
     description:
-      'Adds five transitions with patterned reveals: horizontal and vertical blinds, ' +
-      'a checkerboard, and diamond and star irises.',
+      'Adds nine transitions with patterned reveals: horizontal and vertical blinds, ' +
+      'a checkerboard, a spiral, clock and radial wipes, and diamond, star and heart irises.',
     version: '1.0.0',
     load: () => import('./patternTransitions/index'),
     // As with Shaped wipes (#199): pattern transitions live in the

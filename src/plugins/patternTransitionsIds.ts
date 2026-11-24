@@ -15,6 +15,11 @@ export const PATTERN_TRANSITION_IDS = [
   'checkerboard',
   'diamond-iris',
   'star-iris',
+  // Part 2 (#863).
+  'clock-wipe',
+  'radial-wipe',
+  'spiral',
+  'heart-iris',
 ] as const
 
 export type PatternTransitionId = (typeof PATTERN_TRANSITION_IDS)[number]
@@ -34,3 +39,13 @@ export function isPatternTransition(type: string): boolean {
 export const BLIND_SLATS = 10
 export const CHECKER_COLUMNS = 8
 export const CHECKER_ROWS = 6
+
+/**
+ * The Spiral's grid (#863): the frame is revealed cell by cell along a
+ * clockwise path from the top-left corner inward. 6 × 4 keeps the cells
+ * close to square on a 16:9 frame (1.19 : 1), and keeps their number at 24,
+ * so a 1 s transition spends about 42 ms on each cell: a little over one
+ * 30 fps frame.
+ */
+export const SPIRAL_COLUMNS = 6
+export const SPIRAL_ROWS = 4
