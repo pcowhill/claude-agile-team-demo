@@ -28,7 +28,7 @@ import {
   BYTES_PER_MB,
   SIZE_LIMIT_PRESETS_MB,
   formatBitrate,
-  formatMegabytes,
+  formatLimitAgainstSize,
   formatSizeAgainstLimit,
   sizeLimitBitrates,
   smallerBitrates,
@@ -1290,7 +1290,9 @@ export function ExportControl({
                   {formatSizeAgainstLimit(sizeOutcome.bytes, sizeOutcome.limitBytes)}
                 </span>{' '}
                 {sizeOutcome.bytes > sizeOutcome.limitBytes ? '— over the ' : '(limit '}
-                <span className="export-size-figure">{formatMegabytes(sizeOutcome.limitBytes)}</span>
+                <span className="export-size-figure">
+                  {formatLimitAgainstSize(sizeOutcome.limitBytes, sizeOutcome.bytes)}
+                </span>
                 {sizeOutcome.bytes > sizeOutcome.limitBytes ? ' limit.' : ').'}
               </p>
             )}
@@ -1366,7 +1368,7 @@ export function ExportControl({
                           >
                             {formatSizeAgainstLimit(file.bytes, chapterRun.encode.sizeLimitBytes)}
                             {file.bytes > chapterRun.encode.sizeLimitBytes
-                              ? `, over the ${formatMegabytes(chapterRun.encode.sizeLimitBytes)} limit`
+                              ? `, over the ${formatLimitAgainstSize(chapterRun.encode.sizeLimitBytes, file.bytes)} limit`
                               : ''}
                           </span>
                         )}

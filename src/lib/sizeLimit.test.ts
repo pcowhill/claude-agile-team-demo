@@ -7,6 +7,7 @@ import {
   RESERVED_AUDIO_BITRATE,
   SIZE_LIMIT_MARGIN,
   formatBitrate,
+  formatLimitAgainstSize,
   formatMegabytes,
   formatSizeAgainstLimit,
   rateControlledCandidates,
@@ -259,5 +260,24 @@ describe('the estimate line’s reading (#726)', () => {
     expect(formatSizeAgainstLimit(25_000_400, 25_000_000)).toBe('25.0004 MB')
     expect(formatSizeAgainstLimit(23_100_000, 25_000_000)).toBe('23.1 MB')
     expect(formatSizeAgainstLimit(24_990_000, 25_000_000)).toBe('25 MB')
+  })
+
+  it('states the limit to the size’s precision, so a file over it never reads as under it (#905)', () => {
+    // The CI case (run 45488964637): at one decimal the limit read 0.8 MB
+    // beside a 0.78 MB file "over" it.
+    expect(formatSizeAgainstLimit(782_907, 762_933)).toBe('0.78 MB')
+    expect(formatLimitAgainstSize(762_933, 782_907)).toBe('0.76 MB')
+    // The issue's arithmetic case.
+    expect(formatSizeAgainstLimit(780_000, 760_000)).toBe('0.78 MB')
+    expect(formatLimitAgainstSize(760_000, 780_000)).toBe('0.76 MB')
+    // Deeper: four decimals for both.
+    expect(formatSizeAgainstLimit(25_000_400, 24_999_900)).toBe('25.0004 MB')
+    expect(formatLimitAgainstSize(24_999_900, 25_000_400)).toBe('24.9999 MB')
+    // A round limit keeps its short form: trailing zeros drop.
+    expect(formatLimitAgainstSize(10_000_000, 10_040_000)).toBe('10 MB')
+    // Under the limit both stay at one decimal, as before.
+    expect(formatSizeAgainstLimit(606_982, 693_649)).toBe('0.6 MB')
+    expect(formatLimitAgainstSize(693_649, 606_982)).toBe('0.7 MB')
+    expect(formatLimitAgainstSize(762_933, 700_000)).toBe('0.8 MB')
   })
 })

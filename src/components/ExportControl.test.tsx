@@ -1473,6 +1473,25 @@ describe('Size limit (#726)', () => {
     )
   })
 
+  it('states the limit to the size’s precision when a file is just over it (#905)', async () => {
+    // Firefox's CI case: a 762,933 B limit and a 782,907 B file read
+    // "0.78 MB — over the 0.8 MB limit" before #905.
+    const doExport: DoExport = () => Promise.resolve(new Blob([new Uint8Array(782_907)]))
+    const user = userEvent.setup()
+    render(<ExportControl timeline={long} doExport={doExport} isTypeSupported={recordsEverything} />)
+    await user.click(openButton())
+    await user.selectOptions(limitSelect(), 'custom')
+    const field = screen.getByRole('spinbutton', { name: 'Custom size limit in MB' })
+    await user.clear(field)
+    await user.type(field, '0.762933')
+    await user.click(exportButton())
+    await waitFor(() =>
+      expect(screen.getByTestId('export-size-result')).toHaveTextContent(
+        'Saved sequence-export.webm: 0.78 MB — over the 0.76 MB limit.',
+      ),
+    )
+  })
+
   it('resets to No limit when the dialog opens again', async () => {
     const user = userEvent.setup()
     render(<ExportControl timeline={long} isTypeSupported={recordsEverything} />)
