@@ -66,4 +66,15 @@ export const builtInPlugins: readonly PluginSpec[] = [
     // Export formats are outputs, not project state, so no project depends
     // on this plugin (#858), as with GIF export.
   },
+  {
+    id: 'title-templates',
+    name: 'Title templates',
+    description:
+      'Adds "Title template…" to the timeline\'s Add menu: a lower third, a chapter card or an ' +
+      'end card, placed as ordinary text and shapes you can edit like any other.',
+    version: '1.0.0',
+    load: () => import('./titleTemplates/index'),
+    // What a template places is ordinary text and shapes, which stay when
+    // the plugin is disabled, so no project depends on it (#860).
+  },
 ]

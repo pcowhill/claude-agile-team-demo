@@ -8,9 +8,9 @@ Words on the picture: titles, captions, labels and imported subtitles, each a **
 
 **What it does.** Adds a title reading *Title* to the Text section, centred in the frame, showing from the start of the video for {{DEFAULT_TEXT_DURATION}} s.
 
-**Details.** The new overlay is white sans-serif at {{DEFAULT_TEXT_SIZE_PERCENT}} % of the frame's height, neither bold nor italic, with no fade. It needs no import — text is typed, not placed from the library — and adding it is one undo step. Its row shows its content — collapsed, the text on one line — so the words you type are how the row is told apart; text rows have no Rename…, since the content is the name. Take it off the timeline with the row's **✕**, which asks first.
+**Details.** The new overlay is white sans-serif at {{DEFAULT_TEXT_SIZE_PERCENT}} % of the frame's height, neither bold nor italic, with no fade. It needs no import — text is typed, not placed from the library — and adding it is one undo step. Its row shows its content — collapsed, the text on one line — so the words you type are how the row is told apart; text rows have no Rename…, since the content is the name. Take it off the timeline with the row's **✕**, which asks first. For a ready-made title — a lower third with a name and a role, a chapter card or an end card — enable the [Title templates](plugins.md#title-templates) plugin, which places one as ordinary text overlays and a shape group.
 
-**Related.** [The properties](#the-properties) · [Add a title](quick-start.md#5-add-a-title) · [The header](timeline.md#the-header)
+**Related.** [The properties](#the-properties) · [Add a title](quick-start.md#5-add-a-title) · [The header](timeline.md#the-header) · [Title templates](plugins.md#title-templates)
 
 ## The properties
 

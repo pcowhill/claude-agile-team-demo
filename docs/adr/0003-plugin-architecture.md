@@ -223,6 +223,36 @@ extension point is built until a concrete plugin needs it**.
   Each Font menu subscribes on the component that owns the `<select>`,
   not on its options. React re-applies a controlled select's value only
   when the select itself re-renders.
+- **Add ▾ contributions** (`addMenuContributions` in `src/lib/addMenu.ts`,
+  built in #860 because the Title templates plugin the customer picked on
+  #856 needs it). A contribution is `{ id, label, Dialog }`: a menu item,
+  listed after the core four in registration order, and the React
+  component it opens. The dialog receives the output frame and returns
+  `PlacedElements`, which are text overlay and shape group *specs* timed
+  from 0. Core places them: `placeElementsAt` moves them to the Preview
+  time and mints every id, shape ids included, and the reducer's
+  `elements-placed` action adds them as **one edit**, all-or-nothing, through
+  the same checks `texts-added` and `shape-group-added` apply.
+  This is the smallest seam the plugin needs, and it was chosen over two
+  others:
+  - **Letting the plugin dispatch.** That would hand plugin code the
+    timeline reducer, which every other extension point keeps away from
+    plugins.
+  - **A data-only template registry, with the gallery in core.** That puts
+    a plugin's UI in the entry bundle.
+
+  What a contribution places is ordinary project state, owned by no
+  plugin, so a contribution-only plugin has no `usedByProject`. The registry
+  follows the others (`register`/`unregister`/`find`/`list`/`subscribe`/
+  `version`). Timeline holds the open dialog by id, so a plugin disabled
+  while its dialog is open closes it.
+- **Title templates plugin** (`src/plugins/titleTemplates/`, #860): a
+  gallery of a lower third, a chapter card and an end card. Each template
+  builds its elements for the project's frame. It measures every line with
+  the export's own font string (`textCanvasFont`) under the app's canvas
+  measurer, and shrinks a line that would run past the margins. Text
+  overlays never wrap. Motion is fades only, because Moves (#834) do not
+  apply to text or shapes. No dependencies.
 
 ### Projects that use plugin features: prompt-and-enable
 
