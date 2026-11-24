@@ -78,6 +78,14 @@ async function importClip(page: Page, name = 'clip.webm'): Promise<void> {
   await page.getByRole('button', { name: `Add ${name} to timeline` }).click()
 }
 
+/**
+ * The preview video's rate while it plays, or `'paused'`: a stopped element
+ * keeps the rate it ended on, so reading it alone cannot tell a rate the
+ * player applied from one it left behind (#704).
+ */
+const playingRate = (page: Page) =>
+  video(page).evaluate((el: HTMLVideoElement) => (el.paused ? 'paused' : el.playbackRate))
+
 /** Picks a rate on the control and waits for the readout to agree. */
 async function setReviewSpeed(page: Page, rate: string): Promise<void> {
   await reviewSpeed(page).selectOption(rate)
@@ -113,8 +121,15 @@ test('the media plays at the review rate, multiplied by the clip’s own speed s
   await expect(reviewSpeed(page)).toHaveValue('1')
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
 
+  // Loop keeps the entry playing for as long as the checks below take. The
+  // entry is 1 s of source at 2×, so it plays for half a second, and once it
+  // stops the element is paused at whatever rate it ended on: a review rate
+  // picked after that reaches nothing. Unlooped, a slow Firefox runner read
+  // that stopped element (#704, #833); with a 1.5 s wait put after Play, so
+  // did Chromium.
+  await page.getByRole('button', { name: 'Loop playback' }).click()
   await page.getByRole('button', { name: 'Play preview' }).click()
-  await expect.poll(() => video(page).evaluate((el: HTMLVideoElement) => el.playbackRate)).toBe(2)
+  await expect.poll(() => playingRate(page)).toBe(2)
 
   // And live once nothing claims them: R steps 1× → 1.5× → 2×. The blur is
   // not incidental — the Play button that was just clicked holds focus, and
@@ -127,11 +142,11 @@ test('the media plays at the review rate, multiplied by the clip’s own speed s
   await expect(page.getByTestId('preview-review-rate')).toHaveText('· 2×')
 
   await setReviewSpeed(page, '2')
-  await expect.poll(() => video(page).evaluate((el: HTMLVideoElement) => el.playbackRate)).toBe(4)
+  await expect.poll(() => playingRate(page)).toBe(4)
 
   // And back down: the element returns to the timeline's own rate.
   await setReviewSpeed(page, '0.5')
-  await expect.poll(() => video(page).evaluate((el: HTMLVideoElement) => el.playbackRate)).toBe(1)
+  await expect.poll(() => playingRate(page)).toBe(1)
 })
 
 test('R reaches the cheat sheet and the guide\'s generated table (#522)', async ({ page }) => {
