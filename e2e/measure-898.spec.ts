@@ -95,6 +95,7 @@ test('MEASURE #898: overlay element state and draw decision on the first export 
     const realCapture = HTMLCanvasElement.prototype.captureStream
     HTMLCanvasElement.prototype.captureStream = function (this: HTMLCanvasElement, rate?: number) {
       if (exportCanvas === null && !this.isConnected) {
+        // oxlint-disable-next-line typescript/no-this-alias -- the export canvas is identified here
         exportCanvas = this
         tick = 0
         log.push({ tick, phase: 'recorder-canvas', snaps: snap() })
