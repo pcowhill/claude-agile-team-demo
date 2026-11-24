@@ -34,6 +34,8 @@ import { sineWav } from './sineWav'
  *   its Picture disclosure, its ⋯ menu and its + Effect ▾ menu
  * - Add ▾, and the Subtitle style disclosure it reveals; with every plugin
  *   on, Add ▾ again and the Title template gallery (#860), once per template
+ * - with every plugin on, the media library header again and the Sound
+ *   library dialog (#861)
  * - the Settings dialog, the Plugins dialog, and the Export project dialog
  *   on each of its formats
  * - the keyboard cheat sheet, for the shortcut combos, together with the
@@ -94,6 +96,13 @@ withFakeMedia(test)
 /** Stands in for a clip, row or section name while a label is normalized. */
 const ELEMENT = '‹element›'
 
+/** The Sound library's sounds (#861), whose names its row buttons carry. */
+const SOUND_NAMES = (
+  JSON.parse(
+    readFileSync(new URL('../src/plugins/soundLibrary/sounds/manifest.json', import.meta.url), 'utf8'),
+  ) as { sounds: { name: string }[] }
+).sounds.map((sound) => sound.name)
+
 /**
  * How a control's accessible name is turned into the name the Feature Index
  * lists. Every rule exists because the app's name carries something that is
@@ -105,6 +114,19 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     pattern: / slider$/,
     replacement: '',
     why: 'a number field and its range slider share a name; the slider adds the word',
+  },
+  {
+    // Built from the manifest rather than added to the element names: sound
+    // names such as Click, Pop and Error are ordinary words that other
+    // controls' names could contain.
+    pattern: new RegExp(`^(?:Play|Stop) (?:${SOUND_NAMES.join('|')})$`),
+    replacement: 'Play a sound',
+    why: "a Sound library row's ▶ names the sound it plays, and reads Stop while it plays (#861)",
+  },
+  {
+    pattern: new RegExp(`^Add (?:${SOUND_NAMES.join('|')}) to the library$`),
+    replacement: 'Add to the library',
+    why: "a Sound library row's Add names the sound it adds (#861)",
   },
   {
     pattern: / \((?:percent|0 to 1|0 to 4|fraction of frame (?:width|height))\)$/,
@@ -844,6 +866,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
         'Pattern transitions',
         'More export formats',
         'Title templates',
+        'Sound library',
       ] as const) {
         const enable = dialog.getByRole('button', { name: `Enable ${plugin}`, exact: true })
         if ((await enable.count()) > 0) await enable.click()
@@ -869,6 +892,16 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   }
   await page.keyboard.press('Escape')
   await expect(gallery).toHaveCount(0)
+
+  // The media library header with every plugin on: Sound library adds a
+  // button, and its dialog is a surface of its own (#861).
+  await record('the media library with every plugin on', library)
+  await library.getByRole('button', { name: 'Sound library…', exact: true }).click()
+  const sounds = page.getByRole('dialog', { name: 'Sound library' })
+  await expect(sounds).toBeVisible()
+  await record('the Sound library dialog', sounds)
+  await page.keyboard.press('Escape')
+  await expect(sounds).toHaveCount(0)
 
   // The controls that exist only once something is set up.
   await timeline.getByRole('button', { name: /^Add transition/ }).first().click()

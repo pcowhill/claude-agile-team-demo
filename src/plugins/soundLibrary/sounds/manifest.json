@@ -1,0 +1,121 @@
+{
+  "sounds": [
+    {
+      "id": "whoosh",
+      "name": "Whoosh",
+      "category": "Transitions",
+      "file": "whoosh.webm",
+      "duration": 0.908,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"whoosh\""
+    },
+    {
+      "id": "swoosh-out",
+      "name": "Swoosh out",
+      "category": "Transitions",
+      "file": "swoosh-out.webm",
+      "duration": 0.708,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"swoosh-out\""
+    },
+    {
+      "id": "riser",
+      "name": "Riser",
+      "category": "Transitions",
+      "file": "riser.webm",
+      "duration": 2.008,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"riser\""
+    },
+    {
+      "id": "click",
+      "name": "Click",
+      "category": "Clicks and keys",
+      "file": "click.webm",
+      "duration": 0.128,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"click\""
+    },
+    {
+      "id": "double-click",
+      "name": "Double click",
+      "category": "Clicks and keys",
+      "file": "double-click.webm",
+      "duration": 0.258,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"double-click\""
+    },
+    {
+      "id": "pop",
+      "name": "Pop",
+      "category": "Clicks and keys",
+      "file": "pop.webm",
+      "duration": 0.208,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"pop\""
+    },
+    {
+      "id": "typing",
+      "name": "Typing",
+      "category": "Clicks and keys",
+      "file": "typing.webm",
+      "duration": 2.008,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"typing\""
+    },
+    {
+      "id": "camera-shutter",
+      "name": "Camera shutter",
+      "category": "Clicks and keys",
+      "file": "camera-shutter.webm",
+      "duration": 0.358,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"camera-shutter\""
+    },
+    {
+      "id": "ding",
+      "name": "Ding",
+      "category": "Alerts",
+      "file": "ding.webm",
+      "duration": 1.808,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"ding\""
+    },
+    {
+      "id": "notification",
+      "name": "Notification",
+      "category": "Alerts",
+      "file": "notification.webm",
+      "duration": 0.758,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"notification\""
+    },
+    {
+      "id": "success",
+      "name": "Success",
+      "category": "Alerts",
+      "file": "success.webm",
+      "duration": 1.008,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"success\""
+    },
+    {
+      "id": "error",
+      "name": "Error",
+      "category": "Alerts",
+      "file": "error.webm",
+      "duration": 0.508,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"error\""
+    },
+    {
+      "id": "thump",
+      "name": "Thump",
+      "category": "Impacts",
+      "file": "thump.webm",
+      "duration": 0.908,
+      "licence": "CC0-1.0",
+      "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"thump\""
+    }
+  ]
+}

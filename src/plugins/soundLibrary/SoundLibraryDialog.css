@@ -1,0 +1,91 @@
+/* Media Library › Sound library… (#861): the set, grouped, one row a sound. */
+
+.sound-library-dialog {
+  max-width: 28rem;
+}
+
+.sound-library-licence {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+/* The list scrolls inside the dialog rather than growing it past the
+   viewport: the dialog's actions stay in reach with every sound listed. */
+.sound-library-list {
+  max-height: min(55vh, 26rem);
+  overflow-y: auto;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.sound-library-list h4 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #bbb;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sound-library-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Name, length, ▶ and Add on one line: the name takes the room left and
+   ellipsises rather than wrapping. */
+.sound-library-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.sound-library-row + .sound-library-row {
+  border-top: 1px solid #333;
+}
+
+.sound-library-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+
+.sound-library-length {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: #bbb;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ▶ and Add share one height whatever font draws the glyph (#792's rule,
+   from the customer's #787): ▶ comes from a fallback symbol font whose line
+   box is taller than Add's. */
+.sound-library-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Add while its sound downloads: greyed like a disabled button, but still
+   focusable, so a keyboard user's place survives the press. */
+.sound-library-row button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sound-library-status {
+  min-height: 1.2em;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}

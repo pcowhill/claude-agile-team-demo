@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChangeEvent } from 'react'
 import type {
   ClipSortDirection,
@@ -11,6 +11,8 @@ import { clipFileName, formatDuration } from '../lib/mediaLibrary'
 import { downloadClip } from '../lib/clipDownload'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
+import { libraryHeaderContributions } from '../lib/libraryHeader'
+import type { LibraryHeaderRegistry } from '../lib/libraryHeader'
 import { AudioWaveform } from './AudioWaveform'
 import { ClipPropertiesDialog } from './ClipPropertiesDialog'
 import { ClipThumbnail } from './ClipThumbnail'
@@ -81,6 +83,8 @@ interface MediaLibraryProps {
   /** Which layout the clip list is in (#311); remembered per browser by `App`. */
   view: LibraryView
   onSetView: (view: LibraryView) => void
+  /** Injectable for tests: the header buttons plugins add (#861). */
+  headerRegistry?: LibraryHeaderRegistry
 }
 
 /** Control order and labels, per the customer's wording (#121): Name
@@ -140,8 +144,20 @@ export function MediaLibrary({
   timelineUseCount,
   view,
   onSetView,
+  headerRegistry = libraryHeaderContributions,
 }: MediaLibraryProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  // Plugins' header buttons (#861) re-read the registry when a plugin
+  // arrives or leaves. The open dialog is held by id, so a plugin disabled
+  // while its dialog is open closes the dialog rather than orphaning it.
+  useSyncExternalStore(headerRegistry.subscribe, () => headerRegistry.version)
+  const [openSourceId, setOpenSourceId] = useState<string | null>(null)
+  const openSource = openSourceId === null ? undefined : headerRegistry.find(openSourceId)
+  // Forget a dialog whose button has left, so re-enabling the plugin later
+  // does not reopen it unasked.
+  useEffect(() => {
+    if (openSourceId !== null && openSource === undefined) setOpenSourceId(null)
+  }, [openSourceId, openSource])
   // What the confirmation is about: one row's Remove, or the selection
   // bar's batch Remove (#293). One dialog serves both; only the wording
   // differs, since a batch has no single name to show.
@@ -538,6 +554,17 @@ export function MediaLibrary({
         <button type="button" onClick={() => inputRef.current?.click()}>
           Import clips
         </button>
+        {/* Plugins' media sources (#861), after Import clips in
+            registration order. Each opens its dialog, whose files take the
+            Import clips path. */}
+        {headerRegistry.list().map((source) => (
+          <button key={source.id} type="button" onClick={() => setOpenSourceId(source.id)}>
+            {source.label}
+          </button>
+        ))}
+        {openSource !== undefined && (
+          <openSource.Dialog onImportFiles={onImportFiles} onClose={() => setOpenSourceId(null)} />
+        )}
         {/* Voice-over recording (#224): the finished capture goes through
             the exact same import path as a picked file. Hidden where the
             platform cannot record. */}
