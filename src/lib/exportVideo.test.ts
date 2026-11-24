@@ -2618,10 +2618,11 @@ describe('an unready overlay element draws its last frame (#319)', () => {
     expect(overlayOps(main.ops)).toEqual([])
   })
 
-  it('holds nothing for an overlay a range export finds partway through (#898)', () => {
+  it('holds nothing for an element cued away from the frame due (#898)', () => {
     // A range starting 5 s into the overlay is due source 5 on its first
-    // frame; the element is cued to the in-point, 0, which is not that
-    // picture, so nothing is held and the first frame skips it as before.
+    // frame. An element left at the in-point, 0, is not that picture, so
+    // nothing is held and the first frame skips it. (`exportTimeline` cues
+    // to the frame due, #901; this pins the composer's own guard.)
     const element = fakeOverlayElement()
     const { composer, main, buffers } = composerFor(element)
     composer.holdOverlayFrames(5)
