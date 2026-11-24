@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   HIGH_SCREEN_BITS_PER_PIXEL,
   MAX_SCREEN_BITRATE,
+  NO_SHARED_AUDIO_MESSAGE,
+  canShareDisplayAudio,
   RECORDING_KEYFRAME_INTERVAL_MS,
   pausedClock,
   recordedClipName,
@@ -16,7 +18,9 @@ import {
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
+  startSystemAudioRecording,
   startWebcamRecording,
+  systemAudioRecordingName,
   videoRecordingFileExtension,
   voiceOverName,
   webcamRecordingName,
@@ -27,6 +31,7 @@ import type {
   RecorderOptions,
   RecordingDependencies,
   ScreenRecordingDependencies,
+  SystemAudioRecordingDependencies,
 } from './recording'
 
 describe('voiceOverName (#224)', () => {
@@ -1010,6 +1015,222 @@ describe('screen recording quality (#853)', () => {
     })
     expect(microphone.recorder().requestedOptions).not.toHaveProperty('videoBitsPerSecond')
     micSession.cancel()
+  })
+})
+
+/**
+ * A controllable display share for the system-audio source (#878): a
+ * picture track and, unless withheld, an audio track, each recording its
+ * own stop and `ended` listeners, so a test can tell which tracks the
+ * recorder was given and which the source released.
+ */
+function fakeSystemAudioWorld(options?: {
+  supportedTypes?: string[]
+  denyCapture?: Error
+  failConstruction?: Error
+  /** The share-audio box was left unticked: the share has no audio track. */
+  withoutAudio?: boolean
+}) {
+  const makeTrack = (kind: 'video' | 'audio') => {
+    const listeners: (() => void)[] = []
+    return {
+      kind,
+      stop: vi.fn(),
+      addEventListener: (name: string, listener: () => void) => {
+        expect(name).toBe('ended')
+        listeners.push(listener)
+      },
+      end: () => {
+        for (const listener of listeners) listener()
+      },
+    }
+  }
+  const video = makeTrack('video')
+  const audio = makeTrack('audio')
+  const audioTracks = options?.withoutAudio ? [] : [audio]
+  const shared = {
+    getTracks: () => [video, ...audioTracks],
+    getVideoTracks: () => [video],
+    getAudioTracks: () => audioTracks,
+  } as unknown as MediaStream
+  let recorded: unknown[] | null = null
+  let constraints: unknown = null
+  let recorder: (RecorderLike & { started: boolean; requestedOptions: RecorderOptions }) | null =
+    null
+  const dependencies: SystemAudioRecordingDependencies = {
+    getDisplayMedia: vi.fn((requested: MediaStreamConstraints) => {
+      constraints = requested
+      return options?.denyCapture ? Promise.reject(options.denyCapture) : Promise.resolve(shared)
+    }),
+    audioStream: (tracks) => {
+      recorded = tracks
+      return { getTracks: () => tracks } as unknown as MediaStream
+    },
+    createRecorder: (_stream, recorderOptions) => {
+      if (options?.failConstruction) throw options.failConstruction
+      recorder = {
+        started: false,
+        requestedOptions: recorderOptions,
+        mimeType: recorderOptions.mimeType ?? 'audio/webm',
+        ondataavailable: null,
+        onstart: null,
+        onstop: null,
+        onerror: null,
+        start() {
+          this.started = true
+        },
+        stop() {
+          queueMicrotask(() => this.onstop?.())
+        },
+      }
+      return recorder
+    },
+    isTypeSupported: (mimeType) =>
+      (options?.supportedTypes ?? ['audio/webm;codecs=opus']).includes(mimeType),
+  }
+  return {
+    dependencies,
+    video,
+    audio,
+    constraints: () => constraints,
+    recordedTracks: () => recorded,
+    recorder: () => {
+      if (recorder === null) throw new Error('recorder was never constructed')
+      return recorder
+    },
+  }
+}
+
+describe('system audio recording (#878)', () => {
+  it('numbers System audio clips past the highest existing one, independently', () => {
+    expect(systemAudioRecordingName([], 'webm')).toBe('System audio 1.webm')
+    expect(
+      systemAudioRecordingName(['System audio 4.webm', 'Voice-over 9.webm', 'clip.mp4'], 'm4a'),
+    ).toBe('System audio 5.m4a')
+  })
+
+  it('offers itself only where the browser reports the display-audio constraint', () => {
+    // Chromium's getSupportedConstraints() as measured on #878 includes it…
+    expect(canShareDisplayAudio(() => ({ suppressLocalAudioPlayback: true, width: true }))).toBe(
+      true,
+    )
+    // …and a browser without display audio lists everything else.
+    expect(canShareDisplayAudio(() => ({ width: true, deviceId: true }))).toBe(false)
+    expect(canShareDisplayAudio(() => undefined)).toBe(false)
+    expect(
+      canShareDisplayAudio(() => {
+        throw new Error('no mediaDevices')
+      }),
+    ).toBe(false)
+  })
+
+  it('asks the picker for the whole screen with its system audio, picture included', async () => {
+    const world = fakeSystemAudioWorld()
+    await startSystemAudioRecording(() => {}, world.dependencies)
+    // Chromium refuses a share without video (NotFoundError, #878), so the
+    // picture is requested; the hints favour the pane that has system audio.
+    expect(world.constraints()).toEqual({
+      video: { displaySurface: 'monitor' },
+      audio: true,
+      systemAudio: 'include',
+    })
+  })
+
+  it('records only the audio track, into an audio container, and names the file', async () => {
+    const world = fakeSystemAudioWorld()
+    const session = await startSystemAudioRecording(() => {}, world.dependencies)
+    expect(world.recordedTracks()).toEqual([world.audio])
+    const recorder = world.recorder()
+    expect(recorder.started).toBe(true)
+    // The microphone's audio choice, with no keyframe interval: no video.
+    expect(recorder.requestedOptions).toEqual({ mimeType: 'audio/webm;codecs=opus' })
+    expect(session.mimeType).toBe('audio/webm;codecs=opus')
+
+    recorder.ondataavailable?.({ data: new Blob(['sys'], { type: 'audio/webm' }) })
+    recorder.ondataavailable?.({ data: new Blob(['tem'], { type: 'audio/webm' }) })
+    const file = await session.stop('System audio 1.webm')
+    expect(file.name).toBe('System audio 1.webm')
+    expect(await file.text()).toBe('system')
+    // The whole share is released, the unrecorded picture with it.
+    expect(world.audio.stop).toHaveBeenCalled()
+    expect(world.video.stop).toHaveBeenCalled()
+  })
+
+  it('a share without audio is released at once and rejects, before any recorder exists', async () => {
+    const world = fakeSystemAudioWorld({ withoutAudio: true })
+    await expect(startSystemAudioRecording(() => {}, world.dependencies)).rejects.toThrow(
+      NO_SHARED_AUDIO_MESSAGE,
+    )
+    expect(world.video.stop).toHaveBeenCalledTimes(1)
+    expect(world.recorder).toThrow('never constructed')
+    expect(NO_SHARED_AUDIO_MESSAGE).toMatch(/^no audio was shared\. .*Share system audio/)
+  })
+
+  it("the browser's stop sharing reaches onShareEnded from either track", async () => {
+    for (const first of ['video', 'audio'] as const) {
+      const onShareEnded = vi.fn()
+      const world = fakeSystemAudioWorld()
+      await startSystemAudioRecording(onShareEnded, world.dependencies)
+      expect(onShareEnded).not.toHaveBeenCalled()
+      world[first].end()
+      expect(onShareEnded).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('reports the share ending once, though every shared track fires its own ended', async () => {
+    // Stop sharing ends the picture and the sound together. A second report
+    // would conclude the take twice in the dialog, which lists the second
+    // conclusion's "already concluded" as a failure beside the clip.
+    const onShareEnded = vi.fn()
+    const world = fakeSystemAudioWorld()
+    await startSystemAudioRecording(onShareEnded, world.dependencies)
+    world.video.end()
+    world.audio.end()
+    expect(onShareEnded).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancel discards the take and releases the whole share', async () => {
+    const world = fakeSystemAudioWorld()
+    const session = await startSystemAudioRecording(() => {}, world.dependencies, {
+      deferStart: true,
+    })
+    expect(world.recorder().started).toBe(false)
+    session.cancel()
+    expect(world.audio.stop).toHaveBeenCalled()
+    expect(world.video.stop).toHaveBeenCalled()
+    await expect(session.stop('System audio 1.webm')).rejects.toThrow('already concluded')
+  })
+
+  it('a deferred take waits for begin, as every other source does (#514)', async () => {
+    const world = fakeSystemAudioWorld()
+    const session = await startSystemAudioRecording(() => {}, world.dependencies, {
+      deferStart: true,
+    })
+    expect(world.recorder().started).toBe(false)
+    session.begin()
+    expect(world.recorder().started).toBe(true)
+    expect(session.canPause).toBe(false)
+  })
+
+  it('a denied or dismissed picker propagates like a failed import, releasing nothing', async () => {
+    const world = fakeSystemAudioWorld({ denyCapture: new Error('Permission denied') })
+    await expect(startSystemAudioRecording(() => {}, world.dependencies)).rejects.toThrow(
+      'Permission denied',
+    )
+    expect(world.video.stop).not.toHaveBeenCalled()
+  })
+
+  it('releases the picture too when the recorder itself cannot start', async () => {
+    const world = fakeSystemAudioWorld({ failConstruction: new Error('NotSupportedError') })
+    await expect(startSystemAudioRecording(() => {}, world.dependencies)).rejects.toThrow(
+      'NotSupportedError',
+    )
+    expect(world.audio.stop).toHaveBeenCalled()
+    expect(world.video.stop).toHaveBeenCalled()
+  })
+
+  it('refuses to record where the platform has no display capture', async () => {
+    await expect(startSystemAudioRecording(() => {}, null)).rejects.toThrow('not supported')
   })
 })
 

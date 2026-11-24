@@ -623,6 +623,155 @@ export async function startScreenRecording(
   return session
 }
 
+/** The display name for the next system-audio recording (#878), same numbering rule. */
+export function systemAudioRecordingName(existingNames: readonly string[], extension: string): string {
+  return recordedClipName('System audio', existingNames, extension)
+}
+
+/**
+ * Whether this browser can share display audio at all (#878): the
+ * capability probe behind Record ▾ › System audio. No API says so outright
+ * before the share picker opens, so this reads the one constraint that
+ * exists only for display-audio capture, `suppressLocalAudioPlayback`, from
+ * `getSupportedConstraints()`. Chromium reports it (measured on #878);
+ * Firefox, whose screen capture never carries audio (#579), does not. A
+ * capability, not a user-agent check: a browser that adds display audio
+ * and the constraint with it gains the source without a change here.
+ */
+export function canShareDisplayAudio(
+  supportedConstraints: () => MediaTrackSupportedConstraints | undefined = () =>
+    typeof navigator === 'undefined'
+      ? undefined
+      : navigator.mediaDevices?.getSupportedConstraints?.(),
+): boolean {
+  try {
+    const supported = supportedConstraints() as Record<string, unknown> | undefined
+    return supported?.suppressLocalAudioPlayback === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The failure a system-audio take reports when the share carried no sound
+ * (#878): the share-audio box was left unticked, or the platform offers no
+ * audio for what was picked. It names the fix, since the picker is the
+ * browser's and the app cannot tick the box for the user.
+ */
+export const NO_SHARED_AUDIO_MESSAGE =
+  'no audio was shared. In the browser’s share picker, tick “Share system audio” ' +
+  '(or “Share tab audio” for a tab) and try again.'
+
+/** The display-capture slice the system-audio source uses (#878); injectable for tests. */
+export interface SystemAudioRecordingDependencies extends ScreenRecordingDependencies {
+  /** A stream of just these tracks — `new MediaStream(tracks)`, absent from jsdom. */
+  audioStream: (tracks: MediaStreamTrack[]) => MediaStream
+}
+
+function defaultSystemAudioDependencies(): SystemAudioRecordingDependencies | null {
+  const screen = defaultScreenDependencies()
+  if (screen === null || typeof MediaStream === 'undefined') return null
+  return { ...screen, audioStream: (tracks) => new MediaStream(tracks) }
+}
+
+/**
+ * Whether Record ▾ offers System audio (#878): screen capture works and the
+ * browser can share display audio (`canShareDisplayAudio`).
+ */
+export function isSystemAudioRecordingSupported(): boolean {
+  return defaultSystemAudioDependencies() !== null && canShareDisplayAudio()
+}
+
+/**
+ * Starts a system-audio capture (#878, from customer feedback #874): what
+ * the computer is playing, recorded straight into an audio clip.
+ *
+ * Browsers hand a page system audio only through screen sharing, and
+ * Chromium refuses a share without a picture (`getDisplayMedia({ video:
+ * false, audio: true })` rejects with `NotFoundError`, measured on #878),
+ * so the browser's picker still appears and the picture is requested.
+ * Its hints favour the whole screen, where Chromium offers *system* audio
+ * (a tab offers its own): `displaySurface: 'monitor'` pre-selects that
+ * pane and `systemAudio: 'include'` asks for the share-audio box. Only the
+ * audio tracks are recorded, through the microphone's audio containers.
+ *
+ * A share without an audio track — the box left unticked, or a window on
+ * a platform that offers it no audio — is released at once and rejects
+ * with `NO_SHARED_AUDIO_MESSAGE`, before any countdown, rather than
+ * recording a silent clip.
+ *
+ * The picture track is kept, unrecorded, until the take concludes, and
+ * every track's `ended` reports to `onShareEnded`, once for the share.
+ * That is the Screen source's proven shape (#225): the browser's "stop
+ * sharing" ends the shared surface, and a real share whose picture track
+ * is stopped early may end with it, which no headless measurement can
+ * settle.
+ */
+export async function startSystemAudioRecording(
+  onShareEnded: () => void,
+  dependencies: SystemAudioRecordingDependencies | null = defaultSystemAudioDependencies(),
+  options: StartOptions = {},
+): Promise<RecordingSession> {
+  if (dependencies === null) {
+    throw new Error('System audio recording is not supported in this browser or context.')
+  }
+  const shared = await dependencies.getDisplayMedia({
+    video: { displaySurface: 'monitor' },
+    audio: true,
+    // A DisplayMediaStreamOptions member that lib.dom's
+    // MediaStreamConstraints does not declare; Chromium reads it.
+    systemAudio: 'include',
+  } as MediaStreamConstraints)
+  const releaseShare = () => {
+    for (const track of shared.getTracks()) track.stop()
+  }
+  const audioTracks = shared.getAudioTracks()
+  if (audioTracks.length === 0) {
+    releaseShare()
+    throw new Error(NO_SHARED_AUDIO_MESSAGE)
+  }
+  let session: RecordingSession
+  try {
+    session = recordStream(
+      dependencies.audioStream(audioTracks),
+      dependencies,
+      AUDIO_MIME_CANDIDATES,
+      'audio/webm',
+      'The system audio recorder could not start.',
+      {},
+      options.deferStart === true,
+    )
+  } catch (error) {
+    // recordStream released the audio tracks; the picture is ours to release.
+    releaseShare()
+    throw error
+  }
+  // The browser's "stop sharing" ends every shared track, and each fires
+  // its own `ended`, possibly in one task, before the dialog has re-rendered
+  // from the first. A second report would reach the dialog's Stop with the
+  // take still current and conclude it twice, listing "already concluded"
+  // as a failure beside the clip. So the share's end is reported once.
+  let shareEndReported = false
+  const reportShareEnded = () => {
+    if (shareEndReported) return
+    shareEndReported = true
+    onShareEnded()
+  }
+  for (const track of shared.getTracks()) {
+    track.addEventListener('ended', reportShareEnded)
+  }
+  return {
+    ...session,
+    // Every conclusion releases the whole share, picture included; the
+    // session itself only ever held the audio tracks.
+    stop: (fileName) => session.stop(fileName).finally(releaseShare),
+    cancel: () => {
+      session.cancel()
+      releaseShare()
+    },
+  }
+}
+
 /**
  * Both halves of a screen + camera take (#388): one gesture acquired both
  * streams and started both recorders, one Stop / Cancel concludes both. The

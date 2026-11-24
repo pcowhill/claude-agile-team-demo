@@ -86,7 +86,7 @@ The times themselves are the same in both modes, so a project reads alike either
 
 The hint sums it up: *For Screen and Screen + camera. High keeps small text sharp when the clip is zoomed or cropped, in larger files; Standard leaves it to the browser.* In a test on a full-HD screen of small text, High made a file about a third larger than Standard while the text stood still, and over four-fifths larger while it scrolled. A long recording at High takes correspondingly more room in the autosave and in a project file that keeps its media.
 
-The setting covers **Screen** and the screen half of **Screen + camera**. The webcam and the microphone record as they always have. It applies to the next recording; clips already in the library keep the quality they were recorded at. Like every setting, it is a preference for this browser and never part of a project.
+The setting covers **Screen** and the screen half of **Screen + camera**. The webcam and the microphone record as they always have, and so does **System audio**, which keeps only the sound of what it shares. It applies to the next recording; clips already in the library keep the quality they were recorded at. Like every setting, it is a preference for this browser and never part of a project.
 
 **Related.** [Screen](recording.md#screen) · [Screen + camera](recording.md#screen-camera)
 
