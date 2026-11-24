@@ -42,3 +42,31 @@ export const WEBP_MAX_DIMENSION = 480
  * lossy). 0.8 is Chromium's own default for WebP.
  */
 export const WEBP_QUALITY = 0.8
+
+/**
+ * **Why the Animated PNG keeps the same 10 fps and 480 px (#864).** It is
+ * lossless and large, so it offers no room to sample faster or bigger, and
+ * keeping the GIF's and the WebP's numbers means switching between the
+ * three formats keeps the same animation. Measured in Chromium on #864,
+ * exporting two 5 s 1280×720 clips (FFmpeg's `testsrc2` pattern, and the
+ * guide's static screenshot `editor-after-import.png` as a 5 s still), all
+ * three formats at these numbers:
+ *
+ * | Format        |  testsrc2 | screenshot |
+ * |---------------|----------:|-----------:|
+ * | Animated GIF  |   628,796 |    366,383 |
+ * | Animated WebP |   325,296 |    280,144 |
+ * | Animated PNG  | 2,421,701 |  1,181,237 |
+ *
+ * The APNG is 3.9 and 3.2 times the GIF. Every frame is stored as a whole
+ * PNG, so even an unchanging picture is stored again in every frame.
+ */
+
+/**
+ * Frames per second the Animated PNG samples at: 100 ms per frame, exact
+ * in APNG's fractional frame delays.
+ */
+export const APNG_FRAME_RATE = 10
+
+/** The longer side of the Animated PNG is scaled down to at most this many pixels. */
+export const APNG_MAX_DIMENSION = 480

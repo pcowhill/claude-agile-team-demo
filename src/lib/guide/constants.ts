@@ -67,7 +67,12 @@ import {
   SPIRAL_COLUMNS,
   SPIRAL_ROWS,
 } from '../../plugins/patternTransitionsIds'
-import { WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../../plugins/moreFormatsLimits'
+import {
+  APNG_FRAME_RATE,
+  APNG_MAX_DIMENSION,
+  WEBP_FRAME_RATE,
+  WEBP_MAX_DIMENSION,
+} from '../../plugins/moreFormatsLimits'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -174,6 +179,8 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     PATTERN_SPIRAL_ROWS: String(SPIRAL_ROWS),
     WEBP_FPS: String(WEBP_FRAME_RATE),
     WEBP_MAX_PX: String(WEBP_MAX_DIMENSION),
+    APNG_FPS: String(APNG_FRAME_RATE),
+    APNG_MAX_PX: String(APNG_MAX_DIMENSION),
     MP3_KBPS: String(MP3_KBPS),
     SIZE_LIMIT_MARGIN_PERCENT: percent(SIZE_LIMIT_MARGIN),
     RESERVED_AUDIO_KBPS: String(RESERVED_AUDIO_BITRATE / 1000),

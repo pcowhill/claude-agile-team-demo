@@ -1,6 +1,7 @@
 import { exportTimeline } from '../../lib/exportVideo'
 import { exportFormats } from '../../lib/exportFormats'
-import { WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
+import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
+import { createApngFrameSink } from './apngSink'
 import { createWebpFrameSink } from './webpSink'
 
 /**
@@ -12,11 +13,16 @@ import { createWebpFrameSink } from './webpSink'
  * are exactly the composition every other export records, and an encoder
  * that lives in this lazy chunk. The encoder here is the browser's own
  * still-WebP encoder plus a small muxer (`webpMux.ts`), so the plugin adds
- * no dependency.
+ * no dependency. Animated PNG (#864) is built the same way, from the
+ * browser's still-PNG encoder and `apngMux.ts`: lossless, at the cost of
+ * size.
  */
 
 /** The Animated WebP format's id. */
 export const WEBP_FORMAT_ID = 'webp'
+
+/** The Animated PNG format's id (#864). */
+export const APNG_FORMAT_ID = 'apng'
 
 /**
  * Whether this browser's canvas really encodes WebP. A browser that cannot
@@ -30,6 +36,23 @@ export function canvasEncodesWebp(): boolean {
     canvas.height = 1
     if (canvas.getContext('2d') === null) return false
     return canvas.toDataURL('image/webp').startsWith('data:image/webp')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether this browser's canvas can be drawn on and so encoded. Every
+ * browser encodes PNG from a canvas (the HTML standard requires it), so
+ * the only thing to probe is a 2D context (#864).
+ */
+export function canvasEncodesPng(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1
+    canvas.height = 1
+    if (canvas.getContext('2d') === null) return false
+    return canvas.toDataURL('image/png').startsWith('data:image/png')
   } catch {
     return false
   }
@@ -56,5 +79,28 @@ export function activate(): () => void {
         sink: createWebpFrameSink(),
       }),
   })
-  return () => exportFormats.unregister(WEBP_FORMAT_ID)
+  exportFormats.register({
+    id: APNG_FORMAT_ID,
+    label: 'Animated PNG (APNG)',
+    // `.png`: an APNG is a PNG, and a viewer that shows PNG but not APNG
+    // still opens it, on its first frame. `.apng` is not recognised as an
+    // image by every tool that plays APNG.
+    extension: 'png',
+    candidates: [],
+    candidatesWithAudio: [],
+    isSupported: canvasEncodesPng,
+    note:
+      `Animated PNG is soundless, lossless and large: it samples at ${APNG_FRAME_RATE} fps, ` +
+      `scaled down to at most ${APNG_MAX_DIMENSION} px.`,
+    encode: (timeline, options = {}) =>
+      exportTimeline(timeline, {
+        ...options,
+        container: { label: 'Animated PNG', candidates: [], candidatesWithAudio: [] },
+        sink: createApngFrameSink(),
+      }),
+  })
+  return () => {
+    exportFormats.unregister(WEBP_FORMAT_ID)
+    exportFormats.unregister(APNG_FORMAT_ID)
+  }
 }

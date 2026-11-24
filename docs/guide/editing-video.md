@@ -256,7 +256,7 @@ A clip can hold any number of regions, and they may overlap. Every change is one
 
 **Which style to use.** Blur can be partly reversed on small text, so it is the one to avoid for anything that matters; Pixelate and Solid cannot be. Blur starts at {{DEFAULT_BLUR_STRENGTH}} source pixels of radius.
 
-The region shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu), an [Animated GIF](plugins.md#gif-export) and an [Animated WebP](plugins.md#more-export-formats) alike — including behind a [blurred background fill](#background-fill), which is a copy of the same picture. There are no soft edges: a mask that faded in would show what it hides while it faded.
+The region shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu), an [Animated GIF](plugins.md#gif-export), an [Animated WebP](plugins.md#more-export-formats) and an [Animated PNG](plugins.md#more-export-formats) alike — including behind a [blurred background fill](#background-fill), which is a copy of the same picture. There are no soft edges: a mask that faded in would show what it hides while it faded.
 
 **If a blurred region cannot be drawn.** A browser without canvas filters refuses the export and the saved frame outright, naming the redaction, rather than writing out the thing you meant to hide — the same rule [colour adjustments](#colour-adjustments) follow. Switching that region to Pixelate or Solid exports anywhere, since neither needs the filter.
 
@@ -280,7 +280,7 @@ The region shows in the preview as you play, and is drawn into the export, a [sa
 
 A clip can hold any number of regions, and they may overlap. **Overlapping regions stay bright together** — a second spotlight never dims the first — and where several are showing at once, the outside is dimmed by the strongest of their dims. Every change is one undo step.
 
-The dimming shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu), an [Animated GIF](plugins.md#gif-export) and an [Animated WebP](plugins.md#more-export-formats) alike. It does **not** dim a [blurred or coloured background fill](#background-fill) behind the clip: that backdrop is an enlarged copy of the same picture, and lighting a second hole in it would put a second spotlight on screen.
+The dimming shows in the preview as you play, and is drawn into the export, a [saved frame](preview-and-playback.md#the-frame-menu), an [Animated GIF](plugins.md#gif-export), an [Animated WebP](plugins.md#more-export-formats) and an [Animated PNG](plugins.md#more-export-formats) alike. It does **not** dim a [blurred or coloured background fill](#background-fill) behind the clip: that backdrop is an enlarged copy of the same picture, and lighting a second hole in it would put a second spotlight on screen.
 
 **Spotlight or zoom?** A [zoom](#zooms) removes the context — the viewer sees the button and nothing else, and loses where on the screen it is. A spotlight keeps the whole frame and points into it, which is usually what a tutorial wants. They combine: a spotlight rides a zoom like any other part of the picture.
 

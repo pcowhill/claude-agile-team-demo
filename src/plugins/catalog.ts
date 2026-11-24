@@ -59,8 +59,9 @@ export const builtInPlugins: readonly PluginSpec[] = [
     id: 'more-export-formats',
     name: 'More export formats',
     description:
-      'Adds an "Animated WebP" format to the export dialog: the composed timeline as a ' +
-      'soundless, looping animation in full colour, usually smaller than a GIF.',
+      'Adds "Animated WebP" and "Animated PNG (APNG)" formats to the export dialog: the ' +
+      'composed timeline as a soundless, looping animation in full colour. The WebP is ' +
+      'usually smaller than a GIF; the APNG is lossless, and larger.',
     version: '1.0.0',
     load: () => import('./moreFormats/index'),
     // Export formats are outputs, not project state, so no project depends

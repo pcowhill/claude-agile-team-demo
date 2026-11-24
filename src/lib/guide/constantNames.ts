@@ -148,6 +148,8 @@ export const GUIDE_CONSTANT_NAMES = [
   /** The More export formats plugin's Animated WebP sampling rate and longer-side cap (#858). */
   'WEBP_FPS',
   'WEBP_MAX_PX',
+  'APNG_FPS',
+  'APNG_MAX_PX',
   /** The MP3 export's bitrate, in kbps (#269). */
   'MP3_KBPS',
   /** The Size limit's safety margin, as a percentage of the limit (#726). */

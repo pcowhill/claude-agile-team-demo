@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { exportFormats } from '../../lib/exportFormats'
 import { builtInPlugins } from '../catalog'
-import { WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
-import { activate, WEBP_FORMAT_ID } from './index'
+import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
+import { activate, APNG_FORMAT_ID, WEBP_FORMAT_ID } from './index'
 import { webpFrameDurations, webpOutputSize, webpTickAt } from './webpSink'
 
 /**
@@ -53,6 +53,35 @@ describe('More export formats activate/deactivate (#858)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'more-export-formats')
     expect(plugin?.name).toBe('More export formats')
     expect(plugin?.usedByProject).toBeUndefined()
+  })
+})
+
+describe('Animated PNG in the More export formats plugin (#864)', () => {
+  it('registers Animated PNG beside Animated WebP, and the deactivate unregisters both', () => {
+    expect(exportFormats.has(APNG_FORMAT_ID)).toBe(false)
+    deactivate = activate()
+    const spec = exportFormats.get(APNG_FORMAT_ID)
+    expect(spec.label).toBe('Animated PNG (APNG)')
+    expect(spec.extension).toBe('png')
+    expect(exportFormats.has(WEBP_FORMAT_ID)).toBe(true)
+    deactivate()
+    deactivate = null
+    expect(exportFormats.has(APNG_FORMAT_ID)).toBe(false)
+    expect(exportFormats.has(WEBP_FORMAT_ID)).toBe(false)
+  })
+
+  it('probes the canvas, offers no Size limit, and states its limits in its note', () => {
+    deactivate = activate()
+    const spec = exportFormats.get(APNG_FORMAT_ID)
+    expect(spec.candidates).toEqual([])
+    expect(spec.candidatesWithAudio).toEqual([])
+    expect(spec.sizeLimit).toBeUndefined()
+    // jsdom grants no 2D context; the e2e suite proves the yes in a browser.
+    expect(spec.isSupported?.(() => true)).toBe(false)
+    expect(spec.note).toContain(`${APNG_FRAME_RATE} fps`)
+    expect(spec.note).toContain(`${APNG_MAX_DIMENSION} px`)
+    expect(spec.note).toContain('soundless')
+    expect(spec.note).toContain('lossless')
   })
 })
 
