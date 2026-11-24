@@ -4,8 +4,8 @@
  * before its `fillText`. The width it returns is the line's advance width in
  * px at that font, which is the width the exported frame — and the still the
  * visual editors show, since the still *is* the export's draw (#237) — gives
- * the line. Measured rather than estimated because the four curated stacks
- * (`TEXT_FONTS`) differ by a third in width for the same string, and a
+ * the line. Measured rather than estimated because the four core stacks
+ * (`CORE_TEXT_FONTS`) differ by a third in width for the same string, and a
  * handle drawn on an estimated box would sit beside the text, not on it.
  *
  * jsdom has no canvas: `getContext` yields nothing there, so the measurer

@@ -20,6 +20,7 @@ import {
   EXPORT_MP4_MIME_CANDIDATES_WITH_AUDIO,
   exportProgressFraction,
   exportRangeCue,
+  exportTimeline,
   fitRect,
   initialRemapReplay,
   markedExportRange,
@@ -57,7 +58,13 @@ import { CANVAS_PRESETS, FALLBACK_FRAME, outputFrameSize, presetFrame } from './
 import { locateInSequence } from './playback'
 import { sourceTimeAtOutput } from './remap'
 import { overlayRectAt } from './overlayMove'
-import { TEXT_LINE_HEIGHT, textFontStack } from './textOverlay'
+import {
+  DEFAULT_TEXT,
+  FontRegistry,
+  registerCoreFonts,
+  TEXT_LINE_HEIGHT,
+  textFontStack,
+} from './textOverlay'
 import { BACKDROP_BUFFER_WIDTH, backdropBlurRadius } from './backgroundFill'
 import { attachBoost, setMediaGain } from './mediaGain'
 
@@ -2967,6 +2974,69 @@ describe('the export holds a base element\'s last frame across a stall (#635)', 
       'base-element',
     )
     expect(buffers).toEqual([])
+  })
+})
+
+describe('the export loads the fonts its text uses before it draws (#859)', () => {
+  const textTimeline = (font: string): TimelineState => ({
+    entries: [{ id: 'e1', clipId: 'c1', name: 'a.webm', duration: 2, url: 'blob:a', inPoint: 0, outPoint: 2 }],
+    transitions: [],
+    zooms: [],
+    texts: [{ ...DEFAULT_TEXT, id: 't1', font }],
+  })
+  // The first thing the export creates is a replay element, long before any
+  // frame is drawn; the stub records when that happens and stops the export
+  // there, so the test observes the order without a media pipeline.
+  const stoppingAtFirstElement = () => {
+    const created = vi.fn((): HTMLVideoElement => {
+      throw new Error('stopped at the first element')
+    })
+    return created
+  }
+
+  it('waits for a registered font\'s loader before creating or drawing anything', async () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    let settle = () => {}
+    const load = vi.fn(() => new Promise<void>((resolve) => (settle = resolve)))
+    registry.register({ id: 'pack-script', label: 'Script', stack: 'cursive', load })
+    const createVideo = stoppingAtFirstElement()
+
+    const exported = exportTimeline(textTimeline('pack-script'), {
+      sink: {} as never,
+      createVideo,
+      fonts: registry,
+    })
+    const outcome = exported.catch((error: Error) => error.message)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(createVideo).not.toHaveBeenCalled()
+
+    settle()
+    expect(await outcome).toBe('stopped at the first element')
+    expect(createVideo).toHaveBeenCalled()
+  })
+
+  it('waits for nothing with only the core fonts', async () => {
+    const createVideo = stoppingAtFirstElement()
+    const exported = exportTimeline(textTimeline('serif'), { sink: {} as never, createVideo })
+    await expect(exported).rejects.toThrow('stopped at the first element')
+    expect(createVideo).toHaveBeenCalled()
+  })
+
+  it('an audio-only file loads no font: it draws no text', async () => {
+    const registry = new FontRegistry()
+    const load = vi.fn(() => new Promise<void>(() => {}))
+    registry.register({ id: 'pack-script', label: 'Script', stack: 'cursive', load })
+    const createVideo = stoppingAtFirstElement()
+    const exported = exportTimeline(textTimeline('pack-script'), {
+      sink: {} as never,
+      audioOnly: true,
+      createVideo,
+      fonts: registry,
+    })
+    await expect(exported).rejects.toThrow('stopped at the first element')
+    expect(load).not.toHaveBeenCalled()
   })
 })
 

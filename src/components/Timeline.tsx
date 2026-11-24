@@ -86,8 +86,8 @@ import {
   DEFAULT_SUBTITLE_STYLE,
   MAX_TEXT_SIZE,
   MIN_TEXT_SIZE,
+  fontRegistry,
   subtitleStylesEqual,
-  TEXT_FONTS,
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
 import { MIN_OVERLAY_SIZE, overlayOutputDuration, overlayPlacementOf } from '../lib/videoOverlay'
@@ -2470,6 +2470,43 @@ interface SubtitleStyleControlsProps {
 }
 
 /**
+ * A Font menu (#859): the registered fonts, in registration order, re-read
+ * whenever a plugin adds or removes one. A stored id no registered font
+ * covers (its plugin disabled) stays selected and is named "(unavailable)",
+ * as the transition type picker does (#199), instead of the select silently
+ * showing the first font. The subscription sits on the component that owns
+ * the `<select>`, not on its options: React re-applies a controlled
+ * select's value only when the select itself re-renders, so options
+ * re-rendering alone left the browser showing the first font once the
+ * selected one was swapped for its "(unavailable)" entry.
+ */
+function FontSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: TextFontId
+  onChange: (font: TextFontId) => void
+}) {
+  useSyncExternalStore(fontRegistry.subscribe, () => fontRegistry.version)
+  return (
+    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+      {fontRegistry.list().map((font) => (
+        <option key={font.id} value={font.id}>
+          {font.label}
+        </option>
+      ))}
+      {!fontRegistry.has(value) && (
+        <option key={`unavailable:${value}`} value={value}>
+          {value} (unavailable)
+        </option>
+      )}
+    </select>
+  )
+}
+
+/**
  * The default-subtitle-style editor (#250), beside the subtitle import: the
  * text-overlay style surface (font, size, color, bold/italic, centre) for
  * the whole project's imported subtitles at once. Every edit commits the
@@ -2486,17 +2523,11 @@ function SubtitleStyleControls({ style, onCommit }: SubtitleStyleControlsProps) 
       {/* No "Subtitle style" caption here: since #418 the disclosure button
           that reveals these controls carries that name, and repeating it
           inside would read the heading twice. */}
-      <select
-        aria-label="Default subtitle font"
+      <FontSelect
+        label="Default subtitle font"
         value={effective.font}
-        onChange={(event) => commit({ font: event.target.value as TextFontId })}
-      >
-        {TEXT_FONTS.map((font) => (
-          <option key={font.id} value={font.id}>
-            {font.label}
-          </option>
-        ))}
-      </select>
+        onChange={(font) => commit({ font })}
+      />
       <span>Size</span>
       <SecondsField
         label="Default subtitle size (fraction of frame height)"
@@ -5333,17 +5364,11 @@ export function Timeline({
                     </LabelledField>
                   </div>
                   <div className="text-overlay-controls">
-                    <select
-                      aria-label={`Font of ${position}`}
+                    <FontSelect
+                      label={`Font of ${position}`}
                       value={text.font}
-                      onChange={(event) => set({ font: event.target.value as TextFontId })}
-                    >
-                      {TEXT_FONTS.map((font) => (
-                        <option key={font.id} value={font.id}>
-                          {font.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(font) => set({ font })}
+                    />
                     <span>Size</span>
                     <SecondsField
                       label={`Size of ${position} (fraction of frame height)`}

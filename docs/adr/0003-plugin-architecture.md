@@ -197,6 +197,32 @@ extension point is built until a concrete plugin needs it**.
   dependencies. Its ids and pattern sizes are top-level wiring
   (`src/plugins/patternTransitionsIds.ts`), as with Shaped wipes, so
   dependency recording and the guide read them without loading the chunk.
+- **Font registry** (`fontRegistry` in `src/lib/textOverlay.ts`, built in
+  #859 because the Font pack plugin the customer picked on #856 needs it).
+  It follows the transition registry: `register`/`unregister`/`has`/
+  `find`/`list`/`subscribe`/`version`, and registration order is
+  Font-menu order. The four core fonts (`CORE_TEXT_FONTS`, #139) register
+  at startup in their established order. A definition carries an id (what
+  timeline state and project files record), a menu label, a CSS stack,
+  and an optional `load(): Promise<void>`. The core fonts are system
+  stacks and need nothing loaded. A pack's webfont does: a canvas
+  `fillText` with a face that has not loaded silently draws the fallback.
+  So `exportTimeline` awaits the loaders of the fonts the timeline's text
+  uses (`loadTextFonts`) before it creates or draws anything. An
+  audio-only export skips this, since it draws no text. Fonts are project
+  state, as transitions are, so the same three consequences follow:
+  - An unregistered id renders in the core sans-serif
+    (`FALLBACK_TEXT_FONT_STACK`) rather than throwing, and the Font menus
+    show it as "(unavailable)".
+  - The reducer accepts any non-empty id, so text whose font outlived its
+    plugin stays editable.
+  - `projectFile` checks only that `font` is a string. The open flow
+    refuses an unknown font by name after the plugin gate
+    (`unregisteredTextFonts`), as #199 moved transition types.
+
+  Each Font menu subscribes on the component that owns the `<select>`,
+  not on its options. React re-applies a controlled select's value only
+  when the select itself re-renders.
 
 ### Projects that use plugin features: prompt-and-enable
 

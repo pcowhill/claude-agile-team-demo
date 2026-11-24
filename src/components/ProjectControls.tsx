@@ -13,6 +13,7 @@ import { serializeProject } from '../lib/projectFile'
 import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { unregisteredTransitionTypes } from '../lib/transitionRender'
+import { unregisteredTextFonts } from '../lib/textOverlay'
 import type { ExportRange } from '../lib/exportVideo'
 import {
   DEFAULT_PROJECT_FILE_NAME,
@@ -441,6 +442,22 @@ export function ProjectControls({
         `this project uses the unknown transition${
           unknownTransitions.length === 1 ? '' : 's'
         } ${unknownTransitions.map((type) => `"${type}"`).join(', ')} — the file is damaged, or was saved by a newer version of the editor`,
+      )
+      reofferRestore()
+      return
+    }
+    // Fonts likewise (#859): a pack font is registered by a plugin the gate
+    // has just enabled, so only now can an unknown one be told from it.
+    const { texts = [], subtitleStyle } = result.project.timeline
+    const unknownFonts = unregisteredTextFonts([
+      ...texts.map((text) => text.font),
+      ...(subtitleStyle === undefined ? [] : [subtitleStyle.font]),
+    ])
+    if (unknownFonts.length > 0) {
+      setOpenError(
+        `this project uses the unknown font${
+          unknownFonts.length === 1 ? '' : 's'
+        } ${unknownFonts.map((id) => `"${id}"`).join(', ')} — the file is damaged, or was saved by a newer version of the editor`,
       )
       reofferRestore()
       return
