@@ -2,6 +2,7 @@ import { exportTimeline } from '../../lib/exportVideo'
 import { exportFormats } from '../../lib/exportFormats'
 import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
 import { createApngFrameSink } from './apngSink'
+import { createPngSequenceFrameSink } from './pngSequenceSink'
 import { createWebpFrameSink } from './webpSink'
 
 /**
@@ -15,7 +16,9 @@ import { createWebpFrameSink } from './webpSink'
  * still-WebP encoder plus a small muxer (`webpMux.ts`), so the plugin adds
  * no dependency. Animated PNG (#864) is built the same way, from the
  * browser's still-PNG encoder and `apngMux.ts`: lossless, at the cost of
- * size.
+ * size. The PNG image sequence (#865) uses the same encoder for frames to
+ * hand to another tool: one PNG per frame at the export's own Frame rate
+ * and Frame size, in a store-only ZIP (`zipStore.ts`).
  */
 
 /** The Animated WebP format's id. */
@@ -23,6 +26,9 @@ export const WEBP_FORMAT_ID = 'webp'
 
 /** The Animated PNG format's id (#864). */
 export const APNG_FORMAT_ID = 'apng'
+
+/** The PNG image sequence format's id (#865). */
+export const PNG_SEQUENCE_FORMAT_ID = 'png-sequence'
 
 /**
  * Whether this browser's canvas really encodes WebP. A browser that cannot
@@ -99,8 +105,29 @@ export function activate(): () => void {
         sink: createApngFrameSink(),
       }),
   })
+  exportFormats.register({
+    id: PNG_SEQUENCE_FORMAT_ID,
+    label: 'PNG image sequence (ZIP)',
+    extension: 'zip',
+    candidates: [],
+    candidatesWithAudio: [],
+    isSupported: canvasEncodesPng,
+    // Unlike the two animations, no rate or size of its own: the point is
+    // frames for another tool, so it takes the dialog's Frame rate and
+    // Frame size as they are.
+    note:
+      'A ZIP of lossless PNGs, one per frame at the Frame rate and Frame size below, ' +
+      'named frame-00001.png onwards. It is soundless and large.',
+    encode: (timeline, options = {}) =>
+      exportTimeline(timeline, {
+        ...options,
+        container: { label: 'PNG image sequence', candidates: [], candidatesWithAudio: [] },
+        sink: createPngSequenceFrameSink({ frameRate: options.frameRate }),
+      }),
+  })
   return () => {
     exportFormats.unregister(WEBP_FORMAT_ID)
     exportFormats.unregister(APNG_FORMAT_ID)
+    exportFormats.unregister(PNG_SEQUENCE_FORMAT_ID)
   }
 }

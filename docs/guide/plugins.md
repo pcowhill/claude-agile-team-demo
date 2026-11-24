@@ -66,13 +66,13 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 ## More export formats
 
-**Where to find it.** **File ▾** › **Plugins…** › *More export formats*; once enabled, **Animated WebP** and **Animated PNG (APNG)** in the export dialog's Format group.
+**Where to find it.** **File ▾** › **Plugins…** › *More export formats*; once enabled, **Animated WebP**, **Animated PNG (APNG)** and **PNG image sequence (ZIP)** in the export dialog's Format group.
 
-**What it does.** Adds export formats beyond the editor's own. Today those are *Animated WebP* and *Animated PNG (APNG)*: the composed timeline as a soundless, looping animation in full colour.
+**What it does.** Adds export formats beyond the editor's own. Today those are *Animated WebP* and *Animated PNG (APNG)*, the composed timeline as a soundless, looping animation in full colour, and the *PNG image sequence (ZIP)*, one lossless PNG per frame for another tool.
 
-**Details.** The WebP samples at {{WEBP_FPS}} fps and is scaled down so its longer side is at most {{WEBP_MAX_PX}} px, the same limits as the GIF, but without the GIF's 256-colour palette; the format's note in the export dialog states the limits. Each frame is encoded by the browser's own WebP encoder, so the plugin carries no encoder of its own, and the format is offered only where the browser can encode WebP. The APNG samples at {{APNG_FPS}} fps and at most {{APNG_MAX_PX}} px too, and is lossless: every frame keeps the composed pixels exactly, at several times the GIF's size. Its frames are encoded by the browser's own PNG encoder. No project depends on this plugin, because an export format is an output, not part of the arrangement.
+**Details.** The WebP samples at {{WEBP_FPS}} fps and is scaled down so its longer side is at most {{WEBP_MAX_PX}} px, the same limits as the GIF, but without the GIF's 256-colour palette; the format's note in the export dialog states the limits. Each frame is encoded by the browser's own WebP encoder, so the plugin carries no encoder of its own, and the format is offered only where the browser can encode WebP. The APNG samples at {{APNG_FPS}} fps and at most {{APNG_MAX_PX}} px too, and is lossless: every frame keeps the composed pixels exactly, at several times the GIF's size. Its frames are encoded by the browser's own PNG encoder. The PNG image sequence uses the same encoder, at the export's own Frame rate and Frame size, and packs the frames into a ZIP the plugin writes itself. No project depends on this plugin, because an export format is an output, not part of the arrangement.
 
-**Related.** [Animated WebP (plugin)](export.md#animated-webp-plugin) · [Animated PNG (plugin)](export.md#animated-png-plugin) · [GIF export](#gif-export)
+**Related.** [Animated WebP (plugin)](export.md#animated-webp-plugin) · [Animated PNG (plugin)](export.md#animated-png-plugin) · [PNG image sequence (plugin)](export.md#png-image-sequence-plugin) · [GIF export](#gif-export)
 
 ## Title templates
 

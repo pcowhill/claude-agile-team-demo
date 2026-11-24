@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { exportFormats } from '../../lib/exportFormats'
 import { builtInPlugins } from '../catalog'
 import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
-import { activate, APNG_FORMAT_ID, WEBP_FORMAT_ID } from './index'
+import { activate, APNG_FORMAT_ID, PNG_SEQUENCE_FORMAT_ID, WEBP_FORMAT_ID } from './index'
 import { webpFrameDurations, webpOutputSize, webpTickAt } from './webpSink'
 
 /**
@@ -82,6 +82,39 @@ describe('Animated PNG in the More export formats plugin (#864)', () => {
     expect(spec.note).toContain(`${APNG_MAX_DIMENSION} px`)
     expect(spec.note).toContain('soundless')
     expect(spec.note).toContain('lossless')
+  })
+})
+
+describe('PNG image sequence in the More export formats plugin (#865)', () => {
+  it('registers the PNG image sequence beside the animations, and the deactivate unregisters it', () => {
+    expect(exportFormats.has(PNG_SEQUENCE_FORMAT_ID)).toBe(false)
+    deactivate = activate()
+    const spec = exportFormats.get(PNG_SEQUENCE_FORMAT_ID)
+    expect(spec.label).toBe('PNG image sequence (ZIP)')
+    expect(spec.extension).toBe('zip')
+    expect(exportFormats.list().map((format) => format.id).slice(-3)).toEqual([
+      WEBP_FORMAT_ID,
+      APNG_FORMAT_ID,
+      PNG_SEQUENCE_FORMAT_ID,
+    ])
+    deactivate()
+    deactivate = null
+    expect(exportFormats.has(PNG_SEQUENCE_FORMAT_ID)).toBe(false)
+  })
+
+  it('is a video format with no Size limit, and its note says it follows the Frame rate and size', () => {
+    deactivate = activate()
+    const spec = exportFormats.get(PNG_SEQUENCE_FORMAT_ID)
+    // Not audio-only: the dialog keeps Frame size and Frame rate, which this
+    // format exists to honour.
+    expect(spec.audioOnly).toBeUndefined()
+    expect(spec.sizeLimit).toBeUndefined()
+    expect(spec.candidates).toEqual([])
+    expect(spec.isSupported?.(() => true)).toBe(false)
+    expect(spec.note).toContain('Frame rate')
+    expect(spec.note).toContain('Frame size')
+    expect(spec.note).toContain('frame-00001.png')
+    expect(spec.note).toContain('soundless')
   })
 })
 
