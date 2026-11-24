@@ -98,14 +98,8 @@ async function pythonZipfile(path: string): Promise<{ names: string[]; bad: stri
   }
 }
 
-test('the enabled More export formats plugin exports a PNG image sequence at the dialog’s rate and size', async ({
-  page,
-  browserName,
-}) => {
-  test.setTimeout(120_000)
-  await page.goto('./')
-
-  // Two slates, 1 s each, in clearly different colours: the visible change.
+/** Two slates, 1 s each, in clearly different colours: the visible change. */
+async function buildTwoSlates(page: Page): Promise<void> {
   await chooseFromAddMenu(page, ADD_SLATE)
   await chooseFromAddMenu(page, ADD_SLATE)
   for (const [position, color] of [
@@ -119,6 +113,23 @@ test('the enabled More export formats plugin exports a PNG image sequence at the
     await duration.blur()
     await page.getByLabel(`Color of Color slate at position ${position}`).fill(color)
   }
+}
+
+/** Enables the More export formats plugin through the plugin manager. */
+async function enablePlugin(page: Page): Promise<void> {
+  await chooseFromFileMenu(page, 'Plugins…')
+  await page.getByRole('button', { name: 'Enable More export formats' }).click()
+  await expect(page.getByRole('button', { name: 'Disable More export formats' })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()
+}
+
+test('the enabled More export formats plugin exports a PNG image sequence at the dialog’s rate and size', async ({
+  page,
+  browserName,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await buildTwoSlates(page)
 
   // With the plugin off, the format is not offered.
   await page.getByRole('button', { name: 'Export Project…' }).click()
@@ -126,10 +137,7 @@ test('the enabled More export formats plugin exports a PNG image sequence at the
   await expect(page.getByRole('radio', { name: 'PNG image sequence (ZIP)' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Cancel' }).click()
 
-  await chooseFromFileMenu(page, 'Plugins…')
-  await page.getByRole('button', { name: 'Enable More export formats' }).click()
-  await expect(page.getByRole('button', { name: 'Disable More export formats' })).toBeVisible()
-  await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()
+  await enablePlugin(page)
 
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export Project…' }).click()
@@ -175,4 +183,33 @@ test('the enabled More export formats plugin exports a PNG image sequence at the
     expect(python.names).toEqual(files.map((file) => file.name))
     expect(python.bad, 'every CRC is correct').toBeNull()
   }
+})
+
+test('at a frame rate above the display’s, the sequence still has a file for every tick to the end (#904 review)', async ({
+  page,
+  browserName,
+}) => {
+  // The real-time pipeline composes at the display's rate, so at 120 fps
+  // it skips ticks, and its last frame lands about one refresh before the
+  // end. Before #904's review the archive stopped at that frame: 238 files
+  // for 2 s at 120 fps in Chromium, every run. Every tick to the end holds
+  // a file now.
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await buildTwoSlates(page)
+  await enablePlugin(page)
+  const rate = 120
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('radio', { name: 'PNG image sequence (ZIP)' }).check()
+  await page.getByRole('spinbutton', { name: 'Export frame rate in frames per second' }).fill(String(rate))
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const download = await downloadPromise
+  const files = walkZip(await readFile((await download.path()) as string))
+  console.log(`[${browserName}] PNG sequence at ${rate} fps: ${files.length} frames`)
+  expect(files.map((file) => file.name)).toEqual(
+    files.map((_, index) => `frame-${String(index + 1).padStart(5, '0')}.png`),
+  )
+  expect(files.length).toBeGreaterThanOrEqual(2 * rate - 1)
+  expect(files.length).toBeLessThanOrEqual(2 * rate + 1)
 })

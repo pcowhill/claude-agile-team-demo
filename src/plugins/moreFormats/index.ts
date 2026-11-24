@@ -1,5 +1,6 @@
-import { exportTimeline } from '../../lib/exportVideo'
+import { exportTimeline, resolveExportRange } from '../../lib/exportVideo'
 import { exportFormats } from '../../lib/exportFormats'
+import { totalDuration } from '../../lib/timeline'
 import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
 import { createApngFrameSink } from './apngSink'
 import { createPngSequenceFrameSink } from './pngSequenceSink'
@@ -118,12 +119,18 @@ export function activate(): () => void {
     note:
       'A ZIP of lossless PNGs, one per frame at the Frame rate and Frame size below, ' +
       'named frame-00001.png onwards. It is soundless and large.',
-    encode: (timeline, options = {}) =>
-      exportTimeline(timeline, {
+    encode: async (timeline, options = {}) => {
+      // The window's end, by the pipeline's own rule, so the archive has a
+      // file for every tick up to it (#904's review). A range that collapses
+      // rejects here, with the message the pipeline would give.
+      const total = totalDuration(timeline)
+      const end = resolveExportRange(total, options.range)?.end ?? total
+      return exportTimeline(timeline, {
         ...options,
         container: { label: 'PNG image sequence', candidates: [], candidatesWithAudio: [] },
-        sink: createPngSequenceFrameSink({ frameRate: options.frameRate }),
-      }),
+        sink: createPngSequenceFrameSink({ frameRate: options.frameRate, end }),
+      })
+    },
   })
   return () => {
     exportFormats.unregister(WEBP_FORMAT_ID)

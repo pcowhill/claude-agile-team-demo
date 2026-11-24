@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createPngSequenceFrameSink, pngSequenceFrameName } from './pngSequenceSink'
+import { createPngSequenceFrameSink, lastTickBefore, pngSequenceFrameName } from './pngSequenceSink'
 import { zipCrc32 } from './zipStore'
 
 /**
@@ -139,6 +139,56 @@ describe('PNG image sequence sink (#865)', () => {
     )
     // A repeat stores the same PNG again; it encodes nothing new.
     expect(created).toHaveLength(4)
+  })
+
+  it('holds the last frame for the ticks left before the window ends (#904 review)', async () => {
+    useFakeCanvases()
+    // A 2 s export at 120 fps from a 60 Hz pipeline whose last frame lands
+    // one refresh early, at 118/60 s: tick 236. Ticks 237 to 239 are still
+    // before the end, so they hold it, and the archive has 2 × 120 files.
+    const sink = createPngSequenceFrameSink({ frameRate: 120, end: 2 })
+    for (let index = 0; index <= 118; index += 1) sink.frame(pipeline(`f${index}`), index / 60)
+    const files = await unzip(await sink.finish())
+    expect(files).toHaveLength(240)
+    expect(files.at(-1)?.[0]).toBe('frame-00240.png')
+    expect(files.slice(-4).map(([, data]) => data)).toEqual(['f118', 'f118', 'f118', 'f118'])
+    // Holding encodes nothing new.
+    expect(created).toHaveLength(119)
+  })
+
+  it('ends a range on the last tick before its end, not on the tick at it', async () => {
+    useFakeCanvases()
+    // A range from 4.0 s to 4.5 s at 10 fps is ticks 40 to 44: five files.
+    const sink = createPngSequenceFrameSink({ frameRate: 10, end: 4.5 })
+    sink.frame(pipeline('x'), 4.0)
+    sink.frame(pipeline('y'), 4.1)
+    const files = await unzip(await sink.finish())
+    expect(files.map(([, data]) => data)).toEqual(['x', 'y', 'y', 'y', 'y'])
+    expect(lastTickBefore(4.5, 10)).toBe(44)
+    // A time on a tick by floating point still ends just before it.
+    expect(lastTickBefore(0.7, 20)).toBe(13)
+    expect(lastTickBefore(2, 120)).toBe(239)
+  })
+
+  it('gives no file to a frame the pipeline composes at or past the window end', async () => {
+    useFakeCanvases()
+    // A range ending at 1.5 s at 30 fps is ticks up to 44. The pipeline
+    // composed one more frame, at 1.517 s (tick 45), as measured.
+    const sink = createPngSequenceFrameSink({ frameRate: 30, end: 1.5 })
+    sink.frame(pipeline('in'), 1.4999)
+    sink.frame(pipeline('past'), 1.5167)
+    const files = await unzip(await sink.finish())
+    expect(files.map(([, data]) => data)).toEqual(['in'])
+    // The frame past the end was not even copied.
+    expect(created).toHaveLength(1)
+  })
+
+  it('refuses an export whose held tail would pass the ZIP file count', async () => {
+    useFakeCanvases()
+    const sink = createPngSequenceFrameSink({ frameRate: 1, end: 65536 })
+    sink.frame(pipeline('first'), 0)
+    // Ticks 0 to 65,535 are 65,536 files.
+    await expect(sink.finish()).rejects.toThrow(/at most 65,535 files/)
   })
 
   it('numbers a range export from frame 1, wherever in the sequence the range starts', async () => {
