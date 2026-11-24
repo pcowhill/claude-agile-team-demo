@@ -106,7 +106,7 @@ What shows behind a clip that does not fill the output frame: black bars, a blur
 
 ### Placement rectangle
 
-The rectangle of the frame an overlay layer occupies, as fractions of the frame's width and height. A [Move](editing-video.md#overlay-move) glides it to another during the video. See [Dragging](visual-editors.md#dragging).
+The rectangle of the frame an overlay layer occupies, as shares of the frame's width and height. Its **Rect** fields show them in percent: *left* 62 % puts its left edge 62 % of the way across. A [Move](editing-video.md#overlay-move) glides it to another during the video. See [Dragging](visual-editors.md#dragging).
 
 ### Shape mask
 

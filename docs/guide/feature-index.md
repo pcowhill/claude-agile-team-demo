@@ -190,7 +190,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## H
 
 - **Head size** — an arrow in an expanded shape group row, while it has a head; Small, Medium or Large. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
-- **Height** — an expanded overlay row; the placement rectangle's height. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Height** — an expanded overlay row; the placement rectangle's height, in percent of the frame's height. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Help** — the header menu holding this guide and the cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **Highlighter** — the shape editor's style bar; no border and a 35 % yellow fill on the selected rectangles, or on the next one drawn. [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **Home / End** — jumps the playhead to the sequence's start or end. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
@@ -209,7 +209,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## L
 
-- **Left edge** — an expanded overlay row; the placement rectangle's left edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Left edge** — an expanded overlay row; the placement rectangle's left edge, in percent of the frame's width. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Length** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 - **Line style** — a shape in an expanded shape group row › Line; solid, dashed or dotted, for a border or an arrow's shaft. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **List** — View ▾; the list layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
@@ -226,13 +226,13 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Move** — + Effect ▾ on a video or image overlay; glides the overlay to a new place and size during the video. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **Move down** — a sequence entry's ⋯ menu; the same as the row's **↓**. [Timeline › The ⋯ menu](timeline.md#the-menu)
 - **Move glide** — a Move on an expanded overlay; how long the glide takes, in seconds. 0 jumps. [Editing video › Overlay move](editing-video.md#overlay-move)
-- **Move height** — a Move on an expanded overlay; the height it glides to, as a fraction of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
-- **Move left edge** — a Move on an expanded overlay; the left edge it glides to, as a fraction of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
+- **Move height** — a Move on an expanded overlay; the height it glides to, in percent of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
+- **Move left edge** — a Move on an expanded overlay; the left edge it glides to, in percent of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **Move start** — a Move on an expanded overlay; when its glide begins, in seconds after the overlay appears. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **Move to playhead** — a chapter marker's menu; moves the marker to where the playhead stands. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
-- **Move top edge** — a Move on an expanded overlay; the top edge it glides to, as a fraction of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
+- **Move top edge** — a Move on an expanded overlay; the top edge it glides to, in percent of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **Move up** — a sequence entry's ⋯ menu; the same as the row's **↑**. [Timeline › The ⋯ menu](timeline.md#the-menu)
-- **Move width** — a Move on an expanded overlay; the width it glides to, as a fraction of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
+- **Move width** — a Move on an expanded overlay; the width it glides to, in percent of the frame. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **MP4** — the export dialog's Format group, and File ▾ › Export ▸. [Export › Formats and what decides them](export.md#formats-and-what-decides-them)
 - **Mute** — an expanded video entry or video overlay; an audio track has none. [Audio › Volume and mute](audio.md#volume-and-mute)
 
@@ -377,7 +377,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Tip y** — an arrow in an expanded shape group row › Tip; the tip's distance down the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Title** — the Title template gallery, Chapter card; the large line. [Plugins › Title templates](plugins.md#title-templates)
 - **Title template…** — Add ▾, once the Title templates plugin is enabled; opens the gallery. [Plugins › Title templates](plugins.md#title-templates)
-- **Top edge** — an expanded overlay row; the placement rectangle's top edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Top edge** — an expanded overlay row; the placement rectangle's top edge, in percent of the frame's height. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Transition duration** — a transition control between two entries; how long the overlap lasts. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Transition type** — a transition control between two entries; which transition it is. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Trim…** — an expanded video sequence entry, video overlay or audio track, beside In and Out; opens the Trim window (for a track, with no picture: its waveform is the strip). Not on an image overlay. [Editing video › The Trim window](editing-video.md#the-trim-window)
@@ -401,7 +401,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **WebM** — the export dialog's Format group, and File ▾ › Export ▸. [Export › Formats and what decides them](export.md#formats-and-what-decides-them)
 - **When a previous session is found** — Settings. [Settings › When a previous session is found](settings.md#when-a-previous-session-is-found)
 - **Whole project** — the export dialog's Range group. [Export › The Range line](export.md#the-range-line)
-- **Width** — an expanded overlay row; the placement rectangle's width. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
+- **Width** — an expanded overlay row; the placement rectangle's width, in percent of the frame's width. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 
 ## X
 

@@ -62,7 +62,8 @@ import { TimeReadout } from './TimeReadout'
  * still at the middle of its window, exactly as before.
  */
 
-const format = (value: number) => String(Math.round(value * 1000) / 1000)
+/** A placement in percent of the frame, as the Rect fields show it (#892). */
+const format = (value: number) => String(Math.round(value * 10000) / 100)
 
 /**
  * The placement bounds the reducer enforces (`clampVideoOverlay`), so the
@@ -287,16 +288,16 @@ export function OverlayEditor({
       )}
       <p className="effect-editor-readout">
         <span>
-          X <output aria-label={`${position} left edge (live)`}>{format(shown.x)}</output>
+          X <output aria-label={`${position} left edge (live)`}>{format(shown.x)}</output>%
         </span>
         <span>
-          Y <output aria-label={`${position} top edge (live)`}>{format(shown.y)}</output>
+          Y <output aria-label={`${position} top edge (live)`}>{format(shown.y)}</output>%
         </span>
         <span>
-          W <output aria-label={`${position} width (live)`}>{format(shown.width)}</output>
+          W <output aria-label={`${position} width (live)`}>{format(shown.width)}</output>%
         </span>
         <span>
-          H <output aria-label={`${position} height (live)`}>{format(shown.height)}</output>
+          H <output aria-label={`${position} height (live)`}>{format(shown.height)}</output>%
         </span>
       </p>
       <p className="effect-editor-hint" id={hintId}>

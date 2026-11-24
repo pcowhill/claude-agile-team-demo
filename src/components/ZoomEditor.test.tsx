@@ -972,9 +972,9 @@ describe('the zoom editor on an overlay zoom (#734)', () => {
     const glide = overlayField(`Move 1 glide of ${OVERLAY} in seconds`)
     await userEvent.clear(glide)
     await userEvent.type(glide, '0{Enter}')
-    const moveLeft = overlayField(`Move 1 left edge of ${OVERLAY} (fraction of frame width)`)
+    const moveLeft = overlayField(`Move 1 left edge of ${OVERLAY} (percent of frame width)`)
     await userEvent.clear(moveLeft)
-    await userEvent.type(moveLeft, '0.1{Enter}')
+    await userEvent.type(moveLeft, '10{Enter}')
     await userEvent.click(overlayAdjust())
     const image = await within(overlayEditor()).findByTestId('frame-editor-image')
     // The view is the moved rectangle, (0.1, 0.62), not (0.62, 0.62).
@@ -1005,9 +1005,9 @@ describe('the zoom editor on an overlay zoom (#734)', () => {
     expect(videoOverlaysOf(withZoom)[0].zooms).toHaveLength(1)
 
     const calls = snapshotMock.mock.calls.length
-    const left = overlayField(`Left edge of ${OVERLAY} (fraction of frame width)`)
+    const left = overlayField(`Left edge of ${OVERLAY} (percent of frame width)`)
     await userEvent.clear(left)
-    await userEvent.type(left, '0.1{Enter}')
+    await userEvent.type(left, '10{Enter}')
     await waitFor(() => expect(snapshotMock.mock.calls.length).toBeGreaterThan(calls))
     const image = await within(overlayEditor()).findByTestId('frame-editor-image')
     expect(image.style.left).toBe(`${(-100 * 0.1) / DEFAULT_OVERLAY_RECT.width}%`)
