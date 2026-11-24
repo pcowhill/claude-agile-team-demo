@@ -1227,15 +1227,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
    * hid the gap.
    *
    * The cued frame is the right picture only where it is the frame due at
-   * the export's first instant. An overlay is cued to its in-point
-   * (`cueTo`), which is what it shows on the first frame of a whole-sequence
-   * export, and what one that starts later shows when it appears. A range
-   * export (#385) that starts partway through an overlay is due a later
-   * frame, so that overlay holds nothing: a frame or two of the wrong
-   * picture would be no better than none. The tolerance is the export's
-   * own for a playing overlay (`AUDIO_DRIFT_EPSILON`). An element whose cue
-   * never reached a decoded frame is skipped as well, as `replayPicture`
-   * skips it.
+   * the export's first instant. `exportTimeline` cues each overlay to that
+   * frame: the in-point for a whole-sequence export or an overlay that
+   * starts later, and the frame partway in for a range export (#385) that
+   * opens inside the overlay (#901). The check stays, so an element cued
+   * anywhere else holds nothing: a frame or two of the wrong picture would
+   * be no better than none. The tolerance is the export's own for a
+   * playing overlay (`AUDIO_DRIFT_EPSILON`). An element whose cue never
+   * reached a decoded frame is skipped as well, as `replayPicture` skips
+   * it.
    */
   const holdOverlayFrames = (sequenceTime: number) => {
     for (const { overlay, element } of overlayReplays) {
@@ -2928,6 +2928,16 @@ export async function exportTimeline(
   // cropped (#255/#256) then oriented (#232/#233): a cropped entry presents
   // its kept region and a quarter-turned entry swapped dimensions to the
   // frame rule, exactly as the preview computes its stage.
+  const total = totalDuration(timeline)
+  // The exported window (#385): the whole sequence, or the requested range
+  // clamped into it. Everything below keeps publishing *absolute* sequence
+  // time — overlays, audio tracks, ducking, and sinks are sequence-anchored —
+  // so a range changes only where playback starts, where it stops, and what
+  // progress is measured against. Resolved before the sources load, because
+  // the overlays are cued to the window's start (#901).
+  const range = resolveExportRange(total, options.range)
+  const windowStart = range?.start ?? 0
+  const windowEnd = range?.end ?? total
   const urlDims = new Map<string, SourceDimensions>()
   try {
     for (const url of new Set(
@@ -2967,13 +2977,18 @@ export async function exportTimeline(
       throwIfAborted()
       await loadSource(element, track.url)
     }
-    // Overlay layers (#146) load and cue to their in-point up front: it
-    // validates each source decodes, and the element holds the right first
-    // frame from the very first draw. Overlay dimensions deliberately play
-    // no part in the output frame size — placement is fractional (#145).
+    // Overlay layers (#146) load and cue up front: it validates each source
+    // decodes, and the element holds the right first frame from the very
+    // first draw. That frame is the one due at the window's start (#901):
+    // the in-point for a whole-sequence export or an overlay that has not
+    // begun yet, and the frame partway in for a range that opens inside the
+    // overlay. Cued to the in-point there, the first tick's sync had to seek
+    // it, and the layer was missing until the seek landed. Overlay
+    // dimensions deliberately play no part in the output frame size —
+    // placement is fractional (#145).
     for (const { overlay, element } of overlayReplays) {
       throwIfAborted()
-      await cueTo(element, overlay.url, overlay.inPoint)
+      await cueTo(element, overlay.url, videoOverlayPlaybackAt(overlay, windowStart).sourceTime)
     }
   } catch (error) {
     await releaseAll()
@@ -3095,18 +3110,9 @@ export async function exportTimeline(
     }
   }
 
-  const total = totalDuration(timeline)
-  // The exported window (#385): the whole sequence, or the requested range
-  // clamped into it. Everything below keeps publishing *absolute* sequence
-  // time — overlays, audio tracks, ducking, and sinks are sequence-anchored —
-  // so a range changes only where playback starts, where it stops, and what
-  // progress is measured against.
-  const range = resolveExportRange(total, options.range)
-  const windowStart = range?.start ?? 0
-  const windowEnd = range?.end ?? total
   const startCue = range === null ? { index: 0, outputInto: 0 } : exportRangeCue(timeline, windowStart)
-  // Every overlay is cued by now and holds its in-point frame: keep a copy
-  // before the first tick's sync can start a seek (#898).
+  // Every overlay is cued by now to the frame due at the window's start:
+  // keep a copy before the first tick's sync can start a seek (#898, #901).
   holdOverlayFrames(windowStart)
   // The recorder exists only without a sink (#198) or audio sink (#269): a
   // sink-driven export takes its frames straight from the shared canvas

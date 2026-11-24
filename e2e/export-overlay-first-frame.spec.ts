@@ -135,10 +135,19 @@ async function buildSplitScreen(
   await centreY.blur()
 }
 
-/** Exports a WebM and returns the file. */
-async function exportWebm(page: Page): Promise<Buffer> {
+/**
+ * Exports a WebM and returns the file: the whole sequence, or, given a
+ * range, the export modal's Custom range (#400) between those times.
+ */
+async function exportWebm(page: Page, range?: { start: string; end: string }): Promise<Buffer> {
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export Project…' }).click()
+  if (range !== undefined) {
+    await page.getByTestId('export-range-start').fill(range.start)
+    await page.getByTestId('export-range-end').fill(range.end)
+    await expect(page.getByTestId('export-scope-custom')).toBeChecked()
+    await expect(page.getByTestId('export-range-error')).toHaveCount(0)
+  }
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = await downloadPromise
   return await readFile(await download.path())
@@ -202,5 +211,27 @@ test.describe('overlays that start at 0 s are in the exported first frame (#898)
       { name: 'right.png', mimeType: 'image/png', buffer: right },
     ])
     await expectOverlaysFromTheFirstFrame(page, await exportWebm(page), 'image overlays')
+  })
+
+  test('a range that opens partway through two video overlays has them from its first frame (#901)', async ({
+    page,
+  }) => {
+    // The same arrangement, exported as a Custom range from 1 s to 2 s: the
+    // file opens 1 s into both overlays. Before #901 they were cued to their
+    // in-points, so the first tick had to seek them, and the file's first
+    // frames had only the slate and the title.
+    test.setTimeout(120_000)
+    await page.goto('./')
+    const left = await recordWebm(page, css(LEFT), 2500)
+    const right = await recordWebm(page, css(RIGHT), 2500)
+    await buildSplitScreen(page, [
+      { name: 'left.webm', mimeType: 'video/webm', buffer: left },
+      { name: 'right.webm', mimeType: 'video/webm', buffer: right },
+    ])
+    await expectOverlaysFromTheFirstFrame(
+      page,
+      await exportWebm(page, { start: '1', end: '2' }),
+      'range from 1 s',
+    )
   })
 })
