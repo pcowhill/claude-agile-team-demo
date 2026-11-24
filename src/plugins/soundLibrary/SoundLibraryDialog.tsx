@@ -35,9 +35,19 @@ export function SoundLibraryDialog({
   const [status, setStatus] = useState('')
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const firstButtonRef = useRef<HTMLButtonElement>(null)
+  // The downloads in flight, read by `add` itself: the state above can lag
+  // a fast second press by a render.
+  const addingRef = useRef(new Set<string>())
 
+  // On open only. The host passes a new `onClose` on every render, and Add
+  // re-renders the host (its clip list changes), so focusing in the Escape
+  // effect below sent focus, and the scrolled list, back to the first ▶
+  // after every Add (#889's review).
   useEffect(() => {
     firstButtonRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
@@ -81,6 +91,8 @@ export function SoundLibraryDialog({
   }
 
   const add = async (sound: LibrarySound) => {
+    if (addingRef.current.has(sound.id)) return
+    addingRef.current.add(sound.id)
     setAdding((current) => new Set(current).add(sound.id))
     setStatus(`Adding ${sound.name}…`)
     try {
@@ -93,6 +105,7 @@ export function SoundLibraryDialog({
       const reason = error instanceof Error ? error.message : 'the download failed'
       setStatus(`${sound.name} could not be downloaded: ${reason}.`)
     } finally {
+      addingRef.current.delete(sound.id)
       setAdding((current) => {
         const next = new Set(current)
         next.delete(sound.id)
@@ -140,10 +153,14 @@ export function SoundLibraryDialog({
                         >
                           {playing ? '■' : '▶'}
                         </button>
+                        {/* aria-disabled, not disabled: disabling the
+                            focused button would drop focus to the page
+                            while the sound downloads. `add` ignores a
+                            press while its download is in flight. */}
                         <button
                           type="button"
                           aria-label={`Add ${sound.name} to the library`}
-                          disabled={adding.has(sound.id)}
+                          aria-disabled={adding.has(sound.id) || undefined}
                           onClick={() => void add(sound)}
                         >
                           Add

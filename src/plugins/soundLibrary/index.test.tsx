@@ -136,6 +136,46 @@ describe('disabling Sound library while its dialog is open (#861)', () => {
   })
 })
 
+describe('adding a sound keeps the user\'s place in the list (#889 review)', () => {
+  it('focus stays on the Add pressed, through the library re-render the import causes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => okResponse())
+    try {
+      enable()
+      render(<App probeMedia={probeMedia} />)
+      await userEvent.click(screen.getByRole('button', { name: 'Sound library…' }))
+      const dialog = screen.getByRole('dialog', { name: 'Sound library' })
+      // Not the first sound: the first ▶ is where focus used to land.
+      const last = SOUNDS[SOUNDS.length - 1]
+      const add = within(dialog).getByRole('button', { name: `Add ${last.name} to the library` })
+      await userEvent.click(add)
+      expect(await within(dialog).findByText(`Added ${last.name} to the library.`)).toBeInTheDocument()
+      const clips = screen.getByRole('list', { name: 'Imported clips' })
+      await waitFor(() => expect(within(clips).getAllByRole('listitem')).toHaveLength(1))
+      expect(add).toHaveFocus()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('Add stays focusable while its sound downloads, and a second press then fetches nothing', async () => {
+    let finish: (response: Response) => void = () => {}
+    const fetchSound = vi.fn(() => new Promise<Response>((resolve) => (finish = resolve)))
+    const onImportFiles = vi.fn()
+    render(<SoundLibraryDialog onImportFiles={onImportFiles} onClose={vi.fn()} sounds={twoSounds} fetchSound={fetchSound} />)
+    const add = screen.getByRole('button', { name: 'Add Click to the library' })
+    await userEvent.click(add)
+    expect(add).toHaveAttribute('aria-disabled', 'true')
+    expect(add).toHaveFocus()
+    await userEvent.click(add)
+    expect(fetchSound).toHaveBeenCalledTimes(1)
+    await act(async () => finish(new Response('opus')))
+    await screen.findByText('Added Click to the library.')
+    expect(onImportFiles).toHaveBeenCalledTimes(1)
+    expect(add).not.toHaveAttribute('aria-disabled')
+    expect(add).toHaveFocus()
+  })
+})
+
 describe('the Sound library dialog (#861)', () => {
   it('lists every sound under its category with its length, the first Play focused', () => {
     render(<SoundLibraryDialog onImportFiles={vi.fn()} onClose={vi.fn()} fetchSound={vi.fn()} />)
@@ -175,7 +215,7 @@ describe('the Sound library dialog (#861)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add Whoosh to the library' }))
     expect(await screen.findByText('Whoosh could not be downloaded: the server answered 404.')).toBeInTheDocument()
     expect(onImportFiles).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Add Whoosh to the library' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Add Whoosh to the library' })).not.toHaveAttribute('aria-disabled')
   })
 
   it('plays one preview at a time, stops on a second press, and stops when the dialog closes', async () => {

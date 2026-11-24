@@ -250,6 +250,32 @@ test('closing the dialog stops a preview that is playing', async ({ page }) => {
   expect(await anyPlaying()).toBe(false)
 })
 
+test('adding a sound keeps focus on its Add and the list where it was scrolled, at 360px (#889 review)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 })
+  await page.goto('./')
+  await setSoundLibrary(page, true)
+  const dialog = await openSoundLibrary(page)
+  const list = dialog.getByTestId('sound-library-list')
+  // The last sound, scrolled into view: the list is scrolled, and the first
+  // ▶, where focus used to land after every Add, is above the fold.
+  const last = MANIFEST.sounds[MANIFEST.sounds.length - 1]
+  const add = dialog.getByRole('button', { name: `Add ${last.name} to the library` })
+  await add.scrollIntoViewIfNeeded()
+  const scrolled = await list.evaluate((element) => element.scrollTop)
+  expect(scrolled, 'the list must be scrolled for this test to mean anything').toBeGreaterThan(0)
+
+  // From the keyboard, as criterion 7 asks.
+  await add.focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog.getByRole('status')).toHaveText(`Added ${last.name} to the library.`)
+  // The import re-renders the library, which is what used to move focus.
+  await expect(page.getByRole('button', { name: `Add ${last.name}.webm to timeline` })).toBeVisible()
+  await expect(add).toBeFocused()
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(scrolled)
+})
+
 for (const viewport of [
   { width: 1280, height: 720 },
   { width: 360, height: 740 },

@@ -77,6 +77,13 @@
   white-space: nowrap;
 }
 
+/* Add while its sound downloads: greyed like a disabled button, but still
+   focusable, so a keyboard user's place survives the press. */
+.sound-library-row button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .sound-library-status {
   min-height: 1.2em;
   margin: 0.5rem 0;
