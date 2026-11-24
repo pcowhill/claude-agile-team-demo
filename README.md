@@ -7,7 +7,8 @@ Claude Code sessions acting as an agile software team — product manager,
 developer, reviewer, QA engineer, release engineer, maintainer. Each session
 is started with essentially one instruction (`Go`) and orients itself
 entirely from the persistent state in this repository and its GitHub Issues,
-Pull Requests, comments, and CI results. The full operating model lives in
+Pull Requests, comments, and CI results. `Go 3` runs three such sessions back
+to back, one at a time, under a coordinator. The full operating model lives in
 [`CLAUDE.md`](CLAUDE.md) and [`docs/rules/`](docs/rules/).
 
 There is no predetermined product. What gets built is decided by the human
