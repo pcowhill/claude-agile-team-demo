@@ -701,10 +701,11 @@ export function isSystemAudioRecordingSupported(): boolean {
  * recording a silent clip.
  *
  * The picture track is kept, unrecorded, until the take concludes, and
- * `onShareEnded` listens on every track. That is the Screen source's
- * proven shape (#225): the browser's "stop sharing" ends the shared
- * surface, and a real share whose picture track is stopped early may end
- * with it, which no headless measurement can settle.
+ * every track's `ended` reports to `onShareEnded`, once for the share.
+ * That is the Screen source's proven shape (#225): the browser's "stop
+ * sharing" ends the shared surface, and a real share whose picture track
+ * is stopped early may end with it, which no headless measurement can
+ * settle.
  */
 export async function startSystemAudioRecording(
   onShareEnded: () => void,
@@ -745,8 +746,19 @@ export async function startSystemAudioRecording(
     releaseShare()
     throw error
   }
+  // The browser's "stop sharing" ends every shared track, and each fires
+  // its own `ended`, possibly in one task, before the dialog has re-rendered
+  // from the first. A second report would reach the dialog's Stop with the
+  // take still current and conclude it twice, listing "already concluded"
+  // as a failure beside the clip. So the share's end is reported once.
+  let shareEndReported = false
+  const reportShareEnded = () => {
+    if (shareEndReported) return
+    shareEndReported = true
+    onShareEnded()
+  }
   for (const track of shared.getTracks()) {
-    track.addEventListener('ended', onShareEnded)
+    track.addEventListener('ended', reportShareEnded)
   }
   return {
     ...session,

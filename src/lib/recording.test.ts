@@ -1167,14 +1167,26 @@ describe('system audio recording (#878)', () => {
   })
 
   it("the browser's stop sharing reaches onShareEnded from either track", async () => {
+    for (const first of ['video', 'audio'] as const) {
+      const onShareEnded = vi.fn()
+      const world = fakeSystemAudioWorld()
+      await startSystemAudioRecording(onShareEnded, world.dependencies)
+      expect(onShareEnded).not.toHaveBeenCalled()
+      world[first].end()
+      expect(onShareEnded).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('reports the share ending once, though every shared track fires its own ended', async () => {
+    // Stop sharing ends the picture and the sound together. A second report
+    // would conclude the take twice in the dialog, which lists the second
+    // conclusion's "already concluded" as a failure beside the clip.
     const onShareEnded = vi.fn()
     const world = fakeSystemAudioWorld()
     await startSystemAudioRecording(onShareEnded, world.dependencies)
-    expect(onShareEnded).not.toHaveBeenCalled()
     world.video.end()
-    expect(onShareEnded).toHaveBeenCalledTimes(1)
     world.audio.end()
-    expect(onShareEnded).toHaveBeenCalledTimes(2)
+    expect(onShareEnded).toHaveBeenCalledTimes(1)
   })
 
   it('cancel discards the take and releases the whole share', async () => {
