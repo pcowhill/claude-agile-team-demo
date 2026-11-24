@@ -830,6 +830,14 @@ export type TimelineAction =
   | { type: 'shape-group-added'; group: ShapeGroup }
   | { type: 'shape-group-updated'; id: string; group: ShapeGroupSpec }
   | { type: 'shape-group-removed'; id: string }
+  /**
+   * Text overlays and shape groups placed together (#860): what an Add ▾
+   * contribution's dialog returns, such as a title template, placed as one
+   * edit so one undo removes every element. All-or-nothing, as
+   * `texts-added` is: a duplicate id or a malformed element refuses the
+   * whole batch, leaving the state unchanged.
+   */
+  | { type: 'elements-placed'; texts: TextOverlay[]; shapeGroups: ShapeGroup[] }
   | {
       /**
        * Sets the project's default subtitle style whole (#250), the
@@ -1853,6 +1861,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     const { markers: _replaced, ...rest } = state
     return markers.length === 0 ? rest : { ...rest, markers }
   }
+  if (action.type === 'elements-placed') return placeElements(state, action.texts, action.shapeGroups)
   // Duplicate, Paste settings and Rename… on a shape group (#687) act on
   // the project-level list, so they are answered here, as its own actions
   // are just below. Every other kind goes on to the collections.
@@ -1884,6 +1893,30 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
   // back unchanged.
   if (action.type === 'range-cut') return withRipple(state, next, action.from, action.to)
   return withProjectFields(next, state)
+}
+
+/**
+ * `elements-placed` (#860): the texts through `texts-added`'s own checks,
+ * then each shape group through `shape-group-added`'s, so a placed element
+ * is exactly as valid as one added by hand. Any refusal refuses the batch.
+ */
+function placeElements(
+  state: TimelineState,
+  texts: TextOverlay[],
+  shapeGroups: ShapeGroup[],
+): TimelineState {
+  if (texts.length === 0 && shapeGroups.length === 0) return state
+  const withTexts = texts.length === 0 ? state : timelineReducer(state, { type: 'texts-added', texts })
+  if (withTexts === state && texts.length > 0) return state
+  let groups = shapeGroupsOf(withTexts)
+  for (const group of shapeGroups) {
+    const next = reduceShapeGroups(groups, { type: 'shape-group-added', group })
+    if (next === groups) return state
+    groups = next
+  }
+  if (shapeGroups.length === 0) return withTexts
+  const { shapeGroups: _replaced, ...rest } = withTexts
+  return { ...rest, shapeGroups: groups }
 }
 
 /** The collections the ripple (#824) acts on, read from a state. */
@@ -2230,6 +2263,7 @@ function reduceTimelineCollections(
     | { type: 'shape-group-added' }
     | { type: 'shape-group-updated' }
     | { type: 'shape-group-removed' }
+    | { type: 'elements-placed' }
   >,
 ): TimelineState {
   const transitions = transitionsOf(state)

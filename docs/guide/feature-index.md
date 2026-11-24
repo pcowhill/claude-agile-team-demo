@@ -73,15 +73,17 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## C
 
-- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying, the Split window without splitting, and the Cut window without cutting. The *Cut out marked range?* and *Cut out this part?* confirmations; leave the project as it was. A media library row for a file still importing; stops that import and adds nothing. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports)
+- **Cancel** — the export dialog; closes it without exporting, or stops an Each chapter run and leaves the dialog open on where it stopped. The Trim window; closes it without applying, the Split window without splitting, and the Cut window without cutting. The *Cut out marked range?* and *Cut out this part?* confirmations; leave the project as it was. A media library row for a file still importing; stops that import and adds nothing. The Title template gallery; closes it without placing anything. [Export › Opening the export dialog](export.md#opening-the-export-dialog) · [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file) · [Editing video › The Trim window](editing-video.md#the-trim-window) · [Media library › While a file imports](media-library.md#while-a-file-imports) · [Plugins › Title templates](plugins.md#title-templates)
 - **Canvas aspect** — the timeline header; fixes the output frame's aspect. [Timeline › The header](timeline.md#the-header)
 - **Centre X** — an expanded text row; the block's centre across the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
 - **Centre Y** — an expanded text row; the block's centre down the frame. Also a badge in an expanded shape group row › Centre, 0 to 1. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Shapes and annotations › Numbered badges](shapes-and-annotations.md#numbered-badges)
+- **Chapter card** — the Title template gallery; a centred title and an optional subtitle over the dimmed picture, for 3 s. [Plugins › Title templates](plugins.md#title-templates)
 - **Chapter list** — the export dialog's Range group; the read-only field a refused copy falls back to. [Export › Copying a chapter list](export.md#copying-a-chapter-list)
 - **Chapter marker** — the numbered tick under the preview's seek bar, one per marker inside the sequence, named for the marker and its time; press it for the marker's menu. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Chapter progress** — the export dialog, during an Each chapter run; which chapter is recording and how many there are. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Choose media files…** — the re-link dialog, opening a references-only project; picks the original files to match against the project’s clips. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Close** — the Settings and Plugins dialogs. [Settings › Opening Settings](settings.md#opening-settings)
+- **Closing line** — the Title template gallery, End card; the large line. [Plugins › Title templates](plugins.md#title-templates)
 - **Color** — an expanded text row, and a colour slate's row. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Timeline › The header](timeline.md#the-header)
 - **Color slate** — Add ▾; a solid colour of any shade, with a duration. [Timeline › The header](timeline.md#the-header)
 - **Content** — an expanded text row; the words the overlay shows. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
@@ -129,6 +131,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Disable More export formats** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › More export formats](plugins.md#more-export-formats)
 - **Disable Pattern transitions** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Pattern transitions](plugins.md#pattern-transitions)
 - **Disable Shaped wipes** — File ▾ › Plugins…, once it is on; the same button as Enable. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
+- **Disable Title templates** — File ▾ › Plugins…, once it is on; the same button as Enable. What the plugin placed stays on the timeline. [Plugins › Title templates](plugins.md#title-templates)
 - **Discard and open** — the *Discard unsaved changes?* dialog, raised by File ▾ › Open Project… while changes are unsaved; goes ahead and asks for the file. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Discard and start new** — the same dialog, raised by File ▾ › New Project while changes are unsaved; goes ahead and empties the project. [Projects › New Project](projects.md#new-project)
 - **Download** — a media library row's ⋯ menu; saves the clip's file on its own, or an extracted audio clip as a WAV. [Media library › Downloading a clip](media-library.md#downloading-a-clip)
@@ -148,6 +151,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Enable More export formats** — File ▾ › Plugins…. [Plugins › More export formats](plugins.md#more-export-formats)
 - **Enable Pattern transitions** — File ▾ › Plugins…. [Plugins › Pattern transitions](plugins.md#pattern-transitions)
 - **Enable Shaped wipes** — File ▾ › Plugins…. [Plugins › Shaped wipes](plugins.md#shaped-wipes)
+- **Enable Title templates** — File ▾ › Plugins…. [Plugins › Title templates](plugins.md#title-templates)
+- **End card** — the Title template gallery; a closing line and an optional second line on a solid background, for 5 s. [Plugins › Title templates](plugins.md#title-templates)
 - **Entrance** — an expanded shape group row; *Fade* (the fade-in) or *Draw on*. [Shapes and annotations › Drawing the shapes on](shapes-and-annotations.md#drawing-the-shapes-on) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades)
 - **Esc** — leaves the source preview, back to the sequence; closes the Trim window without applying, the Split window without splitting, and the Cut window without cutting. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Expanded** — the preview's View ▾; the preview as the page's full-width first row. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
@@ -206,6 +211,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Line style** — a shape in an expanded shape group row › Line; solid, dashed or dotted, for a border or an arrow's shaft. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › A shape's style](shapes-and-annotations.md#a-shape-s-style) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
 - **List** — View ▾; the list layout. [Media library › List and Thumbnail views](media-library.md#list-and-thumbnail-views)
 - **Look** — an expanded video or image row › Picture ▸; the preset grade. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
+- **Lower third** — the Title template gallery; a name and an optional role on a bar at the lower left, for 5 s. [Plugins › Title templates](plugins.md#title-templates)
 
 ## M
 
@@ -229,7 +235,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## N
 
-- **Name** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
+- **Name** — View ▾ › Sort by. Also the Title template gallery, Lower third; the larger line on the bar. [Media library › View ▾](media-library.md#view-layout-and-sorting) · [Plugins › Title templates](plugins.md#title-templates)
 - **Name of chapter marker** — the preview, while a marker's name is being edited — a new marker opens on it, and Rename… reopens it; Enter commits, Escape keeps what it had. [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **New Project** — File ▾. [Projects › New Project](projects.md#new-project)
 - **New still or slate duration** — Settings. [Settings › New still or slate duration](settings.md#new-still-or-slate-duration)
@@ -251,6 +257,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Pause position** — a pause on an expanded video entry or video overlay; the second of the entry's trimmed range whose frame is frozen. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Pause recording** — the recording dialog; pauses the capture, and reads Resume recording while paused. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Picture** — an expanded video or image row; the disclosure holding the picture treatments. [Timeline › Picture ▸](timeline.md#picture)
+- **Place** — the Title template gallery; places the chosen template at the playhead, as one undo step. [Plugins › Title templates](plugins.md#title-templates)
 - **Play trim** — the Trim window; plays from In and stops at Out, reading ⏸ Pause while it plays. [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Playhead jump (Shift + ← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Playhead nudge (← / →)** — Settings. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
@@ -295,6 +302,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Resume from chapter N** — the export dialog, once an Each chapter run has stopped early; carries on from that chapter with the run's own settings, writing only the files still missing. [Export › Exporting each chapter as its own file](export.md#exporting-each-chapter-as-its-own-file)
 - **Resume recording** — the recording dialog, while paused; carries on into the same clip. [Recording › Pause and resume](recording.md#pause-and-resume)
 - **Review speed** — the preview transport; how fast the preview plays, at 0.5×, 1×, 1.5× or 2×. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
+- **Role (optional)** — the Title template gallery, Lower third; the smaller line under the name. [Plugins › Title templates](plugins.md#title-templates)
 - **Rotate** — an expanded video or image row › Picture ▸; each press turns the source 90°. [Editing video › Orientation](editing-video.md#orientation)
 
 ## S
@@ -307,6 +315,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Screen** — Record ▾. [Recording › Screen](recording.md#screen)
 - **Screen + camera** — Record ▾. [Recording › Screen + camera](recording.md#screen-camera)
 - **Screen recording quality** — Settings; High (sharper text, larger files) or Standard (the browser's own rate). [Settings › Screen recording quality](settings.md#screen-recording-quality)
+- **Second line (optional)** — the Title template gallery, End card; the smaller line under the closing line. [Plugins › Title templates](plugins.md#title-templates)
 - **Seek bar** — the preview transport; drag it to move the playhead. [Preview and playback › The transport](preview-and-playback.md#the-transport)
 - **Select a clip** — the checkbox on a media library row. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
 - **Select all** — above the media library list. [Media library › Selecting several clips](media-library.md#selecting-several-clips)
@@ -347,6 +356,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Start time** — an expanded overlay, shape group, text or audio row; the second of the video it begins at. [Timeline › A row](timeline.md#a-row)
 - **Stop recording** — the recording dialog; ends the capture and hands the clip to the library. [Recording › The recording dialog](recording.md#the-recording-dialog)
 - **Store references only** — the Save project dialog; a small file of edits and clip names, re-linked when it is opened. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
+- **Subtitle (optional)** — the Title template gallery, Chapter card; the smaller line under the title. [Plugins › Title templates](plugins.md#title-templates)
 - **Subtitle style** — under the timeline header, once the timeline holds a text overlay. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Subtitles from .srt file…** — Add ▾. [Text and subtitles › Subtitles from an .srt file](text-and-subtitles.md#subtitles-from-an-srt-file)
 - **System audio** — Record ▾; in browsers that share sound with the screen. [Recording › System audio](recording.md#system-audio)
@@ -360,6 +370,8 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Time fields** — Settings; shows the boxes where you type a time in seconds or as minutes and seconds (1:23.500). [Settings › Time fields](settings.md#time-fields)
 - **Tip x** — an arrow in an expanded shape group row › Tip; the tip's distance across the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
 - **Tip y** — an arrow in an expanded shape group row › Tip; the tip's distance down the frame, 0 to 1. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines)
+- **Title** — the Title template gallery, Chapter card; the large line. [Plugins › Title templates](plugins.md#title-templates)
+- **Title template…** — Add ▾, once the Title templates plugin is enabled; opens the gallery. [Plugins › Title templates](plugins.md#title-templates)
 - **Top edge** — an expanded overlay row; the placement rectangle's top edge. Also a shape's box in an expanded shape group row (*x*, *y*, *w*, *h*). [Glossary › Placement rectangle](glossary.md#placement-rectangle) · [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
 - **Transition duration** — a transition control between two entries; how long the overlap lasts. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Transition type** — a transition control between two entries; which transition it is. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)

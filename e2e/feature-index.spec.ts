@@ -32,7 +32,8 @@ import { sineWav } from './sineWav'
  * - the timeline: the header controls and the Canvas preset, each section's
  *   heading controls, and for every row — expanded — its inline controls,
  *   its Picture disclosure, its ⋯ menu and its + Effect ▾ menu
- * - Add ▾, and the Subtitle style disclosure it reveals
+ * - Add ▾, and the Subtitle style disclosure it reveals; with every plugin
+ *   on, Add ▾ again and the Title template gallery (#860), once per template
  * - the Settings dialog, the Plugins dialog, and the Export project dialog
  *   on each of its formats
  * - the keyboard cheat sheet, for the shortcut combos, together with the
@@ -842,6 +843,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
         'Shaped wipes',
         'Pattern transitions',
         'More export formats',
+        'Title templates',
       ] as const) {
         const enable = dialog.getByRole('button', { name: `Enable ${plugin}`, exact: true })
         if ((await enable.count()) > 0) await enable.click()
@@ -852,6 +854,21 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   }
+
+  // Add ▾ again with every plugin on: Title templates adds an item, and its
+  // gallery is a surface of its own (#860). One template at a time shows
+  // its fields, so each is chosen in turn.
+  const addMenuPlugins = await openAddMenu(page)
+  await record('Add ▾ with every plugin on', addMenuPlugins)
+  await addMenuPlugins.getByRole('menuitem', { name: 'Title template…', exact: true }).click()
+  const gallery = page.getByRole('dialog', { name: 'Title template' })
+  await expect(gallery).toBeVisible()
+  for (const template of await gallery.getByRole('radio').all()) {
+    await template.check()
+    await record('the Title template dialog', gallery)
+  }
+  await page.keyboard.press('Escape')
+  await expect(gallery).toHaveCount(0)
 
   // The controls that exist only once something is set up.
   await timeline.getByRole('button', { name: /^Add transition/ }).first().click()

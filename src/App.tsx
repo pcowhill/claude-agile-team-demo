@@ -15,6 +15,7 @@ import type { SourceDimensions } from './lib/frameSize'
 import { emptyLibrary, mediaLibraryReducer } from './lib/mediaLibrary'
 import type { LibraryClip, PendingImport } from './lib/mediaLibrary'
 import type { AudioTrack, TimelineEntry } from './lib/timeline'
+import { placeElementsAt } from './lib/addMenu'
 import {
   audioTrackFromClip,
   emptyTimeline,
@@ -834,6 +835,18 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               dispatchTimeline({ type: 'shape-group-updated', id, group })
             }
             onRemoveShapeGroup={(id) => dispatchTimeline({ type: 'shape-group-removed', id })}
+            onPlaceElements={(elements) =>
+              dispatchTimeline({
+                type: 'elements-placed',
+                // At the Preview time (#860), as Add ▾ › Shape group places
+                // its group, with ids minted here as every other add does.
+                ...placeElementsAt(
+                  elements,
+                  Math.min(playheadRef.current, totalDuration(timeline)),
+                  () => crypto.randomUUID(),
+                ),
+              })
+            }
             onRemoveText={(id) => dispatchTimeline({ type: 'text-removed', id })}
             onUpdateVideoOverlay={(id, placement) =>
               dispatchTimeline({ type: 'video-overlay-updated', id, placement })

@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the four plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions) and [More export formats](#more-export-formats) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the five plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [More export formats](#more-export-formats) and [Title templates](#title-templates) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -69,6 +69,26 @@ The two irises keep their shape on any frame, whether landscape, portrait or squ
 **Details.** The WebP samples at {{WEBP_FPS}} fps and is scaled down so its longer side is at most {{WEBP_MAX_PX}} px, the same limits as the GIF, but without the GIF's 256-colour palette; the format's note in the export dialog states the limits. Each frame is encoded by the browser's own WebP encoder, so the plugin carries no encoder of its own, and the format is offered only where the browser can encode WebP. No project depends on this plugin, because an export format is an output, not part of the arrangement.
 
 **Related.** [Animated WebP (plugin)](export.md#animated-webp-plugin) · [GIF export](#gif-export)
+
+## Title templates
+
+**Where to find it.** **File ▾** › **Plugins…** › *Title templates*; once enabled, timeline header › **Add ▾** › **Title template…**.
+
+**What it does.** Places a ready-made title — a **Lower third**, a **Chapter card** or an **End card** — at the playhead, built from ordinary text overlays and a shape group.
+
+**Details.** **Title template…** opens a gallery. Each template is drawn small at the project's own shape, with its example words. Choose one, type its words, and **Place** it:
+
+- **Lower third** — a *Name* and an optional *Role*, left-aligned on a dark bar at the lower left, with an amber strip down the bar's edge. The bar grows with the longer line. It shows for 5 s.
+- **Chapter card** — a large centred *Title* and an optional *Subtitle*, over the picture dimmed by a translucent black layer. It shows for 3 s.
+- **End card** — a *Closing line* and an optional *Second line*, centred on a solid dark background that hides the picture. It shows for 5 s.
+
+Every template fades in and out over half a second. Its words are sized from the frame's shorter side, so a portrait title is not set at a landscape title's height. A line that would run wider than the frame, less its margins, is made smaller until it fits, because text overlays never wrap. Leaving an optional field empty places no text for it; **Place** stays unavailable while a required one is empty. Placing a template is **one undo step**: one **Undo** takes away all of its text overlays and its shape group.
+
+What is placed is ordinary: the text overlays appear in the Text section and the shape group, named for the template, in the Shapes section. Edit them, retime them, fade them, move them in the visual editors, and export them like any other. They do not need the plugin. Disabling it removes **Title template…** from Add ▾ and leaves everything it placed on the timeline, and no project depends on it.
+
+The gallery works from the keyboard: the arrow keys move between templates, **Tab** moves on to the words, **Enter** places, and **Esc** closes it without placing anything.
+
+**Related.** [Adding a text overlay](text-and-subtitles.md#adding-a-text-overlay) · [Adding a shape group](shapes-and-annotations.md#adding-a-shape-group) · [Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out)
 
 ## Enabled plugins and this browser
 

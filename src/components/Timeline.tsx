@@ -137,6 +137,8 @@ import {
   withShapeEntrance,
 } from '../lib/shapes'
 import type { TextFontId } from '../lib/textOverlay'
+import { addMenuContributions } from '../lib/addMenu'
+import type { AddMenuRegistry, PlacedElements } from '../lib/addMenu'
 import {
   SETTINGS_GROUPS,
   compatibleSettingsGroups,
@@ -339,6 +341,15 @@ interface TimelineProps {
   onAddShapeGroup?: () => void
   onUpdateShapeGroup?: (id: string, group: ShapeGroupSpec) => void
   onRemoveShapeGroup?: (id: string) => void
+  /**
+   * Places what an Add ▾ contribution's dialog returns (#860), such as a
+   * title template, at the Preview time as one edit. The caller mints ids
+   * and reads the Preview time (`placeElementsAt`). Without it, plugins'
+   * Add ▾ items are not offered.
+   */
+  onPlaceElements?: (elements: PlacedElements) => void
+  /** Injectable for tests: the Add ▾ contributions to offer (#860). */
+  addMenuRegistry?: AddMenuRegistry
   /**
    * The output frame the preview composes, for the px a shape's thickness
    * and corner radius are shown in (#681 answer 4a). Defaults to 1920×1080.
@@ -2741,6 +2752,8 @@ export function Timeline({
   onAddShapeGroup,
   onUpdateShapeGroup,
   onRemoveShapeGroup,
+  onPlaceElements,
+  addMenuRegistry = addMenuContributions,
   frameSize = { width: 1920, height: 1080 },
   onUpdateVideoOverlay,
   onRemoveVideoOverlay,
@@ -2849,6 +2862,20 @@ export function Timeline({
    * row's ⋯. None carries a disabled rule, because none of the three
    * buttons had one: all three add something that needs no imported media.
    */
+  // Add ▾'s plugin items (#860) re-read the registry when a plugin arrives
+  // or leaves. The open one is held by id, so a plugin disabled while its
+  // dialog is open closes the dialog rather than leaving it orphaned.
+  useSyncExternalStore(addMenuRegistry.subscribe, () => addMenuRegistry.version)
+  const [openContributionId, setOpenContribution] = useState<string | null>(null)
+  const openContribution =
+    openContributionId === null || onPlaceElements === undefined
+      ? undefined
+      : addMenuRegistry.find(openContributionId)
+  // Forget a dialog whose item has left, so re-enabling the plugin later
+  // does not reopen it unasked.
+  useEffect(() => {
+    if (openContributionId !== null && openContribution === undefined) setOpenContribution(null)
+  }, [openContributionId, openContribution])
   const addItems: MenuItem[] = [
     { kind: 'action', label: 'Color slate', onSelect: onAddSlate },
     { kind: 'action', label: 'Text overlay', onSelect: onAddText },
@@ -2860,6 +2887,16 @@ export function Timeline({
       label: 'Subtitles from .srt file…',
       onSelect: () => subtitleInputRef.current?.click(),
     },
+    // Plugins' items (#860), after the core four, in registration order.
+    ...(onPlaceElements === undefined
+      ? []
+      : addMenuRegistry.list().map(
+          (contribution): MenuItem => ({
+            kind: 'action',
+            label: contribution.label,
+            onSelect: () => setOpenContribution(contribution.id),
+          }),
+        )),
   ]
   // Collapsed rows (#299): session UI state only — a set of element ids,
   // never part of the project model, the autosave snapshot, or the undo
@@ -3430,6 +3467,16 @@ export function Timeline({
             which is why all three were here rather than in the library. The
             third still opens the same hidden input below. */}
         <Menu label="Add" menuLabel="Add menu" className="timeline-add-menu" items={addItems} />
+        {openContribution !== undefined && onPlaceElements !== undefined && (
+          <openContribution.Dialog
+            frame={frameSize}
+            onPlace={(elements) => {
+              setOpenContribution(null)
+              onPlaceElements(elements)
+            }}
+            onClose={() => setOpenContribution(null)}
+          />
+        )}
         {/* Match levels (#691): in the header rather than the Audio
             heading the issue suggested, because that heading exists only
             while the project has an audio track, and the action covers
