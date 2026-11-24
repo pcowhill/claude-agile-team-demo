@@ -349,6 +349,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Store references only** — the Save project dialog; a small file of edits and clip names, re-linked when it is opened. [Projects › Embedded media or references only](projects.md#embedded-media-or-references-only)
 - **Subtitle style** — under the timeline header, once the timeline holds a text overlay. [Text and subtitles › The default subtitle style](text-and-subtitles.md#the-default-subtitle-style)
 - **Subtitles from .srt file…** — Add ▾. [Text and subtitles › Subtitles from an .srt file](text-and-subtitles.md#subtitles-from-an-srt-file)
+- **System audio** — Record ▾; in browsers that share sound with the screen. [Recording › System audio](recording.md#system-audio)
 
 ## T
 

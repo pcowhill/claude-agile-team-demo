@@ -6,6 +6,7 @@ import {
   isRecordingSupported,
   isScreenCameraRecordingSupported,
   isScreenRecordingSupported,
+  isSystemAudioRecordingSupported,
   pausedClock,
   recordedSeconds,
   recordingFileExtension,
@@ -14,7 +15,9 @@ import {
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
+  startSystemAudioRecording,
   startWebcamRecording,
+  systemAudioRecordingName,
   videoRecordingFileExtension,
   voiceOverName,
   waitingClock,
@@ -31,7 +34,7 @@ import { DEFAULT_SETTINGS } from '../lib/settings'
 import './dialog.css'
 import './RecordControl.css'
 
-type RecordingSource = 'microphone' | 'screen' | 'webcam'
+type RecordingSource = 'microphone' | 'screen' | 'webcam' | 'system-audio'
 
 /** Per-source wording — dialog heading, failure prefix, clip name — plus
  * whether the dialog shows the live capture preview (video sources only). */
@@ -63,6 +66,15 @@ const SOURCE_LABELS: Record<
     preview: true,
     fileName: (names, mimeType) =>
       webcamRecordingName(names, videoRecordingFileExtension(mimeType)),
+  },
+  // What the computer plays (#878): shared through the screen picker, but
+  // only the sound is recorded, so there is no picture to preview.
+  'system-audio': {
+    heading: 'Recording system audio',
+    failure: 'System audio recording failed',
+    preview: false,
+    fileName: (names, mimeType) =>
+      systemAudioRecordingName(names, recordingFileExtension(mimeType)),
   },
 }
 
@@ -129,17 +141,20 @@ interface RecordControlProps {
   /** Injectable for tests (#388). */
   startScreenCameraCapture?: typeof startScreenCameraRecording
   screenCameraSupported?: boolean
+  /** Injectable for tests (#878): jsdom can share no display audio. */
+  startSystemAudioCapture?: typeof startSystemAudioRecording
+  systemAudioSupported?: boolean
 }
 
 /**
  * The Record control in the media library header (#224): a source menu —
- * Microphone (#224), Screen (#225), Webcam (#226), and Screen + camera
- * (#388) — and, while capturing, a small modal dialog with the recorded
+ * Microphone (#224), Screen (#225), Webcam (#226), Screen + camera
+ * (#388), and System audio (#878) — and, while capturing, a small modal dialog with the recorded
  * time, a recording indicator, live preview(s) for video sources (the
  * capture itself for the screen, a self-view for the webcam, both for the
  * paired take), and Stop / Cancel. Stop hands the capture to the ordinary
  * import path as `Voice-over N` / `Screen recording N` /
- * `Webcam recording N`; a paired take delivers both files together so the
+ * `Webcam recording N` / `System audio N`; a paired take delivers both files together so the
  * caller can place them as one arrival. Cancel discards the capture. Each
  * source is hidden where the platform cannot provide it (feature
  * detection, never a crash); a capture failure — permission denied, no
@@ -181,6 +196,8 @@ export function RecordControl({
   startWebcamCapture = startWebcamRecording,
   startScreenCameraCapture = startScreenCameraRecording,
   screenCameraSupported = isScreenCameraRecordingSupported(),
+  startSystemAudioCapture = startSystemAudioRecording,
+  systemAudioSupported = isSystemAudioRecordingSupported(),
 }: RecordControlProps) {
   const [capture, setCapture] = useState<ActiveCapture | null>(null)
   const [phase, setPhase] = useState<Phase>('recording')
@@ -501,6 +518,23 @@ export function RecordControl({
             ),
           }),
           PAIR_LABELS.failure,
+        ),
+    })
+  }
+  if (systemAudioSupported) {
+    sources.push({
+      kind: 'action',
+      label: 'System audio',
+      onSelect: () =>
+        // Shared through the screen picker (#878), so the browser's "stop
+        // sharing" concludes it as it does a screen take.
+        void begin(
+          async () => ({
+            kind: 'single',
+            source: 'system-audio',
+            session: await startSystemAudioCapture(() => stopRef.current(), undefined, deferred),
+          }),
+          SOURCE_LABELS['system-audio'].failure,
         ),
     })
   }

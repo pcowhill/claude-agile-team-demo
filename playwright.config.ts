@@ -58,6 +58,10 @@ const FIREFOX_EXCLUDED_FILES: ReadonlyArray<{ file: string; why: string }> = [
 ]
 const FIREFOX_EXCLUDED_TESTS: ReadonlyArray<{ title: string; why: string }> = [
   { title: 'a screen + camera take paused ten times delivers two clips whose lengths agree within three frames (#514)', why: NO_HEADLESS_SCREEN },
+  // Firefox shares no display audio, so it does not offer System audio at
+  // all; the offer test in that file runs in both browsers (#878).
+  { title: 'a System audio take lands in the library as an audio clip of the shared sound (#878)', why: NO_HEADLESS_SCREEN },
+  { title: 'a share without audio fails before the countdown and releases the share (#878)', why: NO_HEADLESS_SCREEN },
   { title: 'selecting MP4 exports a file that demuxes as MP4 (#114)', why: 'Chromium-only: Firefox\'s MediaRecorder cannot record MP4, so the picker rightly omits it (#114 covers that case)' },
 ]
 

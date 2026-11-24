@@ -9,11 +9,14 @@ import {
   isRecordingSupported,
   isScreenCameraRecordingSupported,
   isScreenRecordingSupported,
+  isSystemAudioRecordingSupported,
   startMicrophoneRecording,
   startScreenCameraRecording,
   startScreenRecording,
+  startSystemAudioRecording,
   startWebcamRecording,
 } from '../lib/recording'
+import { NO_SHARED_AUDIO_MESSAGE } from '../lib/recording'
 import type { RecordingSession, ScreenCameraRecordingSession } from '../lib/recording'
 
 vi.mock('../lib/probeMedia', () => ({
@@ -34,6 +37,8 @@ vi.mock('../lib/recording', async (importOriginal) => ({
   startWebcamRecording: vi.fn(),
   isScreenCameraRecordingSupported: vi.fn(() => true),
   startScreenCameraRecording: vi.fn(),
+  isSystemAudioRecordingSupported: vi.fn(() => true),
+  startSystemAudioRecording: vi.fn(),
 }))
 
 const probeMock = vi.mocked(probeMediaFile)
@@ -44,6 +49,8 @@ const screenSupportedMock = vi.mocked(isScreenRecordingSupported)
 const startWebcamMock = vi.mocked(startWebcamRecording)
 const startScreenCameraMock = vi.mocked(startScreenCameraRecording)
 const screenCameraSupportedMock = vi.mocked(isScreenCameraRecordingSupported)
+const startSystemAudioMock = vi.mocked(startSystemAudioRecording)
+const systemAudioSupportedMock = vi.mocked(isSystemAudioRecordingSupported)
 
 const fakeSession = (
   mimeType = 'audio/webm;codecs=opus',
@@ -66,6 +73,7 @@ beforeEach(() => {
   supportedMock.mockReturnValue(true)
   screenSupportedMock.mockReturnValue(true)
   screenCameraSupportedMock.mockReturnValue(true)
+  systemAudioSupportedMock.mockReturnValue(true)
   // The countdown (#514) is on by default and is its own describe below;
   // everything else here is about the take itself, so the store the app
   // reads its settings from turns it off — the way a user who never wants
@@ -811,6 +819,102 @@ describe('screen recording quality reaches the screen sources (#853)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Record' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Webcam' }))
     expect(startWebcamMock).toHaveBeenCalledWith(undefined, { deferStart: true })
+  })
+})
+
+describe('system audio recording (#878)', () => {
+  const openRecordMenu = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Record' }))
+    return screen.getByRole('menu', { name: 'Recording sources' })
+  }
+
+  it('is offered last, after Screen + camera, only where display audio can be shared', async () => {
+    const { unmount } = render(<App />)
+    const menu = await openRecordMenu()
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Microphone',
+      'Screen',
+      'Webcam',
+      'Screen + camera',
+      'System audio',
+    ])
+    unmount()
+
+    // A browser without display audio (Firefox, #579): absent, never disabled.
+    systemAudioSupportedMock.mockReturnValue(false)
+    render(<App />)
+    const without = await openRecordMenu()
+    expect(within(without).queryByRole('menuitem', { name: 'System audio' })).toBeNull()
+    expect(within(without).getAllByRole('menuitem')).toHaveLength(4)
+  })
+
+  it('records into the library as an audio clip, with no live view', async () => {
+    const session = fakeSession()
+    startSystemAudioMock.mockResolvedValue(session)
+    probeMock.mockResolvedValue({ duration: 3, url: 'blob:sys', kind: 'audio' })
+    render(<App />)
+
+    await userEvent.click(within(await openRecordMenu()).getByRole('menuitem', { name: 'System audio' }))
+    // Deferred like every source, so the dialog owns the start (#514).
+    expect(startSystemAudioMock).toHaveBeenCalledWith(expect.any(Function), undefined, {
+      deferStart: true,
+    })
+    const dialog = await screen.findByRole('dialog', { name: 'Recording system audio' })
+    expect(within(dialog).queryByTestId('record-preview')).toBeNull()
+    expect(session.begin).toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(session.stop).toHaveBeenCalledWith('System audio 1.webm')
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(list).toHaveTextContent('System audio 1.webm')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it("the browser's own stop sharing ends the take exactly like Stop", async () => {
+    const session = fakeSession()
+    let shareEnded: () => void = () => {}
+    startSystemAudioMock.mockImplementation(async (onShareEnded) => {
+      shareEnded = onShareEnded
+      return session
+    })
+    probeMock.mockResolvedValue({ duration: 3, url: 'blob:sys', kind: 'audio' })
+    render(<App />)
+
+    await userEvent.click(within(await openRecordMenu()).getByRole('menuitem', { name: 'System audio' }))
+    await screen.findByRole('dialog', { name: 'Recording system audio' })
+    shareEnded()
+    const list = await screen.findByRole('list', { name: 'Imported clips' })
+    expect(session.stop).toHaveBeenCalledWith('System audio 1.webm')
+    expect(list).toHaveTextContent('System audio 1.webm')
+  })
+
+  it('a share without audio lands in the failure list and opens no dialog', async () => {
+    startSystemAudioMock.mockRejectedValue(new Error(NO_SHARED_AUDIO_MESSAGE))
+    render(<App />)
+
+    await userEvent.click(within(await openRecordMenu()).getByRole('menuitem', { name: 'System audio' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'System audio recording failed: no audio was shared. In the browser’s share picker, tick “Share system audio”',
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(probeMock).not.toHaveBeenCalled()
+  })
+
+  it('counts down first when the countdown is on, and Cancel then records nothing', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ countdownSeconds: 3 }))
+    const session = fakeSession()
+    startSystemAudioMock.mockResolvedValue(session)
+    render(<App />)
+
+    await userEvent.click(within(await openRecordMenu()).getByRole('menuitem', { name: 'System audio' }))
+    await screen.findByRole('dialog', { name: 'Recording system audio' })
+    expect(screen.getByTestId('record-countdown')).toHaveTextContent('3')
+    expect(session.begin).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(session.cancel).toHaveBeenCalled()
+    expect(session.stop).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 
