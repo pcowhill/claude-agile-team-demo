@@ -84,6 +84,8 @@ const constants: GuideConstants = {
   PATTERN_SPIRAL_ROWS: '4',
   WEBP_FPS: '10',
   WEBP_MAX_PX: '480',
+  APNG_FPS: '10',
+  APNG_MAX_PX: '480',
   MP3_KBPS: '192',
   SIZE_LIMIT_MARGIN_PERCENT: '10',
   RESERVED_AUDIO_KBPS: '128',

@@ -46,12 +46,13 @@ test('the format note sits below the radios and the picker stays inside the dial
   expect(await options.count()).toBeGreaterThanOrEqual(3)
 
   // Every format that states a note: the audio-only lines (#264's
-  // screenshot) and the animation plugins' caps (#265's, and #858's).
+  // screenshot) and the animation plugins' caps (#265's, #858's and #864's).
   const cases: { radio: string; note: RegExp }[] = [
     { radio: 'Audio only (WebM/Opus)', note: /Saves just the mixed soundtrack —/ },
     { radio: 'Audio only (MP3)', note: /as an MP3 file/ },
     { radio: 'Animated GIF', note: /soundless and sample at 10 fps/ },
     { radio: 'Animated WebP', note: /soundless and samples at 10 fps/ },
+    { radio: 'Animated PNG (APNG)', note: /soundless, lossless and large/ },
   ]
   for (const { radio, note } of cases) {
     await dialog.getByRole('radio', { name: radio }).check()
