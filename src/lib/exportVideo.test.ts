@@ -2587,6 +2587,71 @@ describe('an unready overlay element draws its last frame (#319)', () => {
     expect(buffers).toEqual([])
   })
 
+  it('holds the cued frame, so a first frame that finds the element seeking still draws it (#898)', () => {
+    const element = fakeOverlayElement()
+    const { composer, main, buffers } = composerFor(element)
+
+    // Cued, before the first frame: the copy is taken from the element.
+    composer.holdOverlayFrames(0)
+    expect(buffers).toHaveLength(1)
+    expect(buffers[0].ops.filter((op) => op.startsWith('draw('))).toEqual([
+      'draw(over-element, [0, 0, 160, 90], none)',
+    ])
+    expect(main.ops).toEqual([])
+
+    // The first tick's sync starts a seek: the element reports HAVE_METADATA
+    // on the very first frame drawn.
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 0)
+    const first = overlayOps(main.ops)
+    expect(first).toHaveLength(1)
+    expect(first[0]).toContain('stand-in-0')
+  })
+
+  it('without the held frame, that first frame loses the layer (#898)', () => {
+    // The defect, pinned so the test above is seen to matter: the same
+    // first frame with nothing held skips the overlay.
+    const element = fakeOverlayElement()
+    const { composer, main } = composerFor(element)
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(overlayOps(main.ops)).toEqual([])
+  })
+
+  it('holds nothing for an overlay a range export finds partway through (#898)', () => {
+    // A range starting 5 s into the overlay is due source 5 on its first
+    // frame; the element is cued to the in-point, 0, which is not that
+    // picture, so nothing is held and the first frame skips it as before.
+    const element = fakeOverlayElement()
+    const { composer, main, buffers } = composerFor(element)
+    composer.holdOverlayFrames(5)
+    expect(buffers).toEqual([])
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    composer.drawFrame(baseLayer, 0, 5)
+    expect(overlayOps(main.ops)).toEqual([])
+  })
+
+  it('holds the in-point for an overlay that starts after the first frame (#898)', () => {
+    // Before its window the overlay is due its in-point, which is what it
+    // is cued to and what it shows when it appears.
+    const element = fakeOverlayElement()
+    const { composer, buffers } = composerFor(element, { ...overlay, offset: 2 })
+    composer.holdOverlayFrames(0)
+    expect(buffers).toHaveLength(1)
+  })
+
+  it('holds nothing for an element whose cue never decoded a frame (#898)', () => {
+    const element = fakeOverlayElement()
+    element.readyState = HTMLMediaElement.HAVE_METADATA
+    element.videoWidth = 0
+    element.videoHeight = 0
+    const { composer, main, buffers } = composerFor(element)
+    composer.holdOverlayFrames(0)
+    composer.drawFrame(baseLayer, 0, 0)
+    expect(buffers).toEqual([])
+    expect(overlayOps(main.ops)).toEqual([])
+  })
+
   it('the repeated frame carries the layer’s crop and orientation, not the raw source', () => {
     const element = fakeOverlayElement()
     const layer: VideoOverlay = {

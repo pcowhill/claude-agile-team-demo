@@ -784,6 +784,12 @@ export interface FrameComposer {
   /** `videoFrame`, holding the last good picture across a stall (#635). */
   heldVideoFrame: (element: HTMLVideoElement) => LayerFrame
   stillFrame: (entry: TimelineEntry, time: number) => LayerFrame
+  /**
+   * Copies each overlay replay element's current picture into its stand-in
+   * (#898), so the first frame, at `sequenceTime`, has one to fall back on.
+   * Call it once the overlays are cued and before the first frame is drawn.
+   */
+  holdOverlayFrames: (sequenceTime: number) => void
 }
 
 export function createFrameComposer(options: FrameComposerOptions): FrameComposer {
@@ -1201,6 +1207,40 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       source: standIn.canvas,
       width: standIn.canvas.width,
       height: standIn.canvas.height,
+    }
+  }
+
+  /**
+   * Seeds every overlay's stand-in from the frame its element was cued to
+   * (#898). `replayPicture` makes a stand-in only when it draws the live
+   * element, so before this an overlay had none until its first drawn
+   * frame. That left the first frame exposed. On a sequence that opens on a
+   * slate or still, the export's first tick syncs the overlays before it
+   * draws, and that sync assigns a paused element's `currentTime` as it
+   * starts playback. Even an assignment of the time it already holds
+   * starts a seek, so the element dropped to `HAVE_METADATA`. Measured in
+   * Chromium: readyState 4 → 1, seeking true, on the same tick. Firefox kept
+   * readyState 4 through the same seek (CI run 45477374749). The layer had
+   * never been drawn, so Chromium skipped it: the customer's export opened
+   * without its overlays for two frames (#896). A sequence that opens on a video
+   * draws its first frame before any sync, which seeded the stand-ins and
+   * hid the gap.
+   *
+   * The cued frame is the right picture only where it is the frame due at
+   * the export's first instant. An overlay is cued to its in-point
+   * (`cueTo`), which is what it shows on the first frame of a whole-sequence
+   * export, and what one that starts later shows when it appears. A range
+   * export (#385) that starts partway through an overlay is due a later
+   * frame, so that overlay holds nothing: a frame or two of the wrong
+   * picture would be no better than none. The tolerance is the export's
+   * own for a playing overlay (`AUDIO_DRIFT_EPSILON`). An element whose cue
+   * never reached a decoded frame is skipped as well, as `replayPicture`
+   * skips it.
+   */
+  const holdOverlayFrames = (sequenceTime: number) => {
+    for (const { overlay, element } of overlayReplays) {
+      const due = videoOverlayPlaybackAt(overlay, sequenceTime).sourceTime
+      if (Math.abs(element.currentTime - due) <= AUDIO_DRIFT_EPSILON) replayPicture(element)
     }
   }
 
@@ -1730,7 +1770,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     }
   }
 
-  return { drawFrame, videoFrame, heldVideoFrame, stillFrame }
+  return { drawFrame, videoFrame, heldVideoFrame, stillFrame, holdOverlayFrames }
 }
 
 /**
@@ -3003,7 +3043,7 @@ export async function exportTimeline(
     }
   }
 
-  const { drawFrame, heldVideoFrame, stillFrame } = createFrameComposer({
+  const { drawFrame, heldVideoFrame, stillFrame, holdOverlayFrames } = createFrameComposer({
     context,
     width,
     height,
@@ -3065,6 +3105,9 @@ export async function exportTimeline(
   const windowStart = range?.start ?? 0
   const windowEnd = range?.end ?? total
   const startCue = range === null ? { index: 0, outputInto: 0 } : exportRangeCue(timeline, windowStart)
+  // Every overlay is cued by now and holds its in-point frame: keep a copy
+  // before the first tick's sync can start a seek (#898).
+  holdOverlayFrames(windowStart)
   // The recorder exists only without a sink (#198) or audio sink (#269): a
   // sink-driven export takes its frames straight from the shared canvas
   // below, and an audio sink already sits on the mix graph.
