@@ -129,17 +129,24 @@ export async function encodeMp3(
 }
 
 /**
- * The audio sink an MP3 export hands the pipeline (#269): `attach` taps the
- * mix through a ScriptProcessor that accumulates every buffer, `stop` waits
- * out the buffer still in flight and detaches, and `finish` encodes what was
+ * Turns the tapped stereo mix into the exported file: the left and right
+ * channels as float samples, at the mix's own sample rate.
+ */
+export type PcmEncoder = (left: Float32Array, right: Float32Array, sampleRate: number) => Promise<Blob>
+
+/**
+ * An audio sink that taps the mix as raw stereo PCM and hands it to
+ * `encode` (#269; shared with the WAV plugin, #866, so every PCM-based
+ * audio export hears the same samples): `attach` taps the mix through a
+ * ScriptProcessor that accumulates every buffer, `stop` waits out the
+ * buffer still in flight and detaches, and `finish` encodes what was
  * heard. The processor's *output* is zeroed each callback: it must connect
  * onward to `context.destination` to be pulled by the graph, and writing
  * silence there is what keeps the export inaudible — the invariant
- * `createAudioCapture` documents.
+ * `createAudioCapture` documents. `label` names the format in the error
+ * for a graph that delivered nothing.
  */
-export function createMp3AudioSink(
-  loadEncoder: () => Promise<Mp3EncoderModule> = defaultLoadEncoder,
-): ExportAudioSink {
+export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAudioSink {
   const captured: Float32Array[][] = [[], []]
   let sampleRate: number | null = null
   let processor: ScriptProcessorNode | null = null
@@ -198,9 +205,16 @@ export function createMp3AudioSink(
       if (sampleRate === null || captured[0].length === 0) {
         // Reaching here means the graph never delivered a buffer — a wedged
         // context, not a quiet mix (silence still yields buffers of zeros).
-        throw new Error('No audio was captured for the MP3 export.')
+        throw new Error(`No audio was captured for the ${label} export.`)
       }
-      return encodeMp3(concatChunks(captured[0]), concatChunks(captured[1]), sampleRate, loadEncoder)
+      return encode(concatChunks(captured[0]), concatChunks(captured[1]), sampleRate)
     },
   }
+}
+
+/** The audio sink an MP3 export hands the pipeline (#269): the PCM tap, encoded by LAME. */
+export function createMp3AudioSink(
+  loadEncoder: () => Promise<Mp3EncoderModule> = defaultLoadEncoder,
+): ExportAudioSink {
+  return createPcmAudioSink((left, right, sampleRate) => encodeMp3(left, right, sampleRate, loadEncoder), 'MP3')
 }

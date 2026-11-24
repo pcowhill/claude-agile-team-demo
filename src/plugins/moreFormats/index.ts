@@ -1,9 +1,11 @@
-import { exportTimeline, resolveExportRange } from '../../lib/exportVideo'
+import { createPcmAudioSink } from '../../lib/exportMp3'
+import { exportedDuration, exportTimeline, resolveExportRange } from '../../lib/exportVideo'
 import { exportFormats } from '../../lib/exportFormats'
 import { totalDuration } from '../../lib/timeline'
 import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
 import { createApngFrameSink } from './apngSink'
 import { createPngSequenceFrameSink } from './pngSequenceSink'
+import { encodeWav, wavLimitError } from './wavWriter'
 import { createWebpFrameSink } from './webpSink'
 
 /**
@@ -19,7 +21,9 @@ import { createWebpFrameSink } from './webpSink'
  * browser's still-PNG encoder and `apngMux.ts`: lossless, at the cost of
  * size. The PNG image sequence (#865) uses the same encoder for frames to
  * hand to another tool: one PNG per frame at the export's own Frame rate
- * and Frame size, in a store-only ZIP (`zipStore.ts`).
+ * and Frame size, in a store-only ZIP (`zipStore.ts`). WAV audio (#866) is
+ * the one audio format: the MP3 export's tap of the mix, written as 16-bit
+ * PCM by `wavWriter.ts`.
  */
 
 /** The Animated WebP format's id. */
@@ -30,6 +34,16 @@ export const APNG_FORMAT_ID = 'apng'
 
 /** The PNG image sequence format's id (#865). */
 export const PNG_SEQUENCE_FORMAT_ID = 'png-sequence'
+
+/** The WAV audio format's id (#866). */
+export const WAV_FORMAT_ID = 'audio-wav'
+
+/**
+ * The sample rate the WAV format checks its length against before it
+ * starts: the highest rate browsers commonly run Web Audio at. The file is
+ * written at the mix's own rate, and the writer refuses at that rate too.
+ */
+export const WAV_PLANNING_SAMPLE_RATE = 48_000
 
 /**
  * Whether this browser's canvas really encodes WebP. A browser that cannot
@@ -132,9 +146,35 @@ export function activate(): () => void {
       })
     },
   })
+  exportFormats.register({
+    id: WAV_FORMAT_ID,
+    label: 'WAV audio (uncompressed)',
+    extension: 'wav',
+    candidates: [],
+    candidatesWithAudio: [],
+    // The MP3 export's tap (#269) with a WAV writer in place of LAME, so it
+    // hears exactly the samples the other audio exports do.
+    audioOnly: true,
+    note:
+      'Saves just the mixed soundtrack as 16-bit stereo PCM at the mix’s own sample rate, ' +
+      'usually 44.1 or 48 kHz: about 10–11.5 MB per minute. The file has no video track.',
+    isSupported: () => typeof AudioContext !== 'undefined',
+    encode: async (timeline, options = {}) => {
+      // Refused before it runs, not after: a WAV past 4 GB is hours long.
+      const seconds = exportedDuration(timeline, options.range)
+      const limit = wavLimitError(Math.ceil(seconds * WAV_PLANNING_SAMPLE_RATE), WAV_PLANNING_SAMPLE_RATE)
+      if (limit !== null) throw new Error(limit)
+      return exportTimeline(timeline, {
+        ...options,
+        audioOnly: true,
+        audioSink: createPcmAudioSink(async (left, right, sampleRate) => encodeWav(left, right, sampleRate), 'WAV'),
+      })
+    },
+  })
   return () => {
     exportFormats.unregister(WEBP_FORMAT_ID)
     exportFormats.unregister(APNG_FORMAT_ID)
     exportFormats.unregister(PNG_SEQUENCE_FORMAT_ID)
+    exportFormats.unregister(WAV_FORMAT_ID)
   }
 }
