@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the three plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes) and [Pattern transitions](#pattern-transitions) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the four plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions) and [More export formats](#more-export-formats) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -20,7 +20,7 @@
 
 **Details.** The dialog says what it holds — *Optional features, loaded only when enabled. Your choices are remembered in this browser* — and lists each plugin's name, version and what it adds, with an **Enable** or **Disable** button. Enabling downloads the plugin's code and activates it; the button reads *Enabling…* meanwhile, and a download or activation that fails is reported on the row as *Could not enable: …*, leaving the plugin off. Disabling takes effect at once — the plugin's contributions leave the menus they were in — but never tears down work in flight: an export that started under the plugin's encoder runs to completion. The list is short by design; a build with no plugins would say so.
 
-**Related.** [GIF export](#gif-export) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions)
+**Related.** [GIF export](#gif-export) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions) · [More export formats](#more-export-formats)
 
 ## GIF export
 
@@ -59,6 +59,16 @@
 The two irises keep their shape on any frame, whether landscape, portrait or square. Each one finishes covering the frame exactly at the end of the transition. The slats and cells divide the frame itself, so they stretch with it. Like Shaped wipes, these render identically in the preview and every export, through the same rule. A project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin. A pattern transition already on the timeline when the plugin is disabled stays there. It plays as a crossfade, and its type menu shows it as *unavailable*.
 
 **Related.** [Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) · [Projects that need a plugin](#projects-that-need-a-plugin)
+
+## More export formats
+
+**Where to find it.** **File ▾** › **Plugins…** › *More export formats*; once enabled, **Animated WebP** in the export dialog's Format group.
+
+**What it does.** Adds export formats beyond the editor's own. Today that is *Animated WebP*: the composed timeline as a soundless, looping animation in full colour.
+
+**Details.** The WebP samples at {{WEBP_FPS}} fps and is scaled down so its longer side is at most {{WEBP_MAX_PX}} px, the same limits as the GIF, but without the GIF's 256-colour palette; the format's note in the export dialog states the limits. Each frame is encoded by the browser's own WebP encoder, so the plugin carries no encoder of its own, and the format is offered only where the browser can encode WebP. No project depends on this plugin, because an export format is an output, not part of the arrangement.
+
+**Related.** [Animated WebP (plugin)](export.md#animated-webp-plugin) · [GIF export](#gif-export)
 
 ## Enabled plugins and this browser
 

@@ -34,6 +34,11 @@ const healthyManifest = (): Manifest => ({
     src: 'src/plugins/patternTransitions/index.ts',
     imports: ['_shared-def.js'],
   },
+  'src/plugins/moreFormats/index.ts': {
+    file: 'assets/index-yza.js',
+    src: 'src/plugins/moreFormats/index.ts',
+    imports: ['_shared-def.js'],
+  },
   'src/guide/UserGuide.tsx': {
     file: 'assets/UserGuide-jkl.js',
     src: 'src/guide/UserGuide.tsx',
@@ -56,6 +61,7 @@ const PLUGIN_KEYS = [
   'src/plugins/gif/index.ts',
   'src/plugins/shapedWipes/index.ts',
   'src/plugins/patternTransitions/index.ts',
+  'src/plugins/moreFormats/index.ts',
 ]
 
 /** The plugin rule alone, for the tests written against it before #478. */
@@ -122,6 +128,7 @@ describe('findLazyChunkProblems (#197)', () => {
     expect(lazyKeys.plugin).toEqual([
       'src/plugins/shapedWipes/index.ts',
       'src/plugins/patternTransitions/index.ts',
+      'src/plugins/moreFormats/index.ts',
     ])
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('plugin module "src/plugins/gif/index.ts"')

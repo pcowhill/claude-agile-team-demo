@@ -26,10 +26,13 @@ test('the format note sits below the radios and the picker stays inside the dial
 }) => {
   await page.goto('./')
 
-  // Enable the GIF plugin: the fullest picker the product can show.
+  // Enable both export-format plugins: the fullest picker the product can
+  // show (GIF #198, More export formats #858).
   await chooseFromFileMenu(page, 'Plugins…')
-  await page.getByRole('button', { name: 'Enable GIF export' }).click()
-  await expect(page.getByRole('button', { name: 'Disable GIF export' })).toBeVisible()
+  for (const plugin of ['GIF export', 'More export formats']) {
+    await page.getByRole('button', { name: `Enable ${plugin}` }).click()
+    await expect(page.getByRole('button', { name: `Disable ${plugin}` })).toBeVisible()
+  }
   await page.getByRole('dialog', { name: 'Plugins' }).getByRole('button', { name: 'Close' }).click()
 
   await chooseFromAddMenu(page, ADD_SLATE)
@@ -42,12 +45,13 @@ test('the format note sits below the radios and the picker stays inside the dial
   )
   expect(await options.count()).toBeGreaterThanOrEqual(3)
 
-  // Both formats that state a note: the audio-only line (#264's screenshot)
-  // and the GIF plugin's caps (#265's).
+  // Every format that states a note: the audio-only lines (#264's
+  // screenshot) and the animation plugins' caps (#265's, and #858's).
   const cases: { radio: string; note: RegExp }[] = [
     { radio: 'Audio only (WebM/Opus)', note: /Saves just the mixed soundtrack —/ },
     { radio: 'Audio only (MP3)', note: /as an MP3 file/ },
     { radio: 'Animated GIF', note: /soundless and sample at 10 fps/ },
+    { radio: 'Animated WebP', note: /soundless and samples at 10 fps/ },
   ]
   for (const { radio, note } of cases) {
     await dialog.getByRole('radio', { name: radio }).check()

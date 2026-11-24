@@ -11,7 +11,7 @@ When something is not where the guide says, or the browser will not do what you 
 **Details.** A recent Chromium browser, Firefox or Safari runs the editor. What differs between them is detected, not assumed:
 
 - **Recording** needs the browser's media capture and recorder. Where either is missing — and on a page not served securely, where browsers hide media capture altogether — the **Record ▾** menu is absent. The **Screen** and **Screen + camera** sources need screen capture as well, which most mobile browsers lack; they are left out of the menu while Microphone and Webcam stay. Firefox records the screen without sound, since it shares no tab or system audio.
-- **Export formats** are whatever the browser's recorder can encode: Firefox offers WebM alone, and MP4 needs a recent Chromium or Safari. **Audio only (MP3)** is encoded in the page and needs only the browser's audio engine. **Animated GIF** needs its plugin enabled.
+- **Export formats** are whatever the browser's recorder can encode: Firefox offers WebM alone, and MP4 needs a recent Chromium or Safari. **Audio only (MP3)** is encoded in the page and needs only the browser's audio engine. **Animated GIF** needs its plugin enabled. **Animated WebP** needs its plugin enabled too, and a browser that can encode WebP pictures.
 - **Colour adjustments** render live in every browser's preview, but exporting or saving a frame from an adjusted timeline needs the browser's canvas to apply filters; a browser without them refuses that export rather than producing an unadjusted file (below).
 - **Sound in exports, and the waveforms**, need the browser's audio engine. Without it, video exports run without sound, audio-only exports refuse, and the coverage bars stay plain; the preview still plays. An engine that is present but cannot start its sound output, as on a machine with no sound device, affects exports the same way. The export waits up to {{AUDIO_START_TIMEOUT_SECONDS}} seconds at 0% for the sound, then a video export runs without it.
 - **Speed segments** export at their timing in every browser. Firefox cannot record a clip's sound at another speed, so in a Firefox export a [speed segment's](editing-video.md#speed-segments-and-pauses) span is silent; the rest of the entry or overlay keeps its sound.
@@ -74,7 +74,7 @@ When something is not where the guide says, or the browser will not do what you 
 **Details.**
 
 - **Adjust visually…** buttons, and a shape group's **Draw shapes…** — hidden when Settings › *Visual editors* is Off.
-- **Animated GIF** in the export dialog, and the seven **shaped wipe** transitions — their plugin is disabled; enable it in File ▾ › Plugins…. A shaped wipe already on the timeline shows as *unavailable* in the type menu meanwhile.
+- **Animated GIF** or **Animated WebP** in the export dialog, or the seven **shaped wipe** transitions — their plugin is disabled; enable it in File ▾ › Plugins…. A shaped wipe already on the timeline shows as *unavailable* in the type menu meanwhile.
 - The five **pattern transitions** — blinds, checkerboard, and the diamond and star irises — the Pattern transitions plugin is disabled; enable it in File ▾ › Plugins…. One already on the timeline shows as *unavailable* in the type menu meanwhile.
 - **Record ▾**, or its **Screen** sources — the browser cannot capture; see above.
 - **Marked range** in the export dialog — the preview's in and out marks do not form a range; set both, in before out.

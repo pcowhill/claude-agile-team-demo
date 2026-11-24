@@ -92,6 +92,7 @@ const PLUGIN_CHUNKS = [
   'src/plugins/gif/index.ts',
   'src/plugins/shapedWipes/index.ts',
   'src/plugins/patternTransitions/index.ts',
+  'src/plugins/moreFormats/index.ts',
 ]
 
 /** The seven visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565, #685). */
