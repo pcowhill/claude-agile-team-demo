@@ -253,6 +253,36 @@ extension point is built until a concrete plugin needs it**.
   measurer, and shrinks a line that would run past the margins. Text
   overlays never wrap. Motion is fades only, because Moves (#834) do not
   apply to text or shapes. No dependencies.
+- **Media Library header contributions** (`libraryHeaderContributions` in
+  `src/lib/libraryHeader.ts`, built in #861 because the Sound library
+  plugin the customer picked on #856 needs it). A contribution is
+  `{ id, label, Dialog }`: a button after **Import clips**, in registration
+  order, and the dialog it opens. The dialog receives `onImportFiles`, the
+  same function Import clips and voice-over recording use, and hands it
+  `File`s. So a plugin's media arrives as ordinary library clips: probed,
+  named, saved and reopened like any import. The registry follows the
+  others (`register`/`unregister`/`find`/`list`/`subscribe`/`version`), and
+  the header holds the open dialog by id, so disabling the plugin closes it.
+  #856 called this a *media-source registry* that stickers (idea 11) could
+  share, but idea 11 was not approved, so it carries only what one source
+  needs. A sticker source would fit it unchanged, because it also hands back
+  files. Rejected alternative: a data-only sound registry with the dialog in
+  core, which would put a plugin's UI in the entry bundle, as with Add ▾.
+- **Sound library plugin** (`src/plugins/soundLibrary/`, #861): 13 short
+  effects, synthesised by a committed script (`tools/sounds/`), released as
+  CC0, and recorded per file in `sounds/manifest.json` and
+  `sounds/LICENSES.md`.
+  - **Static assets, not code.** The chunk carries the manifest and each
+    file's URL, imported as `?url&no-inline`. Without `no-inline`, Vite
+    would inline a file under 4 kB, as Click is, into the chunk as a data
+    URL. The sounds download only on ▶ or Add.
+  - **The bundle check** (`tools/checkPluginChunks.ts`) counts only
+    JavaScript chunks. Vite lists these assets in the build manifest under
+    `src/plugins/`, but a file is not code that a static import could merge
+    into the entry.
+  - **No `usedByProject`.** An added sound is an ordinary clip.
+  - **No runtime dependency.** Generating needs FFmpeg with libopus, but
+    the encoded files are committed, so building and running never do.
 
 ### Projects that use plugin features: prompt-and-enable
 

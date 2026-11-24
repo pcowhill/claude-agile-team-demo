@@ -12,7 +12,9 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Details.** The picker accepts video, audio and image files and lets you choose several at once; dropping files anywhere on the page does the same, and the page highlights while you drag over it. The kind is read from the file's type as the browser reports it, and from the extension when the browser reports none: `mp3`, `wav`, `m4a`, `aac`, `ogg`, `oga`, `opus`, `flac` and `weba` are audio, `png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp` and `avif` are images, and anything else is tried as video. A video or audio file is read for its duration, an image for its width and height in pixels. Reading a file's metadata gives up after a short wait rather than hanging, and reports the file in the failure list. The same file can be imported again, so an import that failed can be retried after the file is fixed.
 
-**Related.** [While a file imports](#while-a-file-imports) · [The failure list](#the-failure-list) · [Recording](recording.md) · [Quick Start](quick-start.md#1-import-your-clips)
+For a sound effect you do not have a file for, enable the [Sound library](plugins.md#sound-library) plugin. Its sounds are added through this same import, as ordinary audio clips.
+
+**Related.** [While a file imports](#while-a-file-imports) · [The failure list](#the-failure-list) · [Recording](recording.md) · [Sound library](plugins.md#sound-library) · [Quick Start](quick-start.md#1-import-your-clips)
 
 ## While a file imports
 
@@ -170,4 +172,4 @@ Values that have to be read from the file show *Reading…* for a moment; a valu
 
 ## When the list grows
 
-The list of clips never grows past its own panel. Once it would — at about half the window's height, or sooner when the window is short — it scrolls on its own while the title, Import clips, Record ▾, View ▾ and the selection controls stay at the top, so a large import never pushes the timeline down the page or spills over it. A small gap separates the rows from the scrollbar while the list scrolls.
+The list of clips never grows past its own panel. Once it would — at about half the window's height, or sooner when the window is short — it scrolls on its own while the title, Import clips, Record ▾, View ▾ (and **Sound library…**, when its [plugin](plugins.md#sound-library) is on) and the selection controls stay at the top, so a large import never pushes the timeline down the page or spills over it. A small gap separates the rows from the scrollbar while the list scrolls.

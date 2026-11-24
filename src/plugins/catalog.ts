@@ -77,4 +77,15 @@ export const builtInPlugins: readonly PluginSpec[] = [
     // What a template places is ordinary text and shapes, which stay when
     // the plugin is disabled, so no project depends on it (#860).
   },
+  {
+    id: 'sound-library',
+    name: 'Sound library',
+    description:
+      'Adds "Sound library…" to the Media Library: short sound effects such as a whoosh, a click ' +
+      'or a ding, free to use without credit, each added to the library as an ordinary audio clip.',
+    version: '1.0.0',
+    load: () => import('./soundLibrary/index'),
+    // An added sound is an ordinary library clip, imported like a picked
+    // file, so no project depends on this plugin (#861).
+  },
 ]

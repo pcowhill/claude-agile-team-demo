@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the five plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [More export formats](#more-export-formats) and [Title templates](#title-templates) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the six plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [More export formats](#more-export-formats), [Title templates](#title-templates) and [Sound library](#sound-library) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -89,6 +89,30 @@ What is placed is ordinary: the text overlays appear in the Text section and the
 The gallery works from the keyboard: the arrow keys move between templates, **Tab** moves on to the words, **Enter** places, and **Esc** closes it without placing anything.
 
 **Related.** [Adding a text overlay](text-and-subtitles.md#adding-a-text-overlay) · [Adding a shape group](shapes-and-annotations.md#adding-a-shape-group) · [Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out)
+
+## Sound library
+
+**Where to find it.** **File ▾** › **Plugins…** › *Sound library*; once enabled, the media library header › **Sound library…**, beside **Import clips**.
+
+**What it does.** Lists short sound effects, such as a whoosh, a click or a ding, and adds the one you choose to the media library as an ordinary audio clip.
+
+**Details.** **Sound library…** opens a list of 13 effects in four groups, each with its length:
+- **Transitions:** Whoosh, Swoosh out, Riser.
+- **Clicks and keys:** Click, Double click, Pop, Typing, Camera shutter.
+- **Alerts:** Ding, Notification, Success, Error.
+- **Impacts:** Thump.
+
+None is longer than about 2 seconds.
+
+**▶** plays a sound so you can hear it first, and reads **■** while it plays. Pressing it again, or playing another sound, stops it, and so does closing the list. **Add** puts the sound in the library under its name, for example *Whoosh.webm*. From there it previews, goes on the timeline as an audio track, and is trimmed, faded and mixed like any audio file you import. The list stays open, so you can add several in a row. A line under the list says when a sound has been added, or why it could not be downloaded.
+
+**You may use these sounds anywhere, with no credit.** The team made them itself, synthesising them from tones and noise without recordings or anyone else's files, and released them under **CC0**, the public-domain dedication. Put them in your videos, publish those videos commercially or not, and change the sounds, without naming anyone.
+
+Enabling the plugin downloads only the list. Each sound is a small file, downloaded only when you play or add it. An added sound is an ordinary clip: it is saved with your project like any import. It does not need the plugin, and it stays in the library when the plugin is disabled, so no project depends on it.
+
+The list works from the keyboard. Opening it puts the focus on the first **▶**. **Tab** moves through each row's **▶** and **Add**, **Enter** or **Space** presses one, and **Esc** closes the list.
+
+**Related.** [Importing clips](media-library.md#importing-clips) · [Audio tracks](audio.md#audio-tracks)
 
 ## Enabled plugins and this browser
 

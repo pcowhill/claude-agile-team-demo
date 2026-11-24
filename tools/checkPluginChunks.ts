@@ -94,6 +94,7 @@ const PLUGIN_CHUNKS = [
   'src/plugins/patternTransitions/index.ts',
   'src/plugins/moreFormats/index.ts',
   'src/plugins/titleTemplates/index.ts',
+  'src/plugins/soundLibrary/index.ts',
 ]
 
 /** The seven visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565, #685). */
@@ -161,7 +162,12 @@ export function findLazyChunkProblems(
   const lazyKeys: Record<string, string[]> = {}
   const problems: string[] = []
   for (const rule of rules) {
-    const keys = Object.keys(manifest).filter((key) => rule.pattern.test(manifest[key].src ?? key))
+    // JavaScript chunks only. A plugin's static asset (the Sound library's
+    // audio files, #861) has a manifest entry of its own, but it is a file,
+    // not code that a static import could merge into the entry bundle.
+    const keys = Object.keys(manifest).filter(
+      (key) => manifest[key].file.endsWith('.js') && rule.pattern.test(manifest[key].src ?? key),
+    )
     lazyKeys[rule.label] = keys
     if (keys.length === 0) {
       problems.push(

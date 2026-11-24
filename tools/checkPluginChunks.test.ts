@@ -44,6 +44,11 @@ const healthyManifest = (): Manifest => ({
     src: 'src/plugins/titleTemplates/index.ts',
     imports: ['_shared-def.js'],
   },
+  'src/plugins/soundLibrary/index.ts': {
+    file: 'assets/index-cde.js',
+    src: 'src/plugins/soundLibrary/index.ts',
+    imports: ['_shared-def.js'],
+  },
   'src/guide/UserGuide.tsx': {
     file: 'assets/UserGuide-jkl.js',
     src: 'src/guide/UserGuide.tsx',
@@ -68,6 +73,7 @@ const PLUGIN_KEYS = [
   'src/plugins/patternTransitions/index.ts',
   'src/plugins/moreFormats/index.ts',
   'src/plugins/titleTemplates/index.ts',
+  'src/plugins/soundLibrary/index.ts',
 ]
 
 /** The plugin rule alone, for the tests written against it before #478. */
@@ -136,6 +142,7 @@ describe('findLazyChunkProblems (#197)', () => {
       'src/plugins/patternTransitions/index.ts',
       'src/plugins/moreFormats/index.ts',
       'src/plugins/titleTemplates/index.ts',
+      'src/plugins/soundLibrary/index.ts',
     ])
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('plugin module "src/plugins/gif/index.ts"')
@@ -162,6 +169,18 @@ describe('findLazyChunkProblems (#197)', () => {
       src: 'src/plugins/catalog.ts',
     }
     manifest['index.html'].imports = ['_shared-def.js', 'src/plugins/catalog.ts']
+    const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
+    expect(problems).toEqual([])
+    expect(lazyKeys).toEqual({ plugin: PLUGIN_KEYS })
+  })
+
+  it("counts a plugin's static assets as files, not as chunks it verified (#861)", () => {
+    const manifest = healthyManifest()
+    // What Vite 8 writes for the Sound library's `?url&no-inline` audio.
+    manifest['src/plugins/soundLibrary/sounds/click.webm'] = {
+      file: 'assets/click-abc.webm',
+      src: 'src/plugins/soundLibrary/sounds/click.webm',
+    }
     const { lazyKeys, problems } = findLazyChunkProblems(manifest, PLUGIN_RULES)
     expect(problems).toEqual([])
     expect(lazyKeys).toEqual({ plugin: PLUGIN_KEYS })
