@@ -1673,15 +1673,45 @@ function withPastedVisualSettings<T extends PastedVisualSettings>(
   return next
 }
 
-function withEffects(
-  entries: TimelineEntry[],
-  transitions: TimelineTransition[],
-  zooms: ZoomEffect[],
-  audioTracks: AudioTrack[],
-  remaps: RemapEffect[],
-  texts: TextOverlay[],
-  videoOverlays: VideoOverlay[],
-): TimelineState {
+/**
+ * The lists `withEffects` normalizes together: the entries and every
+ * collection whose invariants depend on them. One object rather than seven
+ * positional arguments (#862), so a reducer case names only the lists it
+ * changes and takes the rest from `effectListsOf`, and a new entry-bound
+ * kind is one more key here rather than one more argument at every call.
+ */
+interface EffectLists {
+  entries: TimelineEntry[]
+  transitions: TimelineTransition[]
+  zooms: ZoomEffect[]
+  audioTracks: AudioTrack[]
+  remaps: RemapEffect[]
+  texts: TextOverlay[]
+  videoOverlays: VideoOverlay[]
+}
+
+/** A state's lists as `withEffects` takes them, each absent key read as empty. */
+function effectListsOf(state: TimelineState): EffectLists {
+  return {
+    entries: state.entries,
+    transitions: transitionsOf(state),
+    zooms: zoomsOf(state),
+    audioTracks: audioTracksOf(state),
+    remaps: remapsOf(state),
+    texts: textsOf(state),
+    videoOverlays: videoOverlaysOf(state),
+  }
+}
+
+function withEffects({
+  entries,
+  transitions,
+  zooms,
+  audioTracks,
+  remaps,
+  texts,
+  videoOverlays,
+}: EffectLists): TimelineState {
   // Remaps normalize first: transition clamping reads output durations, and
   // an unclamped effect window would count source time the entry no longer
   // plays. Entry fades (#220) clamp against those output durations, so they
@@ -1751,7 +1781,7 @@ export function normalizedTimelineState(
   markers: ChapterMarker[] = [],
   shapeGroups: ShapeGroup[] = [],
 ): TimelineState {
-  const state = withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+  const state = withEffects({ entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays })
   // The project-level fields (#250, #273) are carried, not normalized — the
   // caller (deserialization) already stores them in canonical form. Markers
   // (#487) are sorted, the one canonical form a file might not have kept.
@@ -1829,15 +1859,7 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
     const restyled = textsOf(state).map((text) =>
       text.subtitle === true ? applySubtitleStyle(text, clamped) : text,
     )
-    const next = withEffects(
-      state.entries,
-      transitionsOf(state),
-      zoomsOf(state),
-      audioTracksOf(state),
-      remapsOf(state),
-      restyled,
-      videoOverlaysOf(state),
-    )
+    const next = withEffects({ ...effectListsOf(state), texts: restyled })
     // Equal to the built-in default means no key at all (#192/#232/#255
     // rule), which is what keeps never-customized files byte-identical.
     const normalized = normalizeSubtitleStyle(clamped)
@@ -1955,15 +1977,12 @@ function withRipple(state: TimelineState, cut: TimelineState, from: number, to: 
     from,
     to,
   )
-  const next = withEffects(
-    cut.entries,
-    transitionsOf(cut),
-    zoomsOf(cut),
-    rippled.audioTracks,
-    remapsOf(cut),
-    rippled.texts,
-    rippled.videoOverlays,
-  )
+  const next = withEffects({
+    ...effectListsOf(cut),
+    audioTracks: rippled.audioTracks,
+    texts: rippled.texts,
+    videoOverlays: rippled.videoOverlays,
+  })
   return withProjectFields(next, {
     ...state,
     markers: normalizedMarkers(rippled.markers),
@@ -2004,15 +2023,7 @@ function cutRange(
         )
       : list.filter((remap) => remap.id !== pauseId)
   if (plan.kind === 'within-hold') {
-    return withEffects(
-      state.entries,
-      transitionsOf(state),
-      zoomsOf(state),
-      audioTracksOf(state),
-      withHold(remapsOf(state), plan.pauseId, plan.seconds),
-      textsOf(state),
-      videoOverlaysOf(state),
-    )
+    return withEffects({ ...effectListsOf(state), remaps: withHold(remapsOf(state), plan.pauseId, plan.seconds) })
   }
   const { from, to } = plan
   // The last piece kept before the range and the first kept after it, by
@@ -2075,15 +2086,7 @@ function cutRange(
       ? next.entries.length
       : next.entries.findIndex((entry) => entry.id === tailFirstId)
   const entries = [...next.entries.slice(0, headIndex + 1), ...next.entries.slice(tailIndex)]
-  return withEffects(
-    entries,
-    transitionsOf(next),
-    zoomsOf(next),
-    audioTracksOf(next),
-    remaps,
-    textsOf(next),
-    videoOverlaysOf(next),
-  )
+  return withEffects({ ...effectListsOf(next), entries, remaps })
 }
 
 /**
@@ -2276,19 +2279,15 @@ function reduceTimelineCollections(
     case 'timeline-replaced':
       return action.timeline
     case 'entry-added':
-      return withEffects([...state.entries, action.entry], transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries: [...state.entries, action.entry] })
     case 'clips-added':
       // An empty batch is a same-reference no-op: nothing to undo (#292).
       if (action.entries.length === 0 && action.audioTracks.length === 0) return state
-      return withEffects(
-        [...state.entries, ...action.entries],
-        transitions,
-        zooms,
-        [...audioTracks, ...action.audioTracks],
-        remaps,
-        texts,
-        videoOverlays,
-      )
+      return withEffects({
+        ...effectListsOf(state),
+        entries: [...state.entries, ...action.entries],
+        audioTracks: [...audioTracks, ...action.audioTracks],
+      })
     case 'entry-split': {
       // The razor (#190). The halves cover exactly the original's trimmed
       // range, so an untouched split plays back indistinguishably; per-entry
@@ -2393,7 +2392,15 @@ function reduceTimelineCollections(
           },
         ]
       })
-      return withEffects(entries, splitTransitions, splitZooms, audioTracks, splitRemaps, texts, videoOverlays)
+      return withEffects({
+        entries,
+        transitions: splitTransitions,
+        zooms: splitZooms,
+        audioTracks,
+        remaps: splitRemaps,
+        texts,
+        videoOverlays,
+      })
     }
     case 'element-split': {
       // Split… on a track or an overlay (#826): see elementSplit.ts. The
@@ -2406,7 +2413,7 @@ function reduceTimelineCollections(
         const parts = splitAudioTrack(audioTracks[index], action.atSourceTime, action.newId)
         if (parts === null) return state
         const nextTracks = [...audioTracks.slice(0, index), ...parts, ...audioTracks.slice(index + 1)]
-        return withEffects(state.entries, transitions, zooms, nextTracks, remaps, texts, videoOverlays)
+        return withEffects({ ...effectListsOf(state), audioTracks: nextTracks })
       }
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
       if (index === -1) return state
@@ -2414,7 +2421,7 @@ function reduceTimelineCollections(
       const parts = splitVideoOverlay(videoOverlays[index], action.atSourceTime, action.newId)
       if (parts === null) return state
       const nextOverlays = [...videoOverlays.slice(0, index), ...parts, ...videoOverlays.slice(index + 1)]
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, nextOverlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: nextOverlays })
     }
     case 'element-cut': {
       // Cut… on a track or an overlay (#828): see elementCut.ts. The later
@@ -2428,7 +2435,7 @@ function reduceTimelineCollections(
         const parts = cutAudioTrack(audioTracks[index], clamps, action.newId)
         if (parts === null) return state
         const nextTracks = [...audioTracks.slice(0, index), ...parts, ...audioTracks.slice(index + 1)]
-        return withEffects(state.entries, transitions, zooms, nextTracks, remaps, texts, videoOverlays)
+        return withEffects({ ...effectListsOf(state), audioTracks: nextTracks })
       }
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
       if (index === -1) return state
@@ -2436,7 +2443,7 @@ function reduceTimelineCollections(
       const parts = cutVideoOverlay(videoOverlays[index], clamps, action.newId)
       if (parts === null) return state
       const nextOverlays = [...videoOverlays.slice(0, index), ...parts, ...videoOverlays.slice(index + 1)]
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, nextOverlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: nextOverlays })
     }
     case 'frame-frozen': {
       // Freeze frame (#379): validate the still whole, then place it — see
@@ -2469,21 +2476,13 @@ function reduceTimelineCollections(
           still,
           ...split.entries.slice(halfIndex + 1),
         ]
-        return withEffects(
-          entries,
-          transitionsOf(split),
-          zoomsOf(split),
-          audioTracksOf(split),
-          remapsOf(split),
-          textsOf(split),
-          videoOverlaysOf(split),
-        )
+        return withEffects({ ...effectListsOf(split), entries })
       }
       const index = state.entries.findIndex((entry) => entry.id === placement.entryId)
       if (index === -1) return state
       const at = placement.kind === 'before' ? index : index + 1
       const entries = [...state.entries.slice(0, at), still, ...state.entries.slice(at)]
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'range-cut':
       return cutRange(state, action)
@@ -2519,15 +2518,11 @@ function reduceTimelineCollections(
       // is pinned to that instant regardless of what the caller built, so
       // the bubble and the screen take begin together by construction.
       const start = totalDuration(state)
-      return withEffects(
-        [...state.entries, entry],
-        transitions,
-        zooms,
-        audioTracks,
-        remaps,
-        texts,
-        [...videoOverlays, { ...overlay, offset: start }],
-      )
+      return withEffects({
+        ...effectListsOf(state),
+        entries: [...state.entries, entry],
+        videoOverlays: [...videoOverlays, { ...overlay, offset: start }],
+      })
     }
     case 'element-duplicated': {
       // Duplicate (#314): the copy is the original spread under a fresh id —
@@ -2561,15 +2556,12 @@ function reduceTimelineCollections(
           // original keeps its transition (that pair is still adjacent), and
           // the one OUT of the original is dropped by normalization because
           // the copy now separates the pair — the insert-path rule.
-          return withEffects(
+          return withEffects({
+            ...effectListsOf(state),
             entries,
-            transitions,
-            [...zooms, ...duplicatedZooms],
-            audioTracks,
-            [...remaps, ...duplicatedRemaps],
-            texts,
-            videoOverlays,
-          )
+            zooms: [...zooms, ...duplicatedZooms],
+            remaps: [...remaps, ...duplicatedRemaps],
+          })
         }
         case 'audio-track': {
           const track = audioTracks.find((candidate) => candidate.id === action.id)
@@ -2582,7 +2574,7 @@ function reduceTimelineCollections(
             id: action.newId,
             offset: track.offset + (track.outPoint - track.inPoint),
           }
-          return withEffects(state.entries, transitions, zooms, [...audioTracks, copy], remaps, texts, videoOverlays)
+          return withEffects({ ...effectListsOf(state), audioTracks: [...audioTracks, copy] })
         }
         case 'video-overlay': {
           const overlay = videoOverlays.find((candidate) => candidate.id === action.id)
@@ -2595,14 +2587,14 @@ function reduceTimelineCollections(
             id: action.newId,
             offset: overlay.offset + overlayOutputDuration(overlay),
           }
-          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, [...videoOverlays, copy])
+          return withEffects({ ...effectListsOf(state), videoOverlays: [...videoOverlays, copy] })
         }
         case 'text': {
           const text = texts.find((candidate) => candidate.id === action.id)
           if (text === undefined) return state
           if (texts.some((existing) => existing.id === action.newId)) return state
           const copy = { ...text, id: action.newId, offset: text.offset + text.duration }
-          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, copy], videoOverlays)
+          return withEffects({ ...effectListsOf(state), texts: [...texts, copy] })
         }
       }
       return state
@@ -2669,7 +2661,7 @@ function reduceTimelineCollections(
           if (next === entry) return state
           const entries = [...state.entries]
           entries[index] = next
-          return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+          return withEffects({ ...effectListsOf(state), entries })
         }
         case 'audio-track': {
           const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -2702,7 +2694,7 @@ function reduceTimelineCollections(
           }
           const tracks = [...audioTracks]
           tracks[index] = candidate
-          return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+          return withEffects({ ...effectListsOf(state), audioTracks: tracks })
         }
         case 'video-overlay': {
           const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -2739,7 +2731,7 @@ function reduceTimelineCollections(
           if (next === overlay) return state
           const overlays = [...videoOverlays]
           overlays[index] = next
-          return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+          return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
         }
         case 'text': {
           const index = texts.findIndex((text) => text.id === action.id)
@@ -2779,15 +2771,10 @@ function reduceTimelineCollections(
           // Normalization can clamp the paste back to what is already stored
           // — a no-op must keep the state reference.
           if (textOverlaysEqual(existing, clampTextOverlay(candidate))) return state
-          return withEffects(
-            state.entries,
-            transitions,
-            zooms,
-            audioTracks,
-            remaps,
-            texts.map((text, position) => (position === index ? candidate : text)),
-            videoOverlays,
-          )
+          return withEffects({
+            ...effectListsOf(state),
+            texts: texts.map((text, position) => (position === index ? candidate : text)),
+          })
         }
       }
       return state
@@ -2804,34 +2791,26 @@ function reduceTimelineCollections(
         if (state.entries[entryIndex].name === name) return state
         const entries = [...state.entries]
         entries[entryIndex] = { ...entries[entryIndex], name }
-        return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+        return withEffects({ ...effectListsOf(state), entries })
       }
       const trackIndex = audioTracks.findIndex((track) => track.id === action.id)
       if (trackIndex !== -1) {
         if (audioTracks[trackIndex].name === name) return state
         const tracks = [...audioTracks]
         tracks[trackIndex] = { ...tracks[trackIndex], name }
-        return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+        return withEffects({ ...effectListsOf(state), audioTracks: tracks })
       }
       const overlayIndex = videoOverlays.findIndex((overlay) => overlay.id === action.id)
       if (overlayIndex !== -1) {
         if (videoOverlays[overlayIndex].name === name) return state
         const overlays = [...videoOverlays]
         overlays[overlayIndex] = { ...overlays[overlayIndex], name }
-        return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+        return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       }
       return state
     }
     case 'entry-removed':
-      return withEffects(
-        state.entries.filter((entry) => entry.id !== action.id),
-        transitions,
-        zooms,
-        audioTracks,
-        remaps,
-        texts,
-        videoOverlays,
-      )
+      return withEffects({ ...effectListsOf(state), entries: state.entries.filter((entry) => entry.id !== action.id) })
     case 'entries-removed-for-clip': {
       // Removing a library clip removes everything created from it: sequence
       // entries, audio tracks (#102), and overlay video layers (#145) alike.
@@ -2844,7 +2823,7 @@ function reduceTimelineCollections(
         tracks.length === audioTracks.length &&
         overlays.length === videoOverlays.length
         ? state
-        : withEffects(entries, transitions, zooms, tracks, remaps, texts, overlays)
+        : withEffects({ ...effectListsOf(state), entries, audioTracks: tracks, videoOverlays: overlays })
     }
     case 'entries-removed-for-clips': {
       // Same per-clip semantics as the single removal above, applied to the
@@ -2862,7 +2841,7 @@ function reduceTimelineCollections(
         tracks.length === audioTracks.length &&
         overlays.length === videoOverlays.length
         ? state
-        : withEffects(entries, transitions, zooms, tracks, remaps, texts, overlays)
+        : withEffects({ ...effectListsOf(state), entries, audioTracks: tracks, videoOverlays: overlays })
     }
     case 'entry-moved': {
       const from = state.entries.findIndex((entry) => entry.id === action.id)
@@ -2871,7 +2850,7 @@ function reduceTimelineCollections(
       if (to < 0 || to >= state.entries.length) return state
       const entries = [...state.entries]
       ;[entries[from], entries[to]] = [entries[to], entries[from]]
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'entry-trimmed': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -2888,7 +2867,7 @@ function reduceTimelineCollections(
       if (inPoint === entry.inPoint && outPoint === entry.outPoint) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, inPoint, outPoint }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'still-duration-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -2905,7 +2884,7 @@ function reduceTimelineCollections(
       // The window is always the whole still: duration and outPoint move
       // together, and transitions/zooms re-clamp exactly as after a retrim.
       entries[index] = { ...entry, duration: action.duration, inPoint: 0, outPoint: action.duration }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'slate-color-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -2919,7 +2898,7 @@ function reduceTimelineCollections(
       if (action.color === entry.color) return state
       const entries = [...state.entries]
       entries[index] = { ...entry, color: action.color }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'transition-set': {
       const before = state.entries.findIndex((entry) => entry.id === action.beforeId)
@@ -2933,21 +2912,16 @@ function reduceTimelineCollections(
         afterId: action.afterId,
         ...action.transition,
       }
-      const next = withEffects(
-        state.entries,
-        [
+      const next = withEffects({
+        ...effectListsOf(state),
+        transitions: [
           ...transitions.filter(
             (transition) =>
               transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
           ),
           candidate,
         ],
-        zooms,
-        audioTracks,
-        remaps,
-        texts,
-        videoOverlays,
-      )
+      })
       const applied = next.transitions?.find((transition) => transition.beforeId === action.beforeId)
       // Normalization can veto the whole transition (no room at this
       // boundary) or clamp it back to what is already there — both no-ops.
@@ -2965,7 +2939,7 @@ function reduceTimelineCollections(
           transition.beforeId !== action.beforeId || transition.afterId !== action.afterId,
       )
       if (remaining.length === transitions.length) return state
-      return withEffects(state.entries, remaining, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), transitions: remaining })
     }
     case 'zoom-added': {
       const zoom = action.zoom
@@ -2973,7 +2947,7 @@ function reduceTimelineCollections(
       // Ids are the handle updates and removals act on — never two alike.
       if (zooms.some((existing) => existing.id === zoom.id)) return state
       if (!isValidZoomSpec(zoom)) return state
-      const next = withEffects(state.entries, transitions, [...zooms, zoom], audioTracks, remaps, texts, videoOverlays)
+      const next = withEffects({ ...effectListsOf(state), zooms: [...zooms, zoom] })
       const applied = next.zooms?.find((existing) => existing.id === zoom.id)
       // Normalization can leave the new window no room at all (the entry's
       // existing zooms already reach its end) — veto the add, mirroring the
@@ -2986,15 +2960,10 @@ function reduceTimelineCollections(
       if (existing === undefined) return state
       if (!isValidZoomSpec(action.zoom)) return state
       const candidate: ZoomEffect = { id: existing.id, entryId: existing.entryId, ...action.zoom }
-      const next = withEffects(
-        state.entries,
-        transitions,
-        zooms.map((zoom) => (zoom.id === action.id ? candidate : zoom)),
-        audioTracks,
-        remaps,
-        texts,
-        videoOverlays,
-      )
+      const next = withEffects({
+        ...effectListsOf(state),
+        zooms: zooms.map((zoom) => (zoom.id === action.id ? candidate : zoom)),
+      })
       const applied = next.zooms?.find((zoom) => zoom.id === action.id)
       if (applied === undefined) return state
       // Normalization can clamp the edit back to what is already stored — a
@@ -3007,7 +2976,7 @@ function reduceTimelineCollections(
     case 'zoom-removed': {
       const remaining = zooms.filter((zoom) => zoom.id !== action.id)
       if (remaining.length === zooms.length) return state
-      return withEffects(state.entries, transitions, remaining, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), zooms: remaining })
     }
     case 'remap-added': {
       const remap = action.remap
@@ -3015,7 +2984,7 @@ function reduceTimelineCollections(
       // Ids are the handle updates and removals act on — never two alike.
       if (remaps.some((existing) => existing.id === remap.id)) return state
       if (!isValidRemapSpec(remap)) return state
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, [...remaps, remap], texts, videoOverlays)
+      const next = withEffects({ ...effectListsOf(state), remaps: [...remaps, remap] })
       const applied = next.remaps?.find((existing) => existing.id === remap.id)
       // Normalization can drop the effect (its entry is a still — see
       // normalizedRemaps) or collapse a speed segment to nothing (the
@@ -3035,15 +3004,10 @@ function reduceTimelineCollections(
         id: existing.id,
         entryId: existing.entryId,
       }
-      const next = withEffects(
-        state.entries,
-        transitions,
-        zooms,
-        audioTracks,
-        remaps.map((remap) => (remap.id === action.id ? candidate : remap)),
-        texts,
-        videoOverlays,
-      )
+      const next = withEffects({
+        ...effectListsOf(state),
+        remaps: remaps.map((remap) => (remap.id === action.id ? candidate : remap)),
+      })
       const applied = next.remaps?.find((remap) => remap.id === action.id)
       if (applied === undefined) return state
       // Normalization can clamp the edit back to what is already stored — a
@@ -3056,14 +3020,14 @@ function reduceTimelineCollections(
     case 'remap-removed': {
       const remaining = remaps.filter((remap) => remap.id !== action.id)
       if (remaining.length === remaps.length) return state
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaining, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), remaps: remaining })
     }
     case 'text-added': {
       const text = action.text
       // Ids are the handle updates and removals act on — never two alike.
       if (texts.some((existing) => existing.id === text.id)) return state
       if (!isValidTextOverlaySpec(text)) return state
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, text], videoOverlays)
+      return withEffects({ ...effectListsOf(state), texts: [...texts, text] })
     }
     case 'texts-added': {
       // A subtitle import (#249) lands as one action, so a file of many
@@ -3078,7 +3042,7 @@ function reduceTimelineCollections(
         ids.add(text.id)
         if (!isValidTextOverlaySpec(text)) return state
       }
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, [...texts, ...action.texts], videoOverlays)
+      return withEffects({ ...effectListsOf(state), texts: [...texts, ...action.texts] })
     }
     case 'text-updated': {
       const existing = texts.find((text) => text.id === action.id)
@@ -3101,20 +3065,15 @@ function reduceTimelineCollections(
       // Normalization can clamp the edit back to what is already stored — a
       // no-op must keep the state reference (edits stop preview playback).
       if (textOverlaysEqual(existing, clampTextOverlay(candidate))) return state
-      return withEffects(
-        state.entries,
-        transitions,
-        zooms,
-        audioTracks,
-        remaps,
-        texts.map((text) => (text.id === action.id ? candidate : text)),
-        videoOverlays,
-      )
+      return withEffects({
+        ...effectListsOf(state),
+        texts: texts.map((text) => (text.id === action.id ? candidate : text)),
+      })
     }
     case 'text-removed': {
       const remaining = texts.filter((text) => text.id !== action.id)
       if (remaining.length === texts.length) return state
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, remaining, videoOverlays)
+      return withEffects({ ...effectListsOf(state), texts: remaining })
     }
     case 'video-overlay-added': {
       const overlay = action.overlay
@@ -3134,10 +3093,7 @@ function reduceTimelineCollections(
         const clamped = clampVideoOverlay(overlay)
         if (clamped.inPoint >= clamped.outPoint) return state
       }
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, [
-        ...videoOverlays,
-        overlay,
-      ])
+      return withEffects({ ...effectListsOf(state), videoOverlays: [...videoOverlays, overlay] })
     }
     case 'video-overlay-updated': {
       const existing = videoOverlays.find((overlay) => overlay.id === action.id)
@@ -3161,15 +3117,10 @@ function reduceTimelineCollections(
         // Normalization can clamp the edit back to what is already stored — a
         // no-op must keep the state reference (edits stop preview playback).
         if (videoOverlaysEqual(existing, clampVideoOverlay(candidate))) return state
-        return withEffects(
-          state.entries,
-          transitions,
-          zooms,
-          audioTracks,
-          remaps,
-          texts,
-          videoOverlays.map((overlay) => (overlay.id === action.id ? candidate : overlay)),
-        )
+        return withEffects({
+          ...effectListsOf(state),
+          videoOverlays: videoOverlays.map((overlay) => (overlay.id === action.id ? candidate : overlay)),
+        })
       }
       if (!isValidVideoOverlayPlacement(action.placement as VideoOverlayPlacement)) return state
       // Identity and source binding never change: only the placement fields
@@ -3180,20 +3131,15 @@ function reduceTimelineCollections(
       // Normalization can clamp the edit back to what is already stored — a
       // no-op must keep the state reference (edits stop preview playback).
       if (videoOverlaysEqual(existing, clamped)) return state
-      return withEffects(
-        state.entries,
-        transitions,
-        zooms,
-        audioTracks,
-        remaps,
-        texts,
-        videoOverlays.map((overlay) => (overlay.id === action.id ? candidate : overlay)),
-      )
+      return withEffects({
+        ...effectListsOf(state),
+        videoOverlays: videoOverlays.map((overlay) => (overlay.id === action.id ? candidate : overlay)),
+      })
     }
     case 'video-overlay-removed': {
       const remaining = videoOverlays.filter((overlay) => overlay.id !== action.id)
       if (remaining.length === videoOverlays.length) return state
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, remaining)
+      return withEffects({ ...effectListsOf(state), videoOverlays: remaining })
     }
     case 'video-overlay-zoom-added': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
@@ -3205,7 +3151,7 @@ function reduceTimelineCollections(
       if (!isValidZoomSpec(action.zoom)) return state
       const overlays = [...videoOverlays]
       overlays[index] = { ...overlay, zooms: [...existing, action.zoom] }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].zooms?.find((zoom) => zoom.id === action.zoom.id)
       // No room left in the overlay's window: veto, as `zoom-added` does.
       if (applied === undefined || zoomWindowDuration(applied) <= 0) return state
@@ -3224,7 +3170,7 @@ function reduceTimelineCollections(
         ...overlay,
         zooms: (overlay.zooms ?? []).map((zoom) => (zoom.id === action.id ? candidate : zoom)),
       }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].zooms?.find((zoom) => zoom.id === action.id)
       if (applied === undefined) return state
       // Clamped back to what is stored: a no-op keeps the state reference.
@@ -3243,7 +3189,7 @@ function reduceTimelineCollections(
       if (remaining.length === 0) delete next.zooms
       else next.zooms = remaining
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'video-overlay-remap-added': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
@@ -3257,7 +3203,7 @@ function reduceTimelineCollections(
       if (!isValidRemapSpec(action.remap)) return state
       const overlays = [...videoOverlays]
       overlays[index] = { ...overlay, remaps: [...existing, action.remap] }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].remaps?.find((remap) => remap.id === action.remap.id)
       // No room left in the overlay's trim: veto, as `remap-added` does.
       if (applied === undefined) return state
@@ -3277,7 +3223,7 @@ function reduceTimelineCollections(
         ...overlay,
         remaps: (overlay.remaps ?? []).map((remap) => (remap.id === action.id ? candidate : remap)),
       }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].remaps?.find((remap) => remap.id === action.id)
       if (applied === undefined) return state
       // Clamped back to what is stored: a no-op keeps the state reference
@@ -3298,7 +3244,7 @@ function reduceTimelineCollections(
       if (remaining.length === 0) delete next.remaps
       else next.remaps = remaining
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'video-overlay-move-added': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
@@ -3311,7 +3257,7 @@ function reduceTimelineCollections(
       if (!isValidMoveSpec(action.move)) return state
       const overlays = [...videoOverlays]
       overlays[index] = { ...overlay, moves: [...existing, action.move] }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].moves?.find((move) => move.id === action.move.id)
       // No room left in the overlay's window: veto, as a zoom's add does.
       if (applied === undefined || applied.glide <= 0) return state
@@ -3338,7 +3284,7 @@ function reduceTimelineCollections(
         ...overlay,
         moves: (overlay.moves ?? []).map((move) => (move.id === action.id ? candidate : move)),
       }
-      const next = withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
       const applied = next.videoOverlays?.[index].moves?.find((move) => move.id === action.id)
       if (applied === undefined) return state
       // Clamped back to what is stored: a no-op keeps the state reference.
@@ -3357,14 +3303,14 @@ function reduceTimelineCollections(
       if (remaining.length === 0) delete next.moves
       else next.moves = remaining
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'audio-track-added':
-      return withEffects(state.entries, transitions, zooms, [...audioTracks, action.track], remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: [...audioTracks, action.track] })
     case 'audio-track-removed': {
       const remaining = audioTracks.filter((track) => track.id !== action.id)
       if (remaining.length === audioTracks.length) return state
-      return withEffects(state.entries, transitions, zooms, remaining, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: remaining })
     }
     case 'audio-track-retimed': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -3376,7 +3322,7 @@ function reduceTimelineCollections(
       if (offset === audioTracks[index].offset) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], offset }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
     case 'audio-track-trimmed': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -3390,7 +3336,7 @@ function reduceTimelineCollections(
       if (inPoint === track.inPoint && outPoint === track.outPoint) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...track, inPoint, outPoint }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
     case 'entry-volume-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3402,7 +3348,7 @@ function reduceTimelineCollections(
       if (volume === (state.entries[index].volume ?? 1)) return state
       const entries = [...state.entries]
       entries[index] = { ...entries[index], volume }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'entry-mute-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3410,7 +3356,7 @@ function reduceTimelineCollections(
       if (action.muted === (state.entries[index].muted ?? false)) return state
       const entries = [...state.entries]
       entries[index] = { ...entries[index], muted: action.muted }
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'entry-fades-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3439,7 +3385,7 @@ function reduceTimelineCollections(
       }
       const entries = [...state.entries]
       entries[index] = clamped
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'entry-color-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3461,7 +3407,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.colorAdjustments
       else next.colorAdjustments = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'video-overlay-color-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3475,7 +3421,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.colorAdjustments
       else next.colorAdjustments = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'entry-orient-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3497,7 +3443,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.orientation
       else next.orientation = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'video-overlay-orient-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3511,7 +3457,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.orientation
       else next.orientation = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'entry-crop-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3533,7 +3479,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.crop
       else next.crop = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'entry-redactions-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3555,7 +3501,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.redactions
       else next.redactions = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'video-overlay-redactions-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3569,7 +3515,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.redactions
       else next.redactions = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'entry-spotlights-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3590,7 +3536,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.spotlights
       else next.spotlights = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'video-overlay-spotlights-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3604,7 +3550,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.spotlights
       else next.spotlights = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'entry-background-fill-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
@@ -3626,7 +3572,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.backgroundFill
       else next.backgroundFill = normalized
       entries[index] = next
-      return withEffects(entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'video-overlay-crop-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3640,7 +3586,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.crop
       else next.crop = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'video-overlay-border-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3657,7 +3603,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.border
       else next.border = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'video-overlay-shadow-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3674,7 +3620,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.shadow
       else next.shadow = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'video-overlay-mask-set': {
       const index = videoOverlays.findIndex((overlay) => overlay.id === action.id)
@@ -3693,7 +3639,7 @@ function reduceTimelineCollections(
       if (normalized === undefined) delete next.shapeMask
       else next.shapeMask = normalized
       overlays[index] = next
-      return withEffects(state.entries, transitions, zooms, audioTracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'audio-track-volume-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -3703,7 +3649,7 @@ function reduceTimelineCollections(
       if (volume === (audioTracks[index].volume ?? 1)) return state
       const tracks = [...audioTracks]
       tracks[index] = { ...tracks[index], volume }
-      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
     case 'volumes-matched': {
       let entries = state.entries
@@ -3733,7 +3679,7 @@ function reduceTimelineCollections(
       }
       // Nothing changed: a same-reference no-op, so no undo step.
       if (entries === state.entries && tracks === audioTracks && overlays === videoOverlays) return state
-      return withEffects(entries, transitions, zooms, tracks, remaps, texts, overlays)
+      return withEffects({ ...effectListsOf(state), entries, audioTracks: tracks, videoOverlays: overlays })
     }
     case 'audio-track-fades-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -3755,7 +3701,7 @@ function reduceTimelineCollections(
       }
       const tracks = [...audioTracks]
       tracks[index] = candidate
-      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
     case 'audio-track-duck-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)
@@ -3782,7 +3728,7 @@ function reduceTimelineCollections(
       }
       const tracks = [...audioTracks]
       tracks[index] = next
-      return withEffects(state.entries, transitions, zooms, tracks, remaps, texts, videoOverlays)
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
   }
 }
