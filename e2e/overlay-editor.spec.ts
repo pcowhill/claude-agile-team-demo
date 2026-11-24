@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
-import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
 import { clickRegion } from './frameEditorRegion'
 
@@ -43,10 +43,10 @@ async function makePng(page: Page, width = 320, height = 180): Promise<Buffer> {
 const position = 'overlay cam.png at position 1'
 
 const field = (page: Page, name: string) => page.getByRole('spinbutton', { name })
-const left = (page: Page) => field(page, `Left edge of ${position} (fraction of frame width)`)
-const top = (page: Page) => field(page, `Top edge of ${position} (fraction of frame height)`)
-const boxWidth = (page: Page) => field(page, `Width of ${position} (fraction of frame width)`)
-const boxHeight = (page: Page) => field(page, `Height of ${position} (fraction of frame height)`)
+const left = (page: Page) => field(page, `Left edge of ${position} (percent of frame width)`)
+const top = (page: Page) => field(page, `Top edge of ${position} (percent of frame height)`)
+const boxWidth = (page: Page) => field(page, `Width of ${position} (percent of frame width)`)
+const boxHeight = (page: Page) => field(page, `Height of ${position} (percent of frame height)`)
 
 const centreOf = async (locator: Locator) => {
   const box = (await locator.boundingBox())!
@@ -86,7 +86,7 @@ async function openEditor(page: Page) {
       { name: 'cam.png', mimeType: 'image/png', buffer: await makePng(page, 240, 240) },
     ])
   await chooseClipAction(page, 'cam.png', 'Add as overlay')
-  await expect(left(page)).toHaveValue('0.62')
+  await expect(left(page)).toHaveValue('62')
 
   await page.getByRole('button', { name: `Adjust the placement of ${position} visually` }).click()
   const editor = page.getByRole('dialog', { name: `Adjust the placement of ${position}` })
@@ -123,22 +123,22 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   // React's commit, so a bare read can see the pre-drag render
   // (`quality-and-ci.md`, #449). The same tolerance, retried.
   await expect
-    .poll(async () => Math.abs(Number(await left(page).inputValue()) - 0.42), {
+    .poll(async () => Math.abs(Number(await left(page).inputValue()) - 42), {
       message: 'left edge after the drag',
     })
-    .toBeLessThan(0.005)
+    .toBeLessThan(0.5)
   await expect
-    .poll(async () => Math.abs(Number(await top(page).inputValue()) - 0.42), {
+    .poll(async () => Math.abs(Number(await top(page).inputValue()) - 42), {
       message: 'top edge after the drag',
     })
-    .toBeLessThan(0.005)
+    .toBeLessThan(0.5)
   // A move is not a resize.
-  await expect(boxWidth(page)).toHaveValue('0.35')
-  await expect(boxHeight(page)).toHaveValue('0.35')
+  await expect(boxWidth(page)).toHaveValue('35')
+  await expect(boxHeight(page)).toHaveValue('35')
 
   // One gesture, one undo step, though the drag fired eight moves.
   await page.keyboard.press('Control+z')
-  await expect(left(page)).toHaveValue('0.62')
+  await expect(left(page)).toHaveValue('62')
 
   // An edge handle changes its own dimension and nothing else — the thing a
   // centre-fixed resize (the zoom's) cannot express.
@@ -147,15 +147,15 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
     y: (await centreOf(region)).y,
   })
   await expect
-    .poll(async () => Math.abs(Number(await boxWidth(page).inputValue()) - 0.55), {
+    .poll(async () => Math.abs(Number(await boxWidth(page).inputValue()) - 55), {
       message: 'width after the edge drag',
     })
-    .toBeLessThan(0.02)
-  await expect(boxHeight(page)).toHaveValue('0.35')
-  await expect(top(page)).toHaveValue('0.62')
+    .toBeLessThan(2)
+  await expect(boxHeight(page)).toHaveValue('35')
+  await expect(top(page)).toHaveValue('62')
 
   await page.keyboard.press('Control+z')
-  await expect(boxWidth(page)).toHaveValue('0.35')
+  await expect(boxWidth(page)).toHaveValue('35')
 
   // Dragged towards the top-left corner, it snaps flush: exactly 0 on both
   // axes, which no hand-aimed drag would land on.
@@ -189,7 +189,7 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   // box can, which is 0.505: `x = 0.325` is what an exact centring needs and
   // a placement is stored to the hundredth its own field can express
   // (`RECT_EPSILON`). The guide above is drawn for exactly this reason.
-  await expect(left(page)).toHaveValue('0.33')
+  await expect(left(page)).toHaveValue('33')
   // Two values that must agree, read inside one poll so both come from the
   // same render (#449) — the retrying assertion above has already seen the
   // commit, so this settles on its first sample; the shape is the point.
@@ -199,11 +199,11 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
         Math.abs(
           Number(await left(page).inputValue()) +
             Number(await boxWidth(page).inputValue()) / 2 -
-            0.5,
+            50,
         ),
       { message: 'the centre against the middle of the frame' },
     )
-    .toBeLessThanOrEqual(0.005 + 1e-9)
+    .toBeLessThanOrEqual(0.5 + 1e-7)
 
   // Keyboard: one nudge, one undo step.
   //
@@ -214,9 +214,9 @@ test('a drag commits the placement the fields read, an edge changes one dimensio
   // and passes alone. `toHaveValue` retries, which is the whole difference.
   await clickRegion(page, region)
   await page.keyboard.press('ArrowRight')
-  await expect(left(page)).toHaveValue('0.34')
+  await expect(left(page)).toHaveValue('34')
   await page.keyboard.press('Control+z')
-  await expect(left(page)).toHaveValue('0.33')
+  await expect(left(page)).toHaveValue('33')
 })
 
 test('Shift on a corner keeps the proportions, and the mask silhouette is drawn (#422)', async ({
@@ -229,10 +229,10 @@ test('Shift on a corner keeps the proportions, and the mask silhouette is drawn 
   // A small, plainly non-square box in the top-left, so the se corner has
   // room to be dragged *outwards* and a broken lock is unmistakable.
   for (const [box, value] of [
-    [left(page), '0.2'],
-    [top(page), '0.2'],
-    [boxWidth(page), '0.3'],
-    [boxHeight(page), '0.2'],
+    [left(page), '20'],
+    [top(page), '20'],
+    [boxWidth(page), '30'],
+    [boxHeight(page), '20'],
   ] as const) {
     await box.fill(value)
     await box.press('Enter')
@@ -251,14 +251,14 @@ test('Shift on a corner keeps the proportions, and the mask silhouette is drawn 
     'Shift',
   )
   // Wait for the commit through a retrying assertion, then read the settled
-  // render once for the three comparisons below (#449): the width was 0.3
+  // render once for the three comparisons below (#449): the width was 30 %
   // and the drag can only have grown it.
-  await expect(boxWidth(page)).not.toHaveValue('0.3')
+  await expect(boxWidth(page)).not.toHaveValue('30')
   const width = Number(await boxWidth(page).inputValue())
   const height = Number(await boxHeight(page).inputValue())
-  expect(width).toBeGreaterThan(0.3)
-  // The pointer asked for a height of 0.75; the ratio gave it 0.4.
-  expect(height).toBeLessThan(0.6)
+  expect(width).toBeGreaterThan(30)
+  // The pointer asked for a height of 75 %; the ratio gave it 40 %.
+  expect(height).toBeLessThan(60)
   expect(
     width / height,
     `a Shift-held corner drag left a ${width} × ${height} box, ratio ${width / height}`,
@@ -402,8 +402,8 @@ test('a cropped overlay\'s silhouette is drawn on its picture, live while the bo
   await page.mouse.up()
   await page.keyboard.up('Alt')
   await expect(
-    page.getByRole('spinbutton', { name: `Width of ${position} (fraction of frame width)` }),
-  ).not.toHaveValue('0.35')
+    page.getByRole('spinbutton', { name: `Width of ${position} (percent of frame width)` }),
+  ).not.toHaveValue('35')
   await expectOnPicture('after the commit')
 
   // Where the picture fills its rectangle, the silhouette is inscribed in
@@ -416,8 +416,8 @@ test('a cropped overlay\'s silhouette is drawn on its picture, live while the bo
     await expect(field).toHaveValue('0')
   }
   for (const [name, value] of [
-    [`Width of ${position} (fraction of frame width)`, '0.27'],
-    [`Height of ${position} (fraction of frame height)`, '0.48'],
+    [`Width of ${position} (percent of frame width)`, '27'],
+    [`Height of ${position} (percent of frame height)`, '48'],
   ] as const) {
     const field = page.getByRole('spinbutton', { name })
     await field.fill(value)
@@ -475,5 +475,7 @@ test('the placement editor fits the timeline panel at both widths (#422)', async
       await readout.evaluate((node) => node.scrollWidth <= node.clientWidth),
       `the placement readout overflows its own box at ${viewport.width}px`,
     ).toBe(true)
+    // Each reading, "X 62%", on one line now that it carries a unit (#892).
+    await expectNoWrap(readout.locator('span'), `a placement reading at ${viewport.width}px`)
   }
 })

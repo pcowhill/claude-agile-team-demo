@@ -31,10 +31,10 @@ const FRAME = { x: 0, y: 0, width: 400, height: 225 }
 
 const position = 'overlay cam.png at position 1'
 const field = (name: string) => screen.getByRole('spinbutton', { name })
-const left = () => field(`Left edge of ${position} (fraction of frame width)`)
-const top = () => field(`Top edge of ${position} (fraction of frame height)`)
-const width = () => field(`Width of ${position} (fraction of frame width)`)
-const height = () => field(`Height of ${position} (fraction of frame height)`)
+const left = () => field(`Left edge of ${position} (percent of frame width)`)
+const top = () => field(`Top edge of ${position} (percent of frame height)`)
+const width = () => field(`Width of ${position} (percent of frame width)`)
+const height = () => field(`Height of ${position} (percent of frame height)`)
 const adjustButton = () =>
   screen.getByRole('button', { name: `Adjust the placement of ${position} visually` })
 const editor = () => screen.getByRole('dialog', { name: `Adjust the placement of ${position}` })
@@ -80,8 +80,8 @@ async function placeOverlay() {
   await chooseClipAction('cam.png', 'Add as overlay')
   // The picture-in-picture default (#145): a bit over a quarter of the
   // frame, inset from the bottom-right corner.
-  expect(left()).toHaveValue(0.62)
-  expect(width()).toHaveValue(0.35)
+  expect(left()).toHaveValue(62)
+  expect(width()).toHaveValue(35)
 }
 
 /** A pointer drag on the handle layer, from one point to another, in px. */
@@ -171,20 +171,20 @@ describe('visual overlay placement editor (#422)', () => {
     fireEvent.pointerMove(handles(), { pointerId: 1, clientX: from.x - 40, clientY: from.y - 22.5 })
     // Mid-gesture the readout follows and nothing is committed yet.
     expect(within(editor()).getByRole('status', { name: `${position} left edge (live)` }))
-      .toHaveTextContent('0.52')
-    expect(left()).toHaveValue(0.62)
+      .toHaveTextContent('52')
+    expect(left()).toHaveValue(62)
 
     fireEvent.pointerUp(handles(), { pointerId: 1, clientX: from.x - 40, clientY: from.y - 22.5 })
-    expect(left()).toHaveValue(0.52)
-    expect(top()).toHaveValue(0.52)
+    expect(left()).toHaveValue(52)
+    expect(top()).toHaveValue(52)
     // Size untouched: a move is not a resize.
-    expect(width()).toHaveValue(0.35)
-    expect(height()).toHaveValue(0.35)
+    expect(width()).toHaveValue(35)
+    expect(height()).toHaveValue(35)
 
     // One gesture, one undo step — several pointermoves crossed the frame.
     await userEvent.click(undoButton())
-    expect(left()).toHaveValue(0.62)
-    expect(top()).toHaveValue(0.62)
+    expect(left()).toHaveValue(62)
+    expect(top()).toHaveValue(62)
   })
 
   it('an edge drag changes only that dimension, a corner drag both', async () => {
@@ -195,17 +195,17 @@ describe('visual overlay placement editor (#422)', () => {
     // The east edge of a rectangle at x 0.62 w 0.35 sits at 0.97 → 388 px.
     // Pulled in to 0.82 (328 px), the width becomes 0.2 and x stays.
     drag(screen.getByTestId('frame-editor-edge-e'), { x: 388, y: 179 }, { x: 328, y: 179 })
-    expect(width()).toHaveValue(0.2)
-    expect(left()).toHaveValue(0.62)
-    expect(height()).toHaveValue(0.35)
-    expect(top()).toHaveValue(0.62)
+    expect(width()).toHaveValue(20)
+    expect(left()).toHaveValue(62)
+    expect(height()).toHaveValue(35)
+    expect(top()).toHaveValue(62)
 
     // The south-east corner moves both: pulled to (0.92, 0.92) the size
     // becomes 0.3 × 0.3, still anchored at the north-west corner.
     drag(screen.getByTestId('frame-editor-corner-se'), { x: 328, y: 207 }, { x: 368, y: 207 })
-    expect(width()).toHaveValue(0.3)
-    expect(left()).toHaveValue(0.62)
-    expect(top()).toHaveValue(0.62)
+    expect(width()).toHaveValue(30)
+    expect(left()).toHaveValue(62)
+    expect(top()).toHaveValue(62)
   })
 
   it("Shift on a corner keeps the rectangle's proportions", async () => {
@@ -213,11 +213,11 @@ describe('visual overlay placement editor (#422)', () => {
     await placeOverlay()
     // A 1.75:1 box, so a broken lock is unmistakable in the numbers.
     await userEvent.clear(height())
-    await userEvent.type(height(), '0.2{Enter}')
+    await userEvent.type(height(), '20{Enter}')
     await userEvent.clear(top())
-    await userEvent.type(top(), '0.2{Enter}')
+    await userEvent.type(top(), '20{Enter}')
     await userEvent.clear(left())
-    await userEvent.type(left(), '0.2{Enter}')
+    await userEvent.type(left(), '20{Enter}')
     await userEvent.click(adjustButton())
     const ratio = 0.35 / 0.2
 
@@ -230,14 +230,14 @@ describe('visual overlay placement editor (#422)', () => {
       { x: 280, y: 200 },
       { shiftKey: true },
     )
-    expect(width()).toHaveValue(0.5)
+    expect(width()).toHaveValue(50)
     // 0.5 / 1.75 is 0.2857, stored as 0.29 — a placement is kept to the
-    // hundredth its own number field can express (`RECT_DECIMALS`). The
+    // hundredth (`RECT_DECIMALS`), a whole percent in its field (#892). The
     // pointer's y asked for 0.69, so this is the lock, not the pointer.
-    expect(height()).toHaveValue(Math.round((0.5 / ratio) * 100) / 100)
-    expect(height()).toHaveValue(0.29)
-    expect(left()).toHaveValue(0.2)
-    expect(top()).toHaveValue(0.2)
+    expect(height()).toHaveValue(Math.round((0.5 / ratio) * 100))
+    expect(height()).toHaveValue(29)
+    expect(left()).toHaveValue(20)
+    expect(top()).toHaveValue(20)
   })
 
   it('snaps a dragged rectangle flush to the frame, and Alt bypasses it', async () => {
@@ -262,14 +262,14 @@ describe('visual overlay placement editor (#422)', () => {
 
     // The same drag with Alt held keeps the 0.015 it was dragged to.
     await userEvent.click(undoButton())
-    expect(left()).toHaveValue(0.62)
+    expect(left()).toHaveValue(62)
     fireEvent.pointerDown(region(), { pointerId: 1, button: 0, clientX: from.x, clientY: from.y })
     fireEvent.pointerMove(handles(), { pointerId: 1, clientX: to.x, clientY: to.y, altKey: true })
     expect(screen.queryByTestId('frame-editor-guide-x')).not.toBeInTheDocument()
     fireEvent.pointerUp(handles(), { pointerId: 1, clientX: to.x, clientY: to.y, altKey: true })
     // Where the pointer left it, rounded to the stored hundredth — not the
     // 0 the snap would have given.
-    expect(left()).toHaveValue(0.02)
+    expect(left()).toHaveValue(2)
   })
 
   it('nudges with the arrow keys and resizes with + and −, one undo each', async () => {
@@ -283,20 +283,20 @@ describe('visual overlay placement editor (#422)', () => {
     expect(document.getElementById(hintId ?? '')).toHaveTextContent(/Arrow keys nudge/)
 
     fireEvent.keyDown(region(), { key: 'ArrowLeft' })
-    expect(left()).toHaveValue(0.61)
+    expect(left()).toHaveValue(61)
     fireEvent.keyDown(region(), { key: 'ArrowUp', shiftKey: true })
-    expect(top()).toHaveValue(0.57)
+    expect(top()).toHaveValue(57)
     // `+` grows the overlay — the opposite of what it does to a zoom's
     // region, and the right way round in both: the thing being edited grows.
     fireEvent.keyDown(region(), { key: '+' })
-    expect(width()).toHaveValue(0.37)
+    expect(width()).toHaveValue(37)
 
     await userEvent.click(undoButton())
-    expect(width()).toHaveValue(0.35)
+    expect(width()).toHaveValue(35)
     await userEvent.click(undoButton())
-    expect(top()).toHaveValue(0.62)
+    expect(top()).toHaveValue(62)
     await userEvent.click(undoButton())
-    expect(left()).toHaveValue(0.62)
+    expect(left()).toHaveValue(62)
 
     // A key the editor does not take reaches the panel: Escape closes it.
     region().focus()
@@ -311,15 +311,15 @@ describe('visual overlay placement editor (#422)', () => {
     await placeOverlay()
     // 0.65 + 0.35 is exactly the frame's width, so there is no room right.
     await userEvent.clear(left())
-    await userEvent.type(left(), '0.65{Enter}')
+    await userEvent.type(left(), '65{Enter}')
     await userEvent.click(adjustButton())
 
     region().focus()
     fireEvent.keyDown(region(), { key: 'ArrowRight' })
-    expect(left()).toHaveValue(0.65)
+    expect(left()).toHaveValue(65)
     // The step before this one is the typed 0.65, not a no-op nudge.
     await userEvent.click(undoButton())
-    expect(left()).toHaveValue(0.62)
+    expect(left()).toHaveValue(62)
   })
 
   it('draws the mask silhouette the overlay will really be painted in', async () => {
@@ -405,9 +405,9 @@ describe('visual overlay placement editor (#422)', () => {
   describe('on an overlay with Moves: the placement at the Preview time (#835)', () => {
     const moveField = (n: number, what: string) => field(`Move ${n} ${what} of ${position}${
       what === 'left edge' || what === 'width'
-        ? ' (fraction of frame width)'
+        ? ' (percent of frame width)'
         : what === 'top edge' || what === 'height'
-          ? ' (fraction of frame height)'
+          ? ' (percent of frame height)'
           : ' in seconds'
     }`)
     const setField = async (element: HTMLElement, value: string) => {
@@ -429,13 +429,13 @@ describe('visual overlay placement editor (#422)', () => {
       await placeOverlay()
       await userEvent.click(await effectItem(position, 'Move'))
       await setField(moveField(1, 'start'), '1')
-      await setField(moveField(1, 'left edge'), '0.05')
-      await setField(moveField(1, 'top edge'), '0.05')
+      await setField(moveField(1, 'left edge'), '5')
+      await setField(moveField(1, 'top edge'), '5')
       // The default second Move starts where the first ends, at its place.
       await userEvent.click(await effectItem(position, 'Move'))
       expect(moveField(2, 'start')).toHaveValue(2)
       await setField(moveField(2, 'start'), '3')
-      await setField(moveField(2, 'left edge'), '0.5')
+      await setField(moveField(2, 'left edge'), '50')
     }
 
     it('names and draws the placement that holds where the slider is, on the still from there', async () => {
@@ -472,20 +472,20 @@ describe('visual overlay placement editor (#422)', () => {
       // Move 1's box spans x 20–160, y 11.25–90 px; 40 px right and 22.5 px
       // down is +0.1 of each axis; Alt keeps the guides out of it.
       drag(region(), { x: 90, y: 50 }, { x: 130, y: 72.5 }, { altKey: true })
-      expect(moveField(1, 'left edge')).toHaveValue(0.15)
-      expect(moveField(1, 'top edge')).toHaveValue(0.15)
-      expect(moveField(1, 'width')).toHaveValue(0.35)
+      expect(moveField(1, 'left edge')).toHaveValue(15)
+      expect(moveField(1, 'top edge')).toHaveValue(15)
+      expect(moveField(1, 'width')).toHaveValue(35)
       // Its timing, the overlay's own placement and Move 2 are untouched.
       expect(moveField(1, 'start')).toHaveValue(1)
       expect(moveField(1, 'glide')).toHaveValue(1)
-      expect(left()).toHaveValue(0.62)
-      expect(top()).toHaveValue(0.62)
-      expect(moveField(2, 'left edge')).toHaveValue(0.5)
-      expect(moveField(2, 'top edge')).toHaveValue(0.05)
+      expect(left()).toHaveValue(62)
+      expect(top()).toHaveValue(62)
+      expect(moveField(2, 'left edge')).toHaveValue(50)
+      expect(moveField(2, 'top edge')).toHaveValue(5)
 
       await userEvent.click(undoButton())
-      expect(moveField(1, 'left edge')).toHaveValue(0.05)
-      expect(moveField(1, 'top edge')).toHaveValue(0.05)
+      expect(moveField(1, 'left edge')).toHaveValue(5)
+      expect(moveField(1, 'top edge')).toHaveValue(5)
     })
 
     it('a drag before the first Move changes the overlay\'s own placement and no Move', async () => {
@@ -494,13 +494,13 @@ describe('visual overlay placement editor (#422)', () => {
       await userEvent.click(adjustButton())
       scrubTo(0.5)
       drag(region(), { x: 318, y: 179 }, { x: 278, y: 156.5 }, { altKey: true })
-      expect(left()).toHaveValue(0.52)
-      expect(top()).toHaveValue(0.52)
-      expect(moveField(1, 'left edge')).toHaveValue(0.05)
-      expect(moveField(2, 'left edge')).toHaveValue(0.5)
+      expect(left()).toHaveValue(52)
+      expect(top()).toHaveValue(52)
+      expect(moveField(1, 'left edge')).toHaveValue(5)
+      expect(moveField(2, 'left edge')).toHaveValue(50)
 
       await userEvent.click(undoButton())
-      expect(left()).toHaveValue(0.62)
+      expect(left()).toHaveValue(62)
     })
 
     it('an arrow key nudges the placement that holds there', async () => {
@@ -509,9 +509,9 @@ describe('visual overlay placement editor (#422)', () => {
       await userEvent.click(adjustButton())
       scrubTo(3.5)
       fireEvent.keyDown(region(), { key: 'ArrowDown' })
-      expect(moveField(2, 'top edge')).toHaveValue(0.06)
-      expect(moveField(1, 'top edge')).toHaveValue(0.05)
-      expect(top()).toHaveValue(0.62)
+      expect(moveField(2, 'top edge')).toHaveValue(6)
+      expect(moveField(1, 'top edge')).toHaveValue(5)
+      expect(top()).toHaveValue(62)
     })
 
     it('an overlay without Moves has no slider and no Editing line', async () => {

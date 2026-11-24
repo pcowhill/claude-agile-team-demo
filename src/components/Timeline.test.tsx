@@ -1338,14 +1338,14 @@ describe('overlay video layers (#145)', () => {
     ).toHaveValue(8)
     expect(
       screen.getByRole('spinbutton', {
-        name: 'Left edge of overlay cam.mp4 at position 1 (fraction of frame width)',
+        name: 'Left edge of overlay cam.mp4 at position 1 (percent of frame width)',
       }),
-    ).toHaveValue(0.62)
+    ).toHaveValue(62)
     expect(
       screen.getByRole('spinbutton', {
-        name: 'Width of overlay cam.mp4 at position 1 (fraction of frame width)',
+        name: 'Width of overlay cam.mp4 at position 1 (percent of frame width)',
       }),
-    ).toHaveValue(0.35)
+    ).toHaveValue(35)
     expect(
       screen.getByRole('checkbox', { name: 'Mute overlay cam.mp4 at position 1' }),
     ).not.toBeChecked()
@@ -1390,14 +1390,15 @@ describe('overlay video layers (#145)', () => {
     await userEvent.tab()
     expect(inPoint).toHaveValue(1)
 
-    // The rectangle never leaves the frame: x clamps to 1 − width, visibly.
+    // The rectangle never leaves the frame: x clamps to 100 % − width,
+    // visibly. The field is in percent (#892).
     const x = screen.getByRole('spinbutton', {
-      name: 'Left edge of overlay cam.mp4 at position 1 (fraction of frame width)',
+      name: 'Left edge of overlay cam.mp4 at position 1 (percent of frame width)',
     })
     await userEvent.clear(x)
-    await userEvent.type(x, '0.9')
+    await userEvent.type(x, '90')
     await userEvent.tab()
-    expect(x).toHaveValue(0.65)
+    expect(x).toHaveValue(65)
 
     const volume = screen.getByRole('spinbutton', {
       name: 'Volume of overlay cam.mp4 at position 1 (0 to 4)',
@@ -2820,11 +2821,11 @@ describe('image overlay layers (#294)', () => {
     // The same corner rectangle a video overlay gets — a still is placed
     // like any other layer.
     expect(
-      screen.getByRole('spinbutton', { name: `Left edge of ${position} (fraction of frame width)` }),
-    ).toHaveValue(0.62)
+      screen.getByRole('spinbutton', { name: `Left edge of ${position} (percent of frame width)` }),
+    ).toHaveValue(62)
     expect(
-      screen.getByRole('spinbutton', { name: `Width of ${position} (fraction of frame width)` }),
-    ).toHaveValue(0.35)
+      screen.getByRole('spinbutton', { name: `Width of ${position} (percent of frame width)` }),
+    ).toHaveValue(35)
     // Its window is offset + length, starting at the sequence start for the
     // still default — never a trim of a source it does not have.
     expect(
@@ -2868,7 +2869,7 @@ describe('image overlay layers (#294)', () => {
     }
     await commit(`Start time of ${position} in seconds`, '3')
     await commit(`Duration of ${position} in seconds`, '8')
-    await commit(`Left edge of ${position} (fraction of frame width)`, '0.1')
+    await commit(`Left edge of ${position} (percent of frame width)`, '10')
 
     expect(
       screen.getByRole('spinbutton', { name: `Start time of ${position} in seconds` }),
@@ -2877,8 +2878,8 @@ describe('image overlay layers (#294)', () => {
       screen.getByRole('spinbutton', { name: `Duration of ${position} in seconds` }),
     ).toHaveValue(8)
     expect(
-      screen.getByRole('spinbutton', { name: `Left edge of ${position} (fraction of frame width)` }),
-    ).toHaveValue(0.1)
+      screen.getByRole('spinbutton', { name: `Left edge of ${position} (percent of frame width)` }),
+    ).toHaveValue(10)
     expect(screen.getByText('shows 8s')).toBeInTheDocument()
   })
 
@@ -4576,6 +4577,93 @@ describe('Match levels (#691)', () => {
     expect(volume(ENTRY)).toBe(1)
     expect(volume(OVERLAY)).toBe(1)
     expect(volume(TRACK)).toBeCloseTo(0.45, 1)
+  })
+})
+
+describe('an overlay\'s Rect and Move fields are in percent of the frame (#892)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const rectLeft = () => field(`Left edge of ${OVERLAY} (percent of frame width)`)
+  const moveLeft = () => field(`Move 1 left edge of ${OVERLAY} (percent of frame width)`)
+
+  it('shows percent, stores percent ÷ 100, and a focus-and-blur never rounds a finer stored value', async () => {
+    const writes: Uint8Array<ArrayBuffer>[] = []
+    const port: SavePort = {
+      kind: 'file-system-access',
+      pickDestination: () =>
+        Promise.resolve({
+          kind: 'picked' as const,
+          destination: {
+            name: 'project.bvep',
+            write: (bytes: Uint8Array<ArrayBuffer>) => {
+              writes.push(bytes)
+              return Promise.resolve()
+            },
+          },
+        }),
+    }
+    render(<App savePort={port} />)
+    await importClip('cam.mp4', 8)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    // The default corner placement, 0.62 and 0.35 of the frame.
+    expect(rectLeft()).toHaveValue(62)
+    expect(field(`Width of ${OVERLAY} (percent of frame width)`)).toHaveValue(35)
+
+    // A value finer than the box shows: it reads 33.33, and is stored whole.
+    await userEvent.clear(rectLeft())
+    await userEvent.type(rectLeft(), '33.333')
+    await userEvent.tab()
+    expect(rectLeft()).toHaveValue(33.33)
+    // Focusing the field and leaving it, by Tab or by Enter, is no edit: one
+    // Undo takes the typed value back off, so neither left a commit.
+    await userEvent.click(rectLeft())
+    await userEvent.tab()
+    await userEvent.click(rectLeft())
+    await userEvent.keyboard('{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+    expect(rectLeft()).toHaveValue(62)
+    await userEvent.click(screen.getByRole('button', { name: 'Redo timeline edit' }))
+    expect(rectLeft()).toHaveValue(33.33)
+
+    // A Move's destination fields follow the same rule.
+    await chooseEffect(OVERLAY, 'Move')
+    await userEvent.clear(moveLeft())
+    await userEvent.type(moveLeft(), '12.345')
+    await userEvent.tab()
+    expect(moveLeft()).toHaveValue(12.35)
+    await userEvent.click(moveLeft())
+    await userEvent.tab()
+
+    // The file holds exactly what was typed, divided by 100.
+    await userEvent.click(screen.getByRole('button', { name: 'Save (unsaved changes)' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Save project' })
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Store references only' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save…' }))
+    await screen.findByText('Saved as project.bvep')
+    const saved = await deserializeProject(writes[0])
+    expect(saved.ok).toBe(true)
+    if (!saved.ok) return
+    const [overlay] = saved.project.timeline.videoOverlays ?? []
+    expect(overlay.x).toBe(33.333 / 100)
+    expect(overlay.moves?.[0].x).toBe(12.345 / 100)
+  })
+
+  it('types whole percents and clamps them as before, at 1 % a step', async () => {
+    render(<App />)
+    await importClip('cam.mp4', 8)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+    const width = field(`Width of ${OVERLAY} (percent of frame width)`)
+    expect(width).toHaveAttribute('step', '1')
+    expect(width).toHaveAttribute('min', '5')
+    expect(width).toHaveAttribute('max', '100')
+    expect(rectLeft()).toHaveAttribute('min', '0')
+    expect(rectLeft()).toHaveAttribute('max', '100')
+    // The unit sits in the box, as on the region fields (#665).
+    expect(rectLeft().closest('.timeline-unit-box')).toHaveTextContent('%')
+    // Below the smallest size clamps up to it.
+    await userEvent.clear(width)
+    await userEvent.type(width, '1{Enter}')
+    expect(width).toHaveValue(5)
   })
 })
 

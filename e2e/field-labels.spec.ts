@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
-import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
 import { ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
 import { chooseEffect } from './timelineRowMenu'
@@ -46,10 +46,10 @@ const BOXES: [name: string, label: string][] = [
   [`Zoom 1 scale of ${IMAGE}`, 'scale'],
   [`Zoom 1 centre X of ${IMAGE} (0 to 1)`, 'x'],
   [`Zoom 1 centre Y of ${IMAGE} (0 to 1)`, 'y'],
-  [`Left edge of ${OVERLAY} (fraction of frame width)`, 'left'],
-  [`Top edge of ${OVERLAY} (fraction of frame height)`, 'top'],
-  [`Width of ${OVERLAY} (fraction of frame width)`, 'width'],
-  [`Height of ${OVERLAY} (fraction of frame height)`, 'height'],
+  [`Left edge of ${OVERLAY} (percent of frame width)`, 'left'],
+  [`Top edge of ${OVERLAY} (percent of frame height)`, 'top'],
+  [`Width of ${OVERLAY} (percent of frame width)`, 'width'],
+  [`Height of ${OVERLAY} (percent of frame height)`, 'height'],
   [`Centre X of ${TEXT} (0 to 1)`, 'x'],
   [`Centre Y of ${TEXT} (0 to 1)`, 'y'],
   ['Default subtitle centre X (0 to 1)', 'x'],
@@ -138,6 +138,65 @@ async function labelOf(page: Page, name: string): Promise<LabelReading> {
     }
     const words = (best.node.textContent ?? '').trim().split(/\s+/)
     return { label: words[words.length - 1], gap: own.left - best.right, lines }
+  })
+}
+
+/**
+ * The overlay's Rect row in percent (#892). "33.33" and "100" are wider than
+ * the fractions these boxes held, so each box is filled with the widest kind
+ * of value it can show, and measured: its label, number and "%" on one line
+ * (`expectNoWrap` over the label and its box), the "%" after the number on
+ * the number's own line, and the number not clipped inside its input.
+ */
+const RECT: [name: string, value: string, shows: string][] = [
+  [`Width of ${OVERLAY} (percent of frame width)`, '66.667', '66.67'],
+  [`Height of ${OVERLAY} (percent of frame height)`, '100', '100'],
+  [`Left edge of ${OVERLAY} (percent of frame width)`, '33.333', '33.33'],
+  [`Top edge of ${OVERLAY} (percent of frame height)`, '0', '0'],
+]
+
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 360, height: 640 },
+]) {
+  test(`an overlay's Rect boxes hold percent on one line, unclipped, at ${viewport.width}px (#892)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport)
+    await populatedProject(page)
+    for (const [name, value, shows] of RECT) {
+      const box = page.getByRole('spinbutton', { name, exact: true })
+      await box.fill(value)
+      await box.press('Enter')
+      await expect(box, name).toHaveValue(shows)
+    }
+    const row = page
+      .getByRole('spinbutton', { name: RECT[2][0], exact: true })
+      .locator('xpath=ancestor::div[contains(@class, "video-overlay-controls")][1]')
+    await row.scrollIntoViewIfNeeded()
+    for (const [name] of RECT) {
+      const box = page.getByRole('spinbutton', { name, exact: true })
+      await expectNoWrap(box.locator('xpath=ancestor::span[contains(@class, "timeline-labelled")][1]'), `${name}'s label and box`)
+      const reading = await box.evaluate((input) => {
+        const own = input.getBoundingClientRect()
+        const unit = input.closest('.timeline-unit-box')?.querySelector('.timeline-unit')
+        const mark = unit?.getBoundingClientRect()
+        return {
+          unit: unit?.textContent ?? null,
+          sameLine: mark !== undefined && (mark.top + mark.bottom) / 2 > own.top && (mark.top + mark.bottom) / 2 < own.bottom,
+          after: mark !== undefined && mark.left >= own.right - 0.5,
+          scrollWidth: input.scrollWidth,
+          clientWidth: input.clientWidth,
+        }
+      })
+      expect(reading.unit, `${name}'s unit`).toBe('%')
+      expect(reading.sameLine && reading.after, `${name}'s "%" after its number, on its line: ${JSON.stringify(reading)}`).toBe(true)
+      // An input scrolls its own text: a value wider than the box shows cut.
+      expect(reading.scrollWidth, `${name}'s value is clipped in its box: ${JSON.stringify(reading)}`).toBeLessThanOrEqual(reading.clientWidth)
+    }
+    await expectWithin(row, page.locator('main'), { axis: 'x', what: `the Rect row at ${viewport.width}px` })
+    await expectNoHorizontalScroll(page, `with the Rect row filled at ${viewport.width}px`)
+    await row.screenshot({ path: testInfo.outputPath(`overlay-rect-${viewport.width}.png`) })
   })
 }
 

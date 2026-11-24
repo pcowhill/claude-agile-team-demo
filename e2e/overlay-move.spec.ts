@@ -69,10 +69,10 @@ async function populate(page: Page) {
   await chooseEffect(page, POSITION, 'Move')
   await setField(page, `Move 1 start of ${POSITION} in seconds`, '1')
   await setField(page, `Move 1 glide of ${POSITION} in seconds`, '2')
-  await setField(page, `Move 1 width of ${POSITION} (fraction of frame width)`, String(DEST.width))
-  await setField(page, `Move 1 height of ${POSITION} (fraction of frame height)`, String(DEST.height))
-  await setField(page, `Move 1 left edge of ${POSITION} (fraction of frame width)`, String(DEST.x))
-  await setField(page, `Move 1 top edge of ${POSITION} (fraction of frame height)`, String(DEST.y))
+  await setField(page, `Move 1 width of ${POSITION} (percent of frame width)`, String(DEST.width * 100))
+  await setField(page, `Move 1 height of ${POSITION} (percent of frame height)`, String(DEST.height * 100))
+  await setField(page, `Move 1 left edge of ${POSITION} (percent of frame width)`, String(DEST.x * 100))
+  await setField(page, `Move 1 top edge of ${POSITION} (percent of frame height)`, String(DEST.y * 100))
 }
 
 /** The card's box and the stage's, in one page read, so both come from one render. */
@@ -138,10 +138,10 @@ for (const viewport of [
     const controls = [
       page.getByRole('spinbutton', { name: `Move 1 start of ${POSITION} in seconds` }),
       page.getByRole('spinbutton', { name: `Move 1 glide of ${POSITION} in seconds` }),
-      page.getByRole('spinbutton', { name: `Move 1 left edge of ${POSITION} (fraction of frame width)` }),
-      page.getByRole('spinbutton', { name: `Move 1 top edge of ${POSITION} (fraction of frame height)` }),
-      page.getByRole('spinbutton', { name: `Move 1 width of ${POSITION} (fraction of frame width)` }),
-      page.getByRole('spinbutton', { name: `Move 1 height of ${POSITION} (fraction of frame height)` }),
+      page.getByRole('spinbutton', { name: `Move 1 left edge of ${POSITION} (percent of frame width)` }),
+      page.getByRole('spinbutton', { name: `Move 1 top edge of ${POSITION} (percent of frame height)` }),
+      page.getByRole('spinbutton', { name: `Move 1 width of ${POSITION} (percent of frame width)` }),
+      page.getByRole('spinbutton', { name: `Move 1 height of ${POSITION} (percent of frame height)` }),
       page.getByRole('button', { name: `Remove move 1 from ${POSITION}` }),
     ]
     for (const [index, control] of controls.entries()) {

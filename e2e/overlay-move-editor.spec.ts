@@ -54,7 +54,7 @@ const moveField = (page: Page, n: number, what: 'start' | 'left edge' | 'top edg
     name:
       what === 'start'
         ? `Move ${n} start of ${POSITION} in seconds`
-        : `Move ${n} ${what} of ${POSITION} (fraction of frame ${what === 'left edge' ? 'width' : 'height'})`,
+        : `Move ${n} ${what} of ${POSITION} (percent of frame ${what === 'left edge' ? 'width' : 'height'})`,
   })
 
 async function setField(field: Locator, value: string) {
@@ -77,11 +77,11 @@ async function openEditorWithMoves(page: Page): Promise<Locator> {
   await chooseClipAction(page, 'halves.png', 'Add as overlay')
   await chooseEffect(page, POSITION, 'Move')
   await setField(moveField(page, 1, 'start'), '0.5')
-  await setField(moveField(page, 1, 'left edge'), String(MOVE_1.x))
-  await setField(moveField(page, 1, 'top edge'), String(MOVE_1.y))
+  await setField(moveField(page, 1, 'left edge'), String(MOVE_1.x * 100))
+  await setField(moveField(page, 1, 'top edge'), String(MOVE_1.y * 100))
   await chooseEffect(page, POSITION, 'Move')
   await setField(moveField(page, 2, 'start'), '2.5')
-  await setField(moveField(page, 2, 'left edge'), '0.6')
+  await setField(moveField(page, 2, 'left edge'), '60')
 
   await page.getByRole('button', { name: `Adjust the placement of ${POSITION} visually` }).click()
   const editor = page.getByRole('dialog', { name: `Adjust the placement of ${POSITION}` })
@@ -150,13 +150,14 @@ for (const viewport of [
       [moveField(page, 1, 'left edge'), MOVE_1.x + 0.2],
       [moveField(page, 1, 'top edge'), MOVE_1.y + 0.2],
     ] as const) {
-      // Within 0.005: a placement is stored to a hundredth of the frame.
-      await expect.poll(async () => Number(await field.inputValue())).toBeCloseTo(want, 2)
+      // The fields read percent (#892). Within half a percent: a placement
+      // is stored to a hundredth of the frame.
+      await expect.poll(async () => Number(await field.inputValue())).toBeCloseTo(want * 100, 0)
     }
     await expect(moveField(page, 1, 'start')).toHaveValue('0.5')
-    await expect(moveField(page, 2, 'left edge')).toHaveValue('0.6')
+    await expect(moveField(page, 2, 'left edge')).toHaveValue('60')
     await expect(
-      page.getByRole('spinbutton', { name: `Left edge of ${POSITION} (fraction of frame width)`, exact: true }),
-    ).toHaveValue('0.62')
+      page.getByRole('spinbutton', { name: `Left edge of ${POSITION} (percent of frame width)`, exact: true }),
+    ).toHaveValue('62')
   })
 }

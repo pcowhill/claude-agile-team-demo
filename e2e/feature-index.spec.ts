@@ -129,7 +129,7 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "a Sound library row's Add names the sound it adds (#861)",
   },
   {
-    pattern: / \((?:percent|0 to 1|0 to 4|fraction of frame (?:width|height))\)$/,
+    pattern: / \((?:percent|0 to 1|0 to 4|(?:fraction|percent) of frame (?:width|height))\)$/,
     replacement: '',
     why: 'the unit is told to a screen reader, and is not part of the name',
   },

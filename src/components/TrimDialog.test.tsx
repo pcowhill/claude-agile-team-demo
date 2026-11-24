@@ -155,7 +155,7 @@ describe('the Trim window on a video overlay (#711)', () => {
   const inField = () => field(`Trim in point of ${OVERLAY} in seconds`)
   const outField = () => field(`Trim out point of ${OVERLAY} in seconds`)
   const startField = () => field(`Start time of ${OVERLAY} in seconds`)
-  const leftField = () => field(`Left edge of ${OVERLAY} (fraction of frame width)`)
+  const leftField = () => field(`Left edge of ${OVERLAY} (percent of frame width)`)
   const trimButton = (name = OVERLAY) => screen.queryByRole('button', { name: `Trim ${name} in the Trim window` })
   const dialog = () => screen.getByRole('dialog', { name: `Trim ${OVERLAY}` })
 

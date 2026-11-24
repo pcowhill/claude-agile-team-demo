@@ -658,40 +658,44 @@ function MoveFieldsRow({
       <span>to</span>
       <LabelledField text="left">
         <SecondsField
-          label={`${moveName} left edge of ${position} (fraction of frame width)`}
-          value={x}
-          max={1}
-          step={0.05}
-          onCommit={(value) => set({ x: value })}
+          label={`${moveName} left edge of ${position} (percent of frame width)`}
+          value={toPercent(x)}
+          max={100}
+          step={1}
+          onCommit={(value) => set({ x: value / 100 })}
+          unit="%"
         />
       </LabelledField>
       <LabelledField text="top">
         <SecondsField
-          label={`${moveName} top edge of ${position} (fraction of frame height)`}
-          value={y}
-          max={1}
-          step={0.05}
-          onCommit={(value) => set({ y: value })}
+          label={`${moveName} top edge of ${position} (percent of frame height)`}
+          value={toPercent(y)}
+          max={100}
+          step={1}
+          onCommit={(value) => set({ y: value / 100 })}
+          unit="%"
         />
       </LabelledField>
       <LabelledField text="width">
         <SecondsField
-          label={`${moveName} width of ${position} (fraction of frame width)`}
-          value={width}
-          min={MIN_OVERLAY_SIZE}
-          max={1}
-          step={0.05}
-          onCommit={(value) => set({ width: value })}
+          label={`${moveName} width of ${position} (percent of frame width)`}
+          value={toPercent(width)}
+          min={MIN_OVERLAY_SIZE * 100}
+          max={100}
+          step={1}
+          onCommit={(value) => set({ width: value / 100 })}
+          unit="%"
         />
       </LabelledField>
       <LabelledField text="height">
         <SecondsField
-          label={`${moveName} height of ${position} (fraction of frame height)`}
-          value={height}
-          min={MIN_OVERLAY_SIZE}
-          max={1}
-          step={0.05}
-          onCommit={(value) => set({ height: value })}
+          label={`${moveName} height of ${position} (percent of frame height)`}
+          value={toPercent(height)}
+          min={MIN_OVERLAY_SIZE * 100}
+          max={100}
+          step={1}
+          onCommit={(value) => set({ height: value / 100 })}
+          unit="%"
         />
       </LabelledField>
       <button
@@ -721,6 +725,13 @@ const zoomSpecOf = ({ start, rampIn, hold, rampOut, scale, centerX, centerY }: Z
 
 /** Seconds as a plain number string with at most two decimals, e.g. 1.25 → "1.25", 3 → "3". */
 const formatSeconds = (seconds: number) => String(Math.round(seconds * 100) / 100)
+
+/**
+ * An overlay's placement as the Rect and Move fields show it (#892): percent
+ * of the frame, as the redaction and spotlight Area fields show theirs. The
+ * model and the project file stay fractions; only the fields convert.
+ */
+const toPercent = (fraction: number) => fraction * 100
 
 interface SecondsFieldProps {
   label: string
@@ -1191,7 +1202,14 @@ function SecondsField({
       return
     }
     const parsed = Number(text)
-    if (text.trim() !== '' && Number.isFinite(parsed) && parsed !== value) onCommit(parsed)
+    // The box shows the stored value at two decimals, so a focus-and-blur,
+    // or retyping what is there, must not commit that rounding over a finer
+    // stored value: a third of the frame from the visual editor shows as
+    // 33.33 % and stays a third (#892, #848's rule for the minutes box).
+    const unchanged = text.trim() === formatSeconds(value)
+    if (text.trim() !== '' && Number.isFinite(parsed) && parsed !== value && !unchanged) {
+      onCommit(parsed)
+    }
     // If the reducer rejected (or clamped to) the same value, no prop change
     // arrives — reset the draft to the current state explicitly.
     setDraft(formatSeconds(value))
@@ -4694,40 +4712,56 @@ export function Timeline({
                     <span>Rect</span>
                     <LabelledField text="left">
                       <SecondsField
-                        label={`Left edge of ${position} (fraction of frame width)`}
-                        value={overlay.x}
-                        max={1}
-                        step={0.05}
-                        onCommit={(x) => (isImage ? setImage({ x }) : set({ x }))}
+                        label={`Left edge of ${position} (percent of frame width)`}
+                        value={toPercent(overlay.x)}
+                        max={100}
+                        step={1}
+                        onCommit={(percent) => {
+                          const x = percent / 100
+                          return isImage ? setImage({ x }) : set({ x })
+                        }}
+                        unit="%"
                       />
                     </LabelledField>
                     <LabelledField text="top">
                       <SecondsField
-                        label={`Top edge of ${position} (fraction of frame height)`}
-                        value={overlay.y}
-                        max={1}
-                        step={0.05}
-                        onCommit={(y) => (isImage ? setImage({ y }) : set({ y }))}
+                        label={`Top edge of ${position} (percent of frame height)`}
+                        value={toPercent(overlay.y)}
+                        max={100}
+                        step={1}
+                        onCommit={(percent) => {
+                          const y = percent / 100
+                          return isImage ? setImage({ y }) : set({ y })
+                        }}
+                        unit="%"
                       />
                     </LabelledField>
                     <LabelledField text="width">
                       <SecondsField
-                        label={`Width of ${position} (fraction of frame width)`}
-                        value={overlay.width}
-                        min={MIN_OVERLAY_SIZE}
-                        max={1}
-                        step={0.05}
-                        onCommit={(width) => (isImage ? setImage({ width }) : set({ width }))}
+                        label={`Width of ${position} (percent of frame width)`}
+                        value={toPercent(overlay.width)}
+                        min={MIN_OVERLAY_SIZE * 100}
+                        max={100}
+                        step={1}
+                        onCommit={(percent) => {
+                          const width = percent / 100
+                          return isImage ? setImage({ width }) : set({ width })
+                        }}
+                        unit="%"
                       />
                     </LabelledField>
                     <LabelledField text="height">
                       <SecondsField
-                        label={`Height of ${position} (fraction of frame height)`}
-                        value={overlay.height}
-                        min={MIN_OVERLAY_SIZE}
-                        max={1}
-                        step={0.05}
-                        onCommit={(height) => (isImage ? setImage({ height }) : set({ height }))}
+                        label={`Height of ${position} (percent of frame height)`}
+                        value={toPercent(overlay.height)}
+                        min={MIN_OVERLAY_SIZE * 100}
+                        max={100}
+                        step={1}
+                        onCommit={(percent) => {
+                          const height = percent / 100
+                          return isImage ? setImage({ height }) : set({ height })
+                        }}
+                        unit="%"
                       />
                     </LabelledField>
                     {visualEditors && (
