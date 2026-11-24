@@ -60,7 +60,13 @@ import {
   formatSeconds,
 } from '../settings'
 import { GIF_FRAME_RATE, GIF_MAX_DIMENSION } from '../../plugins/gifLimits'
-import { BLIND_SLATS, CHECKER_COLUMNS, CHECKER_ROWS } from '../../plugins/patternTransitionsIds'
+import {
+  BLIND_SLATS,
+  CHECKER_COLUMNS,
+  CHECKER_ROWS,
+  SPIRAL_COLUMNS,
+  SPIRAL_ROWS,
+} from '../../plugins/patternTransitionsIds'
 import { WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../../plugins/moreFormatsLimits'
 import { DEFAULT_ROUNDED_RADIUS, MAX_ROUNDED_RADIUS } from '../shapeMask'
 import {
@@ -164,6 +170,8 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     PATTERN_BLIND_SLATS: String(BLIND_SLATS),
     PATTERN_CHECKER_COLUMNS: String(CHECKER_COLUMNS),
     PATTERN_CHECKER_ROWS: String(CHECKER_ROWS),
+    PATTERN_SPIRAL_COLUMNS: String(SPIRAL_COLUMNS),
+    PATTERN_SPIRAL_ROWS: String(SPIRAL_ROWS),
     WEBP_FPS: String(WEBP_FRAME_RATE),
     WEBP_MAX_PX: String(WEBP_MAX_DIMENSION),
     MP3_KBPS: String(MP3_KBPS),

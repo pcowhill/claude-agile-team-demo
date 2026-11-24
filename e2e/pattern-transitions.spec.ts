@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
 
@@ -132,6 +132,10 @@ const PATTERN_NAMES = [
   'Checkerboard',
   'Diamond iris',
   'Star iris',
+  'Clock wipe',
+  'Radial wipe',
+  'Spiral',
+  'Heart iris',
 ]
 
 /** A sample point, as fractions of the frame. */
@@ -388,6 +392,105 @@ test('star iris: the preview and the export show the star over the outgoing fram
   expectOutgoing(exported.samples[1], 'export top-left corner')
   expectOutgoing(exported.samples[2], 'export bottom-right corner')
   expectOutgoing(exported.samples[3], 'export bottom-left corner')
+})
+
+test('clock wipe (#863): the preview and the export show the hand half-way round, clockwise from 12', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await buildOverlapSequence(page)
+  await setPatternTransitions(page, true)
+  await page
+    .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+    .selectOption('clock-wipe')
+
+  // At progress 0.5 the hand points straight down: the right half is the
+  // incoming clip and the left half the outgoing one. Angles are clockwise
+  // from 12 on this 16:9 frame. (0.8, 0.3) and (0.8, 0.7) sit at 70° and
+  // 110°, so they are revealed from progress 0.20 and 0.31. (0.2, 0.7) and
+  // (0.2, 0.3) sit at 250° and 290°, so they stay hidden until 0.69 and
+  // 0.81. Those four hold across the middle of the transition. Four more,
+  // 12.5° either side of 12 and of 6, pin where the hand starts and which
+  // way it turns.
+  const points: Point[] = [
+    { x: 0.8, y: 0.3 },
+    { x: 0.8, y: 0.7 },
+    { x: 0.2, y: 0.7 },
+    { x: 0.2, y: 0.3 },
+    { x: 0.55, y: 0.1 },
+    { x: 0.45, y: 0.1 },
+    { x: 0.55, y: 0.9 },
+    { x: 0.45, y: 0.9 },
+  ]
+  // Kept beside the results for a reader to look at, as #863 asks.
+  const frame = await previewAtMidpoint(page)
+  await writeFile(testInfo.outputPath('clock-wipe-midpoint.png'), frame)
+  const preview = await samplePng(page, frame, points)
+  expectIncoming(preview[0], 'preview upper right')
+  expectIncoming(preview[1], 'preview lower right')
+  expectOutgoing(preview[2], 'preview lower left')
+  expectOutgoing(preview[3], 'preview upper left')
+  expectIncoming(preview[4], 'preview just after 12')
+  expectOutgoing(preview[5], 'preview just before 12')
+  expectIncoming(preview[6], 'preview just before 6')
+  expectOutgoing(preview[7], 'preview just after 6')
+
+  const exported = await exportMidpoint(page, points.slice(0, 4))
+  expectIncoming(exported.samples[0], 'export upper right')
+  expectIncoming(exported.samples[1], 'export lower right')
+  expectOutgoing(exported.samples[2], 'export lower left')
+  expectOutgoing(exported.samples[3], 'export upper left')
+})
+
+test('heart iris (#863): the preview and the export show the heart over the outgoing frame', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000)
+  await page.goto('./')
+  await buildOverlapSequence(page)
+  await setPatternTransitions(page, true)
+  await page
+    .getByRole('combobox', { name: 'Transition type between position 1 and 2' })
+    .selectOption('heart-iris')
+
+  // At progress 0.5 on this 16:9 frame the heart is about 1.5 frame heights
+  // tall. Its lobes reach past the top edge and its point past the bottom,
+  // with the dip between the lobes at y ≈ 0.10. So, 5% down the frame, the
+  // vertical axis is in the dip (outgoing) while points 0.25 heights either
+  // side are in the lobes (incoming). A disc, a diamond or a star has no
+  // dip, and a heart standing on its lobes would put its point at the top.
+  // The bottom corners are outside, beside the point. These were computed
+  // from the rule, and the unit tests pin it. The centre, the lobes, the
+  // bottom corners and the axis near the bottom hold from progress 0.35 to
+  // 0.65, so those are what the export is checked on.
+  const points: Point[] = [
+    { x: 0.5, y: 0.5 },
+    { x: 0.5 - 0.25 / (16 / 9), y: 0.05 },
+    { x: 0.5 + 0.25 / (16 / 9), y: 0.05 },
+    { x: 0.03, y: 0.97 },
+    { x: 0.97, y: 0.97 },
+    { x: 0.5, y: 0.97 },
+    { x: 0.5, y: 0.05 },
+  ]
+  const frame = await previewAtMidpoint(page)
+  await writeFile(testInfo.outputPath('heart-iris-midpoint.png'), frame)
+  const preview = await samplePng(page, frame, points)
+  expectIncoming(preview[0], 'preview centre')
+  expectIncoming(preview[1], 'preview left lobe')
+  expectIncoming(preview[2], 'preview right lobe')
+  expectOutgoing(preview[3], 'preview bottom-left corner')
+  expectOutgoing(preview[4], 'preview bottom-right corner')
+  expectIncoming(preview[5], 'preview above the point')
+  expectOutgoing(preview[6], 'preview in the dip between the lobes')
+
+  const exported = await exportMidpoint(page, points.slice(0, 6))
+  expectIncoming(exported.samples[0], 'export centre')
+  expectIncoming(exported.samples[1], 'export left lobe')
+  expectIncoming(exported.samples[2], 'export right lobe')
+  expectOutgoing(exported.samples[3], 'export bottom-left corner')
+  expectOutgoing(exported.samples[4], 'export bottom-right corner')
+  expectIncoming(exported.samples[5], 'export above the point')
 })
 
 test('a saved project records the pattern dependency; opening prompt-and-enables', async ({

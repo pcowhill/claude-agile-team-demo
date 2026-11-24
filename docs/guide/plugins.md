@@ -44,19 +44,23 @@
 
 ## Pattern transitions
 
-**Where to find it.** **File ▾** › **Plugins…** › *Pattern transitions*; once enabled, five more kinds in a transition's type menu.
+**Where to find it.** **File ▾** › **Plugins…** › *Pattern transitions*; once enabled, nine more kinds in a transition's type menu.
 
-**What it does.** Adds transitions whose reveal is a pattern: slats, a grid of cells, or a pointed shape.
+**What it does.** Adds transitions whose reveal is a pattern: slats, a grid of cells, a shape, or a sweep around the centre.
 
-**Details.** The five are:
+**Details.** The nine are:
 
 - **Blinds (horizontal)**: {{PATTERN_BLIND_SLATS}} horizontal slats, each opening downward from its own top edge, all at the same time.
 - **Blinds (vertical)**: the same with {{PATTERN_BLIND_SLATS}} vertical slats, each opening to the right.
 - **Checkerboard**: a grid of {{PATTERN_CHECKER_COLUMNS}} × {{PATTERN_CHECKER_ROWS}} cells. Alternate cells fill over the first half of the transition, so the picture is a checkerboard of the two clips at the midpoint, and the remaining cells fill over the second half. Each cell fills from its left edge.
 - **Diamond iris**: a diamond grows from the centre.
 - **Star iris**: a five-pointed star, one point up, grows from the centre.
+- **Clock wipe**: a hand sweeps clockwise from 12 o'clock, like a clock's, at a steady speed, and reveals the new clip behind it. It points at 3 o'clock a quarter of the way through, at 6 half-way, and at 9 three-quarters of the way.
+- **Radial wipe**: two hands start together at 12 o'clock and sweep apart, one each way, until they meet at 6.
+- **Spiral**: the frame, divided into {{PATTERN_SPIRAL_COLUMNS}} × {{PATTERN_SPIRAL_ROWS}} cells, is revealed one cell after another, clockwise from the top-left corner along the edges and then inward to the middle. Each cell fills from the side the path enters it.
+- **Heart iris**: a heart, point down, grows from the centre.
 
-The two irises keep their shape on any frame, whether landscape, portrait or square. Each one finishes covering the frame exactly at the end of the transition. The slats and cells divide the frame itself, so they stretch with it. Like Shaped wipes, these render identically in the preview and every export, through the same rule. A project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin. A pattern transition already on the timeline when the plugin is disabled stays there. It plays as a crossfade, and its type menu shows it as *unavailable*.
+The three irises and the hands of the two sweeps keep their shape on any frame, whether landscape, portrait or square: 3 o'clock is straight to the right. Each iris finishes covering the frame exactly at the end of the transition. The slats and cells divide the frame itself, so they stretch with it. Like Shaped wipes, these render identically in the preview and every export, through the same rule. A project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin. A pattern transition already on the timeline when the plugin is disabled stays there. It plays as a crossfade, and its type menu shows it as *unavailable*.
 
 **Related.** [Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) · [Projects that need a plugin](#projects-that-need-a-plugin)
 
