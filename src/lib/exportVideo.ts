@@ -25,7 +25,8 @@ import {
   isImageOverlay,
   videoOverlaysOf,
 } from './timeline'
-import { TEXT_LINE_HEIGHT, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
+import { TEXT_LINE_HEIGHT, loadTextFonts, textActiveAt, textFontStack, textOpacityAt } from './textOverlay'
+import type { FontRegistry } from './textOverlay'
 import { drawShapeGroups, shorterSidePixels } from './shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from './remap'
 import { audioTrackPlaybackAt, entryStartTime, locateInSequence, videoOverlayPlaybackAt } from './playback'
@@ -1934,6 +1935,8 @@ export interface ExportOptions {
   createAudio?: () => HTMLAudioElement
   /** Injectable for tests (jsdom never fires image load events). */
   createImage?: () => HTMLImageElement
+  /** The fonts text resolves through (#859); tests pass their own registry. */
+  fonts?: FontRegistry
   /** Injectable for tests (jsdom has no Web Audio). */
   createAudioContext?: () => AudioContext | null
   /**
@@ -2636,6 +2639,17 @@ export async function exportTimeline(
     container = WEBM_CONTAINER,
     audioOnly = false,
   } = options
+  // A font that is not a system stack (a plugin's webfont, #859) must have
+  // loaded before the canvas draws with it, or `fillText` silently draws
+  // the fallback face for the frames before it arrives. So the fonts the
+  // timeline's text uses load before anything is created or drawn; the
+  // core fonts need nothing, and an audio-only file draws no text at all.
+  if (!audioOnly) {
+    await loadTextFonts(
+      textsOf(timeline).map((text) => text.font),
+      options.fonts,
+    )
+  }
   const boundaries = boundaryTransitions(timeline)
   const createVideo = options.createVideo ?? (() => document.createElement('video'))
   const createImage = options.createImage ?? (() => new Image())

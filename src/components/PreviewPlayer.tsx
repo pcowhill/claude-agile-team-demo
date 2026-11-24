@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { TimelineEntry, TimelineState, ChapterMarker } from '../lib/timeline'
 import {
@@ -24,7 +24,7 @@ import {
 import { rippleSummary } from '../lib/ripple'
 import { overlayPlacedAt } from '../lib/overlayMove'
 import { RANGE_CUT_EPSILON } from '../lib/rangeCut'
-import { textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
+import { fontRegistry, textActiveAt, textFontStack, textOpacityAt } from '../lib/textOverlay'
 import { activeShapeGroups, drawShapeGroups } from '../lib/shapes'
 import type { ShapeGroup } from '../lib/shapes'
 import { outputTimeAtSource, rateAtSourceTime, remapPlaybackAt } from '../lib/remap'
@@ -1149,6 +1149,10 @@ export function PreviewPlayer({
   onShortcutHelp,
   onOpenGuide,
 }: PreviewPlayerProps) {
+  // Text resolves its font through the registry (#859), which a plugin
+  // changes at runtime: re-render so a font that arrives or leaves (to the
+  // fallback stack) shows without waiting for the next seek.
+  useSyncExternalStore(fontRegistry.subscribe, () => fontRegistry.version)
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
   // The still layers' <img> elements (#140) — what a blur backdrop (#259)

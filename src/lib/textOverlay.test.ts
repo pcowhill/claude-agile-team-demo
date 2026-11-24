@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   applySubtitleStyle,
   changedStyleFields,
@@ -14,7 +14,13 @@ import {
   isValidTextOverlaySpec,
   MAX_TEXT_SIZE,
   MIN_TEXT_SIZE,
-  TEXT_FONTS,
+  CORE_TEXT_FONTS,
+  FALLBACK_TEXT_FONT_STACK,
+  FontRegistry,
+  fontRegistry,
+  loadTextFonts,
+  registerCoreFonts,
+  unregisteredTextFonts,
   textActiveAt,
   textFontStack,
   textOpacityAt,
@@ -30,7 +36,7 @@ const text = (overrides: Partial<TextOverlay> = {}): TextOverlay => ({
 
 describe('curated fonts (#139)', () => {
   it('resolves every listed id to its stack', () => {
-    for (const font of TEXT_FONTS) {
+    for (const font of fontRegistry.list()) {
       expect(isTextFontId(font.id)).toBe(true)
       expect(textFontStack(font.id)).toBe(font.stack)
     }
@@ -38,7 +44,7 @@ describe('curated fonts (#139)', () => {
   })
 
   it('every stack ends in a generic family, so text renders on any platform', () => {
-    for (const font of TEXT_FONTS) {
+    for (const font of fontRegistry.list()) {
       expect(font.stack).toMatch(/(sans-serif|serif|monospace)$/)
     }
   })
@@ -70,10 +76,11 @@ describe('isValidTextOverlaySpec (#139)', () => {
     expect(isValidTextOverlaySpec({ ...DEFAULT_TEXT, size: Number.NaN })).toBe(false)
   })
 
-  it('rejects an unknown font and a malformed color', () => {
-    expect(
-      isValidTextOverlaySpec({ ...DEFAULT_TEXT, font: 'papyrus' as typeof DEFAULT_TEXT.font }),
-    ).toBe(false)
+  it('rejects an empty font and a malformed color', () => {
+    // An unregistered id is valid state since #859 (its plugin may be
+    // disabled, and the text must stay editable); only a non-id is refused.
+    expect(isValidTextOverlaySpec({ ...DEFAULT_TEXT, font: '' })).toBe(false)
+    expect(isValidTextOverlaySpec({ ...DEFAULT_TEXT, font: 'papyrus' })).toBe(true)
     // Uppercase and shorthand are rejected, matching the slate rule (#143):
     // one spelling per color, everywhere.
     expect(isValidTextOverlaySpec({ ...DEFAULT_TEXT, color: '#FFFFFF' })).toBe(false)
@@ -252,7 +259,8 @@ describe('isValidSubtitleStyle / clampSubtitleStyle (#250)', () => {
   it('accepts the text-overlay style surface and refuses malformed fields', () => {
     expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, color: '#123abc' })).toBe(true)
     expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, x: Number.NaN })).toBe(false)
-    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, font: 'papyrus' as never })).toBe(false)
+    // An unregistered font id is valid state since #859; an empty one is not.
+    expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, font: '' })).toBe(false)
     expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, color: 'red' })).toBe(false)
     expect(isValidSubtitleStyle({ ...DEFAULT_SUBTITLE_STYLE, bold: 1 as never })).toBe(false)
   })
@@ -344,6 +352,96 @@ describe('applySubtitleStyle (#250)', () => {
     expect(applySubtitleStyle(styled, newStyle)).toBe(styled)
     const fullyOverridden = subtitleOverlay({ styleOverrides: [...SUBTITLE_STYLE_FIELDS] })
     expect(applySubtitleStyle(fullyOverridden, newStyle)).toBe(fullyOverridden)
+  })
+})
+
+describe('the font registry (#859)', () => {
+  const pack = { id: 'pack-script', label: 'Script', stack: '"Pack Script", cursive' }
+
+  it('holds the core fonts first, in their menu order', () => {
+    expect(fontRegistry.list().map((font) => font.id)).toEqual(['sans', 'serif', 'mono', 'display'])
+    expect(fontRegistry.list()).toEqual(CORE_TEXT_FONTS.map((font) => ({ ...font })))
+  })
+
+  it('registers and unregisters a font, notifying subscribers and bumping the version', () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    const heard: number[] = []
+    const unsubscribe = registry.subscribe(() => heard.push(registry.version))
+    const before = registry.version
+
+    registry.register(pack)
+    expect(registry.has('pack-script')).toBe(true)
+    expect(registry.list().at(-1)).toBe(pack)
+    expect(textFontStack('pack-script', registry)).toBe('"Pack Script", cursive')
+
+    registry.unregister('pack-script')
+    expect(registry.has('pack-script')).toBe(false)
+    expect(heard).toEqual([before + 1, before + 2])
+
+    // Unregistering an unknown id is a silent no-op, so teardown order never matters.
+    registry.unregister('pack-script')
+    expect(registry.version).toBe(before + 2)
+    unsubscribe()
+    registry.register(pack)
+    expect(heard).toHaveLength(2)
+  })
+
+  it('refuses a duplicate id', () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    expect(() => registry.register({ id: 'sans', label: 'Again', stack: 'serif' })).toThrow(
+      "Font 'sans' is already registered.",
+    )
+  })
+
+  it('a font id that outlives its plugin renders in the core sans-serif', () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    registry.register(pack)
+    registry.unregister('pack-script')
+    expect(textFontStack('pack-script', registry)).toBe(FALLBACK_TEXT_FONT_STACK)
+    expect(FALLBACK_TEXT_FONT_STACK).toBe(textFontStack('sans', registry))
+  })
+
+  it('a stored id keeps text valid state without being registered', () => {
+    const style = { ...DEFAULT_SUBTITLE_STYLE, font: 'pack-script' }
+    expect(isValidSubtitleStyle(style)).toBe(true)
+    expect(isValidSubtitleStyle({ ...style, font: '' })).toBe(false)
+  })
+
+  it('names the ids no registered font covers, once each', () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    expect(unregisteredTextFonts(['sans', 'papyrus', 'mono', 'papyrus'], registry)).toEqual(['papyrus'])
+    registry.register(pack)
+    expect(unregisteredTextFonts(['pack-script', 'serif'], registry)).toEqual([])
+  })
+
+  it('loadTextFonts waits for each used loader, and for nothing with only core fonts', async () => {
+    const registry = new FontRegistry()
+    registerCoreFonts(registry)
+    let settle = () => {}
+    const load = vi.fn(() => new Promise<void>((resolve) => (settle = resolve)))
+    const unused = vi.fn(async () => {})
+    registry.register({ ...pack, load })
+    registry.register({ id: 'pack-unused', label: 'Unused', stack: 'serif', load: unused })
+
+    let coreLoaded = false
+    void loadTextFonts(['sans', 'serif', 'gone'], registry).then(() => (coreLoaded = true))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(coreLoaded).toBe(true)
+
+    let packLoaded = false
+    void loadTextFonts(['sans', 'pack-script', 'pack-script'], registry).then(() => (packLoaded = true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(packLoaded).toBe(false)
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(unused).not.toHaveBeenCalled()
+    settle()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(packLoaded).toBe(true)
   })
 })
 

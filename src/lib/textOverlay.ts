@@ -8,7 +8,7 @@
  * destructively retimes a title; an overlay whose window now lies past the
  * sequence's end simply never shows (playback stops at the sequence's end).
  *
- * This module owns the overlay types, the curated font list, validation and
+ * This module owns the overlay types, the font registry (#859), validation and
  * clamping, and the visibility window; ownership, actions, and normalization
  * against the timeline live in `timeline.ts`, exactly as they do for time
  * remaps (#138).
@@ -19,10 +19,11 @@
  * 360p preview stage and a 4K export canvas (#142 is the export half).
  */
 
-/** One curated font choice: an id stored in state/files, a UI label, and a
- * CSS stack of widely-available system fonts. No webfonts are involved, so
- * the preview's DOM rendering and a later canvas-based export (#142) resolve
- * the same stack to the same face. */
+/** One font choice: an id stored in state/files, a UI label, and a CSS
+ * stack. The core fonts are stacks of widely-available system fonts, so the
+ * preview's DOM rendering and the canvas export (#142) resolve the same
+ * stack to the same face with nothing to load; a plugin's font may carry a
+ * `load` the export waits for (see `TextFontDefinition`). */
 export interface TextFont {
   id: string
   label: string
@@ -30,27 +31,179 @@ export interface TextFont {
 }
 
 /**
- * The curated font list (#139): system stacks present on every mainstream
+ * A font as the font registry holds it (#859): what a Font menu lists and
+ * both renderers resolve. Built for the Font pack plugin (#856, part 2), and
+ * shaped like the transition registry's definitions (#199, ADR 0003).
+ */
+export interface TextFontDefinition extends TextFont {
+  /**
+   * Makes the face available to the canvas, for a font that is not a system
+   * stack — a webfont the plugin ships, typically through `FontFace` and
+   * `document.fonts`. The export awaits it before drawing its first frame
+   * (`loadTextFonts`), because a canvas `fillText` with a face that has not
+   * loaded silently draws the stack's fallback instead. Absent for the core
+   * fonts, which are system stacks and need nothing. May be called more
+   * than once (once per export); a loader that has already loaded resolves
+   * at once.
+   */
+  load?: () => Promise<void>
+}
+
+/**
+ * The core fonts (#139): system stacks present on every mainstream
  * platform, so what the customer sees is what every viewer gets. The ids are
  * what state and project files store; the stacks are what CSS and canvas
- * `font` strings consume.
+ * `font` strings consume. They register into `fontRegistry` at startup, in
+ * this order, which is Font-menu order; every reader goes through the
+ * registry, so a plugin's font sits beside them (#859).
  */
-export const TEXT_FONTS = [
+export const CORE_TEXT_FONTS = [
   { id: 'sans', label: 'Sans-serif', stack: 'Arial, Helvetica, sans-serif' },
   { id: 'serif', label: 'Serif', stack: 'Georgia, "Times New Roman", serif' },
   { id: 'mono', label: 'Monospace', stack: '"Courier New", Courier, monospace' },
   { id: 'display', label: 'Display', stack: 'Impact, "Arial Black", sans-serif' },
 ] as const satisfies readonly TextFont[]
 
-export type TextFontId = (typeof TEXT_FONTS)[number]['id']
+/**
+ * A font id. A plain string since #859: plugins register fonts at runtime,
+ * so the set is open, and validity is a registry question (`fontRegistry`),
+ * not a type-level one, exactly as transition types became strings in #199.
+ */
+export type TextFontId = string
 
-/** The CSS font-family stack for a stored font id. */
-export function textFontStack(id: TextFontId): string {
-  return (TEXT_FONTS.find((font) => font.id === id) as TextFont).stack
+/**
+ * The stack an id with no registered font renders in (#859): the core
+ * sans-serif. Text keeps its stored id when the plugin that provided its
+ * font is disabled (the #197 disable semantics tear down contributions, not
+ * user edits), and the renderers must still draw it legibly.
+ */
+export const FALLBACK_TEXT_FONT_STACK: string = CORE_TEXT_FONTS[0].stack
+
+/**
+ * Registry of fonts, in registration order (which is Font-menu order). The
+ * app uses the `fontRegistry` singleton; tests construct their own. Mirrors
+ * the transition registry (#199): `register`/`unregister` are how a
+ * plugin's fonts arrive and leave, and `subscribe` + `version` pair with
+ * React's `useSyncExternalStore` so the Font menus re-read the registry
+ * when plugins change it at runtime.
+ */
+export class FontRegistry {
+  private readonly definitions = new Map<string, TextFontDefinition>()
+  private readonly listeners = new Set<() => void>()
+  /** Monotonic change counter — the snapshot for `useSyncExternalStore`. */
+  version = 0
+
+  /** Adds a font. A duplicate id is a programming error and throws. */
+  register(definition: TextFontDefinition): void {
+    if (this.definitions.has(definition.id)) {
+      throw new Error(`Font '${definition.id}' is already registered.`)
+    }
+    this.definitions.set(definition.id, definition)
+    this.notify()
+  }
+
+  /**
+   * Removes a font — how a disabled plugin's fonts leave the Font menus.
+   * Removing an id that is not registered is a no-op: a plugin's deactivate
+   * must stay safe whatever order teardown runs in.
+   */
+  unregister(id: string): void {
+    if (this.definitions.delete(id)) this.notify()
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private notify(): void {
+    this.version++
+    for (const listener of this.listeners) listener()
+  }
+
+  has(id: string): boolean {
+    return this.definitions.has(id)
+  }
+
+  /** The definition for `id`, or undefined for an unregistered id — the
+   * renderers fall back rather than throw (see `textFontStack`). */
+  find(id: string): TextFontDefinition | undefined {
+    return this.definitions.get(id)
+  }
+
+  /** All registered definitions, in registration order. */
+  list(): TextFontDefinition[] {
+    return [...this.definitions.values()]
+  }
 }
 
-export function isTextFontId(value: string): value is TextFontId {
-  return TEXT_FONTS.some((font) => font.id === value)
+/**
+ * Registers the core fonts in `CORE_TEXT_FONTS` order, so the Font menus
+ * list them exactly as they always have. Exported so registry tests can
+ * populate fresh instances; the app uses the singleton registration below.
+ */
+export function registerCoreFonts(registry: FontRegistry): void {
+  for (const font of CORE_TEXT_FONTS) registry.register({ ...font })
+}
+
+/** The app's registry. The core fonts register into it at startup. */
+export const fontRegistry = new FontRegistry()
+registerCoreFonts(fontRegistry)
+
+/** The CSS font-family stack for a stored font id: the registered font's,
+ * or the core sans-serif for an id no registered font covers. */
+export function textFontStack(id: TextFontId, registry: FontRegistry = fontRegistry): string {
+  return registry.find(id)?.stack ?? FALLBACK_TEXT_FONT_STACK
+}
+
+/** Whether a registered font has this id — the open flow's check, once the
+ * file's plugins are settled (`unregisteredTextFonts`). */
+export function isTextFontId(value: string, registry: FontRegistry = fontRegistry): boolean {
+  return registry.has(value)
+}
+
+/**
+ * The font ids in `ids` that no registered font covers — what the
+ * project-open flow checks *after* plugin dependencies are settled (#859,
+ * as #199 does for transition types): an id still unknown then is either a
+ * corrupt file or one saved by a newer build, and opening it would silently
+ * render the fallback.
+ */
+export function unregisteredTextFonts(
+  ids: Iterable<string>,
+  registry: FontRegistry = fontRegistry,
+): string[] {
+  return [...new Set(ids)].filter((id) => !registry.has(id))
+}
+
+/**
+ * Makes every font in `ids` that has a loader available, and settles when
+ * all have loaded (#859): the export awaits it before its first frame. Ids
+ * with no registered font, or whose font needs no loading (the core
+ * fonts), contribute nothing, so with only core fonts it settles at once.
+ */
+export async function loadTextFonts(
+  ids: Iterable<string>,
+  registry: FontRegistry = fontRegistry,
+): Promise<void> {
+  const loads: Promise<void>[] = []
+  for (const id of new Set(ids)) {
+    const load = registry.find(id)?.load
+    if (load !== undefined) loads.push(load())
+  }
+  await Promise.all(loads)
+}
+
+/**
+ * Whether a font id is acceptable in timeline state: any non-empty string.
+ * Whether it is *registered* is deliberately not asked here (#859): text
+ * keeps its id after its plugin is disabled, and must stay editable —
+ * moving or retyping it re-validates the whole spec, font included. The
+ * Font menus offer only registered fonts, and the open flow refuses a file
+ * naming an unknown one (`unregisteredTextFonts`).
+ */
+function isStoredTextFontId(value: unknown): boolean {
+  return typeof value === 'string' && value !== ''
 }
 
 /**
@@ -79,7 +232,8 @@ export interface TextOverlaySpec {
   x: number
   /** Centre of the overlay block, as a fraction of frame height (0..1). */
   y: number
-  /** One of the curated font ids (TEXT_FONTS). */
+  /** A font id (`fontRegistry`); one no registered font covers renders in
+   * the fallback stack (#859). */
   font: TextFontId
   /** Line height as a fraction of the frame height (MIN..MAX_TEXT_SIZE). */
   size: number
@@ -169,7 +323,7 @@ export function isValidTextOverlaySpec(spec: TextOverlaySpec): boolean {
     Number.isFinite(spec.x) &&
     Number.isFinite(spec.y) &&
     Number.isFinite(spec.size) &&
-    isTextFontId(spec.font) &&
+    isStoredTextFontId(spec.font) &&
     isValidTextColor(spec.color) &&
     typeof spec.bold === 'boolean' &&
     typeof spec.italic === 'boolean' &&
@@ -325,7 +479,7 @@ export function isValidSubtitleStyle(style: SubtitleStyle): boolean {
     Number.isFinite(style.x) &&
     Number.isFinite(style.y) &&
     Number.isFinite(style.size) &&
-    isTextFontId(style.font) &&
+    isStoredTextFontId(style.font) &&
     isValidTextColor(style.color) &&
     typeof style.bold === 'boolean' &&
     typeof style.italic === 'boolean'

@@ -51,7 +51,6 @@ import type { OverlayRemap, OverlayZoom, VideoOverlay } from './videoOverlay'
 import { forbiddenImageOverlayField } from './videoOverlay'
 import type { OverlayMove } from './overlayMove'
 import {
-  isTextFontId,
   isValidTextColor,
   MAX_TEXT_SIZE,
   MIN_TEXT_SIZE,
@@ -1743,8 +1742,9 @@ const asShapeMask = (value: unknown, path: string): ShapeMask => {
  */
 const asSubtitleStyle = (value: unknown, path: string): SubtitleStyle | undefined => {
   const raw = asRecord(value, path)
+  // Structural only: whether the font is *known* is asked by the open flow
+  // once plugins are settled (#859), as for a text overlay's font below.
   const font = asString(raw.font, `${path}.font`)
-  if (!isTextFontId(font)) throw new Error(`${path}.font "${font}" is unknown`)
   const color = asString(raw.color, `${path}.color`)
   if (!isValidTextColor(color)) {
     throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)
@@ -2281,14 +2281,19 @@ function validateProject(document: Record<string, unknown>): Project {
   }
 
   // Text overlays (#139): absent in files saved before them, and in
-  // text-free files since. Continuous fields are range-checked here; an
-  // unknown font or a malformed color is refused by name — silently
-  // substituting either would change how the customer's title renders.
+  // text-free files since. Continuous fields are range-checked here; a
+  // malformed color is refused by name — silently substituting it would
+  // change how the customer's title renders. A font is validated
+  // structurally here; whether the id is a *known* font is a registry
+  // question that can only be answered once the file's plugin dependencies
+  // are settled — a pack font is registered by a plugin this parse may be
+  // about to prompt for. The open flow refuses an unknown font by name after
+  // the plugin gate (`unregisteredTextFonts`, #859), as it does an unknown
+  // transition type (#199).
   const texts = asArray(timelineRaw.texts ?? [], 'timeline.texts').map((value, index) => {
     const path = `timeline.texts[${index}]`
     const raw = asRecord(value, path)
     const font = asString(raw.font, `${path}.font`)
-    if (!isTextFontId(font)) throw new Error(`${path}.font "${font}" is unknown`)
     const color = asString(raw.color, `${path}.color`)
     if (!isValidTextColor(color)) {
       throw new Error(`${path}.color "${color}" is not a lowercase #rrggbb color`)

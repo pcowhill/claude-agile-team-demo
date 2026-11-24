@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
+import { fontRegistry } from '../lib/textOverlay'
 import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import { computeLevels } from '../lib/audioLevels'
@@ -4447,6 +4448,67 @@ describe('speed segments and pauses on an overlay row (#700)', () => {
     await chooseClipAction('logo.png', 'Add as overlay')
     // No Speed segment or Pause; Move (#834) places the still, not its time.
     expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM, 'Move'])
+  })
+})
+
+describe('the Font menus read the font registry (#859)', () => {
+  const pack = { id: 'pack-script', label: 'Pack script', stack: '"Pack Script", cursive' }
+  const optionLabels = (select: HTMLElement) =>
+    within(select).getAllByRole('option').map((option) => option.textContent)
+
+  it("a text overlay's Font menu lists a registered font, and keeps a font that outlives its plugin", async () => {
+    render(<App />)
+    await chooseFromAddMenu(ADD_TEXT)
+    const font = screen.getByRole('combobox', { name: 'Font of text overlay at position 1' })
+    expect(optionLabels(font)).toEqual(['Sans-serif', 'Serif', 'Monospace', 'Display'])
+
+    try {
+      // A plugin enabling at runtime: the open menu re-reads the registry.
+      act(() => fontRegistry.register(pack))
+      expect(optionLabels(font)).toEqual(['Sans-serif', 'Serif', 'Monospace', 'Display', 'Pack script'])
+      await userEvent.selectOptions(font, 'pack-script')
+      expect(font).toHaveValue('pack-script')
+
+      // Its plugin disabled: the text keeps its id, the menu names it.
+      act(() => fontRegistry.unregister('pack-script'))
+      expect(font).toHaveValue('pack-script')
+      expect(optionLabels(font)).toEqual([
+        'Sans-serif',
+        'Serif',
+        'Monospace',
+        'Display',
+        'pack-script (unavailable)',
+      ])
+      // And the text stays editable: an edit re-validates the whole spec.
+      const bold = screen.getByRole('checkbox', { name: 'Bold text overlay at position 1' })
+      await userEvent.click(bold)
+      expect(bold).toBeChecked()
+      expect(font).toHaveValue('pack-script')
+      // Choosing a registered font leaves the unavailable entry behind.
+      await userEvent.selectOptions(font, 'serif')
+      expect(optionLabels(font)).toEqual(['Sans-serif', 'Serif', 'Monospace', 'Display'])
+    } finally {
+      fontRegistry.unregister('pack-script')
+    }
+  })
+
+  it('the default subtitle Font menu lists a registered font too', async () => {
+    render(<App />)
+    // The disclosure appears once there is text to restyle (#418).
+    await chooseFromAddMenu(ADD_TEXT)
+    await openSubtitleStyle()
+    const font = screen.getByRole('combobox', { name: 'Default subtitle font' })
+    try {
+      act(() => fontRegistry.register(pack))
+      expect(optionLabels(font)).toContain('Pack script')
+      await userEvent.selectOptions(font, 'pack-script')
+      expect(font).toHaveValue('pack-script')
+      act(() => fontRegistry.unregister('pack-script'))
+      expect(font).toHaveValue('pack-script')
+      expect(optionLabels(font).at(-1)).toBe('pack-script (unavailable)')
+    } finally {
+      fontRegistry.unregister('pack-script')
+    }
   })
 })
 

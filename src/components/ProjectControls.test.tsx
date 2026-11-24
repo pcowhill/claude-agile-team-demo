@@ -9,6 +9,7 @@ import type { SaveDestination, SavePort } from '../lib/saveProject'
 import type { TimelineState } from '../lib/timeline'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import { PluginRuntime } from '../lib/plugins'
+import { DEFAULT_TEXT, fontRegistry } from '../lib/textOverlay'
 import type { PluginSpec } from '../lib/plugins'
 import { chooseFromFileMenu } from '../test/fileMenu'
 
@@ -953,6 +954,77 @@ describe('New Project and Open Project (#77)', () => {
       expect(alert).toHaveTextContent('unknown transition')
       expect(alert).toHaveTextContent('"star-wipe"')
       expect(onProjectReplaced).not.toHaveBeenCalled()
+    })
+
+    // Fonts are checked at the same point as transition types (#859): after
+    // the plugin gate, when a pack font's plugin has had its chance to
+    // register it. Neither file has clips, so a file that passes opens at once.
+    const textTimeline = (font: string): TimelineState => ({
+      entries: [],
+      transitions: [],
+      zooms: [],
+      texts: [{ ...DEFAULT_TEXT, id: 't1', font }],
+    })
+
+    it('refuses a file whose font is unknown after the plugin gate (#859)', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await serializeProject({ clips: [], failures: [] }, textTimeline('papyrus')))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('unknown font')
+      expect(alert).toHaveTextContent('"papyrus"')
+      expect(alert).toHaveTextContent('newer version')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+    })
+
+    it('opens a file whose font a plugin the gate enables provides (#859)', async () => {
+      const { runtime } = fixtureRuntime({
+        load: () =>
+          Promise.resolve({
+            activate: () => {
+              fontRegistry.register({ id: 'dep-font', label: 'Dependency font', stack: 'cursive' })
+              return () => fontRegistry.unregister('dep-font')
+            },
+          }),
+      })
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(
+        user,
+        await serializeProject({ clips: [], failures: [] }, textTimeline('dep-font'), undefined, ['dep-plugin']),
+      )
+      await screen.findByRole('dialog', { name: 'Enable plugins to open?' })
+      await user.click(screen.getByRole('button', { name: 'Enable and open' }))
+      await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
+      expect(onProjectReplaced.mock.calls[0][0].timeline.texts[0].font).toBe('dep-font')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      runtime.disable('dep-plugin')
+      expect(fontRegistry.has('dep-font')).toBe(false)
     })
 
     it('refuses a file needing a plugin this build does not have, by name', async () => {

@@ -1925,9 +1925,12 @@ describe('text overlays in project files (#139)', () => {
     if (result.ok) expect(result.project.timeline).not.toHaveProperty('texts')
   })
 
-  it('refuses an unknown font and a malformed color by name', async () => {
+  it('refuses a missing font and a malformed color by name', async () => {
     for (const [patch, mention] of [
-      [{ font: 'papyrus' }, 'timeline.texts[0].font "papyrus" is unknown'],
+      // Whether a font is *known* is the open flow's check once plugins are
+      // settled (#859); the parse refuses only what is not a font id at all.
+      [{ font: '' }, 'timeline.texts[0].font must be a non-empty string'],
+      [{ font: 7 }, 'timeline.texts[0].font must be a non-empty string'],
       [{ color: '#FFFFFF' }, 'is not a lowercase #rrggbb color'],
       [{ color: 'white' }, 'is not a lowercase #rrggbb color'],
     ] as const) {
@@ -1935,6 +1938,15 @@ describe('text overlays in project files (#139)', () => {
       ;(document.timeline as { texts?: unknown }).texts = [{ ...overlay, ...patch }]
       await expectRefusal(await gzipJson(document), mention)
     }
+  })
+
+  it('parses a font id no registered font covers, leaving it to the open flow (#859)', async () => {
+    // A pack font's plugin may be one this file is about to prompt for, so
+    // the parse cannot know it; ProjectControls refuses it after the gate.
+    const document = validDocument()
+    ;(document.timeline as { texts?: unknown }).texts = [{ ...overlay, font: 'pack-script' }]
+    const result = await deserializeProject(await gzipJson(document))
+    expect(result.ok && result.project.timeline.texts?.[0].font).toBe('pack-script')
   })
 
   it('refuses malformed overlays field by field', async () => {
@@ -3140,8 +3152,15 @@ describe('default subtitle style in project files (#250, schema version 13)', ()
 
   it('refuses a malformed style by name', async () => {
     const badFont = validDocument()
-    ;(badFont.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, font: 'comic-sans' }
-    await expectRefusal(await gzipJson(badFont), 'timeline.subtitleStyle.font "comic-sans" is unknown')
+    ;(badFont.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, font: '' }
+    await expectRefusal(await gzipJson(badFont), 'timeline.subtitleStyle.font must be a non-empty string')
+
+    // An unregistered id parses (#859): the open flow, after the plugin
+    // gate, is where an unknown font is refused.
+    const packFont = validDocument()
+    ;(packFont.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, font: 'pack-serif' }
+    const parsed = await deserializeProject(await gzipJson(packFont))
+    expect(parsed.ok && parsed.project.timeline.subtitleStyle?.font).toBe('pack-serif')
 
     const badColor = validDocument()
     ;(badColor.timeline as unknown as Record<string, unknown>).subtitleStyle = { ...customStyle, color: 'yellow' }
