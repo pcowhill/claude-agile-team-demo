@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
@@ -25,6 +25,18 @@ const pressOnWindow = (key: string, init: KeyboardEventInit = {}) =>
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
   })
+
+/**
+ * App loads the guide with `lazy(() => import('./guide/UserGuide'))`, and
+ * the first import compiles all of `docs/guide/`. Left to the first test,
+ * that cold compile ran inside `panel()`'s 1 s findBy budget: about 400 ms
+ * locally, enough on a loaded CI runner to fail main (#876). Importing it
+ * here pays the cost under the hook's own budget, so `lazy()` then resolves
+ * from the module cache.
+ */
+beforeAll(async () => {
+  await import('./UserGuide')
+})
 
 beforeEach(() => {
   window.history.replaceState(null, '', window.location.pathname)
