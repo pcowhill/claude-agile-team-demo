@@ -10,6 +10,11 @@ GitHub identity:
 - A PR that **already existed before your session started** is eligible for
   you to review and merge.
 - A PR you **opened during this session** is not — hand it off.
+- A subagent launched by a `Go X` coordinator (`CLAUDE.md`, "What 'Go X'
+  means") is a session of its own. A PR that an earlier subagent of the same
+  run opened is eligible for the subagents after it. A subagent knows its own
+  PRs by what it opened during its run, not by the `Claude-Session` trailer,
+  since subagents of one run can share it (#899).
 - If you pushed **substantial new commits** to an existing PR (beyond trivial
   mechanical fixes like a merge-conflict resolution or a lint fix), you have
   become a co-author of that work: you may no longer approve or merge it.

@@ -45,12 +45,71 @@ itself and acts:
 
 **An idle backlog is an acceptable state. Never invent work to stay busy.**
 
+## What "Go X" means
+
+`Go X` runs several sessions back to back, so the customer does not have to
+watch for one to finish before starting the next (#899). X is a whole number,
+as in `Go 3.`. `Go.` is unchanged: the session does the work itself, as
+above, and so does `Go 1.`. A session that receives `Go X` with X of 2 or
+more becomes a **coordinator**. A coordinator does no repository work itself.
+It launches up to X subagents, **strictly one at a time**, and each one runs
+`Go` as an independent session.
+
+1. **Launch one fresh subagent** with the harness's subagent tool (Agent),
+   general-purpose, in the foreground. Give it the prompt below. Never resume
+   an earlier subagent in place of launching a new one.
+2. **Wait until it has finished and returned its final report.** A subagent
+   can wait on CI for 30 minutes or more. Do not take quiet periods, interim
+   messages or background waits for completion. Do not interrupt it, and do
+   not impose a timeout. If it ran in the background, wait for its result.
+3. **Check the working tree** with `git status`. If it is not clean, stop and
+   report what is left. Never stash, reset, check out over, or otherwise
+   discard uncommitted work.
+4. **Reassess GitHub state**: open PRs, open issues, CI on `main`. Stop early
+   when no actionable work remains. A PR the last subagent opened is
+   actionable work for the next one, because a later subagent may review it.
+   Do not stop while such a PR is open.
+5. Repeat from step 1 until X subagents have finished or you stopped early.
+   Then report what each subagent did, with full issue and PR links, the CI
+   outcomes, and why the run stopped.
+
+The prompt for subagent *n*:
+
+> Go. You are subagent *n* of up to X, launched one at a time by a `Go X`
+> coordinator (`CLAUDE.md`, "What 'Go X' means"). Follow `CLAUDE.md` and
+> `docs/rules/` as any session would. Name every branch you create
+> `claude/issue-<number>-<slug>`. Do not launch subagents or Workflows. When
+> you are done, return a final report: what you did, full issue and PR
+> links, CI outcomes with honest evidence, the state you left (open PRs,
+> branch, working tree), and what the next session's top priority is.
+
+**Each subagent is its own session** for the author/reviewer boundary
+(`docs/rules/review.md`). A PR that an earlier subagent opened existed
+before the next subagent started, so the next one may review and merge it.
+It must never review, approve, or merge a PR it opened itself. Reviews stay
+genuine: never rubber-stamp an earlier subagent's work. The customer
+authorized this reading in #899.
+
+**Subagents name their own branches.** The harness-assigned branch name
+belongs to the coordinator's session. If every subagent inherited it, a
+second subagent would find the first one's open PR on that branch and have
+to stand aside (`docs/rules/development.md`).
+
+Every other rule binds the coordinator as it binds any session:
+- Never run two subagents at once.
+- Subagents launch no subagents of their own.
+- Arrange no PR monitoring, auto-fix, or self-resumption.
+- Ask the person running the session nothing.
+- If a subagent cannot be launched, or its completion cannot be verified,
+  stop and report the problem. Do not work around it.
+
 ## Invariants (never violate)
 
 - **Author ≠ reviewer.** A session must never review, approve, or merge a PR
   it authored. Opening an implementation PR is a handoff; a *later,
   independent* session reviews and merges it. Reviewing a PR that existed
   before your session began is allowed — and often the top priority.
+  Under `Go X`, each subagent is its own session (above).
 - **Handoff is permanent.** After opening an implementation PR, the
   authoring session must not arrange to resume itself — no scheduled
   self-check-ins, cron or `/loop` continuations, PR auto-fix automation, or
