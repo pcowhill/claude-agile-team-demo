@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { expectNoWrap, expectWithin } from './layout'
+import { sizeResultProblems } from './sizeResult'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
@@ -164,13 +165,46 @@ test('a Custom limit at half an unlimited export’s size brings the file under 
     limited.length,
     `limited ${limited.length} B against a ${limitBytes} B limit (tolerance ${tolerance * 100} %)`,
   ).toBeLessThanOrEqual(Math.floor(limitBytes * (1 + tolerance)))
-  // A limited export stays open to state what the file came to.
-  await expect(dialog.getByTestId('export-size-result')).toContainText(
-    `Saved sequence-export.webm: ${(Math.round(limited.length / 100_000) / 10).toString()}`,
-  )
+  // A limited export stays open to state what the file came to, on
+  // whichever side of the limit it landed: a Firefox file within the
+  // tolerance above can be over it, and is then said to be (#905).
+  const result = dialog.getByTestId('export-size-result')
+  await expect
+    .poll(async () => sizeResultProblems((await result.textContent()) ?? '', limited.length, limitBytes))
+    .toEqual([])
   await expectWithin(dialog.getByTestId('export-size-result'), dialog, { axis: 'x', what: 'the size result' })
   await expectNoWrap(dialog.getByTestId('export-size-result').locator('.export-size-figure'), 'a stated size')
   await dialog.getByTestId('export-size-result').screenshot({ path: testInfo.outputPath('size-result.png') })
+})
+
+test('the size result check reads both sides of the limit (#905)', () => {
+  // No page: this pins the check the export test above relies on, on the
+  // sizes a run cannot produce on demand. Firefox's CI case (run
+  // 45488964637) came out 102.6 % of its limit.
+  const saved = 'Saved sequence-export.webm:'
+  expect(sizeResultProblems(`${saved} 0.78 MB — over the 0.76 MB limit.`, 782_907, 762_933)).toEqual([])
+  // What the dialog said before #905: the limit at one decimal reads 0.8.
+  expect(sizeResultProblems(`${saved} 0.78 MB — over the 0.8 MB limit.`, 782_907, 762_933)).toEqual([
+    'the limit 0.8 MB is not 762933 B rounded to 2 decimals',
+    'over the limit, but 0.78 MB does not read as more than 0.8 MB',
+  ])
+  // The retry's under-limit file, as the dialog states it.
+  expect(sizeResultProblems(`${saved} 0.6 MB (limit 0.7 MB).`, 606_982, 693_649)).toEqual([])
+  // Over the limit but worded as under, and the reverse.
+  expect(sizeResultProblems(`${saved} 0.78 MB (limit 0.76 MB).`, 782_907, 762_933)).toContain(
+    'over the limit, but the sentence says "(limit"',
+  )
+  expect(sizeResultProblems(`${saved} 0.6 MB — over the 0.7 MB limit.`, 606_982, 693_649)).toContain(
+    'under the limit, but the sentence says "— over the"',
+  )
+  // A round limit keeps its short form beside a longer size.
+  expect(sizeResultProblems(`${saved} 10.04 MB — over the 10 MB limit.`, 10_040_000, 10_000_000)).toEqual([])
+  // A rounded-up size drops its zero: 0.955 MB at one decimal is "1 MB".
+  expect(sizeResultProblems(`${saved} 1 MB (limit 1.3 MB).`, 955_164, 1_257_798)).toEqual([])
+  // A size that is not the file's.
+  expect(sizeResultProblems(`${saved} 0.9 MB (limit 1 MB).`, 606_982, 1_000_000)).toEqual([
+    'the size 0.9 MB is not 606982 B rounded to 1 decimals',
+  ])
 })
 
 /**

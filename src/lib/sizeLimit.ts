@@ -261,11 +261,13 @@ export function formatMegabytes(bytes: number, decimals = 1): string {
 }
 
 /**
- * A file's size against its limit, as the dialog states it: one decimal,
- * or as many more as it takes for a file over the limit not to read as
- * the limit itself ("25.04 MB", never "25 MB — over the 25 MB limit").
+ * How many decimals the dialog states a file's size and its limit to: one,
+ * or as many more as it takes for a file over the limit not to read as the
+ * limit itself. The limit is stated to the same precision (#905), so the
+ * two figures can be told apart; at one decimal alone, a 0.76 MB limit
+ * read "0.8 MB" beside a 0.78 MB file over it.
  */
-export function formatSizeAgainstLimit(bytes: number, limitBytes: number): string {
+export function sizeAgainstLimitDecimals(bytes: number, limitBytes: number): number {
   let decimals = 1
   while (
     bytes > limitBytes &&
@@ -274,7 +276,26 @@ export function formatSizeAgainstLimit(bytes: number, limitBytes: number): strin
   ) {
     decimals++
   }
-  return formatMegabytes(bytes, decimals)
+  return decimals
+}
+
+/**
+ * A file's size against its limit, as the dialog states it: one decimal,
+ * or as many more as it takes for a file over the limit not to read as
+ * the limit itself ("25.04 MB", never "25 MB — over the 25 MB limit").
+ */
+export function formatSizeAgainstLimit(bytes: number, limitBytes: number): string {
+  return formatMegabytes(bytes, sizeAgainstLimitDecimals(bytes, limitBytes))
+}
+
+/**
+ * The limit beside a file's size, to the size's precision (#905): "0.76 MB"
+ * against a 0.78 MB file, never "0.8 MB". Trailing zeros drop, as in every
+ * size the dialog states, so a round limit still reads "10 MB" beside a
+ * 10.04 MB file. Under the limit both are one decimal, as before.
+ */
+export function formatLimitAgainstSize(limitBytes: number, bytes: number): string {
+  return formatMegabytes(limitBytes, sizeAgainstLimitDecimals(bytes, limitBytes))
 }
 
 /** "1:05", "0:12": minutes and whole seconds, for messages. */
