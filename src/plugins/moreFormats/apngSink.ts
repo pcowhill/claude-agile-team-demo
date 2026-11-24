@@ -78,7 +78,11 @@ export function createApngFrameSink(options: ApngSinkOptions = {}): ExportFrameS
         data: pngFrameData(bytes),
         durationMs: durations[index],
       }))
-      return new Blob([muxApng(frames)], { type: 'image/apng' })
+      // Typed `image/png`, not `image/apng`: Firefox reconciles a download's
+      // extension with its type and saved `sequence-export.png` as `.apng`
+      // (CI run 45463920668). An APNG is a valid PNG, which is why it is
+      // saved as `.png` at all (index.ts).
+      return new Blob([muxApng(frames)], { type: 'image/png' })
     },
   }
 }
