@@ -117,11 +117,13 @@ test('a voice-over records into the library and plays on the timeline (#224)', a
   // The capture landed as an ordinary audio clip with a real probed
   // duration (MediaRecorder WebM reports Infinity until the probe's
   // seek-to-end trick resolves it — a listed duration proves that worked).
+  // A take stopped at an elapsed 0:01 can be under a second (the readout
+  // rounds from 0.5 s), which the library shows in tenths, 0.7s (#885).
   const library = page.getByRole('list', { name: 'Imported clips' })
   const recording = library.getByRole('listitem').filter({ hasText: 'Voice-over 1.webm' })
   await expect(recording).toBeVisible()
   await expect(recording).toContainText('Audio')
-  await expect(recording).toContainText(/0:0[1-9]/)
+  await expect(recording).toContainText(/0:0[1-9]|0\.[1-9]s/)
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
   // Placed on the timeline it is a normal audio track, and its coverage bar

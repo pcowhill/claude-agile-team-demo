@@ -866,6 +866,24 @@ describe('media library thumbnail view (#311)', () => {
     expect(imageCard.querySelector('.clip-duration')).toHaveTextContent('—')
   })
 
+  it('shows a clip under a second in tenths in the list and on its card, not as 0:00 (#885)', async () => {
+    render(<App />)
+    probeMock
+      .mockResolvedValueOnce({ duration: 0.128, url: 'blob:Click.webm', kind: 'audio' })
+      .mockResolvedValueOnce({ duration: 7, url: 'blob:a.mp4', kind: 'video' })
+    const input = screen.getByTestId('clip-file-input')
+    await userEvent.upload(input, fileOf('Click.webm', 'audio'), { applyAccept: false })
+    await screen.findByText('Click.webm')
+    await userEvent.upload(input, fileOf('a.mp4', 'video'), { applyAccept: false })
+    await screen.findByText('a.mp4')
+
+    const lengths = () => items().map((item) => item.querySelector('.clip-duration')?.textContent)
+    expect(lengths()).toEqual(['0.1s', '0:07'])
+    await showThumbnails()
+    expect(items()[0]).toHaveClass('clip-item-card')
+    expect(lengths()).toEqual(['0.1s', '0:07'])
+  })
+
   it('leaves the placeholder standing when a picture cannot be produced', async () => {
     // The failure the fallback exists for: an undecodable video and an
     // undecodable audio clip both resolve to nothing.

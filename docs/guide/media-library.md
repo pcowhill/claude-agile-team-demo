@@ -8,7 +8,7 @@ Library changes are not undo steps. Importing, renaming and removing clips chang
 
 **Where to find it.** Media library › **Import clips**, or drag files from your desktop onto the page.
 
-**What it does.** Adds video, audio and image files to the library as clips, each shown with its name, a kind badge — *Video*, *Audio* or *Image* — and its duration (images show a dash).
+**What it does.** Adds video, audio and image files to the library as clips, each shown with its name, a kind badge — *Video*, *Audio* or *Image* — and its duration (images show a dash). A clip shorter than a second shows its length in tenths of a second, such as *0.1s*, rather than *0:00*.
 
 **Details.** The picker accepts video, audio and image files and lets you choose several at once; dropping files anywhere on the page does the same, and the page highlights while you drag over it. The kind is read from the file's type as the browser reports it, and from the extension when the browser reports none: `mp3`, `wav`, `m4a`, `aac`, `ogg`, `oga`, `opus`, `flac` and `weba` are audio, `png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp` and `avif` are images, and anything else is tried as video. A video or audio file is read for its duration, an image for its width and height in pixels. Reading a file's metadata gives up after a short wait rather than hanging, and reports the file in the failure list. The same file can be imported again, so an import that failed can be retried after the file is fixed.
 
