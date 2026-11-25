@@ -6,6 +6,7 @@ import { scanExportedFrames } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
+import { confirmDisableIfAsked } from './pluginConfirm'
 
 /**
  * The Font pack plugin (#867), in a real browser.
@@ -45,6 +46,7 @@ async function setFontPack(page: Page, enabled: boolean) {
   const dialog = page.getByRole('dialog', { name: 'Plugins' })
   await expect(dialog).toBeVisible()
   await page.getByRole('button', { name: `${enabled ? 'Enable' : 'Disable'} Font pack` }).click()
+  if (!enabled) await confirmDisableIfAsked(page, 'Font pack')
   await expect(page.getByRole('button', { name: `${enabled ? 'Disable' : 'Enable'} Font pack` })).toBeVisible()
   await dialog.getByRole('button', { name: 'Close' }).click()
 }

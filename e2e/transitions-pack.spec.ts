@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
+import { confirmDisableIfAsked } from './pluginConfirm'
 
 type Page = import('@playwright/test').Page
 
@@ -94,6 +95,7 @@ async function setShapedWipes(page: Page, enabled: boolean) {
   await page
     .getByRole('button', { name: `${enabled ? 'Enable' : 'Disable'} Shaped wipes` })
     .click()
+  if (!enabled) await confirmDisableIfAsked(page, 'Shaped wipes')
   // The toggle flips only after the chunk loads and activate ran (or the
   // deactivate unregistered) — this wait is the real proof of the chain.
   await expect(
