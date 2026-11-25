@@ -19,6 +19,9 @@ import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './tim
  *   that only one of the two widths covers, must be the pack face's, never
  *   the fallback stack's: from the first frame the text is in.
  * - The Font select's geometry with the longest name, Cormorant Garamond.
+ * - **A failed download is tried again (#928).** The file fails throughout
+ *   one export, which draws the fallback; the next export downloads it
+ *   again and draws the pack face.
  */
 
 const CORE_FONTS = ['Sans-serif', 'Serif', 'Monospace', 'Display']
@@ -331,4 +334,95 @@ test('an export waits for a pack font it has never shown, and draws its glyphs f
   )
   console.log(`[${testInfo.project.name}] preview: flank green ${preview.toFixed(1)}`)
   expect(packIsWider ? preview > 40 : preview < 15, `preview flank green ${preview.toFixed(1)}`).toBe(true)
+})
+
+/** Exports the open project and returns the file. */
+async function exportWebm(page: Page): Promise<Buffer> {
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  return await readFile((await (await downloadPromise).path())!)
+}
+
+/**
+ * For every frame of `webm` the text is in, whether its width is the pack
+ * face's or the fallback's: the flank band of the test above, which only
+ * the wider of the two widths covers. Measuring the widths loads the pack
+ * face, so call it only once the face may load.
+ */
+async function textFaces(page: Page, webm: Buffer) {
+  const probe = await scanExportedFrames(page, webm, {}, 1)
+  const widths = await measuredWidths(page, probe)
+  const narrow = Math.min(widths.pack, widths.fallback)
+  const wide = Math.max(widths.pack, widths.fallback)
+  const margin = 0.015
+  const band = { x: 0.5 + narrow / 2 + margin, y: 0.47, width: (wide - narrow) / 2 - 2 * margin, height: 0.06 }
+  expect(band.width).toBeGreaterThan(0.02)
+  const packIsWider = widths.pack > widths.fallback
+  const scan = await scanExportedFrames(page, webm, {
+    centre: { x: 0.5 - narrow / 4, y: 0.47, width: narrow / 2, height: 0.06 },
+    flank: band,
+  })
+  const withText = scan.frames.filter((frame) => frame.bands.centre.g > 40)
+  expect(withText.length, 'frames with the text in them').toBeGreaterThan(10)
+  return withText.map((frame) => {
+    const flank = frame.bands.flank.g
+    const pack = packIsWider ? flank > 40 : flank < 15
+    const fallback = packIsWider ? flank < 15 : flank > 40
+    return { time: frame.time, flank, face: pack ? 'pack' : fallback ? 'fallback' : 'unclear' }
+  })
+}
+
+test('after a pack font fails to download, the next export downloads it again and draws it (#928)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000)
+  // The regular Silkscreen file is unavailable for the whole first export,
+  // as during a dropped connection, then served normally. The bold file is
+  // untouched. Every font request for it is recorded with what it got.
+  let failing = true
+  const requests: string[] = []
+  await page.route(/silkscreen-latin-400-normal\.woff2(\?|$)/, async (route) => {
+    if (route.request().resourceType() !== 'font') return route.continue()
+    requests.push(failing ? '503' : 'served')
+    if (failing) return route.fulfill({ status: 503, body: 'unavailable' })
+    return route.continue()
+  })
+  await gotoForSaving(page)
+  const project = await projectWithPackText(page)
+  await page
+    .getByTestId('project-file-input')
+    .setInputFiles([{ name: 'font-pack.bvep', mimeType: 'application/gzip', buffer: project }])
+  const prompt = page.getByRole('dialog', { name: 'Enable plugins to open?' })
+  await prompt.getByRole('button', { name: 'Enable and open' }).click()
+  await expect(page.getByRole('combobox', { name: `Font of ${TEXT}` })).toHaveValue(EXPORT_FONT.id)
+  expect(await faceStatuses(page, EXPORT_FONT.family)).toEqual(['unloaded', 'unloaded'])
+
+  // The first export, while every download of the file fails.
+  const firstWebm = await exportWebm(page)
+  const firstRequests = [...requests]
+  expect(firstRequests.length).toBeGreaterThan(0)
+  expect(firstRequests.every((request) => request === '503')).toBe(true)
+
+  // The file is back. The next export downloads it again: one request,
+  // served, made by the export rather than by the measurement below.
+  failing = false
+  const secondWebm = await exportWebm(page)
+  expect(requests.slice(firstRequests.length)).toEqual(['served'])
+  expect(await faceStatuses(page, EXPORT_FONT.family)).toEqual(['loaded', 'loaded'])
+
+  // The first export drew the fallback stack throughout, and the second
+  // the pack face from the first frame the text is in.
+  const first = await textFaces(page, firstWebm)
+  const second = await textFaces(page, secondWebm)
+  const summary = (frames: typeof first) =>
+    frames
+      .slice(0, 6)
+      .map((frame) => `${frame.time.toFixed(2)} ${frame.face} ${frame.flank.toFixed(0)}`)
+      .join(', ')
+  console.log(
+    `[${testInfo.project.name}] requests: ${requests.join(' ')}; first export: ${summary(first)}; second export: ${summary(second)}`,
+  )
+  expect(first.every((frame) => frame.face === 'fallback'), `first export: ${summary(first)}`).toBe(true)
+  expect(second.every((frame) => frame.face === 'pack'), `second export: ${summary(second)}`).toBe(true)
 })
