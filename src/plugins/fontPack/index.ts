@@ -190,9 +190,12 @@ export function activateFontPack<Face extends PackFontFace>({
   // Every face currently in `fonts`, so deactivating removes exactly those,
   // replacements included.
   const added = new Set<Face>()
+  // Set by the undo: a load still in flight when the plugin is disabled
+  // may fail afterwards, and its swap must not put a face back (#940).
+  let disposed = false
   for (const font of packFonts) {
     const register = (file: PackFontFile): Face | null => {
-      if (fonts === null || createFace === null) return null
+      if (disposed || fonts === null || createFace === null) return null
       const face = createFace(font.family, `url("${file.url}") format("woff2")`, {
         weight: file.weight,
         style: file.style,
@@ -252,6 +255,7 @@ export function activateFontPack<Face extends PackFontFace>({
     registry.register(definition)
   }
   return () => {
+    disposed = true
     for (const font of packFonts) registry.unregister(font.id)
     for (const face of added) fonts?.delete(face)
     added.clear()
