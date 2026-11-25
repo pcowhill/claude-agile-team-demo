@@ -119,8 +119,19 @@ export interface PictureEffectParam {
  *
  * - `blur`: a Gaussian blur whose `radius` is a **fraction of the frame
  *   width**, not px, so a preview frame and a 1080p export blur alike.
+ * - `sepia` (#870): CSS's `sepia(amount)`, `amount` in [0, 1], 0 the
+ *   picture unchanged and 1 fully toned.
+ * - `brightness` (#870): CSS's `brightness(amount)`, a multiplier, 1 the
+ *   picture unchanged.
+ *
+ * Sepia and brightness are pointwise colour matrices, defined alike for
+ * CSS and the canvas `filter` (Filter Effects), and have no size, so
+ * neither depends on the frame's width or a zoom's scale as a blur does.
  */
-export type PictureFilter = { kind: 'blur'; radius: number }
+export type PictureFilter =
+  | { kind: 'blur'; radius: number }
+  | { kind: 'sepia'; amount: number }
+  | { kind: 'brightness'; amount: number }
 
 /**
  * A layer a look draws over the entry's picture as framed: over the whole

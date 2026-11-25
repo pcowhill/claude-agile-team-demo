@@ -306,7 +306,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     expect(await effectItems(page, 'Color slate at position 2')).toEqual(['Zoom'])
 
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
 
     // Choosing one adds its row with the defaults, and the preview draws it
     // inside the window: a vignette from 0 s to 2 s at Strength 60 %.
@@ -337,6 +337,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
       'Vignette',
       'Blur',
       'Film grain',
+      'Old film',
     ])
   })
 
@@ -606,7 +607,7 @@ test.describe('Film grain (#870)', () => {
       .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makePattern(page) }])
     await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
     await chooseEffect(page, ENTRY, 'Film grain')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 amount of ${ENTRY} (percent)` })).toHaveValue('30')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 size of ${ENTRY}` })).toHaveValue('3')
@@ -816,6 +817,333 @@ test.describe('Film grain (#870)', () => {
         GRAIN_OUTGOING_TOLERANCE,
       )
     }
+  })
+})
+
+/**
+ * Old film (#870, step 2a): a sepia tone and a brightness flicker, both
+ * filter functions, over a fine grain. The flicker is a pure function of
+ * the entry's time, like the grain, so the preview and the export must
+ * flicker alike.
+ *
+ * The still is four colour bars, so the tone shows as a change of hue
+ * (blue turns brown: its red rises above its blue) and the flicker as a
+ * change of brightness on the grey bar. Each band is the mean of a patch
+ * of its bar, which averages the grain (its mean effect is close to none)
+ * and leaves the tone and the flicker.
+ */
+const OLD_FILM = { start: 1, end: 3, amount: 100 }
+const OLD_FILM_DURATION = 4
+// The re-link step matches the still by name, as the grain's does.
+const OLD_FILM_STILL = STILL
+/** The bars, left to right, 160 px each of the 640 × 360 still. */
+const BARS = {
+  blue: [40, 80, 200],
+  red: [200, 60, 40],
+  grey: [128, 128, 128],
+  green: [60, 180, 80],
+} as const
+type Bar = keyof typeof BARS
+const BAR_BANDS: Record<Bar, { x: number; y: number; width: number; height: number }> = {
+  blue: { x: 0.05, y: 0.3, width: 0.15, height: 0.4 },
+  red: { x: 0.3, y: 0.3, width: 0.15, height: 0.4 },
+  grey: { x: 0.55, y: 0.3, width: 0.15, height: 0.4 },
+  green: { x: 0.8, y: 0.3, width: 0.15, height: 0.4 },
+}
+type Rgb = { r: number; g: number; b: number }
+type BarSamples = Record<Bar, Rgb>
+/**
+ * Two instants one texture step apart, at Amount 100, chosen for their
+ * flicker: step 49 is about 1.056 times the toned picture's brightness and
+ * step 50 about 0.946 (`oldFilmBrightness`), so the grey bar is about
+ * 12 % brighter at the first. Both lie in the window's full-weight middle.
+ */
+const OLD_FILM_STEP_49 = 2.06
+const OLD_FILM_STEP_50 = 2.1
+/**
+ * Preview vs saved frame, per channel of each bar's mean (0 to 255).
+ * Measured in local Chromium on this spec before it was set: 0 outside the
+ * window, and at most 1.7 on either step inside it, against 15 to 17
+ * between the grey bar's two steps.
+ */
+const OLD_FILM_CHANNEL_TOLERANCE = 5
+/**
+ * How far the blue bar's blue must fall for an exported frame to count as
+ * toned: well above the WebM encoder's error on the bars (3 at most on
+ * the plain frames, measured), well below the full tone's fall of 100.
+ */
+const OLD_FILM_TONED = 30
+/** The grey bar's brightness ratio between the two steps must show the flicker: about 1.12. */
+const OLD_FILM_FLICKER_SEEN = 1.06
+
+/** The four colour bars, 640 × 360. */
+async function makeBars(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate((bars) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 360
+    const ctx = canvas.getContext('2d')!
+    Object.values(bars).forEach(([r, g, b], index) => {
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+      ctx.fillRect(index * 160, 0, 160, 360)
+    })
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, BARS)
+  return Buffer.from(base64, 'base64')
+}
+
+/** Each bar's mean colour in a PNG of the composed frame. */
+async function barsOfPng(page: Page, png: Buffer): Promise<BarSamples> {
+  return (await page.evaluate(
+    async ({ base64, bands }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      return Object.fromEntries(
+        Object.entries(bands).map(([name, rect]) => {
+          const x = Math.floor(rect.x * bitmap.width)
+          const y = Math.floor(rect.y * bitmap.height)
+          const width = Math.max(1, Math.round(rect.width * bitmap.width))
+          const height = Math.max(1, Math.round(rect.height * bitmap.height))
+          const data = ctx.getImageData(x, y, width, height).data
+          let r = 0
+          let g = 0
+          let b = 0
+          for (let index = 0; index < data.length; index += 4) {
+            r += data[index]
+            g += data[index + 1]
+            b += data[index + 2]
+          }
+          const count = data.length / 4
+          return [name, { r: r / count, g: g / count, b: b / count }]
+        }),
+      )
+    },
+    { base64: png.toString('base64'), bands: BAR_BANDS },
+  )) as BarSamples
+}
+
+/** The largest per-channel difference between two samplings of the bars. */
+const barsDistance = (a: BarSamples, b: BarSamples) =>
+  Math.max(
+    ...(Object.keys(BARS) as Bar[]).flatMap((bar) => [
+      Math.abs(a[bar].r - b[bar].r),
+      Math.abs(a[bar].g - b[bar].g),
+      Math.abs(a[bar].b - b[bar].b),
+    ]),
+  )
+const lightness = ({ r, g, b }: Rgb) => (r + g + b) / 3
+
+/** Builds the 4 s bars still with Old film from 1 s to 3 s at Amount 100, and opens that project. */
+async function openOldFilmProject(page: Page): Promise<Buffer> {
+  await gotoForSaving(page)
+  const still = await makeBars(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: OLD_FILM_STILL, mimeType: 'image/png', buffer: still }])
+  await page.getByRole('button', { name: `Add ${OLD_FILM_STILL} to timeline` }).click()
+  const duration = page.getByRole('spinbutton', { name: `Duration of ${OLD_FILM_STILL} at position 1 in seconds` })
+  await duration.fill(String(OLD_FILM_DURATION))
+  await duration.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+  const project = await saveWithEffects(page, ([entryId]) => [
+    {
+      id: 'o1',
+      entryId,
+      type: 'old-film',
+      start: OLD_FILM.start,
+      end: OLD_FILM.end,
+      params: { amount: OLD_FILM.amount },
+    },
+  ])
+  await openProject(page, project, still, '0:04')
+  return still
+}
+
+/**
+ * Seeks the preview to `seconds`, waits for the grain step that instant
+ * publishes (or for no effect), and returns the bars, the screenshot and
+ * the brightness the media element's filter carries (1 outside the window).
+ */
+async function previewOldFilmAt(page: Page, seconds: number, step: number | null, label: string) {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(seconds))
+  const image = page.getByTestId('preview-image')
+  await expect(image).toBeVisible()
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+  const grain = page.getByTestId('preview-picture-grain')
+  if (step === null) {
+    await expect(grain).toHaveCount(0)
+    await expect(image).toHaveCSS('filter', 'none')
+  } else {
+    await expect(grain).toHaveAttribute('data-seed', String(step))
+    await expect(image).toHaveCSS('filter', /sepia\(.*brightness\(/)
+  }
+  const filter = await image.evaluate((element) => getComputedStyle(element).filter)
+  const brightness = Number(/brightness\(([\d.]+)\)/.exec(filter)?.[1] ?? 1)
+  const png = await page
+    .getByTestId('preview-frame')
+    .screenshot({ path: test.info().outputPath(`old-film-preview-${seconds}s.png`) })
+  await test.info().attach(`preview at ${seconds} s (${label})`, { body: png, contentType: 'image/png' })
+  return { bars: await barsOfPng(page, png), png, brightness }
+}
+
+/** Saves the playhead's frame through the export's composer (Save frame) and returns its bars. */
+async function savedOldFilmFrame(page: Page, label: string): Promise<BarSamples> {
+  const downloadPromise = page.waitForEvent('download')
+  await chooseFromFrameMenu(page, 'preview-save-frame')
+  const download = await downloadPromise
+  const saved = await readFile((await download.path())!)
+  await download.saveAs(test.info().outputPath(`old-film-saved-${label.replaceAll(' ', '-')}.png`))
+  await test.info().attach(`saved frame (${label})`, { body: saved, contentType: 'image/png' })
+  return await barsOfPng(page, saved)
+}
+
+const describeBars = (bars: BarSamples) =>
+  (Object.keys(BARS) as Bar[])
+    .map((bar) => `${bar} ${[bars[bar].r, bars[bar].g, bars[bar].b].map((value) => value.toFixed(1)).join('/')}`)
+    .join(', ')
+
+test.describe('Old film (#870)', () => {
+  test('+ Effect ▾ offers Old film after Film grain, with Amount at its default', async ({ page }) => {
+    test.setTimeout(60_000)
+    await page.goto('./')
+    await page
+      .getByTestId('clip-file-input')
+      .setInputFiles([{ name: OLD_FILM_STILL, mimeType: 'image/png', buffer: await makeBars(page) }])
+    await page.getByRole('button', { name: `Add ${OLD_FILM_STILL} to timeline` }).click()
+    await setVisualEffects(page, true)
+    const entry = `${OLD_FILM_STILL} at position 1`
+    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
+    await chooseEffect(page, entry, 'Old film')
+    await expect(page.getByRole('spinbutton', { name: `Old film 1 amount of ${entry} (percent)` })).toHaveValue('70')
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
+    // At the default 70 %: sepia 0.85 × 0.7 on the picture, and the grain's
+    // 640 × 360 cells (size 3) over it.
+    const image = page.getByTestId('preview-image')
+    await expect(image).toHaveCSS('filter', /sepia\(0\.595\) brightness\(/)
+    const grain = page.getByTestId('preview-picture-grain')
+    await expect(grain).toHaveAttribute('width', '640')
+    await expect(grain).toHaveAttribute('data-seed', '24')
+    await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+    const shot = await page
+      .getByTestId('preview-frame')
+      .screenshot({ path: test.info().outputPath('old-film-default.png') })
+    await test.info().attach('Old film at its default, on the colour bars', { body: shot, contentType: 'image/png' })
+  })
+
+  test('the preview and a saved frame tone and flicker alike for the same instant, and not outside the window', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000)
+    await openOldFilmProject(page)
+
+    const before = await previewOldFilmAt(page, 0.5, null, 'before the window')
+    const savedBefore = await savedOldFilmFrame(page, 'before the window')
+    const after = await previewOldFilmAt(page, 3.5, null, 'after the window')
+    const savedAfter = await savedOldFilmFrame(page, 'after the window')
+    const step49 = await previewOldFilmAt(page, OLD_FILM_STEP_49, 49, 'step 49')
+    const saved49 = await savedOldFilmFrame(page, 'step 49')
+    const step50 = await previewOldFilmAt(page, OLD_FILM_STEP_50, 50, 'step 50')
+    const saved50 = await savedOldFilmFrame(page, 'step 50')
+    const report = {
+      before: describeBars(before.bars),
+      step49: describeBars(step49.bars),
+      step50: describeBars(step50.bars),
+      plain: barsDistance(before.bars, savedBefore),
+      plainAfter: barsDistance(after.bars, savedAfter),
+      same49: barsDistance(step49.bars, saved49),
+      same50: barsDistance(step50.bars, saved50),
+      brightness: [step49.brightness, step50.brightness],
+      previewFlicker: lightness(step49.bars.grey) / lightness(step50.bars.grey),
+      savedFlicker: lightness(saved49.grey) / lightness(saved50.grey),
+    }
+    console.log(`[${testInfo.project.name}] old film bars: ${JSON.stringify(report)}`)
+
+    // Outside the window both renderers show the bars untouched, alike.
+    expect(barsDistance(before.bars, after.bars), 'before vs after, preview').toBeLessThan(1)
+    expect(report.plain, 'before the window: preview vs saved frame').toBeLessThan(OLD_FILM_CHANNEL_TOLERANCE)
+    expect(report.plainAfter, 'after the window: preview vs saved frame').toBeLessThan(OLD_FILM_CHANNEL_TOLERANCE)
+    expect(before.bars.blue.b - before.bars.blue.r, 'the blue bar is blue').toBeGreaterThan(100)
+    // Inside it, the tone: the blue bar's red has risen above its blue, in both renderers.
+    for (const [name, bars] of [
+      ['preview 49', step49.bars],
+      ['saved 49', saved49],
+      ['preview 50', step50.bars],
+      ['saved 50', saved50],
+    ] as const) {
+      expect(bars.blue.r - bars.blue.b, `${name}: the blue bar toned brown`).toBeGreaterThan(0)
+    }
+    // The same instant: the preview and the saved frame agree on every bar.
+    expect(report.same49, 'step 49: preview vs saved frame').toBeLessThan(OLD_FILM_CHANNEL_TOLERANCE)
+    expect(report.same50, 'step 50: preview vs saved frame').toBeLessThan(OLD_FILM_CHANNEL_TOLERANCE)
+    // The flicker: the two steps carry different brightness filters, the
+    // grey bar shows it, and both renderers show it alike.
+    expect(step49.brightness).toBeGreaterThan(step50.brightness)
+    expect(report.previewFlicker, 'step 49 vs 50, preview').toBeGreaterThan(OLD_FILM_FLICKER_SEEN)
+    expect(report.savedFlicker, 'step 49 vs 50, saved frame').toBeGreaterThan(OLD_FILM_FLICKER_SEEN)
+    expect(Math.abs(report.previewFlicker - report.savedFlicker)).toBeLessThan(0.02)
+  })
+
+  test('the export tones only inside the window, and flickers there', async ({ page }, testInfo) => {
+    test.setTimeout(180_000)
+    await openOldFilmProject(page)
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Project…' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    const exported = await readFile((await (await downloadPromise).path())!)
+    const scan = await scanExportedFrames(page, exported, BAR_BANDS, 1 / 30)
+    const frames = scan.frames.map((frame) => ({ time: frame.time, bars: frame.bands as unknown as BarSamples }))
+    // A frame is toned when the blue bar has lost well over the encoder's
+    // error of its blue: at full weight it falls from 200 to about 100, and
+    // through the eases it falls steadily, so the toned frames are one run.
+    const toned = frames.map(({ bars }) => bars.blue.b < BARS.blue[2] - OLD_FILM_TONED)
+    const first = toned.indexOf(true)
+    const last = toned.lastIndexOf(true)
+    const tonedFrames = frames.slice(first, last + 1)
+    const greys = tonedFrames.map(({ bars }) => lightness(bars.grey))
+    const report = {
+      size: `${scan.width}x${scan.height}`,
+      duration: scan.duration,
+      frames: frames.length,
+      firstFrame: describeBars(frames[0].bars),
+      lastFrame: describeBars(frames.at(-1)!.bars),
+      tonedSpan: [frames[first]?.time, frames[last]?.time],
+      grey: [Math.min(...greys), Math.max(...greys)].map((value) => Number(value.toFixed(1))),
+    }
+    console.log(`[${testInfo.project.name}] old film export: ${JSON.stringify(report)}`)
+
+    // Outside the window the file shows the bars as they are: the first and
+    // last frames are within the encoder's error of the still's colours.
+    for (const frame of [frames[0], frames.at(-1)!]) {
+      for (const bar of Object.keys(BARS) as Bar[]) {
+        const [r, g, b] = BARS[bar]
+        expect(Math.abs(frame.bars[bar].r - r), `${bar} red at ${frame.time} s`).toBeLessThan(12)
+        expect(Math.abs(frame.bars[bar].g - g), `${bar} green at ${frame.time} s`).toBeLessThan(12)
+        expect(Math.abs(frame.bars[bar].b - b), `${bar} blue at ${frame.time} s`).toBeLessThan(12)
+      }
+    }
+    // Toned in one unbroken stretch, the window's 2 s less the faint ends
+    // of its eases, give or take the recording's stretching (#370). At full
+    // weight the blue bar is toned brown: its red above its blue.
+    const full = frames.find(({ time }) => time > OLD_FILM.start + 0.8 && time < OLD_FILM.end - 0.8)!
+    expect(full.bars.blue.r, `the blue bar toned brown at ${full.time} s`).toBeGreaterThan(full.bars.blue.b)
+    expect(first, 'a toned frame').toBeGreaterThan(0)
+    expect(last, 'the last frame untoned').toBeLessThan(frames.length - 1)
+    expect(toned.slice(first, last + 1).every(Boolean), 'toned in one unbroken stretch').toBe(true)
+    const span = frames[last].time - frames[first].time
+    expect(span).toBeGreaterThan(OLD_FILM.end - OLD_FILM.start - 1)
+    expect(span).toBeLessThan(OLD_FILM.end - OLD_FILM.start + 0.3)
+    // The flicker is in the file: across the toned frames' full-weight
+    // middle, the grey bar's brightness moves by more than the encoder's
+    // own wobble on a flat grey.
+    const middle = tonedFrames
+      .filter(({ time }) => time > frames[first].time + 0.4 && time < frames[last].time - 0.4)
+      .map(({ bars }) => lightness(bars.grey))
+    expect(Math.max(...middle) / Math.min(...middle), 'the grey bar flickers').toBeGreaterThan(OLD_FILM_FLICKER_SEEN)
   })
 })
 

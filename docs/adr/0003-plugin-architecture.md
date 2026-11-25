@@ -348,12 +348,19 @@ extension point is built until a concrete plugin needs it**.
       effect window does not use; and a canvas-wide noise layer drawn
       after composition, which would not travel with the card through a
       transition or sit inside a zoom's frame as a vignette does.
-    - **Still to come (#870, then #871).** Old film and VHS are further
-      kinds of the same shape (scratches, dust, scanlines, a tracking
-      band) beside filter functions (sepia, a flicker's brightness). A
-      per-channel offset (#871's chromatic aberration) would be a new
-      `PictureFilter` kind the same way. The contract grows by kinds, not
-      by mechanisms.
+    - **Filter kinds that vary over time (#870, step 2a).** Old film adds
+      two `PictureFilter` kinds, `sepia` and `brightness`, CSS's own
+      functions, which the canvas `filter` defines identically. Its
+      flicker is a `brightness` whose amount the rule takes from
+      `textureHash(textureStep(time), …)`, so a filter that changes per
+      frame follows the same pure-function rule as a texture layer, with
+      no new mechanism. Sepia and brightness have no size, so unlike a
+      blur they ignore the frame width and the zoom's scale.
+    - **Still to come (#870, then #871).** Old film's scratches and dust,
+      and VHS's scanlines and tracking band, are further layer kinds of
+      the same shape as `grain`. A per-channel offset (#871's chromatic
+      aberration) would be a new `PictureFilter` kind the same way. The
+      contract grows by kinds, not by mechanisms.
   - **Rejected:** a rule returning a CSS string, which the canvas could
     take for a blur but not for a vignette or grain, and drawing with
     per-plugin code in each renderer, which is what the shared rule
@@ -362,7 +369,8 @@ extension point is built until a concrete plugin needs it**.
   (Strength, the corner's darkening in percent), Blur (Amount, the
   radius in percent of the frame width) and Film grain (#870: Amount, the
   strongest grain's alpha in percent, and Size, a grain's width in pixels
-  of a 1080p frame). Each is parameters plus a `look`
+  of a 1080p frame) and Old film (#870: Amount, scaling its sepia, its
+  flicker and a fixed-size grain together). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `usedByProject` loads no chunk.

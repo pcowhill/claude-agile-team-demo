@@ -269,6 +269,10 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## O
 
+- **Old film** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a sepia tone, a flicker and grain over the picture for a stretch of the entry. [Editing video › Old film](editing-video.md#old-film) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **Old film amount** — old film on an expanded sequence entry; 0 to 100 %, how strongly it tones, flickers and grains the picture. [Editing video › Old film](editing-video.md#old-film)
+- **Old film end** — old film on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › Old film](editing-video.md#old-film)
+- **Old film start** — old film on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › Old film](editing-video.md#old-film)
 - **Open project** — the re-link dialog; applies the project once every clip is linked. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Open Project…** — File ▾. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)
 - **Out** — an expanded video or audio row; where the clip stops playing. Also the Trim window's Out field, the Out clamp's time to type. [Editing video › Trimming](editing-video.md#trimming) · [Editing video › The Trim window](editing-video.md#the-trim-window)
@@ -320,6 +324,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove blur** — a blur on an expanded sequence entry; takes it away. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Remove film grain** — film grain on an expanded sequence entry; takes it away. [Editing video › Film grain](editing-video.md#film-grain)
 - **Remove move** — a Move on an expanded overlay; takes it away. [Editing video › Overlay move](editing-video.md#overlay-move)
+- **Remove old film** — old film on an expanded sequence entry; takes it away. [Editing video › Old film](editing-video.md#old-film)
 - **Remove pause** — a pause on an expanded video entry or video overlay; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Remove redaction region** — a redaction region; takes it away. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Remove speed segment** — a speed segment on an expanded video entry or video overlay; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
