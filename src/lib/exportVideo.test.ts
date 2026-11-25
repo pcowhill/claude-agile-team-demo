@@ -481,6 +481,26 @@ describe('createAudioCapture with a PCM tap (#269)', () => {
     expect(tapCalls).toEqual([{ context: fake.context, mix: bus }])
   })
 
+  it('awaits a tap that loads first (#926), and takes the video-only fallback when it fails', async () => {
+    const order: string[] = []
+    const fake = fakeAudioContext()
+    const capture = await createAudioCapture([document.createElement('audio')], () => asAudioContext(fake.context), async () => {
+      await Promise.resolve()
+      order.push('tap ready')
+    })
+    order.push('capture returned')
+    expect(capture?.track).toBe(fake.track)
+    expect(order).toEqual(['tap ready', 'capture returned'])
+
+    const failing = fakeAudioContext()
+    await expect(
+      createAudioCapture([document.createElement('audio')], () => asAudioContext(failing.context), async () => {
+        throw new Error('The worklet module failed to load.')
+      }),
+    ).resolves.toBeNull()
+    expect(failing.context.closed).toBe(true)
+  })
+
   it('without a tap there is no bus — only the element\'s own boost (#692)', async () => {
     const fake = fakeAudioContext()
     await createAudioCapture([document.createElement('video')], () => asAudioContext(fake.context))

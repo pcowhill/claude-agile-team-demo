@@ -22,15 +22,39 @@ import { MP3_KBPS } from './mp3Bitrate'
 export const MP3_MIME_TYPE = 'audio/mpeg'
 
 /**
- * The tap's ScriptProcessor buffer, in frames. The deprecated-but-universal
- * ScriptProcessorNode rather than an AudioWorklet: the worklet needs a
- * module script served from a URL, which complicates the build and the
- * tests for no audible benefit at export time (the page is not interactive
- * while an export runs, so the processor's main-thread latency cost is
- * irrelevant). 4096 frames ≈ 85 ms at 48 kHz — small enough that `stop()`'s
- * wait for the window's tail is imperceptible.
+ * The tap's processor (#926): an AudioWorklet that posts every render
+ * quantum of its input — the mix's left and right, then #908's marker — to
+ * the main thread, as copies, and outputs silence.
+ *
+ * Not a ScriptProcessorNode, which this tap was until #926. Chromium's
+ * ScriptProcessor drops a whole 128-frame quantum of its input whenever its
+ * main-thread side is late, and under CPU load an export lost up to 7 a
+ * second, each an audible click (measured on #926: a probe spliced 12 of
+ * 56 loaded runs through a ScriptProcessor and 0 of 28 through a worklet,
+ * and this tap's WAV export 13 of 24 before the change and 0 of 24 after). A worklet runs on the audio
+ * thread itself, so the audio thread never waits on the main thread and no
+ * quantum is skipped; the main thread only reads what it is sent.
+ *
+ * An input with no active connection is posted as one quantum of silence,
+ * so the window's frames keep counting whatever the graph holds. The source
+ * is loaded from a Blob URL rather than a file, so the build needs no
+ * worklet entry; `audioWorklet` exists only in a secure context, which the
+ * app (https, or localhost) always is.
  */
-const TAP_BUFFER_FRAMES = 4096
+export const PCM_TAP_PROCESSOR = 'pcm-tap'
+export const PCM_TAP_WORKLET_SOURCE = `registerProcessor('${PCM_TAP_PROCESSOR}', class extends AudioWorkletProcessor {
+  process(inputs, outputs) {
+    const input = inputs[0]
+    const frames = input.length > 0 ? input[0].length : outputs[0][0].length
+    const quantum = []
+    for (let channel = 0; channel < 3; channel++) {
+      quantum.push(input[channel] === undefined ? new Float32Array(frames) : input[channel].slice())
+    }
+    this.port.postMessage(quantum, quantum.map((samples) => samples.buffer))
+    return true
+  }
+})
+`
 
 /** MP3 is stereo; a mono mix up-mixes into both channels in the graph. */
 const CHANNELS = 2
@@ -168,20 +192,21 @@ export type PcmEncoder = (left: Float32Array, right: Float32Array, sampleRate: n
  * window to `encode` (#269; shared with the WAV plugin, #866, so every
  * PCM-based audio export hears the same samples, window for window).
  * `label` names the format in the error for a graph that delivered
- * nothing. `attach` taps the mix through a ScriptProcessor, `begin` marks
+ * nothing. `attach` taps the mix through an AudioWorklet (#926), `begin` marks
  * the window's start, `stop` waits until the whole window has arrived and
- * detaches, and `finish` encodes the window. The processor's *output* is zeroed each callback: it
- * must connect onward to `context.destination` to be pulled by the graph,
- * and writing silence there is what keeps the export inaudible — the
- * invariant `createAudioCapture` documents.
+ * detaches, and `finish` encodes the window. The processor's *output* is
+ * silence: it must connect onward to `context.destination` to be pulled by
+ * the graph, and writing nothing there is what keeps the export inaudible —
+ * the invariant `createAudioCapture` documents.
  *
  * **Where the window starts (#908).** The graph runs from `attach`, while
  * the pipeline still waits for the context and loads and cues its sources,
  * and those buffers are not the window: keeping them opened every export on
  * 0.1–0.15 s of silence. Nor can the main thread say which captured sample
- * is "now", because a ScriptProcessor hands its input over buffers late, by
- * an amount each browser sets (2 × 4096 + 128 frames in Chromium, measured
- * on #908). So the graph says it: the processor takes a third channel, a
+ * is "now", because the tap's quanta reach it some time after they were
+ * rendered, by an amount each browser sets (2 × 4096 + 128 frames in
+ * Chromium through the ScriptProcessor this tap was until #926, measured on
+ * #908). So the graph says it: the processor takes a third channel, a
  * marker that `begin` switches on, and the first frame the marker is raised
  * on is the window's first frame. The marker rides the same render quanta
  * as the mix, so the match is exact whatever the browser's delay, and from
@@ -191,7 +216,7 @@ export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAud
   const captured: Float32Array[][] = [[], []]
   let sampleRate: number | null = null
   let graph: AudioContext | null = null
-  let processor: ScriptProcessorNode | null = null
+  let processor: AudioWorkletNode | null = null
   let marker: ConstantSourceNode | null = null
   /** Every node `attach` made, disconnected by `stop`. */
   let nodes: AudioNode[] = []
@@ -205,7 +230,15 @@ export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAud
   const complete = () => windowFrames !== null && kept !== null && kept >= windowFrames
 
   return {
-    attach: (context, mixNode) => {
+    attach: async (context, mixNode) => {
+      // The processor's module first (#926): a node of it can only be made
+      // once the context has loaded it.
+      const source = URL.createObjectURL(new Blob([PCM_TAP_WORKLET_SOURCE], { type: 'text/javascript' }))
+      try {
+        await context.audioWorklet.addModule(source)
+      } finally {
+        URL.revokeObjectURL(source)
+      }
       graph = context
       sampleRate = context.sampleRate
       mix = mixNode
@@ -219,17 +252,24 @@ export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAud
       const merge = context.createChannelMerger(CHANNELS + 1)
       const raised = context.createConstantSource()
       raised.offset.value = 1
-      processor = context.createScriptProcessor(TAP_BUFFER_FRAMES, CHANNELS + 1, CHANNELS)
-      processor.onaudioprocess = (event) => {
-        for (let channel = 0; channel < CHANNELS; channel++) {
-          event.outputBuffer.getChannelData(channel).fill(0)
-        }
+      // Three input channels, taken as they are: the marker must not be
+      // mixed into the others.
+      processor = new AudioWorkletNode(context, PCM_TAP_PROCESSOR, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        channelCount: CHANNELS + 1,
+        channelCountMode: 'explicit',
+        channelInterpretation: 'discrete',
+      })
+      processor.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
         if (windowFrames === null || complete()) return
-        const slice = windowFramesIn(event.inputBuffer.getChannelData(CHANNELS), kept, windowFrames)
+        const quantum = event.data
+        const slice = windowFramesIn(quantum[CHANNELS], kept, windowFrames)
         if (slice === null) return
         for (let channel = 0; channel < CHANNELS; channel++) {
-          // Copied: the browser reuses the buffer across callbacks.
-          captured[channel].push(event.inputBuffer.getChannelData(channel).slice(slice.from, slice.to))
+          // The worklet sent copies, so a view of each is the window's own.
+          captured[channel].push(quantum[channel].subarray(slice.from, slice.to))
         }
         kept = (kept ?? 0) + (slice.to - slice.from)
         if (complete() && onWindowComplete !== null) {
@@ -256,8 +296,8 @@ export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAud
     stop: async () => {
       const tap = processor
       if (tap === null) return
-      // The window's tail is still queued on the audio thread when the replay
-      // loop ends, a few buffers behind it: wait for the last of it, or time
+      // The window's tail is still on its way from the audio thread when the
+      // replay loop ends, a few quanta behind it: wait for the last of it, or time
       // out (a context torn down early delivers nothing more). Before `begin`
       // (an aborted export) there is no window to wait for.
       if (windowFrames !== null && !complete()) {
@@ -274,7 +314,8 @@ export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAud
         })
       }
       onWindowComplete = null
-      tap.onaudioprocess = null
+      tap.port.onmessage = null
+      tap.port.close()
       try {
         marker?.stop()
       } catch {
