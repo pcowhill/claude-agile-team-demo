@@ -1165,6 +1165,317 @@ test.describe('Old film (#870)', () => {
   })
 })
 
+/**
+ * Old film's scratches and dust (#870, step 2a(ii)): two more generated
+ * textures, which must land in the same places in the preview and in the
+ * export's composer at the same instant.
+ *
+ * The test reads where they are from the preview's own texture canvases (a
+ * scratch is a lit column of `preview-picture-scratches`, a speck a lit
+ * cell of `preview-picture-dust`), then measures each one in both renderers
+ * against its surroundings: a scratch as its column's mean brightness above
+ * the median column, which averages out the grain, and a speck as its
+ * cell's brightness against eight points three cells around it.
+ */
+const DUST_COLUMNS = 480
+/** A plain still of one grey `level`, 1920 × 1080, so a 1080p frame holds a dust cell in 4 px and a scratch in 2. */
+async function makePlain(page: Page, level: number): Promise<Buffer> {
+  const base64 = await page.evaluate((level) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1920
+    canvas.height = 1080
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = `rgb(${level}, ${level}, ${level})`
+    ctx.fillRect(0, 0, 1920, 1080)
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, level)
+  return Buffer.from(base64, 'base64')
+}
+
+type Speck = { x: number; y: number; light: boolean }
+/** Where a step's scratches (column centres, with each one's mean alpha down the frame) and specks lie, as fractions of the frame. */
+type Damage = { scratches: number[]; scratchAlphas: number[]; specks: Speck[] }
+
+/** Where the preview's texture canvases put scratches (column centres) and specks (cell centres), as fractions of the frame. */
+async function previewDamage(page: Page): Promise<Damage> {
+  const scratches = await page.getByTestId('preview-picture-scratches').evaluate((element) => {
+    const canvas = element as HTMLCanvasElement
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+    // Each lit column's alpha, summed down its rows.
+    const columns = new Map<number, number>()
+    for (let index = 3; index < data.length; index += 4) {
+      if (data[index] === 0) continue
+      const column = ((index - 3) / 4) % canvas.width
+      columns.set(column, (columns.get(column) ?? 0) + data[index])
+    }
+    return [...columns.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([column, alpha]) => ({ x: (column + 0.5) / canvas.width, alpha: alpha / canvas.height / 255 }))
+  })
+  const specks = await page.getByTestId('preview-picture-dust').evaluate((element) => {
+    const canvas = element as HTMLCanvasElement
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+    const found: { x: number; y: number; light: boolean }[] = []
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] === 0) continue
+      const cell = index / 4
+      found.push({
+        x: ((cell % canvas.width) + 0.5) / canvas.width,
+        y: (Math.floor(cell / canvas.width) + 0.5) / canvas.height,
+        light: data[index] === 255,
+      })
+    }
+    return found
+  })
+  return { scratches: scratches.map(({ x }) => x), scratchAlphas: scratches.map(({ alpha }) => alpha), specks }
+}
+
+/**
+ * Each scratch's column-mean brightness above the median column, and each
+ * speck's brightness against its surroundings, in a PNG of the frame.
+ */
+async function damageOfPng(page: Page, png: Buffer, damage: Omit<Damage, 'scratchAlphas'>): Promise<{ scratches: number[]; specks: number[] }> {
+  return await page.evaluate(
+    async ({ base64, damage, dustColumns }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      // Both renderers' frames measured at one size, 1080p, so a point
+      // falls on the same part of a speck in each: the preview's screenshot
+      // is larger than the saved frame.
+      const canvas = document.createElement('canvas')
+      canvas.width = 1920
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0, 1920, 1080)
+      const { width, height } = canvas
+      const data = ctx.getImageData(0, 0, width, height).data
+      const at = (x: number, y: number) => {
+        const index = (Math.min(height - 1, Math.max(0, y)) * width + Math.min(width - 1, Math.max(0, x))) * 4
+        return (data[index] + data[index + 1] + data[index + 2]) / 3
+      }
+      // The scratches are measured on the frame as rendered, not resampled:
+      // a scratch is 2 px of a 1080p frame, smoothed, so its peak depends on
+      // where it falls between pixels, and resampling a line that thin
+      // gains or loses some of it. The light it adds does not depend on
+      // either: the sum of its columns' excess over the median column, over
+      // 3 px of a 1080p frame either side, scaled to 1080p pixels.
+      const native = document.createElement('canvas')
+      native.width = bitmap.width
+      native.height = bitmap.height
+      const nativeContext = native.getContext('2d')!
+      nativeContext.drawImage(bitmap, 0, 0)
+      const nativeData = nativeContext.getImageData(0, 0, native.width, native.height).data
+      const profile = Array.from({ length: native.width }, (_, x) => {
+        let sum = 0
+        for (let y = 0; y < native.height; y++) {
+          const index = (y * native.width + x) * 4
+          sum += (nativeData[index] + nativeData[index + 1] + nativeData[index + 2]) / 3
+        }
+        return sum / native.height
+      })
+      const median = [...profile].sort((a, b) => a - b)[Math.floor(native.width / 2)]
+      const perPixel = native.width / 1920
+      const reachX = Math.ceil(3 * perPixel)
+      const scratches = damage.scratches.map((fraction) => {
+        const x = Math.floor(fraction * native.width)
+        let excess = 0
+        for (let dx = -reachX; dx <= reachX; dx++) excess += (profile[x + dx] ?? median) - median
+        return excess / perPixel
+      })
+      const cell = width / dustColumns
+      const specks = damage.specks.map(({ x: fx, y: fy, light }) => {
+        const x = Math.floor(fx * width)
+        const y = Math.floor(fy * height)
+        let around = 0
+        for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+          around += at(Math.round(x + dx * 3 * cell), Math.round(y + dy * 3 * cell))
+        }
+        // The speck's darkest (or, for a light one, brightest) pixel within
+        // half a cell of its centre: the extreme a smoothed cell reaches.
+        const values: number[] = []
+        const reach = Math.floor(cell / 2)
+        for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) values.push(at(x + dx, y + dy))
+        return (light ? Math.max(...values) : Math.min(...values)) - around / 8
+      })
+      return { scratches, specks }
+    },
+    { base64: png.toString('base64'), damage, dustColumns: DUST_COLUMNS },
+  )
+}
+
+/** A scratch's columns must add this much over the median column (summed over 7 px, 0 to 255 each) to count as drawn. */
+const SCRATCH_SEEN = 10
+/** A dark speck must fall this far below its surroundings to count as drawn. */
+const DUST_SEEN = 20
+/** Preview vs saved frame, per speck (0 to 255). */
+const DAMAGE_TOLERANCE = 12
+/** Preview vs saved frame, per scratch's summed excess. */
+const SCRATCH_TOLERANCE = 10
+/** Preview vs saved frame on the crossfade, as a share of the scratch's full strength: undimmed, the saved frame would be about 0.5 over. */
+const SCRATCH_FADE_TOLERANCE = 0.15
+
+/** Seeks to the middle of texture `step`, to the slider's hundredth, and waits for the preview to draw that step's textures. */
+async function seekToStep(page: Page, step: number) {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(Number(((step + 0.5) / 24).toFixed(2))))
+  await expect(page.getByTestId('preview-picture-scratches')).toHaveAttribute('data-seed', String(step))
+  await expect(page.getByTestId('preview-picture-dust')).toHaveAttribute('data-seed', String(step))
+}
+
+async function savedFrame(page: Page): Promise<Buffer> {
+  const downloadPromise = page.waitForEvent('download')
+  await chooseFromFrameMenu(page, 'preview-save-frame')
+  return await readFile((await (await downloadPromise).path())!)
+}
+
+test.describe("Old film's scratches and dust (#870)", () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test('the preview and a saved frame put the same scratches and dust in the same places', async ({ page }, testInfo) => {
+    test.setTimeout(180_000)
+    await gotoForSaving(page)
+    const grey = await makePlain(page, 128)
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: grey }])
+    await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+    const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position 1 in seconds` })
+    await duration.fill('4')
+    await duration.blur()
+    await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+    // Over the whole entry, so both ends lie on its bounds and nothing eases.
+    const project = await saveWithEffects(page, ([entryId]) => [
+      { id: 'o1', entryId, type: 'old-film', start: 0, end: 4, params: { amount: 100 } },
+    ])
+    await openProject(page, project, grey, '0:04')
+
+    // The first two steps from 1 s on with a scratch and at least two dark specks.
+    const chosen: { step: number; damage: Damage }[] = []
+    for (let step = 24; step < 72 && chosen.length < 2; step++) {
+      await seekToStep(page, step)
+      const damage = await previewDamage(page)
+      if (damage.scratches.length > 0 && damage.specks.filter(({ light }) => !light).length >= 2) {
+        chosen.push({ step, damage })
+      }
+    }
+    expect(chosen, 'two steps with a scratch and dark dust').toHaveLength(2)
+
+    const reports = []
+    for (const { step, damage } of chosen) {
+      await seekToStep(page, step)
+      await expect
+        .poll(() => page.getByTestId('preview-image').evaluate((element) => (element as HTMLImageElement).complete))
+        .toBe(true)
+      const shot = await page
+        .getByTestId('preview-frame')
+        .screenshot({ path: testInfo.outputPath(`old-film-damage-preview-${step}.png`) })
+      await testInfo.attach(`preview, step ${step}`, { body: shot, contentType: 'image/png' })
+      const saved = await savedFrame(page)
+      await testInfo.attach(`saved frame, step ${step}`, { body: saved, contentType: 'image/png' })
+      const preview = await damageOfPng(page, shot, damage)
+      const savedDamage = await damageOfPng(page, saved, damage)
+      reports.push({ step, damage, preview, saved: savedDamage })
+    }
+    console.log(`[${testInfo.project.name}] old film scratches and dust: ${JSON.stringify(reports)}`)
+
+    for (const { step, damage, preview, saved } of reports) {
+      damage.scratches.forEach((x, index) => {
+        const where = `step ${step}, scratch at ${x.toFixed(4)}`
+        expect(preview.scratches[index], `${where}: preview`).toBeGreaterThan(SCRATCH_SEEN)
+        expect(saved.scratches[index], `${where}: saved frame`).toBeGreaterThan(SCRATCH_SEEN)
+        expect(Math.abs(preview.scratches[index] - saved.scratches[index]), `${where}: preview vs saved`).toBeLessThan(
+          SCRATCH_TOLERANCE,
+        )
+      })
+      damage.specks.forEach(({ x, y, light }, index) => {
+        const where = `step ${step}, ${light ? 'light' : 'dark'} speck at ${x.toFixed(4)}, ${y.toFixed(4)}`
+        if (!light) {
+          expect(preview.specks[index], `${where}: preview`).toBeLessThan(-DUST_SEEN)
+          expect(saved.specks[index], `${where}: saved frame`).toBeLessThan(-DUST_SEEN)
+        }
+        expect(Math.abs(preview.specks[index] - saved.specks[index]), `${where}: preview vs saved`).toBeLessThan(
+          DAMAGE_TOLERANCE,
+        )
+      })
+    }
+  })
+
+  test("on the outgoing clip of a crossfade, a scratch fades with its clip in the preview and in a saved frame", async ({
+    page,
+  }, testInfo) => {
+    // As the outgoing-grain test: two black stills crossfading from 1 s to
+    // 2 s, the first with Old film over its whole length. On black the tone
+    // and the flicker change nothing, so a scratch's column is the scratch
+    // alone, and at the crossfade's middle the preview shows it at about
+    // half its strength. An export drawing it undimmed would show it whole.
+    test.setTimeout(120_000)
+    await gotoForSaving(page)
+    const black = await makePlain(page, 0)
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: black }])
+    for (const position of [1, 2]) {
+      await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+      const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position ${position} in seconds` })
+      await duration.fill('2')
+      await duration.blur()
+    }
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    await expect(page.getByTestId('timeline-total')).toHaveText('0:03')
+    const project = await saveWithEffects(page, ([outgoing]) => [
+      { id: 'o1', entryId: outgoing, type: 'old-film', start: 0, end: 2, params: { amount: 100 } },
+    ])
+    await openProject(page, project, black, '0:03')
+
+    // The step nearest the crossfade's middle with a scratch, and one before the crossfade.
+    const findStep = async (steps: number[]) => {
+      for (const step of steps) {
+        await seekToStep(page, step)
+        const damage = await previewDamage(page)
+        if (damage.scratches.length > 0) return { step, damage }
+      }
+      throw new Error(`no scratch in steps ${steps.join(', ')}`)
+    }
+    const measured: Record<string, { step: number; full: number[]; preview: number[]; saved: number[] }> = {}
+    for (const [label, steps] of [
+      ['before', [12, 13, 11, 14, 10, 15, 9, 16]],
+      ['middle', [36, 35, 37, 34, 38, 33, 39]],
+    ] as const) {
+      const { step, damage } = await findStep([...steps])
+      await seekToStep(page, step)
+      for (const image of label === 'middle' ? ['preview-image', 'preview-image-incoming'] : ['preview-image']) {
+        await expect
+          .poll(() => page.getByTestId(image).evaluate((element) => (element as HTMLImageElement).complete))
+          .toBe(true)
+      }
+      const shot = await page.getByTestId('preview-frame').screenshot()
+      await testInfo.attach(`preview, ${label} (step ${step})`, { body: shot, contentType: 'image/png' })
+      const saved = await savedFrame(page)
+      await testInfo.attach(`saved frame, ${label} (step ${step})`, { body: saved, contentType: 'image/png' })
+      measured[label] = {
+        step,
+        // What each scratch adds over black at full opacity: its mean alpha
+        // of white, over its 2 px of a 1080p frame.
+        full: damage.scratchAlphas.map((alpha) => alpha * 255 * 2),
+        preview: (await damageOfPng(page, shot, damage)).scratches,
+        saved: (await damageOfPng(page, saved, damage)).scratches,
+      }
+    }
+    console.log(`[${testInfo.project.name}] outgoing old film scratches over black: ${JSON.stringify(measured)}`)
+
+    // Before the crossfade a scratch shows whole; at its middle the
+    // outgoing card is at about half opacity, and the scratch with it.
+    for (const [label, low, high] of [
+      ['before', 0.8, 1.2],
+      ['middle', 0.3, 0.7],
+    ] as const) {
+      const { full, preview, saved } = measured[label]
+      preview.forEach((value, index) => {
+        expect(value / full[index], `${label}: the scratch's share in the preview`).toBeGreaterThan(low)
+        expect(value / full[index], `${label}: the scratch's share in the preview`).toBeLessThan(high)
+        expect(Math.abs(value - saved[index]) / full[index], `${label}: preview vs saved frame`).toBeLessThan(
+          SCRATCH_FADE_TOLERANCE,
+        )
+      })
+    }
+  })
+})
+
 test.describe('Visual effects plugin (#862)', () => {
   test('a project with a vignette and a blur prompts for the plugin, and the preview draws both in their windows', async ({
     page,

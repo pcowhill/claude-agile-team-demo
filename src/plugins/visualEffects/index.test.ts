@@ -98,7 +98,7 @@ describe('Visual effects plugin (#862)', () => {
     expect(seedAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toBe(51)
   })
 
-  it('Old film is sepia, a flickering brightness and a fine grain, all scaled by Amount and the weight (#870)', () => {
+  it('Old film is sepia, a flickering brightness, a fine grain, scratches and dust, all scaled by Amount and the weight (#870)', () => {
     const oldFilm = visualEffectDefinitions[3]
     const look = oldFilm.look({ amount: 100 }, 1, 2.1)
     expect(look.filters).toEqual([
@@ -107,19 +107,23 @@ describe('Visual effects plugin (#862)', () => {
     ])
     expect(look.layers).toEqual([
       { kind: 'grain', amount: OLD_FILM.grain, cell: OLD_FILM.grainSize / GRAIN_REFERENCE_WIDTH, seed: 50 },
+      { kind: 'scratches', amount: OLD_FILM.scratches, seed: 50 },
+      { kind: 'dust', amount: OLD_FILM.dust, seed: 50 },
     ])
     // Half the Amount at half the weight is a quarter of everything.
     const quarter = oldFilm.look({ amount: 50 }, 0.5, 2.1)
     expect(quarter.filters[0]).toEqual({ kind: 'sepia', amount: OLD_FILM.sepia / 4 })
     expect(quarter.filters[1]).toEqual({ kind: 'brightness', amount: oldFilmBrightness(2.1, OLD_FILM.flicker / 4) })
     expect(quarter.layers[0]).toMatchObject({ amount: OLD_FILM.grain / 4 })
+    expect(quarter.layers[1]).toMatchObject({ kind: 'scratches', amount: OLD_FILM.scratches / 4 })
+    expect(quarter.layers[2]).toMatchObject({ kind: 'dust', amount: OLD_FILM.dust / 4 })
     // Weight 0 changes nothing: no sepia, brightness 1, grain of no strength.
     const none = oldFilm.look({ amount: 100 }, 0, 2.1)
     expect(none.filters).toEqual([
       { kind: 'sepia', amount: 0 },
       { kind: 'brightness', amount: 1 },
     ])
-    expect(none.layers[0]).toMatchObject({ amount: 0 })
+    expect(none.layers.map((layer) => (layer as { amount: number }).amount)).toEqual([0, 0, 0])
   })
 
   it("Old film's flicker is a function of the time alone, one value per 1/24 s, within its depth", () => {

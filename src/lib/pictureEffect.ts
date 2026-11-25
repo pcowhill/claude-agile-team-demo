@@ -150,12 +150,26 @@ export type PictureFilter =
  *   pure function of the entry's time. `grainTile` turns it into pixels,
  *   the one tile both renderers stretch over the card (#66).
  *
+ * - `scratches` (#870, Old film): a generated texture of thin, light,
+ *   vertical lines the full height of the frame, a few at most and often
+ *   none, at places and brightnesses `seed` picks; `amount` is the
+ *   brightest scratch's alpha in [0, 1]. `scratchesTile` gives its pixels.
+ *
+ * - `dust` (#870, Old film): a generated texture of a few small specks,
+ *   most dark and some light, at places `seed` picks; `amount` is the
+ *   strongest speck's alpha in [0, 1]. `dustTile` gives its pixels.
+ *
  * A look composes its layers in order, so grain over a vignette is one more
  * entry in the list, not a new mechanism.
  */
 export type PictureLayer =
   | { kind: 'vignette'; strength: number; inner: number }
   | { kind: 'grain'; amount: number; cell: number; seed: number }
+  | { kind: 'scratches'; amount: number; seed: number }
+  | { kind: 'dust'; amount: number; seed: number }
+
+/** The layer kinds that are generated textures, drawn from a `TextureTile`. */
+export type TextureLayer = Extract<PictureLayer, { kind: 'grain' | 'scratches' | 'dust' }>
 
 /**
  * How many distinct patterns a generated texture shows per second of its
@@ -239,6 +253,115 @@ export function grainTile(layer: Extract<PictureLayer, { kind: 'grain' }>, aspec
     }
   }
   return { width, height, data }
+}
+
+/**
+ * How many columns a scratches tile has across: a scratch is one column,
+ * 2 px of a 1080p frame. The tile is short, `SCRATCH_ROWS` down, because a
+ * scratch only varies slowly along its length; the renderer stretches it.
+ */
+export const SCRATCH_COLUMNS = 960
+/** How many rows a scratches tile has down: a scratch's brightness changes every 40 px of a 1080p frame. */
+export const SCRATCH_ROWS = 27
+/** How many scratches a step can show at most. Each appears with `SCRATCH_CHANCE`, so most steps show none or one. */
+export const MAX_SCRATCHES = 3
+/** The chance that each of a step's `MAX_SCRATCHES` candidates shows. */
+export const SCRATCH_CHANCE = 0.3
+
+/**
+ * A scratches layer's tile for a frame of `aspect`: `SCRATCH_COLUMNS` ×
+ * `SCRATCH_ROWS`, transparent but for up to `MAX_SCRATCHES` white columns.
+ * Each candidate scratch shows when its hash falls under `SCRATCH_CHANCE`;
+ * its column and its peak alpha (half to all of `amount`) come from further
+ * hashes, and its alpha along its length wavers between 40 % and 100 % of
+ * that peak, row by row. Every hash takes the layer's `seed` with cells no
+ * grain tile reaches (negative x), so the scratches are independent of the
+ * grain at the same step. `aspect` is unused: a scratch spans the frame's
+ * height whatever its shape. It is taken so every texture tile has one
+ * signature.
+ */
+export function scratchesTile(layer: Extract<PictureLayer, { kind: 'scratches' }>, _aspect: number): TextureTile {
+  const width = SCRATCH_COLUMNS
+  const height = SCRATCH_ROWS
+  const data = new Uint8ClampedArray(width * height * 4)
+  const amount = clamp(layer.amount, 0, 1)
+  if (amount === 0) return { width, height, data }
+  for (let scratch = 0; scratch < MAX_SCRATCHES; scratch++) {
+    const x = -100 - scratch
+    if (textureHash(layer.seed, x, -1) >= SCRATCH_CHANCE) continue
+    const column = Math.min(width - 1, Math.floor(textureHash(layer.seed, x, -2) * width))
+    const peak = amount * (0.5 + 0.5 * textureHash(layer.seed, x, -3))
+    for (let row = 0; row < height; row++) {
+      const index = (row * width + column) * 4
+      const alpha = Math.round(peak * (0.4 + 0.6 * textureHash(layer.seed, x, row)) * 255)
+      // Two scratches on one column keep the brighter.
+      if (alpha <= data[index + 3]) continue
+      data[index] = 255
+      data[index + 1] = 255
+      data[index + 2] = 255
+      data[index + 3] = alpha
+    }
+  }
+  return { width, height, data }
+}
+
+/** How many columns a dust tile has across: a speck is one cell, 4 px of a 1080p frame, softened by the stretch. */
+export const DUST_COLUMNS = 480
+/** How many specks a step can show at most. The count is uniform from none to this. */
+export const MAX_DUST = 6
+/** The share of specks that are light rather than dark. */
+export const DUST_LIGHT_SHARE = 0.25
+
+/**
+ * A dust layer's tile for a frame of `aspect`: `DUST_COLUMNS` across and as
+ * many rows as the aspect gives, transparent but for none to `MAX_DUST`
+ * specks. Each speck's cell, shade (black, or white for `DUST_LIGHT_SHARE`
+ * of them) and alpha (60 % to 100 % of `amount`) come from hashes of the
+ * layer's `seed` at cells no grain tile reaches, so the dust is independent
+ * of the grain and the scratches.
+ */
+export function dustTile(layer: Extract<PictureLayer, { kind: 'dust' }>, aspect: number): TextureTile {
+  const width = DUST_COLUMNS
+  const height = Math.max(1, Math.round(width / (aspect > 0 && Number.isFinite(aspect) ? aspect : 16 / 9)))
+  const data = new Uint8ClampedArray(width * height * 4)
+  const amount = clamp(layer.amount, 0, 1)
+  if (amount === 0) return { width, height, data }
+  const count = Math.min(MAX_DUST, Math.floor(textureHash(layer.seed, -200, -1) * (MAX_DUST + 1)))
+  for (let speck = 0; speck < count; speck++) {
+    const x = -201 - speck
+    const column = Math.min(width - 1, Math.floor(textureHash(layer.seed, x, -1) * width))
+    const row = Math.min(height - 1, Math.floor(textureHash(layer.seed, x, -2) * height))
+    const shade = textureHash(layer.seed, x, -3) < DUST_LIGHT_SHARE ? 255 : 0
+    const alpha = Math.round(amount * (0.6 + 0.4 * textureHash(layer.seed, x, -4)) * 255)
+    const index = (row * width + column) * 4
+    data[index] = shade
+    data[index + 1] = shade
+    data[index + 2] = shade
+    data[index + 3] = alpha
+  }
+  return { width, height, data }
+}
+
+/** A texture layer's tile for a frame of `aspect`, whichever kind it is: what both renderers stretch over the card. */
+export function textureTile(layer: TextureLayer, aspect: number): TextureTile {
+  switch (layer.kind) {
+    case 'grain':
+      return grainTile(layer, aspect)
+    case 'scratches':
+      return scratchesTile(layer, aspect)
+    case 'dust':
+      return dustTile(layer, aspect)
+  }
+}
+
+/**
+ * A key that changes exactly when a texture layer's tile does, for a
+ * renderer that keeps the last tile it drew.
+ */
+export function textureTileKey(layer: TextureLayer, aspect: number): string {
+  return layer.kind === 'grain'
+    ? `grain:${layer.seed}:${layer.amount}:${layer.cell}:${aspect}`
+    : `${layer.kind}:${layer.seed}:${layer.amount}:${aspect}`
 }
 
 /** What an entry's effects do to its picture at one instant. */

@@ -100,8 +100,8 @@ import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
-import { grainTile, NO_PICTURE_LOOK, pictureEffectRegistry, vignetteStops } from '../lib/pictureEffect'
-import type { PictureLayer, PictureLook } from '../lib/pictureEffect'
+import { NO_PICTURE_LOOK, pictureEffectRegistry, textureTile, textureTileKey, vignetteStops } from '../lib/pictureEffect'
+import type { PictureLook, TextureLayer } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -452,9 +452,9 @@ function withPictureFilters(
  * - a vignette is a CSS radial gradient on an ellipse of the card's aspect
  *   through its corners (`farthest-corner`), with the stops the export's
  *   canvas gradient takes from the same `vignetteStops`;
- * - grain (#870) is a canvas holding `grainTile`'s tile for the frame's
- *   `aspect`, stretched over the box with smoothing, as the export
- *   stretches the same tile over its card.
+ * - grain, scratches and dust (#870) are each a canvas holding their
+ *   `textureTile` for the frame's `aspect`, stretched over the box with
+ *   smoothing, as the export stretches the same tile over its card.
  */
 function PictureLayers({
   look,
@@ -482,8 +482,8 @@ function PictureLayers({
       }}
     >
       {look.layers.map((layer, index) =>
-        layer.kind === 'grain' ? (
-          <GrainLayer key={index} layer={layer} aspect={aspect} />
+        layer.kind !== 'vignette' ? (
+          <TextureLayerCanvas key={index} layer={layer} aspect={aspect} />
         ) : (
           <div
             key={index}
@@ -500,14 +500,18 @@ function PictureLayers({
 }
 
 /**
- * A grain layer (#870): a canvas one pixel per grain cell, painted with
+ * A texture layer (#870): a canvas one pixel per tile cell, painted with
  * the tile for its step. `data-seed` names the step drawn, so a test can
- * wait for the step a seek publishes rather than read the canvas once.
+ * wait for the step a seek publishes rather than read the canvas once. Its
+ * test id names the kind: `preview-picture-grain`, `-scratches`, `-dust`.
  */
-function GrainLayer({ layer, aspect }: { layer: Extract<PictureLayer, { kind: 'grain' }>; aspect: number }) {
+function TextureLayerCanvas({ layer, aspect }: { layer: TextureLayer; aspect: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
-  const { seed, amount, cell } = layer
-  const tile = useMemo(() => grainTile({ kind: 'grain', seed, amount, cell }, aspect), [seed, amount, cell, aspect])
+  const key = textureTileKey(layer, aspect)
+  // The look is rebuilt every render, so the tile is keyed on what it is
+  // made from (`key` covers every input), not on the layer object.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tile = useMemo(() => textureTile(layer, aspect), [key])
   useLayoutEffect(() => {
     const context = ref.current?.getContext('2d')
     if (!context) return
@@ -518,8 +522,8 @@ function GrainLayer({ layer, aspect }: { layer: Extract<PictureLayer, { kind: 'g
       ref={ref}
       width={tile.width}
       height={tile.height}
-      data-testid="preview-picture-grain"
-      data-seed={seed}
+      data-testid={`preview-picture-${layer.kind}`}
+      data-seed={layer.seed}
     />
   )
 }
