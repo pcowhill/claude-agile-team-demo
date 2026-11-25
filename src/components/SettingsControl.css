@@ -3,31 +3,18 @@
 
 .settings-dialog {
   max-width: 30rem;
-  /* The overlay is `position: fixed`, so anything taller than the viewport
-     cannot be scrolled to — a dialog that outgrows the window would put its
-     own Close button out of reach. No other dialog in the app is long
-     enough for that to matter; this one already has five rows and is the
-     surface future preferences get added to, so it caps itself here.
-     A column flex box, so the *rows* take the overflow (below) while the
-     heading and Close stay put: at 800x420 the button was otherwise below
-     the fold, and a user who does not think to scroll inside a dialog
-     cannot dismiss it. Found by looking at a screenshot, which is what
-     #346 asks for. The browser spec asserts both the fit and the button. */
-  max-height: calc(100vh - 2rem);
-  display: flex;
-  flex-direction: column;
 }
 
+/* The rows scroll inside the dialog once they outgrow the window, with the
+   heading and Close kept in place: #346 found Close below the fold at
+   800x420 and capped this dialog first. Since #948 every dialog does that
+   through the shared `.dialog-body` (dialog.css), which holds the intro
+   and these rows, so this list no longer carries its own cap. */
 .settings-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   margin: 0 0 1rem;
-  /* Takes the dialog's slack and scrolls when there is not enough; the
-     `min-height: 0` is what lets a flex item shrink below its content. */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .settings-row {

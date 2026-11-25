@@ -2773,30 +2773,32 @@ function PasteSettingsDialog({ name, groups, onCancel, onApply }: PasteSettingsD
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Paste settings onto {name}?</h3>
-        {groups.length === 0 ? (
-          <p>None of the copied settings apply to this element.</p>
-        ) : (
-          <>
-            <p>Only the checked settings are applied, as one undoable edit.</p>
-            <div className="paste-settings-groups">
-              {SETTINGS_GROUPS.filter(({ id }) => groups.includes(id)).map(({ id, label }) => (
-                <label key={id}>
-                  <input
-                    type="checkbox"
-                    checked={chosen.has(id)}
-                    onChange={(event) => {
-                      const next = new Set(chosen)
-                      if (event.target.checked) next.add(id)
-                      else next.delete(id)
-                      setChosen(next)
-                    }}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </>
-        )}
+        <div className="dialog-body">
+          {groups.length === 0 ? (
+            <p>None of the copied settings apply to this element.</p>
+          ) : (
+            <>
+              <p>Only the checked settings are applied, as one undoable edit.</p>
+              <div className="paste-settings-groups">
+                {SETTINGS_GROUPS.filter(({ id }) => groups.includes(id)).map(({ id, label }) => (
+                  <label key={id}>
+                    <input
+                      type="checkbox"
+                      checked={chosen.has(id)}
+                      onChange={(event) => {
+                        const next = new Set(chosen)
+                        if (event.target.checked) next.add(id)
+                        else next.delete(id)
+                        setChosen(next)
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <div className="dialog-actions">
           <button type="button" ref={cancelRef} onClick={onCancel}>
             Cancel

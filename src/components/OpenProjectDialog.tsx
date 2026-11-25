@@ -128,44 +128,46 @@ export function OpenProjectDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Open {fileName}</h3>
-        <p>
-          Project files store references to your media, not the media itself. Re-select the
-          original files to link them back up; each is matched by filename and duration (images
-          by filename and dimensions).
-        </p>
-        <ul className="relink-list" aria-label="Project media">
-          {project.clips.map((clip) => (
-            <li key={clip.id} className="relink-item">
-              <span className="clip-name" title={clip.name}>
-                {clip.name}
-              </span>
-              {/* A renamed clip (#404) names the file it wants, since the
-                  display name is not what is on disk. */}
-              {clip.fileName !== undefined && clip.fileName !== clip.name && (
-                <span className="relink-file-name" title={`File: ${clip.fileName}`}>
-                  ({clip.fileName})
+        <div className="dialog-body">
+          <p>
+            Project files store references to your media, not the media itself. Re-select the
+            original files to link them back up; each is matched by filename and duration (images
+            by filename and dimensions).
+          </p>
+          <ul className="relink-list" aria-label="Project media">
+            {project.clips.map((clip) => (
+              <li key={clip.id} className="relink-item">
+                <span className="clip-name" title={clip.name}>
+                  {clip.name}
                 </span>
-              )}
-              {clip.kind !== 'video' && (
-                <span className="clip-kind">{clip.kind === 'audio' ? 'Audio' : 'Image'}</span>
-              )}
-              {/* An image has no duration to show (#137). */}
-              <span className="clip-duration">
-                {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
-              </span>
-              <span className={links.has(clip.id) ? 'relink-linked' : 'relink-missing'}>
-                {links.has(clip.id) ? 'Linked ✓' : 'Missing'}
-              </span>
-            </li>
-          ))}
-        </ul>
-        {problems.length > 0 && (
-          <ul className="relink-problems" role="alert">
-            {problems.map((problem, index) => (
-              <li key={index}>{problem}</li>
+                {/* A renamed clip (#404) names the file it wants, since the
+                    display name is not what is on disk. */}
+                {clip.fileName !== undefined && clip.fileName !== clip.name && (
+                  <span className="relink-file-name" title={`File: ${clip.fileName}`}>
+                    ({clip.fileName})
+                  </span>
+                )}
+                {clip.kind !== 'video' && (
+                  <span className="clip-kind">{clip.kind === 'audio' ? 'Audio' : 'Image'}</span>
+                )}
+                {/* An image has no duration to show (#137). */}
+                <span className="clip-duration">
+                  {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
+                </span>
+                <span className={links.has(clip.id) ? 'relink-linked' : 'relink-missing'}>
+                  {links.has(clip.id) ? 'Linked ✓' : 'Missing'}
+                </span>
+              </li>
             ))}
           </ul>
-        )}
+          {problems.length > 0 && (
+            <ul className="relink-problems" role="alert">
+              {problems.map((problem, index) => (
+                <li key={index}>{problem}</li>
+              ))}
+            </ul>
+          )}
+        </div>
         <div className="dialog-actions">
           <button type="button" ref={chooseRef} disabled={probing} onClick={() => inputRef.current?.click()}>
             Choose media files…

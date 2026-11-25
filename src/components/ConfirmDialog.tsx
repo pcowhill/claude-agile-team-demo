@@ -47,7 +47,9 @@ export function ConfirmDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>{title}</h3>
-        <p>{body}</p>
+        <div className="dialog-body">
+          <p>{body}</p>
+        </div>
         <div className="dialog-actions">
           <button type="button" ref={cancelRef} onClick={onCancel}>
             Cancel

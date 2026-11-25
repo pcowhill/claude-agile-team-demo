@@ -257,8 +257,14 @@ test('Resume from the chapter a run stopped at writes only the missing files, as
   for (const width of [1280, 800]) {
     await page.setViewportSize({ width, height: 720 })
     const where = `the stopped run at ${width}px`
+    // Each measured where a user sees it, scrolled to: since #948 the
+    // dialog caps at the window and its body scrolls, so a part below the
+    // body's fold is outside the dialog's box by design.
+    await resume.scrollIntoViewIfNeeded()
     await expectWithin(resume, dialog(page), { what: `Resume ${where}` })
+    await stopped.scrollIntoViewIfNeeded()
     await expectWithin(stopped, dialog(page), { what: `the stopped line ${where}` })
+    await results(page).scrollIntoViewIfNeeded()
     await expectWithin(results(page), dialog(page), { what: `the completion block ${where}` })
     expect(
       await resume.evaluate((node) => node.scrollWidth <= node.clientWidth),
@@ -362,7 +368,9 @@ test('the completion list lays out inside the dialog at both widths (#529)', asy
     // against the *list* rather than the dialog because the list scrolls
     // internally past a few long names — a row below its fold is out of the
     // dialog's box by design, so asserting otherwise would be asserting the
-    // cap away.
+    // cap away. The block is scrolled to first for the same reason one
+    // level up: since #948 the dialog's own body scrolls too.
+    await results(page).scrollIntoViewIfNeeded()
     await expectWithin(results(page), dialog(page), { what: `the completion block ${where}` })
     await expectWithin(list, dialog(page), { what: `the completion list ${where}` })
     for (let index = 0; index < CHAPTERS.length; index += 1) {

@@ -372,36 +372,18 @@ export function TrimDialog({
           </button>
         </div>
 
-        {audioOnly ? (
-          // An audio track (#711): no picture, so no preview box. The element
-          // has no controls and so takes no room; the window's own buttons
-          // play it.
-          <audio
-            ref={videoRef as RefObject<HTMLAudioElement>}
-            data-testid="trim-audio"
-            src={url}
-            preload="auto"
-            // As the video's, below: a seek made before the data is there is
-            // applied again once it is.
-            onLoadedData={(event) => {
-              if (!playing) event.currentTarget.currentTime = timeRef.current
-            }}
-            onEnded={() => {
-              if (!loopRef.current) setPlaying(false)
-            }}
-          />
-        ) : (
-          <div className="trim-preview">
-            <video
-              ref={videoRef as RefObject<HTMLVideoElement>}
-              className="trim-video"
-              data-testid="trim-video"
+        <div className="dialog-body">
+          {audioOnly ? (
+            // An audio track (#711): no picture, so no preview box. The element
+            // has no controls and so takes no room; the window's own buttons
+            // play it.
+            <audio
+              ref={videoRef as RefObject<HTMLAudioElement>}
+              data-testid="trim-audio"
               src={url}
-              playsInline
               preload="auto"
-              // Firefox drops a seek made while an element has only its
-              // metadata (#615), so the playhead is applied again once the
-              // first frame is there.
+              // As the video's, below: a seek made before the data is there is
+              // applied again once it is.
               onLoadedData={(event) => {
                 if (!playing) event.currentTarget.currentTime = timeRef.current
               }}
@@ -409,171 +391,191 @@ export function TrimDialog({
                 if (!loopRef.current) setPlaying(false)
               }}
             />
-          </div>
-        )}
-        <p className="trim-position" data-testid="trim-position">
-          <output aria-label="Trim window playhead">{formatTrimTime(time)}</output> /{' '}
-          {formatTrimTime(duration)}
-        </p>
-
-        {/* The whole source, left to right: its waveform, the parts outside
-            the clamps dimmed, the clamps, and the playhead. A press on the
-            bare strip moves the playhead; a press on a clamp drags it. */}
-        <div
-          ref={stripRef}
-          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
-          data-testid="trim-strip"
-          onPointerDown={beginDrag('playhead')}
-          onPointerMove={onStripPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          <StripPicture
-            url={url}
-            duration={duration}
-            audioOnly={audioOnly}
-            peaksFor={peaksFor}
-            framesFor={framesFor}
-          />
-          <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
-          <div
-            className="trim-strip-dim"
-            style={{ left: outAt, right: 0 }}
-            aria-hidden="true"
-          />
-          {/* The span a transition at either end will cover (#709), at the
-              clamps: hatched, over the dimming, under the clamps. */}
-          {effects?.transitions.map((span) => (
-            <div
-              key={span.edge}
-              className="trim-strip-transition"
-              data-testid={`trim-transition-${span.edge}`}
-              title={span.edge === 'start' ? 'Covered by the transition into this clip' : 'Covered by the transition out of this clip'}
-              style={{ left: percent(span.start), width: `calc(${percent(span.end)} - ${percent(span.start)})` }}
-            />
-          ))}
-          {/* The entry's effects where Apply would leave them (#709): a bar
-              for a zoom or a speed segment, a tick for a pause. */}
-          {effects?.marks.map((mark) => (
-            <div
-              key={mark.id}
-              className={`trim-effect-mark trim-effect-${mark.kind}`}
-              data-testid="trim-effect-mark"
-              data-kind={mark.kind}
-              title={mark.name}
-              style={
-                mark.kind === 'pause'
-                  ? { left: percent(mark.start) }
-                  : { left: percent(mark.start), width: `calc(${percent(mark.end)} - ${percent(mark.start)})` }
-              }
-            />
-          ))}
-          <div
-            className="trim-strip-kept"
-            data-testid="trim-kept"
-            style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
-            aria-hidden="true"
-          />
-          <div
-            className="trim-playhead"
-            data-testid="trim-playhead"
-            style={{ left: percent(time) }}
-            aria-hidden="true"
-          />
-          {(['in', 'out'] as const).map((which) => {
-            const at = which === 'in' ? range.inPoint : range.outPoint
-            return (
-              <div
-                key={which}
-                role="slider"
-                tabIndex={0}
-                className={`trim-clamp trim-clamp-${which}`}
-                data-testid={`trim-clamp-${which}`}
-                aria-label={which === 'in' ? 'In clamp' : 'Out clamp'}
-                aria-valuemin={which === 'in' ? 0 : clampOut(0, range, duration)}
-                aria-valuemax={which === 'in' ? clampIn(duration, range, duration) : duration}
-                aria-valuenow={at}
-                aria-valuetext={`${formatTrimTime(at)} into the clip`}
-                style={{ left: percent(at) }}
-                onPointerDown={beginDrag(which)}
-                onKeyDown={clampKeys(which)}
-              >
-                <span aria-hidden="true">{which === 'in' ? '[' : ']'}</span>
-              </div>
-            )
-          })}
-        </div>
-        <div className="trim-strip-labels" aria-hidden="true">
-          <span>In {formatTrimTime(range.inPoint)}</span>
-          <span>Out {formatTrimTime(range.outPoint)}</span>
-        </div>
-        {/* Live, and present while empty, so a screen reader hears the
-            warning arrive as a clamp moves into an effect (#709). */}
-        {effects !== null && (
-          <p className="trim-warning" role="status" data-testid="trim-warning">
-            {warning}
+          ) : (
+            <div className="trim-preview">
+              <video
+                ref={videoRef as RefObject<HTMLVideoElement>}
+                className="trim-video"
+                data-testid="trim-video"
+                src={url}
+                playsInline
+                preload="auto"
+                // Firefox drops a seek made while an element has only its
+                // metadata (#615), so the playhead is applied again once the
+                // first frame is there.
+                onLoadedData={(event) => {
+                  if (!playing) event.currentTarget.currentTime = timeRef.current
+                }}
+                onEnded={() => {
+                  if (!loopRef.current) setPlaying(false)
+                }}
+              />
+            </div>
+          )}
+          <p className="trim-position" data-testid="trim-position">
+            <output aria-label="Trim window playhead">{formatTrimTime(time)}</output> /{' '}
+            {formatTrimTime(duration)}
           </p>
-        )}
 
-        <div className="trim-transport" role="group" aria-label="Trim playback">
-          <button type="button" title="Jump the playhead to In" onClick={() => seek(range.inPoint)}>
-            ⏮ In
-          </button>
-          {/* An audio track has no frames to step by (#711). */}
-          {!audioOnly && (
+          {/* The whole source, left to right: its waveform, the parts outside
+              the clamps dimmed, the clamps, and the playhead. A press on the
+              bare strip moves the playhead; a press on a clamp drags it. */}
+          <div
+            ref={stripRef}
+            className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
+            data-testid="trim-strip"
+            onPointerDown={beginDrag('playhead')}
+            onPointerMove={onStripPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            <StripPicture
+              url={url}
+              duration={duration}
+              audioOnly={audioOnly}
+              peaksFor={peaksFor}
+              framesFor={framesFor}
+            />
+            <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
+            <div
+              className="trim-strip-dim"
+              style={{ left: outAt, right: 0 }}
+              aria-hidden="true"
+            />
+            {/* The span a transition at either end will cover (#709), at the
+                clamps: hatched, over the dimming, under the clamps. */}
+            {effects?.transitions.map((span) => (
+              <div
+                key={span.edge}
+                className="trim-strip-transition"
+                data-testid={`trim-transition-${span.edge}`}
+                title={span.edge === 'start' ? 'Covered by the transition into this clip' : 'Covered by the transition out of this clip'}
+                style={{ left: percent(span.start), width: `calc(${percent(span.end)} - ${percent(span.start)})` }}
+              />
+            ))}
+            {/* The entry's effects where Apply would leave them (#709): a bar
+                for a zoom or a speed segment, a tick for a pause. */}
+            {effects?.marks.map((mark) => (
+              <div
+                key={mark.id}
+                className={`trim-effect-mark trim-effect-${mark.kind}`}
+                data-testid="trim-effect-mark"
+                data-kind={mark.kind}
+                title={mark.name}
+                style={
+                  mark.kind === 'pause'
+                    ? { left: percent(mark.start) }
+                    : { left: percent(mark.start), width: `calc(${percent(mark.end)} - ${percent(mark.start)})` }
+                }
+              />
+            ))}
+            <div
+              className="trim-strip-kept"
+              data-testid="trim-kept"
+              style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
+              aria-hidden="true"
+            />
+            <div
+              className="trim-playhead"
+              data-testid="trim-playhead"
+              style={{ left: percent(time) }}
+              aria-hidden="true"
+            />
+            {(['in', 'out'] as const).map((which) => {
+              const at = which === 'in' ? range.inPoint : range.outPoint
+              return (
+                <div
+                  key={which}
+                  role="slider"
+                  tabIndex={0}
+                  className={`trim-clamp trim-clamp-${which}`}
+                  data-testid={`trim-clamp-${which}`}
+                  aria-label={which === 'in' ? 'In clamp' : 'Out clamp'}
+                  aria-valuemin={which === 'in' ? 0 : clampOut(0, range, duration)}
+                  aria-valuemax={which === 'in' ? clampIn(duration, range, duration) : duration}
+                  aria-valuenow={at}
+                  aria-valuetext={`${formatTrimTime(at)} into the clip`}
+                  style={{ left: percent(at) }}
+                  onPointerDown={beginDrag(which)}
+                  onKeyDown={clampKeys(which)}
+                >
+                  <span aria-hidden="true">{which === 'in' ? '[' : ']'}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="trim-strip-labels" aria-hidden="true">
+            <span>In {formatTrimTime(range.inPoint)}</span>
+            <span>Out {formatTrimTime(range.outPoint)}</span>
+          </div>
+          {/* Live, and present while empty, so a screen reader hears the
+              warning arrive as a clamp moves into an effect (#709). */}
+          {effects !== null && (
+            <p className="trim-warning" role="status" data-testid="trim-warning">
+              {warning}
+            </p>
+          )}
+
+          <div className="trim-transport" role="group" aria-label="Trim playback">
+            <button type="button" title="Jump the playhead to In" onClick={() => seek(range.inPoint)}>
+              ⏮ In
+            </button>
+            {/* An audio track has no frames to step by (#711). */}
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Back one frame"
+                title="Back one frame"
+                onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+              >
+                ◀ frame
+              </button>
+            )}
             <button
               type="button"
-              aria-label="Back one frame"
-              title="Back one frame"
-              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+              className="trim-play"
+              aria-label={playing ? 'Pause' : 'Play trim'}
+              title={playing ? 'Pause (Space)' : 'Play from In to Out (Space)'}
+              onClick={togglePlay}
             >
-              ◀ frame
+              {playing ? '⏸ Pause' : '▶ Play trim'}
             </button>
-          )}
-          <button
-            type="button"
-            className="trim-play"
-            aria-label={playing ? 'Pause' : 'Play trim'}
-            title={playing ? 'Pause (Space)' : 'Play from In to Out (Space)'}
-            onClick={togglePlay}
-          >
-            {playing ? '⏸ Pause' : '▶ Play trim'}
-          </button>
-          {/* As ◀ frame: not for an audio track (#711). */}
-          {!audioOnly && (
+            {/* As ◀ frame: not for an audio track (#711). */}
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Forward one frame"
+                title="Forward one frame"
+                onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              >
+                frame ▶
+              </button>
+            )}
+            <button type="button" title="Jump the playhead to Out" onClick={() => seek(range.outPoint)}>
+              Out ⏭
+            </button>
             <button
               type="button"
-              aria-label="Forward one frame"
-              title="Forward one frame"
-              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              className="trim-loop"
+              aria-pressed={looping}
+              title="Loop: Play trim goes back to In at Out, until you pause it"
+              onClick={() => setLooping((on) => !on)}
             >
-              frame ▶
+              ↻ Loop
             </button>
-          )}
-          <button type="button" title="Jump the playhead to Out" onClick={() => seek(range.outPoint)}>
-            Out ⏭
-          </button>
-          <button
-            type="button"
-            className="trim-loop"
-            aria-pressed={looping}
-            title="Loop: Play trim goes back to In at Out, until you pause it"
-            onClick={() => setLooping((on) => !on)}
-          >
-            ↻ Loop
-          </button>
-        </div>
+          </div>
 
-        <div className="trim-set">
-          <button type="button" title="Move the In clamp to the playhead (I)" onClick={setInHere}>
-            Set In here (I)
-          </button>
-          <span className="trim-kept-length" data-testid="trim-kept-length">
-            kept {formatTrimTime(keptLength(range))}
-          </span>
-          <button type="button" title="Move the Out clamp to the playhead (O)" onClick={setOutHere}>
-            Set Out here (O)
-          </button>
+          <div className="trim-set">
+            <button type="button" title="Move the In clamp to the playhead (I)" onClick={setInHere}>
+              Set In here (I)
+            </button>
+            <span className="trim-kept-length" data-testid="trim-kept-length">
+              kept {formatTrimTime(keptLength(range))}
+            </span>
+            <button type="button" title="Move the Out clamp to the playhead (O)" onClick={setOutHere}>
+              Set Out here (O)
+            </button>
+          </div>
         </div>
 
         <div className="trim-footer">

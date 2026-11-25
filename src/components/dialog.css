@@ -1,4 +1,4 @@
-/* Shared modal idiom: ConfirmDialog and the open-project re-link dialog. */
+/* Shared modal idiom: every dialog that opens over `.dialog-overlay`. */
 
 .dialog-overlay {
   position: fixed;
@@ -9,11 +9,11 @@
      not — off both ends, with nothing to scroll, so its actions become
      unreachable. `flex-start` plus the child's `margin: auto` centres it the
      same way while free space lasts, and lets it start at the top and scroll
-     once it runs out. The scrollbar sits here rather than inside the dialog,
-     so the dialog's own content width is unchanged and the containment
-     assertions in e2e/export-modal-layout.spec.ts still measure what they
-     did. Latent until the export dialog grew past 720px (#488); that spec
-     pins it. */
+     once it runs out. Latent until the export dialog grew past 720px
+     (#488); e2e/export-modal-layout.spec.ts pins it. Since #948 a dialog
+     caps itself at the window and scrolls its own body (below), so this
+     overlay scrolls only when a window is too short for even a dialog's
+     heading and buttons. */
   align-items: flex-start;
   overflow-y: auto;
   justify-content: center;
@@ -30,6 +30,36 @@
   width: calc(100% - 2rem);
   /* Centres vertically while the overlay has room to spare; see above. */
   margin: auto;
+  /* A dialog never grows past the window (#948): the overlay's 1rem of
+     padding above and below is all it leaves. The heading and the button
+     row keep their place and `.dialog-body`, between them, takes the
+     overflow with its own scrollbar, so Close or Apply is always on
+     screen. A dialog that fits is as tall as it was before: the cap only
+     binds once the content outgrows the window. The Settings dialog did
+     this alone since #346; this is its pattern, for every dialog. `vh`
+     first, for a browser without `dvh`. */
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Only the body shrinks: the heading and the buttons keep their height. */
+.dialog > * {
+  flex-shrink: 0;
+}
+
+/* Everything between a dialog's heading and its buttons (#948). It takes
+   the dialog's slack and scrolls once there is not enough. A flex item
+   that does not overflow visibly already has an automatic minimum height
+   of 0, so it can shrink below its content; `min-height: 0` states it
+   rather than leaving it to that rule. Being a block formatting context
+   of its own, it keeps its last child's bottom margin inside it, so the
+   gap above the buttons is unchanged. */
+.dialog > .dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .dialog h3 {

@@ -555,60 +555,62 @@ export function RecordControl({
             onKeyUp={handleKeyUp}
           >
             <h3 id={headingId}>{heading}</h3>
-            {(capture.kind === 'pair' || SOURCE_LABELS[capture.source].preview) && (
-              // Muted live preview of the capture itself (#225/#226) — the
-              // user sees what records without an audio feedback loop. For a
-              // paired take this is the screen half.
-              <video
-                ref={previewRef}
-                className="record-preview"
-                data-testid="record-preview"
-                muted
-                playsInline
-              />
-            )}
-            {capture.kind === 'pair' && (
-              <>
-                {/* The camera self-view (#388), beside-under the screen. */}
+            <div className="dialog-body">
+              {(capture.kind === 'pair' || SOURCE_LABELS[capture.source].preview) && (
+                // Muted live preview of the capture itself (#225/#226) — the
+                // user sees what records without an audio feedback loop. For a
+                // paired take this is the screen half.
                 <video
-                  ref={cameraPreviewRef}
-                  className="record-preview record-preview-camera"
-                  data-testid="record-preview-camera"
+                  ref={previewRef}
+                  className="record-preview"
+                  data-testid="record-preview"
                   muted
                   playsInline
                 />
-                <p className="record-note">
-                  The microphone records with the camera clip; any tab or system audio stays with
-                  the screen clip. Stopping places the screen on the timeline with the camera as a
-                  corner overlay.
+              )}
+              {capture.kind === 'pair' && (
+                <>
+                  {/* The camera self-view (#388), beside-under the screen. */}
+                  <video
+                    ref={cameraPreviewRef}
+                    className="record-preview record-preview-camera"
+                    data-testid="record-preview-camera"
+                    muted
+                    playsInline
+                  />
+                  <p className="record-note">
+                    The microphone records with the camera clip; any tab or system audio stays with
+                    the screen clip. Stopping places the screen on the timeline with the camera as a
+                    corner overlay.
+                  </p>
+                </>
+              )}
+              {phase === 'countdown' ? (
+                // Assertive, and always in the DOM while counting: each number
+                // is announced as it changes, which a status inserted at the
+                // moment it has something to say is not reliably.
+                <p className="record-status" role="status" aria-live="assertive">
+                  Starting in{' '}
+                  <span className="record-countdown" data-testid="record-countdown">
+                    {countdownLeft}
+                  </span>
+                  …
                 </p>
-              </>
-            )}
-            {phase === 'countdown' ? (
-              // Assertive, and always in the DOM while counting: each number
-              // is announced as it changes, which a status inserted at the
-              // moment it has something to say is not reliably.
-              <p className="record-status" role="status" aria-live="assertive">
-                Starting in{' '}
-                <span className="record-countdown" data-testid="record-countdown">
-                  {countdownLeft}
-                </span>
-                …
-              </p>
-            ) : (
-              <p className="record-status" data-testid="record-phase">
-                <span
-                  className={
-                    phase === 'paused'
-                      ? 'record-indicator record-indicator-paused'
-                      : 'record-indicator'
-                  }
-                  aria-hidden="true"
-                />
-                {phase === 'paused' ? 'Paused' : 'Recording'} —{' '}
-                <span data-testid="record-elapsed">{formatDuration(elapsed)}</span>
-              </p>
-            )}
+              ) : (
+                <p className="record-status" data-testid="record-phase">
+                  <span
+                    className={
+                      phase === 'paused'
+                        ? 'record-indicator record-indicator-paused'
+                        : 'record-indicator'
+                    }
+                    aria-hidden="true"
+                  />
+                  {phase === 'paused' ? 'Paused' : 'Recording'} —{' '}
+                  <span data-testid="record-elapsed">{formatDuration(elapsed)}</span>
+                </p>
+              )}
+            </div>
             <div className="dialog-actions">
               <button type="button" onClick={handleCancel} disabled={stopping}>
                 Cancel

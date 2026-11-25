@@ -211,15 +211,25 @@ test('a dialog taller than the viewport can still be scrolled to its actions (#4
   await page.getByRole('button', { name: 'Export Project…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Export project' })
   await expect(dialog).toBeVisible()
-  const box = await boxOf(dialog)
-  expect(box.height, 'the dialog is taller than the viewport').toBeGreaterThan(400)
+  // Its content is taller than the viewport. Since #948 the dialog caps
+  // itself at the window and scrolls its own body, so the dialog's box no
+  // longer exceeds 400px; its body's content does, which is the overflow
+  // case this test keeps testing.
+  const body = await dialog.locator(':scope > .dialog-body').evaluate((node) => ({
+    scrollHeight: node.scrollHeight,
+    clientHeight: node.clientHeight,
+  }))
+  expect(body.scrollHeight, 'the dialog body overflows the window, so the cap binds').toBeGreaterThan(
+    body.clientHeight,
+  )
 
   // The top is REACHABLE, which is the half `align-items: center` took away:
   // it centred the overflow, putting the dialog's head above the viewport
   // with no scroll to bring it back. Measured on this page before the fix,
   // the top sat at −137px and scrolling the overlay did nothing; it now
-  // lands at the overlay's padding. Opening the dialog focuses Export, which
-  // scrolls the overlay to the bottom, so this scrolls back first.
+  // lands at the overlay's padding. Before #948, opening the dialog focused
+  // Export and scrolled the overlay to the bottom, so this scrolls back
+  // first; with the cap the overlay no longer scrolls, and this is a no-op.
   const top = await dialog.evaluate((node) => {
     const overlay = node.parentElement!
     overlay.scrollTop = 0

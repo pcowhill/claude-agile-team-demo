@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Every key the editor answers to, in one table. It is the same table **Help ▾** › **Keyboard shortcuts…** (or **?**) shows — generated from one list in the code, not written here — so the two can never disagree, and the arrow-key steps read the sizes you chose in [Settings](settings.md#step-sizes-playhead-nudge-and-jump).
+Every key the editor answers to, in one table. It is the same table **Help ▾** › **Keyboard shortcuts…** (or **?**) shows, in a dialog whose rows scroll inside it when they are taller than the window — generated from one list in the code, not written here — so the two can never disagree, and the arrow-key steps read the sizes you chose in [Settings](settings.md#step-sizes-playhead-nudge-and-jump).
 
 ## Every shortcut
 

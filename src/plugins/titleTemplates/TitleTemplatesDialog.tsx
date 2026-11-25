@@ -144,61 +144,63 @@ export function TitleTemplatesDialog({
         onSubmit={submit}
       >
         <h3 id={headingId}>Title template</h3>
-        <fieldset className="title-templates-gallery">
-          <legend>Template</legend>
-          {/* The cards scroll inside the dialog, so the fields and Place stay in view (#868). */}
-          <div className="title-templates-list" data-testid="title-templates-list">
-            {TITLE_TEMPLATES.map((candidate, index) => (
-              <label key={candidate.id} className="title-template-option">
+        <div className="dialog-body">
+          <fieldset className="title-templates-gallery">
+            <legend>Template</legend>
+            {/* The cards scroll inside the dialog, so the fields and Place stay in view (#868). */}
+            <div className="title-templates-list" data-testid="title-templates-list">
+              {TITLE_TEMPLATES.map((candidate, index) => (
+                <label key={candidate.id} className="title-template-option">
+                  <input
+                    ref={index === 0 ? firstRadioRef : undefined}
+                    type="radio"
+                    name="title-template"
+                    value={candidate.id}
+                    checked={candidate.id === template.id}
+                    onChange={() => setTemplateId(candidate.id)}
+                    // Named for the template alone; the line under it describes it.
+                    aria-label={candidate.name}
+                    aria-describedby={`${fieldId}-${candidate.id}-description`}
+                  />
+                  <TemplatePreview
+                    template={candidate}
+                    frameWidth={frame.width}
+                    frameHeight={frame.height}
+                    measure={measure}
+                    templateContext={context}
+                  />
+                  <span className="title-template-name">{candidate.name}</span>
+                  <span id={`${fieldId}-${candidate.id}-description`} className="title-template-description">
+                    {candidate.description}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="title-templates-fields">
+            {template.fields.map((field) => (
+              <div key={`${template.id}:${field.key}`} className="title-templates-field">
+                <label htmlFor={`${fieldId}-${field.key}`}>
+                  {field.label}
+                  {field.optional === true ? ' (optional)' : ''}
+                </label>
                 <input
-                  ref={index === 0 ? firstRadioRef : undefined}
-                  type="radio"
-                  name="title-template"
-                  value={candidate.id}
-                  checked={candidate.id === template.id}
-                  onChange={() => setTemplateId(candidate.id)}
-                  // Named for the template alone; the line under it describes it.
-                  aria-label={candidate.name}
-                  aria-describedby={`${fieldId}-${candidate.id}-description`}
+                  id={`${fieldId}-${field.key}`}
+                  {...(field.wholeNumber === undefined
+                    ? { type: 'text' }
+                    : { type: 'number', min: field.wholeNumber.min, max: field.wholeNumber.max, step: 1 })}
+                  aria-invalid={isFieldValid(field, current) ? undefined : true}
+                  value={current[field.key] ?? ''}
+                  onChange={(event) =>
+                    setValues((previous) => ({
+                      ...previous,
+                      [template.id]: { ...previous[template.id], [field.key]: event.target.value },
+                    }))
+                  }
                 />
-                <TemplatePreview
-                  template={candidate}
-                  frameWidth={frame.width}
-                  frameHeight={frame.height}
-                  measure={measure}
-                  templateContext={context}
-                />
-                <span className="title-template-name">{candidate.name}</span>
-                <span id={`${fieldId}-${candidate.id}-description`} className="title-template-description">
-                  {candidate.description}
-                </span>
-              </label>
+              </div>
             ))}
           </div>
-        </fieldset>
-        <div className="title-templates-fields">
-          {template.fields.map((field) => (
-            <div key={`${template.id}:${field.key}`} className="title-templates-field">
-              <label htmlFor={`${fieldId}-${field.key}`}>
-                {field.label}
-                {field.optional === true ? ' (optional)' : ''}
-              </label>
-              <input
-                id={`${fieldId}-${field.key}`}
-                {...(field.wholeNumber === undefined
-                  ? { type: 'text' }
-                  : { type: 'number', min: field.wholeNumber.min, max: field.wholeNumber.max, step: 1 })}
-                aria-invalid={isFieldValid(field, current) ? undefined : true}
-                value={current[field.key] ?? ''}
-                onChange={(event) =>
-                  setValues((previous) => ({
-                    ...previous,
-                    [template.id]: { ...previous[template.id], [field.key]: event.target.value },
-                  }))
-                }
-              />
-            </div>
-          ))}
         </div>
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>

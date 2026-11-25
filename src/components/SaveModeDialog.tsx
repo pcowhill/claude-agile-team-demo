@@ -45,37 +45,39 @@ export function SaveModeDialog({ initialMode, onCancel, onConfirm }: SaveModeDia
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Save project</h3>
-        <fieldset className="save-mode-options">
-          <legend>What the file carries</legend>
-          <label className="save-mode-option">
-            <input
-              type="radio"
-              name="save-mode"
-              checked={mode === 'embed'}
-              onChange={() => setMode('embed')}
-              aria-describedby={embedDescriptionId}
-            />
-            Embed media in the project file
-          </label>
-          <p id={embedDescriptionId} className="save-mode-description">
-            One self-contained file that opens on any computer with no re-linking. Includes your
-            video data, so the file is larger.
-          </p>
-          <label className="save-mode-option">
-            <input
-              type="radio"
-              name="save-mode"
-              checked={mode === 'references'}
-              onChange={() => setMode('references')}
-              aria-describedby={referencesDescriptionId}
-            />
-            Store references only
-          </label>
-          <p id={referencesDescriptionId} className="save-mode-description">
-            A small file with your edits and clip names. Opening it asks you to re-select the
-            original video files.
-          </p>
-        </fieldset>
+        <div className="dialog-body">
+          <fieldset className="save-mode-options">
+            <legend>What the file carries</legend>
+            <label className="save-mode-option">
+              <input
+                type="radio"
+                name="save-mode"
+                checked={mode === 'embed'}
+                onChange={() => setMode('embed')}
+                aria-describedby={embedDescriptionId}
+              />
+              Embed media in the project file
+            </label>
+            <p id={embedDescriptionId} className="save-mode-description">
+              One self-contained file that opens on any computer with no re-linking. Includes your
+              video data, so the file is larger.
+            </p>
+            <label className="save-mode-option">
+              <input
+                type="radio"
+                name="save-mode"
+                checked={mode === 'references'}
+                onChange={() => setMode('references')}
+                aria-describedby={referencesDescriptionId}
+              />
+              Store references only
+            </label>
+            <p id={referencesDescriptionId} className="save-mode-description">
+              A small file with your edits and clip names. Opening it asks you to re-select the
+              original video files.
+            </p>
+          </fieldset>
+        </div>
         <div className="dialog-actions">
           <button type="button" onClick={onCancel}>
             Cancel
