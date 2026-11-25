@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the six plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [More export formats](#more-export-formats), [Title templates](#title-templates) and [Sound library](#sound-library) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the seven plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [Visual effects](#visual-effects), [More export formats](#more-export-formats), [Title templates](#title-templates) and [Sound library](#sound-library) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -63,6 +63,22 @@
 The three irises and the hands of the two sweeps keep their shape on any frame, whether landscape, portrait or square: 3 o'clock is straight to the right. Each iris finishes covering the frame exactly at the end of the transition. The slats and cells divide the frame itself, so they stretch with it. Like Shaped wipes, these render identically in the preview and every export, through the same rule. A project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin. A pattern transition already on the timeline when the plugin is disabled stays there. It plays as a crossfade, and its type menu shows it as *unavailable*.
 
 **Related.** [Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) · [Projects that need a plugin](#projects-that-need-a-plugin)
+
+## Visual effects
+
+**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*.
+
+**What it does.** Draws picture effects on a stretch of a clip: a **Vignette** that darkens the edges of the frame, and a **Blur** over the whole picture.
+
+**Details.** Each effect covers part of a clip, from a start to an end time on that clip, and the clip can carry several, which stack. Each one fades in and out over {{PICTURE_EFFECT_EASE}} s at the ends of its stretch, so it never appears or disappears all at once. An effect that starts at the clip's first frame, or ends at its last, is at full strength there instead, because the picture changes at the cut anyway.
+- **Vignette** has a **Strength**, from 0 to 100 %, which is how dark the frame's corners get: at 100 % they are black. The darkening starts a little under half-way out from the centre and deepens towards the edges.
+- **Blur** has an **Amount**, from 0 to 5 %, the blur's radius as a share of the frame's width. 1 % is about 19 pixels in a 1080p export, so a blur looks the same in the preview as in the file.
+
+Effects belong to the clip's picture as you frame it: a zoom moves inside the vignette, which stays on the frame's edges, and a transition carries the effect with the clip. A blur softens the clip's own picture, not its redactions or spotlights, and, like any blur, it also softens the picture's outer edge into the frame's black. The preview and every export draw an effect through the same rule.
+
+**Adding an effect is not in the editor yet.** This version of the plugin draws the effects a project file already holds; the menu items that add and edit them will follow. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, and the picture shows without it until the plugin is enabled again.
+
+**Related.** [Projects that need a plugin](#projects-that-need-a-plugin)
 
 ## More export formats
 
@@ -134,6 +150,6 @@ The list works from the keyboard. Opening it puts the focus on the first **▶**
 
 **What it does.** Records in the project file which plugins its features come from, and offers to enable them when the file is opened.
 
-**Details.** Saving a project that uses a plugin's feature — a shaped wipe or a pattern transition on the timeline — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
+**Details.** Saving a project that uses a plugin's feature — a shaped wipe or a pattern transition on the timeline, or a visual effect on a clip — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
 
-**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions)
+**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions) · [Visual effects](#visual-effects)

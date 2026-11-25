@@ -10,7 +10,7 @@ import type { TimelineState } from '../lib/timeline'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import { PluginRuntime } from '../lib/plugins'
 import { DEFAULT_TEXT, fontRegistry } from '../lib/textOverlay'
-import { pictureEffectRegistry } from '../lib/pictureEffect'
+import { NO_PICTURE_LOOK, pictureEffectRegistry } from '../lib/pictureEffect'
 import type { PluginSpec } from '../lib/plugins'
 import { chooseFromFileMenu } from '../test/fileMenu'
 
@@ -1074,6 +1074,7 @@ describe('New Project and Open Project (#77)', () => {
                 id: 'dep-effect',
                 name: 'Dependency effect',
                 params: [{ key: 'strength', label: 'Strength', min: 0, max: 1, default: 0.5 }],
+                look: () => NO_PICTURE_LOOK,
               })
               return () => pictureEffectRegistry.unregister('dep-effect')
             },

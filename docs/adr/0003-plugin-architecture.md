@@ -283,6 +283,57 @@ extension point is built until a concrete plugin needs it**.
   - **No `usedByProject`.** An added sound is an ordinary clip.
   - **No runtime dependency.** Generating needs FFmpeg with libopus, but
     the encoded files are committed, so building and running never do.
+- **Picture-effect registry** (`src/lib/pictureEffect.ts`, #862, from
+  idea 8 the customer approved on #856): a stylised change to a sequence
+  entry's picture over a window of its time, kept in the timeline as
+  `pictureEffects` keyed to the entry. Built because a vignette and a blur
+  for three seconds are a kind of edit nothing else in the model could
+  hold: colour adjustments cover a whole entry, and zooms move the frame
+  rather than change the picture.
+  - **The contract.** A definition carries an id (what timeline state and
+    project files record), a menu name, its parameters (key, label, range,
+    default, unit), and one pure rule, `look(params, weight)`. The rule
+    returns a `PictureLook`: filter functions for the picture's source
+    pixels, and layers drawn over the frame-shaped card, every size a
+    fraction of the frame. The registry mirrors the transition registry's
+    `register`/`unregister`/`has`/`subscribe`/`version` for the same
+    reasons.
+  - **One resolver, two renderers (#66).** `pictureLookAt` in
+    `src/lib/pictureLook.ts` picks the effects whose windows hold an
+    instant, eases each, and calls the rules. The preview maps the look to
+    CSS (`filter` on the media element, a radial-gradient element in the
+    card) and the export to the canvas (`filter` around the source draw, a
+    radial gradient over the card), so a plugin writes no rendering code,
+    as transition packs write none.
+  - **Where an effect applies:** to the picture as framed, after the
+    entry's zoom and before its transition. A vignette stays on the
+    frame's edges while a zoom moves inside it, and travels with the card
+    through a push. A blur's radius is a fraction of the frame width, so a
+    preview frame and a 1080p export blur alike.
+  - **The ease** is the core's, not the rule's: the rule receives a
+    weight in [0, 1] and must change nothing at 0. An edge lying on its
+    entry's own bounds does not ease, so a split's halves (#919) render as
+    the one effect did.
+  - **Unregistered types** stay in the project and render as nothing, as a
+    disabled plugin's transition stays on the timeline. Project files
+    check structure only, and the open flow checks known types after the
+    plugin gate (#199's order).
+  - **Room for part 2 (#870).** Generated textures such as film grain or
+    scanlines join `PictureLayer` as new kinds, for example
+    `{ kind: 'grain'; amount; seed }`, and each renderer learns to draw
+    that kind once. A per-channel offset (#871's chromatic aberration)
+    would be a new `PictureFilter` kind the same way. The contract grows by
+    kinds, not by mechanisms.
+  - **Rejected:** a rule returning a CSS string, which the canvas could
+    take for a blur but not for a vignette or grain, and drawing with
+    per-plugin code in each renderer, which is what the shared rule
+    exists to prevent.
+- **Visual effects plugin** (`src/plugins/visualEffects/`, #862): Vignette
+  (Strength, the corner's darkening in percent) and Blur (Amount, the
+  radius in percent of the frame width). Each is parameters plus a `look`
+  rule, with no rendering code and no dependencies. Its ids are top-level
+  wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
+  packs, so `usedByProject` loads no chunk.
 
 ### Projects that use plugin features: prompt-and-enable
 

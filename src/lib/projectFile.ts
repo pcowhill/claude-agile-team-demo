@@ -2291,7 +2291,13 @@ function validateProject(document: Record<string, unknown>): Project {
       if (start >= end) throw new Error(`${path} window is empty (start must be less than end)`)
       const paramsRaw = asRecord(raw.params, `${path}.params`)
       const params = Object.fromEntries(
-        Object.entries(paramsRaw).map(([key, param]) => [key, asFinite(param, `${path}.params.${key}`)]),
+        Object.entries(paramsRaw).map(([key, param]) => {
+          // The reducer refuses an empty key (`isValidPictureEffectSpec`);
+          // so does the parser, so an opened file holds only what an edit
+          // could have stored (#914's review).
+          if (key === '') throw new Error(`${path}.params has an empty key`)
+          return [key, asFinite(param, `${path}.params.${key}`)]
+        }),
       )
       if (pictureEffectIds.has(id)) throw new Error(`${path}.id "${id}" is duplicated`)
       pictureEffectIds.add(id)

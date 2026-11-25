@@ -12,9 +12,12 @@
  * normalization re-clamps it into the new range. Unlike zooms, windows on
  * one entry may overlap: a blur and a vignette at once is a valid stack.
  *
- * The rule that draws an effect is not here yet. Both renderers will
- * consume one rule per definition (#66), and it arrives with them, so its
- * shape is set by what they need rather than in anticipation (ADR 0003).
+ * Each definition carries one rule, `look`, that turns its parameters into
+ * a `PictureLook`: filter functions for the picture and layers drawn over
+ * it, every size a fraction of the frame. Both renderers consume that one
+ * rule (#66): the preview maps it to CSS (`PreviewPlayer`), the export to
+ * the canvas (`exportVideo.ts`), and `pictureLook.ts` resolves an entry's
+ * looks at an instant, with the ease, for both.
  */
 
 /** What an effect's edit fields set: its window and its parameter values. */
@@ -108,12 +111,80 @@ export interface PictureEffectParam {
 }
 
 /**
+ * A filter function a look applies to the entry's picture, its source
+ * pixels only: the preview sets it on the media element's CSS `filter`, the
+ * export on the canvas `filter` around the source draw, after the entry's
+ * colour adjustments in both. Redactions and spotlights stay sharp, since
+ * they sit beside the media element in the preview.
+ *
+ * - `blur`: a Gaussian blur whose `radius` is a **fraction of the frame
+ *   width**, not px, so a preview frame and a 1080p export blur alike.
+ */
+export type PictureFilter = { kind: 'blur'; radius: number }
+
+/**
+ * A layer a look draws over the entry's picture as framed: over the whole
+ * frame-shaped card, after the entry's zoom and before its transition, so
+ * it stays on the frame's edges while a zoom moves inside it and travels
+ * with the card through a push or cross-zoom.
+ *
+ * - `vignette`: black, transparent out to `inner` and reaching alpha
+ *   `strength` at the frame's corners, along an ellipse of the frame's own
+ *   aspect (`vignetteStops` gives both renderers the same stops).
+ *
+ * Part 2's generated textures (#870) join here as further kinds, for
+ * example `{ kind: 'grain'; amount; seed }`, which each renderer then
+ * learns to draw. A look composes them in order, so grain over a vignette
+ * is one more entry in the list, not a new mechanism.
+ */
+export type PictureLayer = { kind: 'vignette'; strength: number; inner: number }
+
+/** What an entry's effects do to its picture at one instant. */
+export interface PictureLook {
+  filters: readonly PictureFilter[]
+  layers: readonly PictureLayer[]
+}
+
+/** The look of no effect: an entry without one draws exactly as before. */
+export const NO_PICTURE_LOOK: PictureLook = { filters: [], layers: [] }
+
+/** Whether a look changes nothing. */
+export function isNoPictureLook(look: PictureLook): boolean {
+  return look.filters.length === 0 && look.layers.length === 0
+}
+
+/** One colour stop of a vignette: black at `alpha`, `offset` along the radius (0 centre, 1 corner). */
+export interface VignetteStop {
+  offset: number
+  alpha: number
+}
+
+/** How many stops approximate the vignette's smooth falloff. */
+const VIGNETTE_STEPS = 6
+
+/**
+ * A vignette's gradient stops, the one curve both renderers draw (#66):
+ * transparent out to `inner`, then a smoothstep to `strength` at the
+ * corner, sampled at even steps because neither a CSS gradient nor a
+ * canvas gradient eases between two stops by itself.
+ */
+export function vignetteStops(layer: Extract<PictureLayer, { kind: 'vignette' }>): VignetteStop[] {
+  const inner = clamp(layer.inner, 0, 1)
+  const strength = clamp(layer.strength, 0, 1)
+  const stops: VignetteStop[] = [{ offset: inner, alpha: 0 }]
+  for (let step = 1; step <= VIGNETTE_STEPS; step++) {
+    const t = step / VIGNETTE_STEPS
+    stops.push({ offset: inner + (1 - inner) * t, alpha: strength * t * t * (3 - 2 * t) })
+  }
+  return stops
+}
+
+/**
  * One registered picture effect (#862). **This interface is a contract
  * plugins depend on** (ADR 0003), like `TransitionDefinition`: change it
  * deliberately, with every registration updated in the same change. It
- * carries what the model needs today, an id, a menu name and the parameter
- * declarations, and gains its rendering rule when the renderers that
- * consume it arrive.
+ * carries an id, a menu name, the parameter declarations, and the rule
+ * both renderers draw from (`look`).
  */
 export interface PictureEffectDefinition {
   /**
@@ -125,6 +196,13 @@ export interface PictureEffectDefinition {
   name: string
   /** The effect's parameters, in the order its fields show them. */
   params: readonly PictureEffectParam[]
+  /**
+   * The rendering rule: the look of this effect with `params` (already
+   * fitted by `pictureEffectParamsFor`) at `weight` in [0, 1], the ease's
+   * progress. Weight 0 must change nothing, so the effect cannot pop at
+   * either end of its window. Pure: both renderers call it every frame.
+   */
+  look: (params: Readonly<Record<string, number>>, weight: number) => PictureLook
 }
 
 /**

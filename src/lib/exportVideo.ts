@@ -57,6 +57,9 @@ import { transitionLayerSpec, transitionRegistry, windRevealPolygons } from './t
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
+import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
+import { vignetteStops } from './pictureEffect'
+import type { PictureFilter, PictureLayer } from './pictureEffect'
 import type { ZoomState } from './zoom'
 import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
 import type { SizeLimitBitrates } from './sizeLimit'
@@ -647,6 +650,70 @@ export function withLayerColorFilter(
 }
 
 /**
+ * Runs `draw` with a picture effect's filters (#862) appended to whatever
+ * `filter` the context carries (the entry's colour adjustments, set by
+ * `withLayerColorFilter`), and puts that filter back afterwards. The same
+ * functions, in the same order, as the preview's CSS `filter` on the media
+ * element. A blur's radius is `radius * frameWidth` px; `scale` is the
+ * transition's scale of the card (cross-zoom, #181), which the preview's
+ * card transform applies to its blur too. No filters draws with the
+ * context untouched.
+ */
+export function withPictureFilters(
+  context: CanvasRenderingContext2D,
+  filters: readonly PictureFilter[],
+  frameWidth: number,
+  scale: number,
+  draw: () => void,
+): void {
+  if (filters.length === 0) {
+    draw()
+    return
+  }
+  const previous = context.filter
+  const functions = pictureFilterFunctions(filters, frameWidth * scale, 'px').join(' ')
+  context.filter = previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
+  try {
+    draw()
+  } finally {
+    context.filter = previous
+  }
+}
+
+/**
+ * Draws a picture effect's layers (#862) over `card`, the entry's
+ * frame-shaped card after its transition's scale and offset: the box the
+ * preview's layer element fills. A vignette is a radial gradient on an
+ * ellipse of the card's own aspect, through its corners, as CSS's
+ * `radial-gradient(ellipse farthest-corner)` is, with the stops both
+ * renderers take from `vignetteStops`. Draws at full alpha, source-over:
+ * the caller makes sure that composes as the preview's card does.
+ */
+export function drawPictureLayers(
+  context: CanvasRenderingContext2D,
+  layers: readonly PictureLayer[],
+  card: { x: number; y: number; width: number; height: number },
+): void {
+  if (card.width <= 0 || card.height <= 0) return
+  for (const layer of layers) {
+    context.save()
+    // A circle in a space squashed to the card's aspect is the ellipse.
+    context.translate(card.x + card.width / 2, card.y + card.height / 2)
+    context.scale(1, card.height / card.width)
+    const radius = (card.width / 2) * Math.SQRT2
+    const gradient = context.createRadialGradient(0, 0, 0, 0, 0, radius)
+    for (const stop of vignetteStops(layer)) {
+      gradient.addColorStop(stop.offset, `rgba(0, 0, 0, ${stop.alpha})`)
+    }
+    context.globalAlpha = 1
+    context.globalCompositeOperation = 'source-over'
+    context.fillStyle = gradient
+    context.fillRect(-card.width / 2, -card.width / 2, card.width, card.width)
+    context.restore()
+  }
+}
+
+/**
  * Runs `draw` with the context transformed for the layer's orientation
  * (#233) — the same shared rule (`orientationTransform`, #232) the preview
  * maps to a CSS transform, mapped here to the equivalent canvas transform.
@@ -855,6 +922,24 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
    * whole picture, never letterboxed — while flowing through the same
    * LayerFrame draw path (transitions, slides, zooms) as every other source.
    */
+  /**
+   * Two frame-size scratch canvases (#862), created on first use: where an
+   * incoming card with effect layers is composed alone before it blends
+   * (`blendedLayers` in `drawFrame`). Cleared by each use's full overwrite.
+   */
+  const lookScratchCanvases: HTMLCanvasElement[] = []
+  const lookScratch = (index: 0 | 1): HTMLCanvasElement => {
+    let scratch = lookScratchCanvases[index]
+    if (scratch === undefined) {
+      scratch = createCanvas()
+      lookScratchCanvases[index] = scratch
+    }
+    if (scratch.width !== width) scratch.width = width
+    if (scratch.height !== height) scratch.height = height
+    const scratchContext = scratch.getContext('2d')
+    scratchContext?.clearRect(0, 0, width, height)
+    return scratch
+  }
   const slateSources = new Map<string, HTMLCanvasElement>()
   const slateSource = (color: string): HTMLCanvasElement => {
     const existing = slateSources.get(color)
@@ -1277,6 +1362,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // of a transition. The identity zoom leaves the fitted rect untouched —
     // a zoomless timeline draws exactly as before.
     const zoom = zoomAt(timeline, entryIndex, layer.time)
+    // The entry's picture effects (#862) at the same source time: filters
+    // on the source draw below, layers over the card after it.
+    const outgoingLook = pictureLookAt(timeline, entryIndex, layer.time)
     const zoomed = zoom.scale === 1 ? rect : zoomRect(rect, zoom, width, height)
     // Cross-zoom (#181) scales the outgoing layer about the frame centre —
     // the same outermost scale the preview's transform applies. Scale 1 (all
@@ -1314,14 +1402,16 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           height: dest.height,
         },
         (drawRect) => {
-          drawLayerSource(
-            context,
-            layer.source,
-            outgoingCrop,
-            layer.sourceWidth,
-            layer.sourceHeight,
-            drawRect,
-          )
+          withPictureFilters(context, outgoingLook.filters, width, spec?.outgoingScale ?? 1, () => {
+            drawLayerSource(
+              context,
+              layer.source,
+              outgoingCrop,
+              layer.sourceWidth,
+              layer.sourceHeight,
+              drawRect,
+            )
+          })
           // Redactions (#492) paint over the picture inside the same
           // orientation transform and the same colour filter, so they ride
           // every zoom, transition and rotation the layer does.
@@ -1359,6 +1449,26 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         },
       )
     })
+    if (outgoingLook.layers.length > 0) {
+      // The outgoing entry's effect layers (#862) over its card: the frame
+      // after the transition's scale and offset, which is where the
+      // preview's layer element sits once the card's transform applies. At
+      // full alpha even while the layer itself fades (crossfade): the
+      // outgoing layer is the first thing drawn over the black stage, so a
+      // darkening drawn over it here equals the preview's darkened card at
+      // the same opacity.
+      const outgoingCard = scaleRectAboutCenter(
+        { x: 0, y: 0, width, height },
+        spec?.outgoingScale ?? 1,
+        width,
+        height,
+      )
+      drawPictureLayers(context, outgoingLook.layers, {
+        ...outgoingCard,
+        x: outgoingCard.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+        y: outgoingCard.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+      })
+    }
     if (overlay !== null && spec !== null) {
       // The incoming entry's orientation (#233) and crop (#256), exactly as
       // the outgoing's.
@@ -1373,6 +1483,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       )
       const incoming = fitRect(incomingDims.width, incomingDims.height, width, height)
       const incomingZoom = zoomAt(timeline, overlay.index, overlay.layer.time)
+      const incomingLook = pictureLookAt(timeline, overlay.index, overlay.layer.time)
       const incomingZoomed =
         incomingZoom.scale === 1 ? incoming : zoomRect(incoming, incomingZoom, width, height)
       // Cross-zoom's incoming scale (#181), about the frame centre, applied
@@ -1484,6 +1595,23 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         }
         context.clip('nonzero')
       }
+      // The incoming entry's effect layers (#862) darken its card before the
+      // card blends. While it blends (a crossfade's sum, a cross-zoom's
+      // fade-in), a darkening drawn straight over the canvas would darken
+      // the outgoing clip under it too, so the card is composed alone first:
+      // the canvas under the clip region is set aside, the card and its
+      // layers drawn at full alpha onto a cleared region, and the card then
+      // blended back over what was set aside, as the preview composes its
+      // card element before blending it.
+      const blendedLayers =
+        incomingLook.layers.length > 0 && (spec.incomingAlpha < 1 || spec.additive)
+      const under = blendedLayers ? lookScratch(0) : null
+      if (under !== null) {
+        under.getContext('2d')?.drawImage(context.canvas, 0, 0)
+        context.globalAlpha = 1
+        context.globalCompositeOperation = 'source-over'
+        context.clearRect(0, 0, width, height)
+      }
       // The incoming entry's own color adjustments (#195) cover its whole
       // card — backing included — exactly as the preview's CSS filter covers
       // the element's background along with its pixels (#192/#218).
@@ -1525,14 +1653,16 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             height: incomingDest.height,
           },
           (drawRect) => {
-            drawLayerSource(
-              context,
-              overlay.layer.source,
-              incomingCrop,
-              overlay.layer.sourceWidth,
-              overlay.layer.sourceHeight,
-              drawRect,
-            )
+            withPictureFilters(context, incomingLook.filters, width, incomingScale, () => {
+              drawLayerSource(
+                context,
+                overlay.layer.source,
+                incomingCrop,
+                overlay.layer.sourceWidth,
+                overlay.layer.sourceHeight,
+                drawRect,
+              )
+            })
             drawRedactions({
               context,
               source: overlay.layer.source,
@@ -1559,6 +1689,27 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           },
         )
       })
+      if (incomingLook.layers.length > 0) {
+        drawPictureLayers(context, incomingLook.layers, {
+          ...card,
+          x: card.x + spec.incomingOffsetXFraction * width,
+          y: card.y + spec.incomingOffsetYFraction * height,
+        })
+      }
+      if (under !== null) {
+        // The composed card, set aside in turn; then what was under it put
+        // back, and the card blended over it at the transition's alpha and
+        // blend. Every draw stays inside the clip region, as the plain path's.
+        const composed = lookScratch(1)
+        composed.getContext('2d')?.drawImage(context.canvas, 0, 0)
+        context.clearRect(0, 0, width, height)
+        context.globalAlpha = 1
+        context.globalCompositeOperation = 'source-over'
+        context.drawImage(under, 0, 0)
+        context.globalAlpha = spec.incomingAlpha
+        context.globalCompositeOperation = spec.additive ? 'lighter' : 'source-over'
+        context.drawImage(composed, 0, 0)
+      }
       if (clipToCard || clipToReveal || clipToEllipse || clipToPolygons) context.restore()
       context.globalCompositeOperation = 'source-over'
     }
@@ -3057,6 +3208,16 @@ export async function exportTimeline(
     throw new ExportUnsupportedError(
       'This browser cannot render color adjustments when exporting (canvas filters are unsupported). ' +
         'Reset the color adjustments, or export from a browser that supports canvas filters.',
+    )
+  }
+  // The same rule for a picture effect with a filter (#862), such as the
+  // Visual effects plugin's Blur: a file without the blur the preview
+  // showed would break the parity the shared rule exists for.
+  if (timelineHasPictureFilters(timeline) && !canvasSupportsColorFilter(context)) {
+    await releaseAll()
+    throw new ExportUnsupportedError(
+      'This browser cannot render a blur effect when exporting (canvas filters are unsupported). ' +
+        'Remove the blur effect, or export from a browser that supports canvas filters.',
     )
   }
   // The same rule for a blur redaction (#492), and it matters more: an
