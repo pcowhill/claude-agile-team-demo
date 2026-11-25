@@ -245,6 +245,26 @@
   aspect-ratio: var(--preview-aspect, 16 / 9);
 }
 
+/* Full screen (#958): the stage alone fills the screen. The browser's own
+   fullscreen rules already size it to the viewport; these undo what the
+   layouts above set — the aspect-ratio would otherwise fight that size —
+   and make the bars around a letterboxed picture black, as a player's are.
+   The frame keeps its fit-inside rule against the stage's container size,
+   so it is the largest output-aspect rectangle the screen holds, centred.
+   Its rounded corners are the panel's, not the picture's. The stage takes
+   the focus here so the transport keys reach it; the ring would draw
+   round the whole screen. */
+.preview-stage:fullscreen {
+  flex: none;
+  aspect-ratio: auto;
+  background: #000;
+  outline: none;
+}
+
+.preview-stage:fullscreen > .preview-frame {
+  border-radius: 0;
+}
+
 @media (max-width: 700px) {
   /* Single-column layout (App.css breakpoint): the grid row is
      content-sized, so a zero flex basis would collapse the stage to nothing.

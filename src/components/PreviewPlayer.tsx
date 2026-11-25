@@ -124,7 +124,7 @@ import {
 } from '../lib/transport'
 import type { LoopSpan } from '../lib/transport'
 import { Menu } from './Menu'
-import { previewStageClass } from '../lib/previewLayout'
+import { fullScreenRefusal, previewStageClass } from '../lib/previewLayout'
 import type { PreviewLayout } from '../lib/previewLayout'
 import { NameField } from './NameField'
 import type { MenuItem } from './Menu'
@@ -1205,8 +1205,18 @@ const LAYOUT_OPTIONS: readonly { value: PreviewLayout; label: string }[] = [
   { value: 'fit-width', label: 'Fit to width' },
 ]
 
-/** View ▾'s one radio group: the current layout checked. */
-function layoutItems(layout: PreviewLayout, onSetLayout: (layout: PreviewLayout) => void): MenuItem[] {
+/**
+ * View ▾: the layout radio group, the current layout checked, then Full
+ * screen (#958) below it as an action — not a fourth layout, since it is
+ * never remembered and leaves the layout as it was. `refusal` disables it
+ * and says why (`fullScreenRefusal`).
+ */
+function viewItems(
+  layout: PreviewLayout,
+  onSetLayout: (layout: PreviewLayout) => void,
+  onFullScreen: () => void,
+  refusal: string | null,
+): MenuItem[] {
   return [
     {
       kind: 'radio-group',
@@ -1214,6 +1224,15 @@ function layoutItems(layout: PreviewLayout, onSetLayout: (layout: PreviewLayout)
       value: layout,
       options: LAYOUT_OPTIONS,
       onChange: (value) => onSetLayout(value as PreviewLayout),
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Full screen',
+      shortcut: 'F',
+      onSelect: onFullScreen,
+      disabled: refusal !== null,
+      ...(refusal === null ? {} : { title: refusal }),
     },
   ]
 }
@@ -1459,6 +1478,43 @@ export function PreviewPlayer({
   const empty = timeline.entries.length === 0
   // Whether a library clip is being auditioned in place of the sequence (#403).
   const sourceMode = sourceClip !== null
+
+  // Full screen (#958): the stage alone, through the browser's Fullscreen
+  // API. The stage holds only the frame, so the transport, the seek bar and
+  // the panel header stay behind; the frame's own fit-inside rule, against
+  // the stage's container size, letterboxes the picture on the screen. The
+  // state follows the document's, because Esc leaves full screen without
+  // asking the app.
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [fullScreen, setFullScreen] = useState(false)
+  useEffect(() => {
+    const onChange = () =>
+      setFullScreen(stageRef.current !== null && document.fullscreenElement === stageRef.current)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  // The keys follow the picture: entered from View ▾, the focus would
+  // return to its trigger, a button, which keeps Space and the letters to
+  // itself (targetClaimsKeys) — so Space would not play. The stage takes
+  // the focus instead while it is full screen.
+  useEffect(() => {
+    if (fullScreen) stageRef.current?.focus({ preventScroll: true })
+  }, [fullScreen])
+  const fullScreenBlocked = fullScreenRefusal({
+    enabled: typeof document !== 'undefined' && document.fullscreenEnabled === true,
+    empty,
+    sourceMode,
+  })
+  const toggleFullScreen = useCallback(() => {
+    const stage = stageRef.current
+    if (stage !== null && document.fullscreenElement === stage) {
+      void document.exitFullscreen().catch(noop)
+      return
+    }
+    if (fullScreenBlocked !== null || stage === null) return
+    // A refusal leaves everything as it was: no state changed before it.
+    void stage.requestFullscreen().catch(noop)
+  }, [fullScreenBlocked])
   const audioTracks = audioTracksOf(timeline)
   // One <audio> element per track, keyed by track id (#103). A ref map, not
   // state: the rAF loop reads it every frame.
@@ -2438,6 +2494,17 @@ export function PreviewPlayer({
       if (sourceMode && action.kind !== 'shortcut-help' && action.kind !== 'user-guide') return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       event.preventDefault()
+      // In full screen (#958) only the stage is drawn. A key that opens
+      // something beside it — the cheat sheet, the guide, X's confirmation —
+      // leaves full screen first, or what it opened would be out of sight
+      // while, as a modal, it held every other key.
+      if (
+        (action.kind === 'shortcut-help' || action.kind === 'user-guide' || action.kind === 'cut-range') &&
+        stageRef.current !== null &&
+        document.fullscreenElement === stageRef.current
+      ) {
+        void document.exitFullscreen().catch(noop)
+      }
       switch (action.kind) {
         case 'toggle-play':
           if (playing) pause()
@@ -2502,6 +2569,11 @@ export function PreviewPlayer({
           // X (#823) does exactly what Frame ▾'s item does, guards included.
           cutMarkedRange()
           break
+        case 'full-screen':
+          // F (#958) does what View ▾'s item does, and leaves full screen
+          // as well, since in full screen the menu is out of sight.
+          toggleFullScreen()
+          break
         case 'trim-to-playhead': {
           // Q / W (#710): the entry under the clamped playhead, trimmed to
           // start or end on its frame. Inert wherever playheadTrimAt says
@@ -2539,6 +2611,7 @@ export function PreviewPlayer({
     onMarkOut,
     onTrimEntry,
     cutMarkedRange,
+    toggleFullScreen,
   ])
 
   // Edits to the timeline invalidate the playback position (entries or
@@ -2977,7 +3050,7 @@ export function PreviewPlayer({
             ariaLabel="Preview view"
             menuLabel="Preview view menu"
             className="preview-view-menu"
-            items={layoutItems(layout, onSetLayout)}
+            items={viewItems(layout, onSetLayout, toggleFullScreen, fullScreenBlocked)}
           />
         )}
       </div>
@@ -3010,8 +3083,11 @@ export function PreviewPlayer({
               drives both the frame's fit-inside math and the expanded/narrow
               stage's own aspect-ratio. */}
           <div
+            ref={stageRef}
             className={previewStageClass(layout)}
             style={{ '--preview-aspect': String(previewAspect) } as CSSProperties}
+            data-testid="preview-stage"
+            {...(fullScreen ? { tabIndex: -1 } : {})}
           >
             <div className="preview-frame" data-testid="preview-frame">
               <div {...slotA.card}>

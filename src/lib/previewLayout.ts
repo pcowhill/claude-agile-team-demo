@@ -85,3 +85,28 @@ export function savePreviewLayout(
     // Losing the preference is acceptable; breaking the menu is not.
   }
 }
+
+/**
+ * Why View ▾ › Full screen (#958) cannot be chosen right now, as the item's
+ * title, or null when it can. Full screen is an action, not a fourth
+ * layout: a browser enters it only from a user gesture, so it could never
+ * be restored on load, and the remembered layout is untouched by it.
+ *
+ * - **Nothing composed:** an empty timeline shows a placeholder, not a
+ *   stage, so there is no picture to show.
+ * - **A library clip in the source preview (#403):** the sequence's stage
+ *   is hidden behind it.
+ * - **The browser refuses:** `document.fullscreenEnabled` is false, as in
+ *   a page embedded (#652) by an iframe without `allow="fullscreen"`, or
+ *   absent, as in a browser without the unprefixed Fullscreen API.
+ */
+export function fullScreenRefusal(state: {
+  enabled: boolean
+  empty: boolean
+  sourceMode: boolean
+}): string | null {
+  if (!state.enabled) return 'This browser does not allow full screen on this page'
+  if (state.empty) return 'Add clips to the timeline to show the preview full screen'
+  if (state.sourceMode) return 'Go back to the sequence to show it full screen'
+  return null
+}

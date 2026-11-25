@@ -129,6 +129,86 @@ describe('PreviewPlayer', () => {
       render(<PreviewPlayer timeline={oneEntry} />)
       expect(screen.queryByRole('button', { name: 'Preview view' })).not.toBeInTheDocument()
     })
+
+    describe('Full screen (#958)', () => {
+      const enabled = Object.getOwnPropertyDescriptor(Document.prototype, 'fullscreenEnabled')
+      const request = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'requestFullscreen')
+      /** Stubs the document's `fullscreenEnabled` and the stage's request. */
+      function stubFullScreen(allowed: boolean) {
+        Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, get: () => allowed })
+        const requestFullscreen = vi.fn(() => Promise.resolve())
+        Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+          configurable: true,
+          value: requestFullscreen,
+        })
+        return requestFullscreen
+      }
+      afterEach(() => {
+        delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled
+        if (enabled !== undefined) Object.defineProperty(Document.prototype, 'fullscreenEnabled', enabled)
+        if (request === undefined) delete (HTMLElement.prototype as { requestFullscreen?: unknown }).requestFullscreen
+        else Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', request)
+      })
+      const fullScreenItem = () => screen.getByRole('menuitem', { name: 'Full screen' })
+
+      it('sits below the layouts and asks the browser to show the stage full screen, changing no layout', () => {
+        const requestFullscreen = stubFullScreen(true)
+        const onSetLayout = vi.fn()
+        const { container } = render(<PreviewPlayer timeline={oneEntry} layout="expanded" onSetLayout={onSetLayout} />)
+        openView()
+        const items = screen.getByRole('menu', { name: 'Preview view menu' }).querySelectorAll('[role^="menuitem"]')
+        expect(items).toHaveLength(4)
+        expect(items[3]).toBe(fullScreenItem())
+        expect(fullScreenItem()).toBeEnabled()
+        expect(fullScreenItem()).not.toHaveAttribute('title')
+        fireEvent.click(fullScreenItem())
+        expect(requestFullscreen).toHaveBeenCalledTimes(1)
+        expect(requestFullscreen.mock.contexts[0]).toBe(container.querySelector('.preview-stage'))
+        expect(onSetLayout).not.toHaveBeenCalled()
+      })
+
+      it('is disabled, saying why, where the browser refuses full screen', () => {
+        const requestFullscreen = stubFullScreen(false)
+        render(<PreviewPlayer timeline={oneEntry} onSetLayout={() => {}} />)
+        openView()
+        expect(fullScreenItem()).toBeDisabled()
+        expect(fullScreenItem()).toHaveAttribute('title', 'This browser does not allow full screen on this page')
+        fireEvent.keyDown(window, { key: 'f' })
+        expect(requestFullscreen).not.toHaveBeenCalled()
+      })
+
+      it('is disabled on an empty timeline and in the source preview, where no sequence picture shows', () => {
+        const requestFullscreen = stubFullScreen(true)
+        const { unmount } = render(<PreviewPlayer timeline={{ entries: [] }} onSetLayout={() => {}} />)
+        openView()
+        expect(fullScreenItem()).toBeDisabled()
+        expect(fullScreenItem()).toHaveAttribute('title', 'Add clips to the timeline to show the preview full screen')
+        fireEvent.keyDown(window, { key: 'f' })
+        unmount()
+
+        const clip: LibraryClip = { id: 'c9', name: 'audition.webm', duration: 3, url: 'blob:audition', kind: 'video' }
+        render(<PreviewPlayer timeline={oneEntry} onSetLayout={() => {}} sourceClip={clip} onExitSourcePreview={() => {}} />)
+        openView()
+        expect(fullScreenItem()).toBeDisabled()
+        expect(fullScreenItem()).toHaveAttribute('title', 'Go back to the sequence to show it full screen')
+        fireEvent.keyDown(window, { key: 'f' })
+        expect(requestFullscreen).not.toHaveBeenCalled()
+      })
+
+      it('F asks for full screen as the item does, but not while a text field has the focus', () => {
+        const requestFullscreen = stubFullScreen(true)
+        render(
+          <>
+            <input aria-label="Name" />
+            <PreviewPlayer timeline={oneEntry} onSetLayout={() => {}} />
+          </>,
+        )
+        fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'f' })
+        expect(requestFullscreen).not.toHaveBeenCalled()
+        fireEvent.keyDown(document.body, { key: 'F', shiftKey: true })
+        expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      })
+    })
   })
 
   describe('output frame (#176)', () => {

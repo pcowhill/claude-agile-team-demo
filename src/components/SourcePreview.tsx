@@ -177,7 +177,15 @@ export function SourcePreview({
         step: stepSeconds,
         largeStep: largeStepSeconds,
       })
-      if (action === null || action.kind === 'shortcut-help' || action.kind === 'user-guide') return
+      // F (#958) is the sequence's full screen, which the source preview
+      // hides: it stays unclaimed here, as `?` and F1 do.
+      if (
+        action === null ||
+        action.kind === 'shortcut-help' ||
+        action.kind === 'user-guide' ||
+        action.kind === 'full-screen'
+      )
+        return
       if (targetClaimsKeys(event.target) || modalDialogOpen(document)) return
       // Claimed even where nothing happens (an image, or a boundary jump),
       // so the page never scrolls under a key the transport owns.

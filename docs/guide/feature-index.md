@@ -189,6 +189,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## F
 
+- **F** — shows the preview full screen, or leaves it. [Preview and playback › Full screen](preview-and-playback.md#full-screen)
 - **F1** — opens this guide. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **Fade-in** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
 - **Fade-out** — an expanded text row, shape group row and audio track. [Text and subtitles › Fade-in and fade-out](text-and-subtitles.md#fade-in-and-fade-out) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades) · [Audio › Fade-in and fade-out](audio.md#fade-in-and-fade-out)
@@ -208,6 +209,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **frame ▶** — the Trim window and the Cut window; moves the playhead one frame on (not for an audio track). The Split window; moves the split point one frame on (not for an audio track). [Editing video › The Trim window](editing-video.md#the-trim-window) · [Editing video › Split…](editing-video.md#split)
 - **Freeze frame — append after clip** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 - **Freeze frame — split & hold** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
+- **Full screen** — the preview's View ▾, below the layouts; the composed picture alone, filling the screen. [Preview and playback › Full screen](preview-and-playback.md#full-screen)
 
 ## H
 
@@ -436,7 +438,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **VHS end** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › VHS](editing-video.md#vhs)
 - **VHS start** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › VHS](editing-video.md#vhs)
 - **View** — the media library header; the layout and sorting menu. [Media library › View ▾](media-library.md#view-layout-and-sorting)
-- **View (preview)** — the preview header; the menu of preview layouts. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
+- **View (preview)** — the preview header; the menu of preview layouts, and Full screen. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Vignette** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; darkens the edges of the frame for a stretch of the entry. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur) · [Plugins › Visual effects](plugins.md#visual-effects)
 - **Vignette end** — a vignette on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Vignette start** — a vignette on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
