@@ -477,6 +477,45 @@ async function gridOfPng(page: Page, png: Buffer): Promise<number[]> {
 const gridDistance = (a: readonly number[], b: readonly number[]) =>
   a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length
 
+/**
+ * Mean brightness, preview vs saved frame, that the outgoing-grain
+ * crossfade test allows (0 to 255). Measured in local Chromium: 0.1 apart
+ * before the crossfade and 0.06 at its midpoint, against 21 when the
+ * export drew the grain undimmed.
+ */
+const GRAIN_OUTGOING_TOLERANCE = 3
+
+/** A plain black still, 640×360. */
+async function makeBlack(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 360
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, 640, 360)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  return Buffer.from(base64, 'base64')
+}
+
+/** The mean brightness of every pixel of a PNG, 0 to 255. */
+async function meanOfPng(page: Page, png: Buffer): Promise<number> {
+  return await page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+    let sum = 0
+    for (let index = 0; index < data.length; index += 4) sum += (data[index] + data[index + 1] + data[index + 2]) / 3
+    return sum / (data.length / 4)
+  }, png.toString('base64'))
+}
+
 /** Builds the 4 s noise still with Film grain from 1 s to 3 s, and opens that project. */
 async function openGrainProject(page: Page): Promise<Buffer> {
   await gotoForSaving(page)
@@ -681,6 +720,70 @@ test.describe('Film grain (#870)', () => {
     expect(report.best50, 'step 50: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
     expect(report.best51, 'step 51: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
     expect(report.medianTo50, 'a typical grained frame vs step 50').toBeGreaterThan(report.best50 + GRAIN_VISIBLE / 2)
+  })
+  test('on the outgoing clip of a crossfade, the grain fades with its clip in the preview and in a saved frame', async ({
+    page,
+  }, testInfo) => {
+    // Two black stills crossfading, the first with Film grain over its whole
+    // length (no ease: both edges lie on the entry's bounds). On black the
+    // frame's mean brightness is the grain's white cells alone. At the
+    // crossfade's midpoint the outgoing card is at half opacity, and the
+    // preview fades the grain with it, so the mean halves. Drawing the
+    // grain at full brightness over the faded card, as the export did before
+    // #933's review, kept it whole: 42 against the preview's 21 (Chromium).
+    test.setTimeout(90_000)
+    await gotoForSaving(page)
+    const black = await makeBlack(page)
+    // Named as the still `openProject` re-links.
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: black }])
+    for (const position of [1, 2]) {
+      await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+      const duration = page.getByRole('spinbutton', {
+        name: `Duration of ${STILL} at position ${position} in seconds`,
+      })
+      await duration.fill('2')
+      await duration.blur()
+    }
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    await expect(page.getByTestId('timeline-total')).toHaveText('0:03')
+    const project = await saveWithEffects(page, ([outgoing]) => [
+      { id: 'g1', entryId: outgoing, type: 'film-grain', start: 0, end: 2, params: { amount: 100, size: 10 } },
+    ])
+    await openProject(page, project, black, '0:03')
+
+    const means: Record<string, { preview: number; saved: number }> = {}
+    // 0.5 s is before the 1 s crossfade (1 s to 2 s); 1.5 s is its midpoint.
+    for (const [seconds, label] of [
+      [0.5, 'before'],
+      [1.5, 'midpoint'],
+    ] as const) {
+      await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(seconds))
+      await expect(page.getByTestId('preview-picture-grain')).toHaveAttribute('data-seed', String(seconds * 24))
+      for (const image of seconds > 1 ? ['preview-image', 'preview-image-incoming'] : ['preview-image']) {
+        await expect
+          .poll(() => page.getByTestId(image).evaluate((element) => (element as HTMLImageElement).complete))
+          .toBe(true)
+      }
+      const shot = await page.getByTestId('preview-frame').screenshot()
+      await testInfo.attach(`preview, ${label}`, { body: shot, contentType: 'image/png' })
+      const downloadPromise = page.waitForEvent('download')
+      await chooseFromFrameMenu(page, 'preview-save-frame')
+      const saved = await readFile((await (await downloadPromise).path())!)
+      await testInfo.attach(`saved frame, ${label}`, { body: saved, contentType: 'image/png' })
+      means[label] = { preview: await meanOfPng(page, shot), saved: await meanOfPng(page, saved) }
+    }
+    console.log(`[${testInfo.project.name}] outgoing grain over black, mean brightness: ${JSON.stringify(means)}`)
+    // The grain is there, and the crossfade halves it in the preview.
+    expect(means.before.preview, 'grain over black, before the crossfade').toBeGreaterThan(GRAIN_VISIBLE)
+    const faded = means.midpoint.preview / means.before.preview
+    expect(faded, 'the preview fades the grain with its clip').toBeGreaterThan(0.35)
+    expect(faded, 'the preview fades the grain with its clip').toBeLessThan(0.65)
+    // Save frame draws through the export's composer, and agrees each time.
+    for (const label of ['before', 'midpoint']) {
+      expect(Math.abs(means[label].saved - means[label].preview), `${label}: saved frame vs preview`).toBeLessThan(
+        GRAIN_OUTGOING_TOLERANCE,
+      )
+    }
   })
 })
 
