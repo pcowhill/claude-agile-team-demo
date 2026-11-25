@@ -19,6 +19,8 @@ interface ManifestSound {
   id: string
   name: string
   category: string
+  /** A music bed's mood (#869); effects have none. */
+  mood?: string
   file: string
   duration: number
   licence: string
@@ -188,7 +190,9 @@ test('every shipped sound decodes in this browser, at its manifest length, and c
       }
     }, sound.file)
     expect(decoded, `${sound.file} failed to decode`).not.toHaveProperty('error')
-    const { duration } = decoded as { duration: number }
+    const { duration, channels } = decoded as { duration: number; channels: number }
+    // Effects are mono; the music beds are stereo (#869).
+    expect(channels, sound.file).toBe(sound.category === 'Music' ? 2 : 1)
     // Opus decodes at 48 kHz; its framing may add or trim a few ms.
     expect(Math.abs(duration - sound.duration), `${sound.file}: decoded ${duration} s`).toBeLessThan(0.03)
   }
@@ -276,6 +280,71 @@ test('adding a sound keeps focus on its Add and the list where it was scrolled, 
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(scrolled)
 })
 
+test('the Music category lists each bed with its mood and length, and a bed downloads only when played or added (#869)', async ({
+  page,
+}) => {
+  const fetched: string[] = []
+  page.on('request', (request) => {
+    if (isSoundFile(request)) fetched.push(request.url())
+  })
+  await page.addInitScript(() => {
+    const played: HTMLMediaElement[] = []
+    ;(window as unknown as { __played: HTMLMediaElement[] }).__played = played
+    const play = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      played.push(this)
+      return play.call(this)
+    }
+  })
+  await page.goto('./')
+  await setSoundLibrary(page, true)
+  const dialog = await openSoundLibrary(page)
+  const music = MANIFEST.sounds.filter((sound) => sound.category === 'Music')
+  expect(music.length).toBeGreaterThanOrEqual(5)
+  expect(music.length).toBeLessThanOrEqual(8)
+
+  // Populated: every bed, in manifest order, with its name, mood, length, ▶ and Add.
+  const section = dialog.getByRole('region', { name: 'Music' })
+  await section.scrollIntoViewIfNeeded()
+  const rows = section.locator('.sound-library-row')
+  await expect(rows).toHaveCount(music.length)
+  const parts = await rows.evaluateAll((nodes) => nodes.map((row) => [...row.children].map((part) => part.textContent)))
+  expect(parts).toEqual(
+    music.map((track) => {
+      const seconds = Math.round(track.duration)
+      return [track.name, track.mood, `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, '▶', 'Add']
+    }),
+  )
+  // Opening the list fetched nothing.
+  expect(fetched).toEqual([])
+
+  // ▶ streams that one bed, and it really plays.
+  const [first, second] = music
+  await dialog.getByRole('button', { name: `Play ${first.name}` }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { __played: HTMLMediaElement[] }).__played.some(
+          (element) => !element.paused && element.currentTime > 0.3,
+        ),
+      ),
+    )
+    .toBe(true)
+  await dialog.getByRole('button', { name: `Stop ${first.name}` }).click()
+  // A stream may take several range requests, all for the one file.
+  expect(new Set(fetched).size).toBe(1)
+  expect(fetched[0]).toMatch(new RegExp(`/${first.file}(\\?|$)`))
+
+  // Add downloads that one more bed, which joins the library as audio.
+  await dialog.getByRole('button', { name: `Add ${second.name} to the library` }).click()
+  await expect(dialog.getByRole('status')).toHaveText(`Added ${second.name} to the library.`)
+  const clips = page.getByRole('list', { name: 'Imported clips' })
+  await expect(clips.getByRole('listitem')).toHaveCount(1)
+  await expect(clips.getByRole('listitem').first()).toContainText(`${second.name}.webm`)
+  await expect(clips.getByRole('listitem').first()).toContainText('Audio')
+  expect([...new Set(fetched)].map((url) => new URL(url).pathname.split('/').pop())).toEqual([first.file, second.file])
+})
+
 for (const viewport of [
   { width: 1280, height: 720 },
   { width: 360, height: 740 },
@@ -348,6 +417,9 @@ for (const viewport of [
     await style.evaluate((node) => (node as Element).remove())
 
     await dialog.screenshot({ path: testInfo.outputPath(`sound-library-${viewport.width}.png`) })
+    // And with the list scrolled to the music beds (#869), whose rows carry a mood.
+    await dialog.getByRole('region', { name: 'Music' }).scrollIntoViewIfNeeded()
+    await dialog.screenshot({ path: testInfo.outputPath(`sound-library-music-${viewport.width}.png`) })
 
     // The header, on a populated library (`development.md`: an empty panel
     // cannot overflow): three sounds added through the dialog itself.

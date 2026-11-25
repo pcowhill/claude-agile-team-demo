@@ -116,6 +116,66 @@
       "duration": 0.908,
       "licence": "CC0-1.0",
       "source": "Synthesised by tools/sounds/recipes.ts (the team's own work), recipe \"thump\""
+    },
+    {
+      "id": "still-water",
+      "name": "Still water",
+      "category": "Music",
+      "mood": "Calm",
+      "file": "still-water.webm",
+      "duration": 88.713,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"still-water\""
+    },
+    {
+      "id": "bright-side",
+      "name": "Bright side",
+      "category": "Music",
+      "mood": "Upbeat",
+      "file": "bright-side.webm",
+      "duration": 81.15,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"bright-side\""
+    },
+    {
+      "id": "late-night-notes",
+      "name": "Late night notes",
+      "category": "Music",
+      "mood": "Lo-fi",
+      "file": "late-night-notes.webm",
+      "duration": 77.854,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"late-night-notes\""
+    },
+    {
+      "id": "horizon",
+      "name": "Horizon",
+      "category": "Music",
+      "mood": "Cinematic",
+      "file": "horizon.webm",
+      "duration": 76.735,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"horizon\""
+    },
+    {
+      "id": "bounce",
+      "name": "Bounce",
+      "category": "Music",
+      "mood": "Playful",
+      "file": "bounce.webm",
+      "duration": 77.228,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"bounce\""
+    },
+    {
+      "id": "circuit",
+      "name": "Circuit",
+      "category": "Music",
+      "mood": "Tech",
+      "file": "circuit.webm",
+      "duration": 76.008,
+      "licence": "CC0-1.0",
+      "source": "Composed and synthesised by tools/sounds/music.ts (the team's own work), track \"circuit\""
     }
   ]
 }

@@ -361,7 +361,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Shift + ← / →** — steps the playhead back and forward by the jump size. [Settings › Step sizes](settings.md#step-sizes-playhead-nudge-and-jump)
 - **Show result** — a visual editor’s scrub row; draws the frame the viewer gets instead of the outline. [Visual editors › Show result](visual-editors.md#show-result)
 - **Size** — an expanded text row; the line height as a fraction of the frame. [Text and subtitles › The properties](text-and-subtitles.md#the-properties)
-- **Sound library…** — the media library header, once the Sound library plugin is enabled; opens the list of sound effects. [Plugins › Sound library](plugins.md#sound-library)
+- **Sound library…** — the media library header, once the Sound library plugin is enabled; opens the list of sound effects and music tracks. [Plugins › Sound library](plugins.md#sound-library)
 - **Space** — plays or pauses the preview; in the Trim window, plays or pauses Play trim; in the Split window, plays on from the split point or pauses; in the Cut window, plays or pauses Play cut. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Speed segment** — + Effect ▾ on a sequence entry or video overlay. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Speed segment end** — a speed segment on an expanded video entry or video overlay; the second of the entry's trimmed range its span runs to. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
