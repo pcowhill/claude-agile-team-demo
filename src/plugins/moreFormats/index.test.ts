@@ -50,10 +50,10 @@ describe('More export formats activate/deactivate (#858)', () => {
     expect(note).toContain('soundless')
   })
 
-  it('is in the catalog with no usedByProject: an export format is not project state', () => {
+  it('is in the catalog with no projectUses: an export format is not project state', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'more-export-formats')
     expect(plugin?.name).toBe('More export formats')
-    expect(plugin?.usedByProject).toBeUndefined()
+    expect(plugin?.projectUses).toBeUndefined()
   })
 })
 

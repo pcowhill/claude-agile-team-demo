@@ -130,23 +130,32 @@ describe('Pattern transitions activate/deactivate (#857)', () => {
     for (const id of PATTERN_TRANSITION_IDS) expect(taken).not.toContain(id)
   })
 
-  it('a project holding a pattern transition depends on the plugin, one without does not', () => {
+  it('counts each pattern transition in a project as one use, and nothing else (#953)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'pattern-transitions')
-    const usedByProject = plugin?.usedByProject
-    if (usedByProject === undefined) throw new Error('pattern-transitions declares no usedByProject')
-    const timelineWith = (type: string) => ({
-      entries: [
-        { id: 'a', clipId: 'c1' },
-        { id: 'b', clipId: 'c2' },
-      ],
-      transitions: [{ fromEntryId: 'a', toEntryId: 'b', type, duration: 0.5 }],
+    const count = plugin?.projectUses?.count
+    if (count === undefined) throw new Error('pattern-transitions declares no projectUses')
+    const timelineWith = (...types: string[]) => ({
+      entries: types.concat('last').map((_, index) => ({ id: `e${index}`, clipId: `c${index}` })),
+      transitions: types.map((type, index) => ({
+        fromEntryId: `e${index}`,
+        toEntryId: `e${index + 1}`,
+        type,
+        duration: 0.5,
+      })),
     })
     const library = { clips: [], failures: [] }
-    // The predicate reads only transitions; the fixture carries what
+    // The count reads only transitions; the fixture carries what
     // `transitionsOf` needs and nothing else.
-    const asTimeline = (value: unknown) => value as Parameters<typeof usedByProject>[1]
-    expect(usedByProject(library, asTimeline(timelineWith('checkerboard')))).toBe(true)
-    expect(usedByProject(library, asTimeline(timelineWith('crossfade')))).toBe(false)
+    const asTimeline = (value: unknown) => value as Parameters<typeof count>[1]
+    expect(count(library, asTimeline(timelineWith()))).toEqual({ count: 0, what: '' })
+    expect(count(library, asTimeline(timelineWith('crossfade')))).toEqual({ count: 0, what: '' })
+    expect(count(library, asTimeline(timelineWith('checkerboard')))).toEqual({ count: 1, what: '1 transition' })
+    expect(count(library, asTimeline(timelineWith('checkerboard', 'crossfade', 'spiral')))).toEqual({
+      count: 2,
+      what: '2 transitions',
+    })
+    // A Shaped wipes transition is that plugin's use, not this one's.
+    expect(count(library, asTimeline(timelineWith('box-open')))).toEqual({ count: 0, what: '' })
   })
 })
 

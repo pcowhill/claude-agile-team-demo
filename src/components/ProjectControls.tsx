@@ -765,7 +765,7 @@ export function ProjectControls({
       />
       {/* Both dialogs are opened from File ▾ now (#415), so each is told
           whether it is showing and renders no trigger of its own. */}
-      <PluginManager open={pluginsOpen} onOpenChange={setPluginsOpen} />
+      <PluginManager open={pluginsOpen} onOpenChange={setPluginsOpen} library={library} timeline={timeline} />
       {/* Per-device preferences (#286). Rendered only with both halves of
           the settings wiring supplied, so a caller that predates settings
           gets no dead control — and, with none, File ▾ offers no Settings…. */}

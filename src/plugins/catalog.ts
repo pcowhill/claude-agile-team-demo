@@ -1,4 +1,4 @@
-import type { PluginSpec } from '../lib/plugins'
+import type { PluginSpec, PluginUseCount } from '../lib/plugins'
 import { pictureEffectsOf, textsOf, transitionsOf } from '../lib/timeline'
 import { isFontPackFont } from './fontPackIds'
 import { isPatternTransition } from './patternTransitionsIds'
@@ -17,6 +17,11 @@ import { isVisualEffect } from './visualEffectsIds'
  * `src/plugins/<id>/`. The GIF export plugin (#198) is the first real one;
  * it retired the sample plugin that #197 shipped as a placeholder.
  */
+/** `count` uses that are each one `one` (plural `other`): "1 transition", "2 transitions". */
+function countOf(count: number, one: string, other: string): PluginUseCount {
+  return { count, what: count === 0 ? '' : `${count} ${count === 1 ? one : other}` }
+}
+
 export const builtInPlugins: readonly PluginSpec[] = [
   {
     id: 'gif-export',
@@ -28,7 +33,7 @@ export const builtInPlugins: readonly PluginSpec[] = [
     version: '1.0.0',
     load: () => import('./gif/index'),
     // The plugin contributes only an export format, which projects do not
-    // store — no project ever depends on it (`usedByProject` omitted).
+    // store — no project ever depends on it (`projectUses` omitted).
   },
   {
     id: 'shaped-wipes',
@@ -39,10 +44,19 @@ export const builtInPlugins: readonly PluginSpec[] = [
     version: '1.0.0',
     load: () => import('./shapedWipes/index'),
     // Pack transitions live in the timeline, so a project that carries one
-    // depends on this plugin (#199). The predicate reads only the id list
-    // (top-level wiring), never the plugin's lazy chunk.
-    usedByProject: (_library, timeline) =>
-      transitionsOf(timeline).some((transition) => isShapedWipeTransition(transition.type)),
+    // depends on this plugin (#199). The count reads only the id list
+    // (top-level wiring), never the plugin's lazy chunk. Each transition of
+    // the pack's types is one use (#953).
+    projectUses: {
+      count: (_library, timeline) =>
+        countOf(
+          transitionsOf(timeline).filter((transition) => isShapedWipeTransition(transition.type)).length,
+          'transition',
+          'transitions',
+        ),
+      whileDisabled:
+        'while the plugin is off, a shaped wipe plays as a crossfade, and its type menu shows it as unavailable.',
+    },
   },
   {
     id: 'pattern-transitions',
@@ -54,8 +68,16 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./patternTransitions/index'),
     // As with Shaped wipes (#199): pattern transitions live in the
     // timeline, so a project carrying one depends on this plugin (#857).
-    usedByProject: (_library, timeline) =>
-      transitionsOf(timeline).some((transition) => isPatternTransition(transition.type)),
+    projectUses: {
+      count: (_library, timeline) =>
+        countOf(
+          transitionsOf(timeline).filter((transition) => isPatternTransition(transition.type)).length,
+          'transition',
+          'transitions',
+        ),
+      whileDisabled:
+        'while the plugin is off, a pattern transition plays as a crossfade, and its type menu shows it as unavailable.',
+    },
   },
   {
     id: 'visual-effects',
@@ -67,8 +89,17 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./visualEffects/index'),
     // Picture effects live in the timeline, so a project carrying one of
     // this plugin's depends on it (#862), as with the transition packs.
-    usedByProject: (_library, timeline) =>
-      pictureEffectsOf(timeline).some((effect) => isVisualEffect(effect.type)),
+    // Each effect of the plugin's types is one use (#953).
+    projectUses: {
+      count: (_library, timeline) =>
+        countOf(
+          pictureEffectsOf(timeline).filter((effect) => isVisualEffect(effect.type)).length,
+          'picture effect',
+          'picture effects',
+        ),
+      whileDisabled:
+        "while the plugin is off, an effect's row is named (unavailable), and the picture shows without it.",
+    },
   },
   {
     id: 'more-export-formats',
@@ -119,9 +150,25 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./fontPack/index'),
     // A text overlay or the subtitle style that names a pack font needs the
     // pack to draw it, so the project depends on this plugin (#867). The
-    // predicate reads only the id list, never the plugin's lazy chunk.
-    usedByProject: (_library, timeline) =>
-      textsOf(timeline).some((text) => isFontPackFont(text.font)) ||
-      (timeline.subtitleStyle !== undefined && isFontPackFont(timeline.subtitleStyle.font)),
+    // count reads only the id list, never the plugin's lazy chunk. Each text
+    // overlay in a pack font is one use, and the Subtitle style one more
+    // when it names one (#953).
+    projectUses: {
+      count: (_library, timeline) => {
+        const texts = countOf(
+          textsOf(timeline).filter((text) => isFontPackFont(text.font)).length,
+          'text overlay in a pack font',
+          'text overlays in a pack font',
+        )
+        const subtitles = timeline.subtitleStyle !== undefined && isFontPackFont(timeline.subtitleStyle.font)
+        if (!subtitles) return texts
+        return {
+          count: texts.count + 1,
+          what: texts.count === 0 ? 'the Subtitle style' : `${texts.what} and the Subtitle style`,
+        }
+      },
+      whileDisabled:
+        'while the plugin is off, text keeps its font, which its Font menu names (unavailable), and draws in the core sans-serif.',
+    },
   },
 ]

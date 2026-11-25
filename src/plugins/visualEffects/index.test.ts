@@ -148,24 +148,29 @@ describe('Visual effects plugin (#862)', () => {
     expect(brightnessAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).not.toBe(brightnessAt(2.1))
   })
 
-  it('a project holding a visual effect depends on the plugin, one without does not', () => {
+  it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'visual-effects')
-    const usedByProject = plugin?.usedByProject
-    if (usedByProject === undefined) throw new Error('visual-effects declares no usedByProject')
-    const timelineWith = (type: string) => ({
+    const count = plugin?.projectUses?.count
+    if (count === undefined) throw new Error('visual-effects declares no projectUses')
+    const timelineWith = (...types: string[]) => ({
       entries: [{ id: 'a', clipId: 'c1' }],
-      pictureEffects: [{ id: 'p1', entryId: 'a', type, start: 0, end: 1, params: {} }],
+      pictureEffects: types.map((type, index) => ({ id: `p${index}`, entryId: 'a', type, start: 0, end: 1, params: {} })),
     })
     const library = { clips: [], failures: [] }
-    // The predicate reads only picture effects; the fixture carries what
+    // The count reads only picture effects; the fixture carries what
     // `pictureEffectsOf` needs and nothing else.
-    const asTimeline = (value: unknown) => value as Parameters<typeof usedByProject>[1]
-    expect(usedByProject(library, asTimeline(timelineWith('vignette')))).toBe(true)
-    expect(usedByProject(library, asTimeline(timelineWith('blur')))).toBe(true)
-    expect(usedByProject(library, asTimeline(timelineWith('film-grain')))).toBe(true)
-    expect(usedByProject(library, asTimeline(timelineWith('old-film')))).toBe(true)
-    expect(usedByProject(library, asTimeline(timelineWith('from-elsewhere')))).toBe(false)
-    expect(usedByProject(library, asTimeline({ entries: [] }))).toBe(false)
+    const asTimeline = (value: unknown) => value as Parameters<typeof count>[1]
+    const one = { count: 1, what: '1 picture effect' }
+    expect(count(library, asTimeline(timelineWith('vignette')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('blur')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('film-grain')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('old-film')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('vignette', 'from-elsewhere', 'blur')))).toEqual({
+      count: 2,
+      what: '2 picture effects',
+    })
+    expect(count(library, asTimeline(timelineWith('from-elsewhere')))).toEqual({ count: 0, what: '' })
+    expect(count(library, asTimeline({ entries: [] }))).toEqual({ count: 0, what: '' })
     expect(isVisualEffect('box-open')).toBe(false)
   })
 })

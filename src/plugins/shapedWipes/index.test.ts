@@ -3,6 +3,7 @@ import { transitionRegistry, transitionLayerSpec } from '../../lib/transitionRen
 import { TRANSITION_TYPES } from '../../lib/timeline'
 import { SHAPED_WIPE_TRANSITION_IDS, isShapedWipeTransition } from '../shapedWipesIds'
 import { activate, shapedWipeDefinitions } from './index'
+import { builtInPlugins } from '../catalog'
 
 /**
  * The Shaped wipes plugin's registration (#199). Like the GIF plugin's tests
@@ -29,7 +30,7 @@ describe('Shaped wipes activate/deactivate (#199)', () => {
   })
 
   it('the definitions and the entry-bundle id list cannot drift', () => {
-    // The catalog's usedByProject predicate reads the ids module without
+    // The catalog's projectUses count reads the ids module without
     // loading this chunk; a definition the list does not name (or vice
     // versa) would break dependency recording silently.
     expect(shapedWipeDefinitions.map((definition) => definition.id)).toEqual([
@@ -42,6 +43,31 @@ describe('Shaped wipes activate/deactivate (#199)', () => {
   it('collides with no core transition id', () => {
     const core: readonly string[] = TRANSITION_TYPES
     for (const id of SHAPED_WIPE_TRANSITION_IDS) expect(core).not.toContain(id)
+  })
+
+  it('counts each shaped wipe in a project as one use, and nothing else (#953)', () => {
+    const count = builtInPlugins.find((spec) => spec.id === 'shaped-wipes')?.projectUses?.count
+    if (count === undefined) throw new Error('shaped-wipes declares no projectUses')
+    const timelineWith = (...types: string[]) => ({
+      entries: types.concat('last').map((_, index) => ({ id: `e${index}`, clipId: `c${index}` })),
+      transitions: types.map((type, index) => ({
+        fromEntryId: `e${index}`,
+        toEntryId: `e${index + 1}`,
+        type,
+        duration: 0.5,
+      })),
+    })
+    const library = { clips: [], failures: [] }
+    // The count reads only transitions; the fixture carries what
+    // `transitionsOf` needs and nothing else.
+    const asTimeline = (value: unknown) => value as Parameters<typeof count>[1]
+    expect(count(library, asTimeline(timelineWith()))).toEqual({ count: 0, what: '' })
+    expect(count(library, asTimeline(timelineWith('crossfade', 'checkerboard')))).toEqual({ count: 0, what: '' })
+    expect(count(library, asTimeline(timelineWith('box-open')))).toEqual({ count: 1, what: '1 transition' })
+    expect(count(library, asTimeline(timelineWith('box-open', 'crossfade', 'barn-doors-open', 'letterbox-open')))).toEqual({
+      count: 3,
+      what: '3 transitions',
+    })
   })
 })
 

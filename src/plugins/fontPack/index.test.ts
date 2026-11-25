@@ -261,14 +261,29 @@ describe('Font pack plugin (#867)', () => {
       expect(module.activate).toBe(activate)
     })
 
-    it('reports a project whose text or subtitle style uses a pack font, and no other', () => {
-      const used = (timeline: TimelineState) => spec.usedByProject!(emptyLibrary, timeline)
-      expect(used({ entries: [] })).toBe(false)
-      expect(used({ entries: [], texts: [text('sans'), text('display')] })).toBe(false)
-      expect(used({ entries: [], texts: [text('sans'), text('pack-caveat')] })).toBe(true)
+    it('counts each text in a pack font, and the subtitle style when it uses one, and nothing else (#953)', () => {
+      const uses = (timeline: TimelineState) => spec.projectUses!.count(emptyLibrary, timeline)
+      expect(uses({ entries: [] })).toEqual({ count: 0, what: '' })
+      expect(uses({ entries: [], texts: [text('sans'), text('display')] })).toEqual({ count: 0, what: '' })
+      expect(uses({ entries: [], texts: [text('sans'), text('pack-caveat')] })).toEqual({
+        count: 1,
+        what: '1 text overlay in a pack font',
+      })
+      expect(uses({ entries: [], texts: [text('pack-caveat'), text('pack-oswald'), text('serif')] })).toEqual({
+        count: 2,
+        what: '2 text overlays in a pack font',
+      })
       const style = { x: 0.5, y: 0.9, font: 'pack-oswald', size: 0.06, color: '#ffffff', bold: false, italic: false }
-      expect(used({ entries: [], subtitleStyle: style })).toBe(true)
-      expect(used({ entries: [], subtitleStyle: { ...style, font: 'serif' } })).toBe(false)
+      expect(uses({ entries: [], subtitleStyle: style })).toEqual({ count: 1, what: 'the Subtitle style' })
+      expect(uses({ entries: [], subtitleStyle: { ...style, font: 'serif' } })).toEqual({ count: 0, what: '' })
+      expect(uses({ entries: [], texts: [text('pack-caveat')], subtitleStyle: style })).toEqual({
+        count: 2,
+        what: '1 text overlay in a pack font and the Subtitle style',
+      })
+      expect(uses({ entries: [], texts: [text('pack-caveat'), text('pack-nunito')], subtitleStyle: style })).toEqual({
+        count: 3,
+        what: '2 text overlays in a pack font and the Subtitle style',
+      })
     })
 
     it('knows every id the plugin registers', () => {

@@ -67,11 +67,11 @@ const twoSounds: LibrarySound[] = [
 ]
 
 describe('Sound library plugin (#861)', () => {
-  it('is a catalog entry with a lazy load, and needs no usedByProject', async () => {
+  it('is a catalog entry with a lazy load, and needs no projectUses', async () => {
     const spec = builtInPlugins.find((plugin) => plugin.id === 'sound-library')
     expect(spec?.name).toBe('Sound library')
     // An added sound is an ordinary library clip: no project depends on it.
-    expect(spec?.usedByProject).toBeUndefined()
+    expect(spec?.projectUses).toBeUndefined()
     const module = await spec!.load()
     expect(module.activate).toBe(activate)
   })

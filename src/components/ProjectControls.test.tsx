@@ -754,7 +754,7 @@ describe('New Project and Open Project (#77)', () => {
                   }
                 },
               }),
-            usedByProject: () => true,
+            projectUses: { count: () => ({ count: 1, what: '1 thing' }), whileDisabled: 'it shows differently.' },
             ...overrides,
           },
         ],
@@ -823,7 +823,7 @@ describe('New Project and Open Project (#77)', () => {
     })
 
     it('saving records no dependency when the project does not use the plugin', async () => {
-      const { runtime } = fixtureRuntime({ usedByProject: () => false })
+      const { runtime } = fixtureRuntime({ projectUses: { count: () => ({ count: 0, what: '' }), whileDisabled: 'it shows differently.' } })
       const { port, writes } = stubPort()
       const user = userEvent.setup()
       render(
