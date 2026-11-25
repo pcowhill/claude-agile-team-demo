@@ -34,14 +34,20 @@ const MP3_KBPS = 192
 /**
  * How late the tone may start, after the encoder's delay, per browser.
  * Chromium's 20 ms is #908's criterion, and CI reads 0 ms there. Firefox's
- * start latency is bimodal (#915): on one tree, attempts read 3.9-4.0 ms or
- * 21.3-24.3 ms, both within one run, and once 44.5 ms. So Firefox gets
- * 60 ms: above every measurement, and still well under the 107-147 ms the
- * tap gave before #908, so that defect still fails here. A track playing its
- * trimmed-off head (the second test) adds 40 ms, which only Chromium's bound
- * is sure to catch.
+ * start latency is bimodal (#915): attempts read 3.9-4.0 ms or 21.3-24.3 ms,
+ * both modes within one run. Across 31 Firefox readings in eleven CI runs
+ * (#917), every one is at most 24.3 ms but one: 44.5 ms, in the head-trim
+ * test, which is exactly 40 ms + the fast mode, the signature of the defect
+ * that test guards. So Firefox gets 35 ms, between the two:
+ * - above the slow latency mode (24.3 ms), so latency alone passes;
+ * - below 40 ms + the fast mode (~44 ms), the least the head-trim defect
+ *   (a track playing its trimmed-off 40 ms, the second test) can read, so
+ *   that defect fails here in either mode, as it does in Chromium. Shown
+ *   failing in CI's Firefox with the tracks' up-front cue removed (#917).
+ * The pre-#908 107-147 ms fails too. If 44.5 ms recurs as `flaky`, measure
+ * it (#917 says how) rather than widen this.
  */
-const ONSET_BOUND: Record<string, number> = { chromium: 0.02, firefox: 0.06 }
+const ONSET_BOUND: Record<string, number> = { chromium: 0.02, firefox: 0.035 }
 const onsetBound = (browserName: string) => ONSET_BOUND[browserName] ?? 0.02
 
 /** The reference: SECONDS of stereo at `sampleRate`, the tone from sample 0 for TONE_SECONDS, as LAME encodes it. */
