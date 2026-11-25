@@ -415,9 +415,9 @@ const GRAIN_VISIBLE = 18
  * grained frames it is larger, because the grain doubles the cells'
  * spread and the encoder spends least on the finest detail: the closest
  * exported frame to a preview step measured 10.3 to 15.4 over five runs,
- * and every other frame 22 or more. So an exported frame matches a step
- * within the still's error plus 16, and the still's error itself must stay
- * under 8, or the comparison says nothing.
+ * and the next closest 22 or more in the two runs that listed them. So an
+ * exported frame matches a step within the still's error plus 16, and the
+ * still's error itself must stay under 8, or the comparison says nothing.
  */
 const GRAIN_ENCODING_LIMIT = 8
 const GRAIN_WEBM_ALLOWANCE = 16
