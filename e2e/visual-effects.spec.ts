@@ -873,6 +873,14 @@ const OLD_FILM_CHANNEL_TOLERANCE = 5
  * the plain frames, measured), well below the full tone's fall of 100.
  */
 const OLD_FILM_TONED = 30
+/**
+ * How far the blue bar's blue must fall, and its red rise, at the window's
+ * full weight in the WebM: the full tone moves them by about 100 and 64
+ * (sepia 0.85, times a brightness within 8 % of 1), and the encoder's error
+ * is a few levels. Firefox measured 109.5 for both (#942's CI, run
+ * 45623302293).
+ */
+const OLD_FILM_TONED_FULL = 40
 /** The grey bar's brightness ratio between the two steps must show the flicker: about 1.12. */
 const OLD_FILM_FLICKER_SEEN = 1.06
 
@@ -1105,6 +1113,7 @@ test.describe('Old film (#870)', () => {
     const last = toned.lastIndexOf(true)
     const tonedFrames = frames.slice(first, last + 1)
     const greys = tonedFrames.map(({ bars }) => lightness(bars.grey))
+    const full = frames.find(({ time }) => time > OLD_FILM.start + 0.8 && time < OLD_FILM.end - 0.8)!
     const report = {
       size: `${scan.width}x${scan.height}`,
       duration: scan.duration,
@@ -1113,6 +1122,7 @@ test.describe('Old film (#870)', () => {
       lastFrame: describeBars(frames.at(-1)!.bars),
       tonedSpan: [frames[first]?.time, frames[last]?.time],
       grey: [Math.min(...greys), Math.max(...greys)].map((value) => Number(value.toFixed(1))),
+      full: `${full.time.toFixed(3)} s: ${describeBars(full.bars)}`,
     }
     console.log(`[${testInfo.project.name}] old film export: ${JSON.stringify(report)}`)
 
@@ -1128,9 +1138,17 @@ test.describe('Old film (#870)', () => {
     }
     // Toned in one unbroken stretch, the window's 2 s less the faint ends
     // of its eases, give or take the recording's stretching (#370). At full
-    // weight the blue bar is toned brown: its red above its blue.
-    const full = frames.find(({ time }) => time > OLD_FILM.start + 0.8 && time < OLD_FILM.end - 0.8)!
-    expect(full.bars.blue.r, `the blue bar toned brown at ${full.time} s`).toBeGreaterThan(full.bars.blue.b)
+    // weight the blue bar is toned brown: its blue has fallen from 200 and
+    // its red risen from 40, each by far more than the encoder's error. Not
+    // "its red above its blue": the full tone puts red only about 6 above
+    // blue (sepia 0.85 of rgb(40, 80, 200) is about 104 against 98), and
+    // Firefox's WebM measured them equal at 1.8 s on three attempts.
+    expect(full.bars.blue.b, `the blue bar's blue fallen at ${full.time} s`).toBeLessThan(
+      BARS.blue[2] - OLD_FILM_TONED_FULL,
+    )
+    expect(full.bars.blue.r, `the blue bar's red risen at ${full.time} s`).toBeGreaterThan(
+      BARS.blue[0] + OLD_FILM_TONED_FULL,
+    )
     expect(first, 'a toned frame').toBeGreaterThan(0)
     expect(last, 'the last frame untoned').toBeLessThan(frames.length - 1)
     expect(toned.slice(first, last + 1).every(Boolean), 'toned in one unbroken stretch').toBe(true)
