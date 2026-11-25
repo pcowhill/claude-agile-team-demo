@@ -1,4 +1,4 @@
-import { pictureEffectRegistry, textureStep } from '../../lib/pictureEffect'
+import { pictureEffectRegistry, textureHash, textureStep } from '../../lib/pictureEffect'
 import type { PictureEffectDefinition } from '../../lib/pictureEffect'
 import type { VisualEffectId } from '../visualEffectsIds'
 import { VISUAL_EFFECT_IDS } from '../visualEffectsIds'
@@ -13,7 +13,8 @@ import { VISUAL_EFFECT_IDS } from '../visualEffectsIds'
  * Every rule scales its strength by the ease's `weight`, so weight 0 is
  * the untouched picture and nothing pops at either end of a window. Film
  * grain (#870) is a generated texture whose pattern follows the entry's
- * time (`textureStep`), so it too is a pure function of its inputs.
+ * time (`textureStep`), so it too is a pure function of its inputs, and so
+ * is Old film's flicker.
  */
 
 /** Where a vignette's darkening begins, as a fraction of the way from the centre to a corner. */
@@ -25,6 +26,26 @@ export const VIGNETTE_INNER = 0.45
  * proportion at any other size, as a blur's radius does.
  */
 export const GRAIN_REFERENCE_WIDTH = 1920
+
+/**
+ * Old film (#870) at Amount 100 and full weight: the sepia's amount, how
+ * far the flicker moves the brightness either way, and its grain's
+ * strength and size (Film grain's Amount and Size, as fractions and 1080p
+ * pixels). Amount scales all three together, so it is one dial from a
+ * faint tint to a strongly aged picture.
+ */
+export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3 }
+
+/**
+ * Old film's brightness at `time` for a flicker of `depth` (#870): a
+ * multiplier in [1 − depth, 1 + depth], one value per texture step, from
+ * the same hash the grain uses at a cell no grain tile reaches (x = −1),
+ * so the flicker and the grain are independent patterns and both a pure
+ * function of the entry's time.
+ */
+export function oldFilmBrightness(time: number, depth: number): number {
+  return 1 + depth * (2 * textureHash(textureStep(time), -1, 0) - 1)
+}
 
 const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
   // Darkens the frame's edges: Strength is the black's opacity at the
@@ -74,6 +95,32 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
         },
       ],
     }),
+  },
+  // An aged film look (#870, step 2a): sepia toning, a brightness that
+  // flickers 24 times a second of the entry's clock, and a fine grain.
+  // Amount is the strength of all three, in percent. Scratches and dust
+  // are a later step's further layers.
+  'old-film': {
+    id: 'old-film',
+    name: 'Old film',
+    params: [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
+    look: (params, weight, time = 0) => {
+      const strength = (params.amount / 100) * weight
+      return {
+        filters: [
+          { kind: 'sepia', amount: OLD_FILM.sepia * strength },
+          { kind: 'brightness', amount: oldFilmBrightness(time, OLD_FILM.flicker * strength) },
+        ],
+        layers: [
+          {
+            kind: 'grain',
+            amount: OLD_FILM.grain * strength,
+            cell: OLD_FILM.grainSize / GRAIN_REFERENCE_WIDTH,
+            seed: textureStep(time),
+          },
+        ],
+      }
+    },
   },
 }
 

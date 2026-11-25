@@ -3282,13 +3282,15 @@ export async function exportTimeline(
     )
   }
   // The same rule for a picture effect with a filter (#862), such as the
-  // Visual effects plugin's Blur: a file without the blur the preview
-  // showed would break the parity the shared rule exists for.
+  // Visual effects plugin's Blur, or Old film's sepia and flicker (#870): a
+  // file without the filter the preview showed would break the parity the
+  // shared rule exists for.
   if (timelineHasPictureFilters(timeline) && !canvasSupportsColorFilter(context)) {
     await releaseAll()
     throw new ExportUnsupportedError(
-      'This browser cannot render a blur effect when exporting (canvas filters are unsupported). ' +
-        'Remove the blur effect, or export from a browser that supports canvas filters.',
+      'This browser cannot render a picture effect such as Blur or Old film when exporting ' +
+        '(canvas filters are unsupported). Remove those effects, or export from a browser that ' +
+        'supports canvas filters.',
     )
   }
   // The same rule for a blur redaction (#492), and it matters more: an

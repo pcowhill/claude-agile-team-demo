@@ -111,7 +111,9 @@ export function timelineHasPictureFilters(
  * units of `unit`. The preview passes the frame's `cqw` (100 per width),
  * the export the canvas's px. `scale` divides the radius for a renderer
  * that applies the filter inside a transform which magnifies it again,
- * such as the preview's zoom. Empty for a look with no filters.
+ * such as the preview's zoom. Sepia and brightness (#870) have no size, so
+ * neither the width nor the scale touches them. Empty for a look with no
+ * filters.
  */
 export function pictureFilterFunctions(
   filters: readonly PictureFilter[],
@@ -119,8 +121,15 @@ export function pictureFilterFunctions(
   unit: 'px' | 'cqw',
   scale = 1,
 ): string[] {
+  const number = (value: number) => Number(value.toFixed(4))
   return filters.map((filter) => {
-    const radius = (filter.radius * frameWidth) / scale
-    return `blur(${Number(radius.toFixed(4))}${unit})`
+    switch (filter.kind) {
+      case 'blur':
+        return `blur(${number((filter.radius * frameWidth) / scale)}${unit})`
+      case 'sepia':
+        return `sepia(${number(Math.min(Math.max(filter.amount, 0), 1))})`
+      case 'brightness':
+        return `brightness(${number(Math.max(filter.amount, 0))})`
+    }
   })
 }
