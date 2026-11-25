@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { withFakeMedia } from './fakeMedia'
-import { expectNoHorizontalScroll } from './layout'
+import { expectNoHorizontalScroll, expectNoWrap } from './layout'
 
 /**
  * The shared Menu component (#412) in real Chromium, on the Record ▾ menu
@@ -73,16 +73,11 @@ test('the open menu panel lies inside the viewport at both widths, with no sidew
     // The panel opens below its trigger and overlaps nothing of it.
     const triggerBox = (await trigger.boundingBox())!
     expect(box.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 1)
-    // Every item is one line tall: no label wrapped inside the panel.
-    for (const item of await menu.getByRole('menuitem').all()) {
-      const itemBox = (await item.boundingBox())!
-      expect(itemBox.height).toBeLessThan(2 * 24)
-      const overflow = await item.evaluate((node) => ({
-        scrollWidth: node.scrollWidth,
-        clientWidth: node.clientWidth,
-      }))
-      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
-    }
+    // No label wrapped inside the panel: each item's text sits on one line,
+    // counted from its client rects (#879). A height bound and
+    // scrollWidth <= clientWidth both passed a two-line item, since a wrapped
+    // label is 36px tall and still fits its box (#605).
+    await expectNoWrap(menu.getByRole('menuitem'), `Record menu item at ${viewport.width}px`)
     await expectNoHorizontalScroll(page, `Record menu open at ${viewport.width}px`)
     // The human check for the PR's rendered evidence, re-taken every run.
     await page
