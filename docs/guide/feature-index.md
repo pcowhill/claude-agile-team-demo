@@ -399,6 +399,7 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## W
 
+- **WAV audio (uncompressed)** — the export dialog's Format group, once the More export formats plugin is enabled. [Export › WAV audio](export.md#wav-audio-plugin)
 - **Webcam** — Record ▾. [Recording › Webcam](recording.md#webcam)
 - **WebM** — the export dialog's Format group, and File ▾ › Export ▸. [Export › Formats and what decides them](export.md#formats-and-what-decides-them)
 - **When a previous session is found** — Settings. [Settings › When a previous session is found](settings.md#when-a-previous-session-is-found)

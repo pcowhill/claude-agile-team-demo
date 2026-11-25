@@ -61,7 +61,9 @@ export const builtInPlugins: readonly PluginSpec[] = [
     description:
       'Adds "Animated WebP" and "Animated PNG (APNG)" formats to the export dialog: the ' +
       'composed timeline as a soundless, looping animation in full colour. The WebP is ' +
-      'usually smaller than a GIF; the APNG is lossless, and larger.',
+      'usually smaller than a GIF; the APNG is lossless, and larger. Also "PNG image ' +
+      'sequence (ZIP)", one lossless PNG per frame, and "WAV audio (uncompressed)", the ' +
+      'soundtrack as lossless 16-bit stereo.',
     version: '1.0.0',
     load: () => import('./moreFormats/index'),
     // Export formats are outputs, not project state, so no project depends
