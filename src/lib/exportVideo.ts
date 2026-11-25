@@ -3003,11 +3003,9 @@ export async function exportTimeline(
     // within START_SEEK_EPSILON of its position skips the seek (#908): a
     // track left at 0 with a head trimmed by less than that would play the
     // trimmed-off audio, and run that much late for its whole length.
-    // MEASUREMENT ONLY (#917): the tracks' up-front cue removed, to show the
-    // Firefox onset bound failing on the head-trim defect. Reverted next commit.
     for (const { track, element } of recordedTracks) {
       throwIfAborted()
-      await cueTo(element, track.url, 0)
+      await cueTo(element, track.url, audioTrackPlaybackAt(track, windowStart).sourceTime)
     }
     // Overlay layers (#146) load and cue up front: it validates each source
     // decodes, and the element holds the right first frame from the very
