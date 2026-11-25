@@ -88,11 +88,26 @@ async function decode(page: Page, bytes: Buffer): Promise<Decoded> {
   )
 }
 
-test('the MP3 export starts on the window\'s first sample and lasts the window (#908)', async ({
-  page,
-  browserName,
-}) => {
-  test.setTimeout(120_000)
+/**
+ * `sineWav`'s tone with `silence` seconds of silence in front of it, so a
+ * track trimmed by exactly that much starts on the tone. Played from 0
+ * instead of its in-point, the export would open on that silence.
+ */
+function toneAfterSilence(silence: number): Buffer {
+  const sampleRate = 8000
+  const wav = sineWav(TONE_SECONDS + silence, sampleRate)
+  // 16-bit mono after a 44-byte header: zero the samples before the tone.
+  wav.fill(0, 44, 44 + Math.round(silence * sampleRate) * 2)
+  return wav
+}
+
+/**
+ * #908's arrangement — a SECONDS slate and a TONE_SECONDS tone at offset 0,
+ * Volume VOLUME — exported as MP3 and compared with the reference. With
+ * `headTrim`, the track's source carries that much silence first and its
+ * in-point trims it off, so the tone is still the track's first sound.
+ */
+async function exportAgainstReference(page: Page, browserName: string, headTrim = 0) {
   await page.goto('./')
   // A click first gives the page the user activation an AudioContext needs.
   await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
@@ -102,12 +117,22 @@ test('the MP3 export starts on the window\'s first sample and lasts the window (
   await duration.fill(String(SECONDS))
   await duration.blur()
   await page.getByTestId('clip-file-input').setInputFiles([
-    { name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(TONE_SECONDS) },
+    {
+      name: 'tone.wav',
+      mimeType: 'audio/wav',
+      buffer: headTrim === 0 ? sineWav(TONE_SECONDS) : toneAfterSilence(headTrim),
+    },
   ])
   await page.getByRole('button', { name: 'Add tone.wav to timeline' }).click()
   const volume = page.getByRole('spinbutton', { name: 'Volume of audio track tone.wav at position 1 (0 to 4)' })
   await volume.fill(String(VOLUME))
   await volume.blur()
+  if (headTrim !== 0) {
+    const inPoint = page.getByRole('spinbutton', { name: 'Trim in point of audio track tone.wav at position 1 in seconds' })
+    await inPoint.fill(String(headTrim))
+    await inPoint.blur()
+    await expect(inPoint).toHaveValue(String(headTrim))
+  }
 
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export Project…' }).click()
@@ -120,11 +145,20 @@ test('the MP3 export starts on the window\'s first sample and lasts the window (
   const reference = await decode(page, referenceMp3(exported.sampleRate))
   const lag = exported.onset - reference.onset
   console.log(
-    `[${browserName}] ${exported.sampleRate} Hz. Export: ${exported.duration.toFixed(4)} s, tone ` +
-      `${exported.onset.toFixed(4)}–${exported.offset.toFixed(4)} s. Reference: ` +
-      `${reference.duration.toFixed(4)} s, tone ${reference.onset.toFixed(4)}–${reference.offset.toFixed(4)} s. ` +
-      `Export lag ${(lag * 1000).toFixed(1)} ms.`,
+    `[${browserName}] head trim ${headTrim} s. ${exported.sampleRate} Hz. Export: ` +
+      `${exported.duration.toFixed(4)} s, tone ${exported.onset.toFixed(4)}–${exported.offset.toFixed(4)} s. ` +
+      `Reference: ${reference.duration.toFixed(4)} s, tone ${reference.onset.toFixed(4)}–` +
+      `${reference.offset.toFixed(4)} s. Export lag ${(lag * 1000).toFixed(1)} ms.`,
   )
+  return { exported, lag }
+}
+
+test('the MP3 export starts on the window\'s first sample and lasts the window (#908)', async ({
+  page,
+  browserName,
+}) => {
+  test.setTimeout(120_000)
+  const { exported, lag } = await exportAgainstReference(page, browserName)
   // The tone starts with the window, once the encoder's delay is taken out.
   expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(0.02)
   // The file lasts the window.
@@ -132,4 +166,17 @@ test('the MP3 export starts on the window\'s first sample and lasts the window (
     Math.abs(exported.duration - SECONDS),
     `the export lasts ${exported.duration} s against the window's ${SECONDS} s`,
   ).toBeLessThanOrEqual(0.05)
+})
+
+test('a track trimmed by less than a seek\'s threshold starts at its in-point (#908 review)', async ({
+  page,
+  browserName,
+}) => {
+  // A paused track starts without a seek when it is within 50 ms of where it
+  // should be (START_SEEK_EPSILON), so it must be cued to its in-point up
+  // front. Left at 0, a 40 ms head trim plays the 40 ms of silence it cut,
+  // and the tone lands that much late.
+  test.setTimeout(120_000)
+  const { lag } = await exportAgainstReference(page, browserName, 0.04)
+  expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(0.02)
 })

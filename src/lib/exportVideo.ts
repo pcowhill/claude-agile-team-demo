@@ -2396,8 +2396,9 @@ function alignReplayClock(
 ): void {
   if (shouldPlay) {
     if (element.paused) {
-      // Cued already (the paused branch below keeps it there): start it
-      // where it stands. A seek of a few milliseconds would hold the start
+      // Cued already (the pipeline cues every track and overlay to the
+      // window's start before playback, and the paused branch below keeps
+      // it there): start it where it stands. A seek of a few milliseconds would hold the start
       // until the seek lands, which put a track's first sound one or two
       // frames late in the export (#908).
       if (Math.abs(element.currentTime - sourceTime) > START_SEEK_EPSILON) {
@@ -2889,7 +2890,7 @@ export async function exportTimeline(
    * for that frame before seeking as well as after, because Firefox drops a
    * seek issued while the element has only metadata (#615).
    */
-  const cueTo = async (element: HTMLVideoElement, url: string, sourceTime: number) => {
+  const cueTo = async (element: HTMLMediaElement, url: string, sourceTime: number) => {
     await loadSource(element, url)
     await untilCurrentData(element, signal, canceled)
     if (Math.abs(element.currentTime - sourceTime) > 0.001) {
@@ -2996,10 +2997,15 @@ export async function exportTimeline(
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track
-    // mid-record a plain play() rather than a load.
+    // mid-record a plain play() rather than a load. Each is cued to where
+    // the window finds it — its in-point if it has not begun, partway in
+    // for a range that opens inside it — because starting a paused track
+    // within START_SEEK_EPSILON of its position skips the seek (#908): a
+    // track left at 0 with a head trimmed by less than that would play the
+    // trimmed-off audio, and run that much late for its whole length.
     for (const { track, element } of recordedTracks) {
       throwIfAborted()
-      await loadSource(element, track.url)
+      await cueTo(element, track.url, audioTrackPlaybackAt(track, windowStart).sourceTime)
     }
     // Overlay layers (#146) load and cue up front: it validates each source
     // decodes, and the element holds the right first frame from the very
