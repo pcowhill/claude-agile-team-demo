@@ -415,15 +415,32 @@ const GRAIN_VISIBLE = 18
  * grained frames it is larger, because the grain doubles the cells'
  * spread and the encoder spends least on the finest detail: the closest
  * exported frame to a preview step measured 10.3 to 15.4 over five runs,
- * and the next closest 22 or more in the two runs that listed them. So an
- * exported frame matches a step within the still's error plus 16, and the
- * still's error itself must stay under 8, or the comparison says nothing.
+ * and the next closest 22 or more in the two runs that listed them. Nine
+ * later local Chromium runs of six steps each read 6.1 to 16.8 for a
+ * matched step, against 23.2 and 23.9 for the two steps the file skipped
+ * and 24.2 to 26.3 when the export drew other steps' patterns (a mutation).
+ * So an exported frame matches a step within the still's error plus 16,
+ * and the still's error itself must stay under 8, or the comparison says
+ * nothing.
  */
 const GRAIN_ENCODING_LIMIT = 8
 const GRAIN_WEBM_ALLOWANCE = 16
 /** Two instants one texture step apart: steps 50 and 51 at 24 a second. */
 const STEP_50 = 2.1
 const STEP_51 = 2.15
+/**
+ * The WebM test's preview steps: six in a row, 2.0 to 2.25 s, inside the
+ * window's full-weight middle (1.3 to 2.7 s), each previewed at its
+ * midpoint. The export is a real-time recording at 30 frames a second, and
+ * a step lasts 1/24 s, 41.7 ms. One recorded frame late or dropped leaves a
+ * 67 ms gap that can skip a step entirely, so no single step is certain to
+ * be in the file. #933's CI measured it: in Firefox the closest exported
+ * frame to step 51 read 21.70, in the 22-or-more range of unrelated frames,
+ * while step 50 read 9.03; the retry read 12.03 and 7.94. So the test asks
+ * for most of the six, not each of two.
+ */
+const WEBM_STEPS = [48, 49, 50, 51, 52, 53]
+const WEBM_STEPS_MATCHED = 4
 
 /** The textured still, 960 × 540: each 5 px cell one seeded grey in [96, 160]. */
 async function makeNoiseStill(page: Page): Promise<Buffer> {
@@ -658,8 +675,13 @@ test.describe('Film grain (#870)', () => {
     test.setTimeout(180_000)
     const still = await openGrainProject(page)
     const stillGrid = await gridOfPng(page, still)
-    const step50 = await previewGrainAt(page, STEP_50, 50, 'step 50')
-    const step51 = await previewGrainAt(page, STEP_51, 51, 'step 51')
+    const steps: { step: number; grid: number[] }[] = []
+    for (const step of WEBM_STEPS) {
+      // The seek slider's step is 0.01 s, and each midpoint rounds to an
+      // instant well inside its step.
+      const { grid } = await previewGrainAt(page, Math.round(((step + 0.5) / 24) * 100) / 100, step, `step ${step}`)
+      steps.push({ step, grid })
+    }
 
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'Export Project…' }).click()
@@ -685,20 +707,24 @@ test.describe('Film grain (#870)', () => {
     const grained = fromStill.map((distance) => distance > encoding + GRAIN_VISIBLE / 2)
     const first = grained.indexOf(true)
     const last = grained.lastIndexOf(true)
-    const best = (grid: readonly number[]) =>
-      Math.min(...grids.filter((_, index) => grained[index]).map((frame) => gridDistance(frame, grid)))
+    const grainedGrids = grids.filter((_, index) => grained[index])
+    // For each preview step: its closest grained frame, and a typical one.
+    const matches = steps.map(({ step, grid }) => {
+      const distances = grainedGrids.map((frame) => gridDistance(frame, grid)).sort((a, b) => a - b)
+      return { step, best: distances[0], median: distances[Math.floor(distances.length / 2)] }
+    })
+    const bound = encoding + GRAIN_WEBM_ALLOWANCE
+    const matched = matches.filter((match) => match.best < bound)
     const report = {
       size: `${scan.width}x${scan.height}`,
       duration: scan.duration,
       frames: grids.length,
       encoding,
-      grainedFrames: grained.filter(Boolean).length,
+      bound,
+      grainedFrames: grainedGrids.length,
       grainedSpan: [scan.frames[first]?.time, scan.frames[last]?.time],
-      best50: best(step50.grid),
-      best51: best(step51.grid),
-      medianTo50: [...grids.filter((_, index) => grained[index]).map((grid) => gridDistance(grid, step50.grid))].sort(
-        (a, b) => a - b,
-      )[Math.floor(grained.filter(Boolean).length / 2)],
+      steps: matches.map(({ step, best, median }) => `${step}: best ${best.toFixed(2)}, median ${median.toFixed(2)}`),
+      matched: matched.length,
     }
     console.log(`[${testInfo.project.name}] film grain export: ${JSON.stringify(report)}`)
 
@@ -713,13 +739,19 @@ test.describe('Film grain (#870)', () => {
     const span = scan.frames[last].time - scan.frames[first].time
     expect(span).toBeGreaterThan(GRAIN.end - GRAIN.start - 1)
     expect(span).toBeLessThan(GRAIN.end - GRAIN.start + 0.3)
-    // The preview's two steps are each in the file: some exported frame
+    // Most of the preview's six steps are in the file: some exported frame
     // matches each to within the encoder's error on the still plus the
-    // allowance above, while a typical grained frame, a different step,
-    // is far from it.
-    expect(report.best50, 'step 50: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
-    expect(report.best51, 'step 51: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
-    expect(report.medianTo50, 'a typical grained frame vs step 50').toBeGreaterThan(report.best50 + GRAIN_VISIBLE / 2)
+    // allowance above (see WEBM_STEPS for why not every one). For each
+    // matched step a typical grained frame, a different step, is far from
+    // it, so a match is that step's pattern and not any grain at all.
+    expect(matched.length, `steps with a matching exported frame: ${report.steps.join('; ')}`).toBeGreaterThanOrEqual(
+      WEBM_STEPS_MATCHED,
+    )
+    for (const match of matched) {
+      expect(match.median, `step ${match.step}: a typical grained frame vs its closest`).toBeGreaterThan(
+        match.best + GRAIN_VISIBLE / 2,
+      )
+    }
   })
   test('on the outgoing clip of a crossfade, the grain fades with its clip in the preview and in a saved frame', async ({
     page,
