@@ -94,17 +94,34 @@ Each effect is added from **+ Effect ▾** and set on its own row, its stretch a
 
 **Where to find it.** **File ▾** › **Plugins…** › *Title templates*; once enabled, timeline header › **Add ▾** › **Title template…**.
 
-**What it does.** Places a ready-made title — a **Lower third**, a **Chapter card** or an **End card** — at the playhead, built from ordinary text overlays and a shape group.
+**What it does.** Places a ready-made title at the playhead, built from ordinary text overlays and a shape group. There are thirteen: four lower thirds, four chapter cards, three end cards, a **Call-out** and a **Step badge**.
 
-**Details.** **Title template…** opens a gallery. Each template is drawn small at the project's own shape, with its example words. Choose one, type its words, and **Place** it:
+**Details.** **Title template…** opens a gallery. Each template is drawn small at the project's own shape, with its example words. The gallery scrolls inside the dialog, so the words and **Place** stay in view below it. Choose a template, type its words, and **Place** it.
 
-- **Lower third** — a *Name* and an optional *Role*, left-aligned on a dark bar at the lower left, with an amber strip down the bar's edge. The bar grows with the longer line. It shows for 5 s.
-- **Chapter card** — a large centred *Title* and an optional *Subtitle*, over the picture dimmed by a translucent black layer. It shows for 3 s.
-- **End card** — a *Closing line* and an optional *Second line*, centred on a solid dark background that hides the picture. It shows for 5 s.
+The lower thirds take a *Name* and an optional *Role*, left-aligned at the lower left, and show for 5 s. Each bar grows with the longer line.
+- **Lower third**: a dark bar with an amber strip down its edge.
+- **Minimal lower third**: no bar; a thin amber rule between the two lines, as long as the longer one.
+- **Bold lower third**: a solid red bar.
+- **Outlined lower third**: a white outline round a lightly darkened bar.
+
+The chapter cards take a large centred *Title* and an optional *Subtitle*, and show for 3 s.
+- **Chapter card**: over the picture, dimmed by a translucent black layer.
+- **Minimal chapter card**: over the picture as it is, with a short amber rule under the title.
+- **Bold chapter card**: on a solid violet background that hides the picture.
+- **Outlined chapter card**: in a white outline, over the dimmed picture.
+
+The end cards take a *Closing line* and an optional *Second line*, centred on a solid background that hides the picture, and show for 5 s.
+- **End card**: white and amber words on near-black.
+- **Bold end card**: dark words on amber.
+- **Outlined end card**: white and amber words on near-black, inside an amber frame at the margins.
+
+The last two point at things in a screen recording, and show for 4 s:
+- **Call-out**: a short *Label* in a yellow box, with a yellow arrow pointing down and to the right from under the box. It is placed above the middle of the frame. Move the text and the shapes onto what it points at, in the [visual editors](visual-editors.md#what-each-editor-shows).
+- **Step badge**: a red numbered circle near the upper left, the same [numbered badge](shapes-and-annotations.md#numbered-badges) a shape group can hold, with an optional *Caption* on a dark strip to its right. Its *Number* starts at **one more than the highest badge already on the timeline**, in any shape group, or 1 when there is none, so placing step after step counts up by itself. Change it to any whole number from 0 to 999. Nothing is renumbered when a badge is deleted: with badges 1, 2 and 3, deleting 3 offers 3 again, and deleting 2 still offers 4.
 
 Every template fades in and out over half a second. Its words are sized from the frame's shorter side, so a portrait title is not set at a landscape title's height. A line that would run wider than the frame, less its margins, is made smaller until it fits, because text overlays never wrap. Leaving an optional field empty places no text for it; **Place** stays unavailable while a required one is empty. Placing a template is **one undo step**: one **Undo** takes away all of its text overlays and its shape group.
 
-What is placed is ordinary: the text overlays appear in the Text section and the shape group, named for the template, in the Shapes section. Edit them, retime them, fade them, move them in the visual editors, and export them like any other. They do not need the plugin. Disabling it removes **Title template…** from Add ▾ and leaves everything it placed on the timeline, and no project depends on it.
+What is placed is ordinary: the text overlays appear in the Text section and the shape group, named for the template (a step badge's group is named for its step, *Step 3*), in the Shapes section. Edit them, retime them, fade them, move them in the visual editors, and export them like any other. They do not need the plugin. Disabling it removes **Title template…** from Add ▾ and leaves everything it placed on the timeline, and no project depends on it.
 
 The gallery works from the keyboard: the arrow keys move between templates, **Tab** moves on to the words, **Enter** places, and **Esc** closes it without placing anything.
 

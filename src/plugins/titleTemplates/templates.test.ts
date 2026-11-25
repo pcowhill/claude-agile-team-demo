@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { textCanvasFont } from '../../lib/exportVideo'
+import { placeElementsAt } from '../../lib/addMenu'
+import { emptyTimelineHistory, timelineHistoryReducer } from '../../lib/history'
 import { isBoxShape, isValidShapeGroupSpec } from '../../lib/shapes'
+import type { BadgeShape, Shape, ShapeGroupSpec } from '../../lib/shapes'
 import { createTextMeasurer } from '../../lib/textMeasure'
 import { isValidTextOverlaySpec, TEXT_LINE_HEIGHT } from '../../lib/textOverlay'
-import { canPlace, defaultValues, fitLine, TEMPLATE_MARGIN, TITLE_TEMPLATES } from './templates'
+import { shapeGroupsOf, textsOf } from '../../lib/timeline'
+import { canPlace, defaultValues, fitLine, nextStepNumber, TEMPLATE_MARGIN, TITLE_TEMPLATES } from './templates'
+import type { TitleTemplate } from './templates'
 
 /**
  * The app's text measurer (`createTextMeasurer`, #424) over a stand-in
@@ -38,12 +43,230 @@ const FRAMES = {
 const LONG = 'Maximiliana Montgomery-Ashford' // 30 characters
 const SHORT = 'Ana'
 
-describe('title templates (#860)', () => {
+/** The first field that takes words: what the fitting tests type a long or short line into. */
+const firstWordsField = (template: TitleTemplate) => template.fields.find((field) => field.wholeNumber === undefined)!
+
+/** A shape's extent in px, whatever its kind: a box, an arrow's two ends, or a badge's disc. */
+function shapeExtent(shape: Shape, frame: { width: number; height: number }) {
+  const { width: W, height: H } = frame
+  if (shape.kind === 'arrow') {
+    return {
+      left: Math.min(shape.tailX, shape.tipX) * W,
+      right: Math.max(shape.tailX, shape.tipX) * W,
+      top: Math.min(shape.tailY, shape.tipY) * H,
+      bottom: Math.max(shape.tailY, shape.tipY) * H,
+    }
+  }
+  if (shape.kind === 'badge') {
+    const radius = (shape.size * Math.min(W, H)) / 2
+    return {
+      left: shape.centerX * W - radius,
+      right: shape.centerX * W + radius,
+      top: shape.centerY * H - radius,
+      bottom: shape.centerY * H + radius,
+    }
+  }
+  return { left: shape.x * W, right: (shape.x + shape.width) * W, top: shape.y * H, bottom: (shape.y + shape.height) * H }
+}
+
+const template = (id: string) => TITLE_TEMPLATES.find((candidate) => candidate.id === id)!
+
+const badgeGroup = (...numbers: number[]): ShapeGroupSpec => ({
+  offset: 0,
+  duration: 3,
+  shapes: numbers.map(
+    (number, index): BadgeShape => ({
+      id: `b${index}`,
+      kind: 'badge',
+      centerX: 0.5,
+      centerY: 0.5,
+      size: 0.08,
+      number,
+      stroke: '#ffffff',
+      strokeOpacity: 1,
+      thickness: 0,
+      fill: '#e53935',
+      fillOpacity: 1,
+      numberColor: '#ffffff',
+    }),
+  ),
+})
+
+describe('title templates part 2: the step badge, the call-out and the styles (#868)', () => {
+  it('the step badge offers one more than the highest badge on the timeline, across groups', () => {
+    expect(nextStepNumber({ shapeGroups: [] })).toBe(1)
+    expect(nextStepNumber({ shapeGroups: [badgeGroup(1), badgeGroup(2, 3)] })).toBe(4)
+    // Shapes that are not badges do not count.
+    const placed = template('lower-third').build(defaultValues(template('lower-third')), FRAMES['16:9'], stubMeasurer())
+    expect(nextStepNumber({ shapeGroups: placed.shapeGroups })).toBe(1)
+    // Never past the highest number a badge can show.
+    expect(nextStepNumber({ shapeGroups: [badgeGroup(999)] })).toBe(999)
+  })
+
+  it('after a badge is deleted, the offer is read from the badges that remain: nothing is renumbered', () => {
+    // 1, 2, 3 placed, then 3 deleted: the next is 3 again.
+    expect(nextStepNumber({ shapeGroups: [badgeGroup(1), badgeGroup(2)] })).toBe(3)
+    // 1, 2, 3 placed, then 2 deleted: the next is still 4.
+    expect(nextStepNumber({ shapeGroups: [badgeGroup(1), badgeGroup(3)] })).toBe(4)
+    // Every badge deleted: back to 1.
+    expect(nextStepNumber({ shapeGroups: [] })).toBe(1)
+  })
+
+  it("the step badge's Number starts at that offer, and Place needs a whole number from 0 to 999", () => {
+    const step = template('step-badge')
+    expect(defaultValues(step).number).toBe('1')
+    const values = defaultValues(step, { shapeGroups: [badgeGroup(4)] })
+    expect(values.number).toBe('5')
+    expect(canPlace(step, values)).toBe(true)
+    for (const number of ['', ' ', '-1', '1000', '2.5', 'two', '1e2']) {
+      expect(canPlace(step, { ...values, number }), `Number "${number}"`).toBe(false)
+    }
+    for (const number of ['0', '999', ' 7 ']) {
+      expect(canPlace(step, { ...values, number }), `Number "${number}"`).toBe(true)
+    }
+  })
+
+  it('the step badge places a badge with that number, and its caption on a pill to its right', () => {
+    const frame = FRAMES['16:9']
+    const placed = template('step-badge').build({ number: '7', caption: 'Open the menu' }, frame, stubMeasurer())
+    const [group] = placed.shapeGroups
+    expect(group.name).toBe('Step 7')
+    const [pill, badge] = group.shapes
+    if (badge.kind !== 'badge' || !isBoxShape(pill)) throw new Error('a pill, then the badge over it')
+    expect(badge.number).toBe(7)
+    const [caption] = placed.texts
+    expect(caption.content).toBe('Open the menu')
+    // Level with the badge, and right of it.
+    expect(caption.y).toBeCloseTo(badge.centerY, 9)
+    expect(pill.y + pill.height / 2).toBeCloseTo(badge.centerY, 9)
+    const badgeRight = badge.centerX * frame.width + (badge.size * frame.height) / 2
+    expect(pill.x * frame.width).toBeGreaterThan(badgeRight)
+    // With no caption, only the badge.
+    const alone = template('step-badge').build({ number: '2', caption: '' }, frame, stubMeasurer())
+    expect(alone.texts).toEqual([])
+    expect(alone.shapeGroups[0].shapes.map((shape) => shape.kind)).toEqual(['badge'])
+  })
+
+  it('the call-out centres its label in the yellow box, and its arrow leaves from under the box', () => {
+    const frame = FRAMES['9:16']
+    const measure = stubMeasurer()
+    const placed = template('callout').build({ label: 'Press Save' }, frame, measure)
+    const [arrow, box] = placed.shapeGroups[0].shapes
+    if (arrow.kind !== 'arrow' || !isBoxShape(box)) throw new Error('the arrow, then the box over it')
+    expect(box.fill).toBe('#facc15')
+    const [label] = placed.texts
+    expect(label.x).toBeCloseTo(box.x + box.width / 2, 9)
+    expect(label.y).toBeCloseTo(box.y + box.height / 2, 9)
+    const labelWidth = measure(textCanvasFont(label, frame.height), label.content) / frame.width
+    expect(labelWidth).toBeLessThan(box.width)
+    // The tail is inside the box, so the box hides it; the tip is below and right.
+    expect(arrow.tailX).toBeGreaterThan(box.x)
+    expect(arrow.tailX).toBeLessThan(box.x + box.width)
+    expect(arrow.tailY).toBeGreaterThan(box.y)
+    expect(arrow.tailY).toBeLessThan(box.y + box.height)
+    expect(arrow.tipY).toBeGreaterThan(box.y + box.height)
+    expect(arrow.tipX).toBeGreaterThan(arrow.tailX)
+  })
+
+  it("the minimal lower third's rule lies between the name and the role, under the longer line", () => {
+    const frame = FRAMES['16:9']
+    const measure = stubMeasurer()
+    const placed = template('lower-third-minimal').build(defaultValues(template('lower-third-minimal')), frame, measure)
+    const [name, role] = placed.texts
+    const [rule] = placed.shapeGroups[0].shapes
+    if (!isBoxShape(rule)) throw new Error('the rule is a box')
+    const bottom = (text: typeof name) => text.y + (text.size * TEXT_LINE_HEIGHT) / 2
+    const top = (text: typeof name) => text.y - (text.size * TEXT_LINE_HEIGHT) / 2
+    expect(rule.y).toBeGreaterThan(bottom(name))
+    expect(rule.y + rule.height).toBeLessThan(top(role))
+    const longer = Math.max(
+      ...[name, role].map((text) => measure(textCanvasFont(text, frame.height), text.content) / frame.width),
+    )
+    expect(rule.width).toBeCloseTo(longer, 9)
+  })
+
+  it("the outlined chapter card's outline encloses both lines; the outlined end card's sits at the margins", () => {
+    const frame = FRAMES['16:9']
+    const measure = stubMeasurer()
+    const chapter = template('chapter-card-outlined').build(defaultValues(template('chapter-card-outlined')), frame, measure)
+    const outline = chapter.shapeGroups[0].shapes.find((shape) => shape.id === 'outline')
+    if (outline === undefined || !isBoxShape(outline)) throw new Error('an outline box')
+    expect(outline.fillOpacity).toBe(0)
+    expect(outline.thickness).toBeGreaterThan(0)
+    for (const text of chapter.texts) {
+      const half = measure(textCanvasFont(text, frame.height), text.content) / frame.width / 2
+      expect(text.x - half).toBeGreaterThan(outline.x)
+      expect(text.x + half).toBeLessThan(outline.x + outline.width)
+      expect(text.y - (text.size * TEXT_LINE_HEIGHT) / 2).toBeGreaterThan(outline.y)
+      expect(text.y + (text.size * TEXT_LINE_HEIGHT) / 2).toBeLessThan(outline.y + outline.height)
+    }
+    const end = template('end-card-outlined').build(defaultValues(template('end-card-outlined')), frame, measure)
+    const frameOutline = end.shapeGroups[0].shapes.find((shape) => shape.id === 'outline')
+    if (frameOutline === undefined || !isBoxShape(frameOutline)) throw new Error('an outline box')
+    const margin = TEMPLATE_MARGIN * frame.height
+    expect(frameOutline.x * frame.width).toBeCloseTo(margin, 6)
+    expect(frameOutline.y * frame.height).toBeCloseTo(margin, 6)
+    expect((frameOutline.x + frameOutline.width) * frame.width).toBeCloseTo(frame.width - margin, 6)
+  })
+
+  it('the part 1 templates keep their look: the bar and strip, the dimmed frame, the solid background', () => {
+    const measure = stubMeasurer()
+    const look = (id: string) =>
+      template(id)
+        .build(defaultValues(template(id)), FRAMES['16:9'], measure)
+        .shapeGroups[0].shapes.map((shape) => [shape.fill, shape.fillOpacity, shape.thickness])
+    expect(look('lower-third')).toEqual([
+      ['#111827', 0.85, 0],
+      ['#f59e0b', 1, 0],
+    ])
+    expect(look('chapter-card')).toEqual([['#000000', 0.6, 0]])
+    expect(look('end-card')).toEqual([['#111827', 1, 0]])
+  })
+})
+
+describe('title templates (#860, #868)', () => {
   it('the long name is 30 characters', () => {
     expect(LONG).toHaveLength(30)
   })
 
+  it('the gallery holds at least twelve templates, each with its own id and name (#868)', () => {
+    expect(TITLE_TEMPLATES.length).toBeGreaterThanOrEqual(12)
+    expect(new Set(TITLE_TEMPLATES.map((template) => template.id)).size).toBe(TITLE_TEMPLATES.length)
+    expect(new Set(TITLE_TEMPLATES.map((template) => template.name)).size).toBe(TITLE_TEMPLATES.length)
+    // Part 1's three stay first in their kinds, under their own ids.
+    expect(TITLE_TEMPLATES.map((template) => template.id)).toEqual([
+      'lower-third',
+      'lower-third-minimal',
+      'lower-third-bold',
+      'lower-third-outlined',
+      'chapter-card',
+      'chapter-card-minimal',
+      'chapter-card-bold',
+      'chapter-card-outlined',
+      'end-card',
+      'end-card-bold',
+      'end-card-outlined',
+      'callout',
+      'step-badge',
+    ])
+  })
+
   for (const template of TITLE_TEMPLATES) {
+    it(`${template.name} places its text and shapes in one undo step`, () => {
+      const placed = template.build(defaultValues(template), FRAMES['16:9'], stubMeasurer())
+      let id = 0
+      let history = timelineHistoryReducer(emptyTimelineHistory, {
+        type: 'elements-placed',
+        ...placeElementsAt(placed, 1, () => `id-${++id}`),
+      })
+      expect(textsOf(history.present)).toHaveLength(placed.texts.length)
+      expect(shapeGroupsOf(history.present)).toHaveLength(placed.shapeGroups.length)
+      expect(placed.shapeGroups.length).toBeGreaterThan(0)
+      history = timelineHistoryReducer(history, { type: 'edit-undone' })
+      expect(textsOf(history.present)).toEqual([])
+      expect(shapeGroupsOf(history.present)).toEqual([])
+    })
+
     for (const [aspect, frame] of Object.entries(FRAMES)) {
       for (const [length, words] of [
         ['long', LONG],
@@ -51,10 +274,9 @@ describe('title templates (#860)', () => {
       ] as const) {
         it(`${template.name} keeps every line and shape inside a ${aspect} frame with a ${length} first line`, () => {
           const measure = stubMeasurer()
-          const values = { ...defaultValues(template), [template.fields[0].key]: words }
+          const values = { ...defaultValues(template), [firstWordsField(template).key]: words }
           const placed = template.build(values, frame, measure)
-          expect(placed.texts.length).toBeGreaterThan(0)
-          expect(placed.texts[0].content).toBe(words)
+          expect(placed.texts.map((text) => text.content)).toContain(words)
           // What the reducer accepts: a refused element refuses the whole
           // placement, so an out-of-range shape would place nothing at all.
           expect(placed.texts.every(isValidTextOverlaySpec)).toBe(true)
@@ -78,11 +300,12 @@ describe('title templates (#860)', () => {
           }
           for (const group of placed.shapeGroups) {
             for (const shape of group.shapes) {
-              if (!isBoxShape(shape)) throw new Error('templates place boxes only')
-              expect(shape.x).toBeGreaterThanOrEqual(0)
-              expect(shape.y).toBeGreaterThanOrEqual(0)
-              expect(shape.x + shape.width).toBeLessThanOrEqual(1 + 1e-9)
-              expect(shape.y + shape.height).toBeLessThanOrEqual(1 + 1e-9)
+              const extent = shapeExtent(shape, frame)
+              const where = `${shape.kind} "${shape.id}" spans ${JSON.stringify(extent)}`
+              expect(extent.left, where).toBeGreaterThanOrEqual(-1e-6)
+              expect(extent.top, where).toBeGreaterThanOrEqual(-1e-6)
+              expect(extent.right, where).toBeLessThanOrEqual(frame.width + 1e-6)
+              expect(extent.bottom, where).toBeLessThanOrEqual(frame.height + 1e-6)
             }
           }
         })
@@ -122,13 +345,18 @@ describe('title templates (#860)', () => {
   it('an optional field left empty places no text, and a required one blocks Place', () => {
     const measure = stubMeasurer()
     for (const template of TITLE_TEMPLATES) {
-      const optional = template.fields.find((field) => field.optional === true)
-      const required = template.fields.find((field) => field.optional !== true)
-      if (optional === undefined || required === undefined) throw new Error('each template has both')
-      const values = { ...defaultValues(template), [optional.key]: '  ' }
-      expect(template.build(values, FRAMES['16:9'], measure).texts).toHaveLength(1)
-      expect(canPlace(template, values)).toBe(true)
-      expect(canPlace(template, { ...values, [required.key]: ' ' })).toBe(false)
+      const values = defaultValues(template)
+      expect(canPlace(template, values), template.name).toBe(true)
+      const all = template.build(values, FRAMES['16:9'], measure).texts.length
+      for (const field of template.fields) {
+        const emptied = { ...values, [field.key]: '  ' }
+        if (field.optional === true) {
+          expect(template.build(emptied, FRAMES['16:9'], measure).texts, `${template.name} without ${field.label}`).toHaveLength(all - 1)
+          expect(canPlace(template, emptied)).toBe(true)
+        } else {
+          expect(canPlace(template, emptied), `${template.name} without ${field.label}`).toBe(false)
+        }
+      }
     }
   })
 

@@ -3,8 +3,9 @@ import { TitleTemplatesDialog } from './TitleTemplatesDialog'
 
 /**
  * The Title templates plugin (#860, from the customer's pick of idea 6 on
- * #856): Add ▾ › Title template… opens a gallery of ready-made titles — a
- * lower third, a chapter card and an end card — and places the chosen one
+ * #856): Add ▾ › Title template… opens a gallery of ready-made titles —
+ * lower thirds, chapter cards and end cards in several styles, a call-out
+ * and a step badge (#868) — and places the chosen one
  * as ordinary text overlays and a shape group. It contributes only the menu
  * item and its dialog, through the Add ▾ registry (`src/lib/addMenu.ts`).
  * What it places belongs to the project, not to the plugin, so no project

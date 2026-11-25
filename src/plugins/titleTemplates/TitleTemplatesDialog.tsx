@@ -6,8 +6,8 @@ import { drawShapeGroups } from '../../lib/shapes'
 import type { ShapeGroup } from '../../lib/shapes'
 import { measureTextWidth } from '../../lib/textMeasure'
 import type { TextMeasurer } from '../../lib/textMeasure'
-import { canPlace, defaultValues, TEMPLATE_FADE, TITLE_TEMPLATES } from './templates'
-import type { TitleTemplate } from './templates'
+import { canPlace, defaultValues, isFieldValid, TEMPLATE_FADE, TITLE_TEMPLATES } from './templates'
+import type { TemplateContext, TitleTemplate } from './templates'
 import '../../components/dialog.css'
 import './TitleTemplatesDialog.css'
 
@@ -31,11 +31,13 @@ function TemplatePreview({
   frameWidth,
   frameHeight,
   measure,
+  templateContext,
 }: {
   template: TitleTemplate
   frameWidth: number
   frameHeight: number
   measure: TextMeasurer
+  templateContext: TemplateContext
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const size = previewSize({ width: frameWidth, height: frameHeight })
@@ -48,7 +50,7 @@ function TemplatePreview({
     canvas.width = Math.round(size.width * scale)
     canvas.height = Math.round(size.height * scale)
     const { width, height } = canvas
-    const elements = template.build(defaultValues(template), frame, measure)
+    const elements = template.build(defaultValues(template, templateContext), frame, measure)
     const time = TEMPLATE_FADE
     // A neutral stand-in for the picture underneath.
     const backdrop = context.createLinearGradient(0, 0, width, height)
@@ -68,7 +70,7 @@ function TemplatePreview({
         context.fillText(line, draw.x, draw.firstLineY + lineIndex * draw.lineHeight)
       })
     })
-  }, [template, frameWidth, frameHeight, measure, size.width, size.height])
+  }, [template, frameWidth, frameHeight, measure, templateContext, size.width, size.height])
   return (
     <canvas
       ref={canvasRef}
@@ -95,6 +97,7 @@ interface TitleTemplatesDialogProps extends AddMenuDialogProps {
  */
 export function TitleTemplatesDialog({
   frame,
+  shapeGroups,
   onPlace,
   onClose,
   measure = measureTextWidth,
@@ -103,10 +106,13 @@ export function TitleTemplatesDialog({
   const fieldId = useId()
   const [templateId, setTemplateId] = useState(TITLE_TEMPLATES[0].id)
   const template = TITLE_TEMPLATES.find((candidate) => candidate.id === templateId) ?? TITLE_TEMPLATES[0]
+  // What the templates may read of the timeline, as it was when the dialog
+  // opened: the step badge's next number (#868). Fixed while it is open.
+  const [context] = useState<TemplateContext>(() => ({ shapeGroups }))
   // Each template keeps what was typed into it while the dialog is open,
   // so looking at another template and coming back loses nothing.
   const [values, setValues] = useState<Record<string, Record<string, string>>>(() =>
-    Object.fromEntries(TITLE_TEMPLATES.map((candidate) => [candidate.id, defaultValues(candidate)])),
+    Object.fromEntries(TITLE_TEMPLATES.map((candidate) => [candidate.id, defaultValues(candidate, context)])),
   )
   const current = values[template.id]
   const placeable = canPlace(template, current)
@@ -140,31 +146,35 @@ export function TitleTemplatesDialog({
         <h3 id={headingId}>Title template</h3>
         <fieldset className="title-templates-gallery">
           <legend>Template</legend>
-          {TITLE_TEMPLATES.map((candidate, index) => (
-            <label key={candidate.id} className="title-template-option">
-              <input
-                ref={index === 0 ? firstRadioRef : undefined}
-                type="radio"
-                name="title-template"
-                value={candidate.id}
-                checked={candidate.id === template.id}
-                onChange={() => setTemplateId(candidate.id)}
-                // Named for the template alone; the line under it describes it.
-                aria-label={candidate.name}
-                aria-describedby={`${fieldId}-${candidate.id}-description`}
-              />
-              <TemplatePreview
-                template={candidate}
-                frameWidth={frame.width}
-                frameHeight={frame.height}
-                measure={measure}
-              />
-              <span className="title-template-name">{candidate.name}</span>
-              <span id={`${fieldId}-${candidate.id}-description`} className="title-template-description">
-                {candidate.description}
-              </span>
-            </label>
-          ))}
+          {/* The cards scroll inside the dialog, so the fields and Place stay in view (#868). */}
+          <div className="title-templates-list" data-testid="title-templates-list">
+            {TITLE_TEMPLATES.map((candidate, index) => (
+              <label key={candidate.id} className="title-template-option">
+                <input
+                  ref={index === 0 ? firstRadioRef : undefined}
+                  type="radio"
+                  name="title-template"
+                  value={candidate.id}
+                  checked={candidate.id === template.id}
+                  onChange={() => setTemplateId(candidate.id)}
+                  // Named for the template alone; the line under it describes it.
+                  aria-label={candidate.name}
+                  aria-describedby={`${fieldId}-${candidate.id}-description`}
+                />
+                <TemplatePreview
+                  template={candidate}
+                  frameWidth={frame.width}
+                  frameHeight={frame.height}
+                  measure={measure}
+                  templateContext={context}
+                />
+                <span className="title-template-name">{candidate.name}</span>
+                <span id={`${fieldId}-${candidate.id}-description`} className="title-template-description">
+                  {candidate.description}
+                </span>
+              </label>
+            ))}
+          </div>
         </fieldset>
         <div className="title-templates-fields">
           {template.fields.map((field) => (
@@ -175,7 +185,10 @@ export function TitleTemplatesDialog({
               </label>
               <input
                 id={`${fieldId}-${field.key}`}
-                type="text"
+                {...(field.wholeNumber === undefined
+                  ? { type: 'text' }
+                  : { type: 'number', min: field.wholeNumber.min, max: field.wholeNumber.max, step: 1 })}
+                aria-invalid={isFieldValid(field, current) ? undefined : true}
                 value={current[field.key] ?? ''}
                 onChange={(event) =>
                   setValues((previous) => ({

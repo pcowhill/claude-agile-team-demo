@@ -8,6 +8,8 @@ import { closeAddMenu, openAddMenu } from '../../test/timelineMenu'
 import { activate, TITLE_TEMPLATE_ITEM_ID } from './index'
 import { TitleTemplatesDialog } from './TitleTemplatesDialog'
 import { TITLE_TEMPLATES } from './templates'
+import { defaultShape } from '../../lib/shapes'
+import type { ShapeGroup } from '../../lib/shapes'
 
 /**
  * The Title templates plugin (#860), against the app's real Add ▾ registry:
@@ -114,11 +116,57 @@ describe('disabling Title templates while its gallery is open (#860)', () => {
   })
 })
 
+describe('the step badge counts on from the timeline (#868)', () => {
+  it('a second step badge offers 2, read from the timeline the first one joined', async () => {
+    act(() => {
+      deactivate = activate()
+    })
+    render(<App />)
+    const placeStep = async (expected: string) => {
+      const menu = await openAddMenu()
+      await userEvent.click(within(menu).getByRole('menuitem', { name: 'Title template…' }))
+      const dialog = screen.getByRole('dialog', { name: 'Title template' })
+      await userEvent.click(within(dialog).getByRole('radio', { name: 'Step badge' }))
+      expect(within(dialog).getByRole('spinbutton', { name: 'Number' })).toHaveValue(Number(expected))
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Place' }))
+    }
+    await placeStep('1')
+    expect(screen.getAllByText('Step 1').length).toBeGreaterThan(0)
+    await placeStep('2')
+    expect(screen.getAllByText('Step 2').length).toBeGreaterThan(0)
+  })
+
+  it('the dialog reads the shape groups it is handed, and refuses a number out of range', async () => {
+    const onPlace = vi.fn()
+    const badges: ShapeGroup = {
+      id: 'g',
+      offset: 0,
+      duration: 3,
+      shapes: [{ ...defaultShape('b', 'badge'), number: 6 }],
+    }
+    render(
+      <TitleTemplatesDialog shapeGroups={[badges]} frame={{ width: 1920, height: 1080 }} onPlace={onPlace} onClose={vi.fn()} measure={() => 0} />,
+    )
+    await userEvent.click(screen.getByRole('radio', { name: 'Step badge' }))
+    const number = screen.getByRole('spinbutton', { name: 'Number' })
+    expect(number).toHaveValue(7)
+    await userEvent.clear(number)
+    await userEvent.type(number, '1000')
+    expect(number).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: 'Place' })).toBeDisabled()
+    await userEvent.clear(number)
+    await userEvent.type(number, '12')
+    await userEvent.click(screen.getByRole('button', { name: 'Place' }))
+    const [placed] = onPlace.mock.calls[0]
+    expect(placed.shapeGroups[0].name).toBe('Step 12')
+  })
+})
+
 describe('the Title template dialog (#860)', () => {
   const measure = () => 0
 
   it('offers every template as a radio, the first chosen, with its fields', () => {
-    render(<TitleTemplatesDialog frame={{ width: 1920, height: 1080 }} onPlace={vi.fn()} onClose={vi.fn()} measure={measure} />)
+    render(<TitleTemplatesDialog shapeGroups={[]} frame={{ width: 1920, height: 1080 }} onPlace={vi.fn()} onClose={vi.fn()} measure={measure} />)
     const radios = screen.getAllByRole('radio')
     expect(radios.map((radio) => radio.closest('label')?.querySelector('.title-template-name')?.textContent)).toEqual(
       TITLE_TEMPLATES.map((template) => template.name),
@@ -130,7 +178,7 @@ describe('the Title template dialog (#860)', () => {
   })
 
   it('switching template shows its fields, and keeps what was typed in the first', async () => {
-    render(<TitleTemplatesDialog frame={{ width: 1920, height: 1080 }} onPlace={vi.fn()} onClose={vi.fn()} measure={measure} />)
+    render(<TitleTemplatesDialog shapeGroups={[]} frame={{ width: 1920, height: 1080 }} onPlace={vi.fn()} onClose={vi.fn()} measure={measure} />)
     await userEvent.clear(screen.getByRole('textbox', { name: 'Name' }))
     await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Kim')
     await userEvent.click(screen.getByRole('radio', { name: /Chapter card/ }))
@@ -142,7 +190,7 @@ describe('the Title template dialog (#860)', () => {
 
   it('Place hands back the chosen template built from the typed words', async () => {
     const onPlace = vi.fn()
-    render(<TitleTemplatesDialog frame={{ width: 1080, height: 1920 }} onPlace={onPlace} onClose={vi.fn()} measure={measure} />)
+    render(<TitleTemplatesDialog shapeGroups={[]} frame={{ width: 1080, height: 1920 }} onPlace={onPlace} onClose={vi.fn()} measure={measure} />)
     await userEvent.click(screen.getByRole('radio', { name: /End card/ }))
     await userEvent.clear(screen.getByRole('textbox', { name: 'Second line (optional)' }))
     await userEvent.click(screen.getByRole('button', { name: 'Place' }))
@@ -156,7 +204,7 @@ describe('the Title template dialog (#860)', () => {
   it('an empty required field disables Place, and Escape and Cancel close without placing', async () => {
     const onPlace = vi.fn()
     const onClose = vi.fn()
-    render(<TitleTemplatesDialog frame={{ width: 1920, height: 1080 }} onPlace={onPlace} onClose={onClose} measure={measure} />)
+    render(<TitleTemplatesDialog shapeGroups={[]} frame={{ width: 1920, height: 1080 }} onPlace={onPlace} onClose={onClose} measure={measure} />)
     await userEvent.clear(screen.getByRole('textbox', { name: 'Name' }))
     expect(screen.getByRole('button', { name: 'Place' })).toBeDisabled()
     await userEvent.type(screen.getByRole('textbox', { name: 'Role (optional)' }), '{Enter}')

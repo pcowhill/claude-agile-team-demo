@@ -3599,6 +3599,7 @@ export function Timeline({
         {openContribution !== undefined && onPlaceElements !== undefined && (
           <openContribution.Dialog
             frame={frameSize}
+            shapeGroups={shapeGroups}
             onPlace={(elements) => {
               setOpenContribution(null)
               onPlaceElements(elements)
