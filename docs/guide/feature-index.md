@@ -330,6 +330,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove speed segment** — a speed segment on an expanded video entry or video overlay; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
 - **Remove spotlight region** — a spotlight region; takes it away. [Editing video › Spotlight a region](editing-video.md#spotlight-a-region)
 - **Remove transition** — the ✕ on a transition control between two entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
+- **Remove VHS** — VHS on an expanded sequence entry; takes it away. [Editing video › VHS](editing-video.md#vhs)
 - **Remove vignette** — a vignette on an expanded sequence entry; takes it away. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Remove zoom** — a zoom on an expanded sequence entry or overlay; takes it away. [Editing video › Zooms](editing-video.md#zooms)
 - **Rename…** — a media library row's ⋯ menu, a timeline row's ⋯ menu, and a chapter marker's menu. [Media library › Renaming a clip](media-library.md#renaming-a-clip) · [Timeline › Rename…](timeline.md#rename) · [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
@@ -425,6 +426,10 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## V
 
+- **VHS** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a soft blur and thin dark scanlines over the picture for a stretch of the entry. [Editing video › VHS](editing-video.md#vhs) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **VHS amount** — VHS on an expanded sequence entry; 0 to 100 %, how soft the picture and how dark its scanlines are. [Editing video › VHS](editing-video.md#vhs)
+- **VHS end** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › VHS](editing-video.md#vhs)
+- **VHS start** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › VHS](editing-video.md#vhs)
 - **View** — the media library header; the layout and sorting menu. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 - **View (preview)** — the preview header; the menu of preview layouts. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Vignette** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; darkens the edges of the frame for a stretch of the entry. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur) · [Plugins › Visual effects](plugins.md#visual-effects)

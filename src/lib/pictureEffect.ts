@@ -159,6 +159,11 @@ export type PictureFilter =
  *   most dark and some light, at places `seed` picks; `amount` is the
  *   strongest speck's alpha in [0, 1]. `dustTile` gives its pixels.
  *
+ * - `scanlines` (#870, VHS): a generated texture of thin dark horizontal
+ *   lines across the whole frame, a fixed number of them, each a little
+ *   lighter or darker than `amount` (the darkest line's alpha in [0, 1])
+ *   by a waver `seed` picks, line by line. `scanlinesTile` gives its pixels.
+ *
  * A look composes its layers in order, so grain over a vignette is one more
  * entry in the list, not a new mechanism.
  */
@@ -167,9 +172,10 @@ export type PictureLayer =
   | { kind: 'grain'; amount: number; cell: number; seed: number }
   | { kind: 'scratches'; amount: number; seed: number }
   | { kind: 'dust'; amount: number; seed: number }
+  | { kind: 'scanlines'; amount: number; seed: number }
 
 /** The layer kinds that are generated textures, drawn from a `TextureTile`. */
-export type TextureLayer = Extract<PictureLayer, { kind: 'grain' | 'scratches' | 'dust' }>
+export type TextureLayer = Extract<PictureLayer, { kind: 'grain' | 'scratches' | 'dust' | 'scanlines' }>
 
 /**
  * How many distinct patterns a generated texture shows per second of its
@@ -342,6 +348,42 @@ export function dustTile(layer: Extract<PictureLayer, { kind: 'dust' }>, aspect:
   return { width, height, data }
 }
 
+/**
+ * How many rows a scanlines tile has down: alternately clear and a line,
+ * so a line and its gap are each 2 px of a 1080p frame, a 4 px period, as
+ * the renderer stretches the tile over the card. The tile is one column
+ * across, because a line is the same all the way along it.
+ */
+export const SCANLINE_ROWS = 540
+/**
+ * How far a line can fall short of the layer's `amount`, as a share of it:
+ * each line's alpha is between `1 − SCANLINE_WAVER` and 1 of the amount,
+ * from a hash of the step and the row, so the lines shimmer from step to
+ * step as a tape's do, while their mean darkening stays steady.
+ */
+export const SCANLINE_WAVER = 0.25
+
+/**
+ * A scanlines layer's tile for a frame of `aspect`: 1 × `SCANLINE_ROWS`,
+ * clear on even rows and black on odd ones, each line at an alpha between
+ * `1 − SCANLINE_WAVER` and 1 of `amount`. Every hash takes the layer's
+ * `seed` with cells no other texture reaches (x = −300), so the lines'
+ * waver is independent of the grain and the other textures at the same
+ * step. `aspect` is unused: the lines keep their 1080p spacing whatever
+ * the frame's shape. It is taken so every texture tile has one signature.
+ */
+export function scanlinesTile(layer: Extract<PictureLayer, { kind: 'scanlines' }>, _aspect: number): TextureTile {
+  const width = 1
+  const height = SCANLINE_ROWS
+  const data = new Uint8ClampedArray(width * height * 4)
+  const amount = clamp(layer.amount, 0, 1)
+  if (amount === 0) return { width, height, data }
+  for (let row = 1; row < height; row += 2) {
+    data[row * 4 + 3] = Math.round(amount * (1 - SCANLINE_WAVER * textureHash(layer.seed, -300, row)) * 255)
+  }
+  return { width, height, data }
+}
+
 /** A texture layer's tile for a frame of `aspect`, whichever kind it is: what both renderers stretch over the card. */
 export function textureTile(layer: TextureLayer, aspect: number): TextureTile {
   switch (layer.kind) {
@@ -351,6 +393,8 @@ export function textureTile(layer: TextureLayer, aspect: number): TextureTile {
       return scratchesTile(layer, aspect)
     case 'dust':
       return dustTile(layer, aspect)
+    case 'scanlines':
+      return scanlinesTile(layer, aspect)
   }
 }
 

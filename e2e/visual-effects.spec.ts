@@ -290,7 +290,10 @@ async function populatedWithEffects(page: Page) {
   await chooseEffect(page, ENTRY, 'Blur')
   // Film grain's row (#870) has two parameter fields, the widest row.
   await chooseEffect(page, ENTRY, 'Film grain')
-  await expect(page.getByTestId('picture-effect-row')).toHaveCount(3)
+  // VHS's row (#870) has one field, as Old film's does; its name is the
+  // one initialism among the rows' labels.
+  await chooseEffect(page, ENTRY, 'VHS')
+  await expect(page.getByTestId('picture-effect-row')).toHaveCount(4)
 }
 
 test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
@@ -308,7 +311,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     expect(await effectItems(page, 'Color slate at position 2')).toEqual(['Zoom'])
 
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS'])
 
     // Choosing one adds its row with the defaults, and the preview draws it
     // inside the window: a vignette from 0 s to 2 s at Strength 60 %.
@@ -340,6 +343,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
       'Blur',
       'Film grain',
       'Old film',
+      'VHS',
     ])
   })
 
@@ -368,7 +372,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
         // remap rows do.
         await expectNoWrap(row.locator(':scope > span'), `${name}'s labels and labelled fields`)
       }
-      await expectNoHorizontalScroll(page, `with two effect rows at ${viewport.width}px`)
+      await expectNoHorizontalScroll(page, `with the effect rows at ${viewport.width}px`)
       const entryRow = rows.first().locator('xpath=ancestor::li[contains(@class, "timeline-entry")][1]')
       const shot = await entryRow.screenshot({ path: testInfo.outputPath(`effect-rows-${viewport.width}.png`) })
       await testInfo.attach(`effect rows at ${viewport.width}px`, { body: shot, contentType: 'image/png' })
@@ -609,7 +613,7 @@ test.describe('Film grain (#870)', () => {
       .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makePattern(page) }])
     await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS'])
     await chooseEffect(page, ENTRY, 'Film grain')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 amount of ${ENTRY} (percent)` })).toHaveValue('30')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 size of ${ENTRY}` })).toHaveValue('3')
@@ -1027,7 +1031,7 @@ test.describe('Old film (#870)', () => {
     await page.getByRole('button', { name: `Add ${OLD_FILM_STILL} to timeline` }).click()
     await setVisualEffects(page, true)
     const entry = `${OLD_FILM_STILL} at position 1`
-    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film'])
+    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS'])
     await chooseEffect(page, entry, 'Old film')
     await expect(page.getByRole('spinbutton', { name: `Old film 1 amount of ${entry} (percent)` })).toHaveValue('70')
     await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
@@ -1488,6 +1492,325 @@ test.describe("Old film's scratches and dust (#870)", () => {
         )
       })
     }
+  })
+})
+
+/**
+ * VHS (#870, step 2b(i)): a soft blur and thin dark scanlines, whose
+ * darkness shimmers 24 times a second of the entry's clock.
+ *
+ * The still is 1920 × 1080, so a 1080p frame holds a scanline period in
+ * 4 px: its left half mid-grey, where the lines are measured, and its
+ * right half white up to three quarters across and black after, a sharp
+ * edge for the blur. Three measures, each read the same way from the
+ * preview's screenshot and from a frame of the export's composer:
+ * - `lines`: the strength of the scanlines, the amplitude of the grey
+ *   half's row profile at the lines' period, 4 px of a 1080p frame,
+ *   whatever size the frame is drawn at. Without the lines it is the
+ *   still's own, near 0.
+ * - `grey`: the grey half's mean brightness, which the lines darken.
+ * - `edge`: the edge's width, from three quarters to one quarter of the
+ *   way from white to black, in px of a 1080p frame: about 1 when sharp,
+ *   and the blur widens it.
+ */
+const VHS_STILL_GREY = 128
+const VHS_EDGE = 0.75
+const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
+/**
+ * The bounds, from local Chromium measurements on this spec before they
+ * were set. Outside the window both renderers read lines 0, grey 128 and
+ * an edge of 0.5 px. At Amount 100 inside it, steps 48 and 49: lines 18.2
+ * and 17.9 in the preview against 15.9 and 15.7 in the saved frame, grey
+ * 105.4 and 105.7 in both (within 0.02), and an edge of 3.50 against 3.48.
+ * - Grey: the lines' mean alpha is 0.4 × 0.875 / 2 = 0.175, so 128 falls
+ *   to about 105.6. The renderers must agree within 1.5 of that.
+ * - Lines: the amplitude depends on how each renderer smooths a 2 px line
+ *   onto its own pixel grid (the preview's frame is 1910 px across, the
+ *   saved frame 1920), so the bound is a share, 35 %, where Chromium
+ *   differs by 14 %. Without the lines the amplitude is 0.
+ * - Edge: Gaussian blur of 0.15 % of 1920 px, 2.9 px, widens a sharp edge
+ *   to 3.9 px between its quarters; the renderers must agree within 0.6.
+ */
+const VHS_LINES_SEEN = 8
+const VHS_LINES_TOLERANCE = 0.35
+const VHS_GREY_DARKENED = 15
+const VHS_GREY_TOLERANCE = 1.5
+const VHS_SHARP = 1.5
+const VHS_SOFT = 2.5
+const VHS_EDGE_TOLERANCE = 0.6
+/** The grey half, where an exported frame's mean is read: inside the window the lines darken it, outside it is the still's 128. */
+const VHS_GREY_BAND = { grey: { x: 0.05, y: 0.1, width: 0.4, height: 0.8 } }
+
+/** The VHS still: the left half grey, the right half white then black from `VHS_EDGE`. */
+async function makeVhsStill(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ({ grey, edge }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1920
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = `rgb(${grey}, ${grey}, ${grey})`
+      ctx.fillRect(0, 0, 960, 1080)
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(960, 0, 1920 * edge - 960, 1080)
+      ctx.fillStyle = '#000'
+      ctx.fillRect(1920 * edge, 0, 1920 * (1 - edge), 1080)
+      return canvas.toDataURL('image/png').split(',')[1]
+    },
+    { grey: VHS_STILL_GREY, edge: VHS_EDGE },
+  )
+  return Buffer.from(base64, 'base64')
+}
+
+type VhsMeasure = { lines: number; grey: number; edge: number }
+
+/** `lines`, `grey` and `edge` (see above) of a PNG of the composed frame, at its own size. */
+async function vhsOfPng(page: Page, png: Buffer): Promise<VhsMeasure> {
+  return await page.evaluate(
+    async ({ base64, edgeAt }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const { width, height } = canvas
+      const data = ctx.getImageData(0, 0, width, height).data
+      const at = (x: number, y: number) => {
+        const index = (y * width + x) * 4
+        return (data[index] + data[index + 1] + data[index + 2]) / 3
+      }
+      // The grey half's row profile, inset from the frame's edges and the
+      // half's own edge so the blur's soft borders stay out of it.
+      const x0 = Math.round(0.05 * width)
+      const x1 = Math.round(0.45 * width)
+      const y0 = Math.round(0.1 * height)
+      const y1 = Math.round(0.9 * height)
+      const profile: number[] = []
+      for (let y = y0; y < y1; y++) {
+        let sum = 0
+        for (let x = x0; x < x1; x++) sum += at(x, y)
+        profile.push(sum / (x1 - x0))
+      }
+      const grey = profile.reduce((total, value) => total + value, 0) / profile.length
+      // The amplitude of the profile's component at the lines' period: 4 px
+      // of a 1080p frame, so `height / 270` px of this one.
+      const period = height / 270
+      let re = 0
+      let im = 0
+      profile.forEach((value, index) => {
+        const phase = (2 * Math.PI * (y0 + index)) / period
+        re += (value - grey) * Math.cos(phase)
+        im += (value - grey) * Math.sin(phase)
+      })
+      const lines = (2 / profile.length) * Math.hypot(re, im)
+      // The edge's width: the column profile across it, 2 % of the width
+      // either side, and the distance between where it crosses three
+      // quarters and one quarter of the way from black to white, in px of a
+      // 1080p frame. Rows are averaged, so the scanlines do not move it.
+      const from = Math.round((edgeAt - 0.02) * width)
+      const to = Math.round((edgeAt + 0.02) * width)
+      const columns: number[] = []
+      for (let x = from; x <= to; x++) {
+        let sum = 0
+        for (let y = y0; y < y1; y++) sum += at(x, y)
+        columns.push(sum / (y1 - y0))
+      }
+      const high = Math.max(...columns)
+      const low = Math.min(...columns)
+      // Where the falling profile first reaches `level`, between columns.
+      const crossing = (level: number) => {
+        const index = columns.findIndex((value) => value <= level)
+        if (index <= 0) return index
+        return index - 1 + (columns[index - 1] - level) / (columns[index - 1] - columns[index])
+      }
+      const edge = ((crossing(low + 0.25 * (high - low)) - crossing(low + 0.75 * (high - low))) * 1920) / width
+      return { lines, grey, edge }
+    },
+    { base64: png.toString('base64'), edgeAt: VHS_EDGE },
+  )
+}
+
+/** Builds the 4 s VHS still with VHS from 1 s to 3 s at Amount 100, and opens that project. */
+async function openVhsProject(page: Page) {
+  await gotoForSaving(page)
+  const still = await makeVhsStill(page)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: still }])
+  await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+  const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position 1 in seconds` })
+  await duration.fill('4')
+  await duration.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+  const project = await saveWithEffects(page, ([entryId]) => [
+    {
+      id: 'h1',
+      entryId,
+      type: 'vhs',
+      start: VHS_WINDOW.start,
+      end: VHS_WINDOW.end,
+      params: { amount: VHS_WINDOW.amount },
+    },
+  ])
+  await openProject(page, project, still, '0:04')
+}
+
+/**
+ * Seeks the preview to `seconds`, waits for the scanlines step that
+ * instant publishes (or for no effect), and returns its measures.
+ */
+async function previewVhsAt(page: Page, seconds: number, step: number | null, label: string): Promise<VhsMeasure> {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(seconds))
+  const image = page.getByTestId('preview-image')
+  await expect(image).toBeVisible()
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+  const lines = page.getByTestId('preview-picture-scanlines')
+  if (step === null) {
+    await expect(lines).toHaveCount(0)
+    await expect(image).toHaveCSS('filter', 'none')
+  } else {
+    await expect(lines).toHaveAttribute('data-seed', String(step))
+    await expect(image).toHaveCSS('filter', /blur\(/)
+  }
+  const png = await page
+    .getByTestId('preview-frame')
+    .screenshot({ path: test.info().outputPath(`vhs-preview-${seconds}s.png`) })
+  await test.info().attach(`preview at ${seconds} s (${label})`, { body: png, contentType: 'image/png' })
+  return await vhsOfPng(page, png)
+}
+
+/** Saves the playhead's frame through the export's composer (Save frame) and returns its measures. */
+async function savedVhsFrame(page: Page, label: string): Promise<VhsMeasure> {
+  const downloadPromise = page.waitForEvent('download')
+  await chooseFromFrameMenu(page, 'preview-save-frame')
+  const download = await downloadPromise
+  const saved = await readFile((await download.path())!)
+  await download.saveAs(test.info().outputPath(`vhs-saved-${label.replaceAll(' ', '-')}.png`))
+  await test.info().attach(`saved frame (${label})`, { body: saved, contentType: 'image/png' })
+  return await vhsOfPng(page, saved)
+}
+
+test.describe('VHS (#870)', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test('+ Effect ▾ offers VHS after Old film, with Amount at its default', async ({ page }) => {
+    test.setTimeout(60_000)
+    await page.goto('./')
+    await page
+      .getByTestId('clip-file-input')
+      .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makeBars(page) }])
+    await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+    await setVisualEffects(page, true)
+    const entry = `${STILL} at position 1`
+    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS'])
+    await chooseEffect(page, entry, 'VHS')
+    await expect(page.getByRole('spinbutton', { name: `VHS 1 amount of ${entry} (percent)` })).toHaveValue('70')
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
+    // At the default 70 %: a blur of 0.105 % of the frame's width on the
+    // picture, and the scanlines' one-column tile of 540 rows over it.
+    const image = page.getByTestId('preview-image')
+    await expect(image).toHaveCSS('filter', /blur\(/)
+    const lines = page.getByTestId('preview-picture-scanlines')
+    await expect(lines).toHaveAttribute('height', '540')
+    await expect(lines).toHaveAttribute('data-seed', '24')
+    await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+    const shot = await page.getByTestId('preview-frame').screenshot({ path: test.info().outputPath('vhs-default.png') })
+    await test.info().attach('VHS at its default, on the colour bars', { body: shot, contentType: 'image/png' })
+  })
+
+  test('the preview and a saved frame draw the same scanlines and softening for the same instant, and none outside the window', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000)
+    await openVhsProject(page)
+    const before = await previewVhsAt(page, 0.5, null, 'before the window')
+    const savedBefore = await savedVhsFrame(page, 'before the window')
+    const after = await previewVhsAt(page, 3.5, null, 'after the window')
+    const savedAfter = await savedVhsFrame(page, 'after the window')
+    const step48 = await previewVhsAt(page, 2.02, 48, 'step 48')
+    const saved48 = await savedVhsFrame(page, 'step 48')
+    const step49 = await previewVhsAt(page, 2.06, 49, 'step 49')
+    const saved49 = await savedVhsFrame(page, 'step 49')
+    const report = { before, savedBefore, after, savedAfter, step48, saved48, step49, saved49 }
+    console.log(`[${testInfo.project.name}] vhs: ${JSON.stringify(report)}`)
+
+    // Outside the window both renderers show the still untouched: no
+    // lines, its own grey, and a sharp edge.
+    for (const [name, measure] of Object.entries({ before, savedBefore, after, savedAfter })) {
+      expect(measure.lines, `${name}: no scanlines`).toBeLessThan(1)
+      expect(Math.abs(measure.grey - VHS_STILL_GREY), `${name}: the still's grey`).toBeLessThan(1)
+      expect(measure.edge, `${name}: a sharp edge`).toBeLessThan(VHS_SHARP)
+    }
+    // Inside it, at the same instant, the two renderers agree.
+    for (const [step, preview, saved] of [
+      [48, step48, saved48],
+      [49, step49, saved49],
+    ] as const) {
+      for (const [name, measure] of [
+        ['preview', preview],
+        ['saved frame', saved],
+      ] as const) {
+        expect(measure.lines, `step ${step}, ${name}: scanlines`).toBeGreaterThan(VHS_LINES_SEEN)
+        expect(VHS_STILL_GREY - measure.grey, `step ${step}, ${name}: darkened by the lines`).toBeGreaterThan(
+          VHS_GREY_DARKENED,
+        )
+        expect(measure.edge, `step ${step}, ${name}: a softened edge`).toBeGreaterThan(VHS_SOFT)
+      }
+      expect(Math.abs(preview.lines - saved.lines) / saved.lines, `step ${step}: lines, preview vs saved`).toBeLessThan(
+        VHS_LINES_TOLERANCE,
+      )
+      expect(Math.abs(preview.grey - saved.grey), `step ${step}: grey, preview vs saved`).toBeLessThan(
+        VHS_GREY_TOLERANCE,
+      )
+      expect(Math.abs(preview.edge - saved.edge), `step ${step}: edge, preview vs saved`).toBeLessThan(
+        VHS_EDGE_TOLERANCE,
+      )
+    }
+  })
+
+  test('the export darkens with scanlines only inside the window', async ({ page }, testInfo) => {
+    test.setTimeout(180_000)
+    await openVhsProject(page)
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Project…' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    const exported = await readFile((await (await downloadPromise).path())!)
+    const scan = await scanExportedFrames(page, exported, VHS_GREY_BAND, 1 / 30)
+    const greys = scan.frames.map((frame) => ({ time: frame.time, grey: lightness(frame.bands.grey) }))
+    // A frame is darkened when its grey has fallen by well over the
+    // encoder's error: at full weight it falls by about 22, and through the
+    // eases it falls steadily, so the darkened frames are one run.
+    const darkened = greys.map(({ grey }) => VHS_STILL_GREY - grey > VHS_GREY_DARKENED / 3)
+    const first = darkened.indexOf(true)
+    const last = darkened.lastIndexOf(true)
+    const full = greys.filter(({ time }) => time > VHS_WINDOW.start + 0.8 && time < VHS_WINDOW.end - 0.8)
+    const report = {
+      size: `${scan.width}x${scan.height}`,
+      duration: scan.duration,
+      frames: greys.length,
+      ends: [greys[0].grey, greys.at(-1)!.grey],
+      darkenedSpan: [greys[first]?.time, greys[last]?.time],
+      full: [Math.min(...full.map(({ grey }) => grey)), Math.max(...full.map(({ grey }) => grey))],
+    }
+    console.log(`[${testInfo.project.name}] vhs export: ${JSON.stringify(report)}`)
+
+    // Outside the window the file shows the still's grey, within the
+    // encoder's error.
+    for (const frame of [greys[0], greys.at(-1)!]) {
+      expect(Math.abs(frame.grey - VHS_STILL_GREY), `grey at ${frame.time} s`).toBeLessThan(4)
+    }
+    // At full weight the grey is darkened as the saved frame is, and the
+    // darkened frames are one unbroken stretch, the window's 2 s less the
+    // faint ends of its eases, give or take the recording's stretching.
+    for (const { time, grey } of full) {
+      expect(VHS_STILL_GREY - grey, `darkened at ${time} s`).toBeGreaterThan(VHS_GREY_DARKENED)
+    }
+    expect(first, 'a darkened frame').toBeGreaterThan(0)
+    expect(last, 'the last frame not darkened').toBeLessThan(greys.length - 1)
+    expect(darkened.slice(first, last + 1).every(Boolean), 'darkened in one unbroken stretch').toBe(true)
+    const span = greys[last].time - greys[first].time
+    expect(span).toBeGreaterThan(VHS_WINDOW.end - VHS_WINDOW.start - 1)
+    expect(span).toBeLessThan(VHS_WINDOW.end - VHS_WINDOW.start + 0.3)
   })
 })
 

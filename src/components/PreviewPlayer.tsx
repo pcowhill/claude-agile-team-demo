@@ -452,7 +452,7 @@ function withPictureFilters(
  * - a vignette is a CSS radial gradient on an ellipse of the card's aspect
  *   through its corners (`farthest-corner`), with the stops the export's
  *   canvas gradient takes from the same `vignetteStops`;
- * - grain, scratches and dust (#870) are each a canvas holding their
+ * - grain, scratches, dust and scanlines (#870) are each a canvas holding their
  *   `textureTile` for the frame's `aspect`, stretched over the box with
  *   smoothing, as the export stretches the same tile over its card.
  */
@@ -503,7 +503,8 @@ function PictureLayers({
  * A texture layer (#870): a canvas one pixel per tile cell, painted with
  * the tile for its step. `data-seed` names the step drawn, so a test can
  * wait for the step a seek publishes rather than read the canvas once. Its
- * test id names the kind: `preview-picture-grain`, `-scratches`, `-dust`.
+ * test id names the kind: `preview-picture-grain`, `-scratches`, `-dust`,
+ * `-scanlines`.
  */
 function TextureLayerCanvas({ layer, aspect }: { layer: TextureLayer; aspect: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
