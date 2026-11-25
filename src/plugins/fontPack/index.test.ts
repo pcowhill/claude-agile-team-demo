@@ -13,10 +13,17 @@ import { activate, activateFontPack, packFonts } from './index'
  * themselves, are the e2e spec (`e2e/font-pack.spec.ts`).
  */
 
-/** A `FontFace` stand-in: `load` settles when the test says. */
+/**
+ * A `FontFace` stand-in: `load` settles when the test says. As the CSS Font
+ * Loading spec has it, only an `unloaded` face downloads: `load()` on a face
+ * that is loading, loaded or in `error` returns the same promise and counts
+ * no new download (#928).
+ */
 class FakeFace {
   loads = 0
+  status: 'unloaded' | 'loading' | 'loaded' | 'error' = 'unloaded'
   settle: (ok: boolean) => void = () => {}
+  private loaded: Promise<void> | null = null
   readonly family: string
   readonly source: string
   readonly descriptors: FontFaceDescriptors
@@ -26,10 +33,17 @@ class FakeFace {
     this.descriptors = descriptors
   }
   load = () => {
+    if (this.loaded !== null) return this.loaded
     this.loads++
-    return new Promise<void>((resolve, reject) => {
-      this.settle = (ok) => (ok ? resolve() : reject(new Error('network')))
+    this.status = 'loading'
+    this.loaded = new Promise<void>((resolve, reject) => {
+      this.settle = (ok) => {
+        this.status = ok ? 'loaded' : 'error'
+        if (ok) resolve()
+        else reject(new Error('network'))
+      }
     })
+    return this.loaded
   }
 }
 
@@ -126,13 +140,73 @@ describe('Font pack plugin (#867)', () => {
   it('a failed download resolves the load, so the export draws the fallback, and the next export tries again', async () => {
     const { registry, added, env } = environment()
     deactivate = activateFontPack(env)
-    const bebas = [...added].filter((face) => face.family === 'Font Pack Bebas Neue')
-    expect(bebas).toHaveLength(1)
+    const bebasFaces = () => [...added].filter((face) => face.family === 'Font Pack Bebas Neue')
+    const [failed] = bebasFaces()
+    expect(bebasFaces()).toHaveLength(1)
     const first = loadTextFonts(['pack-bebas-neue'], registry)
-    bebas[0].settle(false)
+    failed.settle(false)
     await expect(first).resolves.toBeUndefined()
-    void loadTextFonts(['pack-bebas-neue'], registry)
-    expect(bebas[0].loads).toBe(2)
+    // The failed face is out of the set, and an unloaded one for the same
+    // file is in its place: asking the failed face again would download
+    // nothing (#928).
+    expect(failed.status).toBe('error')
+    expect(added.has(failed)).toBe(false)
+    const [fresh] = bebasFaces()
+    expect(bebasFaces()).toHaveLength(1)
+    expect(fresh).not.toBe(failed)
+    expect([fresh.source, fresh.descriptors]).toEqual([failed.source, failed.descriptors])
+    expect(fresh.status).toBe('unloaded')
+    // The next export downloads it, and resolves once it has.
+    const second = loadTextFonts(['pack-bebas-neue'], registry)
+    expect(fresh.loads).toBe(1)
+    expect(failed.loads).toBe(1)
+    fresh.settle(true)
+    await expect(second).resolves.toBeUndefined()
+    // Deactivating removes the replacement, not only the original faces.
+    deactivate()
+    deactivate = null
+    expect(added.size).toBe(0)
+  })
+
+  it('after a partial failure only the failed face is replaced and downloaded again', async () => {
+    const { registry, added, env } = environment()
+    deactivate = activateFontPack(env)
+    const caveatFaces = () => [...added].filter((face) => face.family === 'Font Pack Caveat')
+    const [regular, bold] = caveatFaces()
+    const first = loadTextFonts(['pack-caveat'], registry)
+    regular.settle(true)
+    bold.settle(false)
+    await first
+    const now = caveatFaces()
+    expect(now).toHaveLength(2)
+    expect(now).toContain(regular)
+    expect(now).not.toContain(bold)
+    const fresh = now.find((face) => face !== regular)!
+    expect(fresh.descriptors).toEqual(bold.descriptors)
+    void loadTextFonts(['pack-caveat'], registry)
+    expect([regular.loads, fresh.loads]).toEqual([1, 1])
+  })
+
+  it("a face the browser's own attempt left in error is swapped before the next load, which then waits for it", async () => {
+    const { registry, added, env } = environment()
+    deactivate = activateFontPack(env)
+    const bebasFaces = () => [...added].filter((face) => face.family === 'Font Pack Bebas Neue')
+    const [failed] = bebasFaces()
+    // The preview's or the canvas's text started this download, not the loader.
+    void failed.load().catch(() => {})
+    failed.settle(false)
+    await Promise.resolve()
+    expect(failed.status).toBe('error')
+    let settled = false
+    const loading = loadTextFonts(['pack-bebas-neue'], registry).then(() => (settled = true))
+    const [fresh] = bebasFaces()
+    expect(fresh).not.toBe(failed)
+    expect(fresh.loads).toBe(1)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    fresh.settle(true)
+    await loading
+    expect(settled).toBe(true)
   })
 
   it('without the Font Loading API, the fonts are listed with no loader to wait for', async () => {

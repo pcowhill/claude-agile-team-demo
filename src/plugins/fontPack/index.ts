@@ -25,6 +25,11 @@ import { FONT_PACK_IDS } from '../fontPackIds'
  * **A failed download** resolves the loader rather than rejecting it: the
  * export then draws the stack's fallback, which is what the preview shows
  * for a face that failed to load, instead of refusing to export at all.
+ * A `FontFace` that failed stays failed: under the CSS Font Loading spec,
+ * `load()` on a face in `error` returns its settled promise and downloads
+ * nothing (#928 measured one request for two loads in Chromium). So the
+ * loader swaps each failed face for a fresh, unloaded one for the same
+ * file. The next export's load, or the preview's text, downloads it again.
  */
 
 /** The weights and styles a family ships, as file-name parts: `400-normal`, `700-italic`. */
@@ -156,6 +161,7 @@ export const packFonts: readonly PackFont[] = FONT_PACK_IDS.map((id) => {
 /** The slice of `FontFace` the plugin uses. */
 export interface PackFontFace {
   load: () => Promise<unknown>
+  readonly status: FontFaceLoadStatus
 }
 
 /** The slice of `document.fonts` the plugin uses. */
@@ -181,20 +187,29 @@ export function activateFontPack<Face extends PackFontFace>({
   fonts,
   createFace,
 }: FontPackEnvironment<Face>): () => void {
-  const added: Face[] = []
+  // Every face currently in `fonts`, so deactivating removes exactly those,
+  // replacements included.
+  const added = new Set<Face>()
   for (const font of packFonts) {
-    const faces =
-      fonts === null || createFace === null
-        ? []
-        : font.files.map((file) => {
-            const face = createFace(font.family, `url("${file.url}") format("woff2")`, {
-              weight: file.weight,
-              style: file.style,
-            })
-            fonts.add(face)
-            added.push(face)
-            return face
-          })
+    const register = (file: PackFontFile): Face | null => {
+      if (fonts === null || createFace === null) return null
+      const face = createFace(font.family, `url("${file.url}") format("woff2")`, {
+        weight: file.weight,
+        style: file.style,
+      })
+      fonts.add(face)
+      added.add(face)
+      return face
+    }
+    const faces = font.files.map(register).filter((face): face is Face => face !== null)
+    /** Swaps the face at `index`, which failed, for a fresh unloaded one (#928). */
+    const replace = (index: number) => {
+      const failed = faces[index]
+      fonts?.delete(failed)
+      added.delete(failed)
+      const fresh = register(font.files[index])
+      if (fresh !== null) faces[index] = fresh
+    }
     let loading: Promise<void> | null = null
     const definition: TextFontDefinition = {
       id: font.id,
@@ -203,21 +218,43 @@ export function activateFontPack<Face extends PackFontFace>({
       // Every variant, since `loadTextFonts` knows ids, not weights; a
       // family is 8 to 100 kB in all. A face already loaded resolves at once.
       load: () => {
-        loading ??= Promise.all(faces.map((face) => face.load())).then(
-          () => undefined,
-          () => {
-            // Let a later export try again; this one draws the fallback.
-            loading = null
-          },
-        )
+        loading ??= loadAll()
         return loading
       },
+    }
+    /**
+     * Loads every face of the font. A face already in `error`, which the
+     * preview's or the canvas's own attempt can leave behind, is swapped
+     * first, so this load downloads it again rather than settling at once.
+     */
+    const loadAll = (): Promise<void> => {
+      faces.forEach((face, index) => {
+        if (face.status === 'error') replace(index)
+      })
+      return Promise.all(
+        faces.map((face, index) =>
+          face.load().then(
+            () => true,
+            () => {
+              // A failed face never loads again, so a fresh one takes its
+              // place for the next attempt (#928).
+              if (faces[index] === face) replace(index)
+              return false
+            },
+          ),
+        ),
+      ).then((loaded) => {
+        // Any failure: this export draws the fallback, and the next load
+        // asks again, downloading only the replaced faces.
+        if (!loaded.every(Boolean)) loading = null
+      })
     }
     registry.register(definition)
   }
   return () => {
     for (const font of packFonts) registry.unregister(font.id)
     for (const face of added) fonts?.delete(face)
+    added.clear()
   }
 }
 
