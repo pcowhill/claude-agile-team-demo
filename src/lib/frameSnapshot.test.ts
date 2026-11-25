@@ -3,6 +3,7 @@ import { createSnapshotSession, frameFileName, snapshotTimelineFrame } from './f
 import { ExportUnsupportedError } from './exportVideo'
 import { probeSourceDimensions } from './exportSettings'
 import type { TimelineEntry, TimelineState } from './timeline'
+import { fontRegistry } from './textOverlay'
 
 // The snapshot (#237) composes through the export's factored frame composer
 // (createFrameComposer — its draw behavior is pinned by exportVideo.test.ts
@@ -690,6 +691,46 @@ describe('the sought frame settles the presented-frame wait while `seeking` stil
       await behindPending
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('snapshotTimelineFrame waits for a plugin font (#867)', () => {
+  it('loads the fonts the text uses before it creates or draws anything', async () => {
+    let finish: () => void = () => {}
+    const load = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)))
+    fontRegistry.register({ id: 'pack-test', label: 'Pack test', stack: '"Pack Test", sans-serif', load })
+    try {
+      const { options, videos, draws } = snapshotOptions()
+      const timeline: TimelineState = {
+        entries: [entry({ id: 'a' })],
+        texts: [
+          {
+            id: 't1',
+            content: 'Title',
+            offset: 0,
+            duration: 5,
+            x: 0.5,
+            y: 0.5,
+            font: 'pack-test',
+            size: 0.1,
+            color: '#ffffff',
+            bold: false,
+            italic: false,
+          },
+        ],
+      }
+      const snapshot = snapshotTimelineFrame(timeline, 1, options)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(load).toHaveBeenCalledTimes(1)
+      // Nothing is loaded or drawn while the face is on its way.
+      expect(videos).toHaveLength(0)
+      expect(draws).toHaveLength(0)
+      finish()
+      await snapshot
+      expect(draws).toHaveLength(1)
+    } finally {
+      fontRegistry.unregister('pack-test')
     }
   })
 })

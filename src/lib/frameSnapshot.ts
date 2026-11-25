@@ -9,7 +9,8 @@ import {
 import type { LayerFrame, OverlayFrame } from './exportVideo'
 import { automaticExportFrame, probeSourceDimensions } from './exportSettings'
 import { locateInSequence, videoOverlayPlaybackAt } from './playback'
-import { isImageOverlay, isStillEntry } from './timeline'
+import { isImageOverlay, isStillEntry, textsOf } from './timeline'
+import { loadTextFonts } from './textOverlay'
 import type { TimelineState } from './timeline'
 import type { SourceDimensions } from './frameSize'
 import type { VideoOverlay } from './videoOverlay'
@@ -265,6 +266,11 @@ async function renderFrame(
   if (location === null) {
     throw new Error('The timeline is empty — add clips before saving a frame.')
   }
+  // A plugin's webfont must have loaded before the canvas draws with it,
+  // or `fillText` draws the stack's fallback (#859): the export waits for
+  // the same reason. A Font pack face loads when the preview first shows
+  // it, so this rarely waits; a frame the preview has not shown can (#867).
+  await loadTextFonts(textsOf(timeline).map((text) => text.font))
   const createVideo = options.createVideo ?? (() => document.createElement('video'))
   const createImage = options.createImage ?? (() => new Image())
   const createCanvas = options.createCanvas ?? (() => document.createElement('canvas'))

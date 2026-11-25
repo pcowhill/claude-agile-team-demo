@@ -59,7 +59,7 @@ A file saved by a newer version of the editor may name a transition type, a visu
 
 **What it does.** Offers to enable the plugins the file records, and refuses to open the file without them.
 
-**Details.** A project file names the plugins whose features it uses — a GIF export setting, a shaped wipe, a vignette or blur from Visual effects. Opening it while one of them is disabled asks *Enable plugins to open?*, naming the file and the plugins. **Enable and open** turns them on (downloading the plugin's code if this browser has not yet) and continues; **Cancel** does not open the file, and *Could not open* explains that opening it without the plugins would drop those features. A plugin that fails to load is reported the same way, and the current project stays as it was.
+**Details.** A project file names the plugins whose features it uses — a GIF export setting, a shaped wipe, a vignette or blur from Visual effects, a font from the Font pack. Opening it while one of them is disabled asks *Enable plugins to open?*, naming the file and the plugins. **Enable and open** turns them on (downloading the plugin's code if this browser has not yet) and continues; **Cancel** does not open the file, and *Could not open* explains that opening it without the plugins would drop those features. A plugin that fails to load is reported the same way, and the current project stays as it was.
 
 **Related.** [Open Project… and re-linking media](#open-project-and-re-linking-media)
 

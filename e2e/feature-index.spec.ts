@@ -873,6 +873,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
         'Title templates',
         'Sound library',
         'Visual effects',
+        'Font pack',
       ] as const) {
         const enable = dialog.getByRole('button', { name: `Enable ${plugin}`, exact: true })
         if ((await enable.count()) > 0) await enable.click()

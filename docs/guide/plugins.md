@@ -1,6 +1,6 @@
 # Plugins
 
-**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the seven plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [Visual effects](#visual-effects), [More export formats](#more-export-formats), [Title templates](#title-templates) and [Sound library](#sound-library) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
+**There is no importing of plugins.** Plugins here are optional features built into the editor, shipped with it and switched on from **File ▾** › **Plugins…** — nothing is downloaded from a third party, and no file is imported. Enabling one downloads that feature's own code, which the editor otherwise never loads. This page covers [what a plugin is here](#what-a-plugin-is-here) and why, [the plugin manager](#the-plugin-manager), the eight plugins — [GIF export](#gif-export), [Shaped wipes](#shaped-wipes), [Pattern transitions](#pattern-transitions), [Visual effects](#visual-effects), [More export formats](#more-export-formats), [Title templates](#title-templates), [Sound library](#sound-library) and [Font pack](#font-pack) — [how enabled plugins are remembered](#enabled-plugins-and-this-browser), and [what a project records](#projects-that-need-a-plugin) about the plugins it uses.
 
 ## What a plugin is here
 
@@ -134,6 +134,34 @@ The list works from the keyboard. Opening it puts the focus on the first **▶**
 
 **Related.** [Importing clips](media-library.md#importing-clips) · [Audio tracks](audio.md#audio-tracks)
 
+## Font pack
+
+**Where to find it.** **File ▾** › **Plugins…** › *Font pack*; once enabled, ten more faces in every **Font** menu: a text row's, and the Subtitle style's.
+
+**What it does.** Adds ten typefaces to the four core fonts, for the styles the core fonts cannot give a title.
+
+**Details.** The faces, after *Display* in the menu:
+- **Nunito**, a rounded sans-serif, for friendly titles and captions.
+- **Montserrat**, a geometric sans-serif, for clean modern headings.
+- **Oswald**, a condensed sans-serif, for long lines and lower thirds that must stay narrow.
+- **Bebas Neue**, a tall display face in capitals only, for thumbnails and title cards.
+- **Zilla Slab**, a slab serif, for sturdy, readable headings.
+- **Cormorant Garamond**, an elegant serif, for formal and cinematic titles.
+- **Courier Prime**, a typewriter face, for code, notes and terminal-style text.
+- **Caveat**, a handwritten script, for personal notes and annotations.
+- **Comic Neue**, a comic-book face, for playful call-outs.
+- **Silkscreen**, a pixel face, for retro and game-style text.
+
+Nunito, Montserrat, Zilla Slab, Cormorant Garamond, Courier Prime and Comic Neue have a real bold and italic. Oswald, Caveat and Silkscreen have a bold but no italic, and Bebas Neue has neither: for those, **Bold** and **Italic** make the browser thicken or slant the face, in the preview and the export alike.
+
+**The fonts are served by this site, and each downloads only when it is used.** Enabling the plugin downloads the list, not the fonts. A face downloads the first time text in it is drawn, which is when it shows in the preview or goes into an export or a saved frame; each style of a face is 8 to 51 kB, and all ten faces together are about 656 kB. An export waits for the fonts its text uses before it draws its first frame, so the file never shows a stand-in face. Until a face has arrived, the preview may draw that text in a similar stand-in font for a moment.
+
+**You may use these fonts in your videos, with no credit.** Every face is published under the **SIL Open Font License 1.1**, which lets anyone use the fonts, and embed them in a video or any other work, commercially or not. The licence of each face, with its authors, ships with the editor's source. The fonts were taken from the Fontsource project's copies of them, in their Latin character set: letters with accents used in Western European languages are included, Greek, Cyrillic and Vietnamese are not.
+
+A text overlay in a pack font, or a Subtitle style that uses one, makes the project *depend on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never changes your text: it keeps its font, which its Font menu names *(unavailable)*, and it draws in the core sans-serif until the plugin is enabled again.
+
+**Related.** [Text overlays › The properties](text-and-subtitles.md#the-properties) · [The default subtitle style](text-and-subtitles.md#the-default-subtitle-style) · [Projects that need a plugin](#projects-that-need-a-plugin)
+
 ## Enabled plugins and this browser
 
 **Where to find it.** Nothing to operate.
@@ -150,6 +178,6 @@ The list works from the keyboard. Opening it puts the focus on the first **▶**
 
 **What it does.** Records in the project file which plugins its features come from, and offers to enable them when the file is opened.
 
-**Details.** Saving a project that uses a plugin's feature — a shaped wipe or a pattern transition on the timeline, or a visual effect on a clip — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
+**Details.** Saving a project that uses a plugin's feature — a shaped wipe or a pattern transition on the timeline, a visual effect on a clip, or a Font pack font on text — records the plugin's name in the file. Opening that file while the plugin is disabled asks *Enable plugins to open?*, naming the file and the plugins; **Enable and open** turns them on and continues, and **Cancel** leaves the file unopened rather than dropping its features. A plugin that fails to load is reported the same way. The full account is on [A file that needs plugins](projects.md#a-file-that-needs-plugins).
 
-**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions) · [Visual effects](#visual-effects)
+**Related.** [A file that needs plugins](projects.md#a-file-that-needs-plugins) · [Shaped wipes](#shaped-wipes) · [Pattern transitions](#pattern-transitions) · [Visual effects](#visual-effects) · [Font pack](#font-pack)

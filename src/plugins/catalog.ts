@@ -1,5 +1,6 @@
 import type { PluginSpec } from '../lib/plugins'
-import { pictureEffectsOf, transitionsOf } from '../lib/timeline'
+import { pictureEffectsOf, textsOf, transitionsOf } from '../lib/timeline'
+import { isFontPackFont } from './fontPackIds'
 import { isPatternTransition } from './patternTransitionsIds'
 import { isShapedWipeTransition } from './shapedWipesIds'
 import { isVisualEffect } from './visualEffectsIds'
@@ -104,5 +105,21 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./soundLibrary/index'),
     // An added sound is an ordinary library clip, imported like a picked
     // file, so no project depends on this plugin (#861).
+  },
+  {
+    id: 'font-pack',
+    name: 'Font pack',
+    description:
+      'Adds ten open-licence typefaces to every Font menu: rounded, geometric, condensed and ' +
+      'display sans-serifs, a slab and an elegant serif, a typewriter, a handwritten script, a ' +
+      'comic face and a pixel face. Each downloads from this site the first time it is used.',
+    version: '1.0.0',
+    load: () => import('./fontPack/index'),
+    // A text overlay or the subtitle style that names a pack font needs the
+    // pack to draw it, so the project depends on this plugin (#867). The
+    // predicate reads only the id list, never the plugin's lazy chunk.
+    usedByProject: (_library, timeline) =>
+      textsOf(timeline).some((text) => isFontPackFont(text.font)) ||
+      (timeline.subtitleStyle !== undefined && isFontPackFont(timeline.subtitleStyle.font)),
   },
 ]

@@ -96,6 +96,7 @@ const PLUGIN_CHUNKS = [
   'src/plugins/titleTemplates/index.ts',
   'src/plugins/soundLibrary/index.ts',
   'src/plugins/visualEffects/index.ts',
+  'src/plugins/fontPack/index.ts',
 ]
 
 /** The seven visual editors, each an `import()` edge in `visualEditors.tsx` (#537, #565, #685). */
