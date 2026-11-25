@@ -164,6 +164,12 @@ export type PictureFilter =
  *   lighter or darker than `amount` (the darkest line's alpha in [0, 1])
  *   by a waver `seed` picks, line by line. `scanlinesTile` gives its pixels.
  *
+ * - `tracking` (#870, VHS): a generated texture of a light, noisy
+ *   horizontal band across the whole frame, as a tape that mistracks
+ *   shows. It comes and goes in bursts of `TRACKING_BURST_STEPS` steps,
+ *   rolls down the frame within one, and often shows in none; `amount` is
+ *   its brightest cell's alpha in [0, 1]. `trackingTile` gives its pixels.
+ *
  * A look composes its layers in order, so grain over a vignette is one more
  * entry in the list, not a new mechanism.
  */
@@ -173,9 +179,10 @@ export type PictureLayer =
   | { kind: 'scratches'; amount: number; seed: number }
   | { kind: 'dust'; amount: number; seed: number }
   | { kind: 'scanlines'; amount: number; seed: number }
+  | { kind: 'tracking'; amount: number; seed: number }
 
 /** The layer kinds that are generated textures, drawn from a `TextureTile`. */
-export type TextureLayer = Extract<PictureLayer, { kind: 'grain' | 'scratches' | 'dust' | 'scanlines' }>
+export type TextureLayer = Extract<PictureLayer, { kind: 'grain' | 'scratches' | 'dust' | 'scanlines' | 'tracking' }>
 
 /**
  * How many distinct patterns a generated texture shows per second of its
@@ -384,6 +391,79 @@ export function scanlinesTile(layer: Extract<PictureLayer, { kind: 'scanlines' }
   return { width, height, data }
 }
 
+/** How many cells a tracking tile has across: a cell is 4 px of a 1080p frame. */
+export const TRACKING_COLUMNS = 480
+/**
+ * How many rows a tracking tile has down, whatever the frame's aspect: a
+ * row is 4 px of a 1080p frame, so the band keeps its share of the
+ * frame's height on any shape.
+ */
+export const TRACKING_ROWS = 270
+/** How many rows the band is tall: 48 px of a 1080p frame, 4.4 % of its height. */
+export const TRACKING_BAND_ROWS = 12
+/**
+ * How many texture steps a burst lasts, half a second of the entry's
+ * clock: a band shows for a whole burst or not at all, so it reads as a
+ * tape mistracking for a moment rather than a flash every 24th of a second.
+ */
+export const TRACKING_BURST_STEPS = 12
+/** The chance that a burst shows a band. */
+export const TRACKING_CHANCE = 0.4
+/** How many rows the band rolls down the frame each step of its burst: 8 px of a 1080p frame. */
+export const TRACKING_ROLL = 2
+/** How many cells along a row share one noise value: a streak 16 px of a 1080p frame long, as a tape's noise streaks sideways. */
+export const TRACKING_STREAK = 4
+
+/**
+ * The burst a texture step belongs to, and the band's top row at that
+ * step, or `null` when its burst shows none. A pure function of the step,
+ * so a renderer, a test and the tile agree on where the band is. Each hash
+ * takes the burst as its seed, at cells no other texture reaches (x =
+ * −400); the top is chosen so the band's whole roll stays in the frame.
+ */
+export function trackingBandTop(step: number): number | null {
+  const burst = Math.floor(step / TRACKING_BURST_STEPS)
+  if (textureHash(burst, -400, -1) >= TRACKING_CHANCE) return null
+  const room = TRACKING_ROWS - TRACKING_BAND_ROWS - TRACKING_ROLL * (TRACKING_BURST_STEPS - 1)
+  const start = Math.min(room, Math.floor(textureHash(burst, -400, -2) * (room + 1)))
+  const into = step - burst * TRACKING_BURST_STEPS
+  return start + TRACKING_ROLL * into
+}
+
+/**
+ * A tracking layer's tile for a frame of `aspect`: `TRACKING_COLUMNS` ×
+ * `TRACKING_ROWS`, transparent but for the band `trackingBandTop` places,
+ * if its burst has one. The band is white noise in streaks of
+ * `TRACKING_STREAK` cells, each streak's alpha between 25 % and 100 % of
+ * the row's strength, from a hash of the step, the streak and the row, so
+ * the noise changes every step while the band rolls. A row's strength
+ * rises from the band's edges to `amount` at its middle, along a half
+ * sine, so the band has soft edges as a real one does. The noise's hashes
+ * take the step as their seed at cells no other texture reaches (x from
+ * −1000 down). `aspect` is unused, as for scanlines.
+ */
+export function trackingTile(layer: Extract<PictureLayer, { kind: 'tracking' }>, _aspect: number): TextureTile {
+  const width = TRACKING_COLUMNS
+  const height = TRACKING_ROWS
+  const data = new Uint8ClampedArray(width * height * 4)
+  const amount = clamp(layer.amount, 0, 1)
+  const top = trackingBandTop(layer.seed)
+  if (amount === 0 || top === null) return { width, height, data }
+  for (let band = 0; band < TRACKING_BAND_ROWS; band++) {
+    const strength = amount * Math.sin((Math.PI * (band + 0.5)) / TRACKING_BAND_ROWS)
+    const row = top + band
+    for (let column = 0; column < width; column++) {
+      const noise = textureHash(layer.seed, -1000 - Math.floor(column / TRACKING_STREAK), band)
+      const index = (row * width + column) * 4
+      data[index] = 255
+      data[index + 1] = 255
+      data[index + 2] = 255
+      data[index + 3] = Math.round(strength * (0.25 + 0.75 * noise) * 255)
+    }
+  }
+  return { width, height, data }
+}
+
 /** A texture layer's tile for a frame of `aspect`, whichever kind it is: what both renderers stretch over the card. */
 export function textureTile(layer: TextureLayer, aspect: number): TextureTile {
   switch (layer.kind) {
@@ -395,6 +475,8 @@ export function textureTile(layer: TextureLayer, aspect: number): TextureTile {
       return dustTile(layer, aspect)
     case 'scanlines':
       return scanlinesTile(layer, aspect)
+    case 'tracking':
+      return trackingTile(layer, aspect)
   }
 }
 

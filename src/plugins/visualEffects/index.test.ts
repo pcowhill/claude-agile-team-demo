@@ -152,26 +152,35 @@ describe('Visual effects plugin (#862)', () => {
     expect(brightnessAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).not.toBe(brightnessAt(2.1))
   })
 
-  it('VHS is a soft blur and scanlines, both scaled by Amount and the weight, the lines\' step from the time (#870)', () => {
+  it('VHS is a soft blur, scanlines and a tracking band, all scaled by Amount and the weight, their step from the time (#870)', () => {
     const vhs = visualEffectDefinitions[4]
     expect(vhs.look({ amount: 100 }, 1, 2.1)).toEqual({
       filters: [{ kind: 'blur', radius: VHS.blur }],
-      layers: [{ kind: 'scanlines', amount: VHS.scanlines, seed: 50 }],
+      layers: [
+        { kind: 'scanlines', amount: VHS.scanlines, seed: 50 },
+        { kind: 'tracking', amount: VHS.tracking, seed: 50 },
+      ],
     })
-    // Half the Amount at half the weight is a quarter of both.
+    // Half the Amount at half the weight is a quarter of each.
     expect(vhs.look({ amount: 50 }, 0.5, 2.1)).toEqual({
       filters: [{ kind: 'blur', radius: VHS.blur / 4 }],
-      layers: [{ kind: 'scanlines', amount: VHS.scanlines / 4, seed: 50 }],
+      layers: [
+        { kind: 'scanlines', amount: VHS.scanlines / 4, seed: 50 },
+        { kind: 'tracking', amount: VHS.tracking / 4, seed: 50 },
+      ],
     })
-    // Weight 0 changes nothing: a blur of no radius, lines of no strength.
+    // Weight 0 changes nothing: a blur of no radius, lines and a band of no strength.
     expect(vhs.look({ amount: 100 }, 0, 2.1)).toEqual({
       filters: [{ kind: 'blur', radius: 0 }],
-      layers: [{ kind: 'scanlines', amount: 0, seed: 50 }],
+      layers: [
+        { kind: 'scanlines', amount: 0, seed: 50 },
+        { kind: 'tracking', amount: 0, seed: 50 },
+      ],
     })
-    // The lines' step is the time's: the same within a step, the next one after it.
-    const seedAt = (time: number) => (vhs.look({ amount: 100 }, 1, time).layers[0] as { seed: number }).seed
-    expect(seedAt(2.1 + 0.01)).toBe(50)
-    expect(seedAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toBe(51)
+    // The layers' step is the time's: the same within a step, the next one after it.
+    const seedsAt = (time: number) => vhs.look({ amount: 100 }, 1, time).layers.map((layer) => (layer as { seed: number }).seed)
+    expect(seedsAt(2.1 + 0.01)).toEqual([50, 50])
+    expect(seedsAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toEqual([51, 51])
   })
 
   it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {

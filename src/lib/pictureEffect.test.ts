@@ -15,6 +15,15 @@ import {
   SCANLINE_ROWS,
   SCANLINE_WAVER,
   scanlinesTile,
+  TRACKING_BAND_ROWS,
+  TRACKING_BURST_STEPS,
+  TRACKING_CHANCE,
+  TRACKING_COLUMNS,
+  TRACKING_ROLL,
+  TRACKING_ROWS,
+  TRACKING_STREAK,
+  trackingBandTop,
+  trackingTile,
   defaultPictureEffectWindow,
   dustTile,
   grainTile,
@@ -470,6 +479,127 @@ describe("VHS's scanlines (#870, step 2b(i))", () => {
     expect(textureTileKey(scanlines(10), 16 / 9)).not.toBe(key)
     expect(textureTileKey(scanlines(9, 0.3), 16 / 9)).not.toBe(key)
     expect(textureTileKey({ kind: 'dust', amount: 0.4, seed: 9 }, 16 / 9)).not.toBe(key)
+  })
+})
+
+describe("VHS's tracking band (#870, step 2b(i)b)", () => {
+  const tracking = (seed: number, amount = 0.5) => ({ kind: 'tracking' as const, amount, seed })
+  /** The rows holding any pixel, each with its pixels' alphas; every pixel is white. */
+  const bandRows = (data: Uint8ClampedArray) => {
+    const rows = new Map<number, number[]>()
+    let white = true
+    for (let index = 0; index < data.length; index += 4) {
+      const alpha = data[index + 3]
+      if (alpha === 0) continue
+      white &&= data[index] === 255 && data[index + 1] === 255 && data[index + 2] === 255
+      const row = Math.floor(index / 4 / TRACKING_COLUMNS)
+      const alphas = rows.get(row)
+      if (alphas === undefined) rows.set(row, [alpha])
+      else alphas.push(alpha)
+    }
+    expect(white, 'every drawn pixel is white').toBe(true)
+    return rows
+  }
+
+  it('a tracking tile is 480 by 270 whatever the aspect, and the same seed draws the same pixels', () => {
+    // Step 24 is in a burst with a band (see the next test's steps).
+    const tile = trackingTile(tracking(24), 16 / 9)
+    expect([tile.width, tile.height]).toEqual([TRACKING_COLUMNS, TRACKING_ROWS])
+    expect(trackingTile(tracking(24), 4 / 3).data).toEqual(tile.data)
+    expect(trackingTile(tracking(24), 16 / 9).data).toEqual(tile.data)
+    expect(bandRows(tile.data).size).toBe(TRACKING_BAND_ROWS)
+  })
+
+  it('a band shows for a whole burst or none of it, in about 40 % of bursts, and rolls 2 rows a step inside the frame', () => {
+    let shown = 0
+    const bursts = 400
+    for (let burst = 0; burst < bursts; burst++) {
+      const first = trackingBandTop(burst * TRACKING_BURST_STEPS)
+      if (first !== null) shown++
+      for (let into = 0; into < TRACKING_BURST_STEPS; into++) {
+        const top = trackingBandTop(burst * TRACKING_BURST_STEPS + into)
+        if (first === null) {
+          expect(top).toBeNull()
+          continue
+        }
+        expect(top).toBe(first + TRACKING_ROLL * into)
+        expect(top).toBeGreaterThanOrEqual(0)
+        expect(top! + TRACKING_BAND_ROWS).toBeLessThanOrEqual(TRACKING_ROWS)
+      }
+    }
+    expect(shown / bursts).toBeGreaterThan(TRACKING_CHANCE - 0.07)
+    expect(shown / bursts).toBeLessThan(TRACKING_CHANCE + 0.07)
+    // The bursts the e2e spec relies on: the first 4 s of an entry has a
+    // band from step 24 (1 s) to 35 and from 84 (3.5 s) to 95, and none
+    // between.
+    expect([0, 1, 2, 3, 4, 5, 6, 7].map((burst) => trackingBandTop(burst * TRACKING_BURST_STEPS) !== null)).toEqual([
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ])
+  })
+
+  it('the tile draws the band where trackingBandTop puts it: white noise in streaks, softest at its edges', () => {
+    for (let step = 0; step < 48 * 2; step++) {
+      const top = trackingBandTop(step)
+      const rows = bandRows(trackingTile(tracking(step), 16 / 9).data)
+      if (top === null) {
+        expect(rows.size).toBe(0)
+        continue
+      }
+      expect([...rows.keys()].sort((a, b) => a - b)).toEqual(
+        Array.from({ length: TRACKING_BAND_ROWS }, (_, band) => top + band),
+      )
+      const means: number[] = []
+      for (const [row, alphas] of rows) {
+        // Every cell of a band row is drawn, at 25 % to 100 % of its row's strength.
+        expect(alphas).toHaveLength(TRACKING_COLUMNS)
+        const strength = 0.5 * Math.sin((Math.PI * (row - top + 0.5)) / TRACKING_BAND_ROWS) * 255
+        expect(Math.min(...alphas), `row ${row}'s faintest cell`).toBeGreaterThanOrEqual(Math.round(0.25 * strength) - 1)
+        expect(Math.max(...alphas), `row ${row}'s brightest cell`).toBeLessThanOrEqual(Math.round(strength) + 1)
+        // Cells come in streaks of four alike, and the streaks differ.
+        const streaks = Array.from({ length: TRACKING_COLUMNS / TRACKING_STREAK }, (_, streak) =>
+          alphas.slice(streak * TRACKING_STREAK, (streak + 1) * TRACKING_STREAK),
+        )
+        expect(streaks.every((cells) => cells.every((alpha) => alpha === cells[0])), `row ${row}: streaks of four`).toBe(true)
+        // Even an edge row, whose cells span only 4 to 17, varies along its length.
+        expect(new Set(streaks.map((cells) => cells[0])).size).toBeGreaterThan(8)
+        means.push(alphas.reduce((sum, alpha) => sum + alpha, 0) / alphas.length)
+      }
+      // Its middle rows are brighter than its edge rows.
+      const middle = (means[TRACKING_BAND_ROWS / 2 - 1] + means[TRACKING_BAND_ROWS / 2]) / 2
+      expect(middle).toBeGreaterThan(2 * Math.max(means[0], means[TRACKING_BAND_ROWS - 1]))
+    }
+  })
+
+  it("the noise changes every step of a burst, and Amount 0 draws nothing", () => {
+    const row = (step: number) => {
+      const top = trackingBandTop(step)!
+      const tile = trackingTile(tracking(step), 16 / 9)
+      // The band's middle row.
+      const start = (top + TRACKING_BAND_ROWS / 2) * TRACKING_COLUMNS * 4
+      return Array.from({ length: TRACKING_COLUMNS }, (_, column) => tile.data[start + column * 4 + 3])
+    }
+    for (let step = 24; step < 35; step++) {
+      const here = row(step)
+      const next = row(step + 1)
+      const changed = here.filter((alpha, column) => alpha !== next[column]).length
+      expect(changed).toBeGreaterThan(TRACKING_COLUMNS * 0.9)
+      expect(bandRows(trackingTile(tracking(step, 0), 16 / 9).data).size).toBe(0)
+    }
+  })
+
+  it('textureTile draws the band with its own tile, and textureTileKey tells it from scanlines at the same seed', () => {
+    expect(textureTile(tracking(30), 16 / 9).data).toEqual(trackingTile(tracking(30), 16 / 9).data)
+    const key = textureTileKey(tracking(30), 16 / 9)
+    expect(textureTileKey(tracking(31), 16 / 9)).not.toBe(key)
+    expect(textureTileKey(tracking(30, 0.3), 16 / 9)).not.toBe(key)
+    expect(textureTileKey({ kind: 'scanlines', amount: 0.5, seed: 30 }, 16 / 9)).not.toBe(key)
   })
 })
 
