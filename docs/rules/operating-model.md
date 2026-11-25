@@ -87,6 +87,20 @@ keeps "nobody got to it" from looking like an oversight. (#356: the top
 customer-derived issue once sat Ready for a day while eleven smaller PRs
 merged around it, each individually justifiable.)
 
+**A second deferral is the last.** When the top Ready issue already carries
+two size deferrals, the next session that reaches it does not defer it
+again. It splits the issue instead: a comment on the issue names the steps,
+each small enough for one focused PR, and the session starts the first step
+if its budget allows. Each step is a `Part of #N` PR, and the issue stays
+open until the last step closes it. A step that turns out too large itself
+is split the same way, not deferred. Splitting is the team's own
+sequencing, not a scope change, so it needs no customer question. The
+deferral comment above is still required. #862 is the worked example. It
+was deferred four times, each deferral recorded as this section asks, and
+the split proposed on the third pass was taken only on the fifth: its first
+step (#907) then merged 36 min after opening. Its second step was split
+again (2a and 2b) by the session that next found it too large (#910).
+
 ### Textual conflict is not dependence
 
 The second bullet used to read "disjoint enough *code* … merging one does not
