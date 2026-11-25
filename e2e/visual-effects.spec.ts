@@ -1309,6 +1309,19 @@ const SCRATCH_SEEN = 10
 const DUST_SEEN = 20
 /** Preview vs saved frame, per speck (0 to 255). */
 const DAMAGE_TOLERANCE = 12
+/**
+ * The same in Firefox. A speck's darkest pixel depends on the smoothing
+ * that stretches its one tile cell over 4 px of a 1080p frame, and
+ * Firefox's preview path smooths less: #952's CI read one dark speck
+ * 14.9 deeper in its preview than in its saved frame (-90.6 against
+ * -75.7), on all three attempts, while the saved frames of the two
+ * browsers agree within 1 and Chromium's preview within 4.3. A summed
+ * measure, which any smoothing keeps, was tried and is worse: the grain
+ * crossing the sum's edges put Chromium's preview and saved frame up to
+ * 21.7 apart. A missing speck still fails `DUST_SEEN` on its own (the
+ * saved frame reads about -10 without dust).
+ */
+const FIREFOX_DAMAGE_TOLERANCE = 20
 /** Preview vs saved frame, per scratch's summed excess. */
 const SCRATCH_TOLERANCE = 10
 /** Preview vs saved frame on the crossfade, as a share of the scratch's full strength: undimmed, the saved frame would be about 0.5 over. */
@@ -1391,7 +1404,7 @@ test.describe("Old film's scratches and dust (#870)", () => {
           expect(saved.specks[index], `${where}: saved frame`).toBeLessThan(-DUST_SEEN)
         }
         expect(Math.abs(preview.specks[index] - saved.specks[index]), `${where}: preview vs saved`).toBeLessThan(
-          DAMAGE_TOLERANCE,
+          testInfo.project.name === 'firefox' ? FIREFOX_DAMAGE_TOLERANCE : DAMAGE_TOLERANCE,
         )
       })
     }
