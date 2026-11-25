@@ -97,7 +97,7 @@ Each effect is added from **+ Effect ▾** and set on its own row, its stretch a
 
 **Where to find it.** **File ▾** › **Plugins…** › *Title templates*; once enabled, timeline header › **Add ▾** › **Title template…**.
 
-**What it does.** Places a ready-made title at the playhead, built from ordinary text overlays and a shape group. There are thirteen: four lower thirds, four chapter cards, three end cards, a **Call-out** and a **Step badge**.
+**What it does.** Places a ready-made title at the playhead, built from ordinary text overlays and a shape group. There are sixteen: four lower thirds, four chapter cards, three end cards, three **before / after** labels, a **Call-out** and a **Step badge**.
 
 **Details.** **Title template…** opens a gallery. Each template is drawn small at the project's own shape, with its example words. The gallery scrolls inside the dialog, so the words and **Place** stay in view below it. Choose a template, type its words, and **Place** it.
 
@@ -117,6 +117,11 @@ The end cards take a *Closing line* and an optional *Second line*, centred on a 
 - **End card**: white and amber words on near-black.
 - **Bold end card**: dark words on amber.
 - **Outlined end card**: white and amber words on near-black, inside an amber frame at the margins.
+
+The before / after templates label a comparison the picture shows side by side: a *Left label*, *Before* to begin with, on the left half of the frame, and a *Right label*, *After*, on the right half. Both are required, and any pair of words works, such as *Old* and *New*. Each label stays in its own half, clear of the middle: a long one is made smaller rather than crossing it, and the other label is set at the same size, so the two read as a pair. They show for 5 s.
+- **Before / after**: each label in a dark rounded box, at the upper left and the upper right.
+- **Before / after split**: a thin white line down the middle of the frame, and each label in bold, centred in its half on a dark band along the bottom.
+- **Bold before / after**: each label in bold on a solid bar across the top of its half, grey on the left and green on the right.
 
 The last two point at things in a screen recording, and show for 4 s:
 - **Call-out**: a short *Label* in a yellow box, with a yellow arrow pointing down and to the right from under the box. It is placed above the middle of the frame. Move the text and the shapes onto what it points at, in the [visual editors](visual-editors.md#what-each-editor-shows).

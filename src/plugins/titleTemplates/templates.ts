@@ -15,6 +15,8 @@ import type { TextMeasurer } from '../../lib/textMeasure'
  *
  * Part 2 (#868) grows the gallery to thirteen: three more styles of each
  * part 1 kind (two for the end card), a call-out, and a step badge.
+ * #965 adds a Before / after kind in three styles, from the customer's
+ * #962: a label on each half of the frame.
  *
  * **Fitting.** Every line is measured the way the export draws it
  * (`textCanvasFont` under the app's canvas measurer, #424) and shrinks when
@@ -531,6 +533,137 @@ const OUTLINED_END_CARD = centredCard({
   frameOutline: { color: '#f59e0b', thickness: 0.006 },
 })
 
+const PAIR_FIELDS: readonly [TemplateField, TemplateField] = [
+  { key: 'left', label: 'Left label', defaultValue: 'Before' },
+  { key: 'right', label: 'Right label', defaultValue: 'After' },
+]
+
+/**
+ * How far every Before / after label, and the box behind it, keeps from
+ * the frame's vertical midline, as a fraction of the shorter side (#965).
+ * The two labels are therefore at least twice this apart, whatever their
+ * length.
+ */
+export const PAIR_GUTTER = 0.02
+
+/** How a Before / after template (#965) looks. */
+type PairLook =
+  /** Each label in a dark rounded pill, at the upper left and the upper right. */
+  | { kind: 'pills' }
+  /** A thin white rule down the middle, each label centred in its half over a dark band along the bottom. */
+  | { kind: 'split' }
+  /** Each label in bold on a solid bar across the top of its half, the two bars in different colours. */
+  | { kind: 'bars'; fills: readonly [string, string] }
+
+/**
+ * Before / after (#965, from the customer's #962): two labels, one on each
+ * half of the frame, for a comparison the picture shows side by side. Each
+ * label fits its own half: it shrinks, as a long name does, rather than
+ * crossing the midline, and it and its box keep `PAIR_GUTTER` from it.
+ */
+function pairTemplate(id: string, name: string, description: string, look: PairLook): TitleTemplate {
+  return {
+    id,
+    name,
+    description,
+    fields: PAIR_FIELDS,
+    build(values, frame, measure) {
+      const duration = 5
+      const { width: W, height: H } = frame
+      const S = Math.min(W, H)
+      const margin = TEMPLATE_MARGIN * S
+      const gutter = PAIR_GUTTER * S
+      const padX = 0.02 * S
+      const padY = 0.01 * S
+      const labels = [value(values, 'left'), value(values, 'right')] as const
+      const style = look.kind === 'pills' ? SANS : BOLD_SANS
+      const nominal = 0.05 * S
+      // The width a half gives a box: from the margin to the gutter. A
+      // label in a box has that less the box's padding. A label centred in
+      // its half (split) has twice the room to its nearer side.
+      const half = W / 2 - margin - gutter
+      const room = look.kind === 'split' ? W / 2 - 2 * Math.max(margin, gutter) : half - 2 * padX
+      const lines = labels.map((label) => fitLine(label, nominal, room, style, frame, measure))
+      // Both labels at one height, so they read as a pair: the smaller of
+      // the two fitted sizes, measured again at that size.
+      const size = Math.min(lines[0].size, lines[1].size)
+      const fitted = labels.map((label, index) =>
+        lines[index].size === size ? lines[index] : fitLine(label, size * H, room, style, frame, measure),
+      )
+      const lineHeight = size * H * TEXT_LINE_HEIGHT
+      const boxHeight = lineHeight + 2 * padY
+      const colour = '#ffffff'
+      const shapes: Shape[] = []
+      const texts: TextOverlaySpec[] = []
+      if (look.kind === 'pills') {
+        const top = margin
+        fitted.forEach((line, index) => {
+          const width = line.width + 2 * padX
+          const left = index === 0 ? margin : W - margin - width
+          shapes.push(
+            rectangle(
+              index === 0 ? 'left' : 'right',
+              { x: left / W, y: top / H, width: width / W, height: boxHeight / H },
+              '#111827',
+              0.85,
+              undefined,
+              0.01,
+            ),
+          )
+          texts.push(text(labels[index], line, (left + width / 2) / W, (top + boxHeight / 2) / H, colour, style, duration))
+        })
+      } else if (look.kind === 'split') {
+        const top = H - margin - boxHeight
+        shapes.push(rectangle('band', { x: 0, y: top / H, width: 1, height: boxHeight / H }, '#000000', 0.55))
+        // A vertical rule: as thin as the other templates' rules, but never
+        // narrower than the smallest shape the timeline takes across.
+        const rule = Math.max(0.006 * S, MIN_SHAPE_SIZE * W)
+        shapes.push(rectangle('rule', { x: (W / 2 - rule / 2) / W, y: 0, width: rule / W, height: 1 }, '#ffffff', 1))
+        fitted.forEach((line, index) => {
+          const centre = index === 0 ? W / 4 : (3 * W) / 4
+          texts.push(text(labels[index], line, centre / W, (top + boxHeight / 2) / H, colour, style, duration))
+        })
+      } else {
+        const top = margin
+        fitted.forEach((line, index) => {
+          const left = index === 0 ? margin : W / 2 + gutter
+          shapes.push(
+            rectangle(
+              index === 0 ? 'left' : 'right',
+              { x: left / W, y: top / H, width: half / W, height: boxHeight / H },
+              look.fills[index],
+              1,
+            ),
+          )
+          texts.push(text(labels[index], line, (left + half / 2) / W, (top + boxHeight / 2) / H, colour, style, duration))
+        })
+      }
+      return { texts, shapeGroups: [group(name, duration, shapes)] }
+    },
+  }
+}
+
+const BEFORE_AFTER = pairTemplate(
+  'before-after',
+  'Before / after',
+  'Two labels in dark pills, one at the upper left and one at the upper right.',
+  { kind: 'pills' },
+)
+
+const SPLIT_BEFORE_AFTER = pairTemplate(
+  'before-after-split',
+  'Before / after split',
+  'A thin line down the middle, and a label centred in each half along the bottom.',
+  { kind: 'split' },
+)
+
+const BOLD_BEFORE_AFTER = pairTemplate(
+  'before-after-bold',
+  'Bold before / after',
+  'Two bold labels on solid bars across the top, grey on the left and green on the right.',
+  { kind: 'bars', fills: ['#4b5563', '#16a34a'] },
+)
+
 /** The call-out's yellow: its box, and the arrow from it. */
 const CALLOUT_YELLOW = '#facc15'
 
@@ -674,6 +807,9 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
   END_CARD,
   BOLD_END_CARD,
   OUTLINED_END_CARD,
+  BEFORE_AFTER,
+  SPLIT_BEFORE_AFTER,
+  BOLD_BEFORE_AFTER,
   CALLOUT,
   STEP_BADGE,
 ]
