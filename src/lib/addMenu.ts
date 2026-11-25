@@ -34,6 +34,12 @@ export interface PlacedElements {
 export interface AddMenuDialogProps {
   /** The output frame in pixels — what a template measures its text against. */
   frame: { width: number; height: number }
+  /**
+   * The timeline's shape groups, read-only (#868): what a dialog that
+   * continues a sequence reads, such as the step badge offering the next
+   * number. A dialog never changes them; it only returns new elements.
+   */
+  shapeGroups: readonly ShapeGroup[]
   /** Places the elements at the Preview time as one edit, then closes. */
   onPlace: (elements: PlacedElements) => void
   /** Cancel, ✕ and Escape: close, placing nothing. */

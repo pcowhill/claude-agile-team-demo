@@ -246,8 +246,18 @@ extension point is built until a concrete plugin needs it**.
   follows the others (`register`/`unregister`/`find`/`list`/`subscribe`/
   `version`). Timeline holds the open dialog by id, so a plugin disabled
   while its dialog is open closes it.
+
+  Since #868 the dialog also receives the timeline's shape groups,
+  read-only, so the step badge template can offer the next number. It is
+  a read, not a write: the dialog still never dispatches, and core still
+  mints every id. A narrower prop carrying only the next badge number was
+  the alternative, but it would have put one template's rule into core's
+  seam.
 - **Title templates plugin** (`src/plugins/titleTemplates/`, #860): a
-  gallery of a lower third, a chapter card and an end card. Each template
+  gallery of a lower third, a chapter card and an end card, grown in #868
+  to thirteen: those three kinds in more styles, a call-out (a box and an
+  arrow shape) and a step badge (#689's badge shape, numbered one above
+  the timeline's highest badge). Each template
   builds its elements for the project's frame. It measures every line with
   the export's own font string (`textCanvasFont`) under the app's canvas
   measurer, and shrinks a line that would run past the margins. Text
