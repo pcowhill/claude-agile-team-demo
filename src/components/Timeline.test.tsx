@@ -4677,7 +4677,7 @@ describe('picture effects on a sequence entry (#862)', () => {
     await userEvent.tab()
   }
 
-  it('+ Effect ▾ gains Vignette, Blur and Film grain only while the Visual effects plugin is registered', async () => {
+  it('+ Effect ▾ gains Vignette, Blur, Film grain and Old film only while the Visual effects plugin is registered', async () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
@@ -4689,7 +4689,15 @@ describe('picture effects on a sequence entry (#862)', () => {
       deactivate = activateVisualEffects()
     })
     try {
-      expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Vignette', 'Blur', 'Film grain'])
+      expect(await effectMenuItems(POSITION)).toEqual([
+        ADD_ZOOM,
+        ADD_SPEED,
+        ADD_PAUSE,
+        'Vignette',
+        'Blur',
+        'Film grain',
+        'Old film',
+      ])
       await closeEffectMenu(POSITION)
     } finally {
       act(() => deactivate())

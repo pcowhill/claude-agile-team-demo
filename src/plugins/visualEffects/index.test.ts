@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { PICTURE_TEXTURE_RATE, pictureEffectParamsFor, pictureEffectRegistry } from '../../lib/pictureEffect'
 import { builtInPlugins } from '../catalog'
 import { VISUAL_EFFECT_IDS, isVisualEffect } from '../visualEffectsIds'
-import { GRAIN_REFERENCE_WIDTH, VIGNETTE_INNER, activate, visualEffectDefinitions } from './index'
+import {
+  GRAIN_REFERENCE_WIDTH,
+  OLD_FILM,
+  VIGNETTE_INNER,
+  activate,
+  oldFilmBrightness,
+  visualEffectDefinitions,
+} from './index'
 
 /**
  * The Visual effects plugin (#862), against the module the plugin runtime
@@ -17,13 +24,14 @@ describe('Visual effects plugin (#862)', () => {
     deactivate = null
   })
 
-  it('registers Vignette, Blur and Film grain in the ids module\'s order, and unregisters them', () => {
+  it('registers Vignette, Blur, Film grain and Old film in the ids module\'s order, and unregisters them', () => {
     expect(VISUAL_EFFECT_IDS.some((id) => pictureEffectRegistry.has(id))).toBe(false)
     deactivate = activate()
     expect(pictureEffectRegistry.list().map(({ id, name }) => [id, name])).toEqual([
       ['vignette', 'Vignette'],
       ['blur', 'Blur'],
       ['film-grain', 'Film grain'],
+      ['old-film', 'Old film'],
     ])
     deactivate()
     deactivate = null
@@ -38,6 +46,7 @@ describe('Visual effects plugin (#862)', () => {
         { key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' },
         { key: 'size', label: 'Size', min: 2, max: 10, default: 3 },
       ],
+      [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
     ])
   })
 
@@ -64,6 +73,7 @@ describe('Visual effects plugin (#862)', () => {
       { strength: 60 },
       { amount: 1 },
       { amount: 30, size: 3 },
+      { amount: 70 },
     ])
   })
 
@@ -88,6 +98,52 @@ describe('Visual effects plugin (#862)', () => {
     expect(seedAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toBe(51)
   })
 
+  it('Old film is sepia, a flickering brightness and a fine grain, all scaled by Amount and the weight (#870)', () => {
+    const oldFilm = visualEffectDefinitions[3]
+    const look = oldFilm.look({ amount: 100 }, 1, 2.1)
+    expect(look.filters).toEqual([
+      { kind: 'sepia', amount: OLD_FILM.sepia },
+      { kind: 'brightness', amount: oldFilmBrightness(2.1, OLD_FILM.flicker) },
+    ])
+    expect(look.layers).toEqual([
+      { kind: 'grain', amount: OLD_FILM.grain, cell: OLD_FILM.grainSize / GRAIN_REFERENCE_WIDTH, seed: 50 },
+    ])
+    // Half the Amount at half the weight is a quarter of everything.
+    const quarter = oldFilm.look({ amount: 50 }, 0.5, 2.1)
+    expect(quarter.filters[0]).toEqual({ kind: 'sepia', amount: OLD_FILM.sepia / 4 })
+    expect(quarter.filters[1]).toEqual({ kind: 'brightness', amount: oldFilmBrightness(2.1, OLD_FILM.flicker / 4) })
+    expect(quarter.layers[0]).toMatchObject({ amount: OLD_FILM.grain / 4 })
+    // Weight 0 changes nothing: no sepia, brightness 1, grain of no strength.
+    const none = oldFilm.look({ amount: 100 }, 0, 2.1)
+    expect(none.filters).toEqual([
+      { kind: 'sepia', amount: 0 },
+      { kind: 'brightness', amount: 1 },
+    ])
+    expect(none.layers[0]).toMatchObject({ amount: 0 })
+  })
+
+  it("Old film's flicker is a function of the time alone, one value per 1/24 s, within its depth", () => {
+    const oldFilm = visualEffectDefinitions[3]
+    const brightnessAt = (time: number) =>
+      (oldFilm.look({ amount: 100 }, 1, time).filters[1] as { amount: number }).amount
+    // The same instant is the same brightness; within a step it holds.
+    expect(brightnessAt(2.1)).toBe(brightnessAt(2.1))
+    expect(brightnessAt(2.1 + 0.01)).toBe(brightnessAt(2.1))
+    // Over a few seconds of steps it stays within the depth, and it moves:
+    // most neighbouring steps differ, and it goes both above and below 1.
+    const values = Array.from({ length: 96 }, (_, step) => brightnessAt((step + 0.5) / PICTURE_TEXTURE_RATE))
+    for (const value of values) {
+      expect(value).toBeGreaterThanOrEqual(1 - OLD_FILM.flicker)
+      expect(value).toBeLessThanOrEqual(1 + OLD_FILM.flicker)
+    }
+    const changes = values.slice(1).filter((value, index) => value !== values[index]).length
+    expect(changes).toBeGreaterThan(90)
+    expect(Math.min(...values)).toBeLessThan(1 - OLD_FILM.flicker / 2)
+    expect(Math.max(...values)).toBeGreaterThan(1 + OLD_FILM.flicker / 2)
+    // One step apart, the two instants differ.
+    expect(brightnessAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).not.toBe(brightnessAt(2.1))
+  })
+
   it('a project holding a visual effect depends on the plugin, one without does not', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'visual-effects')
     const usedByProject = plugin?.usedByProject
@@ -103,6 +159,7 @@ describe('Visual effects plugin (#862)', () => {
     expect(usedByProject(library, asTimeline(timelineWith('vignette')))).toBe(true)
     expect(usedByProject(library, asTimeline(timelineWith('blur')))).toBe(true)
     expect(usedByProject(library, asTimeline(timelineWith('film-grain')))).toBe(true)
+    expect(usedByProject(library, asTimeline(timelineWith('old-film')))).toBe(true)
     expect(usedByProject(library, asTimeline(timelineWith('from-elsewhere')))).toBe(false)
     expect(usedByProject(library, asTimeline({ entries: [] }))).toBe(false)
     expect(isVisualEffect('box-open')).toBe(false)

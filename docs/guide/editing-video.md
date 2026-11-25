@@ -230,6 +230,16 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Vignette and blur](#vignette-and-blur)
 
+## Old film
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Old film**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Makes a stretch of the entry look like old film: a sepia tone, a brightness that flickers slightly, and a fine grain.
+
+**Details.** The row has the stretch, *from* and *to* in seconds into the entry, and one setting, *amount*, 0 to 100 %, which sets all three together: at 100 % the picture is strongly toned brown, its brightness flickers by up to 8 % either way, and the grain is about two thirds as strong as [Film grain](#film-grain)'s default. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 70 %. Like the grain, the flicker changes 24 times a second and is fixed for each moment, so the preview and the exported file show the same flicker at the same instant. A browser whose canvas cannot apply filters refuses to export a timeline with Old film, as it does for a Blur, rather than writing a file without the tone. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, eases in and out, is named *Old film 1*, *Old film 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Film grain](#film-grain)
+
 ## Colour adjustments
 
 **Where to find it.** An expanded video or image row › **Picture ▸** › **Color**.

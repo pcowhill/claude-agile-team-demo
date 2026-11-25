@@ -213,6 +213,26 @@ describe('pictureFilterFunctions', () => {
     expect(pictureFilterFunctions(filters, 100, 'cqw', 2)).toEqual(['blur(0.5cqw)'])
     expect(pictureFilterFunctions([], 1920, 'px')).toEqual([])
   })
+
+  it('writes sepia and brightness as plain numbers, untouched by the width and the scale (#870)', () => {
+    const filters = [
+      { kind: 'sepia', amount: 0.595 },
+      { kind: 'brightness', amount: 1.0432 },
+    ] as const
+    expect(pictureFilterFunctions(filters, 1920, 'px')).toEqual(['sepia(0.595)', 'brightness(1.0432)'])
+    expect(pictureFilterFunctions(filters, 100, 'cqw', 2)).toEqual(['sepia(0.595)', 'brightness(1.0432)'])
+    // Out-of-range values are held where CSS and the canvas agree.
+    expect(
+      pictureFilterFunctions(
+        [
+          { kind: 'sepia', amount: 1.5 },
+          { kind: 'brightness', amount: -0.2 },
+        ],
+        1920,
+        'px',
+      ),
+    ).toEqual(['sepia(1)', 'brightness(0)'])
+  })
 })
 
 describe('vignetteStops', () => {
