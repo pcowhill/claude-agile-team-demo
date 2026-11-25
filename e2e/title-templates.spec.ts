@@ -72,14 +72,10 @@ async function addSlate(page: Page, seconds: number) {
   await duration.blur()
 }
 
-/**
- * Chooses a template by clicking its card, as a user does. The radio itself
- * is a 1px handle for the keyboard, and in a scrolled list a click aimed at
- * it can land on its card's edge instead.
- */
+/** Chooses a template by its radio, which covers its card in the scrolling list (#868). */
 async function chooseTemplate(dialog: Locator, name: string) {
   const radio = dialog.getByRole('radio', { name, exact: true })
-  await radio.locator('xpath=ancestor::label[1]').click()
+  await radio.check()
   await expect(radio).toBeChecked()
 }
 
