@@ -28,16 +28,19 @@ export const MP3_MIME_TYPE = 'audio/mpeg'
  * tests for no audible benefit at export time (the page is not interactive
  * while an export runs, so the processor's main-thread latency cost is
  * irrelevant). 4096 frames ≈ 85 ms at 48 kHz — small enough that `stop()`'s
- * wait for the last buffer is imperceptible.
+ * wait for the window's tail is imperceptible.
  */
 const TAP_BUFFER_FRAMES = 4096
 
 /** MP3 is stereo; a mono mix up-mixes into both channels in the graph. */
 const CHANNELS = 2
 
-/** How `stop()` gives up waiting for one more buffer (a context that was
- * closed early, or a graph that never ran) rather than hanging the export. */
-const STOP_FLUSH_TIMEOUT_MS = 250
+/** How long `stop()` waits for the rest of the window (a context that was
+ * closed early, or a graph that never ran) before giving up rather than
+ * hanging the export. The tap's input trails the graph by a few buffers
+ * (about 190 ms in Chromium at 44.1 kHz, #908), so this leaves room for
+ * several times that. */
+const STOP_FLUSH_TIMEOUT_MS = 1500
 
 /** The encoder's granule size: LAME consumes samples 1152 frames at a time. */
 const ENCODER_BLOCK_FRAMES = 1152
@@ -129,76 +132,168 @@ export async function encodeMp3(
 }
 
 /**
+ * Which frames of one tap buffer belong to the exported window (#908), as
+ * `[from, to)` indices into the buffer, or null for none. `marker` is the
+ * buffer's marker channel: silent until the window begins, then 1 for good,
+ * so its first raised sample is the window's first frame. `kept` is how many
+ * window frames earlier buffers already gave, or null while the window has
+ * not begun; `windowFrames` is the window's whole length. A buffer before
+ * the window gives nothing, the one it begins in gives its tail, and the one
+ * it ends in gives only its head: what is kept is the window, exactly.
+ */
+export function windowFramesIn(
+  marker: Float32Array,
+  kept: number | null,
+  windowFrames: number,
+): { from: number; to: number } | null {
+  let from = 0
+  let already = kept
+  if (already === null) {
+    from = marker.findIndex((sample) => sample > 0.5)
+    if (from === -1) return null
+    already = 0
+  }
+  const to = Math.min(marker.length, from + Math.max(0, windowFrames - already))
+  return to > from ? { from, to } : null
+}
+
+/**
  * The audio sink an MP3 export hands the pipeline (#269): `attach` taps the
- * mix through a ScriptProcessor that accumulates every buffer, `stop` waits
- * out the buffer still in flight and detaches, and `finish` encodes what was
- * heard. The processor's *output* is zeroed each callback: it must connect
- * onward to `context.destination` to be pulled by the graph, and writing
- * silence there is what keeps the export inaudible — the invariant
- * `createAudioCapture` documents.
+ * mix through a ScriptProcessor, `begin` marks the window's start, `stop`
+ * waits until the whole window has arrived and detaches, and `finish`
+ * encodes the window. The processor's *output* is zeroed each callback: it
+ * must connect onward to `context.destination` to be pulled by the graph,
+ * and writing silence there is what keeps the export inaudible — the
+ * invariant `createAudioCapture` documents.
+ *
+ * **Where the window starts (#908).** The graph runs from `attach`, while
+ * the pipeline still waits for the context and loads and cues its sources,
+ * and those buffers are not the window: keeping them opened every export on
+ * 0.1–0.15 s of silence. Nor can the main thread say which captured sample
+ * is "now", because a ScriptProcessor hands its input over buffers late, by
+ * an amount each browser sets (2 × 4096 + 128 frames in Chromium, measured
+ * on #908). So the graph says it: the processor takes a third channel, a
+ * marker that `begin` switches on, and the first frame the marker is raised
+ * on is the window's first frame. The marker rides the same render quanta
+ * as the mix, so the match is exact whatever the browser's delay, and from
+ * there the sink keeps exactly the window's length (`windowFramesIn`).
  */
 export function createMp3AudioSink(
   loadEncoder: () => Promise<Mp3EncoderModule> = defaultLoadEncoder,
 ): ExportAudioSink {
   const captured: Float32Array[][] = [[], []]
   let sampleRate: number | null = null
+  let graph: AudioContext | null = null
   let processor: ScriptProcessorNode | null = null
+  let marker: ConstantSourceNode | null = null
+  /** Every node `attach` made, disconnected by `stop`. */
+  let nodes: AudioNode[] = []
   let mix: AudioNode | null = null
-  /** Resolved by the next onaudioprocess after stop() asks for one. */
-  let onNextBuffer: (() => void) | null = null
+  /** The window's length in frames, once `begin` has said it. */
+  let windowFrames: number | null = null
+  /** Window frames kept so far, or null before the marker has been heard. */
+  let kept: number | null = null
+  /** Resolved once the whole window has been kept. */
+  let onWindowComplete: (() => void) | null = null
+  const complete = () => windowFrames !== null && kept !== null && kept >= windowFrames
 
   return {
     attach: (context, mixNode) => {
+      graph = context
       sampleRate = context.sampleRate
       mix = mixNode
-      processor = context.createScriptProcessor(TAP_BUFFER_FRAMES, CHANNELS, CHANNELS)
+      // The mix as stereo, split so the marker can join it as channel 2. MP3
+      // is stereo, so a mono mix up-mixes into both channels, as before.
+      const stereo = context.createGain()
+      stereo.channelCount = CHANNELS
+      stereo.channelCountMode = 'explicit'
+      stereo.channelInterpretation = 'speakers'
+      const split = context.createChannelSplitter(CHANNELS)
+      const merge = context.createChannelMerger(CHANNELS + 1)
+      const raised = context.createConstantSource()
+      raised.offset.value = 1
+      processor = context.createScriptProcessor(TAP_BUFFER_FRAMES, CHANNELS + 1, CHANNELS)
       processor.onaudioprocess = (event) => {
         for (let channel = 0; channel < CHANNELS; channel++) {
-          // Copied: the browser reuses the buffer across callbacks.
-          captured[channel].push(new Float32Array(event.inputBuffer.getChannelData(channel)))
           event.outputBuffer.getChannelData(channel).fill(0)
         }
-        if (onNextBuffer !== null) {
-          const settle = onNextBuffer
-          onNextBuffer = null
+        if (windowFrames === null || complete()) return
+        const slice = windowFramesIn(event.inputBuffer.getChannelData(CHANNELS), kept, windowFrames)
+        if (slice === null) return
+        for (let channel = 0; channel < CHANNELS; channel++) {
+          // Copied: the browser reuses the buffer across callbacks.
+          captured[channel].push(event.inputBuffer.getChannelData(channel).slice(slice.from, slice.to))
+        }
+        kept = (kept ?? 0) + (slice.to - slice.from)
+        if (complete() && onWindowComplete !== null) {
+          const settle = onWindowComplete
+          onWindowComplete = null
           settle()
         }
       }
-      mixNode.connect(processor)
+      mixNode.connect(stereo)
+      stereo.connect(split)
+      for (let channel = 0; channel < CHANNELS; channel++) split.connect(merge, channel, channel)
+      raised.connect(merge, 0, CHANNELS)
+      merge.connect(processor)
       processor.connect(context.destination)
+      marker = raised
+      nodes = [stereo, split, merge, raised, processor]
+    },
+    begin: (seconds) => {
+      if (graph === null || marker === null || windowFrames !== null) return
+      windowFrames = Math.max(0, Math.round(seconds * graph.sampleRate))
+      // As soon as the graph can: the next render quantum is the window's first.
+      marker.start()
     },
     stop: async () => {
       const tap = processor
       if (tap === null) return
-      // The last ≤ one buffer of real audio is still queued on the audio
-      // thread when the replay loop ends; wait for it (or time out — a
-      // context torn down early delivers nothing more).
-      await new Promise<void>((resolve) => {
-        let settled = false
-        const settle = () => {
-          if (!settled) {
-            settled = true
-            resolve()
+      // The window's tail is still queued on the audio thread when the replay
+      // loop ends, a few buffers behind it: wait for the last of it, or time
+      // out (a context torn down early delivers nothing more). Before `begin`
+      // (an aborted export) there is no window to wait for.
+      if (windowFrames !== null && !complete()) {
+        await new Promise<void>((resolve) => {
+          let settled = false
+          const settle = () => {
+            if (!settled) {
+              settled = true
+              resolve()
+            }
           }
-        }
-        onNextBuffer = settle
-        setTimeout(settle, STOP_FLUSH_TIMEOUT_MS)
-      })
-      onNextBuffer = null
+          onWindowComplete = settle
+          setTimeout(settle, STOP_FLUSH_TIMEOUT_MS)
+        })
+      }
+      onWindowComplete = null
       tap.onaudioprocess = null
       try {
-        mix?.disconnect(tap)
-        tap.disconnect()
+        marker?.stop()
+      } catch {
+        // Never started (an aborted export), or already stopped.
+      }
+      try {
+        mix?.disconnect(nodes[0])
+        for (const node of nodes) node.disconnect()
       } catch {
         // A context that already closed tore the graph down itself.
       }
       processor = null
     },
     finish: async () => {
-      if (sampleRate === null || captured[0].length === 0) {
-        // Reaching here means the graph never delivered a buffer — a wedged
-        // context, not a quiet mix (silence still yields buffers of zeros).
+      if (sampleRate === null || windowFrames === null || kept === null || captured[0].length === 0) {
+        // Reaching here means the graph never delivered the window's start —
+        // a wedged context, not a quiet mix (silence still yields buffers of
+        // zeros).
         throw new Error('No audio was captured for the MP3 export.')
+      }
+      // A tail the graph never delivered (stop timed out) is silence: the
+      // file is the window's length either way.
+      if (kept < windowFrames) {
+        for (let channel = 0; channel < CHANNELS; channel++) {
+          captured[channel].push(new Float32Array(windowFrames - kept))
+        }
       }
       return encodeMp3(concatChunks(captured[0]), concatChunks(captured[1]), sampleRate, loadEncoder)
     },

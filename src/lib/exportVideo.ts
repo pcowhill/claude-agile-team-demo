@@ -2009,6 +2009,15 @@ export interface ExportAudioSink {
    */
   attach: (context: AudioContext, mix: AudioNode) => void
   /**
+   * The exported window's playback starts now (#908). The graph has been
+   * running since `attach`, through the waits for the context and for the
+   * sources to load and cue, so the sink keeps only what it hears from here,
+   * and only `windowSeconds` of it: the file is the window, sample for
+   * sample, however long the setup took. Called once, as the window's first
+   * entry starts to play.
+   */
+  begin: (windowSeconds: number) => void
+  /**
    * Stops capturing, waiting out samples still in flight; called once the
    * sequence has fully played, before the graph is torn down — a tap that
    * detached only at `finish()` would find the context already closed and
@@ -2289,6 +2298,15 @@ export async function createAudioCapture(
 export const AUDIO_DRIFT_EPSILON = 0.25
 
 /**
+ * How far a paused track element may sit from where it should start before
+ * starting it takes a seek, in seconds (#908). The tick that starts a track
+ * comes a frame or so after the track's start, so the clock is always a
+ * little past the cue; within this, the element starts from the cue rather
+ * than seeking those milliseconds first.
+ */
+const START_SEEK_EPSILON = 0.05
+
+/**
  * How far a frozen element may sit from a pause's instant (#700), in
  * seconds: a hold shows one frame, so it is cued to that frame rather than
  * left wherever the drift tolerance above would allow — up to 0.25 s is
@@ -2378,7 +2396,14 @@ function alignReplayClock(
 ): void {
   if (shouldPlay) {
     if (element.paused) {
-      element.currentTime = sourceTime
+      // Cued already (the pipeline cues every track and overlay to the
+      // window's start before playback, and the paused branch below keeps
+      // it there): start it where it stands. A seek of a few milliseconds would hold the start
+      // until the seek lands, which put a track's first sound one or two
+      // frames late in the export (#908).
+      if (Math.abs(element.currentTime - sourceTime) > START_SEEK_EPSILON) {
+        element.currentTime = sourceTime
+      }
       // play() rejects (AbortError) when interrupted by pause — an expected
       // outcome, matching the video replay elements.
       element.play().catch(() => {})
@@ -2865,7 +2890,7 @@ export async function exportTimeline(
    * for that frame before seeking as well as after, because Firefox drops a
    * seek issued while the element has only metadata (#615).
    */
-  const cueTo = async (element: HTMLVideoElement, url: string, sourceTime: number) => {
+  const cueTo = async (element: HTMLMediaElement, url: string, sourceTime: number) => {
     await loadSource(element, url)
     await untilCurrentData(element, signal, canceled)
     if (Math.abs(element.currentTime - sourceTime) > 0.001) {
@@ -2972,10 +2997,15 @@ export async function exportTimeline(
     }
     // Load the track sources up front too: it validates each one is
     // decodable before the recorder starts, and makes starting a track
-    // mid-record a plain play() rather than a load.
+    // mid-record a plain play() rather than a load. Each is cued to where
+    // the window finds it — its in-point if it has not begun, partway in
+    // for a range that opens inside it — because starting a paused track
+    // within START_SEEK_EPSILON of its position skips the seek (#908): a
+    // track left at 0 with a head trimmed by less than that would play the
+    // trimmed-off audio, and run that much late for its whole length.
     for (const { track, element } of recordedTracks) {
       throwIfAborted()
-      await loadSource(element, track.url)
+      await cueTo(element, track.url, audioTrackPlaybackAt(track, windowStart).sourceTime)
     }
     // Overlay layers (#146) load and cue up front: it validates each source
     // decodes, and the element holds the right first frame from the very
@@ -3192,6 +3222,15 @@ export async function exportTimeline(
     // loop then stops before any handover work for a boundary the export
     // never plays through.
     let reachedWindowEnd = false
+    // The audio sink's window opens with the first sound the window can
+    // make (#908): as the first entry's element is told to play, or, where
+    // it plays nothing yet, at its first tick, where the tracks start.
+    let windowBegun = false
+    const beginWindow = () => {
+      if (windowBegun) return
+      windowBegun = true
+      audioSink?.begin(windowEnd - windowStart)
+    }
     for (let index = startCue.index; index < entries.length; index++) {
       const entry = entries[index]
       const still = isStillEntry(entry)
@@ -3241,6 +3280,7 @@ export async function exportTimeline(
           // The rate at the cue point (#144): 1 for an unremapped entry,
           // the segment's factor when the entry starts inside one.
           primary.playbackRate = initial.rate
+          beginWindow()
           await playReplay(primary)
         } else if (!primary.paused) {
           // The entry opens on a pause plateau: hold the frozen first frame;
@@ -3448,6 +3488,9 @@ export async function exportTimeline(
           // close on time and fades record as continuous ramps — the clock
           // keeps advancing through pause holds (#144), so sequence-anchored
           // tracks are unaffected by remaps, matching the #141 decision.
+          // A still, or an entry opening on a pause plateau, has started
+          // nothing before its first tick: the tracks start here (#908).
+          beginWindow()
           for (const recorded of recordedTracks) {
             syncTrackReplay(
               recorded.track,
