@@ -5,6 +5,7 @@ import { MAX_VOLUME } from '../volume'
 import { COLOR_ADJUSTMENT_MAX, COLOR_ADJUSTMENT_MIN } from '../colorAdjustments'
 import { MIN_KEPT_FRACTION } from '../crop'
 import { PICTURE_EFFECT_EASE_SECONDS } from '../pictureLook'
+import { DEFAULT_PICTURE_EFFECT_SECONDS } from '../pictureEffect'
 import { DEFAULT_BLUR_STRENGTH, DEFAULT_PIXELATE_BLOCK, MIN_REGION_FRACTION } from '../redaction'
 import { DEFAULT_SPOTLIGHT_DIM, MAX_SPOTLIGHT_SOFTEN } from '../spotlight'
 import {
@@ -179,6 +180,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     PATTERN_SPIRAL_COLUMNS: String(SPIRAL_COLUMNS),
     PATTERN_SPIRAL_ROWS: String(SPIRAL_ROWS),
     PICTURE_EFFECT_EASE: String(PICTURE_EFFECT_EASE_SECONDS),
+    DEFAULT_PICTURE_EFFECT: String(DEFAULT_PICTURE_EFFECT_SECONDS),
     WEBP_FPS: String(WEBP_FRAME_RATE),
     WEBP_MAX_PX: String(WEBP_MAX_DIMENSION),
     APNG_FPS: String(APNG_FRAME_RATE),

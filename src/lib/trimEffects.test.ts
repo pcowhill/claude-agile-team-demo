@@ -4,6 +4,8 @@ import type { TimelineEntry, TimelineState, ZoomEffect } from './timeline'
 import { remapsForEntry, timelineReducer, videoOverlaysOf, zoomWindowDuration, zoomsForEntry } from './timeline'
 import { overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
 import type { VideoOverlay } from './videoOverlay'
+import { NO_PICTURE_LOOK, pictureEffectRegistry } from './pictureEffect'
+import type { PictureEffect, PictureEffectDefinition } from './pictureEffect'
 import { overlayPlacementOf } from './videoOverlay'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
@@ -247,6 +249,51 @@ describe('overlayTrimEffectsPreview: a video overlay’s own effects (#711)', ()
     })
     expect(preview.warnings).toEqual([])
     expect(preview.marks).toEqual([{ id: 'oz1', kind: 'zoom', name: 'Zoom 1', start: 4, end: 8 }])
+  })
+})
+
+describe('trimEffectsPreview: picture effects (#862)', () => {
+  const vignette: PictureEffectDefinition = {
+    id: 'vignette',
+    name: 'Vignette',
+    params: [{ key: 'strength', label: 'Strength', min: 0, max: 100, default: 60 }],
+    look: () => NO_PICTURE_LOOK,
+  }
+  const withEffects = (...effects: PictureEffect[]): TimelineState => ({
+    entries: [entry({ id: 'e1' })],
+    pictureEffects: effects,
+  })
+  const effect = (id: string, start: number, end: number, type = 'vignette'): PictureEffect => ({
+    id,
+    entryId: 'e1',
+    type,
+    start,
+    end,
+    params: { strength: 60 },
+  })
+
+  it('warns that a trim shortens or removes an effect, by the row\'s name, and marks where it stays', () => {
+    pictureEffectRegistry.register(vignette)
+    try {
+      const state = withEffects(effect('v1', 2, 6), effect('v2', 7, 9))
+      const preview = trimEffectsPreview(state, 'e1', { inPoint: 0, outPoint: 5 })
+      expect(trimWarningText(preview.warnings)).toBe('Trimming here shortens Vignette 1 and removes Vignette 2.')
+      expect(preview.marks).toEqual([{ id: 'v1', kind: 'picture-effect', name: 'Vignette 1', start: 2, end: 5 }])
+      // Apply does what the warning says: the reducer's own clamp.
+      expect(applied(state, 0, 5).pictureEffects?.map(({ id, start, end }) => [id, start, end])).toEqual([
+        ['v1', 2, 5],
+        ['v2', 5, 5],
+      ])
+      const clear = trimEffectsPreview(state, 'e1', { inPoint: 0, outPoint: 9.5 })
+      expect(clear.warnings).toEqual([])
+    } finally {
+      pictureEffectRegistry.unregister('vignette')
+    }
+  })
+
+  it('names an effect whose plugin is disabled as the row does, "(unavailable)"', () => {
+    const preview = trimEffectsPreview(withEffects(effect('b1', 1, 4, 'blur')), 'e1', { inPoint: 0, outPoint: 3 })
+    expect(trimWarningText(preview.warnings)).toBe('Trimming here shortens blur 1 (unavailable).')
   })
 })
 

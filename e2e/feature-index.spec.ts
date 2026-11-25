@@ -204,6 +204,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "an overlay Move's fields name which of its Moves they edit (#834), a position in a list, as the zoom's do. Safe beside Move up and Move down, which carry no number: the digit is what this matches",
   },
   {
+    pattern: /\b([Vv]ignette|[Bb]lur) \d+/g,
+    replacement: '$1',
+    why: "a Visual effects row's fields name which of an entry's vignettes or blurs they edit (#862), a position in a list, as the zoom's do. Both cases, because Remove says it in lower case",
+  },
+  {
     pattern: /\b([Pp])ause \d+/g,
     replacement: '$1ause',
     why: "as the speed segment above (#525). Safe beside Pause and Pause recording, which carry no number: the digit is what this matches",
@@ -978,6 +983,17 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     timeline.getByRole('button', { name: `Adjust Zoom 1 of ${firstEntry} visually`, exact: true }),
     'the zoom editor',
   )
+
+  // A vignette and a blur on the same entry (#862): with every plugin on,
+  // + Effect ▾ offers them, and each one's fields exist only once it does.
+  const effectsWithPlugins = await openEffectMenu(page, firstEntry)
+  await record('+ Effect ▾ with every plugin on', effectsWithPlugins)
+  await page.keyboard.press('Escape')
+  await expect(effectsWithPlugins).toHaveCount(0)
+  await chooseEffect(page, firstEntry, 'Vignette')
+  await chooseEffect(page, firstEntry, 'Blur')
+  await expect(timeline.getByRole('spinbutton', { name: `Blur 1 amount of ${firstEntry} (percent)` })).toBeVisible()
+  await record('an entry with a vignette and a blur', timeline)
 
   // A redaction region on the same entry: the region's own fields, then the
   // editor that drags it.

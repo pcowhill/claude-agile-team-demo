@@ -66,7 +66,7 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 ## Visual effects
 
-**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*.
+**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*; once enabled, **Vignette** and **Blur** in an expanded sequence entry's **+ Effect ▾**.
 
 **What it does.** Draws picture effects on a stretch of a clip: a **Vignette** that darkens the edges of the frame, and a **Blur** over the whole picture.
 
@@ -76,9 +76,9 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 Effects belong to the clip's picture as you frame it: a zoom moves inside the vignette, which stays on the frame's edges, and a transition carries the effect with the clip. A blur softens the clip's own picture, not its redactions or spotlights, and, like any blur, it also softens the picture's outer edge into the frame's black. The preview and every export draw an effect through the same rule.
 
-**Adding an effect is not in the editor yet.** This version of the plugin draws the effects a project file already holds; the menu items that add and edit them will follow. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, and the picture shows without it until the plugin is enabled again.
+Each effect is added from **+ Effect ▾** and set on its own row, its stretch and its one setting: [Vignette and blur](editing-video.md#vignette-and-blur) has the fields. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, its row is named *(unavailable)*, and the picture shows without it until the plugin is enabled again.
 
-**Related.** [Projects that need a plugin](#projects-that-need-a-plugin)
+**Related.** [Vignette and blur](editing-video.md#vignette-and-blur) · [Projects that need a plugin](#projects-that-need-a-plugin)
 
 ## More export formats
 

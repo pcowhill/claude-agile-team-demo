@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { fontRegistry } from '../lib/textOverlay'
+import { activate as activateVisualEffects } from '../plugins/visualEffects/index'
 import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import { computeLevels } from '../lib/audioLevels'
@@ -4664,6 +4665,94 @@ describe('an overlay\'s Rect and Move fields are in percent of the frame (#892)'
     await userEvent.clear(width)
     await userEvent.type(width, '1{Enter}')
     expect(width).toHaveValue(5)
+  })
+})
+
+describe('picture effects on a sequence entry (#862)', () => {
+  const POSITION = 'a.mp4 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const setField = async (name: string, value: string) => {
+    await userEvent.clear(field(name))
+    await userEvent.type(field(name), value)
+    await userEvent.tab()
+  }
+
+  it('+ Effect ▾ gains Vignette and Blur only while the Visual effects plugin is registered', async () => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    await closeEffectMenu(POSITION)
+
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    try {
+      expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Vignette', 'Blur'])
+      await closeEffectMenu(POSITION)
+    } finally {
+      act(() => deactivate())
+    }
+    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    await closeEffectMenu(POSITION)
+  })
+
+  it('adds an effect with its default window and parameters, edits, undoes and removes it', async () => {
+    render(<App />)
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    try {
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+
+      await chooseEffect(POSITION, 'Vignette')
+      expect(field(`Vignette 1 start of ${POSITION} in seconds`)).toHaveValue(0)
+      expect(field(`Vignette 1 end of ${POSITION} in seconds`)).toHaveValue(2)
+      expect(field(`Vignette 1 strength of ${POSITION} (percent)`)).toHaveValue(60)
+      // A second vignette goes after the first, as a second zoom does; a
+      // blur may overlap them, so it starts at 0.
+      await chooseEffect(POSITION, 'Vignette')
+      expect(field(`Vignette 2 start of ${POSITION} in seconds`)).toHaveValue(2)
+      await chooseEffect(POSITION, 'Blur')
+      expect(field(`Blur 1 start of ${POSITION} in seconds`)).toHaveValue(0)
+      expect(field(`Blur 1 amount of ${POSITION} (percent)`)).toHaveValue(1)
+
+      await setField(`Vignette 1 end of ${POSITION} in seconds`, '1.5')
+      expect(field(`Vignette 1 end of ${POSITION} in seconds`)).toHaveValue(1.5)
+      // A parameter is held to its definition's range: 150 % is 100 %.
+      await setField(`Vignette 1 strength of ${POSITION} (percent)`, '150')
+      expect(field(`Vignette 1 strength of ${POSITION} (percent)`)).toHaveValue(100)
+      await userEvent.keyboard('{Control>}z{/Control}')
+      expect(field(`Vignette 1 strength of ${POSITION} (percent)`)).toHaveValue(60)
+
+      await userEvent.click(screen.getByRole('button', { name: `Remove vignette 2 from ${POSITION}` }))
+      expect(screen.queryByRole('spinbutton', { name: `Vignette 2 start of ${POSITION} in seconds` })).toBeNull()
+      await userEvent.keyboard('{Control>}z{/Control}')
+      expect(field(`Vignette 2 start of ${POSITION} in seconds`)).toHaveValue(2)
+    } finally {
+      act(() => deactivate())
+    }
+  })
+
+  it('keeps an effect whose plugin is disabled, named "(unavailable)", with its window but no parameter fields', async () => {
+    render(<App />)
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    await importClip('a.mp4', 10)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await chooseEffect(POSITION, 'Blur')
+    act(() => deactivate())
+
+    expect(screen.getByTestId('picture-effect-row')).toHaveTextContent('blur 1 (unavailable) from')
+    expect(field(`blur 1 (unavailable) end of ${POSITION} in seconds`)).toHaveValue(2)
+    expect(screen.queryByRole('spinbutton', { name: /amount/ })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: `Remove blur 1 (unavailable) from ${POSITION}` }))
+    expect(screen.queryByTestId('picture-effect-row')).toBeNull()
   })
 })
 

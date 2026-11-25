@@ -70,6 +70,7 @@ import {
   isSlateEntry,
   isImageOverlay,
   isStillEntry,
+  pictureEffectsForEntry,
   remapsForEntry,
   rangeCutRipple,
   remapsOf,
@@ -81,6 +82,13 @@ import {
 } from '../lib/timeline'
 import { DEFAULT_DUCK_LEVEL } from '../lib/gain'
 import { transitionRegistry } from '../lib/transitionRender'
+import {
+  defaultPictureEffectWindow,
+  pictureEffectNames,
+  pictureEffectParamsFor,
+  pictureEffectRegistry,
+} from '../lib/pictureEffect'
+import type { PictureEffect, PictureEffectSpec } from '../lib/pictureEffect'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -321,6 +329,17 @@ interface TimelineProps {
   onAddRemap: (entryId: string, remap: RemapSpec) => void
   onUpdateRemap: (id: string, remap: RemapSpec) => void
   onRemoveRemap: (id: string) => void
+  /**
+   * Picture effects (#862): + Effect ▾ adds one of a registered type with
+   * its default window and parameters (the caller mints the id), a field
+   * commit replaces its window and parameters, ✕ removes it. Optional so
+   * callers that predate picture effects keep compiling; without
+   * `onAddPictureEffect` + Effect ▾ offers none, and without the other two
+   * the rows are not drawn.
+   */
+  onAddPictureEffect?: (entryId: string, type: string, spec: PictureEffectSpec) => void
+  onUpdatePictureEffect?: (id: string, spec: PictureEffectSpec) => void
+  onRemovePictureEffect?: (id: string) => void
   /** Adds a text overlay with the default spec (#139); the id is the caller's to mint. */
   onAddText: () => void
   /**
@@ -2272,6 +2291,91 @@ function RemapFieldRows({ position, effects, trimmed, onUpdate, onRemove }: Rema
   )
 }
 
+/** A picture-effect parameter's unit as a field unit, when it is one the field can draw (#665). */
+const PARAM_FIELD_UNITS: Record<string, FieldUnit> = { '%': '%', px: 'px', '×': '×' }
+/** The words a parameter field's accessible name ends with, by unit, as the other fields' names do. */
+const PARAM_LABEL_SUFFIXES: Record<string, string> = { '%': ' (percent)', px: ' in pixels' }
+
+interface PictureEffectRowsProps {
+  /** The accessible name of the row's owner (a sequence entry). */
+  position: string
+  /** The entry's picture effects, normalized: sorted by window start. */
+  effects: readonly PictureEffect[]
+  /** The entry's trimmed source length: the window fields' upper bound. */
+  trimmed: number
+  onUpdate: (id: string, spec: PictureEffectSpec) => void
+  onRemove: (id: string) => void
+}
+
+/**
+ * The rows of an entry's picture effects (#862): one per effect, in window
+ * order, each with its Start and End on the entry's own time, a field per
+ * parameter its definition declares, and ✕, shaped like the speed segment
+ * rows above. An effect whose type no registered definition covers (its
+ * plugin disabled) keeps its row, named "(unavailable)": its window can
+ * still be moved and it can be removed, but its parameters, which only
+ * the definition can label and range, are kept untouched and not shown.
+ */
+function PictureEffectRows({ position, effects, trimmed, onUpdate, onRemove }: PictureEffectRowsProps) {
+  const names = pictureEffectNames(effects)
+  return (
+    <>
+      {effects.map((effect) => {
+        const name = names.get(effect.id) ?? effect.type
+        const definition = pictureEffectRegistry.find(effect.type)
+        const set = (change: Partial<PictureEffectSpec>) =>
+          onUpdate(effect.id, { start: effect.start, end: effect.end, params: effect.params, ...change })
+        return (
+          <div key={effect.id} className="timeline-entry-picture-effect" data-testid="picture-effect-row">
+            <span>{name} from</span>
+            <SecondsField
+              label={`${name} start of ${position} in seconds`}
+              value={effect.start}
+              max={trimmed}
+              onCommit={(start) => set({ start })}
+              unit="s"
+            />
+            <span>to</span>
+            <SecondsField
+              label={`${name} end of ${position} in seconds`}
+              value={effect.end}
+              max={trimmed}
+              onCommit={(end) => set({ end })}
+              unit="s"
+            />
+            {definition?.params.map((param) => (
+              <LabelledField key={param.key} text={param.label.toLowerCase()}>
+                <SecondsField
+                  label={`${name} ${param.label.toLowerCase()} of ${position}${PARAM_LABEL_SUFFIXES[param.unit ?? ''] ?? ''}`}
+                  value={Number.isFinite(effect.params[param.key]) ? effect.params[param.key] : param.default}
+                  min={param.min}
+                  max={param.max}
+                  step={param.max - param.min >= 20 ? 5 : 0.5}
+                  // The model checks structure only, so the field holds
+                  // the value to the definition's range, as a zoom's scale
+                  // field is held by its reducer.
+                  onCommit={(value) =>
+                    set({ params: { ...effect.params, [param.key]: Math.min(param.max, Math.max(param.min, value)) } })
+                  }
+                  unit={PARAM_FIELD_UNITS[param.unit ?? '']}
+                />
+              </LabelledField>
+            ))}
+            {/* Lower case, as Remove speed segment 1 and Remove zoom 1 read. */}
+            <button
+              type="button"
+              aria-label={`Remove ${name.charAt(0).toLowerCase()}${name.slice(1)} from ${position}`}
+              onClick={() => onRemove(effect.id)}
+            >
+              ✕
+            </button>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 interface BorderControlsProps {
   /** The accessible name of the row's owner (a video or image overlay). */
   position: string
@@ -2761,6 +2865,9 @@ export function Timeline({
   onAddRemap,
   onUpdateRemap,
   onRemoveRemap,
+  onAddPictureEffect,
+  onUpdatePictureEffect,
+  onRemovePictureEffect,
   onAddText,
   subtitleStyle,
   onSetSubtitleStyle,
@@ -2813,6 +2920,10 @@ export function Timeline({
   // enabled plugin changes at runtime — subscribe so the select re-renders.
   useSyncExternalStore(transitionRegistry.subscribe, () => transitionRegistry.version)
   const transitionOptions = transitionRegistry.list()
+  // + Effect ▾'s picture effects (#862) are the registry's too: enabling or
+  // disabling the Visual effects plugin adds or removes its items, and a
+  // row's name turns "(unavailable)" or back.
+  useSyncExternalStore(pictureEffectRegistry.subscribe, () => pictureEffectRegistry.version)
   // The rows' "plays 6.01s of 6.01s" summaries follow Settings › Time
   // fields as the boxes beside them do (#849): `plays 0:06.010 of 0:06.010`
   // on minutes and seconds, today's text byte for byte on seconds.
@@ -4080,6 +4191,17 @@ export function Timeline({
                     onRemove={onRemoveRemap}
                   />
                 )}
+                {onUpdatePictureEffect && onRemovePictureEffect && (
+                  // Picture effects (#862): stills and slates carry them as
+                  // clips do, since they change the picture, not its timing.
+                  <PictureEffectRows
+                    position={position}
+                    effects={pictureEffectsForEntry(timeline, entry.id)}
+                    trimmed={effectiveDuration(entry)}
+                    onUpdate={onUpdatePictureEffect}
+                    onRemove={onRemovePictureEffect}
+                  />
+                )}
                 {/* + Effect ▾ (#419, from the approved redesign #401 /
                     feedback #395): the three things an expanded entry can
                     grow — a zoom (#129), a speed segment and a pause (#141)
@@ -4123,6 +4245,29 @@ export function Timeline({
                         onSelect: () => addablePause !== null && onAddRemap(entry.id, addablePause),
                       },
                     )
+                  }
+                  if (onAddPictureEffect) {
+                    // One item per registered picture effect (#862), after
+                    // the built-in three, in registration order: none at all
+                    // until a plugin such as Visual effects registers some.
+                    const entryEffects = pictureEffectsForEntry(timeline, entry.id)
+                    for (const definition of pictureEffectRegistry.list()) {
+                      const addable = defaultPictureEffectWindow(
+                        entryEffects.filter((effect) => effect.type === definition.id),
+                        effectiveDuration(entry),
+                      )
+                      items.push({
+                        kind: 'action',
+                        label: definition.name,
+                        disabled: addable === null,
+                        onSelect: () =>
+                          addable !== null &&
+                          onAddPictureEffect(entry.id, definition.id, {
+                            ...addable,
+                            params: pictureEffectParamsFor(definition),
+                          }),
+                      })
+                    }
                   }
                   return (
                     <div className="timeline-entry-effects">

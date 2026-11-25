@@ -148,11 +148,6 @@ export interface PictureLook {
 /** The look of no effect: an entry without one draws exactly as before. */
 export const NO_PICTURE_LOOK: PictureLook = { filters: [], layers: [] }
 
-/** Whether a look changes nothing. */
-export function isNoPictureLook(look: PictureLook): boolean {
-  return look.filters.length === 0 && look.layers.length === 0
-}
-
 /** One colour stop of a vignette: black at `alpha`, `offset` along the radius (0 centre, 1 corner). */
 export interface VignetteStop {
   offset: number
@@ -322,4 +317,66 @@ export function unregisteredPictureEffectTypes(
   registry: PictureEffectRegistry = pictureEffectRegistry,
 ): string[] {
   return [...new Set(types)].filter((type) => !registry.has(type))
+}
+
+/**
+ * How long a new picture effect's window is, in the entry's seconds (#862):
+ * a new zoom's whole window (`DEFAULT_ZOOM`'s 0.5 s in, 1 s hold, 0.5 s
+ * out), so + Effect ▾'s items all add something of one size.
+ */
+export const DEFAULT_PICTURE_EFFECT_SECONDS = 2
+
+/**
+ * Where + Effect ▾ puts a new effect of a type (#862), the way
+ * `defaultZoomFor` places a new zoom: at the start of the first gap between
+ * the entry's effects **of the same type** that holds
+ * `DEFAULT_PICTURE_EFFECT_SECONDS`, or across the widest gap when none
+ * does. Effects of different types may overlap, since a blur under a
+ * vignette is a stack, so only the same type's windows take room. Null when
+ * that type already covers the whole entry: the item is then disabled, as
+ * Zoom's is.
+ */
+export function defaultPictureEffectWindow(
+  sameType: readonly Pick<PictureEffectSpec, 'start' | 'end'>[],
+  trimmedLength: number,
+): { start: number; end: number } | null {
+  const sorted = [...sameType].sort((a, b) => a.start - b.start)
+  const gaps: { start: number; length: number }[] = []
+  let cursor = 0
+  for (const effect of sorted) {
+    if (effect.start > cursor) gaps.push({ start: cursor, length: effect.start - cursor })
+    cursor = Math.max(cursor, effect.end)
+  }
+  if (trimmedLength > cursor) gaps.push({ start: cursor, length: trimmedLength - cursor })
+  if (gaps.length === 0) return null
+  const gap =
+    gaps.find((candidate) => candidate.length >= DEFAULT_PICTURE_EFFECT_SECONDS) ??
+    gaps.reduce((widest, candidate) => (candidate.length > widest.length ? candidate : widest))
+  return { start: gap.start, end: gap.start + Math.min(DEFAULT_PICTURE_EFFECT_SECONDS, gap.length) }
+}
+
+/**
+ * What the entry's row calls each of its picture effects (#862), by id:
+ * the definition's name numbered per type in window order ("Vignette 1",
+ * "Blur 1", "Vignette 2"), as the row numbers speed segments and pauses
+ * separately. A type no definition covers is named by its id and marked
+ * "(unavailable)", as a disabled plugin's transition is (#199). The Trim
+ * window's warnings (`trimEffects.ts`) use the same names.
+ */
+export function pictureEffectNames(
+  effects: readonly Pick<PictureEffect, 'id' | 'type'>[],
+  registry: PictureEffectRegistry = pictureEffectRegistry,
+): Map<string, string> {
+  const counts = new Map<string, number>()
+  const names = new Map<string, string>()
+  for (const effect of effects) {
+    const count = (counts.get(effect.type) ?? 0) + 1
+    counts.set(effect.type, count)
+    const definition = registry.find(effect.type)
+    names.set(
+      effect.id,
+      definition === undefined ? `${effect.type} ${count} (unavailable)` : `${definition.name} ${count}`,
+    )
+  }
+  return names
 }

@@ -1,7 +1,7 @@
 /**
  * What a trim in the Trim window would do to the entry's effects (#709,
- * from the approved design #703 §3): where its zooms, speed segments and
- * pauses would sit, which of them the clamps as they stand would cut into,
+ * from the approved design #703 §3): where its zooms, speed segments,
+ * pauses and picture effects (#862) would sit, which of them the clamps as they stand would cut into,
  * and which source span a transition at either end would cover.
  *
  * **One rule.** Nothing here re-derives the trim's consequences. The
@@ -31,6 +31,7 @@ import {
   boundaryTransitions,
   effectiveDuration,
   entryOutputDuration,
+  pictureEffectsForEntry,
   remapsForEntry,
   timelineReducer,
   videoOverlaysOf,
@@ -40,8 +41,11 @@ import {
 import type { TimelineState, ZoomSpec } from './timeline'
 import type { TrimRange } from './trim'
 import { isImageOverlay, overlayPlacementOf } from './videoOverlay'
+import { pictureEffectNames } from './pictureEffect'
+import type { PictureEffect } from './pictureEffect'
 
-export type TrimEffectKind = 'zoom' | RemapSpec['kind']
+/** `picture-effect` is a Vignette, Blur or other registered picture effect (#862), whatever its type. */
+export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect'
 
 /**
  * What the row calls each remap kind. A `Record` over the union, so a new
@@ -112,6 +116,7 @@ interface Placed {
 function placedEffects(
   zooms: readonly (ZoomSpec & { id: string })[],
   remaps: readonly (RemapSpec & { id: string })[],
+  pictureEffects: readonly PictureEffect[] = [],
 ): Placed[] {
   // The row numbers zooms per entry and each remap kind separately, in the
   // normalized state's order (`Timeline.tsx`, `RemapFieldRows`).
@@ -134,7 +139,18 @@ function placedEffects(
       end: remapEnd(remap),
     }
   })
-  return [...zoomPlaced, ...remapPlaced]
+  // Picture effects (#862) by the row's names, "Vignette 1" or "blur 1
+  // (unavailable)" (`pictureEffectNames`). Their windows clamp and collapse
+  // on a retrim as a zoom's do, so the same outcomes apply.
+  const names = pictureEffectNames(pictureEffects)
+  const picturePlaced = pictureEffects.map((effect) => ({
+    id: effect.id,
+    kind: 'picture-effect' as const,
+    name: names.get(effect.id) ?? effect.type,
+    start: effect.start,
+    end: effect.end,
+  }))
+  return [...zoomPlaced, ...remapPlaced, ...picturePlaced]
 }
 
 /** What the sweep did to one effect, or null when it left it whole and in place. */
@@ -218,8 +234,12 @@ export function trimEffectsPreview(
 
   const remaps = remapsForEntry(trimmed, entryId)
   const { marks, warnings } = comparedEffects(
-    placedEffects(zoomsForEntry(state, entryId), remapsForEntry(state, entryId)),
-    placedEffects(zoomsForEntry(trimmed, entryId), remaps),
+    placedEffects(
+      zoomsForEntry(state, entryId),
+      remapsForEntry(state, entryId),
+      pictureEffectsForEntry(state, entryId),
+    ),
+    placedEffects(zoomsForEntry(trimmed, entryId), remaps, pictureEffectsForEntry(trimmed, entryId)),
     entry.inPoint,
   )
 

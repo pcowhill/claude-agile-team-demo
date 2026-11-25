@@ -120,11 +120,11 @@ A **shape group** is named after its shapes until you rename it (*Ellipse*, *2 e
 
 **Where to find it.** An expanded sequence entry or overlay, below its fields.
 
-**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry or video overlay, or a **Zoom** to an image overlay. On an overlay of either kind it also offers **Move**, which glides the overlay to a new place ([Overlay move](editing-video.md#overlay-move)).
+**What it does.** Adds a **Zoom**, a **Speed segment** or a **Pause** to the entry or video overlay, or a **Zoom** to an image overlay. On an overlay of either kind it also offers **Move**, which glides the overlay to a new place ([Overlay move](editing-video.md#overlay-move)). With the [Visual effects](plugins.md#visual-effects) plugin enabled, a sequence entry's menu also offers **Vignette** and **Blur**, after the others ([Vignette and blur](editing-video.md#vignette-and-blur)).
 
-**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the row leave no room for another, and a still or a slate offers Zoom alone, and an image overlay Zoom and Move, since its one duration is already its timing. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
+**Details.** Each item is offered exactly where it can go: it is greyed once the effects already on the row leave no room for another, and a still or a slate offers no Speed segment or Pause, and an image overlay only Zoom and Move, since its one duration is already its timing; Vignette and Blur, when the plugin is on, are offered on every sequence entry. A new effect lands with its default values and fields to adjust it; each field is one undo step. The effects themselves are on [Editing video](editing-video.md).
 
-**Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses) · [Overlay move](editing-video.md#overlay-move)
+**Related.** [Zooms](editing-video.md#zooms) · [Speed segments and pauses](editing-video.md#speed-segments-and-pauses) · [Overlay move](editing-video.md#overlay-move) · [Vignette and blur](editing-video.md#vignette-and-blur)
 
 ## Collapsing rows and folding sections
 

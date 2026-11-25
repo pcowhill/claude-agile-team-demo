@@ -368,6 +368,28 @@
   color: inherit;
 }
 
+/* Picture-effect rows (#862): shaped exactly like the remap rows above, so
+   an entry's effects read as one list whatever plugin added them. */
+.timeline-entry-picture-effect {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.timeline-entry-picture-effect input {
+  /* 4rem, the zoom and remap rows' width (#665), so a start of 123.4 s
+     stays in view beside its unit. */
+  width: 4rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+}
+
 /* Boundary row: the transition into the *next* entry, drawn as a connector.
    It wraps, as the zoom and remap rows above do (#749): unwrapped, its
    type select (sized by its longest option, "Fade through white"), the
