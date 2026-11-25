@@ -356,9 +356,21 @@ extension point is built until a concrete plugin needs it**.
       frame follows the same pure-function rule as a texture layer, with
       no new mechanism. Sepia and brightness have no size, so unlike a
       blur they ignore the frame width and the zoom's scale.
-    - **Still to come (#870, then #871).** Old film's scratches and dust,
-      and VHS's scanlines and tracking band, are further layer kinds of
-      the same shape as `grain`. A per-channel offset (#871's chromatic
+    - **Sparse texture kinds (#870, step 2a(ii)).** Old film's
+      `scratches` and `dust` are layer kinds of the same shape as `grain`:
+      a tile that is a pure function of the step's seed, which both
+      renderers stretch over the card with smoothing. They differ only in
+      being mostly transparent. A scratch is one column of a short tile
+      (960 × 27), so it runs the frame's height at 2 px of a 1080p frame,
+      and a speck is one cell of a 480-wide tile. Both renderers now draw
+      every texture kind through one path, `textureTile` and
+      `textureTileKey`, rather than a branch per kind, so a further kind is
+      a tile function and a `switch` case. The export keeps one cached
+      tile per kind, since Old film draws three a frame. Each kind hashes
+      the seed at cells no other kind reaches (negative x), so the
+      patterns are independent of one another at the same step.
+    - **Still to come (#870, then #871).** VHS's scanlines and tracking
+      band are further layer kinds of the same shape as `grain`. A per-channel offset (#871's chromatic
       aberration) would be a new `PictureFilter` kind the same way. The
       contract grows by kinds, not by mechanisms.
   - **Rejected:** a rule returning a CSS string, which the canvas could
@@ -370,7 +382,7 @@ extension point is built until a concrete plugin needs it**.
   radius in percent of the frame width) and Film grain (#870: Amount, the
   strongest grain's alpha in percent, and Size, a grain's width in pixels
   of a 1080p frame) and Old film (#870: Amount, scaling its sepia, its
-  flicker and a fixed-size grain together). Each is parameters plus a `look`
+  flicker, a fixed-size grain, its scratches and its dust together). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `usedByProject` loads no chunk.

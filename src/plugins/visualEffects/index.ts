@@ -29,12 +29,13 @@ export const GRAIN_REFERENCE_WIDTH = 1920
 
 /**
  * Old film (#870) at Amount 100 and full weight: the sepia's amount, how
- * far the flicker moves the brightness either way, and its grain's
- * strength and size (Film grain's Amount and Size, as fractions and 1080p
- * pixels). Amount scales all three together, so it is one dial from a
- * faint tint to a strongly aged picture.
+ * far the flicker moves the brightness either way, its grain's strength
+ * and size (Film grain's Amount and Size, as fractions and 1080p pixels),
+ * and the brightest scratch's and the strongest dust speck's alpha. Amount
+ * scales them all together, so it is one dial from a faint tint to a
+ * strongly aged picture.
  */
-export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3 }
+export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3, scratches: 0.5, dust: 0.7 }
 
 /**
  * Old film's brightness at `time` for a flicker of `depth` (#870): a
@@ -97,9 +98,9 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
     }),
   },
   // An aged film look (#870, step 2a): sepia toning, a brightness that
-  // flickers 24 times a second of the entry's clock, and a fine grain.
-  // Amount is the strength of all three, in percent. Scratches and dust
-  // are a later step's further layers.
+  // flickers 24 times a second of the entry's clock, a fine grain, and the
+  // occasional vertical scratch and dust speck, which change at the same
+  // rate. Amount is the strength of them all, in percent.
   'old-film': {
     id: 'old-film',
     name: 'Old film',
@@ -118,6 +119,8 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
             cell: OLD_FILM.grainSize / GRAIN_REFERENCE_WIDTH,
             seed: textureStep(time),
           },
+          { kind: 'scratches', amount: OLD_FILM.scratches * strength, seed: textureStep(time) },
+          { kind: 'dust', amount: OLD_FILM.dust * strength, seed: textureStep(time) },
         ],
       }
     },

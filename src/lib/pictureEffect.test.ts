@@ -5,8 +5,19 @@ import {
   PICTURE_TEXTURE_RATE,
   PictureEffectRegistry,
   clampPictureEffect,
+  DUST_COLUMNS,
+  DUST_LIGHT_SHARE,
+  MAX_DUST,
+  MAX_SCRATCHES,
+  SCRATCH_CHANCE,
+  SCRATCH_COLUMNS,
+  SCRATCH_ROWS,
   defaultPictureEffectWindow,
+  dustTile,
   grainTile,
+  scratchesTile,
+  textureTile,
+  textureTileKey,
   isValidPictureEffectSpec,
   pictureEffectNames,
   pictureEffectParamsFor,
@@ -258,6 +269,140 @@ describe('generated textures (#870)', () => {
     expect(white / (white + black)).toBeLessThan(0.55)
     const none = grainTile(grain(3, 0), 16 / 9)
     for (let index = 3; index < none.data.length; index += 4) expect(none.data[index]).toBe(0)
+  })
+})
+
+describe('Old film\'s scratches and dust (#870, step 2a(ii))', () => {
+  const scratches = (seed: number, amount = 0.5) => ({ kind: 'scratches' as const, amount, seed })
+  const dust = (seed: number, amount = 0.7) => ({ kind: 'dust' as const, amount, seed })
+
+  /** The columns holding a scratch, and their largest alpha. */
+  const scratchColumns = (data: Uint8ClampedArray) => {
+    const columns = new Map<number, number>()
+    for (let index = 0; index < data.length; index += 4) {
+      const alpha = data[index + 3]
+      if (alpha === 0) continue
+      const column = (index / 4) % SCRATCH_COLUMNS
+      columns.set(column, Math.max(columns.get(column) ?? 0, alpha))
+    }
+    return columns
+  }
+  /** The tile's visible pixels, as [index, shade, alpha]. */
+  const specks = (data: Uint8ClampedArray) => {
+    const found: [number, number, number][] = []
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] > 0) found.push([index / 4, data[index], data[index + 3]])
+    }
+    return found
+  }
+
+  it('a scratches tile is fixed in size, and the same seed draws the same pixels', () => {
+    const tile = scratchesTile(scratches(50), 16 / 9)
+    expect([tile.width, tile.height]).toEqual([SCRATCH_COLUMNS, SCRATCH_ROWS])
+    expect(scratchesTile(scratches(50), 4 / 3).data).toEqual(tile.data)
+    expect(scratchesTile(scratches(50), 16 / 9).data).toEqual(tile.data)
+  })
+
+  it('scratches are white full-height columns, at most three, often none, and move from step to step', () => {
+    const counts: number[] = []
+    const places: string[] = []
+    let maxAlpha = 0
+    for (let seed = 0; seed < 480; seed++) {
+      const tile = scratchesTile(scratches(seed), 16 / 9)
+      const columns = scratchColumns(tile.data)
+      counts.push(columns.size)
+      places.push([...columns.keys()].sort((a, b) => a - b).join(','))
+      for (const [column, alpha] of columns) {
+        maxAlpha = Math.max(maxAlpha, alpha)
+        // White, and drawn on every row: a scratch runs the frame's height.
+        for (let row = 0; row < SCRATCH_ROWS; row++) {
+          const index = (row * SCRATCH_COLUMNS + column) * 4
+          expect([tile.data[index], tile.data[index + 1], tile.data[index + 2]]).toEqual([255, 255, 255])
+          expect(tile.data[index + 3]).toBeGreaterThan(0)
+        }
+      }
+    }
+    expect(Math.max(...counts)).toBeLessThanOrEqual(MAX_SCRATCHES)
+    // Each of three candidates shows 30 % of the time: none on about a
+    // third of the steps (0.7³ = 0.343), and about 0.9 a step on average.
+    const none = counts.filter((count) => count === 0).length / counts.length
+    expect(none).toBeGreaterThan(0.25)
+    expect(none).toBeLessThan(0.45)
+    const mean = counts.reduce((sum, count) => sum + count, 0) / counts.length
+    expect(mean).toBeGreaterThan(MAX_SCRATCHES * SCRATCH_CHANCE - 0.2)
+    expect(mean).toBeLessThan(MAX_SCRATCHES * SCRATCH_CHANCE + 0.2)
+    // At most the Amount, and the brightest near it.
+    expect(maxAlpha).toBeLessThanOrEqual(Math.round(0.5 * 255))
+    expect(maxAlpha).toBeGreaterThan(0.45 * 255)
+    // Neighbouring steps with scratches put them in different places.
+    let moved = 0
+    let pairs = 0
+    for (let seed = 1; seed < places.length; seed++) {
+      if (places[seed] === '' || places[seed - 1] === '') continue
+      pairs++
+      if (places[seed] !== places[seed - 1]) moved++
+    }
+    expect(moved).toBe(pairs)
+  })
+
+  it('a dust tile is 480 cells across, as many down as the aspect gives, and the same seed draws the same pixels', () => {
+    const tile = dustTile(dust(50), 16 / 9)
+    expect([tile.width, tile.height]).toEqual([DUST_COLUMNS, 270])
+    expect(dustTile(dust(50), 1).height).toBe(DUST_COLUMNS)
+    expect(dustTile(dust(50), 16 / 9).data).toEqual(tile.data)
+  })
+
+  it('dust is a few specks, none to six, mostly dark, each at most Amount strong, in new places each step', () => {
+    const counts: number[] = []
+    let light = 0
+    let total = 0
+    let maxAlpha = 0
+    let previous = ''
+    let repeats = 0
+    for (let seed = 0; seed < 480; seed++) {
+      const found = specks(dustTile(dust(seed), 16 / 9).data)
+      counts.push(found.length)
+      for (const [, shade, alpha] of found) {
+        expect(shade === 0 || shade === 255).toBe(true)
+        if (shade === 255) light++
+        total++
+        maxAlpha = Math.max(maxAlpha, alpha)
+      }
+      const places = found.map(([index]) => index).join(',')
+      if (places !== '' && places === previous) repeats++
+      previous = places
+    }
+    // Two specks of one step can land on one cell, so a count can fall short.
+    expect(Math.max(...counts)).toBeLessThanOrEqual(MAX_DUST)
+    expect(counts.filter((count) => count === 0).length).toBeGreaterThan(0)
+    expect(counts.filter((count) => count >= MAX_DUST - 1).length).toBeGreaterThan(0)
+    expect(light / total).toBeGreaterThan(DUST_LIGHT_SHARE - 0.08)
+    expect(light / total).toBeLessThan(DUST_LIGHT_SHARE + 0.08)
+    expect(maxAlpha).toBeLessThanOrEqual(Math.round(0.7 * 255))
+    expect(maxAlpha).toBeGreaterThan(0.65 * 255)
+    expect(repeats).toBe(0)
+  })
+
+  it('Amount 0 draws nothing in either', () => {
+    for (let seed = 0; seed < 48; seed++) {
+      expect(specks(scratchesTile(scratches(seed, 0), 16 / 9).data)).toEqual([])
+      expect(specks(dustTile(dust(seed, 0), 16 / 9).data)).toEqual([])
+    }
+  })
+
+  it('textureTile draws each kind with its own tile, and textureTileKey changes exactly when the tile does', () => {
+    const grain = { kind: 'grain' as const, amount: 0.3, cell: 1 / 64, seed: 9 }
+    expect(textureTile(grain, 16 / 9).data).toEqual(grainTile(grain, 16 / 9).data)
+    expect(textureTile(scratches(9), 16 / 9).data).toEqual(scratchesTile(scratches(9), 16 / 9).data)
+    expect(textureTile(dust(9), 16 / 9).data).toEqual(dustTile(dust(9), 16 / 9).data)
+    const key = textureTileKey(dust(9), 16 / 9)
+    expect(textureTileKey(dust(9), 16 / 9)).toBe(key)
+    expect(textureTileKey(dust(10), 16 / 9)).not.toBe(key)
+    expect(textureTileKey(dust(9, 0.5), 16 / 9)).not.toBe(key)
+    expect(textureTileKey(dust(9), 4 / 3)).not.toBe(key)
+    // Two kinds at the same seed and amount are different tiles.
+    expect(textureTileKey(scratches(9, 0.7), 16 / 9)).not.toBe(key)
+    expect(textureTileKey({ ...grain, cell: 1 / 32 }, 16 / 9)).not.toBe(textureTileKey(grain, 16 / 9))
   })
 })
 

@@ -269,8 +269,8 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## O
 
-- **Old film** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a sepia tone, a flicker and grain over the picture for a stretch of the entry. [Editing video › Old film](editing-video.md#old-film) · [Plugins › Visual effects](plugins.md#visual-effects)
-- **Old film amount** — old film on an expanded sequence entry; 0 to 100 %, how strongly it tones, flickers and grains the picture. [Editing video › Old film](editing-video.md#old-film)
+- **Old film** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a sepia tone, a flicker, grain, scratches and dust over the picture for a stretch of the entry. [Editing video › Old film](editing-video.md#old-film) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **Old film amount** — old film on an expanded sequence entry; 0 to 100 %, how strong its tone, flicker, grain, scratches and dust are. [Editing video › Old film](editing-video.md#old-film)
 - **Old film end** — old film on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › Old film](editing-video.md#old-film)
 - **Old film start** — old film on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › Old film](editing-video.md#old-film)
 - **Open project** — the re-link dialog; applies the project once every clip is linked. [Projects › Open Project… and re-linking media](projects.md#open-project-and-re-linking-media)

@@ -58,8 +58,8 @@ import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
-import { grainTile, vignetteStops } from './pictureEffect'
-import type { PictureFilter, PictureLayer } from './pictureEffect'
+import { textureTile, textureTileKey, vignetteStops } from './pictureEffect'
+import type { PictureFilter, PictureLayer, TextureLayer } from './pictureEffect'
 import type { ZoomState } from './zoom'
 import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
 import type { SizeLimitBitrates } from './sizeLimit'
@@ -691,16 +691,18 @@ export function withPictureFilters(
  *   aspect, through its corners, as CSS's `radial-gradient(ellipse
  *   farthest-corner)` is, with the stops both renderers take from
  *   `vignetteStops`.
- * - Grain (#870) is `grainTile`'s tile for the card's aspect, put on a
- *   canvas of the tile's size and stretched over the card with smoothing,
- *   as the preview's canvas element is stretched over its box.
+ * - Grain, scratches and dust (#870) are each their `textureTile` for the
+ *   card's aspect, put on a canvas of the tile's size and stretched over
+ *   the card with smoothing, as the preview's canvas element is stretched
+ *   over its box.
  *
  * `opacity` is the card's own opacity when it was drawn at that alpha
  * straight over black (a crossfade's outgoing card), so the canvas holds
  * `opacity × card`. The preview fades the card *with* its layers, giving
  * `opacity × (layer over card)`, which is a layer drawn at its own alpha
  * with its colour scaled by `opacity`. A black layer (a vignette, grain's
- * dark cells) is unchanged by that; grain's white cells are not, and drawn
+ * dark cells, dark dust) is unchanged by that; white texture pixels (grain's
+ * light cells, scratches, light dust) are not, and drawn
  * at full brightness they would lighten the faded card more than the
  * preview does (#933's review measured 42 against 21 on black).
  */
@@ -715,9 +717,9 @@ export function drawPictureLayers(
     context.save()
     context.globalAlpha = 1
     context.globalCompositeOperation = 'source-over'
-    if (layer.kind === 'grain') {
+    if (layer.kind !== 'vignette') {
       context.imageSmoothingEnabled = true
-      const tile = grainCanvas(layer, card.width / card.height)
+      const tile = textureCanvas(layer, card.width / card.height)
       context.drawImage(opacity < 1 ? dimmedCanvas(tile, opacity) : tile, card.x, card.y, card.width, card.height)
     } else {
       // A circle in a space squashed to the card's aspect is the ellipse.
@@ -736,22 +738,24 @@ export function drawPictureLayers(
 }
 
 /**
- * The last grain tile drawn, by its inputs: the export draws the same
- * pattern for every frame of a texture step (24 a second against 30 or 60
- * frames), so a step's tile is built once.
+ * The last tile drawn of each texture kind, by its inputs: the export draws
+ * the same pattern for every frame of a texture step (24 a second against
+ * 30 or 60 frames), so a step's tile is built once. One per kind, so Old
+ * film's grain, scratches and dust do not evict one another every frame.
  */
-let grainCache: { key: string; canvas: HTMLCanvasElement } | null = null
+const textureCache = new Map<TextureLayer['kind'], { key: string; canvas: HTMLCanvasElement }>()
 
-/** A canvas holding `grainTile`'s pixels for `layer` at `aspect`, reused while they are the same. */
-function grainCanvas(layer: Extract<PictureLayer, { kind: 'grain' }>, aspect: number): HTMLCanvasElement {
-  const key = `${layer.seed}:${layer.amount}:${layer.cell}:${aspect}`
-  if (grainCache?.key === key) return grainCache.canvas
-  const tile = grainTile(layer, aspect)
-  const canvas = grainCache?.canvas ?? document.createElement('canvas')
+/** A canvas holding `textureTile`'s pixels for `layer` at `aspect`, reused while they are the same. */
+function textureCanvas(layer: TextureLayer, aspect: number): HTMLCanvasElement {
+  const key = textureTileKey(layer, aspect)
+  const cached = textureCache.get(layer.kind)
+  if (cached?.key === key) return cached.canvas
+  const tile = textureTile(layer, aspect)
+  const canvas = cached?.canvas ?? document.createElement('canvas')
   canvas.width = tile.width
   canvas.height = tile.height
   canvas.getContext('2d')!.putImageData(new ImageData(tile.data as Uint8ClampedArray<ArrayBuffer>, tile.width, tile.height), 0, 0)
-  grainCache = { key, canvas }
+  textureCache.set(layer.kind, { key, canvas })
   return canvas
 }
 
