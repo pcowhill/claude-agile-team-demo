@@ -24,8 +24,9 @@
  * **The collections this covers**, which are every `TimelineState` field
  * placed in sequence time: `audioTracks`, `videoOverlays` (video and image
  * kinds), `texts` (hand-made and `subtitle: true`), `shapeGroups` and
- * `markers`. `entries`, `transitions`, `zooms` and `remaps` are the
- * sequence itself or are keyed to an entry, and the cut handles them.
+ * `markers`. `entries`, `transitions`, `zooms`, `remaps` and
+ * `pictureEffects` are the sequence itself or are keyed to an entry, and the
+ * cut handles them (the entry split it runs on, #862).
  * **A collection added to `TimelineState` later that is placed in sequence
  * time must be added here, in `rippleCut` and in `RippleKind`**: otherwise
  * a cut leaves it out of sync with the picture. That is the widened-kinds

@@ -5545,6 +5545,92 @@ describe('picture effects on entries (#862)', () => {
     })
   })
 
+  describe('edits that re-key or re-time an entry (step 2b)', () => {
+    const split = (state: TimelineState, id: string, atSourceTime: number, newEntryId = 'a2') =>
+      timelineReducer(state, { type: 'entry-split', id, atSourceTime, newEntryId })
+    const placed = (state: TimelineState) =>
+      pictureEffectsOf(state).map(({ id, entryId, type, start, end, params }) => [id, entryId, type, start, end, params])
+
+    it('splits as a speed segment does: before stays, after moves, one across the cut becomes two', () => {
+      let state = addEffect(stateOf(['a']), effect('before', 'a', { start: 0.5, end: 2 }))
+      state = addEffect(state, effect('across', 'a', { start: 3, end: 6, params: { amount: 8 } }, 'blur'))
+      state = addEffect(state, effect('after', 'a', { start: 7, end: 9 }))
+      const cut = split(state, 'a', 4)
+      expect(placed(cut)).toEqual([
+        ['before', 'a', 'vignette', 0.5, 2, { strength: 0.6 }],
+        ['across', 'a', 'blur', 3, 4, { amount: 8 }],
+        // The second half's piece: a fresh id from the new entry's, the same
+        // type and parameters, from the half's first instant.
+        ['a2:across', 'a2', 'blur', 0, 2, { amount: 8 }],
+        // Moved whole, so it keeps its id; re-anchored to the second half.
+        ['after', 'a2', 'vignette', 3, 5, { strength: 0.6 }],
+      ])
+      // Together the pieces cover exactly the source the one effect did.
+      expect(cut.entries.map(({ id, inPoint, outPoint }) => [id, inPoint, outPoint])).toEqual([
+        ['a', 0, 4],
+        ['a2', 4, 10],
+      ])
+    })
+
+    it('keeps a window ending on the cut whole on the first half, and moves one starting on it', () => {
+      let state = addEffect(stateOf(['a']), effect('ends', 'a', { start: 1, end: 4 }))
+      state = addEffect(state, effect('starts', 'a', { start: 4, end: 6 }))
+      expect(placed(split(state, 'a', 4)).map(([id, entryId, , start, end]) => [id, entryId, start, end])).toEqual([
+        ['ends', 'a', 1, 4],
+        ['starts', 'a2', 0, 2],
+      ])
+    })
+
+    it('cuts in the trimmed range’s seconds, not the source’s', () => {
+      // Trim 2..8: the razor at source 5 is 3 s into the window's space.
+      const state = addEffect(stateOf(['a', 10, 2, 8]), effect('p1', 'a', { start: 1, end: 5 }))
+      expect(windows(split(state, 'a', 5), 'a')).toEqual([['p1', 1, 3]])
+      expect(windows(split(state, 'a', 5), 'a2')).toEqual([['a2:p1', 0, 2]])
+    })
+
+    it('leaves other entries’ effects alone, by reference', () => {
+      let state = addEffect(stateOf(['a'], ['b']), effect('pa', 'a'))
+      state = addEffect(state, effect('pb', 'b'))
+      const other = pictureEffectsOf(state)[1]
+      expect(pictureEffectsOf(split(state, 'a', 2)).find(({ id }) => id === 'pb')).toBe(other)
+    })
+
+    it('Cut out marked range keeps the head’s and tail’s parts and drops the middle’s (#827)', () => {
+      // One 10 s entry, a window across the whole of 1..9 s, and the range
+      // 3..5 s cut out: the head keeps 1..3, the tail keeps what was 5..9.
+      const state = addEffect(stateOf(['a']), effect('p1', 'a', { start: 1, end: 9 }))
+      const cut = timelineReducer(state, { type: 'range-cut', from: 3, to: 5, newEntryIds: ['mid', 'tail'] })
+      expect(order(cut)).toEqual(['a', 'tail'])
+      expect(placed(cut).map(([id, entryId, , start, end]) => [id, entryId, start, end])).toEqual([
+        ['p1', 'a', 1, 3],
+        ['tail:p1', 'tail', 0, 4],
+      ])
+    })
+
+    it('Duplicate copies the entry’s effects under ids derived from the copy’s', () => {
+      let state = addEffect(stateOf(['a'], ['b']), effect('p1', 'a', { start: 1, end: 2 }))
+      state = addEffect(state, effect('p2', 'a', { start: 3, end: 5 }, 'blur'))
+      state = addEffect(state, effect('pb', 'b'))
+      const duplicated = timelineReducer(state, { type: 'element-duplicated', kind: 'entry', id: 'a', newId: 'c' })
+      expect(order(duplicated)).toEqual(['a', 'c', 'b'])
+      expect(placed(duplicated)).toEqual([
+        ['p1', 'a', 'vignette', 1, 2, { strength: 0.6 }],
+        ['p2', 'a', 'blur', 3, 5, { strength: 0.6 }],
+        ['c:p1', 'c', 'vignette', 1, 2, { strength: 0.6 }],
+        ['c:p2', 'c', 'blur', 3, 5, { strength: 0.6 }],
+        ['pb', 'b', 'vignette', 1, 3, { strength: 0.6 }],
+      ])
+    })
+
+    it('undo restores the one effect a split divided', () => {
+      let history = { ...emptyTimelineHistory, present: addEffect(stateOf(['a']), effect('p1', 'a', { start: 1, end: 6 })) }
+      history = timelineHistoryReducer(history, { type: 'entry-split', id: 'a', atSourceTime: 4, newEntryId: 'a2' })
+      expect(pictureEffectsOf(history.present)).toHaveLength(2)
+      history = timelineHistoryReducer(history, { type: 'edit-undone' })
+      expect(placed(history.present)).toEqual([['p1', 'a', 'vignette', 1, 6, { strength: 0.6 }]])
+    })
+  })
+
   it('undo and redo step through add, edit and remove, one step each', () => {
     const dispatch = (history: typeof emptyTimelineHistory, action: Parameters<typeof timelineHistoryReducer>[1]) =>
       timelineHistoryReducer(history, action)
