@@ -131,7 +131,7 @@ The gallery works from the keyboard: the arrow keys move between templates, **Ta
 
 **Where to find it.** **File ▾** › **Plugins…** › *Sound library*; once enabled, the media library header › **Sound library…**, beside **Import clips**.
 
-**What it does.** Lists short sound effects, such as a whoosh, a click or a ding, and adds the one you choose to the media library as an ordinary audio clip.
+**What it does.** Lists short sound effects, such as a whoosh, a click or a ding, and background music tracks, and adds the one you choose to the media library as an ordinary audio clip.
 
 **Details.** **Sound library…** opens a list of 13 effects in four groups, each with its length:
 - **Transitions:** Whoosh, Swoosh out, Riser.
@@ -141,11 +141,21 @@ The gallery works from the keyboard: the arrow keys move between templates, **Ta
 
 None is longer than about 2 seconds.
 
+Below them, a **Music** group lists six background music tracks, each with its mood and its length in minutes and seconds:
+- **Still water** (*Calm*, 1:29): warm, slow chords and a soft electric-piano arpeggio, with no drums.
+- **Bright side** (*Upbeat*, 1:21): a plucked guitar pattern over bass, kick, clap and hats.
+- **Late night notes** (*Lo-fi*, 1:18): mellow electric-piano chords on a lazy, swung beat, with a quiet vinyl crackle.
+- **Horizon** (*Cinematic*, 1:17): low strings that swell and build, with deep drum hits.
+- **Bounce** (*Playful*, 1:17): a marimba tune over a bouncing bass and finger snaps.
+- **Circuit** (*Tech*, 1:16): a fast synth arpeggio over a steady four-on-the-floor kick.
+
+Each is a bed to play under a voice: it keeps one tempo and one key, has no singing or leading tune, starts gently and ends on a fade. All six are mastered to about the same loudness, so changing one for another does not change the level. They are made to play once, not to loop. On the timeline a track is trimmed and faded like any audio, and turning on [Duck others](audio.md#duck-others) on a voice-over lowers the music under it.
+
 **▶** plays a sound so you can hear it first, and reads **■** while it plays. Pressing it again, or playing another sound, stops it, and so does closing the list. **Add** puts the sound in the library under its name, for example *Whoosh.webm*. From there it previews, goes on the timeline as an audio track, and is trimmed, faded and mixed like any audio file you import. The list stays open, so you can add several in a row. A line under the list says when a sound has been added, or why it could not be downloaded.
 
-**You may use these sounds anywhere, with no credit.** The team made them itself, synthesising them from tones and noise without recordings or anyone else's files, and released them under **CC0**, the public-domain dedication. Put them in your videos, publish those videos commercially or not, and change the sounds, without naming anyone.
+**You may use these sounds and tracks anywhere, with no credit.** The team made them itself, synthesising them from tones and noise without recordings or anyone else's files, and composing the music in code that is kept with the editor. All of them are released under **CC0**, the public-domain dedication. Put them in your videos, publish those videos commercially or not, and change them, without naming anyone.
 
-Enabling the plugin downloads only the list. Each sound is a small file, downloaded only when you play or add it. An added sound is an ordinary clip: it is saved with your project like any import. It does not need the plugin, and it stays in the library when the plugin is disabled, so no project depends on it.
+Enabling the plugin downloads only the list. Each sound or track is a file of its own, downloaded only when you play or add it: an effect is at most a few tens of kilobytes, and a music track under 1 MB. An added sound is an ordinary clip: it is saved with your project like any import. It does not need the plugin, and it stays in the library when the plugin is disabled, so no project depends on it.
 
 The list works from the keyboard. Opening it puts the focus on the first **▶**. **Tab** moves through each row's **▶** and **Add**, **Enter** or **Space** presses one, and **Esc** closes the list.
 

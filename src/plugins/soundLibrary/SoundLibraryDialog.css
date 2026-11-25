@@ -45,6 +45,11 @@
   padding: 0.2rem 0;
 }
 
+/* A music bed (#869) has its mood between its name and its length. */
+.sound-library-row-music {
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+}
+
 .sound-library-row + .sound-library-row {
   border-top: 1px solid #333;
 }
@@ -54,6 +59,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.9rem;
+}
+
+.sound-library-mood {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: #bbb;
 }
 
 .sound-library-length {

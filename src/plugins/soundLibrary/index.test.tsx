@@ -76,13 +76,19 @@ describe('Sound library plugin (#861)', () => {
     expect(module.activate).toBe(activate)
   })
 
-  it('every manifest entry has a file URL, a licence and a source, and none is long', () => {
+  it('every manifest entry has a file URL, a licence and a source; no effect is long, and no bed is short (#869)', () => {
     expect(SOUNDS).toHaveLength(manifest.sounds.length)
     for (const sound of SOUNDS) {
       expect(sound.url, sound.id).toMatch(/\.webm(\?|$)/)
       expect(sound.licence).toBe('CC0-1.0')
       expect(sound.source).not.toBe('')
-      expect(sound.duration).toBeLessThan(3)
+      if (sound.category === 'Music') {
+        expect(sound.duration, sound.id).toBeGreaterThanOrEqual(60)
+        expect(sound.duration, sound.id).toBeLessThanOrEqual(180)
+      } else {
+        expect(sound.duration, sound.id).toBeLessThan(3)
+        expect(sound.mood, sound.id).toBeUndefined()
+      }
     }
   })
 
@@ -173,6 +179,45 @@ describe('adding a sound keeps the user\'s place in the list (#889 review)', () 
     expect(onImportFiles).toHaveBeenCalledTimes(1)
     expect(add).not.toHaveAttribute('aria-disabled')
     expect(add).toHaveFocus()
+  })
+})
+
+describe('the Music category (#869)', () => {
+  it('lists the music beds last, each with its name, its mood and its length in minutes and seconds', () => {
+    render(<SoundLibraryDialog onImportFiles={vi.fn()} onClose={vi.fn()} fetchSound={vi.fn()} />)
+    const music = SOUNDS.filter((sound) => sound.category === 'Music')
+    expect(music.length).toBeGreaterThanOrEqual(5)
+    expect(music.length).toBeLessThanOrEqual(8)
+    // Last, after every effect.
+    expect(SOUNDS.slice(-music.length)).toEqual(music)
+    const section = screen.getByRole('region', { name: 'Music' })
+    const rows = within(section).getAllByRole('listitem')
+    expect(rows).toHaveLength(music.length)
+    rows.forEach((row, index) => {
+      const track = music[index]
+      expect(track.mood, track.id).toMatch(/^\S+$/)
+      expect(track.duration, track.id).toBeGreaterThanOrEqual(60)
+      expect(track.duration, track.id).toBeLessThanOrEqual(180)
+      expect([...row.children].map((part) => part.textContent)).toEqual([
+        track.name,
+        track.mood,
+        formatSoundLength(track.duration),
+        '▶',
+        'Add',
+      ])
+    })
+    // An effect's row has no mood.
+    const whoosh = screen.getByRole('button', { name: 'Add Whoosh to the library' }).closest('li')!
+    expect(whoosh.querySelector('.sound-library-mood')).toBeNull()
+  })
+
+  it('formats a length under a minute in tenths of a second, and a longer one as minutes and seconds', () => {
+    expect(formatSoundLength(0.128)).toBe('0.1 s')
+    expect(formatSoundLength(2.008)).toBe('2.0 s')
+    expect(formatSoundLength(60)).toBe('1:00')
+    expect(formatSoundLength(76.008)).toBe('1:16')
+    expect(formatSoundLength(88.713)).toBe('1:29')
+    expect(formatSoundLength(119.6)).toBe('2:00')
   })
 })
 

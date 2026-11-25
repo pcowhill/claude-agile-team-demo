@@ -101,7 +101,8 @@ export const builtInPlugins: readonly PluginSpec[] = [
     name: 'Sound library',
     description:
       'Adds "Sound library…" to the Media Library: short sound effects such as a whoosh, a click ' +
-      'or a ding, free to use without credit, each added to the library as an ordinary audio clip.',
+      'or a ding, and background music tracks, free to use without credit, each added to the ' +
+      'library as an ordinary audio clip.',
     version: '1.0.0',
     load: () => import('./soundLibrary/index'),
     // An added sound is an ordinary library clip, imported like a picked

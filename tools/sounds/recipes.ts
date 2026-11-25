@@ -329,27 +329,36 @@ export function finish(samples: Float32Array, level = 1): Float32Array {
   return out
 }
 
-/** 16-bit PCM mono WAV bytes, for the encoder. */
-export function wavBytes(samples: Float32Array): Uint8Array {
-  const data = new DataView(new ArrayBuffer(44 + samples.length * 2))
+/**
+ * 16-bit PCM WAV bytes, for the encoder: one channel for an effect, or the
+ * left and right channels of a music bed (#869), interleaved.
+ */
+export function wavBytes(samples: Float32Array | readonly Float32Array[]): Uint8Array {
+  const channels = samples instanceof Float32Array ? [samples] : samples
+  const frames = channels[0].length
+  const blockAlign = channels.length * 2
+  const data = new DataView(new ArrayBuffer(44 + frames * blockAlign))
   const writeText = (offset: number, text: string) => {
     for (let index = 0; index < text.length; index++) data.setUint8(offset + index, text.charCodeAt(index))
   }
   writeText(0, 'RIFF')
-  data.setUint32(4, 36 + samples.length * 2, true)
+  data.setUint32(4, 36 + frames * blockAlign, true)
   writeText(8, 'WAVE')
   writeText(12, 'fmt ')
   data.setUint32(16, 16, true)
   data.setUint16(20, 1, true)
-  data.setUint16(22, 1, true)
+  data.setUint16(22, channels.length, true)
   data.setUint32(24, SAMPLE_RATE, true)
-  data.setUint32(28, SAMPLE_RATE * 2, true)
-  data.setUint16(32, 2, true)
+  data.setUint32(28, SAMPLE_RATE * blockAlign, true)
+  data.setUint16(32, blockAlign, true)
   data.setUint16(34, 16, true)
   writeText(36, 'data')
-  data.setUint32(40, samples.length * 2, true)
-  samples.forEach((sample, index) => {
-    data.setInt16(44 + index * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true)
-  })
+  data.setUint32(40, frames * blockAlign, true)
+  for (let frame = 0; frame < frames; frame++) {
+    channels.forEach((channel, index) => {
+      const sample = channel[frame]
+      data.setInt16(44 + frame * blockAlign + index * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true)
+    })
+  }
   return new Uint8Array(data.buffer)
 }

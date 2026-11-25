@@ -16,7 +16,7 @@ interface SoundLibraryDialogProps extends LibraryHeaderDialogProps {
 
 /**
  * Media Library › Sound library… (#861): the set, grouped by category, each
- * with its length, ▶ preview and Add. Add downloads that one file and hands
+ * with its length, ▶ preview and Add. A music bed (#869) also shows its mood. Add downloads that one file and hands
  * it to the library's import path. The dialog stays open, so several sounds
  * can be added in a row. ▶ streams the one file, and one preview plays at a
  * time: starting another stops the first, and closing the dialog stops it.
@@ -127,8 +127,8 @@ export function SoundLibraryDialog({
       >
         <h3 id={headingId}>Sound library</h3>
         <p className="sound-library-licence">
-          Free to use in your videos, with no credit needed (CC0). A sound downloads only when you
-          play or add it.
+          Free to use in your videos, with no credit needed (CC0). A sound or a track downloads only
+          when you play or add it.
         </p>
         <div className="sound-library-list" data-testid="sound-library-list" tabIndex={-1}>
           {categories.map((category) => (
@@ -140,8 +140,12 @@ export function SoundLibraryDialog({
                   .map((sound) => {
                     const playing = playingId === sound.id
                     return (
-                      <li key={sound.id} className="sound-library-row">
+                      <li
+                        key={sound.id}
+                        className={`sound-library-row${sound.mood === undefined ? '' : ' sound-library-row-music'}`}
+                      >
                         <span className="sound-library-name">{sound.name}</span>
+                        {sound.mood !== undefined && <span className="sound-library-mood">{sound.mood}</span>}
                         <span className="sound-library-length">{formatSoundLength(sound.duration)}</span>
                         <button
                           type="button"
