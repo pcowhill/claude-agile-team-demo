@@ -2482,6 +2482,39 @@ function reduceTimelineCollections(
           },
         ]
       })
+      // Picture effects (#862) cut as speed segments do: a window wholly
+      // before the cut stays, one wholly after moves to the second half
+      // (re-anchored, keeping its id), and one containing the cut becomes
+      // two effects of the same type and parameters, the second under a
+      // fresh id derived from the second half's. A window ending exactly on
+      // the cut stays whole with the first half; one starting on it moves.
+      // The halves meet at the entries' shared edge, so they render as the
+      // one effect did only if the renderer does not ease in or out at an
+      // edge lying on its entry's own bounds — a requirement on #862's
+      // rendering rule, which this split relies on.
+      const splitPictureEffects = pictureEffectsOf(state).flatMap((effect): PictureEffect[] => {
+        if (effect.entryId !== action.id || effect.end <= splitRel) return [effect]
+        if (effect.start >= splitRel) {
+          return [
+            {
+              ...effect,
+              entryId: action.newEntryId,
+              start: effect.start - splitRel,
+              end: effect.end - splitRel,
+            },
+          ]
+        }
+        return [
+          { ...effect, end: splitRel },
+          {
+            ...effect,
+            id: `${action.newEntryId}:${effect.id}`,
+            entryId: action.newEntryId,
+            start: 0,
+            end: effect.end - splitRel,
+          },
+        ]
+      })
       return withEffects({
         entries,
         transitions: splitTransitions,
@@ -2490,10 +2523,7 @@ function reduceTimelineCollections(
         remaps: splitRemaps,
         texts,
         videoOverlays,
-        // Picture effects (#862) stay with the entry id, so the first half,
-        // and normalization clamps them into it. How a split divides them is
-        // #862's step 2b.
-        pictureEffects: pictureEffectsOf(state),
+        pictureEffects: splitPictureEffects,
       })
     }
     case 'element-split': {
@@ -2645,6 +2675,12 @@ function reduceTimelineCollections(
           const duplicatedRemaps = remaps
             .filter((remap) => remap.entryId === action.id)
             .map((remap) => ({ ...remap, id: `${action.newId}:${remap.id}`, entryId: action.newId }))
+          // Picture effects (#862) are the entry's own, like its zooms: the
+          // copy carries them, under ids derived from the copy's.
+          const pictureEffects = pictureEffectsOf(state)
+          const duplicatedPictureEffects = pictureEffects
+            .filter((effect) => effect.entryId === action.id)
+            .map((effect) => ({ ...effect, id: `${action.newId}:${effect.id}`, entryId: action.newId }))
           // Transitions pass through untouched: none is copied (a transition
           // belongs to a boundary, not an entry), the boundary INTO the
           // original keeps its transition (that pair is still adjacent), and
@@ -2655,6 +2691,7 @@ function reduceTimelineCollections(
             entries,
             zooms: [...zooms, ...duplicatedZooms],
             remaps: [...remaps, ...duplicatedRemaps],
+            pictureEffects: [...pictureEffects, ...duplicatedPictureEffects],
           })
         }
         case 'audio-track': {
