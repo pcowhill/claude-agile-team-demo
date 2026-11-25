@@ -270,7 +270,7 @@ async function effectItems(page: Page, position: string): Promise<string[]> {
 
 /**
  * A populated timeline for the row geometry (#862's UI criterion): the
- * pattern still with a zoom, a vignette and a blur, plus a slate and a
+ * pattern still with a zoom, a vignette, a blur and film grain, plus a slate and a
  * second still, so the effect rows sit among other rows as they will in use.
  */
 async function populatedWithEffects(page: Page) {
@@ -286,7 +286,9 @@ async function populatedWithEffects(page: Page) {
   await chooseEffect(page, ENTRY, 'Zoom')
   await chooseEffect(page, ENTRY, 'Vignette')
   await chooseEffect(page, ENTRY, 'Blur')
-  await expect(page.getByTestId('picture-effect-row')).toHaveCount(2)
+  // Film grain's row (#870) has two parameter fields, the widest row.
+  await chooseEffect(page, ENTRY, 'Film grain')
+  await expect(page.getByTestId('picture-effect-row')).toHaveCount(3)
 }
 
 test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
@@ -304,7 +306,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     expect(await effectItems(page, 'Color slate at position 2')).toEqual(['Zoom'])
 
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain'])
 
     // Choosing one adds its row with the defaults, and the preview draws it
     // inside the window: a vignette from 0 s to 2 s at Strength 60 %.
@@ -330,7 +332,12 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     await page.getByRole('button', { name: 'Add trim-clip.webm to timeline' }).click()
     expect(await effectItems(page, 'trim-clip.webm at position 1')).toEqual(BUILT_IN_EFFECTS)
     await setVisualEffects(page, true)
-    expect(await effectItems(page, 'trim-clip.webm at position 1')).toEqual([...BUILT_IN_EFFECTS, 'Vignette', 'Blur'])
+    expect(await effectItems(page, 'trim-clip.webm at position 1')).toEqual([
+      ...BUILT_IN_EFFECTS,
+      'Vignette',
+      'Blur',
+      'Film grain',
+    ])
   })
 
   for (const viewport of [
@@ -364,6 +371,317 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
       await testInfo.attach(`effect rows at ${viewport.width}px`, { body: shot, contentType: 'image/png' })
     })
   }
+})
+
+/**
+ * Film grain (#870, step 1): a generated texture that must be the same
+ * pattern for the same instant in the preview and the export (#66).
+ *
+ * The still is itself a fixed noise texture: 192 × 108 cells of grey
+ * between 96 and 160, on the grain's own grid at Size 10 (a cell is 10 px
+ * of a 1080p frame, so 192 across). That makes a frame *without* the
+ * effect a measurement of how much the renderers, and the WebM encoder,
+ * change cell-sized noise: the tolerances below are set from it, not
+ * guessed. The samples are one pixel at the centre of every 12th cell
+ * across and down, 16 × 9 of them.
+ */
+const GRAIN = { start: 1, end: 3, amount: 60, size: 10 }
+const GRAIN_DURATION = 4
+const GRAIN_STILL = 'pattern.png'
+/** The grain's cells at Size 10 on a 16:9 frame (`grainTile`). */
+const GRAIN_COLUMNS = 192
+const GRAIN_ROWS = 108
+const GRAIN_POINTS = Array.from({ length: 16 * 9 }, (_, index) => ({
+  x: (12 * (index % 16) + 6.5) / GRAIN_COLUMNS,
+  y: (12 * Math.floor(index / 16) + 6.5) / GRAIN_ROWS,
+}))
+/**
+ * Grid distances (mean absolute brightness, 0 to 255), measured in local
+ * Chromium on this spec before these were set:
+ * - the preview and a saved frame on the still alone: 0;
+ * - the same grain step, preview vs saved frame: 4.1 and 4.3, because the
+ *   tile is stretched to about 1910 px in the screenshot and 960 px in the
+ *   saved frame, so a cell's centre pixel mixes its neighbours a little
+ *   differently;
+ * - grain over the still, and two steps against each other: 26 to 37.
+ * So a match is anything under 10 more than the still's own difference,
+ * and grain is anything over 18: the two never meet.
+ */
+const GRAIN_RENDERER_TOLERANCE = 2
+const GRAIN_MATCH_ALLOWANCE = 10
+const GRAIN_VISIBLE = 18
+/**
+ * The WebM: the encoder's error on the plain still measured 3.6. On
+ * grained frames it is larger, because the grain doubles the cells'
+ * spread and the encoder spends least on the finest detail: the closest
+ * exported frame to a preview step measured 10.3 to 15.4 over four runs,
+ * and every other frame 22 or more. So an exported frame matches a step
+ * within the still's error plus 16, and the still's error itself must stay
+ * under 8, or the comparison says nothing.
+ */
+const GRAIN_ENCODING_LIMIT = 8
+const GRAIN_WEBM_ALLOWANCE = 16
+/** Two instants one texture step apart: steps 50 and 51 at 24 a second. */
+const STEP_50 = 2.1
+const STEP_51 = 2.15
+
+/** The textured still, 960 × 540: each 5 px cell one seeded grey in [96, 160]. */
+async function makeNoiseStill(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ({ columns, rows }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 960
+      canvas.height = 540
+      const ctx = canvas.getContext('2d')!
+      let state = 12345
+      const next = () => {
+        state = (Math.imul(state, 1103515245) + 12345) >>> 0
+        return state / 4294967296
+      }
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < columns; x++) {
+          const grey = Math.round(96 + 64 * next())
+          ctx.fillStyle = `rgb(${grey}, ${grey}, ${grey})`
+          ctx.fillRect(x * 5, y * 5, 5, 5)
+        }
+      }
+      return canvas.toDataURL('image/png').split(',')[1]
+    },
+    { columns: GRAIN_COLUMNS, rows: GRAIN_ROWS },
+  )
+  return Buffer.from(base64, 'base64')
+}
+
+/** Brightness at each grain point of a PNG: the one pixel holding the point. */
+async function gridOfPng(page: Page, png: Buffer): Promise<number[]> {
+  return await page.evaluate(
+    async ({ base64, points }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+      return points.map(({ x, y }) => {
+        const index = (Math.floor(y * bitmap.height) * bitmap.width + Math.floor(x * bitmap.width)) * 4
+        return (data[index] + data[index + 1] + data[index + 2]) / 3
+      })
+    },
+    { base64: png.toString('base64'), points: GRAIN_POINTS },
+  )
+}
+
+/** The mean absolute difference of two grids. */
+const gridDistance = (a: readonly number[], b: readonly number[]) =>
+  a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length
+
+/** Builds the 4 s noise still with Film grain from 1 s to 3 s, and opens that project. */
+async function openGrainProject(page: Page): Promise<Buffer> {
+  await gotoForSaving(page)
+  const still = await makeNoiseStill(page)
+  await page
+    .getByTestId('clip-file-input')
+    .setInputFiles([{ name: GRAIN_STILL, mimeType: 'image/png', buffer: still }])
+  await page.getByRole('button', { name: `Add ${GRAIN_STILL} to timeline` }).click()
+  const duration = page.getByRole('spinbutton', { name: `Duration of ${GRAIN_STILL} at position 1 in seconds` })
+  await duration.fill(String(GRAIN_DURATION))
+  await duration.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+  const project = await saveWithEffects(page, ([entryId]) => [
+    {
+      id: 'g1',
+      entryId,
+      type: 'film-grain',
+      start: GRAIN.start,
+      end: GRAIN.end,
+      params: { amount: GRAIN.amount, size: GRAIN.size },
+    },
+  ])
+  await openProject(page, project, still, '0:04')
+  return still
+}
+
+/**
+ * Seeks the preview to `seconds`, waits for the grain step that instant
+ * publishes (or for no grain), and returns the composed frame's grid and
+ * the screenshot.
+ */
+async function previewGrainAt(page: Page, seconds: number, step: number | null, label: string) {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(seconds))
+  const image = page.getByTestId('preview-image')
+  await expect(image).toBeVisible()
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+  const grain = page.getByTestId('preview-picture-grain')
+  if (step === null) await expect(grain).toHaveCount(0)
+  else await expect(grain).toHaveAttribute('data-seed', String(step))
+  const png = await page
+    .getByTestId('preview-frame')
+    .screenshot({ path: test.info().outputPath(`grain-preview-${seconds}s.png`) })
+  await test.info().attach(`preview at ${seconds} s (${label})`, { body: png, contentType: 'image/png' })
+  return { grid: await gridOfPng(page, png), png }
+}
+
+/** Saves the playhead's frame through the export's composer (Save frame) and returns its grid. */
+async function savedGrainFrame(page: Page, label: string): Promise<number[]> {
+  const downloadPromise = page.waitForEvent('download')
+  await chooseFromFrameMenu(page, 'preview-save-frame')
+  const download = await downloadPromise
+  const saved = await readFile((await download.path())!)
+  await download.saveAs(test.info().outputPath(`grain-saved-${label.replaceAll(' ', '-')}.png`))
+  await test.info().attach(`saved frame (${label})`, { body: saved, contentType: 'image/png' })
+  return await gridOfPng(page, saved)
+}
+
+test.describe('Film grain (#870)', () => {
+  // The preview's frame must resolve the grain's cells to compare them
+  // pixel by pixel: at the default viewport it is about 315 px wide, under
+  // 2 px a cell. A wide viewport at twice the pixel density draws it at
+  // several device pixels a cell, which the screenshot keeps.
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+  test('+ Effect ▾ offers Film grain after Vignette and Blur, with Amount and Size at their defaults', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    await page.goto('./')
+    await page
+      .getByTestId('clip-file-input')
+      .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makePattern(page) }])
+    await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+    await setVisualEffects(page, true)
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain'])
+    await chooseEffect(page, ENTRY, 'Film grain')
+    await expect(page.getByRole('spinbutton', { name: `Film grain 1 amount of ${ENTRY} (percent)` })).toHaveValue('30')
+    await expect(page.getByRole('spinbutton', { name: `Film grain 1 size of ${ENTRY}` })).toHaveValue('3')
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
+    // At Size 3 a 16:9 frame has 640 × 360 cells: the canvas is one pixel each.
+    const grain = page.getByTestId('preview-picture-grain')
+    await expect(grain).toHaveAttribute('width', '640')
+    await expect(grain).toHaveAttribute('height', '360')
+    await expect(grain).toHaveAttribute('data-seed', '24')
+    const image = page.getByTestId('preview-image')
+    await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+    const shot = await page
+      .getByTestId('preview-frame')
+      .screenshot({ path: test.info().outputPath('film-grain-default.png') })
+    await test.info().attach('Film grain at its defaults, on the pattern', { body: shot, contentType: 'image/png' })
+  })
+
+  test('the preview and a saved frame draw the same grain for the same instant, and none outside the window', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000)
+    await openGrainProject(page)
+
+    // Outside the window: no grain, in either renderer. The two grids
+    // measure what the renderers alone do to cell-sized noise.
+    const before = await previewGrainAt(page, 0.5, null, 'before the window')
+    const savedBefore = await savedGrainFrame(page, 'before the window')
+    const after = await previewGrainAt(page, 3.5, null, 'after the window')
+    const savedAfter = await savedGrainFrame(page, 'after the window')
+    const plain = gridDistance(before.grid, savedBefore)
+
+    const step50 = await previewGrainAt(page, STEP_50, 50, 'step 50')
+    await testInfo.attach('film grain in the preview', { body: step50.png, contentType: 'image/png' })
+    const saved50 = await savedGrainFrame(page, 'step 50')
+    const step51 = await previewGrainAt(page, STEP_51, 51, 'step 51')
+    const saved51 = await savedGrainFrame(page, 'step 51')
+    const report = {
+      plain,
+      plainAfter: gridDistance(after.grid, savedAfter),
+      grainOverStill: gridDistance(step50.grid, before.grid),
+      same50: gridDistance(step50.grid, saved50),
+      same51: gridDistance(step51.grid, saved51),
+      across: gridDistance(step50.grid, saved51),
+      previewSteps: gridDistance(step50.grid, step51.grid),
+    }
+    console.log(`[${testInfo.project.name}] film grain grids: ${JSON.stringify(report)}`)
+    // Outside the window both renderers show the still, alike, and the
+    // same before and after.
+    expect(gridDistance(before.grid, after.grid), 'before vs after, preview').toBeLessThan(1)
+    expect(report.plainAfter).toBeLessThan(GRAIN_RENDERER_TOLERANCE)
+    expect(plain).toBeLessThan(GRAIN_RENDERER_TOLERANCE)
+    // Inside it the grain is there: the picture moved well away from the still.
+    expect(report.grainOverStill, 'grain changes the picture').toBeGreaterThan(GRAIN_VISIBLE)
+    // The same instant: the preview and the saved frame agree to within
+    // what the renderers do to the still alone, plus the allowance below.
+    expect(report.same50, 'step 50: preview vs saved frame').toBeLessThan(plain + GRAIN_MATCH_ALLOWANCE)
+    expect(report.same51, 'step 51: preview vs saved frame').toBeLessThan(plain + GRAIN_MATCH_ALLOWANCE)
+    // One step apart, the patterns are unrelated: far outside that.
+    expect(report.across, 'step 50 preview vs step 51 saved frame').toBeGreaterThan(GRAIN_VISIBLE)
+    expect(report.previewSteps, 'step 50 vs step 51, preview').toBeGreaterThan(GRAIN_VISIBLE)
+  })
+
+  test('the export draws the preview\'s grain, only inside the window, within the WebM encoding\'s own error', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000)
+    const still = await openGrainProject(page)
+    const stillGrid = await gridOfPng(page, still)
+    const step50 = await previewGrainAt(page, STEP_50, 50, 'step 50')
+    const step51 = await previewGrainAt(page, STEP_51, 51, 'step 51')
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Project…' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    const exported = await readFile((await (await downloadPromise).path())!)
+    // Every frame of the file: the export is a real-time recording at
+    // 30 frames a second, so a 1/60 s grid visits each one (#370).
+    const bands = Object.fromEntries(
+      GRAIN_POINTS.map((point, index) => [String(index), { x: point.x, y: point.y, width: 0.0001, height: 0.0001 }]),
+    )
+    const scan = await scanExportedFrames(page, exported, bands, 1 / 60)
+    const grids = scan.frames.map((frame) =>
+      GRAIN_POINTS.map((_, index) => {
+        const { r, g, b } = frame.bands[String(index)]
+        return (r + g + b) / 3
+      }),
+    )
+    // The encoder's error on this content: the frames without grain, which
+    // open and close the file, against the still itself.
+    const fromStill = grids.map((grid) => gridDistance(grid, stillGrid))
+    const encoding = Math.max(fromStill[0], fromStill.at(-1)!)
+    // A frame carries grain when it is much further from the still than that.
+    const grained = fromStill.map((distance) => distance > encoding + GRAIN_VISIBLE / 2)
+    const first = grained.indexOf(true)
+    const last = grained.lastIndexOf(true)
+    const best = (grid: readonly number[]) =>
+      Math.min(...grids.filter((_, index) => grained[index]).map((frame) => gridDistance(frame, grid)))
+    const report = {
+      size: `${scan.width}x${scan.height}`,
+      duration: scan.duration,
+      frames: grids.length,
+      encoding,
+      grainedFrames: grained.filter(Boolean).length,
+      grainedSpan: [scan.frames[first]?.time, scan.frames[last]?.time],
+      best50: best(step50.grid),
+      best51: best(step51.grid),
+      medianTo50: [...grids.filter((_, index) => grained[index]).map((grid) => gridDistance(grid, step50.grid))].sort(
+        (a, b) => a - b,
+      )[Math.floor(grained.filter(Boolean).length / 2)],
+    }
+    console.log(`[${testInfo.project.name}] film grain export: ${JSON.stringify(report)}`)
+
+    // Outside the window the file shows the still: the first and last
+    // frames are within the encoder's error, and grain occupies one
+    // stretch: the window's 2 s less the faint first and last 0.2 s or so
+    // of its 0.3 s eases, give or take the recording's stretching (#370).
+    expect(encoding, 'the encoder\'s error on the still').toBeLessThan(GRAIN_ENCODING_LIMIT)
+    expect(first, 'a grained frame').toBeGreaterThan(0)
+    expect(last, 'the last frame plain').toBeLessThan(grids.length - 1)
+    expect(grained.slice(first, last + 1).every(Boolean), 'grain in one unbroken stretch').toBe(true)
+    const span = scan.frames[last].time - scan.frames[first].time
+    expect(span).toBeGreaterThan(GRAIN.end - GRAIN.start - 1)
+    expect(span).toBeLessThan(GRAIN.end - GRAIN.start + 0.3)
+    // The preview's two steps are each in the file: some exported frame
+    // matches each to within the encoder's error on the still plus the
+    // allowance above, while a typical grained frame, a different step,
+    // is far from it.
+    expect(report.best50, 'step 50: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
+    expect(report.best51, 'step 51: the closest exported frame').toBeLessThan(encoding + GRAIN_WEBM_ALLOWANCE)
+    expect(report.medianTo50, 'a typical grained frame vs step 50').toBeGreaterThan(report.best50 + GRAIN_VISIBLE / 2)
+  })
 })
 
 test.describe('Visual effects plugin (#862)', () => {

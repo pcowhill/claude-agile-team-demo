@@ -132,12 +132,103 @@ export type PictureFilter = { kind: 'blur'; radius: number }
  *   `strength` at the frame's corners, along an ellipse of the frame's own
  *   aspect (`vignetteStops` gives both renderers the same stops).
  *
- * Part 2's generated textures (#870) join here as further kinds, for
- * example `{ kind: 'grain'; amount; seed }`, which each renderer then
- * learns to draw. A look composes them in order, so grain over a vignette
- * is one more entry in the list, not a new mechanism.
+ * - `grain` (#870): a generated texture, monochrome noise in square cells
+ *   `cell` of the frame width across, each cell lightening or darkening
+ *   the picture by up to `amount` (an alpha in [0, 1]). `seed` picks the
+ *   pattern, and a look sets it from `textureStep`, so the pattern is a
+ *   pure function of the entry's time. `grainTile` turns it into pixels,
+ *   the one tile both renderers stretch over the card (#66).
+ *
+ * A look composes its layers in order, so grain over a vignette is one more
+ * entry in the list, not a new mechanism.
  */
-export type PictureLayer = { kind: 'vignette'; strength: number; inner: number }
+export type PictureLayer =
+  | { kind: 'vignette'; strength: number; inner: number }
+  | { kind: 'grain'; amount: number; cell: number; seed: number }
+
+/**
+ * How many distinct patterns a generated texture shows per second of its
+ * entry's clock (#870): film's 24 frames a second. A texture never changes
+ * between two steps, so a preview frame and an exported frame at the same
+ * time draw the same pattern however their frame rates differ.
+ */
+export const PICTURE_TEXTURE_RATE = 24
+
+/**
+ * The texture step at `time`, seconds on the entry's source clock: what a
+ * look passes as a generated layer's `seed`. The small lead keeps a time
+ * that lies on a step boundary, such as 0.5 s, from flooring to the step
+ * before it through float error.
+ */
+export function textureStep(time: number): number {
+  return Math.floor(Math.max(0, time) * PICTURE_TEXTURE_RATE + 1e-6)
+}
+
+/** A generated layer's pixels: `width` × `height` RGBA, not premultiplied, as `ImageData` holds them. */
+export interface TextureTile {
+  width: number
+  height: number
+  data: Uint8ClampedArray
+}
+
+/**
+ * A hash of three integers to [0, 1): the texture's only source of
+ * randomness, so a pattern depends on its seed and the cell alone and is
+ * identical on every call, in every renderer and browser.
+ */
+export function textureHash(seed: number, x: number, y: number): number {
+  return textureBits(seed, x, y) / 4294967296
+}
+
+/** `textureHash`'s 32 bits, as an unsigned integer. */
+function textureBits(seed: number, x: number, y: number): number {
+  let hash = Math.imul(seed | 0, 0x27d4eb2d) ^ Math.imul(x | 0, 0x165667b1) ^ Math.imul(y | 0, 0x9e3779b1)
+  hash = Math.imul(hash ^ (hash >>> 15), 0x85ebca6b)
+  hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35)
+  return (hash ^ (hash >>> 16)) >>> 0
+}
+
+/** Whether this platform stores a 32-bit integer's low byte first, as typed-array views follow. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1
+
+/**
+ * The most cells a grain tile has across, whatever its cell size: bounds
+ * the cost of a step's tile, about 11 ms at this width in Node, where 1920
+ * took about 44 ms and held a 1080p preview to 10 frames a second (#870).
+ */
+const MAX_GRAIN_COLUMNS = 960
+
+/**
+ * A grain layer's tile for a frame of `aspect` (width over height): one
+ * pixel per cell, `round(1 / cell)` across and as many down as the aspect
+ * gives, which the renderer stretches over the frame-shaped card. Each
+ * cell's value is the sum of two uniforms less one, the two 16-bit halves
+ * of one `textureHash`: a triangular spread in
+ * [−1, 1] that clusters near 0 as real grain does: a positive value is
+ * white at alpha `value × amount`, a negative one black at `−value ×
+ * amount`. So the grain lightens and darkens about evenly, and its mean
+ * effect on the picture is close to none.
+ */
+export function grainTile(layer: Extract<PictureLayer, { kind: 'grain' }>, aspect: number): TextureTile {
+  const width = Math.max(1, Math.min(MAX_GRAIN_COLUMNS, Math.round(1 / Math.max(layer.cell, 1e-6))))
+  const height = Math.max(1, Math.round(width / (aspect > 0 && Number.isFinite(aspect) ? aspect : 16 / 9)))
+  const amount = clamp(layer.amount, 0, 1) * 255
+  const data = new Uint8ClampedArray(width * height * 4)
+  // Written a pixel at a time through a 32-bit view, in the platform's
+  // byte order, so each pixel lands as R, G, B, A bytes either way.
+  const pixels = new Uint32Array(data.buffer)
+  const white = LITTLE_ENDIAN ? 0x00ffffff : 0xffffff00
+  for (let y = 0, index = 0; y < height; y++) {
+    for (let x = 0; x < width; x++, index++) {
+      // One hash, split into two 16-bit uniforms: half the work of two.
+      const hash = textureBits(layer.seed, x, y)
+      const value = ((hash & 0xffff) + (hash >>> 16)) / 65536 - 1
+      const alpha = Math.round(Math.abs(value) * amount)
+      pixels[index] = LITTLE_ENDIAN ? (alpha << 24) | (value > 0 ? white : 0) : (value > 0 ? white : 0) | alpha
+    }
+  }
+  return { width, height, data }
+}
 
 /** What an entry's effects do to its picture at one instant. */
 export interface PictureLook {
@@ -194,10 +285,16 @@ export interface PictureEffectDefinition {
   /**
    * The rendering rule: the look of this effect with `params` (already
    * fitted by `pictureEffectParamsFor`) at `weight` in [0, 1], the ease's
-   * progress. Weight 0 must change nothing, so the effect cannot pop at
-   * either end of its window. Pure: both renderers call it every frame.
+   * progress, and at `time`, seconds on the entry's source clock (#870),
+   * the clock its window is measured on. Weight 0 must change nothing, so
+   * the effect cannot pop at either end of its window. Pure: both
+   * renderers call it every frame, so anything that varies over time, such
+   * as a generated texture's pattern, is a function of `time` alone
+   * (`textureStep`), never of `Math.random()`. An effect that does not
+   * change over time ignores it. `pictureLookAt` always passes it; a
+   * caller that omits it, such as a test of a timeless effect, means 0.
    */
-  look: (params: Readonly<Record<string, number>>, weight: number) => PictureLook
+  look: (params: Readonly<Record<string, number>>, weight: number, time?: number) => PictureLook
 }
 
 /**

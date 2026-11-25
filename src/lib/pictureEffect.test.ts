@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_PICTURE_EFFECT_SECONDS,
   NO_PICTURE_LOOK,
+  PICTURE_TEXTURE_RATE,
   PictureEffectRegistry,
   clampPictureEffect,
   defaultPictureEffectWindow,
+  grainTile,
   isValidPictureEffectSpec,
   pictureEffectNames,
   pictureEffectParamsFor,
   pictureEffectSpecsEqual,
   pictureEffectsEqual,
+  textureHash,
+  textureStep,
   unregisteredPictureEffectTypes,
 } from './pictureEffect'
 import type { PictureEffect, PictureEffectDefinition } from './pictureEffect'
@@ -176,6 +180,84 @@ describe('pictureEffectNames (#862)', () => {
       ['c', 'Vignette 2'],
       ['d', 'glitch 1 (unavailable)'],
     ])
+  })
+})
+
+describe('generated textures (#870)', () => {
+  const grain = (seed: number, amount = 0.5, cell = 1 / 64) => ({ kind: 'grain' as const, amount, cell, seed })
+
+  it('steps 24 times a second of the entry\'s clock, a boundary counting as the step it starts', () => {
+    expect(PICTURE_TEXTURE_RATE).toBe(24)
+    expect(textureStep(0)).toBe(0)
+    expect(textureStep(1 / 48)).toBe(0)
+    // 0.5 s is exactly step 12, whatever float error 0.5 × 24 carries.
+    expect(textureStep(0.5)).toBe(12)
+    expect(textureStep(0.5 - 1 / 48)).toBe(11)
+    expect(textureStep(2.1)).toBe(50)
+    expect(textureStep(-1)).toBe(0)
+  })
+
+  it('hashes to [0, 1), the same for the same input, and spread across the range', () => {
+    const values: number[] = []
+    for (let x = 0; x < 64; x++) {
+      for (let y = 0; y < 64; y++) values.push(textureHash(7, x, y))
+    }
+    expect(values.every((value) => value >= 0 && value < 1)).toBe(true)
+    expect(textureHash(7, 3, 4)).toBe(textureHash(7, 3, 4))
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+    expect(mean).toBeGreaterThan(0.47)
+    expect(mean).toBeLessThan(0.53)
+    // Every tenth of the range is used: no band of values is missing.
+    const deciles = new Set(values.map((value) => Math.floor(value * 10)))
+    expect(deciles.size).toBe(10)
+  })
+
+  it('a grain tile is one pixel per cell, as many rows as the aspect gives', () => {
+    const tile = grainTile(grain(1, 0.5, 1 / 64), 16 / 9)
+    expect([tile.width, tile.height]).toEqual([64, 36])
+    expect(tile.data).toHaveLength(64 * 36 * 4)
+    expect(grainTile(grain(1, 0.5, 1 / 10), 1).height).toBe(10)
+  })
+
+  it('the same seed draws the same pixels, and the next step a different pattern', () => {
+    const first = grainTile(grain(50), 16 / 9)
+    const again = grainTile(grain(50), 16 / 9)
+    expect(again.data).toEqual(first.data)
+    const next = grainTile(grain(51), 16 / 9)
+    let differing = 0
+    for (let index = 3; index < first.data.length; index += 4) {
+      if (first.data[index] !== next.data[index] || first.data[index - 1] !== next.data[index - 1]) differing++
+    }
+    // Two independent patterns: nearly every cell differs.
+    expect(differing / (first.data.length / 4)).toBeGreaterThan(0.9)
+  })
+
+  it('lightens and darkens about evenly, each cell at most Amount strong, and nothing at Amount 0', () => {
+    const tile = grainTile(grain(3, 0.4), 16 / 9)
+    let signed = 0
+    let maxAlpha = 0
+    let white = 0
+    let black = 0
+    for (let index = 0; index < tile.data.length; index += 4) {
+      const [r, g, b, alpha] = tile.data.slice(index, index + 4)
+      // Monochrome: every cell is pure white or pure black.
+      expect(r === g && g === b && (r === 0 || r === 255)).toBe(true)
+      maxAlpha = Math.max(maxAlpha, alpha)
+      signed += r === 255 ? alpha : -alpha
+      if (alpha > 0) {
+        if (r === 255) white++
+        else black++
+      }
+    }
+    const cells = tile.data.length / 4
+    expect(maxAlpha).toBeLessThanOrEqual(Math.round(0.4 * 255))
+    expect(maxAlpha).toBeGreaterThan(0.3 * 255)
+    // The mean signed alpha is a small fraction of the largest.
+    expect(Math.abs(signed / cells)).toBeLessThan(0.05 * maxAlpha)
+    expect(white / (white + black)).toBeGreaterThan(0.45)
+    expect(white / (white + black)).toBeLessThan(0.55)
+    const none = grainTile(grain(3, 0), 16 / 9)
+    for (let index = 3; index < none.data.length; index += 4) expect(none.data[index]).toBe(0)
   })
 })
 

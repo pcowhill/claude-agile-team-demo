@@ -58,7 +58,7 @@ import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
-import { vignetteStops } from './pictureEffect'
+import { grainTile, vignetteStops } from './pictureEffect'
 import type { PictureFilter, PictureLayer } from './pictureEffect'
 import type { ZoomState } from './zoom'
 import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
@@ -683,11 +683,17 @@ export function withPictureFilters(
 /**
  * Draws a picture effect's layers (#862) over `card`, the entry's
  * frame-shaped card after its transition's scale and offset: the box the
- * preview's layer element fills. A vignette is a radial gradient on an
- * ellipse of the card's own aspect, through its corners, as CSS's
- * `radial-gradient(ellipse farthest-corner)` is, with the stops both
- * renderers take from `vignetteStops`. Draws at full alpha, source-over:
- * the caller makes sure that composes as the preview's card does.
+ * preview's layer element fills. Each layer draws in the look's order, at
+ * full alpha, source-over: the caller makes sure that composes as the
+ * preview's card does.
+ *
+ * - A vignette is a radial gradient on an ellipse of the card's own
+ *   aspect, through its corners, as CSS's `radial-gradient(ellipse
+ *   farthest-corner)` is, with the stops both renderers take from
+ *   `vignetteStops`.
+ * - Grain (#870) is `grainTile`'s tile for the card's aspect, put on a
+ *   canvas of the tile's size and stretched over the card with smoothing,
+ *   as the preview's canvas element is stretched over its box.
  */
 export function drawPictureLayers(
   context: CanvasRenderingContext2D,
@@ -697,20 +703,45 @@ export function drawPictureLayers(
   if (card.width <= 0 || card.height <= 0) return
   for (const layer of layers) {
     context.save()
-    // A circle in a space squashed to the card's aspect is the ellipse.
-    context.translate(card.x + card.width / 2, card.y + card.height / 2)
-    context.scale(1, card.height / card.width)
-    const radius = (card.width / 2) * Math.SQRT2
-    const gradient = context.createRadialGradient(0, 0, 0, 0, 0, radius)
-    for (const stop of vignetteStops(layer)) {
-      gradient.addColorStop(stop.offset, `rgba(0, 0, 0, ${stop.alpha})`)
-    }
     context.globalAlpha = 1
     context.globalCompositeOperation = 'source-over'
-    context.fillStyle = gradient
-    context.fillRect(-card.width / 2, -card.width / 2, card.width, card.width)
+    if (layer.kind === 'grain') {
+      context.imageSmoothingEnabled = true
+      context.drawImage(grainCanvas(layer, card.width / card.height), card.x, card.y, card.width, card.height)
+    } else {
+      // A circle in a space squashed to the card's aspect is the ellipse.
+      context.translate(card.x + card.width / 2, card.y + card.height / 2)
+      context.scale(1, card.height / card.width)
+      const radius = (card.width / 2) * Math.SQRT2
+      const gradient = context.createRadialGradient(0, 0, 0, 0, 0, radius)
+      for (const stop of vignetteStops(layer)) {
+        gradient.addColorStop(stop.offset, `rgba(0, 0, 0, ${stop.alpha})`)
+      }
+      context.fillStyle = gradient
+      context.fillRect(-card.width / 2, -card.width / 2, card.width, card.width)
+    }
     context.restore()
   }
+}
+
+/**
+ * The last grain tile drawn, by its inputs: the export draws the same
+ * pattern for every frame of a texture step (24 a second against 30 or 60
+ * frames), so a step's tile is built once.
+ */
+let grainCache: { key: string; canvas: HTMLCanvasElement } | null = null
+
+/** A canvas holding `grainTile`'s pixels for `layer` at `aspect`, reused while they are the same. */
+function grainCanvas(layer: Extract<PictureLayer, { kind: 'grain' }>, aspect: number): HTMLCanvasElement {
+  const key = `${layer.seed}:${layer.amount}:${layer.cell}:${aspect}`
+  if (grainCache?.key === key) return grainCache.canvas
+  const tile = grainTile(layer, aspect)
+  const canvas = grainCache?.canvas ?? document.createElement('canvas')
+  canvas.width = tile.width
+  canvas.height = tile.height
+  canvas.getContext('2d')!.putImageData(new ImageData(tile.data as Uint8ClampedArray<ArrayBuffer>, tile.width, tile.height), 0, 0)
+  grainCache = { key, canvas }
+  return canvas
 }
 
 /**

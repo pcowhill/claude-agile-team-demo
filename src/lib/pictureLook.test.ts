@@ -141,14 +141,29 @@ describe('pictureLookAt', () => {
 
   it('passes the eased weight to the rule', () => {
     const look = pictureLookAt(stateWith(effect()), 0, at(2 + PICTURE_EFFECT_EASE_SECONDS / 2), registry())
-    expect(look.layers[0].strength).toBeCloseTo(0.4, 10)
+    expect(look.layers[0]).toMatchObject({ strength: expect.closeTo(0.4, 10) })
+  })
+
+  it("passes the instant's source time to the rule, the clock a generated texture steps on (#870)", () => {
+    const seen: (number | undefined)[] = []
+    const timed = new PictureEffectRegistry()
+    timed.register({
+      ...dim,
+      look: (params, weight, time) => {
+        seen.push(time)
+        return dim.look(params, weight)
+      },
+    })
+    pictureLookAt(stateWith(effect()), 0, 5.25, timed)
+    pictureLookAt(stateWith(effect()), 0, 6.5, timed)
+    expect(seen).toEqual([5.25, 6.5])
   })
 
   it('fits the stored parameters to the definition before the rule sees them', () => {
     const look = pictureLookAt(stateWith(effect({ params: { strength: 7, stray: 1 } })), 0, at(3), registry())
     expect(look.layers).toEqual([{ kind: 'vignette', strength: 1, inner: 0.5 }])
     const defaulted = pictureLookAt(stateWith(effect({ params: {} })), 0, at(3), registry())
-    expect(defaulted.layers[0].strength).toBe(0.5)
+    expect(defaulted.layers[0]).toMatchObject({ strength: 0.5 })
   })
 
   it('stacks overlapping effects in start order', () => {

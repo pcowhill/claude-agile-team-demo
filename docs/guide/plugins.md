@@ -66,19 +66,20 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 ## Visual effects
 
-**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*; once enabled, **Vignette** and **Blur** in an expanded sequence entry's **+ Effect ▾**.
+**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*; once enabled, **Vignette**, **Blur** and **Film grain** in an expanded sequence entry's **+ Effect ▾**.
 
-**What it does.** Draws picture effects on a stretch of a clip: a **Vignette** that darkens the edges of the frame, and a **Blur** over the whole picture.
+**What it does.** Draws picture effects on a stretch of a clip: a **Vignette** that darkens the edges of the frame, a **Blur** over the whole picture, and **Film grain**, moving noise over it.
 
 **Details.** Each effect covers part of a clip, from a start to an end time on that clip, and the clip can carry several, which stack. Each one fades in and out over {{PICTURE_EFFECT_EASE}} s at the ends of its stretch, so it never appears or disappears all at once. An effect that starts at the clip's first frame, or ends at its last, is at full strength there instead, because the picture changes at the cut anyway.
 - **Vignette** has a **Strength**, from 0 to 100 %, which is how dark the frame's corners get: at 100 % they are black. The darkening starts a little under half-way out from the centre and deepens towards the edges.
 - **Blur** has an **Amount**, from 0 to 5 %, the blur's radius as a share of the frame's width. 1 % is about 19 pixels in a 1080p export, so a blur looks the same in the preview as in the file.
+- **Film grain** has an **Amount**, from 0 to 100 %, how far the strongest grains lighten or darken the picture, and a **Size**, from 2 to 10, a grain's width in pixels of a 1080p frame. The grain is black and white, lightening about as much of the picture as it darkens. Its pattern changes 24 times a second of the clip, and is fixed for each moment rather than random: the preview and the export show the same grain at the same instant. On a clip with a pause or a speed segment the grain follows the clip's own time, so it holds still through a pause, as the picture does.
 
 Effects belong to the clip's picture as you frame it: a zoom moves inside the vignette, which stays on the frame's edges, and a transition carries the effect with the clip. A blur softens the clip's own picture, not its redactions or spotlights, and, like any blur, it also softens the picture's outer edge into the frame's black. The preview and every export draw an effect through the same rule.
 
-Each effect is added from **+ Effect ▾** and set on its own row, its stretch and its one setting: [Vignette and blur](editing-video.md#vignette-and-blur) has the fields. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, its row is named *(unavailable)*, and the picture shows without it until the plugin is enabled again.
+Each effect is added from **+ Effect ▾** and set on its own row, its stretch and its settings: [Vignette and blur](editing-video.md#vignette-and-blur) and [Film grain](editing-video.md#film-grain) have the fields. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, its row is named *(unavailable)*, and the picture shows without it until the plugin is enabled again.
 
-**Related.** [Vignette and blur](editing-video.md#vignette-and-blur) · [Projects that need a plugin](#projects-that-need-a-plugin)
+**Related.** [Vignette and blur](editing-video.md#vignette-and-blur) · [Film grain](editing-video.md#film-grain) · [Projects that need a plugin](#projects-that-need-a-plugin)
 
 ## More export formats
 
