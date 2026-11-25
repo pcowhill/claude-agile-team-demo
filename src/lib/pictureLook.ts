@@ -1,0 +1,125 @@
+import { NO_PICTURE_LOOK, pictureEffectParamsFor, pictureEffectRegistry } from './pictureEffect'
+import type { PictureEffect, PictureEffectRegistry, PictureFilter, PictureLayer, PictureLook } from './pictureEffect'
+import { effectiveDuration, pictureEffectsForEntry, pictureEffectsOf } from './timeline'
+import type { TimelineState } from './timeline'
+
+/**
+ * Resolving an entry's picture effects (#862) at an instant: the one place
+ * both renderers ask "what does this entry's picture look like now?", as
+ * `zoomAt` is for zooms (#63). The preview and the export each map the
+ * returned `PictureLook` to their own medium; neither decides the ease, the
+ * window or which definitions count.
+ */
+
+/**
+ * How long an effect eases in and out, in the entry's source seconds. Long
+ * enough that a blur or a vignette arriving never pops, short enough that a
+ * three-second effect is at full strength for most of its window. A window
+ * shorter than twice this eases over half its length each way.
+ */
+export const PICTURE_EFFECT_EASE_SECONDS = 0.3
+
+/** Below this, a window edge counts as lying on its entry's bound (float noise from a split). */
+const BOUND_EPSILON = 1e-6
+
+const smoothstep = (t: number) => t * t * (3 - 2 * t)
+
+/**
+ * An effect's weight in [0, 1] at `offset`, seconds into its entry's
+ * trimmed range of `trimmedLength`: 0 outside the window, easing up over
+ * the first `PICTURE_EFFECT_EASE_SECONDS` and down over the last.
+ *
+ * **An edge lying on the entry's own bounds does not ease** (#919): the
+ * effect is at full weight from the entry's first frame, or to its last.
+ * A split cuts an effect in two at the cut, and the halves must render as
+ * the one effect did, not ease out and back in across the cut. An effect
+ * the user starts at the entry's in-point arrives with the entry's cut or
+ * transition, which is where the picture changes anyway.
+ */
+export function pictureEffectWeight(
+  effect: Pick<PictureEffect, 'start' | 'end'>,
+  offset: number,
+  trimmedLength: number,
+): number {
+  if (!(offset >= effect.start && offset <= effect.end) || effect.end <= effect.start) return 0
+  const ease = Math.min(PICTURE_EFFECT_EASE_SECONDS, (effect.end - effect.start) / 2)
+  const easesIn = effect.start > BOUND_EPSILON
+  const easesOut = effect.end < trimmedLength - BOUND_EPSILON
+  const rampIn = easesIn ? Math.min(1, (offset - effect.start) / ease) : 1
+  const rampOut = easesOut ? Math.min(1, (effect.end - offset) / ease) : 1
+  return smoothstep(Math.max(0, Math.min(rampIn, rampOut)))
+}
+
+/**
+ * The look of the entry at `entryIndex` at `sourceTime`, its source clock
+ * (the time `zoomAt` takes): every effect whose window holds the instant,
+ * in start order, each through its definition's rule at its eased weight.
+ * An effect whose type no registered definition covers, such as one from a
+ * disabled plugin, contributes nothing: it stays in the project and renders
+ * as nothing, as a disabled plugin's transition does. An entry with no
+ * effect gets `NO_PICTURE_LOOK` itself, so callers can skip by reference.
+ */
+export function pictureLookAt(
+  state: TimelineState,
+  entryIndex: number,
+  sourceTime: number,
+  registry: PictureEffectRegistry = pictureEffectRegistry,
+): PictureLook {
+  const entry = state.entries[entryIndex]
+  if (entry === undefined) return NO_PICTURE_LOOK
+  const effects = pictureEffectsForEntry(state, entry.id)
+  if (effects.length === 0) return NO_PICTURE_LOOK
+  const offset = sourceTime - entry.inPoint
+  const length = effectiveDuration(entry)
+  const filters: PictureFilter[] = []
+  const layers: PictureLayer[] = []
+  for (const effect of effects) {
+    const weight = pictureEffectWeight(effect, offset, length)
+    if (weight <= 0) continue
+    const definition = registry.find(effect.type)
+    if (definition === undefined) continue
+    const look = definition.look(pictureEffectParamsFor(definition, effect.params), weight)
+    filters.push(...look.filters)
+    layers.push(...look.layers)
+  }
+  return filters.length === 0 && layers.length === 0 ? NO_PICTURE_LOOK : { filters, layers }
+}
+
+/**
+ * Whether any picture effect on the timeline needs canvas `filter` support
+ * to export: a registered effect whose look at full weight has a filter.
+ * The export refuses up front without that support, as it does for colour
+ * adjustments (#195), rather than writing a file missing the blur.
+ */
+export function timelineHasPictureFilters(
+  state: TimelineState,
+  registry: PictureEffectRegistry = pictureEffectRegistry,
+): boolean {
+  return pictureEffectsOf(state).some((effect) => {
+    const definition = registry.find(effect.type)
+    return (
+      definition !== undefined &&
+      definition.look(pictureEffectParamsFor(definition, effect.params), 1).filters.length > 0
+    )
+  })
+}
+
+/**
+ * The CSS / canvas `filter` functions for a look's filters, where a blur's
+ * radius (a fraction of the frame width) becomes `frameWidth * radius`
+ * units of `unit`. The preview passes the frame's `cqw` (100 per width),
+ * the export the canvas's px. `scale` divides the radius for a renderer
+ * that applies the filter inside a transform which magnifies it again,
+ * such as the preview's zoom. Empty for a look with no filters.
+ */
+export function pictureFilterFunctions(
+  filters: readonly PictureFilter[],
+  frameWidth: number,
+  unit: 'px' | 'cqw',
+  scale = 1,
+): string[] {
+  return filters.map((filter) => {
+    const radius = (filter.radius * frameWidth) / scale
+    return `blur(${Number(radius.toFixed(4))}${unit})`
+  })
+}

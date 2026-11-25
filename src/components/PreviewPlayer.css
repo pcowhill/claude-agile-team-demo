@@ -138,6 +138,16 @@
   pointer-events: none;
 }
 
+/* Picture-effect layers (#862), such as a vignette: the card's last child,
+   above the media and its redactions. Unlike them it is placed inline at
+   the zoom's visible region rather than at inset 0, so once the card's
+   zoom transform applies it covers the frame-shaped card and stays on the
+   frame's edges (`PictureLayers` in PreviewPlayer.tsx). */
+.preview-picture-layers {
+  position: absolute;
+  pointer-events: none;
+}
+
 /* During a transition the incoming clip renders on top of the outgoing one,
    styled per-frame (opacity for crossfade, transform for slide). */
 .preview-video-incoming {

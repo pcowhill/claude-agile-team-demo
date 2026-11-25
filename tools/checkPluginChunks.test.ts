@@ -49,6 +49,11 @@ const healthyManifest = (): Manifest => ({
     src: 'src/plugins/soundLibrary/index.ts',
     imports: ['_shared-def.js'],
   },
+  'src/plugins/visualEffects/index.ts': {
+    file: 'assets/index-def.js',
+    src: 'src/plugins/visualEffects/index.ts',
+    imports: ['_shared-def.js'],
+  },
   'src/guide/UserGuide.tsx': {
     file: 'assets/UserGuide-jkl.js',
     src: 'src/guide/UserGuide.tsx',
@@ -74,6 +79,7 @@ const PLUGIN_KEYS = [
   'src/plugins/moreFormats/index.ts',
   'src/plugins/titleTemplates/index.ts',
   'src/plugins/soundLibrary/index.ts',
+  'src/plugins/visualEffects/index.ts',
 ]
 
 /** The plugin rule alone, for the tests written against it before #478. */
@@ -143,6 +149,7 @@ describe('findLazyChunkProblems (#197)', () => {
       'src/plugins/moreFormats/index.ts',
       'src/plugins/titleTemplates/index.ts',
       'src/plugins/soundLibrary/index.ts',
+      'src/plugins/visualEffects/index.ts',
     ])
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('plugin module "src/plugins/gif/index.ts"')

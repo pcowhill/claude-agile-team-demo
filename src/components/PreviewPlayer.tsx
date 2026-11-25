@@ -99,6 +99,9 @@ import type {
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
+import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
+import { NO_PICTURE_LOOK, vignetteStops } from '../lib/pictureEffect'
+import type { PictureLook } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -415,6 +418,66 @@ function withColorFilter(
   const filter = colorFilterFor(adjustments)
   if (filter === 'none') return style
   return { ...style, filter }
+}
+
+/**
+ * Composes a layer's styles with its entry's picture-effect filters (#862):
+ * the look's filter functions appended to the element's CSS `filter`, after
+ * its colour adjustments, the order the export's canvas `filter` uses. A
+ * blur's radius is a fraction of the frame width, written in the frame's
+ * `cqw` (the frame is the size container), and divided by the zoom's scale
+ * because the card's zoom transform magnifies it again: so a blur reads the
+ * same at any zoom, as the export's blur of its already-zoomed draw does.
+ * No filters adds nothing, so an entry without effects keeps its style.
+ */
+function withPictureFilters(
+  style: CSSProperties | undefined,
+  look: PictureLook,
+  zoom: ZoomState,
+): CSSProperties | undefined {
+  if (look.filters.length === 0) return style
+  const functions = pictureFilterFunctions(look.filters, 100, 'cqw', zoom.scale).join(' ')
+  const previous = style?.filter
+  return { ...style, filter: previous === undefined || previous === 'none' ? functions : `${previous} ${functions}` }
+}
+
+/**
+ * A picture effect's layers (#862) as one element over the entry's media,
+ * inside its card. The element fills the zoom's visible region in the
+ * card's pre-transform space, so once the card's zoom transform applies it
+ * covers the frame-shaped card exactly: a vignette stays on the frame's
+ * edges while the zoom moves inside it, and travels with the card through
+ * a transition. Each layer is a CSS radial gradient on an ellipse of the
+ * card's aspect through its corners (`farthest-corner`), with the stops the
+ * export's canvas gradient takes from the same `vignetteStops`. The last
+ * layer draws on top, as in the export, so the CSS list runs in reverse.
+ */
+function PictureLayers({ look, zoom, testId }: { look: PictureLook; zoom: ZoomState; testId: string }) {
+  if (look.layers.length === 0) return null
+  const size = 100 / zoom.scale
+  const background = [...look.layers]
+    .reverse()
+    .map(
+      (layer) =>
+        `radial-gradient(ellipse farthest-corner at 50% 50%, ${vignetteStops(layer)
+          .map((stop) => `rgba(0, 0, 0, ${Number(stop.alpha.toFixed(4))}) ${Number((stop.offset * 100).toFixed(3))}%`)
+          .join(', ')})`,
+    )
+    .join(', ')
+  return (
+    <div
+      className="preview-picture-layers"
+      data-testid={testId}
+      aria-hidden="true"
+      style={{
+        left: `${(zoom.centerX - 0.5 / zoom.scale) * 100}%`,
+        top: `${(zoom.centerY - 0.5 / zoom.scale) * 100}%`,
+        width: `${size}%`,
+        height: `${size}%`,
+        background,
+      }}
+    />
+  )
 }
 
 /**
@@ -2727,6 +2790,14 @@ export function PreviewPlayer({
     ? zoomAt(timeline, location.index, location.sourceTime)
     : IDENTITY_ZOOM
   const incomingZoom = overlap ? zoomAt(timeline, overlap.index, overlap.sourceTime) : IDENTITY_ZOOM
+  // Each element's picture effects (#862), from the same source times: the
+  // shared resolver gives the look, and this component only maps it to CSS.
+  const primaryLook = location
+    ? pictureLookAt(timeline, location.index, location.sourceTime)
+    : NO_PICTURE_LOOK
+  const incomingLook = overlap
+    ? pictureLookAt(timeline, overlap.index, overlap.sourceTime)
+    : NO_PICTURE_LOOK
 
   /**
    * Role-dependent props for one of the two stacked video slots, each a
@@ -2748,6 +2819,7 @@ export function PreviewPlayer({
           media: {},
           backdrop: null,
           redactions: null,
+          layers: null,
         }
       }
       return {
@@ -2758,16 +2830,23 @@ export function PreviewPlayer({
         },
         media: {
           'data-testid': 'preview-video',
-          style: withColorFilter(
-            croppedOrientedMediaStyle(
-              location?.entry.crop,
-              location?.entry.orientation,
-              previewAspect,
-              sourceAspectOf(location?.entry.url),
+          style: withPictureFilters(
+            withColorFilter(
+              croppedOrientedMediaStyle(
+                location?.entry.crop,
+                location?.entry.orientation,
+                previewAspect,
+                sourceAspectOf(location?.entry.url),
+              ),
+              location?.entry.colorAdjustments,
             ),
-            location?.entry.colorAdjustments,
+            primaryLook,
+            primaryZoom,
           ),
         },
+        layers: (
+          <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
+        ),
         backdrop: entryBackdrop(location?.entry, slotVideoRef),
         redactions:
           location === null ? null : (
@@ -2792,18 +2871,29 @@ export function PreviewPlayer({
       },
       media: {
         style: videoOverlap
-          ? withColorFilter(
-              croppedOrientedMediaStyle(
-                overlap.entry.crop,
-                overlap.entry.orientation,
-                previewAspect,
-                sourceAspectOf(overlap.entry.url),
+          ? withPictureFilters(
+              withColorFilter(
+                croppedOrientedMediaStyle(
+                  overlap.entry.crop,
+                  overlap.entry.orientation,
+                  previewAspect,
+                  sourceAspectOf(overlap.entry.url),
+                ),
+                overlap.entry.colorAdjustments,
               ),
-              overlap.entry.colorAdjustments,
+              incomingLook,
+              incomingZoom,
             )
           : undefined,
         'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
       },
+      layers: videoOverlap ? (
+        <PictureLayers
+          look={incomingLook}
+          zoom={incomingZoom}
+          testId="preview-picture-layers-incoming"
+        />
+      ) : null,
       backdrop: videoOverlap ? entryBackdrop(overlap.entry, slotVideoRef) : null,
       redactions:
         videoOverlap ? (
@@ -2873,11 +2963,13 @@ export function PreviewPlayer({
                 {slotA.backdrop}
                 <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
                 {slotA.redactions}
+                {slotA.layers}
               </div>
               <div {...slotB.card}>
                 {slotB.backdrop}
                 <video ref={videoBRef} playsInline preload="auto" className="preview-media" {...slotB.media} />
                 {slotB.redactions}
+                {slotB.layers}
               </div>
               {/* Still layers (#140): an <img> in the same stacked slot,
                   sharing the video layers' classes so transitions and zooms
@@ -2889,11 +2981,17 @@ export function PreviewPlayer({
                 <div
                   className="preview-video"
                   data-testid="preview-slate"
-                  style={{
-                    ...withZoom(layerStyles?.outgoing, primaryZoom),
-                    backgroundColor: location.entry.color,
-                  }}
-                />
+                  style={withPictureFilters(
+                    {
+                      ...withZoom(layerStyles?.outgoing, primaryZoom),
+                      backgroundColor: location.entry.color,
+                    },
+                    primaryLook,
+                    primaryZoom,
+                  )}
+                >
+                  <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
+                </div>
               ) : (
                 stillPrimary &&
                 location && (
@@ -2909,14 +3007,18 @@ export function PreviewPlayer({
                       data-testid="preview-image"
                       alt=""
                       src={location.entry.url}
-                      style={withColorFilter(
-                        croppedOrientedMediaStyle(
-                          location.entry.crop,
-                          location.entry.orientation,
-                          previewAspect,
-                          sourceAspectOf(location.entry.url),
+                      style={withPictureFilters(
+                        withColorFilter(
+                          croppedOrientedMediaStyle(
+                            location.entry.crop,
+                            location.entry.orientation,
+                            previewAspect,
+                            sourceAspectOf(location.entry.url),
+                          ),
+                          location.entry.colorAdjustments,
                         ),
-                        location.entry.colorAdjustments,
+                        primaryLook,
+                        primaryZoom,
                       )}
                     />
                     <RegionOverlay
@@ -2928,6 +3030,7 @@ export function PreviewPlayer({
                       sourceTime={location.sourceTime}
                       testId="preview-redactions-still"
                     />
+                    <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
                   </div>
                 )
               )}
@@ -2935,11 +3038,21 @@ export function PreviewPlayer({
                 <div
                   className="preview-video preview-video-incoming"
                   data-testid="preview-slate-incoming"
-                  style={{
-                    ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null, incomingFramePolygons),
-                    backgroundColor: overlap.entry.color,
-                  }}
-                />
+                  style={withPictureFilters(
+                    {
+                      ...withZoom(layerStyles?.incoming, incomingZoom, layerStyles?.incomingClip ?? null, layerStyles?.incomingEllipse ?? null, incomingFramePolygons),
+                      backgroundColor: overlap.entry.color,
+                    },
+                    incomingLook,
+                    incomingZoom,
+                  )}
+                >
+                  <PictureLayers
+                    look={incomingLook}
+                    zoom={incomingZoom}
+                    testId="preview-picture-layers-incoming"
+                  />
+                </div>
               ) : (
                 stillIncoming &&
                 overlap && (
@@ -2955,15 +3068,24 @@ export function PreviewPlayer({
                       data-testid="preview-image-incoming"
                       alt=""
                       src={overlap.entry.url}
-                      style={withColorFilter(
-                        croppedOrientedMediaStyle(
-                          overlap.entry.crop,
-                          overlap.entry.orientation,
-                          previewAspect,
-                          sourceAspectOf(overlap.entry.url),
+                      style={withPictureFilters(
+                        withColorFilter(
+                          croppedOrientedMediaStyle(
+                            overlap.entry.crop,
+                            overlap.entry.orientation,
+                            previewAspect,
+                            sourceAspectOf(overlap.entry.url),
+                          ),
+                          overlap.entry.colorAdjustments,
                         ),
-                        overlap.entry.colorAdjustments,
+                        incomingLook,
+                        incomingZoom,
                       )}
+                    />
+                    <PictureLayers
+                      look={incomingLook}
+                      zoom={incomingZoom}
+                      testId="preview-picture-layers-incoming"
                     />
                   </div>
                 )

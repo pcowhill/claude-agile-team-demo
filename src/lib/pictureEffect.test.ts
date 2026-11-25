@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  NO_PICTURE_LOOK,
   PictureEffectRegistry,
   clampPictureEffect,
   isValidPictureEffectSpec,
@@ -14,12 +15,14 @@ const vignette: PictureEffectDefinition = {
   id: 'vignette',
   name: 'Vignette',
   params: [{ key: 'strength', label: 'Strength', min: 0, max: 1, default: 0.5 }],
+  look: () => NO_PICTURE_LOOK,
 }
 
 const blur: PictureEffectDefinition = {
   id: 'blur',
   name: 'Blur',
   params: [{ key: 'amount', label: 'Amount', min: 0, max: 20, default: 6, unit: 'px' }],
+  look: () => NO_PICTURE_LOOK,
 }
 
 const effect = (overrides: Partial<PictureEffect> = {}): PictureEffect => ({
@@ -111,7 +114,7 @@ describe('PictureEffectRegistry', () => {
     registry.register(vignette)
     expect(() => registry.register(vignette)).toThrow("Picture effect 'vignette' is already registered.")
     const bad = (params: PictureEffectDefinition['params']) => () =>
-      registry.register({ id: 'bad', name: 'Bad', params })
+      registry.register({ id: 'bad', name: 'Bad', params, look: () => NO_PICTURE_LOOK })
     const param = vignette.params[0]
     expect(bad([{ ...param, min: 2, max: 1 }])).toThrow('has no valid range')
     expect(bad([{ ...param, default: 3 }])).toThrow('has a default outside its range')

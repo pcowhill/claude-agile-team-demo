@@ -1,7 +1,8 @@
 import type { PluginSpec } from '../lib/plugins'
-import { transitionsOf } from '../lib/timeline'
+import { pictureEffectsOf, transitionsOf } from '../lib/timeline'
 import { isPatternTransition } from './patternTransitionsIds'
 import { isShapedWipeTransition } from './shapedWipesIds'
+import { isVisualEffect } from './visualEffectsIds'
 
 /**
  * The built-in plugin catalog (#197, ADR 0003): every plugin this build
@@ -54,6 +55,19 @@ export const builtInPlugins: readonly PluginSpec[] = [
     // timeline, so a project carrying one depends on this plugin (#857).
     usedByProject: (_library, timeline) =>
       transitionsOf(timeline).some((transition) => isPatternTransition(transition.type)),
+  },
+  {
+    id: 'visual-effects',
+    name: 'Visual effects',
+    description:
+      'Adds picture effects for a stretch of a clip: a vignette that darkens the edges of ' +
+      'the frame, and a blur over the whole picture. Each eases in and out.',
+    version: '1.0.0',
+    load: () => import('./visualEffects/index'),
+    // Picture effects live in the timeline, so a project carrying one of
+    // this plugin's depends on it (#862), as with the transition packs.
+    usedByProject: (_library, timeline) =>
+      pictureEffectsOf(timeline).some((effect) => isVisualEffect(effect.type)),
   },
   {
     id: 'more-export-formats',

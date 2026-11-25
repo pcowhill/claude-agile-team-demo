@@ -145,6 +145,8 @@ export const GUIDE_CONSTANT_NAMES = [
   /** The Pattern transitions plugin's Spiral grid (#863). */
   'PATTERN_SPIRAL_COLUMNS',
   'PATTERN_SPIRAL_ROWS',
+  /** How long a picture effect eases in and out at the ends of its window, in seconds (#862). */
+  'PICTURE_EFFECT_EASE',
   /** The More export formats plugin's Animated WebP sampling rate and longer-side cap (#858). */
   'WEBP_FPS',
   'WEBP_MAX_PX',

@@ -5566,6 +5566,10 @@ describe('picture effects in project files (#862, schema version 34)', () => {
       'timeline.pictureEffects[0].params.strength must be a finite number',
     )
     await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], params: { '': 0.6 } }])),
+      'timeline.pictureEffects[0].params has an empty key',
+    )
+    await expectRefusal(
       await gzipJson(withEffects([effects[0], { ...effects[1], id: 'p1' }])),
       'timeline.pictureEffects[1].id "p1" is duplicated',
     )

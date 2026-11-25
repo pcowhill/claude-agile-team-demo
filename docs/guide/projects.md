@@ -49,7 +49,7 @@ Either way the file holds the whole arrangement: every element, trim, transition
 
 **Details.** With unsaved changes the app asks first — *Discard unsaved changes?*, **Discard and open**. An **embedded** file opens fully linked at once. A **references** file with clips in it opens the re-link dialog, *Open* followed by the file's name: a list of the project's clips with each one's name, its kind where it is not video, its duration, and *Missing* or *Linked ✓*. **Choose media files…** takes any number of files at a time; each is matched to a clip by filename and duration — the duration may differ by {{RELINK_DURATION_TOLERANCE_PERCENT}} % of the stored length, and by at least {{RELINK_DURATION_TOLERANCE_MIN_SECONDS}} s, since another browser may round a container's length differently — and an image by filename and pixel dimensions. A clip you renamed shows its display name with the original filename in parentheses, and matches the file. An extracted audio clip re-links from the video it came from. A file that matches nothing, or matches a clip already linked, is reported under the list. **Open project** enables once every clip is linked; **Cancel** leaves the current project untouched, as does a file that cannot be read — *Could not open* says why.
 
-A file saved by a newer version of the editor may name a transition type or a plugin this version does not know; it is refused with a message saying so rather than opened with parts missing.
+A file saved by a newer version of the editor may name a transition type, a visual effect or a plugin this version does not know; it is refused with a message saying so rather than opened with parts missing.
 
 **Related.** [Renaming a clip](media-library.md#renaming-a-clip) · [A file that needs plugins](#a-file-that-needs-plugins)
 
@@ -59,7 +59,7 @@ A file saved by a newer version of the editor may name a transition type or a pl
 
 **What it does.** Offers to enable the plugins the file records, and refuses to open the file without them.
 
-**Details.** A project file names the plugins whose features it uses — a GIF export setting, a shaped wipe. Opening it while one of them is disabled asks *Enable plugins to open?*, naming the file and the plugins. **Enable and open** turns them on (downloading the plugin's code if this browser has not yet) and continues; **Cancel** does not open the file, and *Could not open* explains that opening it without the plugins would drop those features. A plugin that fails to load is reported the same way, and the current project stays as it was.
+**Details.** A project file names the plugins whose features it uses — a GIF export setting, a shaped wipe, a vignette or blur from Visual effects. Opening it while one of them is disabled asks *Enable plugins to open?*, naming the file and the plugins. **Enable and open** turns them on (downloading the plugin's code if this browser has not yet) and continues; **Cancel** does not open the file, and *Could not open* explains that opening it without the plugins would drop those features. A plugin that fails to load is reported the same way, and the current project stays as it was.
 
 **Related.** [Open Project… and re-linking media](#open-project-and-re-linking-media)
 
