@@ -209,6 +209,22 @@ describe('Font pack plugin (#867)', () => {
     expect(settled).toBe(true)
   })
 
+  it('a load that fails after deactivation leaves no face behind (#940)', async () => {
+    const { registry, added, env } = environment()
+    const undo = activateFontPack(env)
+    const nunito = registry.list().find((font) => font.id === packFonts[0].id)!
+    const loading = nunito.load!()
+    const inFlight = [...added].filter((face) => face.loads === 1)
+    expect(inFlight).toHaveLength(packFonts[0].files.length)
+    undo()
+    expect(added.size).toBe(0)
+    // The downloads fail after the plugin is gone: nothing is swapped in,
+    // so the family is no longer resolvable and re-enabling adds one set.
+    for (const face of inFlight) face.settle(false)
+    await loading
+    expect(added.size).toBe(0)
+  })
+
   it('without the Font Loading API, the fonts are listed with no loader to wait for', async () => {
     const registry = new FontRegistry()
     deactivate = activateFontPack({ registry, fonts: null, createFace: null })
