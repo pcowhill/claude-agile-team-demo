@@ -399,11 +399,11 @@ const GRAIN_POINTS = Array.from({ length: 16 * 9 }, (_, index) => ({
  * Grid distances (mean absolute brightness, 0 to 255), measured in local
  * Chromium on this spec before these were set:
  * - the preview and a saved frame on the still alone: 0;
- * - the same grain step, preview vs saved frame: 4.1 and 4.3, because the
+ * - the same grain step, preview vs saved frame: 3.7 to 4.3, because the
  *   tile is stretched to about 1910 px in the screenshot and 960 px in the
  *   saved frame, so a cell's centre pixel mixes its neighbours a little
  *   differently;
- * - grain over the still, and two steps against each other: 26 to 37.
+ * - grain over the still, and two steps against each other: 23 to 37.
  * So a match is anything under 10 more than the still's own difference,
  * and grain is anything over 18: the two never meet.
  */
@@ -414,7 +414,7 @@ const GRAIN_VISIBLE = 18
  * The WebM: the encoder's error on the plain still measured 3.6. On
  * grained frames it is larger, because the grain doubles the cells'
  * spread and the encoder spends least on the finest detail: the closest
- * exported frame to a preview step measured 10.3 to 15.4 over four runs,
+ * exported frame to a preview step measured 10.3 to 15.4 over five runs,
  * and every other frame 22 or more. So an exported frame matches a step
  * within the still's error plus 16, and the still's error itself must stay
  * under 8, or the comparison says nothing.
