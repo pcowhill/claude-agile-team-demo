@@ -158,10 +158,19 @@ export function windowFramesIn(
 }
 
 /**
- * The audio sink an MP3 export hands the pipeline (#269): `attach` taps the
- * mix through a ScriptProcessor, `begin` marks the window's start, `stop`
- * waits until the whole window has arrived and detaches, and `finish`
- * encodes the window. The processor's *output* is zeroed each callback: it
+ * Turns the tapped stereo mix into the exported file: the left and right
+ * channels as float samples, at the mix's own sample rate.
+ */
+export type PcmEncoder = (left: Float32Array, right: Float32Array, sampleRate: number) => Promise<Blob>
+
+/**
+ * An audio sink that taps the mix as raw stereo PCM and hands the exported
+ * window to `encode` (#269; shared with the WAV plugin, #866, so every
+ * PCM-based audio export hears the same samples, window for window).
+ * `label` names the format in the error for a graph that delivered
+ * nothing. `attach` taps the mix through a ScriptProcessor, `begin` marks
+ * the window's start, `stop` waits until the whole window has arrived and
+ * detaches, and `finish` encodes the window. The processor's *output* is zeroed each callback: it
  * must connect onward to `context.destination` to be pulled by the graph,
  * and writing silence there is what keeps the export inaudible — the
  * invariant `createAudioCapture` documents.
@@ -178,9 +187,7 @@ export function windowFramesIn(
  * as the mix, so the match is exact whatever the browser's delay, and from
  * there the sink keeps exactly the window's length (`windowFramesIn`).
  */
-export function createMp3AudioSink(
-  loadEncoder: () => Promise<Mp3EncoderModule> = defaultLoadEncoder,
-): ExportAudioSink {
+export function createPcmAudioSink(encode: PcmEncoder, label: string): ExportAudioSink {
   const captured: Float32Array[][] = [[], []]
   let sampleRate: number | null = null
   let graph: AudioContext | null = null
@@ -202,8 +209,8 @@ export function createMp3AudioSink(
       graph = context
       sampleRate = context.sampleRate
       mix = mixNode
-      // The mix as stereo, split so the marker can join it as channel 2. MP3
-      // is stereo, so a mono mix up-mixes into both channels, as before.
+      // The mix as stereo, split so the marker can join it as channel 2. The
+      // encoders are stereo, so a mono mix up-mixes into both channels.
       const stereo = context.createGain()
       stereo.channelCount = CHANNELS
       stereo.channelCountMode = 'explicit'
@@ -286,7 +293,7 @@ export function createMp3AudioSink(
         // Reaching here means the graph never delivered the window's start —
         // a wedged context, not a quiet mix (silence still yields buffers of
         // zeros).
-        throw new Error('No audio was captured for the MP3 export.')
+        throw new Error(`No audio was captured for the ${label} export.`)
       }
       // A tail the graph never delivered (stop timed out) is silence: the
       // file is the window's length either way.
@@ -295,7 +302,14 @@ export function createMp3AudioSink(
           captured[channel].push(new Float32Array(windowFrames - kept))
         }
       }
-      return encodeMp3(concatChunks(captured[0]), concatChunks(captured[1]), sampleRate, loadEncoder)
+      return encode(concatChunks(captured[0]), concatChunks(captured[1]), sampleRate)
     },
   }
+}
+
+/** The audio sink an MP3 export hands the pipeline (#269): the PCM tap, encoded by LAME. */
+export function createMp3AudioSink(
+  loadEncoder: () => Promise<Mp3EncoderModule> = defaultLoadEncoder,
+): ExportAudioSink {
+  return createPcmAudioSink((left, right, sampleRate) => encodeMp3(left, right, sampleRate, loadEncoder), 'MP3')
 }

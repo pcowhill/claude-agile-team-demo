@@ -54,6 +54,7 @@ test('the format note sits below the radios and the picker stays inside the dial
     { radio: 'Animated WebP', note: /soundless and samples at 10 fps/ },
     { radio: 'Animated PNG (APNG)', note: /soundless, lossless and large/ },
     { radio: 'PNG image sequence (ZIP)', note: /one per frame at the Frame rate and Frame size below/ },
+    { radio: 'WAV audio (uncompressed)', note: /16-bit stereo PCM at the mix’s own sample rate/ },
   ]
   for (const { radio, note } of cases) {
     await dialog.getByRole('radio', { name: radio }).check()

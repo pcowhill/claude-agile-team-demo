@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { exportFormats } from '../../lib/exportFormats'
+import type { TimelineState } from '../../lib/timeline'
 import { builtInPlugins } from '../catalog'
 import { APNG_FRAME_RATE, APNG_MAX_DIMENSION, WEBP_FRAME_RATE, WEBP_MAX_DIMENSION } from '../moreFormatsLimits'
-import { activate, APNG_FORMAT_ID, PNG_SEQUENCE_FORMAT_ID, WEBP_FORMAT_ID } from './index'
+import { activate, APNG_FORMAT_ID, PNG_SEQUENCE_FORMAT_ID, WAV_FORMAT_ID, WEBP_FORMAT_ID } from './index'
 import { webpFrameDurations, webpOutputSize, webpTickAt } from './webpSink'
 
 /**
@@ -92,7 +93,8 @@ describe('PNG image sequence in the More export formats plugin (#865)', () => {
     const spec = exportFormats.get(PNG_SEQUENCE_FORMAT_ID)
     expect(spec.label).toBe('PNG image sequence (ZIP)')
     expect(spec.extension).toBe('zip')
-    expect(exportFormats.list().map((format) => format.id).slice(-3)).toEqual([
+    // After the animations; WAV (#866) follows it.
+    expect(exportFormats.list().map((format) => format.id).slice(-4, -1)).toEqual([
       WEBP_FORMAT_ID,
       APNG_FORMAT_ID,
       PNG_SEQUENCE_FORMAT_ID,
@@ -115,6 +117,69 @@ describe('PNG image sequence in the More export formats plugin (#865)', () => {
     expect(spec.note).toContain('Frame size')
     expect(spec.note).toContain('frame-00001.png')
     expect(spec.note).toContain('soundless')
+  })
+})
+
+describe('WAV audio in the More export formats plugin (#866)', () => {
+  it('registers WAV after the image formats, and the deactivate unregisters it', () => {
+    expect(exportFormats.has(WAV_FORMAT_ID)).toBe(false)
+    deactivate = activate()
+    const spec = exportFormats.get(WAV_FORMAT_ID)
+    expect(spec.label).toBe('WAV audio (uncompressed)')
+    expect(spec.extension).toBe('wav')
+    expect(exportFormats.list().map((format) => format.id).slice(-4)).toEqual([
+      WEBP_FORMAT_ID,
+      APNG_FORMAT_ID,
+      PNG_SEQUENCE_FORMAT_ID,
+      WAV_FORMAT_ID,
+    ])
+    deactivate()
+    deactivate = null
+    expect(exportFormats.has(WAV_FORMAT_ID)).toBe(false)
+  })
+
+  it('is audio-only with no Size limit, and its note states the rate and the size per minute', () => {
+    deactivate = activate()
+    const spec = exportFormats.get(WAV_FORMAT_ID)
+    // Audio-only: the dialog hides Frame size and Frame rate, as for MP3.
+    expect(spec.audioOnly).toBe(true)
+    // Uncompressed audio has no bitrate to aim at.
+    expect(spec.sizeLimit).toBeUndefined()
+    expect(spec.candidates).toEqual([])
+    expect(spec.note).toContain('16-bit stereo')
+    expect(spec.note).toContain('44.1 or 48 kHz')
+    expect(spec.note).toContain('MB per minute')
+    expect(spec.note).toContain('no video track')
+  })
+
+  it('refuses, before exporting anything, a timeline too long for one WAV', async () => {
+    deactivate = activate()
+    const spec = exportFormats.get(WAV_FORMAT_ID)
+    const hours = 7 * 3600
+    const timeline: TimelineState = {
+      entries: [
+        {
+          id: 'long',
+          clipId: '',
+          name: 'Color slate',
+          duration: hours,
+          url: '',
+          inPoint: 0,
+          outPoint: hours,
+          kind: 'slate',
+          color: '#000000',
+        },
+      ],
+      transitions: [],
+      zooms: [],
+      audioTracks: [],
+    }
+    await expect(spec.encode(timeline)).rejects.toThrow(
+      'A WAV file holds at most 4 GB, about 6 h 12 min at 48,000 Hz. Export a shorter range.',
+    )
+    // A range inside it is short enough, so it gets past the check (and
+    // then fails here only for want of a browser to export in).
+    await expect(spec.encode(timeline, { range: { start: 0, end: 60 } })).rejects.not.toThrow(/WAV file holds/)
   })
 })
 
