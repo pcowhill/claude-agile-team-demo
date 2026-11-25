@@ -225,8 +225,20 @@ export async function expectCovers(
  * `user-guide.spec.ts` when the Trim window's buttons needed it too (#707).
  *
  * Counted as the lines its **text** occupies: each text node's client rects,
- * grouped by vertical overlap, so one line holding text of two sizes is
- * still one line. Neither earlier measure could see a wrap everywhere (#603):
+ * in order of their tops. A rect starts a new line when its top is more than
+ * half a glyph box (the larger of its own height and the line's first
+ * rect's) below the current line's top. So one line holding text of two
+ * sizes, or a fallback glyph whose box sits a few px higher, is still one
+ * line, while a wrapped line's top lies about a line advance lower.
+ *
+ * The rule is on tops, not on the previous line's bottom (#884). At
+ * `line-height: 1` a glyph box is taller than the line advance: the library
+ * header's 13.3px buttons draw 15px boxes, so a wrapped label's second line
+ * starts 1.7px *above* the first line's bottom. Grouping by vertical
+ * overlap, as this helper first did, counted that as one line, and every
+ * caller measuring a `line-height: 1` control could not fail.
+ *
+ * Neither earlier measure could see a wrap everywhere (#603):
  * - `scrollWidth <= clientWidth` compares boxes, and wrapped text fits its
  *   box. On the inline Contents links it also read `0 <= 0` in Chromium,
  *   which defines neither for an inline box (#586).
@@ -252,12 +264,16 @@ export async function expectNoWrap(items: Locator, what: string) {
       }
       rects.sort((a, b) => a.top - b.top)
       let lines = 0
-      let lineBottom = -Infinity
+      let lineTop = -Infinity
+      let lineHeight = 0
       for (const rect of rects) {
-        // A rect starting below the current line's bottom starts a new line.
-        // Half a pixel, for subpixel rounding between two rects of one line.
-        if (rect.top >= lineBottom - 0.5) lines++
-        lineBottom = Math.max(lineBottom, rect.bottom)
+        // A rect more than half a glyph box below the current line's top
+        // starts a new line (#884): see the doc comment.
+        if (rect.top > lineTop + Math.max(rect.height, lineHeight) / 2) {
+          lines++
+          lineTop = rect.top
+          lineHeight = rect.height
+        }
       }
       return { lines, text: node.textContent }
     })

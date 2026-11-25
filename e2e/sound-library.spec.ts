@@ -61,42 +61,6 @@ const headerControls = (page: Page): Promise<string[]> =>
       ),
     )
 
-/**
- * Each item's text on one line, for controls set at `line-height: 1` such as
- * the library header's buttons (#793). `expectNoWrap` counts a new line when
- * a text rect starts below the previous line's bottom. At `line-height: 1`
- * a glyph box (15px at the header's 13.3px font) is taller than the line
- * advance (13.3px), so a wrapped label's second line starts 1.7px *above*
- * the first line's bottom and is counted as the same line. Measured in
- * Chromium with `.library-header > button { white-space: normal; max-width:
- * 3rem }`. Here a new line is a rect whose top is more than half a glyph box
- * below the current line's top. Fallback glyphs on one line differ in top
- * by a few px, far less than that.
- */
-async function expectLabelsOnOneLine(items: Locator, what: string) {
-  await expect(items.first(), `no ${what} to check`).toBeVisible()
-  const layouts = await items.evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const range = document.createRange()
-      range.selectNodeContents(node)
-      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0)
-      rects.sort((a, b) => a.top - b.top)
-      let lines = 0
-      let lineTop = -Infinity
-      for (const rect of rects) {
-        if (rect.top > lineTop + rect.height / 2) {
-          lines++
-          lineTop = rect.top
-        }
-      }
-      return { lines, text: node.textContent }
-    }),
-  )
-  for (const layout of layouts) {
-    expect(layout.lines, `${what} "${layout.text}" wraps onto more than one line`).toBe(1)
-  }
-}
-
 async function openSoundLibrary(page: Page): Promise<Locator> {
   await page.getByRole('button', { name: 'Sound library…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Sound library' })
@@ -434,7 +398,7 @@ for (const viewport of [
     // The plugin's button still fits the header's panel, each button's
     // label on one line. The header wraps whole controls onto a second line
     // when they do not fit (#793), which it does with the plugin on.
-    await expectLabelsOnOneLine(page.locator('.library-header > button'), `a library header button ${where}`)
+    await expectNoWrap(page.locator('.library-header > button'), `a library header button ${where}`)
     // And it lines up with Import clips, Record ▾ and View ▾ (#793), its
     // "…" drawn in a taller fallback font or not, as button-clusters.spec
     // checks for the header without it.
