@@ -31,11 +31,11 @@ const menuItems = (menu: HTMLElement) => within(menu).getAllByRole('menuitem').m
 const textRows = () => screen.queryAllByRole('textbox', { name: /^Content of text overlay at position \d+$/ })
 
 describe('Title templates plugin (#860)', () => {
-  it('is a catalog entry with a lazy load, and needs no usedByProject', async () => {
+  it('is a catalog entry with a lazy load, and needs no projectUses', async () => {
     const spec = builtInPlugins.find((plugin) => plugin.id === 'title-templates')
     expect(spec?.name).toBe('Title templates')
     // Placed elements are ordinary text and shapes: no project depends on it.
-    expect(spec?.usedByProject).toBeUndefined()
+    expect(spec?.projectUses).toBeUndefined()
     const module = await spec!.load()
     expect(module.activate).toBe(activate)
   })

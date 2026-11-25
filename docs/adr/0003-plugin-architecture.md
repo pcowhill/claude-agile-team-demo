@@ -112,8 +112,14 @@ extension point is built until a concrete plugin needs it**.
 - **Plugin runtime** (`src/lib/plugins.ts`, phase 2 #197): the catalog entry
   contract — id, name, description, version, a `load()` that must be a
   dynamic `import()` of a module under `src/plugins/` (so the code ships as
-  a lazy chunk, enforced in CI), and an optional `usedByProject` predicate
-  behind project-dependency recording. A plugin module exports
+  a lazy chunk, enforced in CI), and an optional `projectUses` behind
+  project-dependency recording. `projectUses` was a boolean
+  `usedByProject` predicate until #953 made it a count: how many times the
+  project uses the plugin, what those uses are, and how they show while the
+  plugin is off. A count above zero is the dependency the project file
+  records, and the count is what the manager's confirmation states before
+  disabling a plugin in use. One source serves both, so they cannot
+  disagree. A plugin module exports
   `activate(): () => void`: make the registrations, return the function
   that undoes them. Disable semantics: disabling deactivates immediately
   (contributions unregister and leave the UI); work already in flight — a
@@ -242,7 +248,7 @@ extension point is built until a concrete plugin needs it**.
     a plugin's UI in the entry bundle.
 
   What a contribution places is ordinary project state, owned by no
-  plugin, so a contribution-only plugin has no `usedByProject`. The registry
+  plugin, so a contribution-only plugin has no `projectUses`. The registry
   follows the others (`register`/`unregister`/`find`/`list`/`subscribe`/
   `version`). Timeline holds the open dialog by id, so a plugin disabled
   while its dialog is open closes it.
@@ -290,7 +296,7 @@ extension point is built until a concrete plugin needs it**.
     JavaScript chunks. Vite lists these assets in the build manifest under
     `src/plugins/`, but a file is not code that a static import could merge
     into the entry.
-  - **No `usedByProject`.** An added sound is an ordinary clip.
+  - **No `projectUses`.** An added sound is an ordinary clip.
   - **No runtime dependency.** Generating needs FFmpeg with libopus, but
     the encoded files are committed, so building and running never do.
 - **Picture-effect registry** (`src/lib/pictureEffect.ts`, #862, from
@@ -394,7 +400,7 @@ extension point is built until a concrete plugin needs it**.
   VHS (#870: Amount, scaling its soft blur and its scanlines together). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
-  packs, so `usedByProject` loads no chunk.
+  packs, so `projectUses` loads no chunk.
 - **Font pack plugin** (`src/plugins/fontPack/`, #867): ten SIL OFL 1.1
   faces registered into the font registry (#859), their `woff2` files
   copied from `@fontsource/*` 5.3.0 (Latin subset) with each family's
@@ -409,7 +415,7 @@ extension point is built until a concrete plugin needs it**.
     fallback face while a font is still downloading, so each font's `load`
     resolves once its faces have. A failed download resolves too, and the
     export then draws the fallback, as the preview does.
-  - **`usedByProject`** reads text fonts and the subtitle style's font
+  - **`projectUses`** reads text fonts and the subtitle style's font
     against the top-level `src/plugins/fontPackIds.ts`.
 
 ### Projects that use plugin features: prompt-and-enable

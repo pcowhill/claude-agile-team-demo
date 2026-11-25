@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ENABLED_PLUGINS_KEY, PluginRuntime, loadEnabledPluginIds } from './plugins'
-import type { PluginModule, PluginSpec, PluginStorage } from './plugins'
+import { ENABLED_PLUGINS_KEY, PluginRuntime, disableConfirmationText, loadEnabledPluginIds } from './plugins'
+import type { PluginModule, PluginProjectUses, PluginSpec, PluginStorage } from './plugins'
 import { emptyLibrary } from './mediaLibrary'
 import { emptyTimeline } from './timeline'
 
@@ -246,12 +246,23 @@ describe('loadEnabledPluginIds (#197)', () => {
   })
 })
 
+describe('disableConfirmationText (#953)', () => {
+  it('states the count, once or N times, what the uses are, and that nothing is removed', () => {
+    expect(disableConfirmationText('Visual effects', { count: 2, what: '2 picture effects' }, 'they rest.')).toBe(
+      'This project uses Visual effects 2 times: 2 picture effects. Disabling removes nothing: they rest.',
+    )
+    expect(disableConfirmationText('Shaped wipes', { count: 1, what: '1 transition' }, 'it rests.')).toBe(
+      'This project uses Shaped wipes once: 1 transition. Disabling removes nothing: it rests.',
+    )
+  })
+})
+
 describe('projectPlugins (#197, #199)', () => {
-  it('names every plugin whose predicate says the project uses it, enabled or not', async () => {
-    const used = fixturePlugin('used', { usedByProject: () => true })
-    const unused = fixturePlugin('unused', { usedByProject: () => false })
+  it('names every plugin whose count says the project uses it, enabled or not', async () => {
+    const used = fixturePlugin('used', { projectUses: usesFixture(2) })
+    const unused = fixturePlugin('unused', { projectUses: usesFixture(0) })
     const noPredicate = fixturePlugin('formats-only')
-    const disabled = fixturePlugin('disabled-but-used', { usedByProject: () => true })
+    const disabled = fixturePlugin('disabled-but-used', { projectUses: usesFixture(1) })
     const runtime = new PluginRuntime(
       [used.spec, unused.spec, noPredicate.spec, disabled.spec],
       memoryStorage(),
@@ -270,4 +281,21 @@ describe('projectPlugins (#197, #199)', () => {
       'disabled-but-used',
     ])
   })
+
+  it('projectUseCount gives each plugin its count, and none for a plugin without one or not in the catalog (#953)', () => {
+    const used = fixturePlugin('used', { projectUses: usesFixture(2) })
+    const noPredicate = fixturePlugin('formats-only')
+    const runtime = new PluginRuntime([used.spec, noPredicate.spec], memoryStorage())
+    expect(runtime.projectUseCount('used', emptyLibrary, emptyTimeline)).toEqual({ count: 2, what: '2 things' })
+    expect(runtime.projectUseCount('formats-only', emptyLibrary, emptyTimeline)).toEqual({ count: 0, what: '' })
+    expect(runtime.projectUseCount('not-in-catalog', emptyLibrary, emptyTimeline)).toEqual({ count: 0, what: '' })
+  })
 })
+
+/** A `projectUses` that always counts `count` uses. */
+function usesFixture(count: number): PluginProjectUses {
+  return {
+    count: () => ({ count, what: count === 0 ? '' : `${count} things` }),
+    whileDisabled: 'they show differently.',
+  }
+}

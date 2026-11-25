@@ -7,7 +7,7 @@ import { SoundLibraryDialog } from './SoundLibraryDialog'
  * sound effects, synthesised by the team and released as CC0. **Add** imports
  * one as an ordinary audio clip, through the Media Library header registry
  * (`src/lib/libraryHeader.ts`). An added sound belongs to the project, not
- * to the plugin, so no project ever depends on it (`usedByProject` is
+ * to the plugin, so no project ever depends on it (`projectUses` is
  * omitted in the catalog).
  */
 

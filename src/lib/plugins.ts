@@ -50,13 +50,52 @@ export interface PluginSpec {
    */
   load: () => Promise<PluginModule>
   /**
-   * Whether a project's saveable state uses this plugin's features — the
-   * predicate behind recording plugin dependencies in project files and
-   * prompt-and-enable on open (ADR 0003). Omitted means the plugin's
-   * features never live in a project (e.g. it only contributes an export
-   * format, which a project does not store).
+   * How a project's saveable state uses this plugin's features (ADR 0003).
+   * Its count is the one source for both questions asked of it: a count
+   * above zero records the plugin as a dependency in project files and
+   * drives prompt-and-enable on open (`projectPlugins`), and the count
+   * itself is what the manager's confirmation states before disabling a
+   * plugin in use (#953). Omitted means the plugin's features never live in
+   * a project (e.g. it only contributes an export format, which a project
+   * does not store), so it is never a dependency and disables without
+   * asking.
    */
-  usedByProject?: (library: MediaLibraryState, timeline: TimelineState) => boolean
+  projectUses?: PluginProjectUses
+}
+
+/** How a project uses a plugin, as `PluginSpec.projectUses` describes it. */
+export interface PluginProjectUses {
+  /**
+   * The project's uses of the plugin: how many, and what they are as a
+   * phrase the confirmation can quote ("2 picture effects"). Pure over the
+   * state, and computed from the catalog's id lists alone, so asking a
+   * disabled plugin loads nothing.
+   */
+  count: (library: MediaLibraryState, timeline: TimelineState) => PluginUseCount
+  /**
+   * What the uses look like while the plugin is off, as the end of the
+   * sentence "Disabling removes nothing: …". Disabling never deletes a use
+   * (the #197 rule), so this says how they show, not that they go.
+   */
+  whileDisabled: string
+}
+
+/** A count of a project's uses of one plugin. */
+export interface PluginUseCount {
+  /** How many times the project uses the plugin; 0 when it does not. */
+  count: number
+  /** The uses as a phrase, e.g. "2 text overlays in a pack font and the Subtitle style". Empty at 0. */
+  what: string
+}
+
+/**
+ * The manager's confirmation before disabling a plugin the project uses
+ * (#953): the count, what the uses are, and how they show while the plugin
+ * is off. Disabling never deletes a use (the #197 rule), so it says so.
+ */
+export function disableConfirmationText(name: string, uses: PluginUseCount, whileDisabled: string): string {
+  const times = uses.count === 1 ? 'once' : `${uses.count} times`
+  return `This project uses ${name} ${times}: ${uses.what}. Disabling removes nothing: ${whileDisabled}`
 }
 
 /** What the manager UI shows for one plugin. */
@@ -280,7 +319,18 @@ export class PluginRuntime {
    */
   projectPlugins(library: MediaLibraryState, timeline: TimelineState): string[] {
     return this.catalog
-      .filter((spec) => spec.usedByProject?.(library, timeline) === true)
+      .filter((spec) => this.projectUseCount(spec.id, library, timeline).count > 0)
       .map((spec) => spec.id)
+  }
+
+  /**
+   * How many times the given project uses one plugin, and what those uses
+   * are (#953): the count `projectPlugins` records a dependency from, so the
+   * manager's confirmation and the project file cannot disagree. A plugin
+   * with no `projectUses`, or not in the catalog, has none.
+   */
+  projectUseCount(id: string, library: MediaLibraryState, timeline: TimelineState): PluginUseCount {
+    const uses = this.find(id)?.projectUses
+    return uses === undefined ? { count: 0, what: '' } : uses.count(library, timeline)
   }
 }

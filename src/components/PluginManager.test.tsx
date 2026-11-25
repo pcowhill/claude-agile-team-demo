@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PluginManager } from './PluginManager'
 import { PluginRuntime } from '../lib/plugins'
 import type { PluginModule, PluginSpec } from '../lib/plugins'
+import type { MediaLibraryState } from '../lib/mediaLibrary'
+import type { TimelineState } from '../lib/timeline'
 
 const noStorage = null
 
@@ -17,6 +19,112 @@ function spec(id: string, overrides: Partial<PluginSpec> = {}): PluginSpec {
     ...overrides,
   }
 }
+
+/** A project that uses the 'used' fixture plugin `count` times (#953). */
+function usedSpec(count: number): PluginSpec {
+  return spec('used', {
+    projectUses: {
+      count: (_library, timeline) => ({
+        count: timeline.entries.length === 0 ? 0 : count,
+        what: count === 1 ? '1 widget' : `${count} widgets`,
+      }),
+      whileDisabled: 'while the plugin is off, a widget shows as a box.',
+    },
+  })
+}
+
+const library: MediaLibraryState = { clips: [], failures: [] }
+const usingTimeline = { entries: [{ id: 'e1', clipId: 'c1' }] } as unknown as TimelineState
+const emptyProject: TimelineState = { entries: [] }
+
+async function openWithEnabled(runtime: PluginRuntime, timeline: TimelineState) {
+  await Promise.all(runtime.list().map((plugin) => runtime.enable(plugin.id)))
+  const user = userEvent.setup()
+  render(<PluginManager runtime={runtime} library={library} timeline={timeline} />)
+  await user.click(screen.getByRole('button', { name: 'Plugins…' }))
+  return user
+}
+
+describe('PluginManager: disabling a plugin the project uses asks first (#953)', () => {
+  it('asks, with the count and how the uses show, and leaves the plugin enabled until answered', async () => {
+    const runtime = new PluginRuntime([usedSpec(2)], noStorage)
+    const user = await openWithEnabled(runtime, usingTimeline)
+
+    await user.click(screen.getByRole('button', { name: 'Disable used plugin' }))
+    const confirm = screen.getByRole('dialog', { name: 'Disable used plugin?' })
+    expect(confirm).toHaveTextContent(
+      'This project uses used plugin 2 times: 2 widgets. Disabling removes nothing: while the plugin is off, a widget shows as a box.',
+    )
+    expect(runtime.isEnabled('used')).toBe(true)
+    // Focus starts on the safe action.
+    expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+  })
+
+  it('Disable disables the plugin and returns focus to its row in the Plugins dialog', async () => {
+    const runtime = new PluginRuntime([usedSpec(1)], noStorage)
+    const user = await openWithEnabled(runtime, usingTimeline)
+
+    await user.click(screen.getByRole('button', { name: 'Disable used plugin' }))
+    const confirm = screen.getByRole('dialog', { name: 'Disable used plugin?' })
+    expect(confirm).toHaveTextContent('This project uses used plugin once: 1 widget.')
+    await user.click(within(confirm).getByRole('button', { name: 'Disable' }))
+
+    expect(runtime.isEnabled('used')).toBe(false)
+    expect(screen.queryByRole('dialog', { name: 'Disable used plugin?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enable used plugin' })).toHaveFocus()
+  })
+
+  it('Cancel, Escape and a click on its backdrop each leave the plugin enabled and the Plugins dialog open', async () => {
+    const runtime = new PluginRuntime([usedSpec(3)], noStorage)
+    const user = await openWithEnabled(runtime, usingTimeline)
+    const disableButton = screen.getByRole('button', { name: 'Disable used plugin' })
+
+    await user.click(disableButton)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Disable used plugin?' })).not.toBeInTheDocument()
+    expect(disableButton).toHaveFocus()
+
+    await user.click(disableButton)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Disable used plugin?' })).not.toBeInTheDocument()
+    // Escape answered the confirmation only: the Plugins dialog stays.
+    expect(screen.getByRole('dialog', { name: 'Plugins' })).toBeInTheDocument()
+    expect(disableButton).toHaveFocus()
+
+    await user.click(disableButton)
+    const overlay = screen.getByRole('dialog', { name: 'Disable used plugin?' }).parentElement!
+    await user.click(overlay)
+    expect(screen.queryByRole('dialog', { name: 'Disable used plugin?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Plugins' })).toBeInTheDocument()
+
+    expect(runtime.isEnabled('used')).toBe(true)
+    // With the confirmation gone, Escape closes the Plugins dialog again.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Plugins' })).not.toBeInTheDocument()
+  })
+
+  it('disables at once when the project does not use the plugin, or the plugin has no count', async () => {
+    const runtime = new PluginRuntime([usedSpec(2), spec('formats')], noStorage)
+    const user = await openWithEnabled(runtime, emptyProject)
+
+    await user.click(screen.getByRole('button', { name: 'Disable used plugin' }))
+    expect(runtime.isEnabled('used')).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Disable formats plugin' }))
+    expect(runtime.isEnabled('formats')).toBe(false)
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  })
+
+  it('disables at once without a project to ask about, as before #953', async () => {
+    const runtime = new PluginRuntime([usedSpec(2)], noStorage)
+    await runtime.enable('used')
+    const user = userEvent.setup()
+    render(<PluginManager runtime={runtime} />)
+    await user.click(screen.getByRole('button', { name: 'Plugins…' }))
+    await user.click(screen.getByRole('button', { name: 'Disable used plugin' }))
+    expect(runtime.isEnabled('used')).toBe(false)
+  })
+})
 
 describe('PluginManager (#197)', () => {
   it('opens the modal and lists every plugin with name, version, and description', async () => {

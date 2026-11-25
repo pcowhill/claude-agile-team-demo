@@ -1,7 +1,7 @@
 /**
  * The transition ids the Shaped wipes plugin registers (#199). This module
  * is top-level `src/plugins/` wiring — part of the entry bundle, exempt from
- * the plugin-chunk check — because the catalog's `usedByProject` predicate
+ * the plugin-chunk check — because the catalog's `projectUses` count
  * must answer "does this timeline use a shaped wipe?" without loading the
  * plugin's lazy chunk: dependency recording runs on every save, plugin
  * enabled or not (`PluginRuntime.projectPlugins`). The plugin module imports

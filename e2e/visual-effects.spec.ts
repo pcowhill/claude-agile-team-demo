@@ -10,6 +10,7 @@ import { chooseFromFrameMenu } from './frameMenu'
 import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { chooseEffect, openEffectMenu } from './timelineRowMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { confirmDisableIfAsked } from './pluginConfirm'
 
 /**
  * The Visual effects plugin's two picture effects (#862, step 3a): Vignette
@@ -95,6 +96,7 @@ async function setVisualEffects(page: Page, enabled: boolean) {
   const dialog = page.getByRole('dialog', { name: 'Plugins' })
   await expect(dialog).toBeVisible()
   await page.getByRole('button', { name: `${enabled ? 'Enable' : 'Disable'} Visual effects` }).click()
+  if (!enabled) await confirmDisableIfAsked(page, 'Visual effects')
   await expect(
     page.getByRole('button', { name: `${enabled ? 'Disable' : 'Enable'} Visual effects` }),
   ).toBeVisible()
