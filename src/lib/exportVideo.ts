@@ -2229,11 +2229,13 @@ export interface AudioCapture {
 export interface ExportAudioSink {
   /**
    * Joins the mix graph once it exists: `mix` carries every sample the
-   * recorder would have received. Called before playback starts. The sink
+   * recorder would have received. Called before playback starts. Awaited:
+   * a sink may load what its tap needs first (an AudioWorklet module, #926),
+   * and one that fails leaves the export without audio capture. The sink
    * must not route anything audible to `context.destination` — the graph is
    * deliberately kept away from the speakers (see `createAudioCapture`).
    */
-  attach: (context: AudioContext, mix: AudioNode) => void
+  attach: (context: AudioContext, mix: AudioNode) => void | Promise<void>
   /**
    * The exported window's playback starts now (#908). The graph has been
    * running since `attach`, through the waits for the context and for the
@@ -2444,7 +2446,7 @@ export async function createAudioCapture(
    * exactly the mix the recorder would. Without one the graph is unchanged
    * from #245 — elements straight into the destination.
    */
-  tap?: (context: AudioContext, mix: AudioNode) => void,
+  tap?: (context: AudioContext, mix: AudioNode) => void | Promise<void>,
 ): Promise<AudioCapture | null> {
   let context: AudioContext | null = null
   try {
@@ -2455,7 +2457,7 @@ export async function createAudioCapture(
     if (tap !== undefined) {
       const bus = context.createGain()
       bus.connect(destination)
-      tap(context, bus)
+      await tap(context, bus)
       mixInto = bus
     }
     for (const element of elements) {
