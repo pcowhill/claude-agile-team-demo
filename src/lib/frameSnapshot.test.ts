@@ -4,6 +4,7 @@ import { ExportUnsupportedError } from './exportVideo'
 import { probeSourceDimensions } from './exportSettings'
 import type { TimelineEntry, TimelineState } from './timeline'
 import { fontRegistry } from './textOverlay'
+import { activate as activateVisualEffects } from '../plugins/visualEffects'
 
 // The snapshot (#237) composes through the export's factored frame composer
 // (createFrameComposer — its draw behavior is pinned by exportVideo.test.ts
@@ -226,6 +227,30 @@ describe('snapshotTimelineFrame (#237)', () => {
     await expect(snapshotTimelineFrame(timeline, 1, options)).rejects.toThrow(
       /color adjustments/,
     )
+  })
+
+  it('refuses a picture effect with a filter when canvas filters are unsupported, and only then (#943)', async () => {
+    const blur: TimelineState = {
+      entries: [entry({ id: 'a' })],
+      pictureEffects: [{ id: 'p1', entryId: 'a', type: 'blur', start: 0, end: 5, params: { amount: 1 } }],
+    }
+    const deactivate = activateVisualEffects()
+    try {
+      // Blur is a filter: refused without filter support, with the export's reason.
+      await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(false).options)).rejects.toThrow(
+        ExportUnsupportedError,
+      )
+      await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(false).options)).rejects.toThrow(
+        /picture effect such as Blur when saving a frame \(canvas filters are unsupported\)/,
+      )
+      // With filter support, it saves.
+      await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(true).options)).resolves.toBeInstanceOf(Blob)
+    } finally {
+      deactivate()
+    }
+    // With the plugin off the effect draws nothing, as in the preview, so
+    // there is nothing to refuse.
+    await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(false).options)).resolves.toBeInstanceOf(Blob)
   })
 
   it('cues the entry to the located source time and draws it as a PNG', async () => {
