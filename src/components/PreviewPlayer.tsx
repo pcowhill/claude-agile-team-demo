@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { TimelineEntry, TimelineState, ChapterMarker } from '../lib/timeline'
 import {
@@ -100,8 +100,8 @@ import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
-import { NO_PICTURE_LOOK, pictureEffectRegistry, vignetteStops } from '../lib/pictureEffect'
-import type { PictureLook } from '../lib/pictureEffect'
+import { grainTile, NO_PICTURE_LOOK, pictureEffectRegistry, vignetteStops } from '../lib/pictureEffect'
+import type { PictureLayer, PictureLook } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
 import type { LibraryClip } from '../lib/mediaLibrary'
@@ -447,23 +447,28 @@ function withPictureFilters(
  * card's pre-transform space, so once the card's zoom transform applies it
  * covers the frame-shaped card exactly: a vignette stays on the frame's
  * edges while the zoom moves inside it, and travels with the card through
- * a transition. Each layer is a CSS radial gradient on an ellipse of the
- * card's aspect through its corners (`farthest-corner`), with the stops the
- * export's canvas gradient takes from the same `vignetteStops`. The last
- * layer draws on top, as in the export, so the CSS list runs in reverse.
+ * a transition. Each layer is one child filling it, in the look's order, so
+ * the last layer draws on top, as in the export:
+ * - a vignette is a CSS radial gradient on an ellipse of the card's aspect
+ *   through its corners (`farthest-corner`), with the stops the export's
+ *   canvas gradient takes from the same `vignetteStops`;
+ * - grain (#870) is a canvas holding `grainTile`'s tile for the frame's
+ *   `aspect`, stretched over the box with smoothing, as the export
+ *   stretches the same tile over its card.
  */
-function PictureLayers({ look, zoom, testId }: { look: PictureLook; zoom: ZoomState; testId: string }) {
+function PictureLayers({
+  look,
+  zoom,
+  aspect,
+  testId,
+}: {
+  look: PictureLook
+  zoom: ZoomState
+  aspect: number
+  testId: string
+}) {
   if (look.layers.length === 0) return null
   const size = 100 / zoom.scale
-  const background = [...look.layers]
-    .reverse()
-    .map(
-      (layer) =>
-        `radial-gradient(ellipse farthest-corner at 50% 50%, ${vignetteStops(layer)
-          .map((stop) => `rgba(0, 0, 0, ${Number(stop.alpha.toFixed(4))}) ${Number((stop.offset * 100).toFixed(3))}%`)
-          .join(', ')})`,
-    )
-    .join(', ')
   return (
     <div
       className="preview-picture-layers"
@@ -474,8 +479,47 @@ function PictureLayers({ look, zoom, testId }: { look: PictureLook; zoom: ZoomSt
         top: `${(zoom.centerY - 0.5 / zoom.scale) * 100}%`,
         width: `${size}%`,
         height: `${size}%`,
-        background,
       }}
+    >
+      {look.layers.map((layer, index) =>
+        layer.kind === 'grain' ? (
+          <GrainLayer key={index} layer={layer} aspect={aspect} />
+        ) : (
+          <div
+            key={index}
+            style={{
+              background: `radial-gradient(ellipse farthest-corner at 50% 50%, ${vignetteStops(layer)
+                .map((stop) => `rgba(0, 0, 0, ${Number(stop.alpha.toFixed(4))}) ${Number((stop.offset * 100).toFixed(3))}%`)
+                .join(', ')})`,
+            }}
+          />
+        ),
+      )}
+    </div>
+  )
+}
+
+/**
+ * A grain layer (#870): a canvas one pixel per grain cell, painted with
+ * the tile for its step. `data-seed` names the step drawn, so a test can
+ * wait for the step a seek publishes rather than read the canvas once.
+ */
+function GrainLayer({ layer, aspect }: { layer: Extract<PictureLayer, { kind: 'grain' }>; aspect: number }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const { seed, amount, cell } = layer
+  const tile = useMemo(() => grainTile({ kind: 'grain', seed, amount, cell }, aspect), [seed, amount, cell, aspect])
+  useLayoutEffect(() => {
+    const context = ref.current?.getContext('2d')
+    if (!context) return
+    context.putImageData(new ImageData(tile.data as Uint8ClampedArray<ArrayBuffer>, tile.width, tile.height), 0, 0)
+  }, [tile])
+  return (
+    <canvas
+      ref={ref}
+      width={tile.width}
+      height={tile.height}
+      data-testid="preview-picture-grain"
+      data-seed={seed}
     />
   )
 }
@@ -2850,7 +2894,7 @@ export function PreviewPlayer({
           ),
         },
         layers: (
-          <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
+          <PictureLayers look={primaryLook} zoom={primaryZoom} aspect={previewAspect} testId="preview-picture-layers" />
         ),
         backdrop: entryBackdrop(location?.entry, slotVideoRef),
         redactions:
@@ -2896,6 +2940,7 @@ export function PreviewPlayer({
         <PictureLayers
           look={incomingLook}
           zoom={incomingZoom}
+          aspect={previewAspect}
           testId="preview-picture-layers-incoming"
         />
       ) : null,
@@ -2995,7 +3040,7 @@ export function PreviewPlayer({
                     primaryZoom,
                   )}
                 >
-                  <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
+                  <PictureLayers look={primaryLook} zoom={primaryZoom} aspect={previewAspect} testId="preview-picture-layers" />
                 </div>
               ) : (
                 stillPrimary &&
@@ -3035,7 +3080,7 @@ export function PreviewPlayer({
                       sourceTime={location.sourceTime}
                       testId="preview-redactions-still"
                     />
-                    <PictureLayers look={primaryLook} zoom={primaryZoom} testId="preview-picture-layers" />
+                    <PictureLayers look={primaryLook} zoom={primaryZoom} aspect={previewAspect} testId="preview-picture-layers" />
                   </div>
                 )
               )}
@@ -3055,6 +3100,7 @@ export function PreviewPlayer({
                   <PictureLayers
                     look={incomingLook}
                     zoom={incomingZoom}
+                    aspect={previewAspect}
                     testId="preview-picture-layers-incoming"
                   />
                 </div>
@@ -3090,6 +3136,7 @@ export function PreviewPlayer({
                     <PictureLayers
                       look={incomingLook}
                       zoom={incomingZoom}
+                      aspect={previewAspect}
                       testId="preview-picture-layers-incoming"
                     />
                   </div>

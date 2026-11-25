@@ -53,7 +53,8 @@ export function pictureEffectWeight(
 /**
  * The look of the entry at `entryIndex` at `sourceTime`, its source clock
  * (the time `zoomAt` takes): every effect whose window holds the instant,
- * in start order, each through its definition's rule at its eased weight.
+ * in start order, each through its definition's rule at its eased weight
+ * and at `sourceTime` itself, the clock a generated texture steps on (#870).
  * An effect whose type no registered definition covers, such as one from a
  * disabled plugin, contributes nothing: it stays in the project and renders
  * as nothing, as a disabled plugin's transition does. An entry with no
@@ -78,7 +79,7 @@ export function pictureLookAt(
     if (weight <= 0) continue
     const definition = registry.find(effect.type)
     if (definition === undefined) continue
-    const look = definition.look(pictureEffectParamsFor(definition, effect.params), weight)
+    const look = definition.look(pictureEffectParamsFor(definition, effect.params), weight, sourceTime)
     filters.push(...look.filters)
     layers.push(...look.layers)
   }
@@ -99,7 +100,7 @@ export function timelineHasPictureFilters(
     const definition = registry.find(effect.type)
     return (
       definition !== undefined &&
-      definition.look(pictureEffectParamsFor(definition, effect.params), 1).filters.length > 0
+      definition.look(pictureEffectParamsFor(definition, effect.params), 1, effect.start).filters.length > 0
     )
   })
 }

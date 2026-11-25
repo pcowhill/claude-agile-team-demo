@@ -302,7 +302,7 @@ extension point is built until a concrete plugin needs it**.
   rather than change the picture.
   - **The contract.** A definition carries an id (what timeline state and
     project files record), a menu name, its parameters (key, label, range,
-    default, unit), and one pure rule, `look(params, weight)`. The rule
+    default, unit), and one pure rule, `look(params, weight, time)`. The rule
     returns a `PictureLook`: filter functions for the picture's source
     pixels, and layers drawn over the frame-shaped card, every size a
     fraction of the frame. The registry mirrors the transition registry's
@@ -328,19 +328,41 @@ extension point is built until a concrete plugin needs it**.
     disabled plugin's transition stays on the timeline. Project files
     check structure only, and the open flow checks known types after the
     plugin gate (#199's order).
-  - **Room for part 2 (#870).** Generated textures such as film grain or
-    scanlines join `PictureLayer` as new kinds, for example
-    `{ kind: 'grain'; amount; seed }`, and each renderer learns to draw
-    that kind once. A per-channel offset (#871's chromatic aberration)
-    would be a new `PictureFilter` kind the same way. The contract grows by
-    kinds, not by mechanisms.
+  - **Generated textures (#870).** The rule's third argument, `time`, is
+    seconds on the entry's source clock, the clock its window is measured
+    on, which `pictureLookAt` passes. A texture is a `PictureLayer` kind
+    whose pattern is a pure function of its inputs: Film grain's `grain`
+    layer carries a `seed` that the rule sets from `textureStep(time)`,
+    24 steps a second (`PICTURE_TEXTURE_RATE`), and `grainTile` turns the
+    layer into a tile of pixels through an integer hash, never
+    `Math.random()`. Both renderers stretch that one tile over the card
+    with smoothing: the preview as a canvas element in the layer box, the
+    export with `drawImage`. So the same instant draws the same grain in
+    the preview, a saved frame and every export, whatever their frame
+    rates. The texture follows the source clock, so it holds through a
+    pause as the picture does. `time` is optional in the type, so a
+    timeless effect's rule and its tests are unchanged; a caller that
+    omits it means 0.
+    - **Rejected for textures:** a per-render random pattern, which cannot
+      match between renderers (#66); the sequence clock, which an entry's
+      effect window does not use; and a canvas-wide noise layer drawn
+      after composition, which would not travel with the card through a
+      transition or sit inside a zoom's frame as a vignette does.
+    - **Still to come (#870, then #871).** Old film and VHS are further
+      kinds of the same shape (scratches, dust, scanlines, a tracking
+      band) beside filter functions (sepia, a flicker's brightness). A
+      per-channel offset (#871's chromatic aberration) would be a new
+      `PictureFilter` kind the same way. The contract grows by kinds, not
+      by mechanisms.
   - **Rejected:** a rule returning a CSS string, which the canvas could
     take for a blur but not for a vignette or grain, and drawing with
     per-plugin code in each renderer, which is what the shared rule
     exists to prevent.
 - **Visual effects plugin** (`src/plugins/visualEffects/`, #862): Vignette
-  (Strength, the corner's darkening in percent) and Blur (Amount, the
-  radius in percent of the frame width). Each is parameters plus a `look`
+  (Strength, the corner's darkening in percent), Blur (Amount, the
+  radius in percent of the frame width) and Film grain (#870: Amount, the
+  strongest grain's alpha in percent, and Size, a grain's width in pixels
+  of a 1080p frame). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `usedByProject` loads no chunk.

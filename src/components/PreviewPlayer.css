@@ -148,6 +148,17 @@
   pointer-events: none;
 }
 
+/* Each layer fills the box, in the look's order: a vignette's gradient, or
+   a grain canvas (#870) one pixel per cell, stretched with the browser's
+   default smoothing as the export's drawImage stretches the same tile. */
+.preview-picture-layers > * {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* During a transition the incoming clip renders on top of the outgoing one,
    styled per-frame (opacity for crossfade, transform for slide). */
 .preview-video-incoming {

@@ -220,6 +220,16 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Zooms](#zooms)
 
+## Film grain
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Film grain**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Lays fine, moving noise over the picture for a stretch of the entry, like the grain of film.
+
+**Details.** The row has the stretch, *from* and *to* in seconds into the entry, and two settings: *amount*, 0 to 100 %, how strongly the grain lightens and darkens the picture, and *size*, 2 to 10, how coarse each grain is. Size is a grain's width in pixels of a 1080p frame, and the grain keeps that share of the frame at any size. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 30 % and size 3. The grain changes 24 times a second, and the pattern at any moment is fixed: the same instant shows the same grain each time it plays, in the preview and in the exported file. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with them, eases in and out, is named *Film grain 1*, *Film grain 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Vignette and blur](#vignette-and-blur)
+
 ## Colour adjustments
 
 **Where to find it.** An expanded video or image row › **Picture ▸** › **Color**.
