@@ -32,7 +32,11 @@ import {
   markersOf,
   nextMarkerName,
   markerAt,
+  pictureEffectsForEntry,
+  pictureEffectsOf,
 } from './timeline'
+import type { PictureEffect, PictureEffectSpec } from './pictureEffect'
+import { emptyTimelineHistory, timelineHistoryReducer } from './history'
 import type { RemapEffect, RemapSpec, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
 import { overlayOutputDuration } from './videoOverlay'
 import { audioTrackPlaybackAt, videoOverlayPlaybackAt } from './playback'
@@ -5379,6 +5383,185 @@ describe('speed segments and pauses on an overlay (#700)', () => {
     const copy = videoOverlaysOf(duplicated)[1]
     expect(copy.remaps).toEqual(on(state).remaps)
     expect(copy.offset).toBe(1 + 3)
+  })
+})
+
+describe('picture effects on entries (#862)', () => {
+  const effectSpec = (overrides: Partial<PictureEffectSpec> = {}): PictureEffectSpec => ({
+    start: 1,
+    end: 3,
+    params: { strength: 0.6 },
+    ...overrides,
+  })
+  const effect = (
+    id: string,
+    entryId: string,
+    overrides: Partial<PictureEffectSpec> = {},
+    type = 'vignette',
+  ): PictureEffect => ({ id, entryId, type, ...effectSpec(overrides) })
+  const addEffect = (state: TimelineState, value: PictureEffect) =>
+    timelineReducer(state, { type: 'picture-effect-added', effect: value })
+  const updateEffect = (state: TimelineState, id: string, overrides: Partial<PictureEffectSpec> = {}) =>
+    timelineReducer(state, { type: 'picture-effect-updated', id, effect: effectSpec(overrides) })
+  const windows = (state: TimelineState, entryId: string) =>
+    pictureEffectsForEntry(state, entryId).map(({ id, start, end }) => [id, start, end])
+
+  describe('picture-effect-added', () => {
+    it('stores an effect on an existing entry, its type and parameters as given', () => {
+      const state = addEffect(stateOf(['a']), effect('p1', 'a'))
+      expect(pictureEffectsOf(state)).toEqual([effect('p1', 'a')])
+    })
+
+    it('keeps overlapping windows on one entry, sorted by start: effects stack', () => {
+      let state = addEffect(stateOf(['a']), effect('blur', 'a', { start: 2, end: 6 }, 'blur'))
+      state = addEffect(state, effect('vig', 'a', { start: 1, end: 4 }))
+      expect(windows(state, 'a')).toEqual([
+        ['vig', 1, 4],
+        ['blur', 2, 6],
+      ])
+    })
+
+    it('rejects an unknown entry, a duplicate id, an empty type and a malformed spec', () => {
+      const state = addEffect(stateOf(['a'], ['b']), effect('p1', 'a'))
+      expect(addEffect(state, effect('p2', 'ghost'))).toBe(state)
+      expect(addEffect(state, effect('p1', 'b'))).toBe(state)
+      expect(addEffect(state, effect('p2', 'a', {}, ''))).toBe(state)
+      expect(addEffect(state, effect('p2', 'a', { start: 3, end: 3 }))).toBe(state)
+      expect(addEffect(state, effect('p2', 'a', { start: 3, end: 1 }))).toBe(state)
+      expect(addEffect(state, effect('p2', 'a', { end: Number.POSITIVE_INFINITY }))).toBe(state)
+      expect(addEffect(state, effect('p2', 'a', { params: { strength: Number.NaN } }))).toBe(state)
+    })
+
+    it('clamps an over-long window into the trimmed range, and vetoes one that starts past it', () => {
+      // Entry a plays 4 s (trim 2..6), so a window is clamped into [0, 4].
+      const state = stateOf(['a', 10, 2, 6])
+      expect(windows(addEffect(state, effect('p1', 'a', { start: 1, end: 9 })), 'a')).toEqual([['p1', 1, 4]])
+      expect(addEffect(state, effect('p1', 'a', { start: 4, end: 9 }))).toBe(state)
+    })
+  })
+
+  describe('picture-effect-updated', () => {
+    it('replaces one effect’s window and parameters, keeping its id, entry and type', () => {
+      let state = addEffect(stateOf(['a']), effect('p1', 'a'))
+      state = addEffect(state, effect('p2', 'a', { start: 5, end: 7 }, 'blur'))
+      const sibling = pictureEffectsOf(state)[1]
+      const updated = updateEffect(state, 'p1', { start: 0.5, end: 2, params: { strength: 0.9 } })
+      expect(pictureEffectsOf(updated)[0]).toEqual(
+        effect('p1', 'a', { start: 0.5, end: 2, params: { strength: 0.9 } }),
+      )
+      expect(pictureEffectsOf(updated)[1]).toBe(sibling)
+    })
+
+    it('re-sorts the entry’s effects when an edit moves a start past a sibling', () => {
+      let state = addEffect(stateOf(['a']), effect('p1', 'a', { start: 1, end: 3 }))
+      state = addEffect(state, effect('p2', 'a', { start: 2, end: 4 }))
+      expect(windows(updateEffect(state, 'p1', { start: 5, end: 6 }), 'a')).toEqual([
+        ['p2', 2, 4],
+        ['p1', 5, 6],
+      ])
+    })
+
+    it('rejects an unknown id and a malformed spec', () => {
+      const state = addEffect(stateOf(['a']), effect('p1', 'a'))
+      expect(updateEffect(state, 'ghost')).toBe(state)
+      expect(updateEffect(state, 'p1', { start: 2, end: 1 })).toBe(state)
+      expect(updateEffect(state, 'p1', { params: { strength: Number.NaN } })).toBe(state)
+    })
+
+    it('is a no-op (same reference) when the clamp lands on what is already stored', () => {
+      const state = addEffect(stateOf(['a', 4]), effect('p1', 'a', { start: 1, end: 4 }))
+      // An end of 9 clamps to the entry's 4 s, which is already stored.
+      expect(updateEffect(state, 'p1', { start: 1, end: 9 })).toBe(state)
+      // Equal parameters in a fresh object are no change either.
+      expect(updateEffect(state, 'p1', { start: 1, end: 4, params: { strength: 0.6 } })).toBe(state)
+    })
+  })
+
+  describe('picture-effect-removed', () => {
+    it('removes one effect by id, and the key goes with the last one', () => {
+      let state = addEffect(stateOf(['a']), effect('p1', 'a'))
+      state = addEffect(state, effect('p2', 'a', {}, 'blur'))
+      const one = timelineReducer(state, { type: 'picture-effect-removed', id: 'p1' })
+      expect(pictureEffectsOf(one).map(({ id }) => id)).toEqual(['p2'])
+      expect(timelineReducer(one, { type: 'picture-effect-removed', id: 'p1' })).toBe(one)
+      const none = timelineReducer(one, { type: 'picture-effect-removed', id: 'p2' })
+      expect(none).not.toHaveProperty('pictureEffects')
+    })
+  })
+
+  describe('across entry edits', () => {
+    it('drops an entry’s effects with the entry, keeping the others', () => {
+      let state = addEffect(stateOf(['a'], ['b']), effect('p1', 'a'))
+      state = addEffect(state, effect('p2', 'b'))
+      const removed = timelineReducer(state, { type: 'entry-removed', id: 'a' })
+      expect(pictureEffectsOf(removed).map(({ id }) => id)).toEqual(['p2'])
+    })
+
+    it('re-clamps a window when a retrim shrinks the entry, collapsing it rather than dropping it', () => {
+      // The window keeps its offset into the trimmed range, as a zoom's does.
+      let state = addEffect(stateOf(['a']), effect('p1', 'a', { start: 2, end: 6 }))
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 4 })
+      expect(windows(state, 'a')).toEqual([['p1', 2, 4]])
+      state = timelineReducer(state, { type: 'entry-trimmed', id: 'a', inPoint: 0, outPoint: 1 })
+      expect(windows(state, 'a')).toEqual([['p1', 1, 1]])
+    })
+
+    it('keeps an effect with its entry through a move, in entry order', () => {
+      let state = addEffect(stateOf(['a'], ['b']), effect('pa', 'a'))
+      state = addEffect(state, effect('pb', 'b'))
+      state = timelineReducer(state, { type: 'entry-moved', id: 'a', direction: 'down' })
+      expect(pictureEffectsOf(state).map(({ id, entryId }) => [id, entryId])).toEqual([
+        ['pb', 'b'],
+        ['pa', 'a'],
+      ])
+    })
+
+    it('leaves an effect-free state without the key through every edit', () => {
+      let state = timelineReducer(stateOf(['a'], ['b']), { type: 'entry-trimmed', id: 'a', inPoint: 1, outPoint: 5 })
+      state = timelineReducer(state, { type: 'entry-moved', id: 'a', direction: 'down' })
+      expect(state).not.toHaveProperty('pictureEffects')
+    })
+
+    it('normalizes a state built outside the reducer: unknown entries dropped, windows clamped and sorted', () => {
+      const state = normalizedTimelineState(
+        stateOf(['a', 4]).entries,
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        undefined,
+        undefined,
+        [],
+        [],
+        [effect('p2', 'a', { start: 2, end: 9 }), effect('p1', 'a', { start: 0, end: 1 }), effect('p3', 'ghost')],
+      )
+      expect(windows(state, 'a')).toEqual([
+        ['p1', 0, 1],
+        ['p2', 2, 4],
+      ])
+      expect(pictureEffectsOf(state)).toHaveLength(2)
+    })
+  })
+
+  it('undo and redo step through add, edit and remove, one step each', () => {
+    const dispatch = (history: typeof emptyTimelineHistory, action: Parameters<typeof timelineHistoryReducer>[1]) =>
+      timelineHistoryReducer(history, action)
+    let history = { ...emptyTimelineHistory, present: stateOf(['a']) }
+    history = dispatch(history, { type: 'picture-effect-added', effect: effect('p1', 'a') })
+    history = dispatch(history, { type: 'picture-effect-updated', id: 'p1', effect: effectSpec({ end: 5 }) })
+    history = dispatch(history, { type: 'picture-effect-removed', id: 'p1' })
+    expect(pictureEffectsOf(history.present)).toEqual([])
+    history = dispatch(history, { type: 'edit-undone' })
+    expect(windows(history.present, 'a')).toEqual([['p1', 1, 5]])
+    history = dispatch(history, { type: 'edit-undone' })
+    expect(windows(history.present, 'a')).toEqual([['p1', 1, 3]])
+    history = dispatch(history, { type: 'edit-undone' })
+    expect(pictureEffectsOf(history.present)).toEqual([])
+    history = dispatch(history, { type: 'edit-redone' })
+    history = dispatch(history, { type: 'edit-redone' })
+    expect(windows(history.present, 'a')).toEqual([['p1', 1, 5]])
   })
 })
 

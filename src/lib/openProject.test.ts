@@ -586,6 +586,41 @@ describe('restoreProject with audio tracks (#102)', () => {
   })
 })
 
+describe('restoreProject with picture effects (#862)', () => {
+  const project: Project = {
+    clips: [{ id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' }],
+    timeline: {
+      entries: [
+        { id: 'e1', clipId: 'a', name: 'holiday.mp4', duration: 10, inPoint: 1, outPoint: 8 },
+      ],
+      transitions: [],
+      zooms: [],
+      pictureEffects: [
+        { id: 'p2', entryId: 'e1', type: 'blur', start: 5, end: 12, params: { amount: 8 } },
+        { id: 'p1', entryId: 'e1', type: 'vignette', start: 1, end: 3, params: { strength: 0.6 } },
+      ],
+      audioTracks: [],
+    },
+  }
+
+  it('carries the effects into the normalized timeline, sorted and clamped into the entry', () => {
+    const restored = restoreProject(project, new Map([['a', 'blob:relinked-a']]))
+    // The trimmed range is 7 s: the foreign writer's window past it clamps
+    // to the range's end, as an in-app retrim would clamp it, and the
+    // entry's effects come back sorted by start.
+    expect(restored.timeline.pictureEffects).toEqual([
+      { id: 'p1', entryId: 'e1', type: 'vignette', start: 1, end: 3, params: { strength: 0.6 } },
+      { id: 'p2', entryId: 'e1', type: 'blur', start: 5, end: 7, params: { amount: 8 } },
+    ])
+  })
+
+  it('a project without picture effects restores to a state without the key', () => {
+    const bare: Project = { ...project, timeline: { ...project.timeline, pictureEffects: undefined } }
+    const restored = restoreProject(bare, new Map([['a', 'blob:relinked-a']]))
+    expect(restored.timeline).not.toHaveProperty('pictureEffects')
+  })
+})
+
 describe('restoreProject with time-remap effects (#138)', () => {
   const project: Project = {
     clips: [{ id: 'a', name: 'holiday.mp4', duration: 10, kind: 'video' }],
