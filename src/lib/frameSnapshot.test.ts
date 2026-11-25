@@ -241,7 +241,7 @@ describe('snapshotTimelineFrame (#237)', () => {
         ExportUnsupportedError,
       )
       await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(false).options)).rejects.toThrow(
-        /picture effect such as Blur when saving a frame \(canvas filters are unsupported\)/,
+        /picture effect such as Blur or Old film when saving a frame \(canvas filters are unsupported\)/,
       )
       // With filter support, it saves.
       await expect(snapshotTimelineFrame(blur, 1, snapshotOptions(true).options)).resolves.toBeInstanceOf(Blob)
