@@ -6,6 +6,7 @@ import {
   timelineHasBlurRedaction,
   timelineHasColorAdjustments,
 } from './exportVideo'
+import { timelineHasPictureFilters } from './pictureLook'
 import type { LayerFrame, OverlayFrame } from './exportVideo'
 import { automaticExportFrame, probeSourceDimensions } from './exportSettings'
 import { locateInSequence, videoOverlayPlaybackAt } from './playback'
@@ -306,6 +307,16 @@ async function renderFrame(
     throw new ExportUnsupportedError(
       'This browser cannot render color adjustments when saving a frame (canvas filters are ' +
         'unsupported). Reset the color adjustments, or save from a browser that supports canvas filters.',
+    )
+  }
+  // The export's picture-effect refusal (#862, #943): a frame the preview
+  // shows with a picture effect's filter, such as the Visual effects
+  // plugin's Blur or Old film, must never save without it.
+  if (timelineHasPictureFilters(timeline) && !canvasSupportsColorFilter(context)) {
+    throw new ExportUnsupportedError(
+      'This browser cannot render a picture effect such as Blur or Old film when saving a frame ' +
+        '(canvas filters are unsupported). Remove those effects, or save from a browser that ' +
+        'supports canvas filters.',
     )
   }
   // The export's blur-redaction refusal (#492): a frame the preview shows
