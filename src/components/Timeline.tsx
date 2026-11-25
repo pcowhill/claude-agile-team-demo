@@ -94,10 +94,10 @@ import {
   DEFAULT_SUBTITLE_STYLE,
   MAX_TEXT_SIZE,
   MIN_TEXT_SIZE,
-  fontRegistry,
   subtitleStylesEqual,
 } from '../lib/textOverlay'
 import type { SubtitleStyle } from '../lib/textOverlay'
+import { FontSelect } from './FontSelect'
 import { MIN_OVERLAY_SIZE, overlayOutputDuration, overlayPlacementOf } from '../lib/videoOverlay'
 import type { OverlayMoveSpec } from '../lib/overlayMove'
 import { defaultMoveFor } from '../lib/overlayMove'
@@ -144,7 +144,6 @@ import {
   withLineStyle,
   withShapeEntrance,
 } from '../lib/shapes'
-import type { TextFontId } from '../lib/textOverlay'
 import { addMenuContributions } from '../lib/addMenu'
 import type { AddMenuRegistry, PlacedElements } from '../lib/addMenu'
 import {
@@ -2603,42 +2602,6 @@ interface SubtitleStyleControlsProps {
   onCommit: (style: SubtitleStyle) => void
 }
 
-/**
- * A Font menu (#859): the registered fonts, in registration order, re-read
- * whenever a plugin adds or removes one. A stored id no registered font
- * covers (its plugin disabled) stays selected and is named "(unavailable)",
- * as the transition type picker does (#199), instead of the select silently
- * showing the first font. The subscription sits on the component that owns
- * the `<select>`, not on its options: React re-applies a controlled
- * select's value only when the select itself re-renders, so options
- * re-rendering alone left the browser showing the first font once the
- * selected one was swapped for its "(unavailable)" entry.
- */
-function FontSelect({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: TextFontId
-  onChange: (font: TextFontId) => void
-}) {
-  useSyncExternalStore(fontRegistry.subscribe, () => fontRegistry.version)
-  return (
-    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-      {fontRegistry.list().map((font) => (
-        <option key={font.id} value={font.id}>
-          {font.label}
-        </option>
-      ))}
-      {!fontRegistry.has(value) && (
-        <option key={`unavailable:${value}`} value={value}>
-          {value} (unavailable)
-        </option>
-      )}
-    </select>
-  )
-}
 
 /**
  * The default-subtitle-style editor (#250), beside the subtitle import: the

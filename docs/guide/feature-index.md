@@ -203,7 +203,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Fit to width** — the preview's View ▾; the picture takes the panel's whole width, beside the media library. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
 - **Flip H** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
 - **Flip V** — an expanded video or image row › Picture ▸. [Editing video › Orientation](editing-video.md#orientation)
-- **Font** — an expanded text row; the four core fonts, and ten more with the Font pack plugin on. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Plugins › Font pack](plugins.md#font-pack)
+- **Font** — an expanded text row; the four core fonts, and ten more with the Font pack plugin on, each name drawn in its own font. [Text and subtitles › The properties](text-and-subtitles.md#the-properties) · [Plugins › Font pack](plugins.md#font-pack)
 - **Frame** — the preview transport's menu of frame actions. [Preview and playback › The Frame ▾ menu](preview-and-playback.md#the-frame-menu)
 - **frame ▶** — the Trim window and the Cut window; moves the playhead one frame on (not for an audio track). The Split window; moves the split point one frame on (not for an audio track). [Editing video › The Trim window](editing-video.md#the-trim-window) · [Editing video › Split…](editing-video.md#split)
 - **Freeze frame — append after clip** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
