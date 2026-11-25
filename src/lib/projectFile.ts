@@ -27,8 +27,10 @@ import {
   videoOverlaysOf,
   zoomsOf,
   markersOf,
+  pictureEffectsOf,
   shapeGroupsOf,
 } from './timeline'
+import type { PictureEffect } from './pictureEffect'
 import type { Shape, ShapeGroup, ShapeStyle } from './shapes'
 import {
   ARROW_HEAD_SIZES,
@@ -105,6 +107,8 @@ import { MAX_VOLUME } from './volume'
  *                   centerX, centerY }],
  *       "remaps": [{ id, entryId, kind: "speed", start, end, factor } |
  *                  { id, entryId, kind: "pause", at, hold }],   // (#138)
+ *       "pictureEffects": [{ id, entryId, type, start, end,
+ *                            params: { [key]: number } }],      // (#862)
  *       "texts": [{ id, content, offset, duration, x, y, font, size,
  *                   color, bold, italic,
  *                   fadeIn?, fadeOut?,                          // (#139, #177)
@@ -304,7 +308,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 33
+export const PROJECT_SCHEMA_VERSION = 34
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -428,6 +432,13 @@ export const BOOSTED_VOLUME_SCHEMA_VERSION = 32
  * its version and its bytes.
  */
 export const OVERLAY_MOVES_SCHEMA_VERSION = 33
+/**
+ * The version a picture effect forces (#862). An earlier build would ignore
+ * the key and show the entry's picture unaffected, so a file holding one
+ * refuses it by version; an effect-free file keeps its version and its
+ * bytes.
+ */
+export const PICTURE_EFFECTS_SCHEMA_VERSION = 34
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -530,6 +541,12 @@ export interface ProjectTimeline {
    * carries any, mirroring `TimelineState` where absence means none.
    */
   shapeGroups?: ShapeGroup[]
+  /**
+   * Picture effects on entries (#862, schema version 34). Present exactly
+   * when the file carries any, mirroring `TimelineState` where absence
+   * means none.
+   */
+  pictureEffects?: PictureEffect[]
   /**
    * Overlay video layers (#145). Present exactly when the file carries any,
    * additive within a schema version exactly like `remaps`.
@@ -810,6 +827,9 @@ export async function serializeProject(
   const hasDrawOn = shapeGroupsOf(timeline).some((group) => group.drawOn !== undefined)
   // A Volume above 1 (#751): every element kind that carries a Volume.
   const boosted = (element: { volume?: number }) => (element.volume ?? 1) > 1
+  // The reducer never stores an empty list; length-based all the same, so a
+  // foreign state carrying one writes the bytes of a state that never did.
+  const hasPictureEffects = pictureEffectsOf(timeline).length > 0
   // Length-based, like the overlay's zooms: written only while one exists.
   const hasOverlayMoves = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.moves?.length ?? 0) > 0,
@@ -894,7 +914,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayMoves
+    schemaVersion: hasPictureEffects
+      ? PICTURE_EFFECTS_SCHEMA_VERSION
+      : hasOverlayMoves
       ? OVERLAY_MOVES_SCHEMA_VERSION
       : hasBoostedVolume
       ? BOOSTED_VOLUME_SCHEMA_VERSION
@@ -1091,6 +1113,20 @@ export async function serializeProject(
                   },
             ),
           }),
+      // Picture effects (#862) are written only while any exist, so
+      // effect-free projects stay byte-identical to earlier output.
+      ...(hasPictureEffects
+        ? {
+            pictureEffects: pictureEffectsOf(timeline).map(({ id, entryId, type, start, end, params }) => ({
+              id,
+              entryId,
+              type,
+              start,
+              end,
+              params: { ...params },
+            })),
+          }
+        : {}),
       // Text overlays (#139) are written only while any exist, so text-free
       // projects stay byte-identical to earlier output — additive within the
       // schema version, like remaps.
@@ -2231,6 +2267,38 @@ function validateProject(document: Record<string, unknown>): Project {
     zoomIds.add(zoom.id)
   }
 
+  // Picture effects (#862, schema version 34): absent in files saved before
+  // them, and in effect-free files since. The structure is checked here:
+  // a known entry, a non-empty type, a non-empty window and finite
+  // parameter values. Fitting the window into the entry is the reducer's
+  // clamp, re-applied when the opened timeline is normalized, as for zooms.
+  // Whether the type is a *known* effect is a registry question, answered
+  // in the open flow once the file's plugins are settled
+  // (`unregisteredPictureEffectTypes`), as it is for transitions (#199).
+  const pictureEffectIds = new Set<string>()
+  const pictureEffects = asArray(timelineRaw.pictureEffects ?? [], 'timeline.pictureEffects').map(
+    (value, index): PictureEffect => {
+      const path = `timeline.pictureEffects[${index}]`
+      const raw = asRecord(value, path)
+      const id = asString(raw.id, `${path}.id`)
+      const entryId = asString(raw.entryId, `${path}.entryId`)
+      if (!entryIds.has(entryId)) {
+        throw new Error(`${path}.entryId "${entryId}" does not match any timeline entry`)
+      }
+      const type = asString(raw.type, `${path}.type`)
+      const start = asNonNegative(raw.start, `${path}.start`)
+      const end = asFinite(raw.end, `${path}.end`)
+      if (start >= end) throw new Error(`${path} window is empty (start must be less than end)`)
+      const paramsRaw = asRecord(raw.params, `${path}.params`)
+      const params = Object.fromEntries(
+        Object.entries(paramsRaw).map(([key, param]) => [key, asFinite(param, `${path}.params.${key}`)]),
+      )
+      if (pictureEffectIds.has(id)) throw new Error(`${path}.id "${id}" is duplicated`)
+      pictureEffectIds.add(id)
+      return { id, entryId, type, start, end, params }
+    },
+  )
+
   // Time-remap effects (#138): absent in files saved before them, and in
   // remap-free files since. Window positions are range-checked here (finite,
   // non-negative, non-empty); fitting within the trimmed range is the
@@ -2756,6 +2824,7 @@ function validateProject(document: Record<string, unknown>): Project {
       // Present exactly when the file carried effects, mirroring the
       // serializer and TimelineState (see the ProjectTimeline field).
       ...(remaps.length === 0 ? {} : { remaps }),
+      ...(pictureEffects.length === 0 ? {} : { pictureEffects }),
       ...(texts.length === 0 ? {} : { texts }),
       ...(subtitleStyle === undefined ? {} : { subtitleStyle }),
       ...(canvasPreset === undefined ? {} : { canvasPreset }),

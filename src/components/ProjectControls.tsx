@@ -14,6 +14,7 @@ import { emptyTimeline } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { unregisteredTransitionTypes } from '../lib/transitionRender'
 import { unregisteredTextFonts } from '../lib/textOverlay'
+import { unregisteredPictureEffectTypes } from '../lib/pictureEffect'
 import type { ExportRange } from '../lib/exportVideo'
 import {
   DEFAULT_PROJECT_FILE_NAME,
@@ -458,6 +459,20 @@ export function ProjectControls({
         `this project uses the unknown font${
           unknownFonts.length === 1 ? '' : 's'
         } ${unknownFonts.map((id) => `"${id}"`).join(', ')} — the file is damaged, or was saved by a newer version of the editor`,
+      )
+      reofferRestore()
+      return
+    }
+    // Picture effects likewise (#862): every definition comes from a plugin,
+    // so only after the gate can an unknown type be told from a known one.
+    const unknownEffects = unregisteredPictureEffectTypes(
+      (result.project.timeline.pictureEffects ?? []).map((effect) => effect.type),
+    )
+    if (unknownEffects.length > 0) {
+      setOpenError(
+        `this project uses the unknown picture effect${
+          unknownEffects.length === 1 ? '' : 's'
+        } ${unknownEffects.map((type) => `"${type}"`).join(', ')} — the file is damaged, or was saved by a newer version of the editor`,
       )
       reofferRestore()
       return
