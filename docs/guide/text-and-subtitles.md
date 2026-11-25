@@ -24,7 +24,7 @@ Words on the picture: titles, captions, labels and imported subtitles, each a **
 - **Shows at** is the second of the video the text appears, and **for** how many seconds it stays. Anything past the end of the sequence is cut off there, like every element. [Cut out marked range](editing-video.md#cut-out-marked-range) moves text after the range earlier with the picture, and shortens or removes text the range overlaps.
 - **centre** is two fractions, *x* and *y*, of the frame's width and height, 0 to 1, naming the block's centre — so the block keeps its place when the output frame changes. **Adjust visually…** beside them opens the [visual text editor](visual-editors.md#what-each-editor-shows).
 - **Fade in** and **out** are in seconds; see [Fade-in and fade-out](#fade-in-and-fade-out).
-- **Font** offers four curated stacks — *Sans-serif*, *Serif*, *Monospace* and *Display* — chosen because every browser has a font for each, so the export draws what the preview showed.
+- **Font** offers four curated stacks — *Sans-serif*, *Serif*, *Monospace* and *Display* — chosen because every browser has a font for each, so the export draws what the preview showed. The [Font pack](plugins.md#font-pack) plugin adds ten more faces after them, served by this site, such as a rounded, a handwritten and a pixel face.
 - **Size** is the line height as a fraction of the frame's height, from {{MIN_TEXT_SIZE_PERCENT}} % to {{MAX_TEXT_SIZE_PERCENT}} %; a value in the field's step. Lines of a multi-line block are spaced at {{TEXT_LINE_HEIGHT}} × the size.
 - **Color** is any colour, and **Bold** and **Italic** are two toggles.
 

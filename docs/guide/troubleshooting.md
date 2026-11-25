@@ -76,6 +76,7 @@ When something is not where the guide says, or the browser will not do what you 
 - **Adjust visually…** buttons, and a shape group's **Draw shapes…** — hidden when Settings › *Visual editors* is Off.
 - **Animated GIF**, **Animated WebP**, **Animated PNG (APNG)**, **PNG image sequence (ZIP)** or **WAV audio (uncompressed)** in the export dialog, or the seven **shaped wipe** transitions — their plugin is disabled; enable it in File ▾ › Plugins…. A shaped wipe already on the timeline shows as *unavailable* in the type menu meanwhile.
 - The nine **pattern transitions** — blinds, checkerboard, the diamond, star and heart irises, the clock and radial wipes, and the spiral — the Pattern transitions plugin is disabled; enable it in File ▾ › Plugins…. One already on the timeline shows as *unavailable* in the type menu meanwhile.
+- The ten **Font pack** faces in a **Font** menu, such as *Nunito* or *Caveat* — the Font pack plugin is disabled; enable it in File ▾ › Plugins…. Text already in one shows the font as *unavailable* in its Font menu meanwhile, and draws in the core sans-serif.
 - **Record ▾**, or its **Screen** and **System audio** sources — the browser cannot capture, or cannot share sound; see above.
 - **Marked range** in the export dialog — the preview's in and out marks do not form a range; set both, in before out.
 - **Sort by** in the library's View ▾ — it appears only with more than one clip.

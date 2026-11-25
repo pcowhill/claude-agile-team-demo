@@ -334,6 +334,22 @@ extension point is built until a concrete plugin needs it**.
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `usedByProject` loads no chunk.
+- **Font pack plugin** (`src/plugins/fontPack/`, #867): ten SIL OFL 1.1
+  faces registered into the font registry (#859), their `woff2` files
+  copied from `@fontsource/*` 5.3.0 (Latin subset) with each family's
+  licence beside them. No package is a dependency.
+  - **Static assets, loaded on use.** As with the Sound library, the chunk
+    holds only URLs (`?url&no-inline`). Activating adds each file to
+    `document.fonts` as an unloaded `FontFace`, so the browser downloads a
+    face the first time something renders with its family. Each family's
+    CSS name is `Font Pack <name>`, so an installed copy of the font is
+    never used instead.
+  - **The export and Save frame await `load`.** A canvas draws the
+    fallback face while a font is still downloading, so each font's `load`
+    resolves once its faces have. A failed download resolves too, and the
+    export then draws the fallback, as the preview does.
+  - **`usedByProject`** reads text fonts and the subtitle style's font
+    against the top-level `src/plugins/fontPackIds.ts`.
 
 ### Projects that use plugin features: prompt-and-enable
 
