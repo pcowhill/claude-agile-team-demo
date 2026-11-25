@@ -31,6 +31,19 @@ const ONSET_THRESHOLD = 0.05
 /** The app's MP3 bitrate (`src/lib/mp3Bitrate.ts`). */
 const MP3_KBPS = 192
 
+/**
+ * How late the tone may start, after the encoder's delay, per browser.
+ * Chromium's 20 ms is #908's criterion, and CI reads 0 ms there. Firefox's
+ * start latency is bimodal (#915): on one tree, attempts read 3.9-4.0 ms or
+ * 21.3-24.3 ms, both within one run, and once 44.5 ms. So Firefox gets
+ * 60 ms: above every measurement, and still well under the 107-147 ms the
+ * tap gave before #908, so that defect still fails here. A track playing its
+ * trimmed-off head (the second test) adds 40 ms, which only Chromium's bound
+ * is sure to catch.
+ */
+const ONSET_BOUND: Record<string, number> = { chromium: 0.02, firefox: 0.06 }
+const onsetBound = (browserName: string) => ONSET_BOUND[browserName] ?? 0.02
+
 /** The reference: SECONDS of stereo at `sampleRate`, the tone from sample 0 for TONE_SECONDS, as LAME encodes it. */
 function referenceMp3(sampleRate: number): Buffer {
   const frames = SECONDS * sampleRate
@@ -160,7 +173,9 @@ test('the MP3 export starts on the window\'s first sample and lasts the window (
   test.setTimeout(120_000)
   const { exported, lag } = await exportAgainstReference(page, browserName)
   // The tone starts with the window, once the encoder's delay is taken out.
-  expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(0.02)
+  expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(
+    onsetBound(browserName),
+  )
   // The file lasts the window.
   expect(
     Math.abs(exported.duration - SECONDS),
@@ -178,5 +193,7 @@ test('a track trimmed by less than a seek\'s threshold starts at its in-point (#
   // and the tone lands that much late.
   test.setTimeout(120_000)
   const { lag } = await exportAgainstReference(page, browserName, 0.04)
-  expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(0.02)
+  expect(Math.abs(lag), `the tone starts ${(lag * 1000).toFixed(1)} ms late`).toBeLessThanOrEqual(
+    onsetBound(browserName),
+  )
 })
