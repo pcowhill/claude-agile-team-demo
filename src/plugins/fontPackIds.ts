@@ -2,7 +2,7 @@
  * The font ids the Font pack plugin registers (#867). This module is
  * top-level `src/plugins/` wiring, part of the entry bundle and exempt from
  * the plugin-chunk check, for the reason `shapedWipesIds.ts` gives: the
- * catalog's `usedByProject` must answer "does this project use a pack
+ * catalog's `projectUses` must answer "does this project use a pack
  * font?" on every save without loading the plugin's lazy chunk. The plugin
  * module imports the same list, so the two cannot drift.
  *

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
-import type { PluginRuntime } from '../lib/plugins'
+import { disableConfirmationText } from '../lib/plugins'
+import type { PluginRuntime, PluginUseCount } from '../lib/plugins'
+import type { MediaLibraryState } from '../lib/mediaLibrary'
+import type { TimelineState } from '../lib/timeline'
 import { pluginRuntime } from '../plugins/runtime'
+import { ConfirmDialog } from './ConfirmDialog'
 import './dialog.css'
 import './PluginManager.css'
 
@@ -15,6 +19,14 @@ interface PluginManagerProps {
    */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /**
+   * The open project (#953). Disabling a plugin it uses asks first, saying
+   * how many times it is used; a plugin it does not use disables at once.
+   * Omitting either means no project to ask about, so every Disable acts at
+   * once, as before #953.
+   */
+  library?: MediaLibraryState
+  timeline?: TimelineState
 }
 
 /**
@@ -31,6 +43,8 @@ export function PluginManager({
   runtime = pluginRuntime,
   open: controlledOpen,
   onOpenChange,
+  library,
+  timeline,
 }: PluginManagerProps) {
   const [ownOpen, setOwnOpen] = useState(false)
   const controlled = controlledOpen !== undefined
@@ -46,16 +60,46 @@ export function PluginManager({
   const headingId = useId()
   // Re-render on every runtime change: loading → enabled/failed, restores.
   useSyncExternalStore(runtime.subscribe, () => runtime.version)
+  // Disabling a plugin the project uses waits on this confirmation (#953).
+  const [pending, setPending] = useState<{ id: string; uses: PluginUseCount } | null>(null)
+  // The row's Disable button, which gets focus back when the confirmation closes.
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
-    if (!open) return
-    closeRef.current?.focus()
+    if (open) closeRef.current?.focus()
+    else setPending(null)
+  }, [open])
+
+  useEffect(() => {
+    // While the confirmation is up, Escape is its Cancel, not this dialog's
+    // Close: ConfirmDialog listens for it itself.
+    if (!open || pending !== null) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false)
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, setOpen])
+  }, [open, pending, setOpen])
+
+  useEffect(() => {
+    if (pending !== null || returnFocusRef.current === null) return
+    returnFocusRef.current.focus()
+    returnFocusRef.current = null
+  }, [pending])
+
+  const disable = (id: string, button: HTMLButtonElement) => {
+    const uses =
+      library !== undefined && timeline !== undefined
+        ? runtime.projectUseCount(id, library, timeline)
+        : { count: 0, what: '' }
+    if (uses.count === 0) {
+      runtime.disable(id)
+      return
+    }
+    returnFocusRef.current = button
+    setPending({ id, uses })
+  }
+  const pendingSpec = pending === null ? undefined : runtime.find(pending.id)
 
   const plugins = runtime.list()
 
@@ -104,8 +148,8 @@ export function PluginManager({
                         type="button"
                         disabled={status.kind === 'loading'}
                         aria-label={`${enabled ? 'Disable' : 'Enable'} ${plugin.name}`}
-                        onClick={() => {
-                          if (enabled) runtime.disable(plugin.id)
+                        onClick={(event) => {
+                          if (enabled) disable(plugin.id, event.currentTarget)
                           else void runtime.enable(plugin.id)
                         }}
                       >
@@ -123,6 +167,20 @@ export function PluginManager({
             </div>
           </div>
         </div>
+      )}
+      {/* A sibling of the Plugins overlay, not inside it, so a click on its
+          backdrop cancels it without also reaching the Plugins backdrop. */}
+      {open && pending !== null && pendingSpec?.projectUses !== undefined && (
+        <ConfirmDialog
+          title={`Disable ${pendingSpec.name}?`}
+          body={disableConfirmationText(pendingSpec.name, pending.uses, pendingSpec.projectUses.whileDisabled)}
+          confirmLabel="Disable"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            if (runtime.isEnabled(pending.id)) runtime.disable(pending.id)
+            setPending(null)
+          }}
+        />
       )}
     </>
   )

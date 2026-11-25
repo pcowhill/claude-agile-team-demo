@@ -9,7 +9,7 @@ import { TitleTemplatesDialog } from './TitleTemplatesDialog'
  * as ordinary text overlays and a shape group. It contributes only the menu
  * item and its dialog, through the Add ▾ registry (`src/lib/addMenu.ts`).
  * What it places belongs to the project, not to the plugin, so no project
- * ever depends on it (`usedByProject` is omitted in the catalog).
+ * ever depends on it (`projectUses` is omitted in the catalog).
  */
 
 /** The Add ▾ item's id. */

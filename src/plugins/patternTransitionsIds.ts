@@ -2,7 +2,7 @@
  * The transition ids the Pattern transitions plugin registers (#857). Like
  * `shapedWipesIds.ts` (#199), this module is top-level `src/plugins/` wiring
  * — part of the entry bundle, exempt from the plugin-chunk check — because
- * the catalog's `usedByProject` predicate must answer "does this timeline
+ * the catalog's `projectUses` count must answer "does this timeline
  * use a pattern transition?" on every save without loading the plugin's
  * lazy chunk. The plugin module imports the same list, so the two cannot
  * drift.
