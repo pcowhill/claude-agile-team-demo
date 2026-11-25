@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LibraryClip, MediaLibraryState } from './mediaLibrary'
-import { clipFileName, emptyLibrary, formatDuration, mediaLibraryReducer, sortClips } from './mediaLibrary'
+import { clipFileName, emptyLibrary, formatClipLength, formatDuration, mediaLibraryReducer, sortClips } from './mediaLibrary'
 
 const clip = (overrides: Partial<LibraryClip> = {}): LibraryClip => ({
   id: crypto.randomUUID(),
@@ -176,6 +176,29 @@ describe('formatDuration', () => {
     expect(formatDuration(Number.NaN)).toBe('–:––')
     expect(formatDuration(Number.POSITIVE_INFINITY)).toBe('–:––')
     expect(formatDuration(-1)).toBe('–:––')
+  })
+})
+
+describe('formatClipLength (#885)', () => {
+  it("shows the Sound library's short effects in tenths, never as 0:00", () => {
+    // Click, Pop, Double click and Camera shutter, at their manifest lengths.
+    expect(formatClipLength(0.128)).toBe('0.1s')
+    expect(formatClipLength(0.208)).toBe('0.2s')
+    expect(formatClipLength(0.258)).toBe('0.3s')
+    expect(formatClipLength(0.358)).toBe('0.4s')
+  })
+
+  it('holds the tenths between 1 and 9 below a second', () => {
+    expect(formatClipLength(0.01)).toBe('0.1s')
+    expect(formatClipLength(0.6)).toBe('0.6s')
+    expect(formatClipLength(0.97)).toBe('0.9s')
+  })
+
+  it('leaves a second and longer, zero and invalid values to formatDuration', () => {
+    for (const seconds of [1, 1.4, 7.4, 59.6, 83, 3725, 0, Number.NaN, -1]) {
+      expect(formatClipLength(seconds)).toBe(formatDuration(seconds))
+    }
+    expect(formatClipLength(1)).toBe('0:01')
   })
 })
 

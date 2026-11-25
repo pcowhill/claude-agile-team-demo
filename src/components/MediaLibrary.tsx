@@ -7,7 +7,7 @@ import type {
   MediaLibraryState,
   PendingImport,
 } from '../lib/mediaLibrary'
-import { clipFileName, formatDuration } from '../lib/mediaLibrary'
+import { clipFileName, formatClipLength } from '../lib/mediaLibrary'
 import { downloadClip } from '../lib/clipDownload'
 import { emptySelection, librarySelectionReducer, selectedClips } from '../lib/librarySelection'
 import type { LibraryView } from '../lib/libraryView'
@@ -370,10 +370,11 @@ export function MediaLibrary({
   )
 
   // An image has no duration (#137); an em dash keeps the column aligned
-  // without pretending stills are zero seconds long.
+  // without pretending stills are zero seconds long. A clip under a second
+  // shows tenths rather than 0:00 (#885).
   const clipDuration = (clip: LibraryClip) => (
     <span className="clip-duration">
-      {clip.kind === 'image' ? '—' : formatDuration(clip.duration)}
+      {clip.kind === 'image' ? '—' : formatClipLength(clip.duration)}
     </span>
   )
 

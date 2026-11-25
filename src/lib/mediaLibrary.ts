@@ -215,6 +215,34 @@ export function mediaLibraryReducer(
   }
 }
 
+/**
+ * A clip's length as the media library's list and cards show it (#885):
+ * `formatDuration`, except that a clip shorter than a second shows tenths
+ * of a second, `0.1s` to `0.9s`. Whole seconds read a 0.128 s sound effect
+ * as `0:00`, an empty or broken clip, and a 0.6 s one as `0:01`. The tenths
+ * are rounded and held between 1 and 9, so a clip never reads as zero or as
+ * a second it does not reach.
+ *
+ * The form is chosen for the row's width. A library row keeps its actions
+ * on its one line only while everything fits, and at the default 1280px a
+ * row whose name has shrunk to its floor has no width to spare: `0:00.9`
+ * (50px at the row's font in Chromium) moved such rows' buttons onto a
+ * second line, where `0.9s` (33.5px) is narrower than the `0:01` (35.4px)
+ * it replaces. The Sound library dialog's `0.1 s` has a space the row
+ * cannot afford.
+ *
+ * Only the library's length column uses this. `formatDuration` also draws
+ * the preview's `0:12 / 1:05`, timeline lengths and marked ranges, which
+ * #885 did not ask to change, and #848 keeps those minute readouts apart
+ * from the Time fields setting.
+ */
+export function formatClipLength(seconds: number): string {
+  if (Number.isFinite(seconds) && seconds > 0 && seconds < 1) {
+    return `0.${Math.min(9, Math.max(1, Math.round(seconds * 10)))}s`
+  }
+  return formatDuration(seconds)
+}
+
 /** Formats a duration in seconds as m:ss or h:mm:ss, e.g. 7.4 → "0:07". */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '–:––'

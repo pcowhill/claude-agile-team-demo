@@ -395,6 +395,32 @@ for (const viewport of [
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(3)
 
+    // Click is 0.128 s: its row shows tenths, not 0:00 (#885). Each row's
+    // length stays on one line and inside its row, at this width.
+    const libraryRows = page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')
+    await expect(libraryRows.filter({ hasText: 'Click.webm' }).locator('.clip-duration')).toHaveText('0.1s')
+    await expectNoWrap(libraryRows.locator('.clip-duration'), `a library row's length ${where}`)
+    for (let index = 0; index < 3; index++) {
+      await expectWithin(libraryRows.nth(index).locator('.clip-duration'), libraryRows.nth(index), {
+        axis: 'x',
+        what: `library row ${index + 1}'s length ${where}`,
+      })
+    }
+    // At 1280px, as on `main` before #885, each row keeps its length and
+    // its actions on one line: the length's box overlaps the Add button's
+    // vertically, read in one page read. A wider short-clip form (0:00.9)
+    // pushed the Whoosh and Click rows' actions onto a second line.
+    if (viewport.width === 1280) {
+      const split = await libraryRows.evaluateAll((nodes) =>
+        nodes.flatMap((row) => {
+          const length = row.querySelector('.clip-duration')!.getBoundingClientRect()
+          const add = [...row.querySelectorAll('button')].find((button) => button.textContent === 'Add')!.getBoundingClientRect()
+          return Math.max(length.top, add.top) < Math.min(length.bottom, add.bottom) ? [] : [row.textContent]
+        }),
+      )
+      expect(split, `library rows whose length and actions are on different lines ${where}`).toEqual([])
+    }
+
     // The plugin's button still fits the header's panel, each button's
     // label on one line. The header wraps whole controls onto a second line
     // when they do not fit (#793), which it does with the plugin on.
