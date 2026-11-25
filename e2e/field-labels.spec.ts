@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { openPicture } from './pictureDisclosure'
-import { ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
+import { ADD_SHAPES, ADD_SLATE, ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
 import { chooseEffect } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
@@ -95,6 +95,8 @@ async function populatedProject(page: Page) {
 interface LabelReading {
   /** The nearest text left of the box on its line, trimmed to its last word. */
   label: string | null
+  /** That text whole, trimmed: "Shows for" where `label` reads "for". */
+  text: string | null
   /** The pixels between that text's right edge and the box's left edge. */
   gap: number
   /** The lines that text's own node occupies. */
@@ -126,7 +128,7 @@ async function labelOf(page: Page, name: string): Promise<LabelReading> {
         if (best === null || rect.right > best.right) best = { node, right: rect.right }
       }
     }
-    if (best === null) return { label: null, gap: Infinity, lines: 0 }
+    if (best === null) return { label: null, text: null, gap: Infinity, lines: 0 }
     range.selectNodeContents(best.node)
     const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0)
     rects.sort((a, b) => a.top - b.top)
@@ -136,8 +138,9 @@ async function labelOf(page: Page, name: string): Promise<LabelReading> {
       if (rect.top >= lineBottom - 0.5) lines++
       lineBottom = Math.max(lineBottom, rect.bottom)
     }
-    const words = (best.node.textContent ?? '').trim().split(/\s+/)
-    return { label: words[words.length - 1], gap: own.left - best.right, lines }
+    const text = (best.node.textContent ?? '').trim()
+    const words = text.split(/\s+/)
+    return { label: words[words.length - 1], text, gap: own.left - best.right, lines }
   })
 }
 
@@ -197,6 +200,61 @@ for (const viewport of [
     await expectWithin(row, page.locator('main'), { axis: 'x', what: `the Rect row at ${viewport.width}px` })
     await expectNoHorizontalScroll(page, `with the Rect row filled at ${viewport.width}px`)
     await row.screenshot({ path: testInfo.outputPath(`overlay-rect-${viewport.width}.png`) })
+  })
+}
+
+/**
+ * How long an element is on screen reads **Shows for** on every row that
+ * sets it, and when it appears **Shows at** (#950, from the customer's
+ * #947). Before, a slate said *Shows for*, an image overlay *Length*, and a
+ * shape group and a text overlay *for*; an image overlay began at *Starts
+ * at* where the other two said *Shows at*. A video overlay and an audio
+ * track keep *Starts at*: they play their trim from there, and no field
+ * sets how long they show. The accessible names are unchanged.
+ */
+const SLATE = 'Color slate at position 2'
+const SHAPES = 'shape group at position 1'
+const TIMING: [name: string, label: string][] = [
+  [`Duration of ${SLATE} in seconds`, 'Shows for'],
+  [`Start time of ${OVERLAY} in seconds`, 'Shows at'],
+  [`Duration of ${OVERLAY} in seconds`, 'Shows for'],
+  [`Start time of ${SHAPES} in seconds`, 'Shows at'],
+  [`Duration of ${SHAPES} in seconds`, 'Shows for'],
+  [`Start time of ${TEXT} in seconds`, 'Shows at'],
+  [`Duration of ${TEXT} in seconds`, 'Shows for'],
+]
+
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 360, height: 640 },
+]) {
+  test(`every on-screen duration reads "Shows for", and its start "Shows at", on one line, at ${viewport.width}px (#950)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport)
+    await populatedProject(page)
+    await chooseFromAddMenu(page, ADD_SLATE)
+    await chooseFromAddMenu(page, ADD_SHAPES)
+    const column = page.locator('main')
+
+    const wrong: string[] = []
+    for (const [name, expected] of TIMING) {
+      const box = page.getByRole('spinbutton', { name, exact: true })
+      await expect(box, name).toBeVisible()
+      const reading = await labelOf(page, name)
+      if (reading.text !== expected || reading.gap > 12 || reading.lines !== 1) {
+        wrong.push(`${name}: read ${JSON.stringify(reading)}, want "${expected}"`)
+      }
+      // The label and its box together, as the Rect test reads them: a
+      // label that wraps away from its box reads as the last field's.
+      await expectNoWrap(box.locator('xpath=ancestor::span[contains(@class, "timeline-labelled")][1]'), `${name}'s label and box`)
+      await expectWithin(box.locator('xpath=ancestor::div[1]'), column, { axis: 'x', what: `the row of ${name}` })
+    }
+    expect(wrong, 'timing boxes whose label, read from the layout, is not the shared wording').toEqual([])
+    await expectNoHorizontalScroll(page, `with every timing row expanded at ${viewport.width}px`)
+
+    await page.getByRole('spinbutton', { name: TIMING[1][0], exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`timing-labels-${viewport.width}.png`) })
   })
 }
 
