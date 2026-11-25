@@ -120,8 +120,8 @@ export const builtInPlugins: readonly PluginSpec[] = [
     name: 'Title templates',
     description:
       'Adds "Title template…" to the timeline\'s Add menu: lower thirds, chapter cards and end ' +
-      'cards in several styles, a call-out and a step badge, placed as ordinary text and shapes ' +
-      'you can edit like any other.',
+      'cards in several styles, before / after labels, a call-out and a step badge, placed as ' +
+      'ordinary text and shapes you can edit like any other.',
     version: '1.0.0',
     load: () => import('./titleTemplates/index'),
     // What a template places is ordinary text and shapes, which stay when

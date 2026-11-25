@@ -6,8 +6,9 @@ import { isBoxShape, isValidShapeGroupSpec } from '../../lib/shapes'
 import type { BadgeShape, Shape, ShapeGroupSpec } from '../../lib/shapes'
 import { createTextMeasurer } from '../../lib/textMeasure'
 import { isValidTextOverlaySpec, TEXT_LINE_HEIGHT } from '../../lib/textOverlay'
+import type { TextOverlaySpec } from '../../lib/textOverlay'
 import { shapeGroupsOf, textsOf } from '../../lib/timeline'
-import { canPlace, defaultValues, fitLine, nextStepNumber, TEMPLATE_MARGIN, TITLE_TEMPLATES } from './templates'
+import { canPlace, defaultValues, fitLine, nextStepNumber, PAIR_GUTTER, TEMPLATE_MARGIN, TITLE_TEMPLATES } from './templates'
 import type { TitleTemplate } from './templates'
 
 /**
@@ -224,13 +225,138 @@ describe('title templates part 2: the step badge, the call-out and the styles (#
   })
 })
 
+describe('Before / after templates (#965)', () => {
+  const PAIRS = ['before-after', 'before-after-split', 'before-after-bold'] as const
+  const SQUARE = { width: 1080, height: 1080 }
+  const frames = { ...FRAMES, '1:1': SQUARE }
+
+  /** A placed label's measured left and right edges, in px. */
+  const edges = (label: TextOverlaySpec, frame: { width: number; height: number }, measure: ReturnType<typeof stubMeasurer>) => {
+    const half = measure(textCanvasFont(label, frame.height), label.content) / 2
+    return { left: label.x * frame.width - half, right: label.x * frame.width + half }
+  }
+
+  it('each takes a Left label and a Right label, Before and After, both required', () => {
+    for (const id of PAIRS) {
+      expect(template(id).fields.map((field) => [field.label, field.defaultValue, field.optional ?? false])).toEqual([
+        ['Left label', 'Before', false],
+        ['Right label', 'After', false],
+      ])
+      expect(canPlace(template(id), { left: 'Before', right: '' })).toBe(false)
+      expect(canPlace(template(id), { left: '', right: 'After' })).toBe(false)
+    }
+  })
+
+  for (const id of PAIRS) {
+    for (const [aspect, frame] of Object.entries(frames)) {
+      for (const [which, values] of [
+        ['both labels long', { left: LONG, right: LONG }],
+        ['the left label long', { left: LONG, right: SHORT }],
+        ['the right label long', { left: SHORT, right: LONG }],
+        ['the examples', { left: 'Before', right: 'After' }],
+      ] as const) {
+        it(`${id} keeps each label in its own half at ${aspect}, with ${which}`, () => {
+          const measure = stubMeasurer()
+          const placed = template(id).build(values, frame, measure)
+          const [left, right] = placed.texts
+          expect([left.content, right.content]).toEqual([values.left, values.right])
+          const gutter = PAIR_GUTTER * Math.min(frame.width, frame.height)
+          const middle = frame.width / 2
+          const a = edges(left, frame, measure)
+          const b = edges(right, frame, measure)
+          const where = `left ${JSON.stringify(a)}, right ${JSON.stringify(b)}, middle ${middle}`
+          expect(a.right, where).toBeLessThanOrEqual(middle - gutter + 0.5)
+          expect(b.left, where).toBeGreaterThanOrEqual(middle + gutter - 0.5)
+          // Inside the margins, and one size, so they read as a pair.
+          const margin = TEMPLATE_MARGIN * Math.min(frame.width, frame.height)
+          expect(a.left, where).toBeGreaterThanOrEqual(margin - 0.5)
+          expect(b.right, where).toBeLessThanOrEqual(frame.width - margin + 0.5)
+          expect(left.size).toBe(right.size)
+          expect(left.y).toBe(right.y)
+          // A box behind a label stays in the label's half too.
+          for (const shape of placed.shapeGroups[0].shapes) {
+            if (!isBoxShape(shape) || shape.id === 'band' || shape.id === 'rule') continue
+            const [x0, x1] = [shape.x * frame.width, (shape.x + shape.width) * frame.width]
+            if (shape.id === 'left') expect(x1, `${shape.id} box ${x0}–${x1}`).toBeLessThanOrEqual(middle - gutter + 1e-6)
+            else expect(x0, `${shape.id} box ${x0}–${x1}`).toBeGreaterThanOrEqual(middle + gutter - 1e-6)
+          }
+        })
+      }
+    }
+  }
+
+  it('the examples keep the nominal size: only a label too long for its half shrinks, and its partner with it', () => {
+    const frame = FRAMES['16:9']
+    const measure = stubMeasurer()
+    const examples = template('before-after').build({ left: 'Before', right: 'After' }, frame, measure)
+    expect(examples.texts[0].size).toBeCloseTo(0.05, 9)
+    const long = template('before-after').build({ left: `${LONG} ${LONG}`, right: 'After' }, frame, measure)
+    expect(long.texts[0].size).toBeLessThan(0.05)
+    expect(long.texts[1].size).toBe(long.texts[0].size)
+  })
+
+  it("the pills and the bars enclose their labels, and the bold style's two bars differ", () => {
+    for (const id of ['before-after', 'before-after-bold'] as const) {
+      for (const frame of Object.values(frames)) {
+        const measure = stubMeasurer()
+        const placed = template(id).build(defaultValues(template(id)), frame, measure)
+        const boxes = placed.shapeGroups[0].shapes.filter(isBoxShape)
+        expect(boxes.map((box) => box.id)).toEqual(['left', 'right'])
+        placed.texts.forEach((label, index) => {
+          const box = boxes[index]
+          const { left, right } = edges(label, frame, measure)
+          const half = (label.size * TEXT_LINE_HEIGHT) / 2
+          expect(left).toBeGreaterThan(box.x * frame.width)
+          expect(right).toBeLessThan((box.x + box.width) * frame.width)
+          expect(label.y - half).toBeGreaterThan(box.y)
+          expect(label.y + half).toBeLessThan(box.y + box.height)
+        })
+      }
+    }
+    const pills = template('before-after').build(defaultValues(template('before-after')), FRAMES['16:9'], stubMeasurer())
+    expect(pills.shapeGroups[0].shapes.map((shape) => [shape.fill, shape.fillOpacity])).toEqual([
+      ['#111827', 0.85],
+      ['#111827', 0.85],
+    ])
+    const bars = template('before-after-bold').build(defaultValues(template('before-after-bold')), FRAMES['16:9'], stubMeasurer())
+    const [grey, green] = bars.shapeGroups[0].shapes
+    expect([grey.fill, green.fill]).toEqual(['#4b5563', '#16a34a'])
+    expect([grey.fillOpacity, green.fillOpacity]).toEqual([1, 1])
+    expect(bars.texts.every((label) => label.bold)).toBe(true)
+  })
+
+  it("the split style's rule runs the frame's full height on its midline, and its band holds both labels", () => {
+    for (const frame of Object.values(frames)) {
+      const placed = template('before-after-split').build(defaultValues(template('before-after-split')), frame, stubMeasurer())
+      const [band, rule] = placed.shapeGroups[0].shapes
+      if (!isBoxShape(band) || !isBoxShape(rule)) throw new Error('the band, then the rule')
+      expect([band.id, rule.id]).toEqual(['band', 'rule'])
+      expect(rule.fill).toBe('#ffffff')
+      expect(rule.x + rule.width / 2).toBeCloseTo(0.5, 9)
+      expect([rule.y, rule.height]).toEqual([0, 1])
+      expect(rule.width * frame.width).toBeLessThan(0.01 * Math.min(frame.width, frame.height))
+      expect([band.x, band.width]).toEqual([0, 1])
+      for (const label of placed.texts) {
+        const half = (label.size * TEXT_LINE_HEIGHT) / 2
+        expect(label.y - half).toBeGreaterThan(band.y)
+        expect(label.y + half).toBeLessThan(band.y + band.height)
+      }
+      // Each label centred in its half, within the margin and the gutter.
+      const [left, right] = placed.texts
+      expect(left.x).toBeLessThan(0.25 + 1e-9)
+      expect(right.x).toBeGreaterThan(0.75 - 1e-9)
+      expect(left.x + right.x).toBeCloseTo(1, 9)
+    }
+  })
+})
+
 describe('title templates (#860, #868)', () => {
   it('the long name is 30 characters', () => {
     expect(LONG).toHaveLength(30)
   })
 
-  it('the gallery holds at least twelve templates, each with its own id and name (#868)', () => {
-    expect(TITLE_TEMPLATES.length).toBeGreaterThanOrEqual(12)
+  it('the gallery holds sixteen templates, each with its own id and name (#868, #965)', () => {
+    expect(TITLE_TEMPLATES.length).toBe(16)
     expect(new Set(TITLE_TEMPLATES.map((template) => template.id)).size).toBe(TITLE_TEMPLATES.length)
     expect(new Set(TITLE_TEMPLATES.map((template) => template.name)).size).toBe(TITLE_TEMPLATES.length)
     // Part 1's three stay first in their kinds, under their own ids.
@@ -246,6 +372,9 @@ describe('title templates (#860, #868)', () => {
       'end-card',
       'end-card-bold',
       'end-card-outlined',
+      'before-after',
+      'before-after-split',
+      'before-after-bold',
       'callout',
       'step-badge',
     ])

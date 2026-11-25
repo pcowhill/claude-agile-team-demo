@@ -21,7 +21,7 @@ const ITEM = 'Title template…'
 const LONG_NAME = 'Maximiliana Montgomery-Ashford' // 30 characters
 
 /**
- * Every template in gallery order (#868), with the field its first line is
+ * Every template in gallery order (#868, #965), with the field its first line is
  * typed into and how many text overlays it places with its other fields
  * left at their examples.
  */
@@ -37,6 +37,9 @@ const TEMPLATES = [
   { name: 'End card', field: 'Closing line', texts: 2 },
   { name: 'Bold end card', field: 'Closing line', texts: 2 },
   { name: 'Outlined end card', field: 'Closing line', texts: 2 },
+  { name: 'Before / after', field: 'Left label', texts: 2 },
+  { name: 'Before / after split', field: 'Left label', texts: 2 },
+  { name: 'Bold before / after', field: 'Left label', texts: 2 },
   { name: 'Call-out', field: 'Label', texts: 1 },
   { name: 'Step badge', field: 'Caption (optional)', texts: 1 },
 ] as const
@@ -176,7 +179,7 @@ for (const viewport of [
     // Sideways the dialog must fit.
     await expectWithin(dialog, page.locator('body'), { axis: 'x', what: `the dialog ${where}` })
     await expectNoHorizontalScroll(page, `with the gallery open ${where}`)
-    // Down too, with all thirteen cards (#868): the list scrolls inside the
+    // Down too, with all sixteen cards (#868, #965): the list scrolls inside the
     // dialog, so the fields and Place stay on screen.
     const dialogBox = await dialog.boundingBox()
     if (dialogBox === null) throw new Error('no dialog box')
@@ -234,7 +237,7 @@ for (const viewport of [
     await list.evaluate((node) => {
       node.style.maxHeight = 'none'
     })
-    await page.setViewportSize({ width: viewport.width, height: 2400 })
+    await page.setViewportSize({ width: viewport.width, height: 3200 })
     await dialog.screenshot({ path: testInfo.outputPath(`title-templates-${viewport.width}-all.png`) })
   })
 }
@@ -284,6 +287,71 @@ for (const preset of ['16:9', '9:16'] as const) {
     }
   })
 }
+
+test.describe('Before / after in the preview (#965)', () => {
+  // A large preview, so the screenshots show the labels legibly.
+  test.use({ viewport: { width: 1920, height: 1080 } })
+
+  for (const preset of ['16:9', '9:16'] as const) {
+    test(`at ${preset}, each Before / after keeps its two labels apart, one in each half of the preview frame, with 30-character labels (#965)`, async ({
+      page,
+    }, testInfo) => {
+      test.setTimeout(120_000)
+      await page.goto('./')
+      await setTitleTemplates(page, true)
+      await page.getByRole('combobox', { name: 'Canvas aspect' }).selectOption(preset)
+      await addSlate(page, 6)
+      const frame = page.getByTestId('preview-frame')
+      for (const name of ['Before / after', 'Before / after split', 'Bold before / after']) {
+        for (const words of [
+          ['Before', 'After'],
+          [LONG_NAME, LONG_NAME],
+        ]) {
+          const dialog = await openGallery(page)
+          await chooseTemplate(dialog, name)
+          await dialog.getByRole('textbox', { name: 'Left label', exact: true }).fill(words[0])
+          await dialog.getByRole('textbox', { name: 'Right label', exact: true }).fill(words[1])
+          await dialog.getByRole('button', { name: 'Place' }).click()
+          await expect(dialog).toHaveCount(0)
+          const texts = page.locator('.preview-text')
+          await expect(texts).toHaveText(words)
+          const outer = await frame.boundingBox()
+          if (outer === null) throw new Error('no preview frame')
+          // Each label's own glyph extent, not its block.
+          const ranges = await texts.evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const r = document.createRange()
+              r.selectNodeContents(node)
+              const box = r.getBoundingClientRect()
+              return { left: box.left, right: box.right }
+            }),
+          )
+          const middle = outer.x + outer.width / 2
+          // The template keeps 2 % of the shorter side from the midline; 1 px
+          // of that is left for rounding between the canvas measure and the
+          // DOM's, so the labels must still stand clear of it.
+          const clear = 0.02 * Math.min(outer.width, outer.height) - 1
+          const what = `${name} at ${preset} with "${words[0]}": ${JSON.stringify(ranges)}, midline ${middle}`
+          expect(ranges[0].right, what).toBeLessThanOrEqual(middle - clear)
+          expect(ranges[1].left, what).toBeGreaterThanOrEqual(middle + clear)
+          expect(ranges[0].left, what).toBeGreaterThanOrEqual(outer.x - 1)
+          expect(ranges[1].right, what).toBeLessThanOrEqual(outer.x + outer.width + 1)
+          // Mid-way through its 5 s, past the fade in, for the screenshot.
+          await page.getByRole('slider', { name: 'Seek within sequence' }).fill('2.5')
+          const slug = `${name.replaceAll(/[^a-z]+/gi, '-').toLowerCase()}-${preset.replace(':', 'x')}-${words[0].length}`
+          const shot = await frame.screenshot({ path: testInfo.outputPath(`${slug}.png`) })
+          await testInfo.attach(`${name} at ${preset}, ${words[0].length}-character labels`, {
+            body: shot,
+            contentType: 'image/png',
+          })
+          await page.getByRole('button', { name: 'Undo last timeline edit' }).click()
+          await expect(texts).toHaveCount(0)
+          await page.getByRole('slider', { name: 'Seek within sequence' }).fill('0')
+        }
+      }
+    })
+  }
+})
 
 /** Exports the project and returns the file. */
 async function exportOnce(page: Page): Promise<Buffer> {
@@ -378,15 +446,16 @@ interface Region {
 /**
  * For each region of one picture (a decoded frame of an exported WebM,
  * `fromEndSeconds` before its end, or a PNG screenshot): its mean colour,
- * and how many of its pixels are the call-out's yellow and how many are
- * near-black. Counts are fractions of the region's pixels, so a preview
- * screenshot and a full-size export compare.
+ * and how many of its pixels are the call-out's yellow, how many are
+ * near-black and how many are whitish (#965's labels). Counts are
+ * fractions of the region's pixels, so a preview screenshot and a
+ * full-size export compare.
  */
 async function regionStats(
   page: Page,
   source: { video: Buffer; fromEndSeconds: number } | { png: Buffer },
   regions: Record<string, Region>,
-): Promise<Record<string, { mean: number[]; yellow: number; dark: number }>> {
+): Promise<Record<string, { mean: number[]; yellow: number; dark: number; light: number }>> {
   return await page.evaluate(
     async ({ base64, type, fromEndSeconds, regions }) => {
       const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -432,7 +501,7 @@ async function regionStats(
           URL.revokeObjectURL(url)
         }
       }
-      const result: Record<string, { mean: number[]; yellow: number; dark: number }> = {}
+      const result: Record<string, { mean: number[]; yellow: number; dark: number; light: number }> = {}
       for (const [name, region] of Object.entries(regions)) {
         const x0 = Math.round(region.left * canvas.width)
         const y0 = Math.round(region.top * canvas.height)
@@ -442,6 +511,7 @@ async function regionStats(
         const sum = [0, 0, 0]
         let yellow = 0
         let dark = 0
+        let light = 0
         for (let index = 0; index < data.length; index += 4) {
           const [r, g, b] = [data[index], data[index + 1], data[index + 2]]
           sum[0] += r
@@ -449,9 +519,10 @@ async function regionStats(
           sum[2] += b
           if (r > 200 && g > 150 && b < 110) yellow++
           if (r < 90 && g < 90 && b < 90) dark++
+          if (r > 180 && g > 180 && b > 180) light++
         }
         const count = data.length / 4
-        result[name] = { mean: sum.map((total) => total / count), yellow: yellow / count, dark: dark / count }
+        result[name] = { mean: sum.map((total) => total / count), yellow: yellow / count, dark: dark / count, light: light / count }
       }
       return result
     },
@@ -520,6 +591,84 @@ test('a placed call-out exports as it previews: the yellow box, its dark label a
       `${name} yellow coverage, export against preview; ${what}`,
     ).toBeLessThan(0.15)
   }
+})
+
+test.describe('Before / after in the export (#965)', () => {
+  // A large preview, so its regions hold enough pixels to compare a
+  // label's glyph coverage with the export's: at the default viewport the
+  // frame is about 315 px wide and a pill's padding under 4 px.
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test('a placed Before / after exports as it previews: a dark pill with its white label in each half, the middle untouched', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(90_000)
+    await page.goto('./')
+    await setTitleTemplates(page, true)
+    // A 5 s red slate, the template's own 5 s: mid-way, every fade is done.
+    await addSlate(page, 5)
+    const dialog = await openGallery(page)
+    await chooseTemplate(dialog, 'Before / after')
+    await expect(dialog.getByRole('textbox', { name: 'Left label', exact: true })).toHaveValue('Before')
+    await expect(dialog.getByRole('textbox', { name: 'Right label', exact: true })).toHaveValue('After')
+    await dialog.getByRole('button', { name: 'Place' }).click()
+    await expect(dialog).toHaveCount(0)
+
+    // The template's layout in a 1920 × 1080 frame (S = 1080): each pill's
+    // top is at the 54 px margin (y 0.05) and it is 86.4 px tall (a 54 px
+    // line at 1.2 line height, plus 10.8 above and below), so it ends at
+    // y 0.13. The left pill starts at x 54 px (0.028) and the right one ends
+    // at 1866 px (0.972), each with 21.6 px of padding (0.011) beside its
+    // label. The pads are read in that padding; the labels in the pills'
+    // inner part, short of their ends; the middle between the two pills.
+    const regions = {
+      leftPad: { left: 0.031, top: 0.065, right: 0.037, bottom: 0.115 },
+      rightPad: { left: 0.963, top: 0.065, right: 0.969, bottom: 0.115 },
+      leftLabel: { left: 0.04, top: 0.065, right: 0.1, bottom: 0.115 },
+      rightLabel: { left: 0.9, top: 0.065, right: 0.96, bottom: 0.115 },
+      middle: { left: 0.4, top: 0.06, right: 0.6, bottom: 0.12 },
+    }
+    const exported = await exportOnce(page)
+    const exportStats = await regionStats(page, { video: exported, fromEndSeconds: 2.5 }, regions)
+
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('2.5')
+    await expect(page.getByTestId('preview-shapes').first()).toBeVisible()
+    await expect(page.locator('.preview-text')).toHaveText(['Before', 'After'])
+    const png = await page.getByTestId('preview-frame').screenshot({ path: testInfo.outputPath('before-after-preview.png') })
+    await testInfo.attach('Before / after on the slate', { body: png, contentType: 'image/png' })
+    const previewStats = await regionStats(page, { png }, regions)
+    const what = `export ${JSON.stringify(exportStats)}, preview ${JSON.stringify(previewStats)}`
+    console.log(`[${testInfo.project.name}] before / after: ${what}`)
+
+    // #111827 at 85 % over the red slate is (53, 20, 33); encoding and
+    // scaling move colours a little. The slate's red is (255, 0, 0).
+    const pill = [53, 20, 33]
+    const red = [255, 0, 0]
+    for (const [name, stats] of [
+      ['export', exportStats],
+      ['preview', previewStats],
+    ] as const) {
+      for (const pad of ['leftPad', 'rightPad'] as const) {
+        stats[pad].mean.forEach((channel, index) => {
+          expect(Math.abs(channel - pill[index]), `${name}: ${pad} is the pill's colour; ${what}`).toBeLessThan(35)
+        })
+      }
+      for (const label of ['leftLabel', 'rightLabel'] as const) {
+        expect(stats[label].light, `${name}: white glyphs in ${label}; ${what}`).toBeGreaterThan(0.08)
+      }
+      stats.middle.mean.forEach((channel, index) => {
+        expect(Math.abs(channel - red[index]), `${name}: the middle is the slate; ${what}`).toBeLessThan(35)
+      })
+      expect(stats.middle.light, `${name}: no label in the middle; ${what}`).toBe(0)
+    }
+    // And the two agree on how much of each label region is glyph.
+    for (const label of ['leftLabel', 'rightLabel'] as const) {
+      expect(
+        Math.abs(exportStats[label].light - previewStats[label].light),
+        `${label} white coverage, export against preview; ${what}`,
+      ).toBeLessThan(0.1)
+    }
+  })
 })
 
 test('a placed lower third exports as it previews: the dark bar over the slate, with its white name on it', async ({
