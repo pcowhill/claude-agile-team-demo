@@ -1,7 +1,10 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { chooseFromFileMenu } from './fileMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
+import { chooseRowAction } from './timelineRowMenu'
 
 /**
  * Tall dialogs fit the window (#948, from the customer's #944): a dialog
@@ -193,5 +196,62 @@ test.describe('Tall dialogs fit the window (#948)', () => {
     expect(fit.dialog.bottom - fit.dialog.top, `${where}: well short of the cap`).toBeLessThan(
       fit.window - 2 * MARGIN - 100,
     )
+  })
+
+  test("the Trim window's rows keep their spacing inside the body", async ({ page }) => {
+    // The Trim family's window is a flex column with a 0.6rem gap
+    // (TrimDialog.css). Its rows moved into `.dialog-body` with #948, and
+    // as a plain block the body set them flush against each other: the
+    // readout on the preview, the In / Out labels on the strip, the
+    // transport on the Set row (#954's review measured 9.6px on `main`
+    // and 0 on the PR). The body lays them out with the same gap.
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.goto('./')
+    const clip = 'trim-clip.webm'
+    const buffer = await readFile(join('e2e', 'fixtures', clip))
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: clip, mimeType: 'video/webm', buffer }])
+    await page.getByRole('button', { name: `Add ${clip} to timeline` }).click()
+    await page.getByRole('button', { name: `Trim ${clip} at position 1 in the Trim window` }).click()
+    const dialog = page.getByRole('dialog', { name: `Trim ${clip} at position 1` })
+    await expect(dialog).toBeVisible()
+    // One page read: each row's top and bottom, and the gap the CSS sets.
+    const rows = await dialog.locator(':scope > .dialog-body').evaluate((body) => ({
+      gap: parseFloat(getComputedStyle(document.documentElement).fontSize) * 0.6,
+      rows: Array.from(body.children).map((row) => {
+        const rect = row.getBoundingClientRect()
+        return { name: row.className, top: rect.top, bottom: rect.bottom }
+      }),
+    }))
+    expect(rows.rows.length, JSON.stringify(rows)).toBeGreaterThan(4)
+    for (let index = 1; index < rows.rows.length; index++) {
+      const [above, below] = [rows.rows[index - 1], rows.rows[index]]
+      // Half a pixel of slack for sub-pixel layout; a lost gap reads 0.
+      expect(below.top - above.bottom, `${above.name} → ${below.name}: ${JSON.stringify(rows)}`).toBeGreaterThanOrEqual(
+        rows.gap - 0.5,
+      )
+    }
+  })
+
+  test('the Paste settings checklist caps at a short window like every other dialog', async ({ page }) => {
+    // Not in #948's list, but it opens over the same overlay (#954's
+    // review). At 1280×240 its heading, note, checklist and buttons are
+    // taller than the window, so the cap binds. Two clips, as
+    // copy-paste-settings.spec.ts uses.
+    await page.goto('./')
+    const clip = 'trim-clip.webm'
+    const buffer = await readFile(join('e2e', 'fixtures', clip))
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: clip, mimeType: 'video/webm', buffer }])
+    await page.getByRole('button', { name: `Add ${clip} to timeline` }).click()
+    await page.getByRole('button', { name: `Add ${clip} to timeline` }).click()
+    const positions = [`${clip} at position 1`, `${clip} at position 2`]
+    await chooseRowAction(page, positions[0], 'Copy settings')
+    await chooseRowAction(page, positions[1], 'Paste settings')
+    const paste = page.getByRole('dialog', { name: `Paste settings onto ${positions[1]}?` })
+    await expect(paste).toBeVisible()
+    // Shrunk once the dialog is open: the row menu that opens it needs
+    // more room than this.
+    await page.setViewportSize({ width: 1280, height: 240 })
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(240)
+    await expectCapped(paste, 'Paste settings')
   })
 })

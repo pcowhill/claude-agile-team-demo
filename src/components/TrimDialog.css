@@ -10,6 +10,23 @@
   outline: none;
 }
 
+/* Since #948 the rows between the header and the footer sit in the shared
+   `.dialog-body`, which scrolls once the window is too short for them. It
+   lays them out as the window itself does, a column with the same gap, so
+   the readout, the strip and its labels, the transport and the Set row keep
+   the spacing they had. As a plain block they touched (#954's review).
+   Its rows keep their height, so a short window scrolls the body rather
+   than squeezing the preview or the strip. */
+.dialog.trim-dialog > .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dialog.trim-dialog > .dialog-body > * {
+  flex-shrink: 0;
+}
+
 .trim-header {
   display: flex;
   align-items: flex-start;
