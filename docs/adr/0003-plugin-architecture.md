@@ -369,10 +369,18 @@ extension point is built until a concrete plugin needs it**.
       tile per kind, since Old film draws three a frame. Each kind hashes
       the seed at cells no other kind reaches (negative x), so the
       patterns are independent of one another at the same step.
-    - **Still to come (#870, then #871).** VHS's scanlines and tracking
-      band are further layer kinds of the same shape as `grain`. A per-channel offset (#871's chromatic
-      aberration) would be a new `PictureFilter` kind the same way. The
-      contract grows by kinds, not by mechanisms.
+    - **Scanlines (#870, step 2b(i)).** VHS's `scanlines` is one more
+      texture kind: a tile function and a `textureTile` case, as the
+      sparse kinds predicted, with no change to either renderer. Its tile
+      is one column of 540 rows, alternately clear and black, so the lines
+      keep a 4 px period of a 1080p frame at any size, and each line's
+      alpha wavers with a hash of the step and the row. VHS's soft blur is
+      the existing `blur` filter at a small radius.
+    - **Still to come (#870, then #871).** VHS's tracking band is a
+      further layer kind of the same shape. A per-channel offset (VHS's
+      colour bleed and #871's chromatic aberration) would be a new
+      `PictureFilter` kind the same way. The contract grows by kinds, not
+      by mechanisms.
   - **Rejected:** a rule returning a CSS string, which the canvas could
     take for a blur but not for a vignette or grain, and drawing with
     per-plugin code in each renderer, which is what the shared rule
@@ -382,7 +390,8 @@ extension point is built until a concrete plugin needs it**.
   radius in percent of the frame width) and Film grain (#870: Amount, the
   strongest grain's alpha in percent, and Size, a grain's width in pixels
   of a 1080p frame) and Old film (#870: Amount, scaling its sepia, its
-  flicker, a fixed-size grain, its scratches and its dust together). Each is parameters plus a `look`
+  flicker, a fixed-size grain, its scratches and its dust together) and
+  VHS (#870: Amount, scaling its soft blur and its scanlines together). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `usedByProject` loads no chunk.

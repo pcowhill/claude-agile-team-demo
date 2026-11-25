@@ -2361,10 +2361,11 @@ function PictureEffectRows({ position, effects, trimmed, onUpdate, onRemove }: P
                 />
               </LabelledField>
             ))}
-            {/* Lower case, as Remove speed segment 1 and Remove zoom 1 read. */}
+            {/* Lower case, as Remove speed segment 1 and Remove zoom 1 read,
+                but an initialism keeps its capitals: Remove VHS 1 (#870). */}
             <button
               type="button"
-              aria-label={`Remove ${name.charAt(0).toLowerCase()}${name.slice(1)} from ${position}`}
+              aria-label={`Remove ${/^[A-Z]{2}/.test(name) ? name : `${name.charAt(0).toLowerCase()}${name.slice(1)}`} from ${position}`}
               onClick={() => onRemove(effect.id)}
             >
               ✕

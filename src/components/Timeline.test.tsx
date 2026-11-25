@@ -4677,7 +4677,7 @@ describe('picture effects on a sequence entry (#862)', () => {
     await userEvent.tab()
   }
 
-  it('+ Effect ▾ gains Vignette, Blur, Film grain and Old film only while the Visual effects plugin is registered', async () => {
+  it('+ Effect ▾ gains Vignette, Blur, Film grain, Old film and VHS only while the Visual effects plugin is registered', async () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
@@ -4697,6 +4697,7 @@ describe('picture effects on a sequence entry (#862)', () => {
         'Blur',
         'Film grain',
         'Old film',
+        'VHS',
       ])
       await closeEffectMenu(POSITION)
     } finally {
@@ -4740,6 +4741,26 @@ describe('picture effects on a sequence entry (#862)', () => {
       expect(screen.queryByRole('spinbutton', { name: `Vignette 2 start of ${POSITION} in seconds` })).toBeNull()
       await userEvent.keyboard('{Control>}z{/Control}')
       expect(field(`Vignette 2 start of ${POSITION} in seconds`)).toHaveValue(2)
+    } finally {
+      act(() => deactivate())
+    }
+  })
+
+  it('an initialism keeps its capitals in Remove: Remove VHS 1, beside Remove old film 1 (#870)', async () => {
+    render(<App />)
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    try {
+      await importClip('a.mp4', 10)
+      await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+      await chooseEffect(POSITION, 'VHS')
+      await chooseEffect(POSITION, 'Old film')
+      expect(field(`VHS 1 amount of ${POSITION} (percent)`)).toHaveValue(70)
+      expect(screen.getByRole('button', { name: `Remove old film 1 from ${POSITION}` })).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: `Remove VHS 1 from ${POSITION}` }))
+      expect(screen.queryByRole('spinbutton', { name: `VHS 1 amount of ${POSITION} (percent)` })).toBeNull()
     } finally {
       act(() => deactivate())
     }

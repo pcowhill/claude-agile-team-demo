@@ -240,6 +240,16 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Film grain](#film-grain)
 
+## VHS
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **VHS**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Makes a stretch of the entry look like a worn videotape: the picture goes slightly soft, and thin dark lines run across it.
+
+**Details.** The row has the stretch, *from* and *to* in seconds into the entry, and one setting, *amount*, 0 to 100 %, which sets both together. At 100 % the picture is blurred by about 3 pixels of a 1080p frame, much less than a [Blur](#vignette-and-blur), and the lines are at their darkest. There is one line every 4 pixels of a 1080p frame, at any size of the picture. Each line is a little lighter or darker than the next, and the lines shimmer 24 times a second. Like the grain, the shimmer is fixed for each moment, so the preview and the exported file show the same lines at the same instant. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 70 %. A browser whose canvas cannot apply filters refuses to export a timeline with VHS, as it does for a Blur, rather than writing a file without the softening. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, eases in and out, is named *VHS 1*, *VHS 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Old film](#old-film)
+
 ## Colour adjustments
 
 **Where to find it.** An expanded video or image row › **Picture ▸** › **Color**.

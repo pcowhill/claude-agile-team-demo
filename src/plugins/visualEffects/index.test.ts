@@ -5,6 +5,7 @@ import { VISUAL_EFFECT_IDS, isVisualEffect } from '../visualEffectsIds'
 import {
   GRAIN_REFERENCE_WIDTH,
   OLD_FILM,
+  VHS,
   VIGNETTE_INNER,
   activate,
   oldFilmBrightness,
@@ -24,7 +25,7 @@ describe('Visual effects plugin (#862)', () => {
     deactivate = null
   })
 
-  it('registers Vignette, Blur, Film grain and Old film in the ids module\'s order, and unregisters them', () => {
+  it('registers Vignette, Blur, Film grain, Old film and VHS in the ids module\'s order, and unregisters them', () => {
     expect(VISUAL_EFFECT_IDS.some((id) => pictureEffectRegistry.has(id))).toBe(false)
     deactivate = activate()
     expect(pictureEffectRegistry.list().map(({ id, name }) => [id, name])).toEqual([
@@ -32,6 +33,7 @@ describe('Visual effects plugin (#862)', () => {
       ['blur', 'Blur'],
       ['film-grain', 'Film grain'],
       ['old-film', 'Old film'],
+      ['vhs', 'VHS'],
     ])
     deactivate()
     deactivate = null
@@ -46,6 +48,7 @@ describe('Visual effects plugin (#862)', () => {
         { key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' },
         { key: 'size', label: 'Size', min: 2, max: 10, default: 3 },
       ],
+      [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
     ])
   })
@@ -73,6 +76,7 @@ describe('Visual effects plugin (#862)', () => {
       { strength: 60 },
       { amount: 1 },
       { amount: 30, size: 3 },
+      { amount: 70 },
       { amount: 70 },
     ])
   })
@@ -146,6 +150,28 @@ describe('Visual effects plugin (#862)', () => {
     expect(Math.max(...values)).toBeGreaterThan(1 + OLD_FILM.flicker / 2)
     // One step apart, the two instants differ.
     expect(brightnessAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).not.toBe(brightnessAt(2.1))
+  })
+
+  it('VHS is a soft blur and scanlines, both scaled by Amount and the weight, the lines\' step from the time (#870)', () => {
+    const vhs = visualEffectDefinitions[4]
+    expect(vhs.look({ amount: 100 }, 1, 2.1)).toEqual({
+      filters: [{ kind: 'blur', radius: VHS.blur }],
+      layers: [{ kind: 'scanlines', amount: VHS.scanlines, seed: 50 }],
+    })
+    // Half the Amount at half the weight is a quarter of both.
+    expect(vhs.look({ amount: 50 }, 0.5, 2.1)).toEqual({
+      filters: [{ kind: 'blur', radius: VHS.blur / 4 }],
+      layers: [{ kind: 'scanlines', amount: VHS.scanlines / 4, seed: 50 }],
+    })
+    // Weight 0 changes nothing: a blur of no radius, lines of no strength.
+    expect(vhs.look({ amount: 100 }, 0, 2.1)).toEqual({
+      filters: [{ kind: 'blur', radius: 0 }],
+      layers: [{ kind: 'scanlines', amount: 0, seed: 50 }],
+    })
+    // The lines' step is the time's: the same within a step, the next one after it.
+    const seedAt = (time: number) => (vhs.look({ amount: 100 }, 1, time).layers[0] as { seed: number }).seed
+    expect(seedAt(2.1 + 0.01)).toBe(50)
+    expect(seedAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toBe(51)
   })
 
   it('a project holding a visual effect depends on the plugin, one without does not', () => {

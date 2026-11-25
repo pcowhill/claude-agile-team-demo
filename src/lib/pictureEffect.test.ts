@@ -12,6 +12,9 @@ import {
   SCRATCH_CHANCE,
   SCRATCH_COLUMNS,
   SCRATCH_ROWS,
+  SCANLINE_ROWS,
+  SCANLINE_WAVER,
+  scanlinesTile,
   defaultPictureEffectWindow,
   dustTile,
   grainTile,
@@ -403,6 +406,70 @@ describe('Old film\'s scratches and dust (#870, step 2a(ii))', () => {
     // Two kinds at the same seed and amount are different tiles.
     expect(textureTileKey(scratches(9, 0.7), 16 / 9)).not.toBe(key)
     expect(textureTileKey({ ...grain, cell: 1 / 32 }, 16 / 9)).not.toBe(textureTileKey(grain, 16 / 9))
+  })
+})
+
+describe("VHS's scanlines (#870, step 2b(i))", () => {
+  const scanlines = (seed: number, amount = 0.4) => ({ kind: 'scanlines' as const, amount, seed })
+  /** Each row's alpha, and whether every pixel is black. */
+  const rows = (data: Uint8ClampedArray) => {
+    const alphas: number[] = []
+    for (let index = 0; index < data.length; index += 4) {
+      expect([data[index], data[index + 1], data[index + 2]]).toEqual([0, 0, 0])
+      alphas.push(data[index + 3])
+    }
+    return alphas
+  }
+
+  it('a scanlines tile is one column of 540 rows whatever the aspect, and the same seed draws the same pixels', () => {
+    const tile = scanlinesTile(scanlines(50), 16 / 9)
+    expect([tile.width, tile.height]).toEqual([1, SCANLINE_ROWS])
+    expect(scanlinesTile(scanlines(50), 4 / 3).data).toEqual(tile.data)
+    expect(scanlinesTile(scanlines(50), 16 / 9).data).toEqual(tile.data)
+  })
+
+  it('every other row is a black line, between 75 % and 100 % of Amount, and the gaps are clear', () => {
+    const top = Math.round(0.4 * 255)
+    const bottom = Math.round(0.4 * (1 - SCANLINE_WAVER) * 255)
+    let sum = 0
+    let lines = 0
+    for (let seed = 0; seed < 48; seed++) {
+      const alphas = rows(scanlinesTile(scanlines(seed), 16 / 9).data)
+      alphas.forEach((alpha, row) => {
+        if (row % 2 === 0) {
+          expect(alpha).toBe(0)
+          return
+        }
+        expect(alpha).toBeGreaterThanOrEqual(bottom)
+        expect(alpha).toBeLessThanOrEqual(top)
+        sum += alpha
+        lines++
+      })
+    }
+    // 270 lines a tile, and the waver spread across its range: the mean
+    // line sits near the middle of it, 87.5 % of Amount.
+    expect(lines).toBe(48 * SCANLINE_ROWS / 2)
+    expect(sum / lines / 255).toBeGreaterThan(0.4 * 0.85)
+    expect(sum / lines / 255).toBeLessThan(0.4 * 0.9)
+  })
+
+  it('the lines shimmer: the next step wavers differently, row by row, and Amount 0 draws nothing', () => {
+    for (let seed = 0; seed < 48; seed++) {
+      const here = rows(scanlinesTile(scanlines(seed), 16 / 9).data)
+      const next = rows(scanlinesTile(scanlines(seed + 1), 16 / 9).data)
+      const changed = here.filter((alpha, row) => alpha !== next[row]).length
+      // Nearly every line changes: two of 270 may land on one level by chance.
+      expect(changed).toBeGreaterThan(SCANLINE_ROWS / 2 - 20)
+      expect(rows(scanlinesTile(scanlines(seed, 0), 16 / 9).data).every((alpha) => alpha === 0)).toBe(true)
+    }
+  })
+
+  it('textureTile draws scanlines with their own tile, and textureTileKey tells them from dust at the same seed', () => {
+    expect(textureTile(scanlines(9), 16 / 9).data).toEqual(scanlinesTile(scanlines(9), 16 / 9).data)
+    const key = textureTileKey(scanlines(9), 16 / 9)
+    expect(textureTileKey(scanlines(10), 16 / 9)).not.toBe(key)
+    expect(textureTileKey(scanlines(9, 0.3), 16 / 9)).not.toBe(key)
+    expect(textureTileKey({ kind: 'dust', amount: 0.4, seed: 9 }, 16 / 9)).not.toBe(key)
   })
 })
 
