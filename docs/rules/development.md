@@ -127,6 +127,23 @@ does. Do not write ADRs for trivial or easily reversed choices.
   reopens it with a comment saying why.
 - Explain what changed, why, key implementation decisions, how it was
   tested, and remaining risks or follow-up work.
+- **A PR that widens a kind runs the widened-kinds grep itself.** When it
+  adds a kind to a collection or a case to a discriminated union, the
+  author greps the collection's and the type's names across `src/` — the
+  same grep as `review.md`'s "widened kinds" step — and the PR body gives
+  the command, the hit count, and, for each call site whose behaviour the
+  new kind could change, what that call site now does with it. A comment
+  or assumption written for the old kinds is either still true for the
+  new one or corrected in the PR. The reviewer's step is unchanged: it
+  re-runs the grep rather than trusting the list, because two readings are
+  the point. #933 is the worked example. It widened `PictureLayer` from
+  `vignette` to `vignette | grain`, the first layer kind that lightens.
+  The export's outgoing-card call to `drawPictureLayers` still carried a
+  comment true only of darkening layers. During a crossfade, Save frame
+  read 42.3 where the preview read 20.9 on a black still. The PR's tests
+  never ran that path, and the review found it with one grep (22 hits in
+  5 files). That cost a changes-required round, a fix commit and one more
+  reviewing session (#934).
 - Never state that tests passed unless they were actually run (locally or in
   CI). Report failures honestly.
 - Reported evidence describes the **pushed** branch, not the working tree.
