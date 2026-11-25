@@ -3838,15 +3838,16 @@ export function Timeline({
                         />
                       </>
                     )}
-                    <span>Shows for</span>
-                    <SecondsField
-                      label={`Duration of ${position} in seconds`}
-                      value={effectiveDuration(entry)}
-                      min={0.1}
-                      max={86400}
-                      onCommit={(duration) => onSetStillDuration(entry.id, duration)}
-                      unit="s"
-                    />
+                    <LabelledField text="Shows for">
+                      <SecondsField
+                        label={`Duration of ${position} in seconds`}
+                        value={effectiveDuration(entry)}
+                        min={0.1}
+                        max={86400}
+                        onCommit={(duration) => onSetStillDuration(entry.id, duration)}
+                        unit="s"
+                      />
+                    </LabelledField>
                   </div>
                 ) : (
                   <>
@@ -4671,27 +4672,32 @@ export function Timeline({
                   {!isCollapsed(overlay.id) && (
                     <>
                   <div className="video-overlay-controls">
-                    <span>Starts at</span>
-                    <SecondsField
-                      label={`Start time of ${position} in seconds`}
-                      value={overlay.offset}
-                      max={86400}
-                      onCommit={(offset) => (isImage ? setImage({ offset }) : set({ offset }))}
-                      unit="s"
-                    />
+                    {/* A still shows for a length you set, as a text or a
+                        shape group does; a video plays its trim from where
+                        it starts, as an audio track does (#950). */}
+                    <LabelledField text={isImage ? 'Shows at' : 'Starts at'}>
+                      <SecondsField
+                        label={`Start time of ${position} in seconds`}
+                        value={overlay.offset}
+                        max={86400}
+                        onCommit={(offset) => (isImage ? setImage({ offset }) : set({ offset }))}
+                        unit="s"
+                      />
+                    </LabelledField>
                     {isImage ? (
                       <>
                         {/* A still's window is its length (#294), edited
                             directly — the still-entry control (#140), not a
                             trim of a source that does not exist. */}
-                        <span>Length</span>
-                        <SecondsField
-                          label={`Duration of ${position} in seconds`}
-                          value={overlay.duration}
-                          max={86400}
-                          onCommit={(duration) => setImage({ duration })}
-                          unit="s"
-                        />
+                        <LabelledField text="Shows for">
+                          <SecondsField
+                            label={`Duration of ${position} in seconds`}
+                            value={overlay.duration}
+                            max={86400}
+                            onCommit={(duration) => setImage({ duration })}
+                            unit="s"
+                          />
+                        </LabelledField>
                         <span className="timeline-entry-effective">
                           shows {summaryTime(overlay.duration)}
                         </span>
@@ -5284,23 +5290,25 @@ export function Timeline({
                   {!isCollapsed(group.id) && (
                     <>
                       <div className="text-overlay-controls">
-                        <span>Shows at</span>
-                        <SecondsField
-                          label={`Start time of ${position} in seconds`}
-                          value={group.offset}
-                          max={86400}
-                          onCommit={(offset) => set({ offset })}
-                          unit="s"
-                        />
-                        <span>for</span>
-                        <SecondsField
-                          label={`Duration of ${position} in seconds`}
-                          value={group.duration}
-                          min={0.1}
-                          max={86400}
-                          onCommit={(duration) => set({ duration })}
-                          unit="s"
-                        />
+                        <LabelledField text="Shows at">
+                          <SecondsField
+                            label={`Start time of ${position} in seconds`}
+                            value={group.offset}
+                            max={86400}
+                            onCommit={(offset) => set({ offset })}
+                            unit="s"
+                          />
+                        </LabelledField>
+                        <LabelledField text="Shows for">
+                          <SecondsField
+                            label={`Duration of ${position} in seconds`}
+                            value={group.duration}
+                            min={0.1}
+                            max={86400}
+                            onCommit={(duration) => set({ duration })}
+                            unit="s"
+                          />
+                        </LabelledField>
                         {/* The entrance (#690): fade in, or draw the shapes
                             on. Switching replaces the whole spec, since the
                             two lengths are alternatives and one key must go;
@@ -5486,23 +5494,25 @@ export function Timeline({
                   {!isCollapsed(text.id) && (
                     <>
                   <div className="text-overlay-controls">
-                    <span>Shows at</span>
-                    <SecondsField
-                      label={`Start time of ${position} in seconds`}
-                      value={text.offset}
-                      max={86400}
-                      onCommit={(offset) => set({ offset })}
-                      unit="s"
-                    />
-                    <span>for</span>
-                    <SecondsField
-                      label={`Duration of ${position} in seconds`}
-                      value={text.duration}
-                      min={0.1}
-                      max={86400}
-                      onCommit={(duration) => set({ duration })}
-                      unit="s"
-                    />
+                    <LabelledField text="Shows at">
+                      <SecondsField
+                        label={`Start time of ${position} in seconds`}
+                        value={text.offset}
+                        max={86400}
+                        onCommit={(offset) => set({ offset })}
+                        unit="s"
+                      />
+                    </LabelledField>
+                    <LabelledField text="Shows for">
+                      <SecondsField
+                        label={`Duration of ${position} in seconds`}
+                        value={text.duration}
+                        min={0.1}
+                        max={86400}
+                        onCommit={(duration) => set({ duration })}
+                        unit="s"
+                      />
+                    </LabelledField>
                     <span>centre</span>
                     <LabelledField text="x">
                       <SecondsField

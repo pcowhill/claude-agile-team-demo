@@ -22,7 +22,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 ## The Trim window
 
-**Where to find it.** An expanded video sequence entry, video overlay, or [audio track](audio.md#audio-tracks) › **Trim…**, beside **In** and **Out**. An image overlay has none: it has no source to trim, and its **Length** is its window.
+**Where to find it.** An expanded video sequence entry, video overlay, or [audio track](audio.md#audio-tracks) › **Trim…**, beside **In** and **Out**. An image overlay has none: it has no source to trim, and its **Shows for** is its window.
 
 **What it does.** Opens a window over the editor where you watch the clip and drag its In and Out on a strip of the whole clip, then play just the part you keep, like *Trim Video* in a presentation app. It is a second way to set the entry's **In** and **Out**, or an overlay's or a track's.
 
