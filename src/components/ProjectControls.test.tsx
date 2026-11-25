@@ -10,6 +10,7 @@ import type { TimelineState } from '../lib/timeline'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import { PluginRuntime } from '../lib/plugins'
 import { DEFAULT_TEXT, fontRegistry } from '../lib/textOverlay'
+import { pictureEffectRegistry } from '../lib/pictureEffect'
 import type { PluginSpec } from '../lib/plugins'
 import { chooseFromFileMenu } from '../test/fileMenu'
 
@@ -1025,6 +1026,86 @@ describe('New Project and Open Project (#77)', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
       runtime.disable('dep-plugin')
       expect(fontRegistry.has('dep-font')).toBe(false)
+    })
+
+    // Picture-effect types are checked at the same point (#862): every
+    // definition comes from a plugin, so only after the gate can an unknown
+    // type be told from a known one. A slate needs no clip, so a file that
+    // passes opens at once.
+    const effectTimeline = (type: string): TimelineState => ({
+      entries: [
+        { id: 's1', clipId: '', name: 'Color slate', duration: 5, url: '', inPoint: 0, outPoint: 5, kind: 'slate', color: '#ff0000' },
+      ],
+      transitions: [],
+      zooms: [],
+      pictureEffects: [{ id: 'p1', entryId: 's1', type, start: 1, end: 3, params: { strength: 0.5 } }],
+    })
+
+    it('refuses a file whose picture effect is unknown after the plugin gate (#862)', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(user, await serializeProject({ clips: [], failures: [] }, effectTimeline('swirl')))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('unknown picture effect')
+      expect(alert).toHaveTextContent('"swirl"')
+      expect(alert).toHaveTextContent('newer version')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+    })
+
+    it('opens a file whose picture effect a plugin the gate enables provides (#862)', async () => {
+      const { runtime } = fixtureRuntime({
+        load: () =>
+          Promise.resolve({
+            activate: () => {
+              pictureEffectRegistry.register({
+                id: 'dep-effect',
+                name: 'Dependency effect',
+                params: [{ key: 'strength', label: 'Strength', min: 0, max: 1, default: 0.5 }],
+              })
+              return () => pictureEffectRegistry.unregister('dep-effect')
+            },
+          }),
+      })
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      await uploadProjectFile(
+        user,
+        await serializeProject({ clips: [], failures: [] }, effectTimeline('dep-effect'), undefined, ['dep-plugin']),
+      )
+      await screen.findByRole('dialog', { name: 'Enable plugins to open?' })
+      await user.click(screen.getByRole('button', { name: 'Enable and open' }))
+      await waitFor(() => expect(onProjectReplaced).toHaveBeenCalledOnce())
+      expect(onProjectReplaced.mock.calls[0][0].timeline.pictureEffects).toEqual([
+        { id: 'p1', entryId: 's1', type: 'dep-effect', start: 1, end: 3, params: { strength: 0.5 } },
+      ])
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      runtime.disable('dep-plugin')
+      expect(pictureEffectRegistry.has('dep-effect')).toBe(false)
     })
 
     it('refuses a file needing a plugin this build does not have, by name', async () => {

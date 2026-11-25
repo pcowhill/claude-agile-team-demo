@@ -191,6 +191,7 @@ export function restoreProject(project: Project, urls: ReadonlyMap<string, strin
       project.timeline.canvasPreset,
       project.timeline.markers ?? [],
       project.timeline.shapeGroups ?? [],
+      project.timeline.pictureEffects ?? [],
     ),
   }
 }

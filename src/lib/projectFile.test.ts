@@ -37,6 +37,7 @@ import fixtureV30BadgeShapesReferencesBase64 from './fixtures/project-v30-badge-
 import fixtureV31DrawOnReferencesBase64 from './fixtures/project-v31-draw-on-references.bvep.base64?raw'
 import fixtureV32BoostedVolumeReferencesBase64 from './fixtures/project-v32-boosted-volume-references.bvep.base64?raw'
 import fixtureV33OverlayMovesReferencesBase64 from './fixtures/project-v33-overlay-moves-references.bvep.base64?raw'
+import fixtureV34PictureEffectsReferencesBase64 from './fixtures/project-v34-picture-effects-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -64,6 +65,7 @@ import {
   OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   OVERLAY_MOVES_SCHEMA_VERSION,
+  PICTURE_EFFECTS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
   BOOSTED_VOLUME_SCHEMA_VERSION,
@@ -82,6 +84,7 @@ import {
   serializeProject,
 } from './projectFile'
 import type { ClipMedia, Project } from './projectFile'
+import type { PictureEffect } from './pictureEffect'
 
 /** Gzips a JSON document the way the serializer does, to craft bad files. */
 async function gzipJson(document: unknown): Promise<Uint8Array<ArrayBuffer>> {
@@ -1173,8 +1176,9 @@ describe('project file versioning', () => {
     // segments and pauses (#700); version 29 added overlay drop shadows
     // (#698); version 30 added numbered badges in shape groups (#689);
     // version 31 added a shape group's Draw on entrance (#690); version 32
-    // a Volume above 1 (#751); version 33 an overlay's Moves (#834).
-    expect(PROJECT_SCHEMA_VERSION).toBe(33)
+    // a Volume above 1 (#751); version 33 an overlay's Moves (#834);
+    // version 34 picture effects on entries (#862).
+    expect(PROJECT_SCHEMA_VERSION).toBe(34)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -1208,6 +1212,7 @@ describe('project file versioning', () => {
     expect(DRAW_ON_SCHEMA_VERSION).toBe(31)
     expect(BOOSTED_VOLUME_SCHEMA_VERSION).toBe(32)
     expect(OVERLAY_MOVES_SCHEMA_VERSION).toBe(33)
+    expect(PICTURE_EFFECTS_SCHEMA_VERSION).toBe(34)
     expect(PROJECT_FORMAT).toBe('browser-video-editor-project')
   })
 
@@ -5494,6 +5499,95 @@ describe('overlay Moves in project files (#834, schema version 33)', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, moves }])
+  })
+})
+
+// Picture effects (#862, schema version 34): an effect on any entry forces
+// 34; an effect-free file keeps its version and its bytes. The parser checks
+// structure only; whether a type is known is the open flow's question.
+describe('picture effects in project files (#862, schema version 34)', () => {
+  const effects: PictureEffect[] = [
+    { id: 'p1', entryId: 'e1', type: 'vignette', start: 1, end: 4, params: { strength: 0.6 } },
+    { id: 'p2', entryId: 'e1', type: 'blur', start: 2, end: 3.5, params: { amount: 8 } },
+  ]
+  const effectTimeline = (pictureEffects: TimelineState['pictureEffects']): TimelineState => ({
+    ...timeline,
+    ...(pictureEffects === undefined ? {} : { pictureEffects }),
+  })
+  const withEffects = (value: unknown) => ({
+    ...validDocument(),
+    schemaVersion: PICTURE_EFFECTS_SCHEMA_VERSION,
+    timeline: { ...validDocument().timeline, pictureEffects: value },
+  })
+
+  it('round-trips picture effects at version 34, types it does not know included', async () => {
+    const bytes = await serializeProject(library, effectTimeline(effects))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(PICTURE_EFFECTS_SCHEMA_VERSION)
+    expect((document.timeline as Record<string, unknown>).pictureEffects).toEqual(effects)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: { ...expectedProject, timeline: { ...expectedProject.timeline, pictureEffects: effects } },
+    })
+  })
+
+  it('writes an effect-free timeline with no key, byte-identical to one that never had the field', async () => {
+    const bytes = await serializeProject(library, effectTimeline(undefined))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBeLessThan(PICTURE_EFFECTS_SCHEMA_VERSION)
+    expect('pictureEffects' in (document.timeline as Record<string, unknown>)).toBe(false)
+    const emptied = await serializeProject(library, effectTimeline([]))
+    expect(Array.from(emptied)).toEqual(Array.from(bytes))
+  })
+
+  it('refuses a malformed picture effect by path', async () => {
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], entryId: 'nowhere' }])),
+      'timeline.pictureEffects[0].entryId "nowhere" does not match any timeline entry',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], type: '' }])),
+      'timeline.pictureEffects[0].type must be a non-empty string',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], start: -1 }])),
+      'timeline.pictureEffects[0].start must not be negative',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], start: 4, end: 4 }])),
+      'timeline.pictureEffects[0] window is empty',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], params: [0.6] }])),
+      'timeline.pictureEffects[0].params must be an object',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([{ ...effects[0], params: { strength: 'high' } }])),
+      'timeline.pictureEffects[0].params.strength must be a finite number',
+    )
+    await expectRefusal(
+      await gzipJson(withEffects([effects[0], { ...effects[1], id: 'p1' }])),
+      'timeline.pictureEffects[1].id "p1" is duplicated',
+    )
+    await expectRefusal(await gzipJson(withEffects({ p1: effects[0] })), 'timeline.pictureEffects must be an array')
+  })
+
+  it('opens a window past its entry and leaves the clamp to normalization', async () => {
+    // Fitting the window into the entry is the reducer's rule, re-applied on
+    // open (restoreProject → normalizedTimelineState), as zoom windows are.
+    const long = { ...effects[0], end: 99 }
+    const result = await deserializeProject(await gzipJson(withEffects([long])))
+    expect(result.ok && result.project.timeline.pictureEffects).toEqual([long])
+  })
+
+  it('deserializes the committed v34 picture-effects fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV34PictureEffectsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.pictureEffects).toEqual(effects)
   })
 })
 

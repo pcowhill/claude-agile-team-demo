@@ -58,6 +58,12 @@ import { rippleCut, splitZoomAt } from './ripple'
 import { splitAudioTrack, splitVideoOverlay } from './elementSplit'
 import { cutAudioTrack, cutVideoOverlay } from './elementCut'
 import type { OverlayMove, OverlayMoveSpec } from './overlayMove'
+import type { PictureEffect, PictureEffectSpec } from './pictureEffect'
+import {
+  clampPictureEffect,
+  isValidPictureEffectSpec,
+  pictureEffectsEqual,
+} from './pictureEffect'
 import { isValidMoveSpec, moveSpecsEqual, withOverlayMovesClamped } from './overlayMove'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
@@ -472,6 +478,17 @@ export interface TimelineState {
    * file) stays shaped exactly as before.
    */
   shapeGroups?: ShapeGroup[]
+  /**
+   * Picture effects on entries (#862): a vignette, a blur, or another
+   * registered effect over a window of an entry's trimmed range. An entry
+   * may carry any number, and their windows may overlap; normalization
+   * keeps them in entry order, sorted by start, each clamped into its
+   * entry. Rebuilt by `withEffects` like zooms, since they live and die
+   * with their entry. Optional like `remaps`, and the key is written only
+   * while effects exist, so every earlier state (and file) stays shaped
+   * exactly as before.
+   */
+  pictureEffects?: PictureEffect[]
 }
 
 /** A chapter marker (#487): a name at a sequence time. */
@@ -813,6 +830,14 @@ export type TimelineAction =
   | { type: 'remap-added'; remap: RemapEffect }
   | { type: 'remap-updated'; id: string; remap: RemapSpec }
   | { type: 'remap-removed'; id: string }
+  /**
+   * Picture effects (#862): add, replace an effect's window and parameter
+   * values (one field commit is one edit), remove. Each is refused when
+   * malformed and same-reference when it changes nothing.
+   */
+  | { type: 'picture-effect-added'; effect: PictureEffect }
+  | { type: 'picture-effect-updated'; id: string; effect: PictureEffectSpec }
+  | { type: 'picture-effect-removed'; id: string }
   | { type: 'text-added'; text: TextOverlay }
   | { type: 'texts-added'; texts: TextOverlay[] }
   | { type: 'text-updated'; id: string; text: TextOverlaySpec }
@@ -1154,6 +1179,11 @@ export function remapsOf(state: TimelineState): RemapEffect[] {
   return state.remaps ?? []
 }
 
+/** The state's picture effects (#862), tolerating states from before them. */
+export function pictureEffectsOf(state: TimelineState): PictureEffect[] {
+  return state.pictureEffects ?? []
+}
+
 /** The state's text overlays (#139), tolerating pre-text states. */
 /** The chapter markers (#487), sorted by time; an absent list is empty. */
 export function markersOf(state: TimelineState): ChapterMarker[] {
@@ -1228,6 +1258,14 @@ export function videoOverlaysOf(state: TimelineState): VideoOverlay[] {
  */
 export function remapsForEntry(state: TimelineState, entryId: string): RemapEffect[] {
   return remapsOf(state).filter((remap) => remap.entryId === entryId)
+}
+
+/**
+ * The entry's picture effects (#862). In a normalized state they are sorted
+ * by start, a filtered view of `state.pictureEffects`.
+ */
+export function pictureEffectsForEntry(state: TimelineState, entryId: string): PictureEffect[] {
+  return pictureEffectsOf(state).filter((effect) => effect.entryId === entryId)
 }
 
 /**
@@ -1477,6 +1515,40 @@ function withOverlayZoomsClamped(overlay: VideoOverlay): VideoOverlay {
 }
 
 /**
+ * Restores the picture-effect invariants against a (possibly just edited)
+ * entry list (#862): an effect survives only while its entry exists, and
+ * each window is clamped into its entry's trimmed source range, as a
+ * zoom's is (`clampPictureEffect`). Windows may overlap, so there is no
+ * sweep: an entry's effects are only sorted by start (ties keep their
+ * stored order). Results follow entry order so states compare
+ * deterministically, and an unchanged list comes back by reference.
+ */
+function normalizedPictureEffects(
+  entries: TimelineEntry[],
+  effects: PictureEffect[],
+): PictureEffect[] {
+  if (effects.length === 0) return effects
+  const byEntry = new Map<string, PictureEffect[]>()
+  const durations = new Map(entries.map((entry) => [entry.id, effectiveDuration(entry)]))
+  for (const effect of effects) {
+    if (!durations.has(effect.entryId)) continue
+    const list = byEntry.get(effect.entryId)
+    if (list === undefined) byEntry.set(effect.entryId, [effect])
+    else list.push(effect)
+  }
+  const normalized = entries.flatMap((entry) => {
+    const list = byEntry.get(entry.id)
+    if (list === undefined) return []
+    const duration = durations.get(entry.id) as number
+    // Array.prototype.sort is stable: equal starts keep their stored order.
+    return list.map((effect) => clampPictureEffect(effect, duration)).sort((a, b) => a.start - b.start)
+  })
+  const unchanged =
+    normalized.length === effects.length && normalized.every((effect, index) => effect === effects[index])
+  return unchanged ? effects : normalized
+}
+
+/**
  * Restores the remap invariants against a (possibly just edited) entry list
  * (#138), mirroring `normalizedZooms`: an effect survives only while its
  * entry exists and is a video entry, and an entry's effects are kept sorted
@@ -1688,6 +1760,7 @@ interface EffectLists {
   remaps: RemapEffect[]
   texts: TextOverlay[]
   videoOverlays: VideoOverlay[]
+  pictureEffects: PictureEffect[]
 }
 
 /** A state's lists as `withEffects` takes them, each absent key read as empty. */
@@ -1700,6 +1773,7 @@ function effectListsOf(state: TimelineState): EffectLists {
     remaps: remapsOf(state),
     texts: textsOf(state),
     videoOverlays: videoOverlaysOf(state),
+    pictureEffects: pictureEffectsOf(state),
   }
 }
 
@@ -1711,6 +1785,7 @@ function withEffects({
   remaps,
   texts,
   videoOverlays,
+  pictureEffects,
 }: EffectLists): TimelineState {
   // Remaps normalize first: transition clamping reads output durations, and
   // an unclamped effect window would count source time the entry no longer
@@ -1721,6 +1796,7 @@ function withEffects({
   const fadedEntries = clampedEntries.every((entry, index) => entry === entries[index])
     ? entries
     : clampedEntries
+  const normalizedPictureEffectList = normalizedPictureEffects(entries, pictureEffects)
   return {
     entries: fadedEntries,
     transitions: normalizedBoundaries(entries, transitions, normalizedRemapList).filter(
@@ -1731,6 +1807,10 @@ function withEffects({
     // works in source seconds), so a remap shifts when a zoom appears in
     // the output but never what it zooms on.
     zooms: normalizedZooms(entries, zooms),
+    // Picture effects (#862) clamp against the trimmed source range too, for
+    // the zooms' reason: their windows are source seconds. The key exists
+    // only while effects do, like remaps.
+    ...(normalizedPictureEffectList.length === 0 ? {} : { pictureEffects: normalizedPictureEffectList }),
     // The remaps key exists only while effects do, so every pre-remap state
     // keeps its exact shape (see the TimelineState field comment).
     ...(normalizedRemapList.length === 0 ? {} : { remaps: normalizedRemapList }),
@@ -1764,8 +1844,8 @@ function withEffects({
 
 /**
  * A timeline state with the reducer's invariants applied to the given lists:
- * transitions only on surviving adjacent boundaries, zooms clamped to their
- * entries. For building a state outside the reducer (opening a project, #77)
+ * transitions only on surviving adjacent boundaries, zooms and picture
+ * effects clamped to their entries. For building a state outside the reducer (opening a project, #77)
  * so that `timeline-replaced` can store the caller's reference unchanged.
  */
 export function normalizedTimelineState(
@@ -1780,8 +1860,18 @@ export function normalizedTimelineState(
   canvasPreset?: CanvasPreset,
   markers: ChapterMarker[] = [],
   shapeGroups: ShapeGroup[] = [],
+  pictureEffects: PictureEffect[] = [],
 ): TimelineState {
-  const state = withEffects({ entries, transitions, zooms, audioTracks, remaps, texts, videoOverlays })
+  const state = withEffects({
+    entries,
+    transitions,
+    zooms,
+    audioTracks,
+    remaps,
+    texts,
+    videoOverlays,
+    pictureEffects,
+  })
   // The project-level fields (#250, #273) are carried, not normalized — the
   // caller (deserialization) already stores them in canonical form. Markers
   // (#487) are sorted, the one canonical form a file might not have kept.
@@ -2400,6 +2490,10 @@ function reduceTimelineCollections(
         remaps: splitRemaps,
         texts,
         videoOverlays,
+        // Picture effects (#862) stay with the entry id, so the first half,
+        // and normalization clamps them into it. How a split divides them is
+        // #862's step 2b.
+        pictureEffects: pictureEffectsOf(state),
       })
     }
     case 'element-split': {
@@ -3021,6 +3115,53 @@ function reduceTimelineCollections(
       const remaining = remaps.filter((remap) => remap.id !== action.id)
       if (remaining.length === remaps.length) return state
       return withEffects({ ...effectListsOf(state), remaps: remaining })
+    }
+    case 'picture-effect-added': {
+      const effect = action.effect
+      if (!state.entries.some((entry) => entry.id === effect.entryId)) return state
+      // Ids are the handle updates and removals act on — never two alike.
+      const effects = pictureEffectsOf(state)
+      if (effects.some((existing) => existing.id === effect.id)) return state
+      if (typeof effect.type !== 'string' || effect.type === '') return state
+      if (!isValidPictureEffectSpec(effect)) return state
+      const next = withEffects({ ...effectListsOf(state), pictureEffects: [...effects, effect] })
+      const applied = next.pictureEffects?.find((existing) => existing.id === effect.id)
+      // A window that starts at or past the entry's end clamps to nothing:
+      // veto the add rather than store an effect that can never show, as a
+      // zoom with no room is vetoed.
+      if (applied === undefined || applied.end <= applied.start) return state
+      return next
+    }
+    case 'picture-effect-updated': {
+      const effects = pictureEffectsOf(state)
+      const existing = effects.find((effect) => effect.id === action.id)
+      if (existing === undefined) return state
+      if (!isValidPictureEffectSpec(action.effect)) return state
+      const candidate: PictureEffect = {
+        id: existing.id,
+        entryId: existing.entryId,
+        type: existing.type,
+        start: action.effect.start,
+        end: action.effect.end,
+        params: { ...action.effect.params },
+      }
+      const next = withEffects({
+        ...effectListsOf(state),
+        pictureEffects: effects.map((effect) => (effect.id === action.id ? candidate : effect)),
+      })
+      const applied = next.pictureEffects?.find((effect) => effect.id === action.id)
+      if (applied === undefined) return state
+      // Normalization can clamp the edit back to what is already stored — a
+      // no-op must keep the state reference (edits stop preview playback).
+      // Effects do not sweep, so no sibling can have moved.
+      if (pictureEffectsEqual(existing, applied)) return state
+      return next
+    }
+    case 'picture-effect-removed': {
+      const effects = pictureEffectsOf(state)
+      const remaining = effects.filter((effect) => effect.id !== action.id)
+      if (remaining.length === effects.length) return state
+      return withEffects({ ...effectListsOf(state), pictureEffects: remaining })
     }
     case 'text-added': {
       const text = action.text
