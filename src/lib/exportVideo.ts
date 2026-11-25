@@ -691,7 +691,7 @@ export function withPictureFilters(
  *   aspect, through its corners, as CSS's `radial-gradient(ellipse
  *   farthest-corner)` is, with the stops both renderers take from
  *   `vignetteStops`.
- * - Grain, scratches, dust and scanlines (#870) are each their `textureTile` for the
+ * - Grain, scratches, dust, scanlines and the tracking band (#870) are each their `textureTile` for the
  *   card's aspect, put on a canvas of the tile's size and stretched over
  *   the card with smoothing, as the preview's canvas element is stretched
  *   over its box.
@@ -702,7 +702,7 @@ export function withPictureFilters(
  * `opacity × (layer over card)`, which is a layer drawn at its own alpha
  * with its colour scaled by `opacity`. A black layer (a vignette, grain's
  * dark cells, dark dust, scanlines) is unchanged by that; white texture pixels (grain's
- * light cells, scratches, light dust) are not, and drawn
+ * light cells, scratches, light dust, the tracking band) are not, and drawn
  * at full brightness they would lighten the faded card more than the
  * preview does (#933's review measured 42 against 21 on black).
  */

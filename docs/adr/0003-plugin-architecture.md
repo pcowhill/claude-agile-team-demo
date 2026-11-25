@@ -382,8 +382,19 @@ extension point is built until a concrete plugin needs it**.
       keep a 4 px period of a 1080p frame at any size, and each line's
       alpha wavers with a hash of the step and the row. VHS's soft blur is
       the existing `blur` filter at a small radius.
-    - **Still to come (#870, then #871).** VHS's tracking band is a
-      further layer kind of the same shape. A per-channel offset (VHS's
+    - **Tracking band (#870, step 2b(i)b).** VHS's `tracking` is one
+      more texture kind, again with no change to either renderer. Its
+      tile is 480 × 270 at any aspect, clear but for a 12-row band of
+      white noise. The band is the first texture whose pattern spans
+      several steps: whether it shows, and where it starts, are hashed
+      from the step's *burst* (12 steps, half a second) rather than the
+      step, and it rolls 2 rows a step within the burst, so it reads as
+      a tape mistracking for a moment rather than a flash 24 times a
+      second. That needs no new input: the burst is a pure function of
+      the step the look already passes as `seed`. It lightens, so it
+      takes `drawPictureLayers`' dimmed path on a crossfade's outgoing
+      card, as the scratches do.
+    - **Still to come (#870, then #871).** A per-channel offset (VHS's
       colour bleed and #871's chromatic aberration) would be a new
       `PictureFilter` kind the same way. The contract grows by kinds, not
       by mechanisms.
@@ -397,7 +408,7 @@ extension point is built until a concrete plugin needs it**.
   strongest grain's alpha in percent, and Size, a grain's width in pixels
   of a 1080p frame) and Old film (#870: Amount, scaling its sepia, its
   flicker, a fixed-size grain, its scratches and its dust together) and
-  VHS (#870: Amount, scaling its soft blur and its scanlines together). Each is parameters plus a `look`
+  VHS (#870: Amount, scaling its soft blur, its scanlines and its tracking band together). Each is parameters plus a `look`
   rule, with no rendering code and no dependencies. Its ids are top-level
   wiring (`src/plugins/visualEffectsIds.ts`), as with the transition
   packs, so `projectUses` loads no chunk.

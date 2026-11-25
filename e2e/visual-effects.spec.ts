@@ -1184,17 +1184,23 @@ test.describe('Old film (#870)', () => {
  * cell's brightness against eight points three cells around it.
  */
 const DUST_COLUMNS = 480
-/** A plain still of one grey `level`, 1920 × 1080, so a 1080p frame holds a dust cell in 4 px and a scratch in 2. */
-async function makePlain(page: Page, level: number): Promise<Buffer> {
-  const base64 = await page.evaluate((level) => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 1920
-    canvas.height = 1080
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = `rgb(${level}, ${level}, ${level})`
-    ctx.fillRect(0, 0, 1920, 1080)
-    return canvas.toDataURL('image/png').split(',')[1]
-  }, level)
+/**
+ * A plain still of one grey `level`, 1920 × 1080 unless told otherwise, so
+ * a 1080p frame holds a dust cell in 4 px and a scratch in 2.
+ */
+async function makePlain(page: Page, level: number, width = 1920, height = 1080): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ({ level, width, height }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = `rgb(${level}, ${level}, ${level})`
+      ctx.fillRect(0, 0, width, height)
+      return canvas.toDataURL('image/png').split(',')[1]
+    },
+    { level, width, height },
+  )
   return Buffer.from(base64, 'base64')
 }
 
@@ -1512,6 +1518,15 @@ test.describe("Old film's scratches and dust (#870)", () => {
  * - `edge`: the edge's width, from three quarters to one quarter of the
  *   way from white to black, in px of a 1080p frame: about 1 when sharp,
  *   and the blur widens it.
+ *
+ * VHS also draws a tracking band in some half-second bursts (step 2b(i)b,
+ * tested in its own describe below). Steps 48 and 49 lie in burst 4,
+ * which has none, so these measures read the lines and the blur alone.
+ * Burst 2 has one, at 1 s to 1.5 s, inside the window's ease in. At full
+ * weight it would lift the export test's grey half by about 1.6 (a band
+ * 29 lighter over 48 of the half's 864 rows), against the lines' 22
+ * darker, and the ease scales both alike, so its one darkened stretch is
+ * unchanged.
  */
 const VHS_STILL_GREY = 128
 const VHS_EDGE = 0.75
@@ -1811,6 +1826,388 @@ test.describe('VHS (#870)', () => {
     const span = greys[last].time - greys[first].time
     expect(span).toBeGreaterThan(VHS_WINDOW.end - VHS_WINDOW.start - 1)
     expect(span).toBeLessThan(VHS_WINDOW.end - VHS_WINDOW.start + 0.3)
+  })
+})
+
+/**
+ * VHS's tracking band (#870, step 2b(i)b): a light, noisy band 12 rows of
+ * the tracking tile's 270 tall (48 px of a 1080p frame). It shows for a
+ * whole half-second burst of 12 texture steps or not at all, and rolls
+ * down 2 rows a step within one. In the first 4 s of an entry, bursts 2
+ * (steps 24 to 35) and 7 (84 to 95) show one, and the others none
+ * (`pictureEffect.test.ts` pins this).
+ *
+ * The preview's own `preview-picture-tracking` canvas says where the band
+ * is: its first and last drawn rows, and their mean alpha. Each frame is
+ * then read the same way from the preview's screenshot and from Save
+ * frame's PNG, both drawn at 1080p: the row profile across the frame's
+ * width, and from it
+ * - `excess`: the band's rows' mean brightness over that of the rows 4 to
+ *   20 tile rows above and below it, which the band does not reach. A
+ *   48 px band spans 12 scanline periods, so the lines cancel out of it.
+ * - `centre`: the middle of the band's extra brightness, in tile rows.
+ */
+const TRACKING_ROWS = 270
+const TRACKING_ROLL = 2
+const TRACKING_PX = 1080 / TRACKING_ROWS
+/**
+ * The bounds, from local Chromium measurements on this spec before they
+ * were set.
+ * - On grey 128 at Amount 100, steps 26 and 31: the band's cells average
+ *   alpha 0.20 of white over a grey the scanlines have taken to about 106,
+ *   so its rows rise by about 0.20 × 149 = 30. The preview read 28.84 and
+ *   29.10, the saved frame 28.72 and 29.07. A band must add over 10, and
+ *   the renderers agree within 3.
+ * - Its middle: the preview and the saved frame read 136.78 and 136.82
+ *   for a band on rows 131 to 142 (middle 137), and 146.96 and 146.92 for
+ *   141 to 152. Within 1 tile row, where the next step's band is 2 rows on.
+ * - Step 40, no band: 0.03 and 0.07 at step 31's rows. Below 1.5.
+ * - The crossfade, over black: the band at full opacity adds 51.6 (its
+ *   cells' mean alpha × 255). Before the crossfade the preview read 50.18
+ *   and the saved frame 50.87; at its middle 23.13 and 24.28, a share of
+ *   0.45 and 0.47. The renderers must agree within 15 % of the full band,
+ *   where they agreed within 2.3 %; drawn undimmed, the saved frame would
+ *   read about 0.5 more.
+ */
+const TRACKING_SEEN = 10
+const TRACKING_CENTRE_TOLERANCE = 1
+const TRACKING_TOLERANCE = 3
+const TRACKING_QUIET = 1.5
+const TRACKING_FADE_TOLERANCE = 0.15
+/**
+ * The WebM test's preview steps: burst 2's twelve, 1 s to 1.5 s, the
+ * band's whole roll. As for the grain (WEBM_STEPS), a recorded frame late
+ * or dropped can skip a step, so the test asks for half of them, each
+ * within 1 row of the preview's band, where the neighbouring steps' bands
+ * are 2 rows away. Measured at 960 × 540: run alone, every step had an
+ * exported frame within 0.1 rows; run beside the other VHS tests on three
+ * workers, 9 of 12 did in each of two runs, and the rest were 1.9 to 2.0
+ * rows off, the neighbouring step's band, so no frame put a band anywhere
+ * else.
+ */
+const TRACKING_WEBM_STEPS = Array.from({ length: 12 }, (_, index) => 24 + index)
+const TRACKING_WEBM_STEPS_MATCHED = 6
+/**
+ * A frame shows a band when its brightest 2-row strip is this far over the
+ * median strip. Frames without one peaked at 4.87, the encoder's error on
+ * a plain grey, and frames with one at 40.8 or more.
+ */
+const TRACKING_WEBM_SEEN = 15
+type TrackingBand = { top: number; bottom: number; alpha: number }
+type TrackingMeasure = { excess: number; centre: number }
+
+/** Where the preview's tracking canvas draws the band, in tile rows, and its cells' mean alpha in [0, 1]; null if it draws none. */
+async function previewTrackingBand(page: Page): Promise<TrackingBand | null> {
+  return await page.getByTestId('preview-picture-tracking').evaluate((element) => {
+    const canvas = element as HTMLCanvasElement
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+    let top = -1
+    let bottom = -1
+    let sum = 0
+    for (let index = 3; index < data.length; index += 4) {
+      if (data[index] === 0) continue
+      const row = Math.floor((index - 3) / 4 / canvas.width)
+      if (top < 0) top = row
+      bottom = row + 1
+      sum += data[index]
+    }
+    return top < 0 ? null : { top, bottom, alpha: sum / ((bottom - top) * canvas.width) / 255 }
+  })
+}
+
+/** Seeks to the middle of texture `step`, to the slider's hundredth, and waits for the preview to draw that step's band. */
+async function seekToTrackingStep(page: Page, step: number) {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(Number(((step + 0.5) / 24).toFixed(2))))
+  await expect(page.getByTestId('preview-picture-tracking')).toHaveAttribute('data-seed', String(step))
+}
+
+/** `excess` and `centre` (see above) of a PNG of the frame, for a band at `band`'s rows. */
+async function trackingOfPng(page: Page, png: Buffer, band: Omit<TrackingBand, 'alpha'>): Promise<TrackingMeasure> {
+  return await page.evaluate(
+    async ({ base64, band, px }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = 1920
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0, 1920, 1080)
+      const data = ctx.getImageData(0, 0, 1920, 1080).data
+      // Each row's mean, inset from the frame's sides.
+      const profile = Array.from({ length: 1080 }, (_, y) => {
+        let sum = 0
+        for (let x = 96; x < 1824; x++) {
+          const index = (y * 1920 + x) * 4
+          sum += (data[index] + data[index + 1] + data[index + 2]) / 3
+        }
+        return sum / (1824 - 96)
+      })
+      const mean = (from: number, to: number) => {
+        const rows = profile.slice(Math.max(0, Math.round(from)), Math.min(1080, Math.round(to)))
+        return rows.reduce((total, value) => total + value, 0) / rows.length
+      }
+      const top = band.top * px
+      const bottom = band.bottom * px
+      const reference = (mean(top - 20 * px, top - 4 * px) + mean(bottom + 4 * px, bottom + 20 * px)) / 2
+      let weight = 0
+      let moment = 0
+      for (let y = Math.round(top - 4 * px); y < Math.round(bottom + 4 * px); y++) {
+        const extra = Math.max(0, profile[y] - reference)
+        weight += extra
+        moment += extra * (y + 0.5)
+      }
+      return { excess: mean(top, bottom) - reference, centre: weight > 0 ? moment / weight / px : NaN }
+    },
+    { base64: png.toString('base64'), band: { top: band.top, bottom: band.bottom }, px: TRACKING_PX },
+  )
+}
+
+/**
+ * Builds a 4 s still of grey `level`, 1920 × 1080 unless told otherwise,
+ * with VHS over its whole length at Amount 100, so nothing eases, and
+ * opens that project.
+ */
+async function openTrackingProject(page: Page, level: number, width = 1920, height = 1080): Promise<Buffer> {
+  await gotoForSaving(page)
+  const still = await makePlain(page, level, width, height)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: still }])
+  await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+  const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position 1 in seconds` })
+  await duration.fill('4')
+  await duration.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+  const project = await saveWithEffects(page, ([entryId]) => [
+    { id: 'h1', entryId, type: 'vhs', start: 0, end: 4, params: { amount: 100 } },
+  ])
+  await openProject(page, project, still, '0:04')
+  return still
+}
+
+test.describe("VHS's tracking band (#870)", () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test('the preview and a saved frame draw the band at the same rows and strength, rolling down its burst, and none in a burst without one', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000)
+    await openTrackingProject(page, 128)
+    const measured: { step: number; band: TrackingBand; preview: TrackingMeasure; saved: TrackingMeasure }[] = []
+    for (const step of [26, 31]) {
+      await seekToTrackingStep(page, step)
+      const band = await previewTrackingBand(page)
+      expect(band, `step ${step}: the preview's tile has a band`).not.toBeNull()
+      await expect
+        .poll(() => page.getByTestId('preview-image').evaluate((element) => (element as HTMLImageElement).complete))
+        .toBe(true)
+      const shot = await page
+        .getByTestId('preview-frame')
+        .screenshot({ path: testInfo.outputPath(`vhs-tracking-preview-${step}.png`) })
+      await testInfo.attach(`preview, step ${step}`, { body: shot, contentType: 'image/png' })
+      const saved = await savedFrame(page)
+      await testInfo.attach(`saved frame, step ${step}`, { body: saved, contentType: 'image/png' })
+      measured.push({
+        step,
+        band: band!,
+        preview: await trackingOfPng(page, shot, band!),
+        saved: await trackingOfPng(page, saved, band!),
+      })
+    }
+    // Step 40 is in burst 3, which has no band: read where step 31's was.
+    await seekToTrackingStep(page, 40)
+    expect(await previewTrackingBand(page), "step 40: the preview's tile is clear").toBeNull()
+    await expect
+      .poll(() => page.getByTestId('preview-image').evaluate((element) => (element as HTMLImageElement).complete))
+      .toBe(true)
+    const quietShot = await page.getByTestId('preview-frame').screenshot()
+    const quiet = {
+      preview: await trackingOfPng(page, quietShot, measured[1].band),
+      saved: await trackingOfPng(page, await savedFrame(page), measured[1].band),
+    }
+    console.log(`[${testInfo.project.name}] vhs tracking band: ${JSON.stringify({ measured, quiet })}`)
+
+    // Five steps on, the band has rolled ten rows down.
+    expect(measured[1].band.top - measured[0].band.top).toBe(5 * TRACKING_ROLL)
+    for (const { step, band, preview, saved } of measured) {
+      const centre = (band.top + band.bottom) / 2
+      for (const [name, measure] of [
+        ['preview', preview],
+        ['saved frame', saved],
+      ] as const) {
+        expect(measure.excess, `step ${step}, ${name}: the band lightens its rows`).toBeGreaterThan(TRACKING_SEEN)
+        expect(Math.abs(measure.centre - centre), `step ${step}, ${name}: the band's middle, in tile rows`).toBeLessThan(
+          TRACKING_CENTRE_TOLERANCE,
+        )
+      }
+      expect(Math.abs(preview.excess - saved.excess), `step ${step}: preview vs saved frame`).toBeLessThan(
+        TRACKING_TOLERANCE,
+      )
+    }
+    for (const [name, measure] of Object.entries(quiet)) {
+      expect(Math.abs(measure.excess), `step 40, ${name}: no band`).toBeLessThan(TRACKING_QUIET)
+    }
+  })
+
+  test('on the outgoing clip of a crossfade, the band fades with its clip in the preview and in a saved frame', async ({
+    page,
+  }, testInfo) => {
+    // As the scratch test: two black stills, the first 4 s with VHS over
+    // its whole length, crossfading from 3 s to 4 s. On black the lines
+    // and the blur change nothing, so the band's rows are the band alone.
+    // Step 26 is before the crossfade, and step 84 (3.52 s) at its middle,
+    // where the preview shows the band at about half its strength.
+    test.setTimeout(120_000)
+    await gotoForSaving(page)
+    const black = await makePlain(page, 0)
+    await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: black }])
+    for (const [position, seconds] of [
+      [1, 4],
+      [2, 2],
+    ]) {
+      await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+      const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position ${position} in seconds` })
+      await duration.fill(String(seconds))
+      await duration.blur()
+    }
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    await expect(page.getByTestId('timeline-total')).toHaveText('0:05')
+    const project = await saveWithEffects(page, ([outgoing]) => [
+      { id: 'h1', entryId: outgoing, type: 'vhs', start: 0, end: 4, params: { amount: 100 } },
+    ])
+    await openProject(page, project, black, '0:05')
+
+    const measured: Record<string, { step: number; full: number; preview: number; saved: number }> = {}
+    for (const [label, step] of [
+      ['before', 26],
+      ['middle', 84],
+    ] as const) {
+      await seekToTrackingStep(page, step)
+      const band = await previewTrackingBand(page)
+      expect(band, `${label}: the preview's tile has a band`).not.toBeNull()
+      for (const image of label === 'middle' ? ['preview-image', 'preview-image-incoming'] : ['preview-image']) {
+        await expect
+          .poll(() => page.getByTestId(image).evaluate((element) => (element as HTMLImageElement).complete))
+          .toBe(true)
+      }
+      const shot = await page.getByTestId('preview-frame').screenshot()
+      await testInfo.attach(`preview, ${label} (step ${step})`, { body: shot, contentType: 'image/png' })
+      const saved = await savedFrame(page)
+      await testInfo.attach(`saved frame, ${label} (step ${step})`, { body: saved, contentType: 'image/png' })
+      measured[label] = {
+        step,
+        // What the band adds over black at full opacity: its cells' mean alpha of white.
+        full: band!.alpha * 255,
+        preview: (await trackingOfPng(page, shot, band!)).excess,
+        saved: (await trackingOfPng(page, saved, band!)).excess,
+      }
+    }
+    console.log(`[${testInfo.project.name}] outgoing vhs tracking band over black: ${JSON.stringify(measured)}`)
+
+    for (const [label, low, high] of [
+      ['before', 0.8, 1.2],
+      ['middle', 0.3, 0.7],
+    ] as const) {
+      const { full, preview, saved } = measured[label]
+      expect(preview / full, `${label}: the band's share in the preview`).toBeGreaterThan(low)
+      expect(preview / full, `${label}: the band's share in the preview`).toBeLessThan(high)
+      expect(Math.abs(preview - saved) / full, `${label}: preview vs saved frame`).toBeLessThan(TRACKING_FADE_TOLERANCE)
+    }
+  })
+
+  test('the export rolls the preview\'s band down its burst, and shows it in no other burst', async ({ page }, testInfo) => {
+    test.setTimeout(180_000)
+    // A 960 × 540 still, so the export is 960 × 540, as the grain's WebM
+    // test is: a 1080p recording in a session container held each band
+    // position for about 0.15 s, four positions over the burst's twelve
+    // steps, where 960 × 540 keeps up (see TRACKING_WEBM_STEPS).
+    await openTrackingProject(page, 128, 960, 540)
+    const steps: { step: number; centre: number }[] = []
+    for (const step of TRACKING_WEBM_STEPS) {
+      await seekToTrackingStep(page, step)
+      const band = await previewTrackingBand(page)
+      expect(band, `step ${step}: the preview's tile has a band`).not.toBeNull()
+      steps.push({ step, centre: (band!.top + band!.bottom) / 2 })
+    }
+    // The band's centres over each burst that has one, from its first step to its last.
+    const bursts: [number, number][] = []
+    for (const first of [24, 84]) {
+      await seekToTrackingStep(page, first)
+      const start = await previewTrackingBand(page)
+      expect(start, `step ${first}: a band`).not.toBeNull()
+      const centre = (start!.top + start!.bottom) / 2
+      bursts.push([centre, centre + 11 * TRACKING_ROLL])
+    }
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export Project…' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    const exported = await readFile((await (await downloadPromise).path())!)
+    // Strips 2 tile rows (8 px of a 1080p frame) tall across the frame's
+    // width, from above the first burst's band to below the second's.
+    const from = Math.floor(Math.min(...bursts.flat()) - 12)
+    const to = Math.ceil(Math.max(...bursts.flat()) + 12)
+    const strips: Record<string, { x: number; y: number; width: number; height: number }> = {}
+    for (let row = from; row < to; row += 2) {
+      strips[String(row)] = { x: 0.05, y: row / TRACKING_ROWS, width: 0.9, height: 2 / TRACKING_ROWS }
+    }
+    // Every frame of the file: the export is a real-time recording at 30
+    // frames a second, so a 1/60 s grid visits each one (#370).
+    const scan = await scanExportedFrames(page, exported, strips, 1 / 60)
+    const frames = scan.frames.map((frame) => {
+      const rows = Object.entries(frame.bands).map(([row, { r, g, b }]) => ({ row: Number(row) + 1, value: (r + g + b) / 3 }))
+      const median = rows.map(({ value }) => value).sort((a, b) => a - b)[Math.floor(rows.length / 2)]
+      const peak = Math.max(...rows.map(({ value }) => value - median))
+      let weight = 0
+      let moment = 0
+      for (const { row, value } of rows) {
+        const extra = value - median
+        if (extra < peak / 3) continue
+        weight += extra
+        moment += extra * row
+      }
+      return { time: frame.time, peak, centre: moment / weight }
+    })
+    const banded = frames.filter(({ peak }) => peak > TRACKING_WEBM_SEEN)
+    const matches = steps.map(({ step, centre }) => ({
+      step,
+      centre,
+      nearest: Math.min(...banded.map((frame) => Math.abs(frame.centre - centre))),
+    }))
+    const report = {
+      size: `${scan.width}x${scan.height}`,
+      frames: frames.length,
+      banded: banded.length,
+      quietPeak: Math.max(...frames.filter(({ peak }) => peak <= TRACKING_WEBM_SEEN).map(({ peak }) => peak)),
+      bandedPeak: Math.min(...banded.map(({ peak }) => peak)),
+      bursts,
+      outside: banded
+        .filter(({ centre }) => !bursts.some(([first, last]) => centre > first - 1 && centre < last + 1))
+        .map(({ time, centre }) => `${time.toFixed(3)}: ${centre.toFixed(2)}`),
+      steps: matches.map(({ step, centre, nearest }) => `${step} at ${centre}: nearest ${nearest.toFixed(2)}`),
+    }
+    console.log(`[${testInfo.project.name}] vhs tracking band export: ${JSON.stringify(report)}`)
+
+    // The band shows, and only where a burst puts it: every banded frame's
+    // band lies on one of the two bursts' rolls, and some frames between
+    // the bursts show none.
+    expect(banded.length, 'frames with a band').toBeGreaterThan(0)
+    expect(report.outside, 'banded frames off both bursts\' rolls').toEqual([])
+    const firstBurst = banded.filter(({ centre }) => centre < bursts[0][1] + 1)
+    const secondBurst = banded.filter(({ centre }) => centre > bursts[1][0] - 1)
+    expect(firstBurst.length, 'frames banded in the first burst').toBeGreaterThan(0)
+    expect(secondBurst.length, 'frames banded in the second burst').toBeGreaterThan(0)
+    const lastOfFirst = Math.max(...firstBurst.map(({ time }) => time))
+    const firstOfSecond = Math.min(...secondBurst.map(({ time }) => time))
+    expect(
+      frames.filter(({ time, peak }) => time > lastOfFirst && time < firstOfSecond && peak <= TRACKING_WEBM_SEEN).length,
+      'frames without a band between the bursts',
+    ).toBeGreaterThan(30)
+    // Most of the preview's six steps are in the file at their own rows:
+    // a step's band is 2 rows from the next one's, so a match within one
+    // row is that step and not its neighbour (see TRACKING_WEBM_STEPS).
+    expect(
+      matches.filter(({ nearest }) => nearest < 1).length,
+      `steps with a banded frame at their rows: ${report.steps.join('; ')}`,
+    ).toBeGreaterThanOrEqual(TRACKING_WEBM_STEPS_MATCHED)
   })
 })
 

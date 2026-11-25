@@ -40,10 +40,11 @@ export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3, 
 /**
  * VHS (#870, step 2b(i)) at Amount 100 and full weight: its soft blur's
  * radius as a fraction of the frame width (about 3 px of a 1080p frame,
- * a tape's lost sharpness rather than Blur's deliberate haze), and the
- * darkest scanline's alpha. Amount scales both together.
+ * a tape's lost sharpness rather than Blur's deliberate haze), the
+ * darkest scanline's alpha, and the tracking band's brightest cell's
+ * alpha. Amount scales them all together.
  */
-export const VHS = { blur: 0.0015, scanlines: 0.4 }
+export const VHS = { blur: 0.0015, scanlines: 0.4, tracking: 0.5 }
 
 /**
  * Old film's brightness at `time` for a flicker of `depth` (#870): a
@@ -135,8 +136,9 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
   },
   // A worn videotape look (#870, step 2b(i)): a soft blur and thin dark
   // scanlines across the picture, whose darkness shimmers 24 times a
-  // second of the entry's clock. Amount is the strength of both, in
-  // percent. The colour offset and the tracking band are later steps.
+  // second of the entry's clock, and now and then a light, noisy tracking
+  // band that rolls down the frame for half a second. Amount is the
+  // strength of them all, in percent. The colour offset is a later step.
   vhs: {
     id: 'vhs',
     name: 'VHS',
@@ -145,7 +147,10 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
       const strength = (params.amount / 100) * weight
       return {
         filters: [{ kind: 'blur', radius: VHS.blur * strength }],
-        layers: [{ kind: 'scanlines', amount: VHS.scanlines * strength, seed: textureStep(time) }],
+        layers: [
+          { kind: 'scanlines', amount: VHS.scanlines * strength, seed: textureStep(time) },
+          { kind: 'tracking', amount: VHS.tracking * strength, seed: textureStep(time) },
+        ],
       }
     },
   },
