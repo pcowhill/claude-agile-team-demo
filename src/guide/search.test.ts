@@ -83,6 +83,7 @@ const constants: GuideConstants = {
   PATTERN_SPIRAL_COLUMNS: '6',
   PATTERN_SPIRAL_ROWS: '4',
   PICTURE_EFFECT_EASE: '0.3',
+  DEFAULT_PICTURE_EFFECT: '2',
   WEBP_FPS: '10',
   WEBP_MAX_PX: '480',
   APNG_FPS: '10',

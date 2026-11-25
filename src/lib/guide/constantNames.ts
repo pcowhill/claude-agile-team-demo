@@ -147,6 +147,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'PATTERN_SPIRAL_ROWS',
   /** How long a picture effect eases in and out at the ends of its window, in seconds (#862). */
   'PICTURE_EFFECT_EASE',
+  /** How long a new picture effect's window is, in seconds (#862). */
+  'DEFAULT_PICTURE_EFFECT',
   /** The More export formats plugin's Animated WebP sampling rate and longer-side cap (#858). */
   'WEBP_FPS',
   'WEBP_MAX_PX',

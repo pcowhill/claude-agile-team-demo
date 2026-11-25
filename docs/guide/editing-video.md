@@ -36,7 +36,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
   - The clamps cannot cross: the kept part is never shorter than a tenth of a second.
   - Click or drag on the strip anywhere else to move the playhead and look at that moment, without moving a clamp.
 - **What a trim does to the entry's effects** shows on the strip before you apply it:
-  - **Marks.** The entry's [zooms](#zooms), [speed segments and pauses](#speed-segments-and-pauses) sit along the foot of the strip where they will be after Apply. A zoom is a purple bar, a speed segment a green bar, and a pause an orange tick; point at one to see its name. They are placed in seconds into the kept part, as their fields are, so they move with the In clamp.
+  - **Marks.** The entry's [zooms](#zooms), [speed segments and pauses](#speed-segments-and-pauses), and its [vignettes and blurs](#vignette-and-blur), sit along the foot of the strip where they will be after Apply. A zoom is a purple bar, a speed segment a green bar, a vignette or blur a blue bar, and a pause an orange tick; point at one to see its name. They are placed in seconds into the kept part, as their fields are, so they move with the In clamp.
   - **The warning line** under the strip names each effect the clamps as they stand would cut into:
     - *shortens Zoom 1*: part of it is left.
     - *removes Speed segment 1*: none of it plays. It is kept at length zero, so trimming back out restores it.
@@ -207,6 +207,18 @@ The item is disabled, and X does nothing, without a marked range; while either m
 **On an overlay.** A zoom on a video or image overlay magnifies the overlay's own picture inside its rectangle; the zoom does not grow or move the rectangle (a [Move](#overlay-move) does that), and the base and everything else on the frame are untouched. The fields are the same, read against the overlay: *at* is seconds into the overlay's window, and the *centre* is a fraction of the overlay's rectangle rather than of the frame. The zoomed region never leaves the rectangle, its shape mask still cuts it, and its redaction and spotlight regions stay on the parts of the picture they cover. An overlay's zooms are removed with it and copied when it is duplicated. **Adjust visually…** beside an overlay zoom's fields opens the [zoom editor](visual-editors.md#what-each-editor-shows) on the overlay's own picture, its rectangle cut out of the frame, so the region you drag is the part of the overlay the zoom will fill.
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Visual editors](visual-editors.md)
+
+## Vignette and blur
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Vignette** or **Blur**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Darkens the edges of the frame (Vignette) or blurs the whole picture (Blur) for a stretch of the entry.
+
+**Details.** Each effect's row has its stretch, *from* and *to* in seconds into the entry, and one setting: a Vignette's *strength*, 0 to 100 %, and a Blur's *amount*, 0 to 5 % of the frame's width. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at its default setting, starting where the entry's earlier effects of the same kind leave room, fitted into the room the entry has; the item is greyed once that kind covers the whole entry. A vignette and a blur may overlap, and stack. Each eases in and out at the ends of its stretch, and ✕ removes it. Rows are named by kind and numbered in time order, *Vignette 1*, *Blur 1*. Every entry offers them, a still or a slate as well as a clip. How each effect looks, how it eases and how it rides a zoom or a transition is on [Plugins › Visual effects](plugins.md#visual-effects).
+
+With the plugin disabled, the items leave the menu, and an effect already on an entry stays with its row named *(unavailable)*, *vignette 1 (unavailable)*: its stretch can still be moved and ✕ still removes it, and the picture shows without it until the plugin is enabled again. A [Trim](#the-trim-window) that cuts into an effect says so on its warning line, as it does for a zoom, and a [split](#split-at-playhead) or [cut](#cut-out-marked-range) divides an effect across it as it divides a speed segment.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Zooms](#zooms)
 
 ## Colour adjustments
 

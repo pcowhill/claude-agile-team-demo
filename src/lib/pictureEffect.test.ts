@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_PICTURE_EFFECT_SECONDS,
   NO_PICTURE_LOOK,
   PictureEffectRegistry,
   clampPictureEffect,
+  defaultPictureEffectWindow,
   isValidPictureEffectSpec,
+  pictureEffectNames,
   pictureEffectParamsFor,
   pictureEffectSpecsEqual,
   pictureEffectsEqual,
@@ -136,6 +139,43 @@ describe('PictureEffectRegistry', () => {
     unsubscribe()
     registry.register(blur)
     expect(listener).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('defaultPictureEffectWindow (#862)', () => {
+  it('starts a new effect at the first gap of its type that holds the default length', () => {
+    expect(defaultPictureEffectWindow([], 10)).toEqual({ start: 0, end: DEFAULT_PICTURE_EFFECT_SECONDS })
+    // Vignettes at 0-2 and 3-6: the 1 s gap is too short, so after the last one.
+    expect(defaultPictureEffectWindow([{ start: 3, end: 6 }, { start: 0, end: 2 }], 10)).toEqual({ start: 6, end: 8 })
+  })
+
+  it('takes the widest gap, shortened, when none holds the default; none when the type covers the entry', () => {
+    expect(defaultPictureEffectWindow([{ start: 0.5, end: 3 }], 3.5)).toEqual({ start: 0, end: 0.5 })
+    expect(defaultPictureEffectWindow([], 1.2)).toEqual({ start: 0, end: 1.2 })
+    expect(defaultPictureEffectWindow([{ start: 0, end: 4 }], 4)).toBeNull()
+  })
+})
+
+describe('pictureEffectNames (#862)', () => {
+  it('numbers each type separately in the order given, and marks an unregistered type', () => {
+    const registry = new PictureEffectRegistry()
+    registry.register(vignette)
+    registry.register(blur)
+    const names = pictureEffectNames(
+      [
+        { id: 'a', type: 'vignette' },
+        { id: 'b', type: 'blur' },
+        { id: 'c', type: 'vignette' },
+        { id: 'd', type: 'glitch' },
+      ],
+      registry,
+    )
+    expect([...names]).toEqual([
+      ['a', 'Vignette 1'],
+      ['b', 'Blur 1'],
+      ['c', 'Vignette 2'],
+      ['d', 'glitch 1 (unavailable)'],
+    ])
   })
 })
 

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -6,6 +7,9 @@ import { scanExportedFrames } from './decodedFrame'
 import type { ScannedFrame } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
+import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
+import { chooseEffect, openEffectMenu } from './timelineRowMenu'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
  * The Visual effects plugin's two picture effects (#862, step 3a): Vignette
@@ -231,6 +235,11 @@ async function previewAt(page: Page, seconds: number, label: string, enabled = t
   // element is present exactly when the vignette should be drawn.
   const inVignette = enabled && seconds > VIGNETTE.start && seconds < VIGNETTE.end
   await expect(page.getByTestId('preview-picture-layers')).toHaveCount(inVignette ? 1 : 0)
+  // And the blur's own filter, so a seek between two samples that both lack
+  // the vignette (3.5 s → 4.75 s) is waited out too, rather than read once
+  // straight after the input (#924's review, `quality-and-ci.md`).
+  const inBlur = enabled && seconds > BLUR.start && seconds < BLUR.end
+  await expect(image).toHaveCSS('filter', inBlur ? /blur\(/ : 'none')
   const png = await page.getByTestId('preview-frame').screenshot()
   await test.info().attach(`preview at ${seconds} s (${label})`, { body: png, contentType: 'image/png' })
   return await samplePng(page, png)
@@ -244,6 +253,118 @@ const brightness = (frame: ScannedFrame): Samples =>
 
 const describe = (samples: Samples) =>
   `ratio ${cornerRatio(samples).toFixed(3)}, contrast ${edgeContrast(samples).toFixed(1)}`
+
+/** The pattern still's row on the timeline. */
+const ENTRY = POSITION
+/** The expected + Effect ▾ items without the plugin: today's three (#419). */
+const BUILT_IN_EFFECTS = ['Zoom', 'Speed segment', 'Pause']
+
+/** + Effect ▾'s item labels on `position`, read from the open menu, which is then closed. */
+async function effectItems(page: Page, position: string): Promise<string[]> {
+  const menu = await openEffectMenu(page, position)
+  const items = await menu.getByRole('menuitem').allTextContents()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  return items.map((item) => item.trim())
+}
+
+/**
+ * A populated timeline for the row geometry (#862's UI criterion): the
+ * pattern still with a zoom, a vignette and a blur, plus a slate and a
+ * second still, so the effect rows sit among other rows as they will in use.
+ */
+async function populatedWithEffects(page: Page) {
+  await page.goto('./')
+  const pattern = await makePattern(page)
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: STILL, mimeType: 'image/png', buffer: pattern },
+    { name: 'white.png', mimeType: 'image/png', buffer: await makeWhite(page) },
+  ])
+  await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+  await page.getByRole('button', { name: 'Add white.png to timeline' }).click()
+  await setVisualEffects(page, true)
+  await chooseEffect(page, ENTRY, 'Zoom')
+  await chooseEffect(page, ENTRY, 'Vignette')
+  await chooseEffect(page, ENTRY, 'Blur')
+  await expect(page.getByTestId('picture-effect-row')).toHaveCount(2)
+}
+
+test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
+  test('+ Effect ▾ on a still and a slate lists Zoom alone with the plugin disabled, and Vignette and Blur once it is enabled', async ({
+    page,
+  }) => {
+    await page.goto('./')
+    await page
+      .getByTestId('clip-file-input')
+      .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makePattern(page) }])
+    await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+    // A still has no time remapping (#138), so its menu holds Zoom alone.
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom'])
+    await chooseFromAddMenu(page, ADD_SLATE)
+    expect(await effectItems(page, 'Color slate at position 2')).toEqual(['Zoom'])
+
+    await setVisualEffects(page, true)
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur'])
+
+    // Choosing one adds its row with the defaults, and the preview draws it
+    // inside the window: a vignette from 0 s to 2 s at Strength 60 %.
+    await chooseEffect(page, ENTRY, 'Vignette')
+    await expect(page.getByRole('spinbutton', { name: `Vignette 1 end of ${ENTRY} in seconds` })).toHaveValue('2')
+    await expect(page.getByRole('spinbutton', { name: `Vignette 1 strength of ${ENTRY} (percent)` })).toHaveValue('60')
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
+    await expect(page.getByTestId('preview-picture-layers')).toHaveCount(1)
+
+    // Disabled again: the items go, the row stays as "(unavailable)", and
+    // nothing is drawn.
+    await setVisualEffects(page, false)
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom'])
+    await expect(page.getByTestId('picture-effect-row')).toContainText('vignette 1 (unavailable) from')
+    await expect(page.getByTestId('preview-picture-layers')).toHaveCount(0)
+  })
+
+  test('+ Effect ▾ on a video clip lists the built-in three, then Vignette and Blur after them', async ({ page }) => {
+    // The clip-kind counterpart of the still above: the remap items stay,
+    // and the plugin's items follow them.
+    await page.goto('./')
+    await page.getByTestId('clip-file-input').setInputFiles(join('e2e', 'fixtures', 'trim-clip.webm'))
+    await page.getByRole('button', { name: 'Add trim-clip.webm to timeline' }).click()
+    expect(await effectItems(page, 'trim-clip.webm at position 1')).toEqual(BUILT_IN_EFFECTS)
+    await setVisualEffects(page, true)
+    expect(await effectItems(page, 'trim-clip.webm at position 1')).toEqual([...BUILT_IN_EFFECTS, 'Vignette', 'Blur'])
+  })
+
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 360, height: 640 },
+  ]) {
+    test(`the effect rows stay inside the entry's row, their labels and fields on one line, at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport)
+      await populatedWithEffects(page)
+      const rows = page.getByTestId('picture-effect-row')
+      // The editor column, as field-labels.spec.ts measures: a row too wide
+      // for the column would widen the timeline panel with it.
+      const column = page.locator('main')
+      for (const row of await rows.all()) {
+        await row.scrollIntoViewIfNeeded()
+        const entryRow = row.locator('xpath=ancestor::li[contains(@class, "timeline-entry")][1]')
+        const name = ((await row.locator(':scope > span').first().textContent()) ?? 'row').replace(/ from$/, '')
+        await expectWithin(row, entryRow, { axis: 'x', what: `the ${name} row at ${viewport.width}px` })
+        await expectWithin(row, column, { axis: 'x', what: `the ${name} row at ${viewport.width}px` })
+        // Each label ("Vignette 1 from", "to"), and each parameter field
+        // with its label (a `.timeline-labelled` span, so also matched
+        // here), is one line; the row itself may wrap between them, as the
+        // remap rows do.
+        await expectNoWrap(row.locator(':scope > span'), `${name}'s labels and labelled fields`)
+      }
+      await expectNoHorizontalScroll(page, `with two effect rows at ${viewport.width}px`)
+      const entryRow = rows.first().locator('xpath=ancestor::li[contains(@class, "timeline-entry")][1]')
+      const shot = await entryRow.screenshot({ path: testInfo.outputPath(`effect-rows-${viewport.width}.png`) })
+      await testInfo.attach(`effect rows at ${viewport.width}px`, { body: shot, contentType: 'image/png' })
+    })
+  }
+})
 
 test.describe('Visual effects plugin (#862)', () => {
   test('a project with a vignette and a blur prompts for the plugin, and the preview draws both in their windows', async ({

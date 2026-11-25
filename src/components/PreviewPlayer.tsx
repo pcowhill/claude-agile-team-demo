@@ -100,7 +100,7 @@ import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
-import { NO_PICTURE_LOOK, vignetteStops } from '../lib/pictureEffect'
+import { NO_PICTURE_LOOK, pictureEffectRegistry, vignetteStops } from '../lib/pictureEffect'
 import type { PictureLook } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
@@ -1216,6 +1216,11 @@ export function PreviewPlayer({
   // changes at runtime: re-render so a font that arrives or leaves (to the
   // fallback stack) shows without waiting for the next seek.
   useSyncExternalStore(fontRegistry.subscribe, () => fontRegistry.version)
+  // Picture effects draw through their registry too (#862): enabling or
+  // disabling Visual effects shows or drops them at once, not on the next
+  // seek. Without this the picture kept a disabled plugin's vignette until
+  // the playhead moved.
+  useSyncExternalStore(pictureEffectRegistry.subscribe, () => pictureEffectRegistry.version)
   const videoARef = useRef<HTMLVideoElement>(null)
   const videoBRef = useRef<HTMLVideoElement>(null)
   // The still layers' <img> elements (#140) — what a blur backdrop (#259)

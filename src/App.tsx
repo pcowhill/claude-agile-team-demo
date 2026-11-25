@@ -810,6 +810,16 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             }
             onUpdateRemap={(id, remap) => dispatchTimeline({ type: 'remap-updated', id, remap })}
             onRemoveRemap={(id) => dispatchTimeline({ type: 'remap-removed', id })}
+            onAddPictureEffect={(entryId, type, spec) =>
+              dispatchTimeline({
+                type: 'picture-effect-added',
+                effect: { ...spec, id: crypto.randomUUID(), entryId, type },
+              })
+            }
+            onUpdatePictureEffect={(id, effect) =>
+              dispatchTimeline({ type: 'picture-effect-updated', id, effect })
+            }
+            onRemovePictureEffect={(id) => dispatchTimeline({ type: 'picture-effect-removed', id })}
             onAddText={() =>
               dispatchTimeline({
                 type: 'text-added',
