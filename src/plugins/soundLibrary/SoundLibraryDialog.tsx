@@ -126,59 +126,61 @@ export function SoundLibraryDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Sound library</h3>
-        <p className="sound-library-licence">
-          Free to use in your videos, with no credit needed (CC0). A sound or a track downloads only
-          when you play or add it.
-        </p>
-        <div className="sound-library-list" data-testid="sound-library-list" tabIndex={-1}>
-          {categories.map((category) => (
-            <section key={category} aria-label={category}>
-              <h4>{category}</h4>
-              <ul>
-                {sounds
-                  .filter((sound) => sound.category === category)
-                  .map((sound) => {
-                    const playing = playingId === sound.id
-                    return (
-                      <li
-                        key={sound.id}
-                        className={`sound-library-row${sound.mood === undefined ? '' : ' sound-library-row-music'}`}
-                      >
-                        <span className="sound-library-name">{sound.name}</span>
-                        {sound.mood !== undefined && <span className="sound-library-mood">{sound.mood}</span>}
-                        <span className="sound-library-length">{formatSoundLength(sound.duration)}</span>
-                        <button
-                          type="button"
-                          className="sound-library-play"
-                          ref={sound === sounds[0] ? firstButtonRef : undefined}
-                          aria-label={`${playing ? 'Stop' : 'Play'} ${sound.name}`}
-                          aria-pressed={playing}
-                          onClick={() => togglePreview(sound)}
+        <div className="dialog-body">
+          <p className="sound-library-licence">
+            Free to use in your videos, with no credit needed (CC0). A sound or a track downloads only
+            when you play or add it.
+          </p>
+          <div className="sound-library-list" data-testid="sound-library-list" tabIndex={-1}>
+            {categories.map((category) => (
+              <section key={category} aria-label={category}>
+                <h4>{category}</h4>
+                <ul>
+                  {sounds
+                    .filter((sound) => sound.category === category)
+                    .map((sound) => {
+                      const playing = playingId === sound.id
+                      return (
+                        <li
+                          key={sound.id}
+                          className={`sound-library-row${sound.mood === undefined ? '' : ' sound-library-row-music'}`}
                         >
-                          {playing ? '■' : '▶'}
-                        </button>
-                        {/* aria-disabled, not disabled: disabling the
-                            focused button would drop focus to the page
-                            while the sound downloads. `add` ignores a
-                            press while its download is in flight. */}
-                        <button
-                          type="button"
-                          aria-label={`Add ${sound.name} to the library`}
-                          aria-disabled={adding.has(sound.id) || undefined}
-                          onClick={() => void add(sound)}
-                        >
-                          Add
-                        </button>
-                      </li>
-                    )
-                  })}
-              </ul>
-            </section>
-          ))}
+                          <span className="sound-library-name">{sound.name}</span>
+                          {sound.mood !== undefined && <span className="sound-library-mood">{sound.mood}</span>}
+                          <span className="sound-library-length">{formatSoundLength(sound.duration)}</span>
+                          <button
+                            type="button"
+                            className="sound-library-play"
+                            ref={sound === sounds[0] ? firstButtonRef : undefined}
+                            aria-label={`${playing ? 'Stop' : 'Play'} ${sound.name}`}
+                            aria-pressed={playing}
+                            onClick={() => togglePreview(sound)}
+                          >
+                            {playing ? '■' : '▶'}
+                          </button>
+                          {/* aria-disabled, not disabled: disabling the
+                              focused button would drop focus to the page
+                              while the sound downloads. `add` ignores a
+                              press while its download is in flight. */}
+                          <button
+                            type="button"
+                            aria-label={`Add ${sound.name} to the library`}
+                            aria-disabled={adding.has(sound.id) || undefined}
+                            onClick={() => void add(sound)}
+                          >
+                            Add
+                          </button>
+                        </li>
+                      )
+                    })}
+                </ul>
+              </section>
+            ))}
+          </div>
+          <p className="sound-library-status" role="status">
+            {status}
+          </p>
         </div>
-        <p className="sound-library-status" role="status">
-          {status}
-        </p>
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>
             Close

@@ -179,172 +179,174 @@ export function SettingsControl({
             onClick={(event) => event.stopPropagation()}
           >
             <h3 id={headingId}>Settings</h3>
-            <p>
-              Preferences for this browser, remembered on this device. They are not part of a
-              project, so they never travel with a saved file.
-            </p>
-            <div className="settings-list">
-              {secondsRow(
-                'Playhead nudge (← / →)',
-                undefined,
-                STEP_CHOICES,
-                'stepSeconds',
-              )}
-              {secondsRow(
-                'Playhead jump (Shift + ← / →)',
-                undefined,
-                LARGE_STEP_CHOICES,
-                'largeStepSeconds',
-              )}
-              {secondsRow(
-                'New still or slate duration',
-                'Applies to new stills, color slates and image overlay layers; anything already on the timeline keeps its own duration.',
-                STILL_DURATION_CHOICES,
-                'stillDurationSeconds',
-              )}
-              <SettingRow
-                label="Time fields"
-                hint="How the boxes where you type a time show it: start, duration, trim points, fades and the rest, and the Trim, Split and Cut windows. Either way you can type plain seconds."
-              >
-                {(describedBy) => (
-                  <select
-                    value={settings.timeFormat}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({ ...settings, timeFormat: event.target.value as TimeFormat })
-                    }
-                  >
-                    {TIME_FORMAT_CHOICES.map((format) => (
-                      <option key={format} value={format}>
-                        {timeFormatLabel(format)}
-                      </option>
-                    ))}
-                  </select>
+            <div className="dialog-body">
+              <p>
+                Preferences for this browser, remembered on this device. They are not part of a
+                project, so they never travel with a saved file.
+              </p>
+              <div className="settings-list">
+                {secondsRow(
+                  'Playhead nudge (← / →)',
+                  undefined,
+                  STEP_CHOICES,
+                  'stepSeconds',
                 )}
-              </SettingRow>
-              <SettingRow
-                label="When a previous session is found"
-                hint="Autosave keeps recording either way — this is only about the offer to restore."
-              >
-                {(describedBy) => (
-                  <select
-                    value={settings.sessionRestore}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({
-                        ...settings,
-                        sessionRestore: event.target.value as SessionRestoreMode,
-                      })
-                    }
-                  >
-                    {SESSION_RESTORE_CHOICES.map((mode) => (
-                      <option key={mode} value={mode}>
-                        {sessionRestoreLabel(mode)}
-                      </option>
-                    ))}
-                  </select>
+                {secondsRow(
+                  'Playhead jump (Shift + ← / →)',
+                  undefined,
+                  LARGE_STEP_CHOICES,
+                  'largeStepSeconds',
                 )}
-              </SettingRow>
-              <SettingRow
-                label="Visual editors"
-                hint="Adjust visually… buttons sit beside the fields they stand in for, and open a still of the frame to drag the value into place instead of typing it. Off hides them all and never renders that frame."
-              >
-                {(describedBy) => (
-                  <select
-                    value={settings.visualEditors ? 'on' : 'off'}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({ ...settings, visualEditors: event.target.value === 'on' })
-                    }
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                  </select>
+                {secondsRow(
+                  'New still or slate duration',
+                  'Applies to new stills, color slates and image overlay layers; anything already on the timeline keeps its own duration.',
+                  STILL_DURATION_CHOICES,
+                  'stillDurationSeconds',
                 )}
-              </SettingRow>
-              <SettingRow
-                label="Countdown before recording"
-                hint="Record ▾ counts 3 · 2 · 1 after the sources are granted, so a take never begins with your hand still on the mouse. Start now skips it; Off starts recording at once."
-              >
-                {(describedBy) => (
-                  <select
-                    value={String(settings.countdownSeconds)}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({ ...settings, countdownSeconds: Number(event.target.value) })
-                    }
-                  >
-                    {COUNTDOWN_CHOICES.map((choice) => (
-                      <option key={choice} value={String(choice)}>
-                        {countdownLabel(choice)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </SettingRow>
-              <SettingRow
-                label="Screen recording quality"
-                hint="For Screen and Screen + camera. High keeps small text sharp when the clip is zoomed or cropped, in larger files; Standard leaves it to the browser."
-              >
-                {(describedBy) => (
-                  <select
-                    value={settings.screenRecordingQuality}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({
-                        ...settings,
-                        screenRecordingQuality: event.target.value as ScreenRecordingQuality,
-                      })
-                    }
-                  >
-                    {SCREEN_RECORDING_QUALITY_CHOICES.map((choice) => (
-                      <option key={choice} value={choice}>
-                        {screenRecordingQualityLabel(choice)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </SettingRow>
-              <SettingRow
-                label="Match levels target"
-                hint="The level Match levels brings every element with sound to: the average level of the sound, ignoring silences. A louder element is turned down to it, and a quieter one raised, by up to four times its volume, unless its peaks would clip."
-              >
-                {(describedBy) => (
-                  <select
-                    value={String(settings.matchTargetDb)}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({ ...settings, matchTargetDb: Number(event.target.value) })
-                    }
-                  >
-                    {MATCH_TARGET_CHOICES.map((choice) => (
-                      <option key={choice} value={String(choice)}>
-                        {matchTargetLabel(choice)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </SettingRow>
-              <SettingRow
-                label="Default export format"
-                hint="Which format the export dialog opens on; every export can still be changed there."
-              >
-                {(describedBy) => (
-                  <select
-                    value={settings.exportFormat}
-                    aria-describedby={describedBy}
-                    onChange={(event) =>
-                      onChange({ ...settings, exportFormat: event.target.value })
-                    }
-                  >
-                    {formatOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </SettingRow>
+                <SettingRow
+                  label="Time fields"
+                  hint="How the boxes where you type a time show it: start, duration, trim points, fades and the rest, and the Trim, Split and Cut windows. Either way you can type plain seconds."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={settings.timeFormat}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({ ...settings, timeFormat: event.target.value as TimeFormat })
+                      }
+                    >
+                      {TIME_FORMAT_CHOICES.map((format) => (
+                        <option key={format} value={format}>
+                          {timeFormatLabel(format)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="When a previous session is found"
+                  hint="Autosave keeps recording either way — this is only about the offer to restore."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={settings.sessionRestore}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({
+                          ...settings,
+                          sessionRestore: event.target.value as SessionRestoreMode,
+                        })
+                      }
+                    >
+                      {SESSION_RESTORE_CHOICES.map((mode) => (
+                        <option key={mode} value={mode}>
+                          {sessionRestoreLabel(mode)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="Visual editors"
+                  hint="Adjust visually… buttons sit beside the fields they stand in for, and open a still of the frame to drag the value into place instead of typing it. Off hides them all and never renders that frame."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={settings.visualEditors ? 'on' : 'off'}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({ ...settings, visualEditors: event.target.value === 'on' })
+                      }
+                    >
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="Countdown before recording"
+                  hint="Record ▾ counts 3 · 2 · 1 after the sources are granted, so a take never begins with your hand still on the mouse. Start now skips it; Off starts recording at once."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={String(settings.countdownSeconds)}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({ ...settings, countdownSeconds: Number(event.target.value) })
+                      }
+                    >
+                      {COUNTDOWN_CHOICES.map((choice) => (
+                        <option key={choice} value={String(choice)}>
+                          {countdownLabel(choice)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="Screen recording quality"
+                  hint="For Screen and Screen + camera. High keeps small text sharp when the clip is zoomed or cropped, in larger files; Standard leaves it to the browser."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={settings.screenRecordingQuality}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({
+                          ...settings,
+                          screenRecordingQuality: event.target.value as ScreenRecordingQuality,
+                        })
+                      }
+                    >
+                      {SCREEN_RECORDING_QUALITY_CHOICES.map((choice) => (
+                        <option key={choice} value={choice}>
+                          {screenRecordingQualityLabel(choice)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="Match levels target"
+                  hint="The level Match levels brings every element with sound to: the average level of the sound, ignoring silences. A louder element is turned down to it, and a quieter one raised, by up to four times its volume, unless its peaks would clip."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={String(settings.matchTargetDb)}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({ ...settings, matchTargetDb: Number(event.target.value) })
+                      }
+                    >
+                      {MATCH_TARGET_CHOICES.map((choice) => (
+                        <option key={choice} value={String(choice)}>
+                          {matchTargetLabel(choice)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+                <SettingRow
+                  label="Default export format"
+                  hint="Which format the export dialog opens on; every export can still be changed there."
+                >
+                  {(describedBy) => (
+                    <select
+                      value={settings.exportFormat}
+                      aria-describedby={describedBy}
+                      onChange={(event) =>
+                        onChange({ ...settings, exportFormat: event.target.value })
+                      }
+                    >
+                      {formatOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </SettingRow>
+              </div>
             </div>
             <div className="dialog-actions">
               <button type="button" ref={closeRef} onClick={() => setOpen(false)}>

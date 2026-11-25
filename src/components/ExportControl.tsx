@@ -920,485 +920,487 @@ export function ExportControl({
             onClick={(event) => event.stopPropagation()}
           >
             <h3 id={headingId}>Export project</h3>
-            <fieldset className="export-format-options">
-              <legend>Format</legend>
-              {formats.map((spec) => (
-                <label key={spec.id} className="export-format-option">
-                  <input
-                    type="radio"
-                    name="export-format"
-                    disabled={exporting}
-                    checked={format === spec.id}
-                    onChange={() => setFormat(spec.id)}
-                  />
-                  {spec.label}
-                </label>
-              ))}
-              {/* The selected format's stated limits (#198): a spec with a
-                  note (e.g. the GIF plugin's frame-rate and size caps) says
-                  so right where the format is chosen. */}
-              {(() => {
-                const note = formats.find((spec) => spec.id === format)?.note
-                return note !== undefined && <p className="export-format-note">{note}</p>
-              })()}
-            </fieldset>
-            {/* The exported span (#385, #400): the whole project, the
-                transport marks' range while they form one, or a range typed
-                here. Applies to every format: the range narrows the
-                pipeline's replay window, not any one encoder. */}
-            <fieldset className="export-format-options export-range-options">
-              <legend>Range</legend>
-              <label className="export-format-option">
-                <input
-                  type="radio"
-                  name="export-scope"
-                  data-testid="export-scope-whole"
-                  disabled={exporting}
-                  checked={scope === 'whole'}
-                  onChange={() => setScope('whole')}
-                />
-                Whole project
-              </label>
-              {range !== null && (
-                <label className="export-format-option">
-                  <input
-                    type="radio"
-                    name="export-scope"
-                    data-testid="export-scope-range"
-                    disabled={exporting}
-                    checked={scope === 'range'}
-                    onChange={() => setScope('range')}
-                  />
-                  Marked range ({formatDuration(range.start)} – {formatDuration(range.end)})
-                </label>
-              )}
-              {/* The fields sit beside the radio's label, not inside it: a
-                  label wrapping several controls would name the radio after
-                  the fields' contents too, and clicking a field would not
-                  read as choosing the option — typing does that instead. */}
-              <div className="export-format-option export-range-custom">
-                <label>
-                  <input
-                    type="radio"
-                    name="export-scope"
-                    data-testid="export-scope-custom"
-                    disabled={exporting}
-                    checked={scope === 'custom'}
-                    onChange={() => setScope('custom')}
-                  />
-                  Custom range
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label="Custom range start"
-                  data-testid="export-range-start"
-                  disabled={exporting}
-                  value={rangeStartDraft}
-                  onChange={(event) => editRangeField(setRangeStartDraft)(event.target.value)}
-                />
-                <span aria-hidden="true">–</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label="Custom range end"
-                  data-testid="export-range-end"
-                  disabled={exporting}
-                  value={rangeEndDraft}
-                  onChange={(event) => editRangeField(setRangeEndDraft)(event.target.value)}
-                />
-              </div>
-              {/* Each chapter (#529, from the approved #523): one file per
-                  chapter marker instead of one file for the run. Offered
-                  only when there is a marker to split on — with none, the
-                  option would produce a single file under a chapter's name,
-                  which is the whole-project export wearing a disguise. */}
-              {canExportChapters && (
-                <label className="export-format-option">
-                  <input
-                    type="radio"
-                    name="export-scope"
-                    data-testid="export-scope-chapters"
-                    disabled={exporting}
-                    checked={scope === 'chapters'}
-                    onChange={() => setScope('chapters')}
-                  />
-                  Each chapter ({chapterRunSpans.length}{' '}
-                  {chapterRunSpans.length === 1 ? 'file' : 'files'})
-                </label>
-              )}
-              {scope === 'chapters' && (
-                <p className="export-format-note">
-                  One file per chapter, named “NN Name”, covering the whole project. Your browser
-                  may ask to allow several downloads.
-                </p>
-              )}
-              {scope === 'custom' && customRange.error !== null && (
-                <p className="export-format-note export-range-error" data-testid="export-range-error">
-                  {customRange.error} Times are m:ss or seconds.
-                </p>
-              )}
-              {/* Copy chapter list (#488, part 2 of the approved #461): the
-                  chapter markers inside the exported span, as the plain-text
-                  list players parse. It belongs to the Range group because
-                  the range is what decides both which markers appear and
-                  what their times are. */}
-              <div className="export-chapter-row">
-                <button
-                  type="button"
-                  data-testid="export-copy-chapters"
-                  disabled={exporting || chapterList === ''}
-                  title={chapterListTitle}
-                  onClick={() => void copyChapterList()}
-                >
-                  Copy chapter list
-                </button>
-                {/* The live region is always in the DOM and only its text
-                    changes: a `role="status"` element inserted at the moment
-                    it has something to say is not reliably announced. */}
-                <span className="export-chapter-copied" role="status">
-                  {chapterOutcome !== null && !chapterOutcome.failed ? 'Chapter list copied' : ''}
-                </span>
-              </div>
-              <p className="export-format-note">
-                A “mm:ss Name” list of the chapter markers in the exported span, with the times
-                offset to its start. Players need a chapter at the very start, so a first line
-                “00:00 {INTRO_CHAPTER_NAME}” is added when no marker sits there.
-              </p>
-              {chapterOutcome !== null && chapterOutcome.failed && (
-                <>
-                  <p className="export-format-note export-range-error" role="alert">
-                    The clipboard refused the copy. Select the list below and copy it by hand.
-                  </p>
-                  <textarea
-                    className="export-chapter-fallback"
-                    aria-label="Chapter list"
-                    data-testid="export-chapter-fallback"
-                    readOnly
-                    rows={Math.min(8, chapterOutcome.text.split('\n').length)}
-                    value={chapterOutcome.text}
-                  />
-                </>
-              )}
-            </fieldset>
-            {(!audioOnly || limitOffered) && (
-            <fieldset className="export-settings">
-              <legend>Output</legend>
-              {!audioOnly && (
-                <>
-                  <label className="export-settings-row">
-                    Size
-                    <select
-                      aria-label="Export size preset"
+            <div className="dialog-body">
+              <fieldset className="export-format-options">
+                <legend>Format</legend>
+                {formats.map((spec) => (
+                  <label key={spec.id} className="export-format-option">
+                    <input
+                      type="radio"
+                      name="export-format"
                       disabled={exporting}
-                      value={sizeMode}
-                      onChange={(event) => selectSizeMode(event.target.value as SizeMode)}
-                    >
-                      <option value="auto">Auto (match sources)</option>
-                      {EXPORT_SIZE_PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </option>
-                      ))}
-                      <option value="custom">Custom</option>
-                    </select>
+                      checked={format === spec.id}
+                      onChange={() => setFormat(spec.id)}
+                    />
+                    {spec.label}
                   </label>
-                  <div className="export-settings-row">
-                    <label>
-                      Width
-                      <span className="export-unit-box">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          aria-label="Export width in pixels"
-                          min={MIN_EXPORT_DIMENSION}
-                          max={MAX_EXPORT_DIMENSION}
-                          step={1}
-                          disabled={exporting}
-                          value={widthDraft}
-                          onChange={(event) => editField(setWidthDraft)(event.target.value)}
-                        />
-                        <span className="export-unit" aria-hidden="true">
-                          px
-                        </span>
-                      </span>
-                    </label>
-                    <label>
-                      Height
-                      <span className="export-unit-box">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          aria-label="Export height in pixels"
-                          min={MIN_EXPORT_DIMENSION}
-                          max={MAX_EXPORT_DIMENSION}
-                          step={1}
-                          disabled={exporting}
-                          value={heightDraft}
-                          onChange={(event) => editField(setHeightDraft)(event.target.value)}
-                        />
-                        <span className="export-unit" aria-hidden="true">
-                          px
-                        </span>
-                      </span>
-                    </label>
-                    <label>
-                      Frame rate
-                      <span className="export-unit-box">
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          aria-label="Export frame rate in frames per second"
-                          min={1}
-                          max={MAX_EXPORT_FRAME_RATE}
-                          step={1}
-                          disabled={exporting}
-                          value={frameRateDraft}
-                          onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
-                        />
-                        <span className="export-unit" aria-hidden="true">
-                          fps
-                        </span>
-                      </span>
-                    </label>
-                  </div>
-                  {!settingsValid && (
-                    <p className="export-error" role="alert">
-                      Width and height must be whole numbers between {MIN_EXPORT_DIMENSION} and{' '}
-                      {MAX_EXPORT_DIMENSION}, and the frame rate between 1 and{' '}
-                      {MAX_EXPORT_FRAME_RATE}.
+                ))}
+                {/* The selected format's stated limits (#198): a spec with a
+                    note (e.g. the GIF plugin's frame-rate and size caps) says
+                    so right where the format is chosen. */}
+                {(() => {
+                  const note = formats.find((spec) => spec.id === format)?.note
+                  return note !== undefined && <p className="export-format-note">{note}</p>
+                })()}
+              </fieldset>
+              {/* The exported span (#385, #400): the whole project, the
+                  transport marks' range while they form one, or a range typed
+                  here. Applies to every format: the range narrows the
+                  pipeline's replay window, not any one encoder. */}
+              <fieldset className="export-format-options export-range-options">
+                <legend>Range</legend>
+                <label className="export-format-option">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    data-testid="export-scope-whole"
+                    disabled={exporting}
+                    checked={scope === 'whole'}
+                    onChange={() => setScope('whole')}
+                  />
+                  Whole project
+                </label>
+                {range !== null && (
+                  <label className="export-format-option">
+                    <input
+                      type="radio"
+                      name="export-scope"
+                      data-testid="export-scope-range"
+                      disabled={exporting}
+                      checked={scope === 'range'}
+                      onChange={() => setScope('range')}
+                    />
+                    Marked range ({formatDuration(range.start)} – {formatDuration(range.end)})
+                  </label>
+                )}
+                {/* The fields sit beside the radio's label, not inside it: a
+                    label wrapping several controls would name the radio after
+                    the fields' contents too, and clicking a field would not
+                    read as choosing the option — typing does that instead. */}
+                <div className="export-format-option export-range-custom">
+                  <label>
+                    <input
+                      type="radio"
+                      name="export-scope"
+                      data-testid="export-scope-custom"
+                      disabled={exporting}
+                      checked={scope === 'custom'}
+                      onChange={() => setScope('custom')}
+                    />
+                    Custom range
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Custom range start"
+                    data-testid="export-range-start"
+                    disabled={exporting}
+                    value={rangeStartDraft}
+                    onChange={(event) => editRangeField(setRangeStartDraft)(event.target.value)}
+                  />
+                  <span aria-hidden="true">–</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Custom range end"
+                    data-testid="export-range-end"
+                    disabled={exporting}
+                    value={rangeEndDraft}
+                    onChange={(event) => editRangeField(setRangeEndDraft)(event.target.value)}
+                  />
+                </div>
+                {/* Each chapter (#529, from the approved #523): one file per
+                    chapter marker instead of one file for the run. Offered
+                    only when there is a marker to split on — with none, the
+                    option would produce a single file under a chapter's name,
+                    which is the whole-project export wearing a disguise. */}
+                {canExportChapters && (
+                  <label className="export-format-option">
+                    <input
+                      type="radio"
+                      name="export-scope"
+                      data-testid="export-scope-chapters"
+                      disabled={exporting}
+                      checked={scope === 'chapters'}
+                      onChange={() => setScope('chapters')}
+                    />
+                    Each chapter ({chapterRunSpans.length}{' '}
+                    {chapterRunSpans.length === 1 ? 'file' : 'files'})
+                  </label>
+                )}
+                {scope === 'chapters' && (
+                  <p className="export-format-note">
+                    One file per chapter, named “NN Name”, covering the whole project. Your browser
+                    may ask to allow several downloads.
+                  </p>
+                )}
+                {scope === 'custom' && customRange.error !== null && (
+                  <p className="export-format-note export-range-error" data-testid="export-range-error">
+                    {customRange.error} Times are m:ss or seconds.
+                  </p>
+                )}
+                {/* Copy chapter list (#488, part 2 of the approved #461): the
+                    chapter markers inside the exported span, as the plain-text
+                    list players parse. It belongs to the Range group because
+                    the range is what decides both which markers appear and
+                    what their times are. */}
+                <div className="export-chapter-row">
+                  <button
+                    type="button"
+                    data-testid="export-copy-chapters"
+                    disabled={exporting || chapterList === ''}
+                    title={chapterListTitle}
+                    onClick={() => void copyChapterList()}
+                  >
+                    Copy chapter list
+                  </button>
+                  {/* The live region is always in the DOM and only its text
+                      changes: a `role="status"` element inserted at the moment
+                      it has something to say is not reliably announced. */}
+                  <span className="export-chapter-copied" role="status">
+                    {chapterOutcome !== null && !chapterOutcome.failed ? 'Chapter list copied' : ''}
+                  </span>
+                </div>
+                <p className="export-format-note">
+                  A “mm:ss Name” list of the chapter markers in the exported span, with the times
+                  offset to its start. Players need a chapter at the very start, so a first line
+                  “00:00 {INTRO_CHAPTER_NAME}” is added when no marker sits there.
+                </p>
+                {chapterOutcome !== null && chapterOutcome.failed && (
+                  <>
+                    <p className="export-format-note export-range-error" role="alert">
+                      The clipboard refused the copy. Select the list below and copy it by hand.
                     </p>
-                  )}
-                </>
-              )}
-              {/* The Size limit (#726): a file size the export aims under,
-                  for the formats whose encoder takes a bitrate. */}
-              {limitOffered && (
-                <>
-                  <div className="export-settings-row export-limit-row">
-                    <label>
-                      Size limit
+                    <textarea
+                      className="export-chapter-fallback"
+                      aria-label="Chapter list"
+                      data-testid="export-chapter-fallback"
+                      readOnly
+                      rows={Math.min(8, chapterOutcome.text.split('\n').length)}
+                      value={chapterOutcome.text}
+                    />
+                  </>
+                )}
+              </fieldset>
+              {(!audioOnly || limitOffered) && (
+              <fieldset className="export-settings">
+                <legend>Output</legend>
+                {!audioOnly && (
+                  <>
+                    <label className="export-settings-row">
+                      Size
                       <select
-                        aria-label="Export size limit"
+                        aria-label="Export size preset"
                         disabled={exporting}
-                        value={limitMode}
-                        onChange={(event) => setLimitMode(event.target.value as LimitMode)}
+                        value={sizeMode}
+                        onChange={(event) => selectSizeMode(event.target.value as SizeMode)}
                       >
-                        <option value="none">No limit</option>
-                        {SIZE_LIMIT_PRESETS_MB.map((mb) => (
-                          <option key={mb} value={String(mb)}>
-                            {mb} MB
+                        <option value="auto">Auto (match sources)</option>
+                        {EXPORT_SIZE_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
                           </option>
                         ))}
-                        <option value="custom">Custom…</option>
+                        <option value="custom">Custom</option>
                       </select>
                     </label>
-                    {limitMode === 'custom' && (
-                      <span className="export-unit-box">
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          aria-label="Custom size limit in MB"
-                          min={0.1}
-                          step="any"
-                          disabled={exporting}
-                          value={customLimitDraft}
-                          onChange={(event) => setCustomLimitDraft(event.target.value)}
-                        />
-                        <span className="export-unit" aria-hidden="true">
-                          MB
+                    <div className="export-settings-row">
+                      <label>
+                        Width
+                        <span className="export-unit-box">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            aria-label="Export width in pixels"
+                            min={MIN_EXPORT_DIMENSION}
+                            max={MAX_EXPORT_DIMENSION}
+                            step={1}
+                            disabled={exporting}
+                            value={widthDraft}
+                            onChange={(event) => editField(setWidthDraft)(event.target.value)}
+                          />
+                          <span className="export-unit" aria-hidden="true">
+                            px
+                          </span>
                         </span>
-                      </span>
+                      </label>
+                      <label>
+                        Height
+                        <span className="export-unit-box">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            aria-label="Export height in pixels"
+                            min={MIN_EXPORT_DIMENSION}
+                            max={MAX_EXPORT_DIMENSION}
+                            step={1}
+                            disabled={exporting}
+                            value={heightDraft}
+                            onChange={(event) => editField(setHeightDraft)(event.target.value)}
+                          />
+                          <span className="export-unit" aria-hidden="true">
+                            px
+                          </span>
+                        </span>
+                      </label>
+                      <label>
+                        Frame rate
+                        <span className="export-unit-box">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            aria-label="Export frame rate in frames per second"
+                            min={1}
+                            max={MAX_EXPORT_FRAME_RATE}
+                            step={1}
+                            disabled={exporting}
+                            value={frameRateDraft}
+                            onChange={(event) => editField(setFrameRateDraft)(event.target.value)}
+                          />
+                          <span className="export-unit" aria-hidden="true">
+                            fps
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                    {!settingsValid && (
+                      <p className="export-error" role="alert">
+                        Width and height must be whole numbers between {MIN_EXPORT_DIMENSION} and{' '}
+                        {MAX_EXPORT_DIMENSION}, and the frame rate between 1 and{' '}
+                        {MAX_EXPORT_FRAME_RATE}.
+                      </p>
                     )}
-                  </div>
-                  {customLimitInvalid && (
-                    <p className="export-error" role="alert">
-                      Enter the size limit as a number of MB above 0.
-                    </p>
-                  )}
-                  {limitResult !== null && !limitResult.ok && (
-                    <p className="export-error" role="alert" data-testid="export-limit-error">
-                      {scope === 'chapters' ? 'For the longest chapter: ' : ''}
-                      {limitResult.error}
-                    </p>
-                  )}
-                  {limitEstimate !== null && (
-                    <p
-                      className={`export-format-note export-limit-estimate${limitEstimate.blurry ? ' export-limit-blurry' : ''}`}
-                      data-testid="export-limit-estimate"
-                    >
-                      {scope === 'chapters' ? 'Each chapter file aims under the limit; the longest at ' : 'Aims at '}
-                      <span className="export-limit-rate">{limitEstimate.rate}</span>
-                      {limitEstimate.reading.startsWith('for ') ? ' ' : ': '}
-                      {limitEstimate.reading}.{' '}
-                      The limit is aimed at, not guaranteed: the browser’s recorder varies its rate,
-                      so a file can come out a little over.
-                    </p>
-                  )}
-                </>
-              )}
-            </fieldset>
-            )}
-            {/* Which chapter is recording (#529). This is the one export
-                where "how far along" needs two numbers: the bar below shows
-                the current file's fraction, and a run of seven chapters
-                would otherwise appear to restart six times. */}
-            {exporting && status.chapter !== undefined && (
-              <p
-                className="export-chapter-progress"
-                data-testid="export-chapter-progress"
-                role="status"
-              >
-                Chapter {status.chapter.index} of {status.chapter.count}: {status.chapter.name}
-              </p>
-            )}
-            {exporting ? (
-              <div className="export-progress-row">
-                <progress
-                  className="export-progress"
-                  aria-label="Export progress"
-                  max={1}
-                  value={status.fraction}
-                />
-                <span data-testid="export-progress-text">
-                  {Math.round(status.fraction * 100)}%
-                </span>
-              </div>
-            ) : (
-              <p className="export-note">
-                Exports in real time — a 30 second sequence takes about 30 seconds. Audio exports
-                at the preview’s levels.
-              </p>
-            )}
-            {status.kind === 'error' && (
-              <p className="export-error" role="alert">
-                {status.message}
-              </p>
-            )}
-            {/* What a size-limited file came to (#726), stated plainly when
-                it is over: the limit is aimed at, and this is the result. */}
-            {sizeOutcome !== null && (
-              <p
-                className={sizeOutcome.bytes > sizeOutcome.limitBytes ? 'export-error' : 'export-size-result'}
-                role="status"
-                data-testid="export-size-result"
-              >
-                {/* Each size is one figure: "1.1" and "MB" on two lines read
-                    as two things. */}
-                Saved {sizeOutcome.fileName}:{' '}
-                <span className="export-size-figure">
-                  {formatSizeAgainstLimit(sizeOutcome.bytes, sizeOutcome.limitBytes)}
-                </span>{' '}
-                {sizeOutcome.bytes > sizeOutcome.limitBytes ? '— over the ' : '(limit '}
-                <span className="export-size-figure">
-                  {formatLimitAgainstSize(sizeOutcome.limitBytes, sizeOutcome.bytes)}
-                </span>
-                {sizeOutcome.bytes > sizeOutcome.limitBytes ? ' limit.' : ').'}
-              </p>
-            )}
-            {/* Export again smaller (#727): the same export at a rate
-                scaled down by how far over it came. */}
-            {smaller !== null &&
-              (smaller.ok ? (
-                <div className="export-again-smaller">
-                  <button type="button" onClick={exportAgainSmaller}>
-                    Export again smaller
-                  </button>
-                  <span className="export-format-note">
-                    Same export, at about{' '}
-                    <span className="export-limit-rate">
-                      {formatBitrate(
-                        smaller.bitrates.videoBitsPerSecond ?? smaller.bitrates.audioBitsPerSecond ?? 0,
+                  </>
+                )}
+                {/* The Size limit (#726): a file size the export aims under,
+                    for the formats whose encoder takes a bitrate. */}
+                {limitOffered && (
+                  <>
+                    <div className="export-settings-row export-limit-row">
+                      <label>
+                        Size limit
+                        <select
+                          aria-label="Export size limit"
+                          disabled={exporting}
+                          value={limitMode}
+                          onChange={(event) => setLimitMode(event.target.value as LimitMode)}
+                        >
+                          <option value="none">No limit</option>
+                          {SIZE_LIMIT_PRESETS_MB.map((mb) => (
+                            <option key={mb} value={String(mb)}>
+                              {mb} MB
+                            </option>
+                          ))}
+                          <option value="custom">Custom…</option>
+                        </select>
+                      </label>
+                      {limitMode === 'custom' && (
+                        <span className="export-unit-box">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            aria-label="Custom size limit in MB"
+                            min={0.1}
+                            step="any"
+                            disabled={exporting}
+                            value={customLimitDraft}
+                            onChange={(event) => setCustomLimitDraft(event.target.value)}
+                          />
+                          <span className="export-unit" aria-hidden="true">
+                            MB
+                          </span>
+                        </span>
                       )}
-                    </span>
-                    .
+                    </div>
+                    {customLimitInvalid && (
+                      <p className="export-error" role="alert">
+                        Enter the size limit as a number of MB above 0.
+                      </p>
+                    )}
+                    {limitResult !== null && !limitResult.ok && (
+                      <p className="export-error" role="alert" data-testid="export-limit-error">
+                        {scope === 'chapters' ? 'For the longest chapter: ' : ''}
+                        {limitResult.error}
+                      </p>
+                    )}
+                    {limitEstimate !== null && (
+                      <p
+                        className={`export-format-note export-limit-estimate${limitEstimate.blurry ? ' export-limit-blurry' : ''}`}
+                        data-testid="export-limit-estimate"
+                      >
+                        {scope === 'chapters' ? 'Each chapter file aims under the limit; the longest at ' : 'Aims at '}
+                        <span className="export-limit-rate">{limitEstimate.rate}</span>
+                        {limitEstimate.reading.startsWith('for ') ? ' ' : ': '}
+                        {limitEstimate.reading}.{' '}
+                        The limit is aimed at, not guaranteed: the browser’s recorder varies its rate,
+                        so a file can come out a little over.
+                      </p>
+                    )}
+                  </>
+                )}
+              </fieldset>
+              )}
+              {/* Which chapter is recording (#529). This is the one export
+                  where "how far along" needs two numbers: the bar below shows
+                  the current file's fraction, and a run of seven chapters
+                  would otherwise appear to restart six times. */}
+              {exporting && status.chapter !== undefined && (
+                <p
+                  className="export-chapter-progress"
+                  data-testid="export-chapter-progress"
+                  role="status"
+                >
+                  Chapter {status.chapter.index} of {status.chapter.count}: {status.chapter.name}
+                </p>
+              )}
+              {exporting ? (
+                <div className="export-progress-row">
+                  <progress
+                    className="export-progress"
+                    aria-label="Export progress"
+                    max={1}
+                    value={status.fraction}
+                  />
+                  <span data-testid="export-progress-text">
+                    {Math.round(status.fraction * 100)}%
                   </span>
                 </div>
               ) : (
-                <p className="export-format-note" data-testid="export-again-smaller-refused">
-                  {smaller.error}
+                <p className="export-note">
+                  Exports in real time — a 30 second sequence takes about 30 seconds. Audio exports
+                  at the preview’s levels.
                 </p>
-              ))}
-            {/* What the run produced (#529). Not a flourish — it is the
-                mitigation for the one risk this feature has: a browser that
-                prompts once and quietly drops the rest leaves a folder that
-                looks plausible, and only a list of what was asked for makes
-                the gap visible. Hence the count in the heading. */}
-            {chapterRun !== null && (
-              <div className="export-chapter-results" data-testid="export-chapter-results">
-                <h4>
-                  {chapterRun.stopped === null
-                    ? `Exported ${chapterRun.files.length} ${chapterRun.files.length === 1 ? 'file' : 'files'}`
-                    : `Exported ${chapterRun.files.length} of ${chapterRun.spans.length} files`}
-                </h4>
-                {/* Where and why a run stopped (#530): the chapter it did not
-                    write, and the export's own error text or "cancelled". An
-                    error is an alert, as the single export's is; a cancel is
-                    the user's own doing and is announced as status. */}
-                {stoppedRun !== null && nextSpan !== undefined && nextSpan !== null && (
-                  <p
-                    className={
-                      stoppedRun.stopped?.kind === 'error' ? 'export-error' : 'export-chapter-stopped'
-                    }
-                    role={stoppedRun.stopped?.kind === 'error' ? 'alert' : 'status'}
-                    data-testid="export-chapter-stopped"
-                  >
-                    Stopped at chapter {nextSpan.index} of {stoppedRun.spans.length}: {nextSpan.name}{' '}
-                    — {stoppedRun.stopped?.kind === 'error' ? stoppedRun.stopped.message : 'cancelled.'}
-                  </p>
-                )}
-                {chapterRun.files.length > 0 && (
-                  <ul aria-label="Exported chapters">
-                    {chapterRun.files.map((file) => (
-                      <li key={file.index}>
-                        <span className="export-chapter-result-name">
-                          {file.index}. {file.name}
-                        </span>
-                        <span className="export-chapter-result-duration">
-                          {formatDuration(file.duration)}
-                        </span>
-                        <span className="export-chapter-result-file">{file.fileName}</span>
-                        {chapterRun.encode.sizeLimitBytes !== undefined && (
-                          <span
-                            className={
-                              file.bytes > chapterRun.encode.sizeLimitBytes
-                                ? 'export-chapter-result-size export-chapter-result-over'
-                                : 'export-chapter-result-size'
-                            }
-                          >
-                            {formatSizeAgainstLimit(file.bytes, chapterRun.encode.sizeLimitBytes)}
-                            {file.bytes > chapterRun.encode.sizeLimitBytes
-                              ? `, over the ${formatLimitAgainstSize(chapterRun.encode.sizeLimitBytes, file.bytes)} limit`
-                              : ''}
-                          </span>
+              )}
+              {status.kind === 'error' && (
+                <p className="export-error" role="alert">
+                  {status.message}
+                </p>
+              )}
+              {/* What a size-limited file came to (#726), stated plainly when
+                  it is over: the limit is aimed at, and this is the result. */}
+              {sizeOutcome !== null && (
+                <p
+                  className={sizeOutcome.bytes > sizeOutcome.limitBytes ? 'export-error' : 'export-size-result'}
+                  role="status"
+                  data-testid="export-size-result"
+                >
+                  {/* Each size is one figure: "1.1" and "MB" on two lines read
+                      as two things. */}
+                  Saved {sizeOutcome.fileName}:{' '}
+                  <span className="export-size-figure">
+                    {formatSizeAgainstLimit(sizeOutcome.bytes, sizeOutcome.limitBytes)}
+                  </span>{' '}
+                  {sizeOutcome.bytes > sizeOutcome.limitBytes ? '— over the ' : '(limit '}
+                  <span className="export-size-figure">
+                    {formatLimitAgainstSize(sizeOutcome.limitBytes, sizeOutcome.bytes)}
+                  </span>
+                  {sizeOutcome.bytes > sizeOutcome.limitBytes ? ' limit.' : ').'}
+                </p>
+              )}
+              {/* Export again smaller (#727): the same export at a rate
+                  scaled down by how far over it came. */}
+              {smaller !== null &&
+                (smaller.ok ? (
+                  <div className="export-again-smaller">
+                    <button type="button" onClick={exportAgainSmaller}>
+                      Export again smaller
+                    </button>
+                    <span className="export-format-note">
+                      Same export, at about{' '}
+                      <span className="export-limit-rate">
+                        {formatBitrate(
+                          smaller.bitrates.videoBitsPerSecond ?? smaller.bitrates.audioBitsPerSecond ?? 0,
                         )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {chapterRun.stopped === null ? (
-                  <p className="export-format-note">
-                    Check your downloads folder holds all {chapterRun.files.length}. A browser that
-                    asks to allow several downloads may drop the rest if it is refused.
-                  </p>
-                ) : resumableRun !== null && nextSpan !== undefined && nextSpan !== null ? (
-                  <p className="export-format-note" data-testid="export-chapter-resume-note">
-                    Resume from chapter {nextSpan.index} writes the{' '}
-                    {resumableRun.spans.length - resumableRun.files.length === 1
-                      ? 'one file'
-                      : `${resumableRun.spans.length - resumableRun.files.length} files`}{' '}
-                    still missing, with the format and output settings this run started with; the{' '}
-                    {resumableRun.files.length === 1 ? 'file' : 'files'} already saved{' '}
-                    {resumableRun.files.length === 1 ? 'stays' : 'stay'} saved.
-                  </p>
+                      </span>
+                      .
+                    </span>
+                  </div>
                 ) : (
-                  <p className="export-format-note" data-testid="export-chapter-resume-withdrawn">
-                    The project changed while this dialog was open, so this run cannot be carried on
-                    against it. Export runs every chapter again, from the project as it is now.
+                  <p className="export-format-note" data-testid="export-again-smaller-refused">
+                    {smaller.error}
                   </p>
-                )}
-              </div>
-            )}
+                ))}
+              {/* What the run produced (#529). Not a flourish — it is the
+                  mitigation for the one risk this feature has: a browser that
+                  prompts once and quietly drops the rest leaves a folder that
+                  looks plausible, and only a list of what was asked for makes
+                  the gap visible. Hence the count in the heading. */}
+              {chapterRun !== null && (
+                <div className="export-chapter-results" data-testid="export-chapter-results">
+                  <h4>
+                    {chapterRun.stopped === null
+                      ? `Exported ${chapterRun.files.length} ${chapterRun.files.length === 1 ? 'file' : 'files'}`
+                      : `Exported ${chapterRun.files.length} of ${chapterRun.spans.length} files`}
+                  </h4>
+                  {/* Where and why a run stopped (#530): the chapter it did not
+                      write, and the export's own error text or "cancelled". An
+                      error is an alert, as the single export's is; a cancel is
+                      the user's own doing and is announced as status. */}
+                  {stoppedRun !== null && nextSpan !== undefined && nextSpan !== null && (
+                    <p
+                      className={
+                        stoppedRun.stopped?.kind === 'error' ? 'export-error' : 'export-chapter-stopped'
+                      }
+                      role={stoppedRun.stopped?.kind === 'error' ? 'alert' : 'status'}
+                      data-testid="export-chapter-stopped"
+                    >
+                      Stopped at chapter {nextSpan.index} of {stoppedRun.spans.length}: {nextSpan.name}{' '}
+                      — {stoppedRun.stopped?.kind === 'error' ? stoppedRun.stopped.message : 'cancelled.'}
+                    </p>
+                  )}
+                  {chapterRun.files.length > 0 && (
+                    <ul aria-label="Exported chapters">
+                      {chapterRun.files.map((file) => (
+                        <li key={file.index}>
+                          <span className="export-chapter-result-name">
+                            {file.index}. {file.name}
+                          </span>
+                          <span className="export-chapter-result-duration">
+                            {formatDuration(file.duration)}
+                          </span>
+                          <span className="export-chapter-result-file">{file.fileName}</span>
+                          {chapterRun.encode.sizeLimitBytes !== undefined && (
+                            <span
+                              className={
+                                file.bytes > chapterRun.encode.sizeLimitBytes
+                                  ? 'export-chapter-result-size export-chapter-result-over'
+                                  : 'export-chapter-result-size'
+                              }
+                            >
+                              {formatSizeAgainstLimit(file.bytes, chapterRun.encode.sizeLimitBytes)}
+                              {file.bytes > chapterRun.encode.sizeLimitBytes
+                                ? `, over the ${formatLimitAgainstSize(chapterRun.encode.sizeLimitBytes, file.bytes)} limit`
+                                : ''}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {chapterRun.stopped === null ? (
+                    <p className="export-format-note">
+                      Check your downloads folder holds all {chapterRun.files.length}. A browser that
+                      asks to allow several downloads may drop the rest if it is refused.
+                    </p>
+                  ) : resumableRun !== null && nextSpan !== undefined && nextSpan !== null ? (
+                    <p className="export-format-note" data-testid="export-chapter-resume-note">
+                      Resume from chapter {nextSpan.index} writes the{' '}
+                      {resumableRun.spans.length - resumableRun.files.length === 1
+                        ? 'one file'
+                        : `${resumableRun.spans.length - resumableRun.files.length} files`}{' '}
+                      still missing, with the format and output settings this run started with; the{' '}
+                      {resumableRun.files.length === 1 ? 'file' : 'files'} already saved{' '}
+                      {resumableRun.files.length === 1 ? 'stays' : 'stay'} saved.
+                    </p>
+                  ) : (
+                    <p className="export-format-note" data-testid="export-chapter-resume-withdrawn">
+                      The project changed while this dialog was open, so this run cannot be carried on
+                      against it. Export runs every chapter again, from the project as it is now.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="dialog-actions export-dialog-actions">
               <button type="button" onClick={cancel}>
                 Cancel

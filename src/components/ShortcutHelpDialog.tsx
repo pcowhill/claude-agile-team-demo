@@ -48,27 +48,29 @@ export function ShortcutHelpDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Keyboard shortcuts</h3>
-        {shortcutSections(shortcuts).map(({ scope, rows }) => (
-          <div key={scope ?? ''}>
-            {/* Keys that work in one place only (#686), under its name. */}
-            {scope !== undefined && <h4 className="shortcut-scope">{scope}</h4>}
-            <dl className="shortcut-list" aria-label={scope}>
-              {rows.map(({ keys, does }) => (
-                <div className="shortcut-row" key={keys.join('|')}>
-                  <dt>
-                    {keys.map((combo) => (
-                      <kbd key={combo}>{combo}</kbd>
-                    ))}
-                  </dt>
-                  <dd>{does}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ))}
-        <p className="shortcut-note">
-          Shortcuts pause while you are typing in a field or a dialog is open.
-        </p>
+        <div className="dialog-body">
+          {shortcutSections(shortcuts).map(({ scope, rows }) => (
+            <div key={scope ?? ''}>
+              {/* Keys that work in one place only (#686), under its name. */}
+              {scope !== undefined && <h4 className="shortcut-scope">{scope}</h4>}
+              <dl className="shortcut-list" aria-label={scope}>
+                {rows.map(({ keys, does }) => (
+                  <div className="shortcut-row" key={keys.join('|')}>
+                    <dt>
+                      {keys.map((combo) => (
+                        <kbd key={combo}>{combo}</kbd>
+                      ))}
+                    </dt>
+                    <dd>{does}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+          <p className="shortcut-note">
+            Shortcuts pause while you are typing in a field or a dialog is open.
+          </p>
+        </div>
         <div className="dialog-actions">
           <button type="button" ref={closeRef} onClick={onClose}>
             Close

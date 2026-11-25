@@ -321,159 +321,161 @@ export function CutDialog({
           </button>
         </div>
 
-        {audioOnly ? (
-          // An audio track (#828): no picture, so no preview box, as in the
-          // Split window's mode for tracks (#826). The element has no
-          // controls and takes no room; the window's own buttons play it.
-          <audio
-            ref={videoRef as RefObject<HTMLAudioElement>}
-            data-testid="cut-audio"
-            src={url}
-            preload="auto"
-            onLoadedData={(event) => {
-              if (!playing) event.currentTarget.currentTime = timeRef.current
-            }}
-            onEnded={() => setPlaying(false)}
-          />
-        ) : (
-          <div className="trim-preview">
-            <video
-              ref={videoRef as RefObject<HTMLVideoElement>}
-              className="trim-video"
-              data-testid="cut-video"
+        <div className="dialog-body">
+          {audioOnly ? (
+            // An audio track (#828): no picture, so no preview box, as in the
+            // Split window's mode for tracks (#826). The element has no
+            // controls and takes no room; the window's own buttons play it.
+            <audio
+              ref={videoRef as RefObject<HTMLAudioElement>}
+              data-testid="cut-audio"
               src={url}
-              playsInline
               preload="auto"
-              // Firefox drops a seek made while an element has only its
-              // metadata (#615): apply the playhead again once a frame is there.
               onLoadedData={(event) => {
                 if (!playing) event.currentTarget.currentTime = timeRef.current
               }}
               onEnded={() => setPlaying(false)}
             />
-          </div>
-        )}
-        <p className="trim-position" data-testid="cut-position">
-          <output aria-label="Cut window playhead">{formatTrimTime(time)}</output> /{' '}
-          {formatTrimTime(duration)}
-        </p>
-
-        {/* The whole source, left to right: the parts outside In and Out
-            dimmed, the part between the clamps shaded as removed, the
-            clamps, and the playhead. */}
-        <div
-          ref={stripRef}
-          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
-          data-testid="cut-strip"
-          onPointerDown={beginDrag('playhead')}
-          onPointerMove={onStripPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          <StripPicture
-            url={url}
-            duration={duration}
-            audioOnly={audioOnly}
-            peaksFor={peaksFor}
-            framesFor={framesFor}
-          />
-          <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
-          <div className="trim-strip-dim" style={{ left: outAt, right: 0 }} aria-hidden="true" />
-          <div
-            className="trim-strip-kept"
-            style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
-            aria-hidden="true"
-          />
-          <div
-            className={`cut-strip-removed${cuttable ? '' : ' cut-strip-removed-refused'}`}
-            data-testid="cut-removed"
-            style={{ left: removedFrom, width: `calc(${removedTo} - ${removedFrom})` }}
-            aria-hidden="true"
-          />
-          <div
-            className="trim-playhead"
-            data-testid="cut-playhead"
-            style={{ left: percent(time) }}
-            aria-hidden="true"
-          />
-          {(['from', 'to'] as const).map((which) => (
-            <div
-              key={which}
-              role="slider"
-              tabIndex={0}
-              className={`trim-clamp cut-clamp cut-clamp-${which}`}
-              data-testid={`cut-clamp-${which}`}
-              aria-label={which === 'from' ? 'Cut from clamp' : 'Cut to clamp'}
-              aria-valuemin={entry.inPoint}
-              aria-valuemax={entry.outPoint}
-              aria-valuenow={clamps[which]}
-              aria-valuetext={`${formatTrimTime(clamps[which])} into the clip`}
-              style={{ left: percent(clamps[which]) }}
-              onPointerDown={beginDrag(which)}
-              onKeyDown={clampKeys(which)}
-            >
-              <span aria-hidden="true">{which === 'from' ? ']' : '['}</span>
+          ) : (
+            <div className="trim-preview">
+              <video
+                ref={videoRef as RefObject<HTMLVideoElement>}
+                className="trim-video"
+                data-testid="cut-video"
+                src={url}
+                playsInline
+                preload="auto"
+                // Firefox drops a seek made while an element has only its
+                // metadata (#615): apply the playhead again once a frame is there.
+                onLoadedData={(event) => {
+                  if (!playing) event.currentTarget.currentTime = timeRef.current
+                }}
+                onEnded={() => setPlaying(false)}
+              />
             </div>
-          ))}
-        </div>
-        <div className="trim-strip-labels" aria-hidden="true">
-          <span>In {formatTrimTime(entry.inPoint)}</span>
-          <span>Out {formatTrimTime(entry.outPoint)}</span>
-        </div>
-
-        <div className="trim-transport" role="group" aria-label="Cut playback">
-          {!audioOnly && (
-            <button
-              type="button"
-              aria-label="Back one frame"
-              title="Back one frame"
-              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
-            >
-              ◀ frame
-            </button>
           )}
-          <button
-            type="button"
-            className="trim-play"
-            aria-label={playing ? 'Pause' : 'Play cut'}
-            title={
-              playing
-                ? 'Pause (Space)'
-                : 'Play the clip as it will be after the cut: up to Cut from, then on from Cut to (Space)'
-            }
-            onClick={togglePlay}
+          <p className="trim-position" data-testid="cut-position">
+            <output aria-label="Cut window playhead">{formatTrimTime(time)}</output> /{' '}
+            {formatTrimTime(duration)}
+          </p>
+
+          {/* The whole source, left to right: the parts outside In and Out
+              dimmed, the part between the clamps shaded as removed, the
+              clamps, and the playhead. */}
+          <div
+            ref={stripRef}
+            className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${grip === null ? '' : ' trim-strip-dragging'}`}
+            data-testid="cut-strip"
+            onPointerDown={beginDrag('playhead')}
+            onPointerMove={onStripPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
           >
-            {playing ? '⏸ Pause' : '▶ Play cut'}
-          </button>
-          {!audioOnly && (
+            <StripPicture
+              url={url}
+              duration={duration}
+              audioOnly={audioOnly}
+              peaksFor={peaksFor}
+              framesFor={framesFor}
+            />
+            <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
+            <div className="trim-strip-dim" style={{ left: outAt, right: 0 }} aria-hidden="true" />
+            <div
+              className="trim-strip-kept"
+              style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
+              aria-hidden="true"
+            />
+            <div
+              className={`cut-strip-removed${cuttable ? '' : ' cut-strip-removed-refused'}`}
+              data-testid="cut-removed"
+              style={{ left: removedFrom, width: `calc(${removedTo} - ${removedFrom})` }}
+              aria-hidden="true"
+            />
+            <div
+              className="trim-playhead"
+              data-testid="cut-playhead"
+              style={{ left: percent(time) }}
+              aria-hidden="true"
+            />
+            {(['from', 'to'] as const).map((which) => (
+              <div
+                key={which}
+                role="slider"
+                tabIndex={0}
+                className={`trim-clamp cut-clamp cut-clamp-${which}`}
+                data-testid={`cut-clamp-${which}`}
+                aria-label={which === 'from' ? 'Cut from clamp' : 'Cut to clamp'}
+                aria-valuemin={entry.inPoint}
+                aria-valuemax={entry.outPoint}
+                aria-valuenow={clamps[which]}
+                aria-valuetext={`${formatTrimTime(clamps[which])} into the clip`}
+                style={{ left: percent(clamps[which]) }}
+                onPointerDown={beginDrag(which)}
+                onKeyDown={clampKeys(which)}
+              >
+                <span aria-hidden="true">{which === 'from' ? ']' : '['}</span>
+              </div>
+            ))}
+          </div>
+          <div className="trim-strip-labels" aria-hidden="true">
+            <span>In {formatTrimTime(entry.inPoint)}</span>
+            <span>Out {formatTrimTime(entry.outPoint)}</span>
+          </div>
+
+          <div className="trim-transport" role="group" aria-label="Cut playback">
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Back one frame"
+                title="Back one frame"
+                onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+              >
+                ◀ frame
+              </button>
+            )}
             <button
               type="button"
-              aria-label="Forward one frame"
-              title="Forward one frame"
-              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              className="trim-play"
+              aria-label={playing ? 'Pause' : 'Play cut'}
+              title={
+                playing
+                  ? 'Pause (Space)'
+                  : 'Play the clip as it will be after the cut: up to Cut from, then on from Cut to (Space)'
+              }
+              onClick={togglePlay}
             >
-              frame ▶
+              {playing ? '⏸ Pause' : '▶ Play cut'}
             </button>
-          )}
-        </div>
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Forward one frame"
+                title="Forward one frame"
+                onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              >
+                frame ▶
+              </button>
+            )}
+          </div>
 
-        <div className="trim-set">
-          <button type="button" title="Move the Cut from clamp to the playhead" onClick={setFromHere}>
-            Cut from here
-          </button>
-          <span className="trim-kept-length" data-testid="cut-removed-length">
-            removes {formatTrimTime(removedLength)}
-          </span>
-          <button type="button" title="Move the Cut to clamp to the playhead" onClick={setToHere}>
-            Cut to here
-          </button>
-        </div>
+          <div className="trim-set">
+            <button type="button" title="Move the Cut from clamp to the playhead" onClick={setFromHere}>
+              Cut from here
+            </button>
+            <span className="trim-kept-length" data-testid="cut-removed-length">
+              removes {formatTrimTime(removedLength)}
+            </span>
+            <button type="button" title="Move the Cut to clamp to the playhead" onClick={setToHere}>
+              Cut to here
+            </button>
+          </div>
 
-        {/* Why Apply is disabled, held open while empty so the buttons
-            below do not move as it comes and goes. */}
-        <p className="cut-status" data-testid="cut-status" role="status">
-          {refusal === null ? '' : cutRefusalText(refusal)}
-        </p>
+          {/* Why Apply is disabled, held open while empty so the buttons
+              below do not move as it comes and goes. */}
+          <p className="cut-status" data-testid="cut-status" role="status">
+            {refusal === null ? '' : cutRefusalText(refusal)}
+          </p>
+        </div>
 
         <div className="trim-footer">
           <span className="trim-fields">

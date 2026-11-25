@@ -8,7 +8,7 @@ Preferences for the way you work, kept on this device: [opening Settings](#openi
 
 **What it does.** Opens the *Settings* dialog; every change applies at once, with no reload and no Save.
 
-**Details.** The dialog says what it holds — *Preferences for this browser, remembered on this device. They are not part of a project, so they never travel with a saved file.* Each setting is a drop-down of known-good choices rather than a free field, so there is never an invalid value to correct. **Close** dismisses the dialog; nothing needs confirming.
+**Details.** Like every dialog, it never grows past the window: once the settings are taller, they scroll inside the dialog, and the heading and **Close** stay in view. The dialog says what it holds — *Preferences for this browser, remembered on this device. They are not part of a project, so they never travel with a saved file.* Each setting is a drop-down of known-good choices rather than a free field, so there is never an invalid value to correct. **Close** dismisses the dialog; nothing needs confirming.
 
 **Related.** [Where settings live](#where-settings-live)
 

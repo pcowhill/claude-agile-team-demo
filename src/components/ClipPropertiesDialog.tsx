@@ -113,14 +113,16 @@ export function ClipPropertiesDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId}>Properties of {clip.name}</h3>
-        <dl className="clip-properties" aria-label="Properties">
-          {rows.map((row) => (
-            <div className="clip-properties-row" key={row.label}>
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="dialog-body">
+          <dl className="clip-properties" aria-label="Properties">
+            {rows.map((row) => (
+              <div className="clip-properties-row" key={row.label}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
         <div className="dialog-actions">
           <button type="button" ref={closeRef} onClick={onClose}>
             Close

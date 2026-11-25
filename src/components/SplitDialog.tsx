@@ -289,126 +289,128 @@ export function SplitDialog({
           </button>
         </div>
 
-        {audioOnly ? (
-          // An audio track (#826): no picture, so no preview box, as in the
-          // Trim window's mode for tracks (#711). The element has no
-          // controls and takes no room; the window's own buttons play it.
-          <audio
-            ref={videoRef as RefObject<HTMLAudioElement>}
-            data-testid="split-audio"
-            src={url}
-            preload="auto"
-            onLoadedData={(event) => {
-              if (!playing) event.currentTarget.currentTime = timeRef.current
-            }}
-            onEnded={() => setPlaying(false)}
-          />
-        ) : (
-          <div className="trim-preview">
-            <video
-              ref={videoRef as RefObject<HTMLVideoElement>}
-              className="trim-video"
-              data-testid="split-video"
+        <div className="dialog-body">
+          {audioOnly ? (
+            // An audio track (#826): no picture, so no preview box, as in the
+            // Trim window's mode for tracks (#711). The element has no
+            // controls and takes no room; the window's own buttons play it.
+            <audio
+              ref={videoRef as RefObject<HTMLAudioElement>}
+              data-testid="split-audio"
               src={url}
-              playsInline
               preload="auto"
-              // Firefox drops a seek made while an element has only its
-              // metadata (#615): apply the point again once a frame is there.
               onLoadedData={(event) => {
                 if (!playing) event.currentTarget.currentTime = timeRef.current
               }}
               onEnded={() => setPlaying(false)}
             />
-          </div>
-        )}
-        <p className="trim-position" data-testid="split-position">
-          <output aria-label="Split point">{formatTrimTime(time)}</output> /{' '}
-          {formatTrimTime(duration)}
-        </p>
-
-        <div
-          ref={stripRef}
-          className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${dragging ? ' trim-strip-dragging' : ''}`}
-          data-testid="split-strip"
-          onPointerDown={beginDrag}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          <StripPicture
-            url={url}
-            duration={duration}
-            audioOnly={audioOnly}
-            peaksFor={peaksFor}
-            framesFor={framesFor}
-          />
-          <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
-          <div className="trim-strip-dim" style={{ left: outAt, right: 0 }} aria-hidden="true" />
-          <div
-            className="trim-strip-kept"
-            style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
-            aria-hidden="true"
-          />
-          <div
-            role="slider"
-            tabIndex={0}
-            className={`split-point${splittable ? '' : ' split-point-refused'}`}
-            data-testid="split-point"
-            aria-label="Split point"
-            aria-valuemin={entry.inPoint}
-            aria-valuemax={entry.outPoint}
-            aria-valuenow={time}
-            aria-valuetext={`${formatTrimTime(time)} into the clip`}
-            style={{ left: percent(time) }}
-          />
-        </div>
-        <div className="trim-strip-labels" aria-hidden="true">
-          <span>In {formatTrimTime(entry.inPoint)}</span>
-          <span>Out {formatTrimTime(entry.outPoint)}</span>
-        </div>
-
-        <div className="trim-transport" role="group" aria-label="Split playback">
-          {/* An audio track has no frames to step by (#826, as #711). */}
-          {!audioOnly && (
-            <button
-              type="button"
-              aria-label="Back one frame"
-              title="Back one frame"
-              onClick={() => seek(frameStep(timeRef.current, -1, duration))}
-            >
-              ◀ frame
-            </button>
+          ) : (
+            <div className="trim-preview">
+              <video
+                ref={videoRef as RefObject<HTMLVideoElement>}
+                className="trim-video"
+                data-testid="split-video"
+                src={url}
+                playsInline
+                preload="auto"
+                // Firefox drops a seek made while an element has only its
+                // metadata (#615): apply the point again once a frame is there.
+                onLoadedData={(event) => {
+                  if (!playing) event.currentTarget.currentTime = timeRef.current
+                }}
+                onEnded={() => setPlaying(false)}
+              />
+            </div>
           )}
-          <button
-            type="button"
-            className="trim-play"
-            aria-label={playing ? 'Pause' : 'Play from the split point'}
-            title={playing ? 'Pause (Space)' : 'Play on from the split point (Space)'}
-            onClick={togglePlay}
+          <p className="trim-position" data-testid="split-position">
+            <output aria-label="Split point">{formatTrimTime(time)}</output> /{' '}
+            {formatTrimTime(duration)}
+          </p>
+
+          <div
+            ref={stripRef}
+            className={`trim-strip${audioOnly ? ' trim-strip-audio' : ''}${dragging ? ' trim-strip-dragging' : ''}`}
+            data-testid="split-strip"
+            onPointerDown={beginDrag}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
           >
-            {playing ? '⏸ Pause' : '▶ Play'}
-          </button>
-          {!audioOnly && (
+            <StripPicture
+              url={url}
+              duration={duration}
+              audioOnly={audioOnly}
+              peaksFor={peaksFor}
+              framesFor={framesFor}
+            />
+            <div className="trim-strip-dim" style={{ left: 0, width: inAt }} aria-hidden="true" />
+            <div className="trim-strip-dim" style={{ left: outAt, right: 0 }} aria-hidden="true" />
+            <div
+              className="trim-strip-kept"
+              style={{ left: inAt, width: `calc(${outAt} - ${inAt})` }}
+              aria-hidden="true"
+            />
+            <div
+              role="slider"
+              tabIndex={0}
+              className={`split-point${splittable ? '' : ' split-point-refused'}`}
+              data-testid="split-point"
+              aria-label="Split point"
+              aria-valuemin={entry.inPoint}
+              aria-valuemax={entry.outPoint}
+              aria-valuenow={time}
+              aria-valuetext={`${formatTrimTime(time)} into the clip`}
+              style={{ left: percent(time) }}
+            />
+          </div>
+          <div className="trim-strip-labels" aria-hidden="true">
+            <span>In {formatTrimTime(entry.inPoint)}</span>
+            <span>Out {formatTrimTime(entry.outPoint)}</span>
+          </div>
+
+          <div className="trim-transport" role="group" aria-label="Split playback">
+            {/* An audio track has no frames to step by (#826, as #711). */}
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Back one frame"
+                title="Back one frame"
+                onClick={() => seek(frameStep(timeRef.current, -1, duration))}
+              >
+                ◀ frame
+              </button>
+            )}
             <button
               type="button"
-              aria-label="Forward one frame"
-              title="Forward one frame"
-              onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              className="trim-play"
+              aria-label={playing ? 'Pause' : 'Play from the split point'}
+              title={playing ? 'Pause (Space)' : 'Play on from the split point (Space)'}
+              onClick={togglePlay}
             >
-              frame ▶
+              {playing ? '⏸ Pause' : '▶ Play'}
             </button>
-          )}
-        </div>
+            {!audioOnly && (
+              <button
+                type="button"
+                aria-label="Forward one frame"
+                title="Forward one frame"
+                onClick={() => seek(frameStep(timeRef.current, 1, duration))}
+              >
+                frame ▶
+              </button>
+            )}
+          </div>
 
-        {/* What Apply will leave: the two parts' lengths, in the clip's own
-            seconds, or why it cannot split here. */}
-        <p className="split-parts" data-testid="split-parts" role="status">
-          {refusal === null
-            ? `First part ${formatTrimTime(time - entry.inPoint)} · second part ${formatTrimTime(entry.outPoint - time)}`
-            : refusal === 'transition'
-              ? 'It cannot split inside a transition, where two clips play.'
-              : 'Move the split point inside the clip: it cannot split on In or Out.'}
-        </p>
+          {/* What Apply will leave: the two parts' lengths, in the clip's own
+              seconds, or why it cannot split here. */}
+          <p className="split-parts" data-testid="split-parts" role="status">
+            {refusal === null
+              ? `First part ${formatTrimTime(time - entry.inPoint)} · second part ${formatTrimTime(entry.outPoint - time)}`
+              : refusal === 'transition'
+                ? 'It cannot split inside a transition, where two clips play.'
+                : 'Move the split point inside the clip: it cannot split on In or Out.'}
+          </p>
+        </div>
 
         <div className="trim-footer">
           <span className="trim-fields">
