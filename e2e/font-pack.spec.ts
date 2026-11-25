@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { expect, test } from '@playwright/test'
-import type { Page, Request } from '@playwright/test'
+import type { Locator, Page, Request } from '@playwright/test'
 import { scanExportedFrames } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
-import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu, openSubtitleStyle } from './timelineMenu'
 import { confirmDisableIfAsked } from './pluginConfirm'
 
@@ -188,6 +188,205 @@ test.describe('Font pack plugin (#867)', () => {
         )
       }
       await expectNoHorizontalScroll(page, `with Cormorant Garamond chosen at ${viewport.width}px`)
+    })
+  }
+})
+
+/**
+ * The Font menus draw each name in its font (#949). A press of the select
+ * opens an in-page list instead of the native popup, because a native
+ * popup cannot be relied on to reach the page's Font pack faces and cannot
+ * be screenshotted. The expected stacks are written out here, from
+ * `CORE_TEXT_FONTS` and the pack's `FACES`, rather than read from the app.
+ */
+const FONT_STACKS: Record<string, string> = {
+  'Sans-serif': 'Arial, Helvetica, sans-serif',
+  Serif: 'Georgia, "Times New Roman", serif',
+  Monospace: '"Courier New", Courier, monospace',
+  Display: 'Impact, "Arial Black", sans-serif',
+  Nunito: '"Font Pack Nunito", Arial, Helvetica, sans-serif',
+  Montserrat: '"Font Pack Montserrat", Arial, Helvetica, sans-serif',
+  Oswald: '"Font Pack Oswald", "Arial Narrow", Arial, sans-serif',
+  'Bebas Neue': '"Font Pack Bebas Neue", Impact, "Arial Black", sans-serif',
+  'Zilla Slab': '"Font Pack Zilla Slab", Georgia, "Times New Roman", serif',
+  'Cormorant Garamond': '"Font Pack Cormorant Garamond", Georgia, "Times New Roman", serif',
+  'Courier Prime': '"Font Pack Courier Prime", "Courier New", Courier, monospace',
+  Caveat: '"Font Pack Caveat", cursive',
+  'Comic Neue': '"Font Pack Comic Neue", "Comic Sans MS", cursive',
+  Silkscreen: '"Font Pack Silkscreen", "Courier New", monospace',
+}
+
+/** The in-page list a Font menu opens. */
+const fontList = (page: Page, name: string) => page.getByRole('listbox', { name })
+
+/**
+ * Each entry of an open list: its name, its computed `font-family`, and the
+ * computed `font-family` of a probe set to the name's expected stack, so
+ * both are serialized by the same browser.
+ */
+const listFonts = (list: Locator, stacks: Record<string, string>) =>
+  list.evaluate((element, stacks) => {
+    const probe = document.createElement('span')
+    document.body.append(probe)
+    const entries = [...element.querySelectorAll('[role="option"]')].map((option) => {
+      const name = option.textContent ?? ''
+      probe.style.fontFamily = stacks[name] ?? ''
+      return {
+        name,
+        family: getComputedStyle(option).fontFamily,
+        expected: stacks[name] === undefined ? null : getComputedStyle(probe).fontFamily,
+      }
+    })
+    probe.remove()
+    return { entries, own: getComputedStyle(element).fontFamily }
+  }, stacks)
+
+test.describe('the Font menus draw each name in its font (#949)', () => {
+  test('both menus list every font in its own stack; opening one downloads each pack face\'s regular file, and enabling the plugin alone downloads none', async ({
+    page,
+  }) => {
+    const requested = trackFontRequests(page)
+    const font = await slateWithText(page)
+    await setFontPack(page, true)
+    await openSubtitleStyle(page)
+    // Enabling the plugin and showing both menus closed downloads nothing.
+    for (const label of PACK_FONTS) expect(await faceStatuses(page, `Font Pack ${label}`)).not.toContain('loaded')
+    expect(requested).toEqual([])
+
+    for (const name of [`Font of ${TEXT}`, 'Default subtitle font']) {
+      const select = page.getByRole('combobox', { name })
+      await select.click()
+      const list = fontList(page, name)
+      await expect(list).toBeVisible()
+      await expect(list).toBeFocused()
+      const { entries } = await listFonts(list, FONT_STACKS)
+      expect(entries.map((entry) => entry.name)).toEqual([...CORE_FONTS, ...PACK_FONTS])
+      for (const entry of entries) expect(entry.family, `${name}: ${entry.name}`).toBe(entry.expected)
+      // Every pack face's regular file arrives, so no name is left in a fallback.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            (labels) => labels.filter((label) => !document.fonts.check(`16px "Font Pack ${label}"`)),
+            PACK_FONTS,
+          ),
+        )
+        .toEqual([])
+      await page.keyboard.press('Escape')
+      await expect(list).toBeHidden()
+      await expect(select).toBeFocused()
+    }
+    // The regular file of each face, and nothing else: the current entry is
+    // marked without bold, so no bold file is fetched.
+    expect([...requested].sort()).toEqual(
+      PACK_FONTS.map((label) => `${label.toLowerCase().replace(/ /g, '-')}-latin-400-normal.woff2`).sort(),
+    )
+    // Choosing by pointer sets the text row's font.
+    await font.click()
+    await fontList(page, `Font of ${TEXT}`).getByRole('option', { name: 'Caveat' }).click()
+    await expect(font).toHaveValue('pack-caveat')
+    await expect(font).toBeFocused()
+    await expect(page.getByTestId('preview-text-0')).toHaveCSS('font-family', /^"Font Pack Caveat"/)
+  })
+
+  test('the keys: closed, the arrows and a letter change the font; Alt+Down opens the list, typing finds a name and Enter chooses it; Escape leaves it unchanged', async ({
+    page,
+  }) => {
+    const font = await slateWithText(page)
+    await setFontPack(page, true)
+    await font.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(font).toHaveValue('serif')
+    await page.keyboard.press('m')
+    await expect(font).toHaveValue('mono')
+    await expect(fontList(page, `Font of ${TEXT}`)).toBeHidden()
+
+    await page.keyboard.press('Alt+ArrowDown')
+    const list = fontList(page, `Font of ${TEXT}`)
+    await expect(list).toBeFocused()
+    await expect(list.getByRole('option', { selected: true })).toHaveText('Monospace')
+    // "c" finds Cormorant Garamond, the first C after Monospace, and "ca" Caveat.
+    await page.keyboard.type('ca')
+    await expect(list.locator(`#${await list.getAttribute('aria-activedescendant')}`)).toHaveText('Caveat')
+    await page.keyboard.press('Enter')
+    await expect(list).toBeHidden()
+    await expect(font).toHaveValue('pack-caveat')
+    await expect(font).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await expect(list).toBeFocused()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Escape')
+    await expect(list).toBeHidden()
+    await expect(font).toHaveValue('pack-caveat')
+  })
+
+  test('a font whose plugin is off is listed last as unavailable, selected, and drawn in the app font', async ({ page }) => {
+    const font = await slateWithText(page)
+    await setFontPack(page, true)
+    await font.selectOption({ label: 'Caveat' })
+    await setFontPack(page, false)
+    await font.click()
+    const list = fontList(page, `Font of ${TEXT}`)
+    const { entries, own } = await listFonts(list, FONT_STACKS)
+    expect(entries.map((entry) => entry.name)).toEqual([...CORE_FONTS, 'pack-caveat (unavailable)'])
+    expect(entries.at(-1)!.family).toBe(own)
+    await expect(list.getByRole('option', { selected: true })).toHaveText('pack-caveat (unavailable)')
+  })
+
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 360, height: 640 },
+  ]) {
+    test(`an open list sits beside its select inside the window, each name on one line, at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport)
+      const font = await slateWithText(page)
+      await setFontPack(page, true)
+      await openSubtitleStyle(page)
+      for (const name of [`Font of ${TEXT}`, 'Default subtitle font']) {
+        const select = page.getByRole('combobox', { name })
+        await select.scrollIntoViewIfNeeded()
+        await select.click()
+        const list = fontList(page, name)
+        await expect(list).toBeVisible()
+        await expectNoWrap(list.getByRole('option'), `${name} entries at ${viewport.width}px`)
+        const geometry = await list.evaluate((element, selectName) => {
+          const select = document.querySelector(`select[aria-label="${selectName}"]`)!.getBoundingClientRect()
+          const box = element.getBoundingClientRect()
+          return {
+            box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+            select: { left: select.left, right: select.right, top: select.top, bottom: select.bottom },
+            window: { width: document.documentElement.clientWidth, height: window.innerHeight },
+            // Every entry is reachable: shown, or in the list's own scroll.
+            scrolls: element.scrollHeight > element.clientHeight,
+            overflowY: getComputedStyle(element).overflowY,
+          }
+        }, name)
+        const where = `${name} at ${viewport.width}px: ${JSON.stringify(geometry)}`
+        // Inside the window. A pixel of tolerance for sub-pixel layout.
+        expect(geometry.box.left, `${where}: left edge`).toBeGreaterThanOrEqual(-1)
+        expect(geometry.box.top, `${where}: top edge`).toBeGreaterThanOrEqual(-1)
+        expect(geometry.box.right, `${where}: right edge`).toBeLessThanOrEqual(geometry.window.width + 1)
+        expect(geometry.box.bottom, `${where}: bottom edge`).toBeLessThanOrEqual(geometry.window.height + 1)
+        // Beside the select: under it or above it, never over it, and at
+        // least as wide.
+        const under = geometry.box.top >= geometry.select.bottom - 1
+        const above = geometry.box.bottom <= geometry.select.top + 1
+        expect(under || above, `${where}: covers its select`).toBe(true)
+        expect(geometry.box.right - geometry.box.left, `${where}: narrower than its select`).toBeGreaterThanOrEqual(
+          geometry.select.right - geometry.select.left - 1,
+        )
+        if (geometry.scrolls) expect(geometry.overflowY, `${where}: entries cut off`).toBe('auto')
+        if (viewport.width === 1280 && name === `Font of ${TEXT}`) {
+          const shot = await page.screenshot({ path: testInfo.outputPath('font-menu-open.png') })
+          await testInfo.attach('the text row\'s Font menu, open, with Font pack on', { body: shot, contentType: 'image/png' })
+        }
+        await page.keyboard.press('Escape')
+        await expect(list).toBeHidden()
+      }
+      await expect(font).toHaveValue('sans')
+      await expectNoHorizontalScroll(page, `after opening both Font menus at ${viewport.width}px`)
     })
   }
 })
