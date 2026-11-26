@@ -605,6 +605,222 @@ test("a slice on a zoomed, letterboxed overlay moves the outline's rows by the o
   expect(readings.previewAfter.rows, 'preview, after').toBe(0)
 })
 
+/**
+ * A frame-sized PNG whose every block reads a different colour: red rises
+ * left to right, green top to bottom, blue is constant. So a block drawn
+ * at the wrong place, or averaging the wrong pixels, reads the wrong
+ * colour.
+ */
+async function makeGradient(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate((frame) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = frame.width
+    canvas.height = frame.height
+    const ctx = canvas.getContext('2d')!
+    const image = ctx.createImageData(frame.width, frame.height)
+    for (let y = 0; y < frame.height; y++) {
+      for (let x = 0; x < frame.width; x++) {
+        const at = (y * frame.width + x) * 4
+        image.data[at] = Math.round((x / (frame.width - 1)) * 255)
+        image.data[at + 1] = Math.round((y / (frame.height - 1)) * 255)
+        image.data[at + 2] = 96
+        image.data[at + 3] = 255
+      }
+    }
+    ctx.putImageData(image, 0, 0)
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, FRAME)
+  return Buffer.from(base64, 'base64')
+}
+
+/** A channel difference allowed between a preview block and the saved frame's: pixelate.spec.ts's `PREVIEW_LEVELS`. */
+const PREVIEW_LEVELS = 4
+
+/**
+ * The preview's blocks over `area` (frame fractions) against the saved
+ * frame's, on `grid`, read from a screenshot of the preview's frame in
+ * device px (`box` is the frame inside it): blocks whose interior, a
+ * device px in from each edge, is one colour (`uniform`), and blocks whose
+ * interior is within `PREVIEW_LEVELS` of the saved frame's block centre
+ * (`matching`), with the worst channel difference seen.
+ */
+async function overlayBlocks(
+  page: Page,
+  preview: { png: Buffer; box: { x: number; y: number; width: number; height: number } },
+  saved: Buffer,
+  area: Region,
+  grid: { columns: number; rows: number },
+) {
+  return await page.evaluate(
+    async ({ preview, box, saved, area, grid, levels }) => {
+      const pixels = async (base64: string) => {
+        const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+        const canvas = document.createElement('canvas')
+        canvas.width = bitmap.width
+        canvas.height = bitmap.height
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      }
+      const shown = await pixels(preview)
+      const frame = await pixels(saved)
+      const blockWidth = area.width / grid.columns
+      const blockHeight = area.height / grid.rows
+      let uniform = 0
+      let matching = 0
+      let worst = 0
+      for (let row = 0; row < grid.rows; row++) {
+        for (let column = 0; column < grid.columns; column++) {
+          const left = area.x + column * blockWidth
+          const top = area.y + row * blockHeight
+          const x0 = Math.ceil(box.x + left * box.width) + 1
+          const x1 = Math.floor(box.x + (left + blockWidth) * box.width) - 2
+          const y0 = Math.ceil(box.y + top * box.height) + 1
+          const y1 = Math.floor(box.y + (top + blockHeight) * box.height) - 2
+          const first = (y0 * shown.width + x0) * 4
+          const fx = Math.floor((left + blockWidth / 2) * frame.width)
+          const fy = Math.floor((top + blockHeight / 2) * frame.height)
+          const want = (fy * frame.width + fx) * 4
+          let same = true
+          let close = true
+          for (let y = y0; y <= y1; y++) {
+            for (let x = x0; x <= x1; x++) {
+              const at = (y * shown.width + x) * 4
+              for (let channel = 0; channel < 3; channel++) {
+                if (shown.data[at + channel] !== shown.data[first + channel]) same = false
+                const off = Math.abs(shown.data[at + channel] - frame.data[want + channel])
+                if (off > worst) worst = off
+                if (off > levels) close = false
+              }
+            }
+          }
+          if (same) uniform += 1
+          if (close) matching += 1
+        }
+      }
+      return { width: box.width, blocks: grid.columns * grid.rows, uniform, matching, worst }
+    },
+    {
+      preview: preview.png.toString('base64'),
+      box: preview.box,
+      saved: saved.toString('base64'),
+      area,
+      grid,
+      levels: PREVIEW_LEVELS,
+    },
+  )
+}
+
+/**
+ * The preview's overlay pixelate at `seconds` against the saved frame
+ * there, over `area`: polled until every block matches, since the canvas
+ * paints on its own rAF loop, and the last reading returned either way.
+ */
+async function overlayPixelateAgainstSaved(
+  page: Page,
+  seconds: number,
+  area: Region,
+  grid: { columns: number; rows: number },
+  label: string,
+) {
+  const saved = await savedFrameAt(page, seconds, label)
+  await expect(page.getByTestId('preview-overlay-pixelate-0')).toHaveAttribute(
+    'data-grid',
+    `${grid.columns}x${grid.rows}`,
+  )
+  const frame = page.getByTestId('preview-frame')
+  const shot = async () => {
+    const box = (await frame.boundingBox())!
+    const clip = {
+      x: Math.floor(box.x),
+      y: Math.floor(box.y),
+      width: Math.ceil(box.x + box.width) - Math.floor(box.x),
+      height: Math.ceil(box.y + box.height) - Math.floor(box.y),
+    }
+    return {
+      png: await page.screenshot({ clip }),
+      box: { x: box.x - clip.x, y: box.y - clip.y, width: box.width, height: box.height },
+    }
+  }
+  let reading: Awaited<ReturnType<typeof overlayBlocks>> | undefined
+  await expect
+    .poll(
+      async () => {
+        reading = await overlayBlocks(page, await shot(), saved, area, grid)
+        return reading.uniform === reading.blocks && reading.matching === reading.blocks
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true)
+    .catch(() => undefined)
+  await test.info().attach(`preview (${label})`, { body: await frame.screenshot(), contentType: 'image/png' })
+  return reading!
+}
+
+test.describe('Pixelate on an overlay in the preview (#872, step 3b(ii))', () => {
+  // A large preview, as pixelate.spec.ts's preview tests use, so a block
+  // is many device px wide.
+  test.use({ viewport: { width: 1920, height: 1080 } })
+
+  test("unzoomed, the preview draws the saved frame's blocks over the outline, and the plain picture after the window", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000)
+    // The gradient fills the default rectangle, so the outline is the
+    // rectangle: 224 × 126 px of the 640 × 360 saved frame. Blocks of 0.05
+    // of its width: 20 columns, and round(126 / 11.2) = 11 rows.
+    await openWithOverlayFields(
+      page,
+      { name: 'black.png', png: await makePng(page, { color: '#000' }) },
+      { name: 'gradient.png', png: await makeGradient(page) },
+      { pictureEffects: [{ id: 'p', type: 'test-overlay-pixelate', start: 0, end: 2, params: {} }] },
+    )
+    const reading = await overlayPixelateAgainstSaved(page, 1, CARD, { columns: 20, rows: 11 }, 'pixelate, unzoomed')
+    const overlay = page.getByTestId('preview-overlay-0')
+    // The element plays on under the canvas, hidden and unfiltered.
+    await expect(overlay).toHaveCSS('opacity', '0')
+    await expect(overlay).toHaveCSS('filter', 'none')
+    console.log(`[${testInfo.project.name}] overlay pixelate preview, unzoomed: ${JSON.stringify(reading)}`)
+    // Over 500 px, a block (0.35 / 20 of the frame) is over 8 device px wide.
+    expect(reading.width, 'the preview frame read').toBeGreaterThan(500)
+    expect(reading.uniform, 'blocks of one colour').toBe(reading.blocks)
+    expect(reading.matching, `blocks within ${PREVIEW_LEVELS} levels of the saved frame's`).toBe(reading.blocks)
+    // After the window the canvas is gone and the element shows again.
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('3')
+    await expect(page.getByTestId('preview-overlay-pixelate-0')).toHaveCount(0)
+    await expect(overlay).toHaveCSS('opacity', '1')
+  })
+
+  test("on a zoomed, letterboxed overlay, the preview's blocks cover the gutters as the saved frame's do (#999)", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000)
+    // #999's placement: 224 × 216 px, the 224 × 126 picture letterboxed,
+    // zoomed 2× about the centre, so the zoomed picture fills the whole
+    // rectangle, gutters included: that is the pixelate area. The block
+    // stays 0.05 of the outline's 224 px: 20 columns, and
+    // round(216 / 11.2) = 19 rows.
+    await openWithOverlayFields(
+      page,
+      { name: 'black.png', png: await makePng(page, { color: '#000' }) },
+      { name: 'gradient.png', png: await makeGradient(page) },
+      {
+        y: 0.35,
+        height: 0.6,
+        zooms: [{ id: 'z', start: 0, rampIn: 0, hold: 5, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+        pictureEffects: [{ id: 'p', type: 'test-overlay-pixelate', start: 0, end: 2, params: {} }],
+      },
+    )
+    const area = { x: CARD.x, y: 0.35, width: CARD.width, height: 0.6 }
+    const reading = await overlayPixelateAgainstSaved(page, 1, area, { columns: 20, rows: 19 }, 'pixelate, zoomed')
+    console.log(`[${testInfo.project.name}] overlay pixelate preview, zoomed: ${JSON.stringify(reading)}`)
+    expect(reading.width, 'the preview frame read').toBeGreaterThan(500)
+    expect(reading.uniform, 'blocks of one colour, gutters included').toBe(reading.blocks)
+    expect(reading.matching, `blocks within ${PREVIEW_LEVELS} levels of the saved frame's`).toBe(reading.blocks)
+  })
+})
+
 test('a vignette on a circle-masked overlay darkens inside the circle only', async ({ page }) => {
   test.setTimeout(90_000)
   await openWithOverlayFields(

@@ -704,15 +704,7 @@ export function withPictureFilters(
     draw(context)
     return
   }
-  const block = pixelateBlock(filters)
-  // A pixelate area other than the card (a zoomed overlay's visible
-  // picture, #999) keeps the card's block size: the block is a share of
-  // the card's width, so it is rescaled to a share of the area's.
-  const areaBlock =
-    block === undefined || pixelateArea === card || !(pixelateArea.width > 0)
-      ? block
-      : (block * card.width) / pixelateArea.width
-  const grid = areaBlock === undefined ? null : pixelateGrid(areaBlock, pixelateArea.width, pixelateArea.height)
+  const grid = pixelateAreaGrid(filters, card, pixelateArea)
   if (grid !== null && typeof document !== 'undefined') {
     // Into a pixelate scratch, the area's top-left is the scratch's origin,
     // so slices' bands are taken from the card's top less the area's.
@@ -737,6 +729,37 @@ export function withPictureFilters(
   } finally {
     context.filter = previous
   }
+}
+
+/**
+ * The grid a look's pixelate draws over `area` (#871), or null when it
+ * does not pixelate. The block is a share of `card`'s width, so an area
+ * other than the card (a zoomed overlay's visible picture, #999) keeps the
+ * card's block size: the block is rescaled to a share of the area's
+ * width. Shared with the preview's overlay pixelate canvas (#872), so the
+ * two draw the same grid.
+ */
+export function pixelateAreaGrid(
+  filters: readonly PictureFilter[],
+  card: { width: number },
+  area: { width: number; height: number },
+): { columns: number; rows: number } | null {
+  const block = pixelateBlock(filters)
+  const areaBlock =
+    block === undefined || area === card || !(area.width > 0) ? block : (block * card.width) / area.width
+  return areaBlock === undefined ? null : pixelateGrid(areaBlock, area.width, area.height)
+}
+
+/**
+ * Where an overlay's pixelate draws its blocks (#999): what of its picture
+ * shows. Unzoomed, that is the `outline` itself. Zoomed, the picture is
+ * magnified to `dest` inside the `placed` rectangle and fills the
+ * letterbox gutters too, so the area is the zoomed picture inside the
+ * rectangle, the same area the overlay's filter clip shows. Shared by the
+ * export and the preview (#872).
+ */
+export function overlayPixelateArea(outline: FitRect, dest: FitRect, placed: FitRect, zoom: ZoomState): FitRect {
+  return zoom.scale === 1 ? outline : intersectRects(dest, placed)
 }
 
 /**
@@ -2061,7 +2084,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // rectangle, the same area the filter clip below shows. Their size
         // stays a share of the outline's width, so a zoom does not magnify
         // them, as an entry's stay the frame's size inside its zoom.
-        const pixelateArea = layerZoom.scale === 1 ? outline : intersectRects(dest, placed)
+        const pixelateArea = overlayPixelateArea(outline, dest, placed, layerZoom)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
         const paintPicture = (target: CanvasRenderingContext2D) => {

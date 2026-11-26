@@ -76,12 +76,15 @@ import {
   fitRect,
   intersectRects,
   overlayPictureRect,
+  overlayPixelateArea,
+  pixelateAreaGrid,
   pixelatedCard,
   withFilterFunctions,
   withLayerOrientation,
   zoomRect,
   zoomRectWithin,
 } from '../lib/exportVideo'
+import type { FitRect } from '../lib/exportVideo'
 import type { OverlayBorder } from '../lib/overlayBorder'
 import type { OverlayShadow } from '../lib/overlayShadow'
 import type { VideoOverlay } from '../lib/videoOverlay'
@@ -459,6 +462,18 @@ interface PreviewFilterMedia {
 }
 
 /**
+ * A media element's style under a pixelate canvas (#871, #872): hidden, and
+ * unfiltered, since the canvas draws the picture with its colour
+ * adjustments and the look's other filters. It still plays, and the canvas
+ * and the region overlays sample it.
+ */
+function hiddenUnderPixelate(style: CSSProperties | undefined): CSSProperties {
+  const hidden: CSSProperties = { ...style, opacity: 0 }
+  delete hidden.filter
+  return hidden
+}
+
+/**
  * Composes a layer's styles with its entry's picture-effect filters (#862):
  * the look's filter functions appended to the element's CSS `filter`, after
  * its colour adjustments, the order the export's canvas `filter` uses. A
@@ -480,9 +495,7 @@ function withPictureFilters(
   // under it and filters nothing. It still plays, and the canvas and the
   // region overlays sample it.
   if (media.pixelate !== undefined && previewPixelateGrid(look, media.pixelate.frame) !== null) {
-    const hidden: CSSProperties = { ...style, opacity: 0 }
-    delete hidden.filter
-    return hidden
+    return hiddenUnderPixelate(style)
   }
   // A channel offset (#870) is an SVG filter whose shift is in the
   // element's own CSS px: the frame's measured width turns the offset into
@@ -738,6 +751,157 @@ function PixelateLayer({
         width: `${size}%`,
         height: `${size}%`,
       }}
+    />
+  )
+}
+
+/**
+ * Where a video or image overlay's pixelate (#872, step 3b(ii)) draws, in
+ * the output frame's px, as the export's overlay path has it: the outline
+ * (the export's card, which the block is a share of), the zoomed picture
+ * `dest` the source is drawn into, the `area` the blocks cover
+ * (`overlayPixelateArea`: the outline, or zoomed, the zoomed picture inside
+ * the rectangle, gutters included, #999) and its `grid`
+ * (`pixelateAreaGrid`). Null when the look does not pixelate or the
+ * geometry has no area.
+ */
+interface OverlayPixelateGeometry {
+  placed: FitRect
+  outline: FitRect
+  dest: FitRect
+  area: FitRect
+  grid: { columns: number; rows: number }
+}
+
+function overlayPixelateGeometry(
+  look: PictureLook,
+  placed: { x: number; y: number; width: number; height: number },
+  outline: { x: number; y: number; width: number; height: number },
+  zoom: ZoomState,
+  frame: SourceDimensions,
+): OverlayPixelateGeometry | null {
+  if (pixelateBlock(look.filters) === undefined) return null
+  if (!(frame.width > 0 && frame.height > 0 && placed.width > 0 && placed.height > 0)) return null
+  const toPx = (rect: { x: number; y: number; width: number; height: number }): FitRect => ({
+    x: rect.x * frame.width,
+    y: rect.y * frame.height,
+    width: rect.width * frame.width,
+    height: rect.height * frame.height,
+  })
+  const placedPx = toPx(placed)
+  const outlinePx = toPx(outline)
+  const dest = zoomRectWithin(outlinePx, zoom, placedPx)
+  const area = overlayPixelateArea(outlinePx, dest, placedPx, zoom)
+  if (!(area.width > 0 && area.height > 0)) return null
+  const grid = pixelateAreaGrid(look.filters, outlinePx, area)
+  return grid === null ? null : { placed: placedPx, outline: outlinePx, dest, area, grid }
+}
+
+/**
+ * The overlay pixelate canvas's box in the zoom box (#872): the area in the
+ * card's own percentages, taken back through the zoom box's map
+ * p ↦ 0.5 + scale·(q − centre), so q = centre + (p − 0.5) / scale. Unzoomed
+ * it is the area in the card.
+ */
+function overlayPixelateBox(geometry: OverlayPixelateGeometry, zoom: ZoomState): CSSProperties {
+  const { area, placed } = geometry
+  const left = (area.x - placed.x) / placed.width
+  const top = (area.y - placed.y) / placed.height
+  const back = (p: number, centre: number) => centre + (p - 0.5) / zoom.scale
+  return {
+    left: `${styleNumber(back(left, zoom.centerX) * 100)}%`,
+    top: `${styleNumber(back(top, zoom.centerY) * 100)}%`,
+    width: `${styleNumber((area.width / placed.width / zoom.scale) * 100)}%`,
+    height: `${styleNumber((area.height / placed.height / zoom.scale) * 100)}%`,
+  }
+}
+
+/**
+ * An overlay's pixelate (#872, step 3b(ii)) in the preview: `PixelateLayer`'s
+ * canvas at an overlay's scale. Its buffer is the export's grid over the
+ * pixelate area, one pixel per block, stretched by CSS with
+ * `image-rendering: pixelated`, and filled on a rAF loop by the export's
+ * own `pixelatedCard`: the media element drawn into a scratch the area's
+ * size through the export's overlay rules (`withLayerOrientation` into the
+ * zoomed picture, `drawLayerSource` with the crop), under the colour
+ * adjustments and the look's other filters sized from the outline, then
+ * downscaled. So each block averages the pixels a saved frame's does.
+ *
+ * It sits in the overlay's zoom box, before the regions, so redactions and
+ * spotlights stay sharp above it, as the export draws them after the
+ * picture. The zoom is already drawn into the scratch, so the canvas is
+ * placed at the area taken back through the zoom box's transform
+ * (`overlayZoomStyle`), which lays it on the area again.
+ */
+function OverlayPixelateLayer({
+  sourceRef,
+  crop,
+  orientation,
+  colorAdjustments,
+  look,
+  geometry,
+  zoom,
+  testId,
+}: {
+  sourceRef: RefObject<HTMLVideoElement | HTMLImageElement | null>
+  crop: Crop | undefined
+  orientation: Orientation | undefined
+  colorAdjustments: ColorAdjustments | undefined
+  look: PictureLook
+  geometry: OverlayPixelateGeometry
+  zoom: ZoomState
+  testId: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const drawRef = useRef({ crop, orientation, colorAdjustments, look, geometry })
+  drawRef.current = { crop, orientation, colorAdjustments, look, geometry }
+  useEffect(() => {
+    let paintFrame = 0
+    const paint = () => {
+      paintFrame = requestAnimationFrame(paint)
+      const canvas = canvasRef.current
+      const source = sourceRef.current
+      const { crop, orientation, colorAdjustments, look, geometry } = drawRef.current
+      if (canvas === null || source === null) return
+      const isVideo = source instanceof HTMLVideoElement
+      if (isVideo && source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+      if (!isVideo && !source.complete) return
+      const sourceWidth = isVideo ? source.videoWidth : source.naturalWidth
+      const sourceHeight = isVideo ? source.videoHeight : source.naturalHeight
+      if (sourceWidth <= 0 || sourceHeight <= 0) return
+      const { outline, dest, area, grid } = geometry
+      const small = pixelatedCard(
+        area,
+        grid,
+        { a: 1, b: 0, c: 0, d: 1, e: -area.x, f: -area.y },
+        withFilterFunctions(colorFilterFor(colorAdjustments), look.filters, { ...outline, y: outline.y - area.y }),
+        { enabled: true, quality: 'low' },
+        (target) => {
+          withLayerOrientation(target, orientation, dest, (drawRect) => {
+            drawLayerSource(target, source, crop, sourceWidth, sourceHeight, drawRect)
+          })
+        },
+      )
+      if (small === null) return
+      if (canvas.width !== grid.columns) canvas.width = grid.columns
+      if (canvas.height !== grid.rows) canvas.height = grid.rows
+      const context = canvas.getContext('2d')
+      if (context === null) return
+      context.clearRect(0, 0, grid.columns, grid.rows)
+      context.drawImage(small, 0, 0)
+    }
+    paintFrame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(paintFrame)
+  }, [sourceRef])
+  const { grid } = geometry
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-pixelate"
+      data-testid={testId}
+      data-grid={`${grid.columns}x${grid.rows}`}
+      aria-hidden="true"
+      style={overlayPixelateBox(geometry, zoom)}
     />
   )
 }
@@ -1136,8 +1300,9 @@ interface OverlayFilterMedia {
  *   outline too: `bandsWithin` re-expresses them as a share of the placed
  *   rectangle, the box the media element fills, and `previewSlices` takes
  *   them back through the same transforms. Both wait for the frame to be
- *   measured, as an entry's do. Pixelate is not drawn here yet (step
- *   3b(ii)): it writes nothing.
+ *   measured, as an entry's do. Pixelate writes nothing here: while the
+ *   look pixelates, `OverlayPixelateLayer` draws the picture and the
+ *   element is hidden (step 3b(ii)).
  * - `clipPath`: while a filter writes anything, the card is cut to what of
  *   the picture shows (the outline, or zoomed, the zoomed picture inside
  *   the rectangle), the export's `intersectRects(dest, placed)` clip. So a
@@ -3726,6 +3891,13 @@ export function PreviewPlayer({
                   },
                 })
                 const cardClipPath = clipPath ?? lookStyles.clipPath
+                // Pixelate (#872, step 3b(ii)): `OverlayPixelateLayer`'s
+                // canvas draws the picture, with its colour adjustments and
+                // every other filter, so the element is hidden under it
+                // and filters nothing, as an entry's is.
+                const pixelate = overlayPixelateGeometry(look, overlay, outline, overlayZoom, frame)
+                const mediaStyle = (style: CSSProperties | undefined) =>
+                  pixelate === null ? withLookFilter(style, lookStyles.filter) : hiddenUnderPixelate(style)
                 const border = overlay.border
                 const shadow = overlay.shadow
                 return (
@@ -3774,7 +3946,7 @@ export function PreviewPlayer({
                           alt=""
                           className="preview-media"
                           data-testid={`preview-overlay-${index}`}
-                          style={withLookFilter(
+                          style={mediaStyle(
                             withColorFilter(
                               croppedOrientedMediaStyle(
                                 overlay.crop,
@@ -3784,7 +3956,6 @@ export function PreviewPlayer({
                               ),
                               overlay.colorAdjustments,
                             ),
-                            lookStyles.filter,
                           )}
                         />
                       ) : (
@@ -3798,7 +3969,7 @@ export function PreviewPlayer({
                           playsInline
                           className="preview-media"
                           data-testid={`preview-overlay-${index}`}
-                          style={withLookFilter(
+                          style={mediaStyle(
                             withColorFilter(
                               croppedOrientedMediaStyle(
                                 overlay.crop,
@@ -3808,8 +3979,19 @@ export function PreviewPlayer({
                               ),
                               overlay.colorAdjustments,
                             ),
-                            lookStyles.filter,
                           )}
+                        />
+                      )}
+                      {active && pixelate !== null && (
+                        <OverlayPixelateLayer
+                          sourceRef={overlayMediaRef(overlay.id)}
+                          crop={overlay.crop}
+                          orientation={overlay.orientation}
+                          colorAdjustments={overlay.colorAdjustments}
+                          look={look}
+                          geometry={pixelate}
+                          zoom={overlayZoom}
+                          testId={`preview-overlay-pixelate-${index}`}
                         />
                       )}
                       <RegionOverlay
