@@ -188,6 +188,110 @@ export async function sampleExportedFrame(
   )
 }
 
+/** Where `presentedExportedFrame` seeks: seconds before the file's end, or a fraction of its duration. */
+export type FrameInstant = { fromEndSeconds: number } | { fractionOfDuration: number }
+
+/** A presented frame of an exported file, as a lossless PNG, with the file's decoded duration. */
+export interface PresentedFrame {
+  png: Buffer
+  duration: number
+  width: number
+  height: number
+}
+
+/**
+ * Decodes the exported WebM, seeks to `at`, waits until that frame has been
+ * PRESENTED (#276's wait, as `sampleExportedFrame` does), and returns it as
+ * a PNG. For specs whose measurement is not a region average — a pixel
+ * count, a point colour — so they read pixels of the presented frame
+ * instead of drawing straight after `seeked`, the pre-#276 shape that
+ * reads an all-black frame under load (#374, #921, #957). PNG is lossless:
+ * the pixels are the ones `drawImage` of the video gave.
+ */
+export async function presentedExportedFrame(page: Page, webm: Buffer, at: FrameInstant): Promise<PresentedFrame> {
+  const result = await page.evaluate(
+    async ({ base64, at }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
+      const video = document.createElement('video')
+      video.muted = true
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const settleIfKnown = () => {
+            if (Number.isFinite(video.duration) && video.duration > 0) {
+              resolve()
+              return true
+            }
+            return false
+          }
+          video.onerror = () => reject(new Error('exported file failed to decode'))
+          video.onloadedmetadata = () => {
+            if (settleIfKnown()) return
+            // MediaRecorder WebMs may report Infinity until forced to scan.
+            video.ondurationchange = () => settleIfKnown()
+            video.currentTime = Number.MAX_SAFE_INTEGER
+          }
+          video.src = url
+        })
+        // Firefox drops a seek issued before the first frame has loaded (#615).
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          await new Promise<void>((resolve, reject) => {
+            video.addEventListener('loadeddata', () => resolve(), { once: true })
+            video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
+              once: true,
+            })
+          })
+        }
+        const duration = video.duration
+        const target =
+          'fromEndSeconds' in at ? Math.max(0, duration - at.fromEndSeconds) : duration * at.fractionOfDuration
+        // The seek settled AND the sought frame presented (#276): see
+        // `sampleExportedFrame` for why each half is needed.
+        await new Promise<void>((resolve, reject) => {
+          const started = performance.now()
+          let presented = false
+          const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+            if (Math.abs(metadata.mediaTime - target) < 0.25) presented = true
+            else video.requestVideoFrameCallback(onFrame)
+          }
+          video.requestVideoFrameCallback(onFrame)
+          video.currentTime = target
+          let settledAt: number | null = null
+          const check = () => {
+            if (!video.seeking && Math.abs(video.currentTime - target) < 0.25 && video.readyState >= 2) {
+              settledAt ??= performance.now()
+              if (presented || performance.now() - settledAt > 1500) {
+                resolve()
+                return
+              }
+            }
+            if (performance.now() - started > 10_000) {
+              reject(new Error('seeking the exported file timed out'))
+            } else {
+              requestAnimationFrame(check)
+            }
+          }
+          check()
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        canvas.getContext('2d')!.drawImage(video, 0, 0)
+        return {
+          png: canvas.toDataURL('image/png').split(',')[1],
+          duration,
+          width: video.videoWidth,
+          height: video.videoHeight,
+        }
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    },
+    { base64: webm.toString('base64'), at },
+  )
+  return { ...result, png: Buffer.from(result.png, 'base64') }
+}
+
 /** One cell of a sampled grid: the average colour of its patch. */
 export interface GridCell {
   r: number

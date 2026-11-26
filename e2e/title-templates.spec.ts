@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { presentedExportedFrame } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { ADD_SLATE, addMenu, addMenuTrigger, chooseFromAddMenu, openAddMenu } from './timelineMenu'
@@ -374,64 +375,39 @@ async function sampleExport(
   point: { x: number; y: number },
   box: { left: number; top: number; right: number; bottom: number },
 ): Promise<{ rgb: number[]; whitish: number }> {
+  // Read once presented (`presentedExportedFrame`, #276): drawing straight
+  // after `seeked` read a pure black bar here under load (#957).
+  const frame = await presentedExportedFrame(page, webm, { fromEndSeconds })
   return await page.evaluate(
-    async ({ base64, fromEndSeconds, point, box }) => {
+    async ({ base64, point, box }) => {
       const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        const duration = await new Promise<number>((resolve, reject) => {
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) {
-              resolve(video.duration)
-              return
-            }
-            video.ondurationchange = () => {
-              if (Number.isFinite(video.duration) && video.duration > 0) resolve(video.duration)
-            }
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-          video.src = url
-        })
-        // Firefox drops a seek issued before the first frame has loaded (#615).
-        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          await new Promise<void>((resolve) => video.addEventListener('loadeddata', () => resolve(), { once: true }))
-        }
-        await new Promise<void>((resolve) => {
-          video.onseeked = () => resolve()
-          video.currentTime = Math.max(0, duration - fromEndSeconds)
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const context = canvas.getContext('2d')!
-        context.drawImage(video, 0, 0)
-        const at = context.getImageData(
-          Math.round(point.x * canvas.width),
-          Math.round(point.y * canvas.height),
-          1,
-          1,
-        ).data
-        const x0 = Math.round(box.left * canvas.width)
-        const y0 = Math.round(box.top * canvas.height)
-        const region = context.getImageData(
-          x0,
-          y0,
-          Math.round(box.right * canvas.width) - x0,
-          Math.round(box.bottom * canvas.height) - y0,
-        ).data
-        let whitish = 0
-        for (let index = 0; index < region.length; index += 4) {
-          if (region[index] > 180 && region[index + 1] > 180 && region[index + 2] > 180) whitish++
-        }
-        return { rgb: [at[0], at[1], at[2]], whitish }
-      } finally {
-        URL.revokeObjectURL(url)
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const context = canvas.getContext('2d')!
+      context.drawImage(bitmap, 0, 0)
+      const at = context.getImageData(
+        Math.round(point.x * canvas.width),
+        Math.round(point.y * canvas.height),
+        1,
+        1,
+      ).data
+      const x0 = Math.round(box.left * canvas.width)
+      const y0 = Math.round(box.top * canvas.height)
+      const region = context.getImageData(
+        x0,
+        y0,
+        Math.round(box.right * canvas.width) - x0,
+        Math.round(box.bottom * canvas.height) - y0,
+      ).data
+      let whitish = 0
+      for (let index = 0; index < region.length; index += 4) {
+        if (region[index] > 180 && region[index + 1] > 180 && region[index + 2] > 180) whitish++
       }
+      return { rgb: [at[0], at[1], at[2]], whitish }
     },
-    { base64: webm.toString('base64'), fromEndSeconds, point, box },
+    { base64: frame.png.toString('base64'), point, box },
   )
 }
 
@@ -456,51 +432,21 @@ async function regionStats(
   source: { video: Buffer; fromEndSeconds: number } | { png: Buffer },
   regions: Record<string, Region>,
 ): Promise<Record<string, { mean: number[]; yellow: number; dark: number; light: number }>> {
+  // A video is read once its frame has been presented
+  // (`presentedExportedFrame`, #276), not straight after `seeked` (#957).
+  const png =
+    'png' in source
+      ? source.png
+      : (await presentedExportedFrame(page, source.video, { fromEndSeconds: source.fromEndSeconds })).png
   return await page.evaluate(
-    async ({ base64, type, fromEndSeconds, regions }) => {
+    async ({ base64, regions }) => {
       const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const blob = new Blob([bytes], { type })
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')!
-      if (type === 'image/png') {
-        const bitmap = await createImageBitmap(blob)
-        canvas.width = bitmap.width
-        canvas.height = bitmap.height
-        context.drawImage(bitmap, 0, 0)
-      } else {
-        const url = URL.createObjectURL(blob)
-        const video = document.createElement('video')
-        video.muted = true
-        try {
-          const duration = await new Promise<number>((resolve, reject) => {
-            video.onerror = () => reject(new Error('exported file failed to decode'))
-            video.onloadedmetadata = () => {
-              if (Number.isFinite(video.duration) && video.duration > 0) {
-                resolve(video.duration)
-                return
-              }
-              video.ondurationchange = () => {
-                if (Number.isFinite(video.duration) && video.duration > 0) resolve(video.duration)
-              }
-              video.currentTime = Number.MAX_SAFE_INTEGER
-            }
-            video.src = url
-          })
-          // Firefox drops a seek issued before the first frame has loaded (#615).
-          if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-            await new Promise<void>((resolve) => video.addEventListener('loadeddata', () => resolve(), { once: true }))
-          }
-          await new Promise<void>((resolve) => {
-            video.onseeked = () => resolve()
-            video.currentTime = Math.max(0, duration - fromEndSeconds)
-          })
-          canvas.width = video.videoWidth
-          canvas.height = video.videoHeight
-          context.drawImage(video, 0, 0)
-        } finally {
-          URL.revokeObjectURL(url)
-        }
-      }
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      context.drawImage(bitmap, 0, 0)
       const result: Record<string, { mean: number[]; yellow: number; dark: number; light: number }> = {}
       for (const [name, region] of Object.entries(regions)) {
         const x0 = Math.round(region.left * canvas.width)
@@ -526,9 +472,7 @@ async function regionStats(
       }
       return result
     },
-    'png' in source
-      ? { base64: source.png.toString('base64'), type: 'image/png', fromEndSeconds: 0, regions }
-      : { base64: source.video.toString('base64'), type: 'video/webm', fromEndSeconds: source.fromEndSeconds, regions },
+    { base64: png.toString('base64'), regions },
   )
 }
 
