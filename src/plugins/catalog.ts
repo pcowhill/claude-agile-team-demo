@@ -87,7 +87,8 @@ export const builtInPlugins: readonly PluginSpec[] = [
       'Blur softens the whole picture, Film grain adds moving grain, Old film ages it with ' +
       'sepia, flicker, scratches and dust, VHS gives it the soft blur, colour fringes, scanlines ' +
       'and rolling band of a tape, Chromatic aberration splits its red and blue apart at every edge, ' +
-      'and Glitch tears the picture and makes them jump apart in short bursts. Each eases in and out.',
+      'Glitch tears the picture and makes them jump apart in short bursts, and Pixelate draws it in ' +
+      'blocks. Each eases in and out.',
     version: '1.0.0',
     load: () => import('./visualEffects/index'),
     // Picture effects live in the timeline, so a project carrying one of

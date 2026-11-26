@@ -79,6 +79,15 @@ export const CHROMATIC_ABERRATION = { offset: 0.01 }
 export const GLITCH = { steps: 3, offset: 0.02, least: 0.4, bands: 3, tear: 0.05, thinnest: 0.02, thickest: 0.1 }
 
 /**
+ * The frame width Pixelate's Block size is measured against (#871, step
+ * 3c): Block size is a block's width in pixels of a 1080p frame, so the
+ * blocks keep their share of the frame at any size, as Film grain's Size
+ * does, and the preview and a 1080p export draw the same grid
+ * (`pixelateGrid` rounds it to whole blocks).
+ */
+export const PIXELATE_REFERENCE_WIDTH = 1920
+
+/**
  * How large Glitch's burst at `time` is, for a Frequency of `chance`
  * (0 to 1): 0 for a burst that holds still, else between `GLITCH.least`
  * and 1. A pure function of the entry's time, from the hash the textures
@@ -270,6 +279,22 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
         layers: [],
       }
     },
+  },
+  // The picture drawn in blocks (#871, step 3c), each one colour, the
+  // average of what it covers. Block size is a block's width in pixels of
+  // a 1080p frame; the weight scales it, so the blocks grow out of the
+  // picture as the effect eases in and shrink back as it eases out (a
+  // block no wider than a pixel draws nothing). Drawn through #987's
+  // `pixelate` filter: the export downscales the card, and the preview's
+  // canvas (#990) fills its blocks through the export's own downscale.
+  pixelate: {
+    id: 'pixelate',
+    name: 'Pixelate',
+    params: [{ key: 'block', label: 'Block size', min: 5, max: 200, default: 20, unit: 'px' }],
+    look: (params, weight) => ({
+      filters: [{ kind: 'pixelate', block: (params.block / PIXELATE_REFERENCE_WIDTH) * weight }],
+      layers: [],
+    }),
   },
 }
 

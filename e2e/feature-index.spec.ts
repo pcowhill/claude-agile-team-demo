@@ -204,9 +204,9 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "an overlay Move's fields name which of its Moves they edit (#834), a position in a list, as the zoom's do. Safe beside Move up and Move down, which carry no number: the digit is what this matches",
   },
   {
-    pattern: /\b([Vv]ignette|[Bb]lur|[Ff]ilm grain|[Oo]ld film|VHS|[Cc]hromatic aberration|[Gg]litch) \d+/g,
+    pattern: /\b([Vv]ignette|[Bb]lur|[Ff]ilm grain|[Oo]ld film|VHS|[Cc]hromatic aberration|[Gg]litch|[Pp]ixelate) \d+/g,
     replacement: '$1',
-    why: "a Visual effects row's fields name which of an entry's vignettes, blurs, film grains, old films, VHS effects, chromatic aberrations or glitches they edit (#862, #870, #871), a position in a list, as the zoom's do. Both cases, because Remove says it in lower case, except VHS, an initialism, which keeps its capitals",
+    why: "a Visual effects row's fields name which of an entry's vignettes, blurs, film grains, old films, VHS effects, chromatic aberrations, glitches or pixelates they edit (#862, #870, #871), a position in a list, as the zoom's do. Both cases, because Remove says it in lower case, except VHS, an initialism, which keeps its capitals",
   },
   {
     pattern: /\b([Pp])ause \d+/g,
@@ -985,7 +985,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     'the zoom editor',
   )
 
-  // A vignette, a blur, film grain, old film, VHS, chromatic aberration and a glitch on the same entry (#862, #870, #871): with every plugin on,
+  // A vignette, a blur, film grain, old film, VHS, chromatic aberration, a glitch and a pixelate on the same entry (#862, #870, #871): with every plugin on,
   // + Effect ▾ offers them, and each one's fields exist only once it does.
   const effectsWithPlugins = await openEffectMenu(page, firstEntry)
   await record('+ Effect ▾ with every plugin on', effectsWithPlugins)
@@ -998,6 +998,7 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
   await chooseEffect(page, firstEntry, 'VHS')
   await chooseEffect(page, firstEntry, 'Chromatic aberration')
   await chooseEffect(page, firstEntry, 'Glitch')
+  await chooseEffect(page, firstEntry, 'Pixelate')
   await expect(timeline.getByRole('spinbutton', { name: `Blur 1 amount of ${firstEntry} (percent)` })).toBeVisible()
   await expect(timeline.getByRole('spinbutton', { name: `Film grain 1 size of ${firstEntry}` })).toBeVisible()
   await expect(timeline.getByRole('spinbutton', { name: `Old film 1 amount of ${firstEntry} (percent)` })).toBeVisible()
@@ -1006,7 +1007,10 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     timeline.getByRole('spinbutton', { name: `Chromatic aberration 1 amount of ${firstEntry} (percent)` }),
   ).toBeVisible()
   await expect(timeline.getByRole('spinbutton', { name: `Glitch 1 frequency of ${firstEntry} (percent)` })).toBeVisible()
-  await record('an entry with a vignette, a blur, film grain, old film, VHS, chromatic aberration and a glitch', timeline)
+  await expect(
+    timeline.getByRole('spinbutton', { name: `Pixelate 1 block size of ${firstEntry} in pixels` }),
+  ).toBeVisible()
+  await record('an entry with a vignette, a blur, film grain, old film, VHS, chromatic aberration, a glitch and a pixelate', timeline)
 
   // A redaction region on the same entry: the region's own fields, then the
   // editor that drags it.
