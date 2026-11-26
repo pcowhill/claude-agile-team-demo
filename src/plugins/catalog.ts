@@ -5,6 +5,11 @@ import { isPatternTransition } from './patternTransitionsIds'
 import { isShapedWipeTransition } from './shapedWipesIds'
 import { isVisualEffect } from './visualEffectsIds'
 
+/** `count` uses that are each one `one` (plural `other`): "1 transition", "2 transitions". */
+function countOf(count: number, one: string, other: string): PluginUseCount {
+  return { count, what: count === 0 ? '' : `${count} ${count === 1 ? one : other}` }
+}
+
 /**
  * The built-in plugin catalog (#197, ADR 0003): every plugin this build
  * ships, in the order the manager UI lists them. This module is part of the
@@ -17,11 +22,6 @@ import { isVisualEffect } from './visualEffectsIds'
  * `src/plugins/<id>/`. The GIF export plugin (#198) is the first real one;
  * it retired the sample plugin that #197 shipped as a placeholder.
  */
-/** `count` uses that are each one `one` (plural `other`): "1 transition", "2 transitions". */
-function countOf(count: number, one: string, other: string): PluginUseCount {
-  return { count, what: count === 0 ? '' : `${count} ${count === 1 ? one : other}` }
-}
-
 export const builtInPlugins: readonly PluginSpec[] = [
   {
     id: 'gif-export',
@@ -83,8 +83,10 @@ export const builtInPlugins: readonly PluginSpec[] = [
     id: 'visual-effects',
     name: 'Visual effects',
     description:
-      'Adds picture effects for a stretch of a clip: a vignette that darkens the edges of ' +
-      'the frame, and a blur over the whole picture. Each eases in and out.',
+      'Adds picture effects for a stretch of a clip: Vignette darkens the edges of the frame, ' +
+      'Blur softens the whole picture, Film grain adds moving grain, Old film ages it with ' +
+      'sepia, flicker, scratches and dust, and VHS gives it the soft blur, scanlines and ' +
+      'rolling band of a tape. Each eases in and out.',
     version: '1.0.0',
     load: () => import('./visualEffects/index'),
     // Picture effects live in the timeline, so a project carrying one of

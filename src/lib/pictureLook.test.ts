@@ -233,6 +233,31 @@ describe('pictureFilterFunctions', () => {
       ),
     ).toEqual(['sepia(1)', 'brightness(0)'])
   })
+
+  it('hands a channel offset to the renderer, in its place among the others, and drops it when the renderer draws none (#870)', () => {
+    const filters = [
+      { kind: 'blur', radius: 0.01 },
+      { kind: 'channel-offset', offset: 0.003 },
+      { kind: 'sepia', amount: 0.5 },
+    ] as const
+    const asked: number[] = []
+    const reference = (offset: number) => {
+      asked.push(offset)
+      return `url(#shift-${offset})`
+    }
+    expect(pictureFilterFunctions(filters, 1920, 'px', 1, reference)).toEqual([
+      'blur(19.2px)',
+      'url(#shift-0.003)',
+      'sepia(0.5)',
+    ])
+    // The fraction itself: each renderer turns it into its own pixels.
+    expect(asked).toEqual([0.003])
+    expect(pictureFilterFunctions(filters, 1920, 'px', 1, () => null)).toEqual(['blur(19.2px)', 'sepia(0.5)'])
+    // No renderer to resolve it, or no offset at all, adds nothing.
+    expect(pictureFilterFunctions(filters, 1920, 'px')).toEqual(['blur(19.2px)', 'sepia(0.5)'])
+    expect(pictureFilterFunctions([{ kind: 'channel-offset', offset: 0 }], 1920, 'px', 1, reference)).toEqual([])
+    expect(asked).toEqual([0.003])
+  })
 })
 
 describe('vignetteStops', () => {
