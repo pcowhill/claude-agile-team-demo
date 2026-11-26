@@ -217,10 +217,10 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## G
 
-- **Glitch** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; the picture's red and blue jumping apart in short bursts at irregular moments, for a stretch of the entry. [Editing video › Glitch](editing-video.md#glitch) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **Glitch** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; bands of the picture tearing sideways and its red and blue jumping apart in short bursts at irregular moments, for a stretch of the entry. [Editing video › Glitch](editing-video.md#glitch) · [Plugins › Visual effects](plugins.md#visual-effects)
 - **Glitch end** — Glitch on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › Glitch](editing-video.md#glitch)
 - **Glitch frequency** — Glitch on an expanded sequence entry; 0 to 100 %, the chance that each eighth of a second glitches. [Editing video › Glitch](editing-video.md#glitch)
-- **Glitch intensity** — Glitch on an expanded sequence entry; 0 to 100 %, how far the red and blue jump apart. [Editing video › Glitch](editing-video.md#glitch)
+- **Glitch intensity** — Glitch on an expanded sequence entry; 0 to 100 %, how far the picture tears and the red and blue jump apart. [Editing video › Glitch](editing-video.md#glitch)
 - **Glitch start** — Glitch on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › Glitch](editing-video.md#glitch)
 
 ## H
