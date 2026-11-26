@@ -359,8 +359,23 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   const endBias = APPEAR / soloRedCenter
   const trueSpan = (measuredEnd - measuredStart) / (1 - startBias - endBias)
   const overlapStart = measuredStart - startBias * trueSpan
+
+  // The ladder's frames are picked by the progress each one shows, not by
+  // its time (#748). The export is a real-time recording that repeats
+  // frames, three or four identical pairs inside this 0.5 s overlap in a
+  // local Firefox run, so the frame nearest a time can show a composition a
+  // frame or two older. That is 15 to 25 levels of red against a step of
+  // about 60 between the samples, and twice in CI's Firefox it shrank the
+  // early-to-mid step under 20. The centre fifth, which both clips cover,
+  // shows the dissolve itself: its red is the outgoing clip's,
+  // (1 - progress) x solo, on the same frame as the margin it is read with.
+  const shown = scan.frames
+    .filter((frame) => frame.time >= contentStart)
+    .map((frame) => ({ frame, progress: 1 - frame.bands['center-fifth'].r / soloRedCenter }))
   const atProgress = (progress: number) =>
-    frameAt(scan, overlapStart + progress * trueSpan).bands['left-fifth'].r
+    shown.reduce((nearest, entry) =>
+      Math.abs(entry.progress - progress) < Math.abs(nearest.progress - progress) ? entry : nearest,
+    ).frame.bands['left-fifth'].r
 
   // Margin ladder: solo red, progress 0.2, 0.5, 0.9, then past the handover
   // (solo blue).
@@ -384,6 +399,19 @@ test('a crossfade between different aspect ratios exports margins fading to blac
   expect(late).toBeLessThan(mid - 20)
   expect(late).toBeLessThan(solo * 0.3)
   expect(after).toBeLessThan(ABSENT)
+
+  // #66 on every frame, repeated or not: the margin fades with the outgoing
+  // clip, so it reads what the centre's outgoing red reads on the same
+  // frame. A margin that popped would hold solo while the centre fell. The
+  // two read within 2 levels of each other on every frame of six local
+  // Firefox runs; 12 leaves room for the codec and is still far below the
+  // 60-level steps a pop would make.
+  for (const { frame } of shown) {
+    const margin = frame.bands['left-fifth'].r
+    const outgoing = frame.bands['center-fifth'].r
+    const at = `margin ${margin} vs centre ${outgoing} at ${frame.time.toFixed(3)} s`
+    expect(Math.abs(margin - outgoing), at).toBeLessThan(12)
+  }
 
   // Where the clips do overlap, mid-crossfade still carries both families.
   const centerMid = frameAt(scan, overlapStart + 0.5 * trueSpan).bands['center-fifth']
