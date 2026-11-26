@@ -220,7 +220,7 @@ test('Escape dismisses the failure panel, and ✕ holds focus — as the tooltip
 
 test('a second attempt without reloading never reaches the network — why there is no Retry (#568)', async ({
   page,
-}) => {
+}, testInfo) => {
   const state = await blockCropEditorModule(page)
   await projectWithAnImage(page)
   await adjustButton(page).click()
@@ -236,12 +236,41 @@ test('a second attempt without reloading never reaches the network — why there
   await failedDialog(page).getByRole('button', { name: 'Close the crop editor' }).click()
   await adjustButton(page).click()
 
+  // **Which browser runs this decides what it can assert (#886).** The
+  // caching above is measured in the browsers CI runs: Playwright's pinned
+  // Chromium (151 at the time of #886) and Firefox 153 both answer the
+  // second import from the failed entry, with no request. Chromium 158 does
+  // not: it requests the module again, and the editor opens. Session
+  // containers ship such a newer Chromium and not the pinned one, so
+  // `tools/chromiumExecutable.ts` launches it, and `launchOptions
+  // .executablePath` is set only then. On that browser, this test checks
+  // that what the page shows agrees with what the browser did, and notes
+  // which it was, instead of asserting the pinned browsers' behaviour of a
+  // browser CI does not run. `npx playwright install chromium-headless-shell`
+  // installs the pinned build, which the resolver then prefers, and the
+  // strict assertions below run locally too.
+  const substitute = testInfo.project.use.launchOptions?.executablePath !== undefined
+  if (substitute) {
+    await expect(failedDialog(page).or(realDialog(page))).toBeVisible()
+    if (state.continued > 0) {
+      await expect(realDialog(page)).toBeVisible()
+      await expect(failedDialog(page)).toHaveCount(0)
+      expect(state.aborted, 'the second attempt was let through, not blocked again').toBe(abortedOnce)
+      testInfo.annotations.push({
+        type: 'browser',
+        description: `${page.context().browser()?.version()} re-requested a module whose fetch had failed (#886)`,
+      })
+      return
+    }
+  }
+
   await expect(failedDialog(page)).toBeVisible()
   await expect(realDialog(page)).toHaveCount(0)
   expect(state.aborted, 'no further request was even attempted').toBe(abortedOnce)
   expect(state.continued, 'the module map answered from cache, not the network').toBe(0)
 
-  // If this test ever fails because the editor opened, the browser has
-  // stopped caching failed module fetches and a Retry button becomes
-  // possible: revisit the dialog in src/components/visualEditors.tsx.
+  // If this test ever fails in CI because the editor opened, Playwright's
+  // pinned browser has stopped caching failed module fetches, as Chromium
+  // 158 already has (#886), and a Retry button becomes possible there:
+  // revisit the dialog in src/components/visualEditors.tsx.
 })
