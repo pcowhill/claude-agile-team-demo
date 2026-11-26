@@ -53,7 +53,8 @@ worse than no test, because it manufactures false confidence.
   - **What recurs:** the watched test failing in such a run on any
     attempt, including a Playwright test the summary reports `flaky`
     because a retry passed. Comment the run's link and the failure output;
-    the count restarts from that run.
+    the count restarts from that run. A recurrence after the issue closed
+    by count does not restart it; it is measured (below).
   - **How to read it:** `actions_list` with `list_workflow_runs` on
     `ci.yml` for the runs, `list_workflow_jobs` for each run's jobs, and
     the tail of `get_job_logs` for a Playwright job or any failed job,
@@ -76,6 +77,30 @@ worse than no test, because it manufactures false confidence.
     and named the fix (stop the take at `0:02`). At 19:15 it closed by
     count. It failed again at 19:59 and 20:05, and the fix shipped as #813
     under a new issue, #812.
+  - **A watch that recurs after closing by count is measured, not counted
+    out again** (#968). The five-run count is how a *first* sighting
+    expires. A recurrence after that close is direct evidence the count was
+    wrong, and a second count is weak evidence about the same question.
+    The session that sees the recurrence:
+    - reopens the original issue, or links it from the new one, so the
+      sighting history stays in one thread;
+    - comments the recurrence as above, and names the measurement that
+      would test the thread's hypothesis, or proposes one;
+    - removes `flake-watch` and keeps `bug`. The issue is not closed by
+      count again.
+
+    The measurement may be a local repeat, or #779's dispatched run with
+    `--repeat-each` on the one spec, for a browser the container lacks.
+    Either it finds a cause, and the issue is fixed as any bug, or it shows
+    the test not failing at a stated number of repeats, written on the
+    issue with the run, which may then close as `not_planned` citing it.
+    #741 and #967 are the worked example, the same Firefox failure in
+    `trim-window.spec.ts:65` each time, `"1.5"` where `"0"` was expected.
+    #741 closed by count at 14:43 on 2026-11-25. The failure was seen again
+    at 18:29 and filed as #967, which was counted out at 21:37, seen again
+    at 02:34 and counted out a second time at 04:41 on 2026-11-26. That
+    made six sightings, and nobody measured the hypothesis #741's closing
+    comment had named.
 
   Five is the customer's number. A local sighting starts the count, but
   only CI runs advance it, because a local run leaves nothing a later
