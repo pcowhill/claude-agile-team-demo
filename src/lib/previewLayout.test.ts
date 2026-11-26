@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  fullScreenRefusal,
   loadPreviewLayout,
   PREVIEW_EXPANDED_KEY,
   PREVIEW_LAYOUT_KEY,
@@ -19,6 +20,15 @@ function fakeStorage(initial: Record<string, string> = {}): PreviewLayoutStorage
     },
   }
 }
+
+describe('fullScreenRefusal (#958)', () => {
+  it('allows full screen only with a browser that allows it, a sequence, and no source preview', () => {
+    expect(fullScreenRefusal({ enabled: true, empty: false, sourceMode: false })).toBeNull()
+    expect(fullScreenRefusal({ enabled: false, empty: false, sourceMode: false })).toMatch(/does not allow/)
+    expect(fullScreenRefusal({ enabled: true, empty: true, sourceMode: false })).toMatch(/Add clips/)
+    expect(fullScreenRefusal({ enabled: true, empty: false, sourceMode: true })).toMatch(/back to the sequence/)
+  })
+})
 
 describe('preview layout persistence (#128, #667)', () => {
   it('defaults to the normal layout with nothing stored', () => {

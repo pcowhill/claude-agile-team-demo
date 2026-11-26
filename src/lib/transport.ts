@@ -38,6 +38,9 @@ export type TransportAction =
   | { kind: 'trim-to-playhead'; edge: 'start' | 'end' }
   /** Cut out the marked range (#823) — X, the editors' cut. */
   | { kind: 'cut-range' }
+  /** Enter or leave the preview's full screen (#958) — F, the video
+   * players' key. */
+  | { kind: 'full-screen' }
 
 /**
  * The transport intent a keydown expresses, or null when it expresses none.
@@ -127,6 +130,12 @@ export function transportActionForKey(
     case 'x':
     case 'X':
       return { kind: 'cut-range' }
+    // F enters or leaves the preview's full screen (#958): the key every
+    // video player uses, and free here — F1 is a different key. Either
+    // case, as I / O.
+    case 'f':
+    case 'F':
+      return { kind: 'full-screen' }
     default:
       return null
   }

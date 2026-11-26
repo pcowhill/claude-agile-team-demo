@@ -1,10 +1,10 @@
 # Preview and playback
 
-The preview panel shows the video as it will export, at the instant the **playhead** stands on, and plays it. This page covers [the stage and its View ▾ layouts](#the-stage-and-the-view-menu), [the transport](#the-transport), [keyboard control](#keyboard-control), [jumping to cuts](#jumping-to-cuts), [snapping on release](#snapping-on-release), the export [marks](#export-marks) and [Loop](#loop), [chapter markers](#chapter-markers), the [Frame ▾](#the-frame-menu) menu, [previewing a library clip](#previewing-a-library-clip) on its own, and [when the shortcuts pause](#when-the-shortcuts-pause). What the preview shows is what the export contains — see [The output frame](concepts.md#the-output-frame).
+The preview panel shows the video as it will export, at the instant the **playhead** stands on, and plays it. This page covers [the stage and its View ▾ layouts](#the-stage-and-the-view-menu), [full screen](#full-screen), [the transport](#the-transport), [keyboard control](#keyboard-control), [jumping to cuts](#jumping-to-cuts), [snapping on release](#snapping-on-release), the export [marks](#export-marks) and [Loop](#loop), [chapter markers](#chapter-markers), the [Frame ▾](#the-frame-menu) menu, [previewing a library clip](#previewing-a-library-clip) on its own, and [when the shortcuts pause](#when-the-shortcuts-pause). What the preview shows is what the export contains — see [The output frame](concepts.md#the-output-frame).
 
 ## The stage and the View ▾ menu
 
-**Where to find it.** The **Preview** panel beside the media library; **View ▾** in its header holds the layouts.
+**Where to find it.** The **Preview** panel beside the media library; **View ▾** in its header holds the layouts, and [Full screen](#full-screen) below them.
 
 **What it does.** Shows the composed frame — the sequence with its transitions, zooms and picture treatments, the overlays and the text — letterboxed into the output frame's shape.
 
@@ -16,7 +16,21 @@ The preview panel shows the video as it will export, at the instant the **playhe
 
 The choice is remembered in this browser across page loads and is a view preference, never part of a project or the autosave. An empty timeline shows a placeholder instead of a stage.
 
-**Related.** [The output frame](concepts.md#the-output-frame) · [What is saved where](concepts.md#what-is-saved-where)
+**Related.** [Full screen](#full-screen) · [The output frame](concepts.md#the-output-frame) · [What is saved where](concepts.md#what-is-saved-where)
+
+## Full screen
+
+**Where to find it.** The Preview panel's **View ▾** › **Full screen**, below the layouts; or **F**.
+
+**What it does.** Shows the composed picture alone, filling the screen, as a video player's full screen does: the browser's tabs and address bar go, and so do the editor's panels, the transport and the seek bar.
+
+**Details.** The picture is the same one the stage shows — the sequence with its transitions, zooms and picture effects, the overlays and the text — scaled up to the largest frame of the output frame's shape the screen holds, with black bands either side or above and below where the shapes differ. The keys keep working: **Space** plays and pauses, the arrows step, and the other [transport keys](#keyboard-control) do what they do on the page. **?**, **F1** and **X** open something beside the picture — the cheat sheet, this guide, the cut's confirmation — so they leave full screen first. **Esc** or **F** leaves full screen, back to the layout you were using, with the playhead where it was.
+
+Full screen is not a fourth layout. It is never remembered, and entering or leaving it leaves the remembered layout as it was. It is greyed out, with the reason in its tooltip, when there is nothing to show — an empty timeline, or while a [library clip is previewed](#previewing-a-library-clip) in place of the sequence — and in a browser that does not allow full screen on this page, as when the editor is embedded in another page that has not allowed it.
+
+**Related.** [The stage and the View ▾ menu](#the-stage-and-the-view-menu) · [Keyboard control](#keyboard-control)
+
+**Shortcuts.** F (enter and leave) · Esc (leave).
 
 ## The transport
 
@@ -45,13 +59,14 @@ The choice is remembered in this browser across page loads and is a view prefere
 - **Q** and **W** [trim the clip under the playhead](editing-video.md#trimming) to start or end there.
 - **X** [cuts the marked range out](editing-video.md#cut-out-marked-range) of the sequence.
 - **R** steps the [review speed](#review-speed) through 0.5× · 1× · 1.5× · 2×, wrapping round.
+- **F** shows the preview [full screen](#full-screen), and leaves it again.
 - **?** opens the keyboard cheat sheet, **F1** the user guide; **Esc** leaves a [previewed library clip](#previewing-a-library-clip).
 
 Undo and redo have their own keys on [Undo and redo](undo-redo.md#undo-and-redo). The same list, with the step sizes in force, is **Help ▾** › **Keyboard shortcuts…**.
 
 **Related.** [When the shortcuts pause](#when-the-shortcuts-pause)
 
-**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · Q / W · X · R · ? · F1 · Esc.
+**Shortcuts.** Space · ← / → · Shift + ← / → · Home / End · ↑ / ↓ · I / O · M · Q / W · X · R · F · ? · F1 · Esc.
 
 ## Jumping to cuts
 

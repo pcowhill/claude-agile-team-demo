@@ -115,6 +115,14 @@ describe('transportActionForKey (#203)', () => {
     expect(transportActionForKey(key('x', { metaKey: true }))).toBeNull()
   })
 
+  it('maps F to full screen (#958), in either letter case, and never a chord; F1 stays the guide', () => {
+    expect(transportActionForKey(key('f'))).toEqual({ kind: 'full-screen' })
+    expect(transportActionForKey(key('F', { shiftKey: true }))).toEqual({ kind: 'full-screen' })
+    expect(transportActionForKey(key('f', { ctrlKey: true }))).toBeNull()
+    expect(transportActionForKey(key('f', { metaKey: true }))).toBeNull()
+    expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
+  })
+
   it('maps F1 to the user guide (#478), bare only', () => {
     expect(transportActionForKey(key('F1'))).toEqual({ kind: 'user-guide' })
     expect(transportActionForKey(key('F1', { shiftKey: true }))).toBeNull()
