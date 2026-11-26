@@ -153,6 +153,11 @@ async function enterFromMenu(page: Page) {
   const menu = await openPreviewView(page)
   await menu.getByRole('menuitem', { name: 'Full screen' }).click()
   await expectFullScreen(page, true)
+  // The stage takes the focus from View ▾'s trigger, in an effect after the
+  // fullscreenchange render. `document.fullscreenElement` is set before
+  // that, so a key pressed on the poll's heels can still reach the trigger,
+  // where Space reopens the menu instead of playing.
+  await expect(page.getByTestId('preview-stage')).toBeFocused()
 }
 
 test.describe('Preview full screen (#958)', () => {
