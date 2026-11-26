@@ -507,7 +507,7 @@ test.describe('Pixelate, the Visual effects plugin\'s effect (#871, step 3c)', (
       // The preview against the saved frame, sampled every 7 px of the
       // saved frame and read at the same share of the preview's box, polled
       // until the canvas has painted.
-      let reading: { samples: number; close: number; worst: number; red: number } | undefined
+      let reading: { samples: number; compared: number; close: number; worst: number; red: number } | undefined
       await expect
         .poll(
           async () => {
@@ -534,27 +534,50 @@ test.describe('Pixelate, the Visual effects plugin\'s effect (#871, step 3c)', (
                 }
                 const shown = await pixels(png)
                 const want = await pixels(saved)
+                // A sample within a preview pixel of a block edge can land on
+                // either side of it, because the preview's edges sit within
+                // a device pixel of the saved frame's and no closer (step
+                // 3a). Next to the ripple's blue, the two sides differ by up
+                // to 254 levels, and the sampling grid puts a whole column of
+                // samples on one edge whenever an edge falls on it, so those
+                // samples are skipped rather than allowed for: a sample is
+                // compared only when the saved frame is the same colour
+                // `reach` pixels either side of it, both ways, which is more
+                // than a preview pixel of the saved frame.
+                const reach = Math.ceil(want.width / box.width) + 1
+                const value = (x: number, y: number, channel: number) => want.data[(y * want.width + x) * 4 + channel]
+                const same = (x: number, y: number, ox: number, oy: number) => {
+                  for (let channel = 0; channel < 3; channel++) {
+                    if (Math.abs(value(x, y, channel) - value(x + ox, y + oy, channel)) > 8) return false
+                  }
+                  return true
+                }
                 let samples = 0
+                let compared = 0
                 let close = 0
                 let worst = 0
                 let red = 0
                 for (let y = 10; y < want.height - 10; y += 7) {
                   for (let x = 10; x < want.width - 10; x += 7) {
+                    const from = (y * want.width + x) * 4
+                    samples += 1
+                    if (want.data[from] === 255 && want.data[from + 1] === 0 && want.data[from + 2] === 0) red += 1
+                    if (!same(x, y, -reach, 0) || !same(x, y, reach, 0) || !same(x, y, 0, -reach) || !same(x, y, 0, reach)) {
+                      continue
+                    }
                     const px = Math.floor(box.x + ((x + 0.5) * box.width) / want.width)
                     const py = Math.floor(box.y + ((y + 0.5) * box.height) / want.height)
                     const at = (py * shown.width + px) * 4
-                    const from = (y * want.width + x) * 4
                     let off = 0
                     for (let channel = 0; channel < 3; channel++) {
                       off = Math.max(off, Math.abs(shown.data[at + channel] - want.data[from + channel]))
                     }
-                    samples += 1
+                    compared += 1
                     if (off <= 8) close += 1
                     if (off > worst) worst = off
-                    if (want.data[from] === 255 && want.data[from + 1] === 0 && want.data[from + 2] === 0) red += 1
                   }
                 }
-                return { samples, close, worst, red: red / samples }
+                return { samples, compared, close, worst, red: red / samples }
               },
               {
                 png: png.toString('base64'),
@@ -562,19 +585,22 @@ test.describe('Pixelate, the Visual effects plugin\'s effect (#871, step 3c)', (
                 box: { x: box.x - clip.x, y: box.y - clip.y, width: box.width, height: box.height },
               },
             )
-            return reading.close / reading.samples
+            return reading.close / reading.compared
           },
           { timeout: 10_000 },
         )
-        .toBeGreaterThan(0.98)
+        .toBeGreaterThan(0.995)
         .catch(() => undefined)
       console.log(`[${testInfo.project.name}] pixelate mid-push at ${seconds} s: ${JSON.stringify(reading)}`)
       // The push is under way in the saved frame: the red slate fills a
       // growing share of it, from the right.
       expect(reading!.red, `push at ${seconds} s: the slate's share of the saved frame`).toBeGreaterThan(0.1)
       expect(reading!.red, `push at ${seconds} s: the slate's share of the saved frame`).toBeLessThan(0.9)
-      // Block edges a sample can land either side of: 2 % of samples.
-      expect(reading!.close / reading!.samples, `push at ${seconds} s: samples within 8 levels`).toBeGreaterThan(0.98)
+      // Most samples lie inside a block, away from its edges, and are compared.
+      expect(reading!.compared / reading!.samples, `push at ${seconds} s: samples compared`).toBeGreaterThan(0.6)
+      expect(reading!.close / reading!.compared, `push at ${seconds} s: compared samples within 8 levels`).toBeGreaterThan(
+        0.995,
+      )
     }
   })
 })
