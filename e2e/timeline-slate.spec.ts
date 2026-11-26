@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { presentedExportedFrame } from './decodedFrame'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 
 /**
@@ -45,67 +46,31 @@ async function recordWebm(page: import('@playwright/test').Page): Promise<Buffer
   return Buffer.from(webmBase64, 'base64')
 }
 
-/** Decodes an exported file and samples its centre pixel near `atSeconds`. */
+/**
+ * Decodes an exported file and samples its centre pixel near `atSeconds`,
+ * held just short of the file's end. The frame is read once it has been
+ * presented (`presentedExportedFrame`, #276): drawing straight after
+ * `seeked` can read an all-black frame under load (#997, as #921 and #957
+ * found in sibling specs).
+ */
 async function probeExport(
   page: import('@playwright/test').Page,
   exported: Buffer,
   atSeconds: number,
 ) {
-  return page.evaluate(
-    async ({ base64, at }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      await new Promise<void>((resolve, reject) => {
-        video.onerror = () => reject(new Error('exported file failed to decode'))
-        video.onloadedmetadata = () => {
-          if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-          else {
-            video.ondurationchange = () => {
-              if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-            }
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-        }
-        video.src = url
-      })
-      // Firefox drops a seek issued before the first frame has loaded: at
-      // readyState 1 the assignment can be lost with no seeking event, leaving
-      // currentTime at 0 (#615). Seek only once loadeddata has fired.
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        await new Promise<void>((resolve, reject) => {
-          video.addEventListener('loadeddata', () => resolve(), { once: true })
-          video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
-            once: true,
-          })
-        })
-      }
-      const duration = video.duration
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve()
-        video.currentTime = Math.min(at, Math.max(0, duration - 0.05))
-      })
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(video, 0, 0)
-      const centre = ctx.getImageData(
-        Math.floor(canvas.width / 2),
-        Math.floor(canvas.height / 2),
-        1,
-        1,
-      ).data
-      return {
-        duration,
-        width: video.videoWidth,
-        height: video.videoHeight,
-        centre: [centre[0], centre[1], centre[2]],
-      }
-    },
-    { base64: exported.toString('base64'), at: atSeconds },
-  )
+  const frame = await presentedExportedFrame(page, exported, { atSeconds })
+  const centre = await page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const data = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data
+    return [data[0], data[1], data[2]]
+  }, frame.png.toString('base64'))
+  return { duration: frame.duration, width: frame.width, height: frame.height, centre }
 }
 
 test('a slate joins the timeline red and 5s, with editable color and duration', async ({

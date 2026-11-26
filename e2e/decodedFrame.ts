@@ -188,8 +188,14 @@ export async function sampleExportedFrame(
   )
 }
 
-/** Where `presentedExportedFrame` seeks: seconds before the file's end, or a fraction of its duration. */
-export type FrameInstant = { fromEndSeconds: number } | { fractionOfDuration: number }
+/**
+ * Where `presentedExportedFrame` seeks: seconds before the file's end, a
+ * fraction of its duration, or seconds from its start. `atSeconds` is held
+ * 0.05 s short of the end, so a time at or past the end still lands on the
+ * file's last frame rather than past it (as `timeline-slate`'s probe did
+ * before it moved here, #997).
+ */
+export type FrameInstant = { fromEndSeconds: number } | { fractionOfDuration: number } | { atSeconds: number }
 
 /** A presented frame of an exported file, as a lossless PNG, with the file's decoded duration. */
 export interface PresentedFrame {
@@ -244,7 +250,11 @@ export async function presentedExportedFrame(page: Page, webm: Buffer, at: Frame
         }
         const duration = video.duration
         const target =
-          'fromEndSeconds' in at ? Math.max(0, duration - at.fromEndSeconds) : duration * at.fractionOfDuration
+          'fromEndSeconds' in at
+            ? Math.max(0, duration - at.fromEndSeconds)
+            : 'atSeconds' in at
+              ? Math.min(at.atSeconds, Math.max(0, duration - 0.05))
+              : duration * at.fractionOfDuration
         // The seek settled AND the sought frame presented (#276): see
         // `sampleExportedFrame` for why each half is needed.
         await new Promise<void>((resolve, reject) => {
