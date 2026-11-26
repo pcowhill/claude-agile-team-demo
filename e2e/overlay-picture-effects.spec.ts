@@ -8,8 +8,9 @@ import { chooseFromFrameMenu } from './frameMenu'
 
 /**
  * Picture effects on overlays (#872): a saved frame (the export's own frame
- * composer, step 2) and the preview (step 3a) draw an overlay's effects on
- * the overlay's own picture and nowhere else.
+ * composer, step 2) and the preview (step 3a; channel offset and slices,
+ * step 3b(i)) draw an overlay's effects on the overlay's own picture and
+ * nowhere else.
  *
  * Nothing in the app can put an effect on an overlay yet: step 4 adds the
  * + Effect ▾ entry. So this spec saves the project, writes the effects
@@ -32,6 +33,11 @@ const CARD = { x: 0.62, y: 0.62, width: 0.35, height: 0.35 }
 const BLUR_NAME = 'Test overlay blur'
 const VIGNETTE_NAME = 'Test overlay vignette'
 const PIXELATE_NAME = 'Test overlay pixelate'
+const OFFSET_NAME = 'Test overlay channel offset'
+const SLICES_NAME = 'Test overlay slices'
+/** The test channel offset's shift, and the test slice's band, as shares of the overlay's outline. */
+const OFFSET = 0.1
+const BAND = { top: 0.3, height: 0.3, shift: 0.1 }
 
 type Region = { x: number; y: number; width: number; height: number }
 
@@ -63,11 +69,12 @@ async function makePng(page: Page, fill: { square: number } | { color: string })
 
 /**
  * Registers the test effects: a blur of 0.03 of the card's width, a strong
- * vignette, and a pixelate in blocks of 0.05 of the card's width.
+ * vignette, a pixelate in blocks of 0.05 of the card's width, a channel
+ * offset of `OFFSET`, and one slice, `BAND`.
  */
 async function registerTestEffects(page: Page) {
   await page.evaluate(
-    async ({ blurName, vignetteName, pixelateName }) => {
+    async ({ blurName, vignetteName, pixelateName, offsetName, slicesName, offset, band }) => {
       const url = new URL('src/lib/pictureEffect.ts', document.baseURI).href
       const module = (await import(/* @vite-ignore */ url)) as typeof import('../src/lib/pictureEffect')
       module.pictureEffectRegistry.register({
@@ -88,8 +95,28 @@ async function registerTestEffects(page: Page) {
         params: [],
         look: () => ({ filters: [{ kind: 'pixelate', block: 0.05 }], layers: [] }),
       })
+      module.pictureEffectRegistry.register({
+        id: 'test-overlay-channel-offset',
+        name: offsetName,
+        params: [],
+        look: (_params, weight) => ({ filters: [{ kind: 'channel-offset', offset: offset * weight }], layers: [] }),
+      })
+      module.pictureEffectRegistry.register({
+        id: 'test-overlay-slices',
+        name: slicesName,
+        params: [],
+        look: () => ({ filters: [{ kind: 'slices', bands: [band] }], layers: [] }),
+      })
     },
-    { blurName: BLUR_NAME, vignetteName: VIGNETTE_NAME, pixelateName: PIXELATE_NAME },
+    {
+      blurName: BLUR_NAME,
+      vignetteName: VIGNETTE_NAME,
+      pixelateName: PIXELATE_NAME,
+      offsetName: OFFSET_NAME,
+      slicesName: SLICES_NAME,
+      offset: OFFSET,
+      band: BAND,
+    },
   )
 }
 
@@ -222,6 +249,124 @@ async function measure(
     },
     { base64: png.toString('base64'), regions },
   )
+}
+
+/**
+ * A frame-sized PNG: black, with a white bar from 0.375 to 0.625 of its
+ * width, top to bottom. Every row has its edges, so a channel's extent or
+ * a band's shift reads on any row, and zoomed 2× about the centre the bar
+ * still lies well inside an overlay's rectangle.
+ */
+async function makeBar(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate((frame) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = frame.width
+    canvas.height = frame.height
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, frame.width, frame.height)
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(frame.width * 0.375, 0, frame.width * 0.25, frame.height)
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, FRAME)
+  return Buffer.from(base64, 'base64')
+}
+
+/**
+ * Per row of a PNG inside `region` (frame fractions), each channel's first
+ * and last lit column (over 128), as fractions of the image's width, or
+ * null for a row with none lit. Column and row centres, so the readings
+ * compare across the preview's and the saved frame's sizes.
+ */
+async function rowEdges(
+  page: Page,
+  png: Buffer,
+  region: Region,
+): Promise<{ width: number; height: number; rows: { y: number; r: number[] | null; g: number[] | null; b: number[] | null }[] }> {
+  return await page.evaluate(
+    async ({ base64, region }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const x0 = Math.round(region.x * width)
+      const x1 = Math.round((region.x + region.width) * width)
+      const y0 = Math.round(region.y * height)
+      const y1 = Math.round((region.y + region.height) * height)
+      const rows = []
+      for (let y = y0; y < y1; y++) {
+        const row: { y: number; r: number[] | null; g: number[] | null; b: number[] | null } = {
+          y: (y + 0.5) / height,
+          r: null,
+          g: null,
+          b: null,
+        }
+        ;(['r', 'g', 'b'] as const).forEach((name, channel) => {
+          let first = -1
+          let last = -1
+          for (let x = x0; x < x1; x++) {
+            if (data[(y * width + x) * 4 + channel] > 128) {
+              if (first < 0) first = x
+              last = x
+            }
+          }
+          row[name] = first < 0 ? null : [(first + 0.5) / width, (last + 0.5) / width]
+        })
+        rows.push(row)
+      }
+      return { width, height, rows }
+    },
+    { base64: png.toString('base64'), region },
+  )
+}
+
+/** The median of some numbers, so a row or two at an antialiased edge does not move it. */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted.length === 0 ? Number.NaN : sorted[Math.floor(sorted.length / 2)]
+}
+
+/**
+ * How far red's and blue's edges sit from green's, as fractions of the
+ * image's width: the median over the rows of `region` that have all three.
+ */
+async function channelShifts(page: Page, png: Buffer, region: Region) {
+  const { width, rows } = await rowEdges(page, png, region)
+  const lit = rows.filter((row) => row.r !== null && row.g !== null && row.b !== null)
+  return {
+    width,
+    rows: lit.length,
+    redLeft: median(lit.map((row) => row.r![0] - row.g![0])),
+    redRight: median(lit.map((row) => row.r![1] - row.g![1])),
+    blueLeft: median(lit.map((row) => row.b![0] - row.g![0])),
+    blueRight: median(lit.map((row) => row.b![1] - row.g![1])),
+  }
+}
+
+/**
+ * Where a slice moved the bar's left edge in `region`: the rows whose edge
+ * sits more than half of `shift` (a fraction of the image's width) right
+ * of the region's usual edge, as their first and last row (fractions of
+ * the image's height), and their edge's median distance from the others'.
+ */
+async function slicedRows(page: Page, png: Buffer, region: Region, shift: number) {
+  const { width, height, rows } = await rowEdges(page, png, region)
+  const lit = rows.filter((row) => row.g !== null)
+  const usual = median(lit.map((row) => row.g![0]))
+  const moved = lit.filter((row) => row.g![0] - usual > shift / 2)
+  const still = lit.filter((row) => row.g![0] - usual <= shift / 2)
+  return {
+    width,
+    height,
+    rows: moved.length,
+    top: moved.length === 0 ? Number.NaN : moved[0].y,
+    bottom: moved.length === 0 ? Number.NaN : moved[moved.length - 1].y,
+    shift: median(moved.map((row) => row.g![0])) - median(still.map((row) => row.g![0])),
+  }
 }
 
 test('a blur on an overlay softens its picture and not the frame around it', async ({ page }) => {
@@ -366,6 +511,98 @@ test('a pixelate on a zoomed, letterboxed overlay draws blocks in the gutters to
   // downscale's averaging of fine stripes, not where it draws.)
   expect(pixelated.gutter.mean, 'gutter: not the base').toBeLessThan(150)
   expect(Math.abs(pixelated.gutter.mean - pixelated.outline.mean), 'gutter against outline').toBeLessThan(3)
+})
+
+test("a channel offset on an overlay moves red and blue by the outline's share, zoomed or not, in the preview as in a saved frame", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000)
+  // The bar over a black base, placed at the default rectangle, which its
+  // aspect fills: the outline is the rectangle, 0.35 of the frame wide.
+  // The offset is on over the whole 5 s; a zoom of 2 from 2.5 s on.
+  await openWithOverlayFields(
+    page,
+    { name: 'black.png', png: await makePng(page, { color: '#000' }) },
+    { name: 'bar.png', png: await makeBar(page) },
+    {
+      zooms: [{ id: 'z', start: 2.5, rampIn: 0, hold: 2.5, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+      pictureEffects: [{ id: 'c', type: 'test-overlay-channel-offset', start: 0, end: 5, params: {} }],
+    },
+  )
+  // Rows inside the overlay, clear of its top and bottom edges.
+  const region = { x: CARD.x, y: CARD.y + 0.05, width: CARD.width, height: CARD.height - 0.1 }
+  const readings = {
+    saved: await channelShifts(page, await savedFrameAt(page, 1, 'channel offset'), region),
+    preview: await channelShifts(page, await previewAt(page, 1, /url\(/, 'channel offset'), region),
+    savedZoomed: await channelShifts(page, await savedFrameAt(page, 3, 'channel offset, zoomed'), region),
+    previewZoomed: await channelShifts(page, await previewAt(page, 3, /url\(/, 'channel offset, zoomed'), region),
+  }
+  console.log(`[${testInfo.project.name}] overlay channel offset: ${JSON.stringify(readings)}`)
+  // Red left and blue right by OFFSET of the outline's width, which is
+  // 0.35 of the frame's: 0.035 of the frame, 22.4 px of a 640 px saved
+  // frame. Not magnified by the zoom. The tolerance is 2 px of the image
+  // measured, for the shift's rounding and the image's own pixel grid.
+  const expected = OFFSET * CARD.width
+  for (const [label, reading] of Object.entries(readings)) {
+    const within = 2 / reading.width
+    expect(reading.rows, `${label}: rows read`).toBeGreaterThan(10)
+    expect(Math.abs(reading.redLeft + expected), `${label}: red's left edge`).toBeLessThan(within)
+    expect(Math.abs(reading.redRight + expected), `${label}: red's right edge`).toBeLessThan(within)
+    expect(Math.abs(reading.blueLeft - expected), `${label}: blue's left edge`).toBeLessThan(within)
+    expect(Math.abs(reading.blueRight - expected), `${label}: blue's right edge`).toBeLessThan(within)
+  }
+})
+
+test("a slice on a zoomed, letterboxed overlay moves the outline's rows by the outline's share, in the preview as in a saved frame", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000)
+  // #999's placement: (0.62, 0.35) to (0.97, 0.95), 224×216 px, so the
+  // 224×126 picture is letterboxed with 45 px gutters, the outline at
+  // 171–297 px. A zoom of 2 about the centre fills the rectangle with the
+  // picture. BAND is a share of the outline: rows 0.3–0.6 of its height,
+  // moved right by 0.1 of its width.
+  await openWithOverlayFields(
+    page,
+    { name: 'black.png', png: await makePng(page, { color: '#000' }) },
+    { name: 'bar.png', png: await makeBar(page) },
+    {
+      y: 0.35,
+      height: 0.6,
+      zooms: [{ id: 'z', start: 0, rampIn: 0, hold: 5, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+      pictureEffects: [{ id: 's', type: 'test-overlay-slices', start: 0, end: 2, params: {} }],
+    },
+  )
+  const placed = { x: CARD.x, y: 0.35, width: CARD.width, height: 0.6 }
+  const outline = { y: 171 / 360, height: 126 / 360 }
+  // The bands' rows on the screen, as fractions of the frame's height, and
+  // their shift as a fraction of its width: the export's card is the
+  // outline, unzoomed, so neither depends on the zoom.
+  const expected = {
+    top: outline.y + BAND.top * outline.height,
+    bottom: outline.y + (BAND.top + BAND.height) * outline.height,
+    shift: BAND.shift * CARD.width,
+  }
+  const readings = {
+    saved: await slicedRows(page, await savedFrameAt(page, 1, 'slice, zoomed'), placed, expected.shift),
+    preview: await slicedRows(page, await previewAt(page, 1, /url\(/, 'slice, zoomed'), placed, expected.shift),
+    savedAfter: await slicedRows(page, await savedFrameAt(page, 3, 'slice over'), placed, expected.shift),
+    previewAfter: await slicedRows(page, await previewAt(page, 3, 'none', 'slice over'), placed, expected.shift),
+  }
+  console.log(`[${testInfo.project.name}] overlay slice, zoomed: ${JSON.stringify({ expected, readings })}`)
+  for (const label of ['saved', 'preview'] as const) {
+    const reading = readings[label]
+    // 2 px of the image measured, for the band's rounding and the image's
+    // own pixel grid.
+    const rows = 2 / reading.height
+    expect(reading.rows, `${label}: rows moved`).toBeGreaterThan(5)
+    expect(Math.abs(reading.top - expected.top), `${label}: the band's top`).toBeLessThan(rows)
+    expect(Math.abs(reading.bottom - expected.bottom), `${label}: the band's bottom`).toBeLessThan(rows)
+    expect(Math.abs(reading.shift - expected.shift), `${label}: the band's shift`).toBeLessThan(2 / reading.width)
+  }
+  // After the window, no row moves.
+  expect(readings.savedAfter.rows, 'saved frame, after').toBe(0)
+  expect(readings.previewAfter.rows, 'preview, after').toBe(0)
 })
 
 test('a vignette on a circle-masked overlay darkens inside the circle only', async ({ page }) => {

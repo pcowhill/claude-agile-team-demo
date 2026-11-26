@@ -206,6 +206,32 @@ export function exportSlices(
 }
 
 /**
+ * Bands given as shares of `rect` re-expressed as shares of `box`, which
+ * contains it (#872): an overlay's bands are a share of its outline, the
+ * export's card, while the preview's media element fills the placed
+ * rectangle around it, which `previewSlices` takes as its frame. A band's
+ * rows move down by the outline's offset in the rectangle and shrink by
+ * the two heights' ratio, and its shift by the two widths'. The same
+ * rows and the same shift on the screen, so the preview's bands land where
+ * the export's do. A `box` with no area leaves the bands as they are.
+ */
+export function bandsWithin(
+  bands: readonly SliceBand[],
+  rect: { x: number; y: number; width: number; height: number },
+  box: { x: number; y: number; width: number; height: number },
+): SliceBand[] {
+  if (!(box.width > 0 && box.height > 0)) return [...bands]
+  const rows = rect.height / box.height
+  const offset = (rect.y - box.y) / box.height
+  const columns = rect.width / box.width
+  return bands.map((band) => ({
+    top: offset + band.top * rows,
+    height: band.height * rows,
+    shift: band.shift * columns,
+  }))
+}
+
+/**
  * What the preview's mapping needs about the filtered element. The frame
  * is the card's own box in CSS px. The element sits centred in it, the
  * card's size or, under a quarter turn, its transposed size, and its own

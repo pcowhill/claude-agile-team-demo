@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   SLICES_FILTERS_ID,
   SLICES_FILTER_LIMIT,
+  bandsWithin,
   exportSlices,
   previewSlices,
   roundedSlices,
@@ -111,6 +112,36 @@ describe('exportSlices', () => {
     expect(exportSlices([{ top: 0.2, height: 0.1, shift: -0.05 }], { y: 10, width: 200, height: 100 })).toEqual([
       band(30, 10, -10),
     ])
+  })
+})
+
+describe('bandsWithin', () => {
+  // An overlay's outline (its letterboxed picture) inside its placed
+  // rectangle: 100 px of picture with 50 px gutters above and below.
+  const outline = { x: 10, y: 60, width: 200, height: 100 }
+  const placed = { x: 10, y: 10, width: 200, height: 200 }
+  const bands = [
+    { top: 0.2, height: 0.1, shift: -0.05 },
+    { top: 0.9, height: 0.3, shift: 0.1 },
+  ]
+
+  it('re-expresses an outline band as a share of the rectangle: the same rows and shift on the canvas', () => {
+    expect(bandsWithin(bands, outline, placed)).toEqual([
+      { top: 0.35, height: 0.05, shift: -0.05 },
+      { top: 0.7, height: 0.15, shift: 0.1 },
+    ])
+    expect(exportSlices(bandsWithin(bands, outline, placed), placed)).toEqual(exportSlices(bands, outline))
+  })
+
+  it('scales the shift by the widths when the outline is narrower than the rectangle', () => {
+    const narrow = { x: 60, y: 10, width: 100, height: 200 }
+    expect(bandsWithin([{ top: 0.5, height: 0.25, shift: 0.2 }], narrow, placed)).toEqual([
+      { top: 0.5, height: 0.25, shift: 0.1 },
+    ])
+  })
+
+  it('leaves the bands as they are in a rectangle with no area', () => {
+    expect(bandsWithin(bands, outline, { ...placed, height: 0 })).toEqual(bands)
   })
 })
 
