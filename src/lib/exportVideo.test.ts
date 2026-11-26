@@ -2598,6 +2598,118 @@ describe('frame composition of overlay shape masks (#267)', () => {
       expect(main.ops).toContain('translate(200, 112.5)')
       expect(main.ops).toContain('fill(radial, -20, -20, 40, 40)')
     })
+
+    describe('a pixelate draws its blocks over what of the picture shows (#999)', () => {
+      const blocky = {
+        id: 'test-overlay-blocky',
+        name: 'Test blocky',
+        params: [],
+        look: () => ({ filters: [{ kind: 'pixelate' as const, block: 0.05 }], layers: [] }),
+      }
+      afterEach(() => {
+        pictureEffectRegistry.unregister(blocky.id)
+        vi.restoreAllMocks()
+      })
+      /**
+       * The composer with the pixelate's scratch canvases recorded: each
+       * scratch context logs its size when fetched, its transform and its
+       * draws, and the main context gains the transform and smoothing the
+       * pixelate draw reads from it.
+       */
+      const pixelated = (layer: VideoOverlay) => {
+        pictureEffectRegistry.register(blocky)
+        const scratch: string[] = []
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+          const canvas = this as HTMLCanvasElement & { tag?: string }
+          canvas.tag = `scratch ${canvas.width}x${canvas.height}`
+          const fake = fakeComposerContext()
+          fake.ops.length = 0
+          Object.assign(fake.context, {
+            canvas,
+            setTransform: (...args: number[]) => scratch.push(`${canvas.tag}: setTransform(${args.join(', ')})`),
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'low',
+          })
+          // Every op the scratch context records goes to the shared log,
+          // prefixed with the scratch it was drawn on.
+          const push = fake.ops.push.bind(fake.ops)
+          fake.ops.push = (...items: string[]) => {
+            scratch.push(...items.map((item) => `${canvas.tag}: ${item}`))
+            return push(...items)
+          }
+          return fake.context as unknown as RenderingContext
+        } as unknown as HTMLCanvasElement['getContext'])
+        const result = recorded(layer)
+        Object.assign(result.main.context, {
+          getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+          setTransform: () => {},
+          imageSmoothingEnabled: true,
+          imageSmoothingQuality: 'low',
+        })
+        return { ...result, scratch }
+      }
+
+      it('unzoomed: the blocks cover the outline, in a grid of its size', () => {
+        const { composer, main, scratch } = pixelated(overlayFor({ pictureEffects: [effect(blocky.id)] }))
+        composer.drawFrame(baseLayer, 0, 0)
+        // Clipped to the outline (160, 90, 80, 45), the 20×11 grid is drawn
+        // back over the outline: 0.05 of its 80 px is a 4 px block.
+        expect(main.ops.slice(2)).toEqual([
+          'save',
+          'rect(160, 90, 80, 45)',
+          'clip',
+          'save',
+          'draw(scratch 20x11, [160, 90, 80, 45], none)',
+          'restore',
+          'restore',
+        ])
+        // The picture went into an outline-sized scratch, its corner the
+        // scratch's origin, and that was downscaled into the grid.
+        expect(scratch).toEqual([
+          'scratch 80x45: setTransform(1, 0, 0, 1, 0, 0)',
+          'scratch 80x45: clear(0, 0, 80, 45)',
+          'scratch 20x11: setTransform(1, 0, 0, 1, 0, 0)',
+          'scratch 20x11: clear(0, 0, 20, 11)',
+          'scratch 80x45: setTransform(1, 0, 0, 1, -160, -90)',
+          'scratch 80x45: draw(over-element, [160, 90, 80, 45], none)',
+          'scratch 20x11: draw(scratch 80x45, [0, 0, 80, 45, 0, 0, 20, 11], none)',
+        ])
+      })
+
+      it('zoomed and letterboxed: the blocks cover the zoomed picture in the rectangle, at the same size', () => {
+        // Placed (160, 90, 80, 90): the 80×45 picture is letterboxed at
+        // y 112.5. Zoomed 2× about the centre it is 160×90 at (120, 90),
+        // which fills the whole rectangle, gutters included.
+        const zoomed = overlayFor({
+          height: 0.5,
+          zooms: [{ id: 'z', start: 0, rampIn: 0, hold: 10, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+          pictureEffects: [effect(blocky.id)],
+        })
+        const { composer, main, scratch } = pixelated(zoomed)
+        composer.drawFrame(baseLayer, 0, 0)
+        // The blocks go back over the visible picture (160, 90, 80, 90), not
+        // the 80×45 outline, so the gutters keep the zoomed picture. The
+        // grid is 20×23: still 4 px blocks, 0.05 of the outline's width.
+        expect(main.ops.slice(2)).toEqual([
+          'save',
+          'rect(160, 90, 80, 90)',
+          'clip',
+          'save',
+          'draw(scratch 20x23, [160, 90, 80, 90], none)',
+          'restore',
+          'restore',
+        ])
+        expect(scratch).toEqual([
+          'scratch 80x90: setTransform(1, 0, 0, 1, 0, 0)',
+          'scratch 80x90: clear(0, 0, 80, 90)',
+          'scratch 20x23: setTransform(1, 0, 0, 1, 0, 0)',
+          'scratch 20x23: clear(0, 0, 20, 23)',
+          'scratch 80x90: setTransform(1, 0, 0, 1, -160, -90)',
+          'scratch 80x90: draw(over-element, [120, 90, 160, 90], none)',
+          'scratch 20x23: draw(scratch 80x90, [0, 0, 80, 90, 0, 0, 20, 23], none)',
+        ])
+      })
+    })
   })
 })
 

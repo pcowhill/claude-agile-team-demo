@@ -686,22 +686,43 @@ export function withLayerColorFilter(
  * every block is one colour, and pixelate applies after the look's other
  * filters. What the caller draws after `draw` (redactions, spotlights,
  * layers) stays sharp, as it does under a blur.
+ *
+ * `pixelateArea` is where the blocks go, the card unless the caller says
+ * otherwise. A zoomed overlay (#999) passes the part of its zoomed picture
+ * that shows, which reaches past its outline into the letterbox gutters.
+ * The blocks keep the card's size there, and the other filters still size
+ * from the card.
  */
 export function withPictureFilters(
   context: CanvasRenderingContext2D,
   filters: readonly PictureFilter[],
   card: { x: number; y: number; width: number; height: number },
   draw: (target: CanvasRenderingContext2D) => void,
+  pixelateArea: { x: number; y: number; width: number; height: number } = card,
 ): void {
   if (filters.length === 0) {
     draw(context)
     return
   }
   const block = pixelateBlock(filters)
-  const grid = block === undefined ? null : pixelateGrid(block, card.width, card.height)
+  // A pixelate area other than the card (a zoomed overlay's visible
+  // picture, #999) keeps the card's block size: the block is a share of
+  // the card's width, so it is rescaled to a share of the area's.
+  const areaBlock =
+    block === undefined || pixelateArea === card || !(pixelateArea.width > 0)
+      ? block
+      : (block * card.width) / pixelateArea.width
+  const grid = areaBlock === undefined ? null : pixelateGrid(areaBlock, pixelateArea.width, pixelateArea.height)
   if (grid !== null && typeof document !== 'undefined') {
-    // Into a pixelate scratch, the card's top-left is the scratch's origin.
-    drawPixelated(context, card, grid, withFilterFunctions(context.filter, filters, { ...card, y: 0 }), draw)
+    // Into a pixelate scratch, the area's top-left is the scratch's origin,
+    // so slices' bands are taken from the card's top less the area's.
+    drawPixelated(
+      context,
+      pixelateArea,
+      grid,
+      withFilterFunctions(context.filter, filters, { ...card, y: card.y - pixelateArea.y }),
+      draw,
+    )
     return
   }
   const previous = context.filter
@@ -2033,6 +2054,14 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // frame around it. An effect-free overlay gets `NO_PICTURE_LOOK`
         // and draws exactly as before.
         const look = overlayPictureLookAt(layer, sequenceTime, layerTime)
+        // Where a pixelate (#999) draws its blocks: what of the picture
+        // shows. Unzoomed, that is the outline itself. Zoomed, the picture
+        // is magnified inside the placed rectangle and fills the letterbox
+        // gutters too, so the blocks cover the zoomed picture inside the
+        // rectangle, the same area the filter clip below shows. Their size
+        // stays a share of the outline's width, so a zoom does not magnify
+        // them, as an entry's stay the frame's size inside its zoom.
+        const pixelateArea = layerZoom.scale === 1 ? outline : intersectRects(dest, placed)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
         const paintPicture = (target: CanvasRenderingContext2D) => {
@@ -2041,16 +2070,22 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
               // The look's filters (#872) on the source draw alone, as on a
               // sequence entry: the redactions and spotlights drawn after
               // it stay sharp under a blur.
-              withPictureFilters(target, look.filters, outline, (filtered) => {
-                drawLayerSource(
-                  filtered,
-                  picture.source,
-                  layer.crop,
-                  picture.width,
-                  picture.height,
-                  drawRect,
-                )
-              })
+              withPictureFilters(
+                target,
+                look.filters,
+                outline,
+                (filtered) => {
+                  drawLayerSource(
+                    filtered,
+                    picture.source,
+                    layer.crop,
+                    picture.width,
+                    picture.height,
+                    drawRect,
+                  )
+                },
+                pixelateArea,
+              )
               // The overlay's own source clock — the same one that decided
               // it is on screen at all (`videoOverlayPlaybackAt`), so a
               // window is read identically here and in the preview.
