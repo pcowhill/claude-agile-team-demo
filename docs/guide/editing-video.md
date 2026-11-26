@@ -258,7 +258,17 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 **Details.** The row has the stretch, *from* and *to* in seconds into the entry, and one setting, *amount*, 0 to 100 %, how far the colours move. At 100 % the red moves about 19 pixels of a 1080p frame to the left and the blue as far to the right; a new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 30 %, about 6 pixels. The green stays where it is, and a flat area keeps its colour: the fringes show only where the picture changes. The split is the same across the whole frame, sideways on the screen whichever way the clip is turned by its [orientation](#orientation), and it keeps its share of the frame at any size of the picture, so the preview and the exported file show the same fringes. A browser whose canvas cannot apply filters refuses to export a timeline with Chromatic aberration, as it does for a Blur, rather than writing a file without it. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, eases in and out, is named *Chromatic aberration 1*, *Chromatic aberration 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
 
-**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [VHS](#vhs)
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [VHS](#vhs) · [Glitch](#glitch)
+
+## Glitch
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Glitch**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Makes a stretch of the entry look like a broken digital signal: now and then, for an eighth of a second, the picture's red and blue jump apart, so every edge flashes a reddish fringe on one side and a bluish one on the other, then snap back.
+
+**Details.** The row has the stretch, *from* and *to* in seconds into the entry, and two settings, both 0 to 100 %. *Intensity* is how far the colours jump: at 100 % the largest jumps move the red about 38 pixels of a 1080p frame to the left and the blue as far to the right. *Frequency* is the chance that each eighth of a second glitches: at 30 % about 3 in 10 do, at 100 % every one, at 0 % none. Each glitch has a size of its own, from 40 % of the Intensity to all of it, so one is a twitch and the next a lurch. Which moments glitch, and how far, are fixed for each moment of the entry rather than random, so the preview and the exported file glitch at the same instants by the same amount, and raising the Frequency keeps every glitch the lower one had and adds more. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at Intensity 50 % and Frequency 30 %. As for [Chromatic aberration](#chromatic-aberration), the split is the same across the whole frame and runs sideways on the screen whichever way the clip is turned, and a browser whose canvas cannot apply filters refuses to export a timeline with Glitch rather than writing a file without it. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, eases in and out, is named *Glitch 1*, *Glitch 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Chromatic aberration](#chromatic-aberration)
 
 ## Colour adjustments
 

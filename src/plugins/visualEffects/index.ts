@@ -61,6 +61,31 @@ export const VHS = { blur: 0.0015, scanlines: 0.4, tracking: 0.5, offset: 0.002 
 export const CHROMATIC_ABERRATION = { offset: 0.01 }
 
 /**
+ * Glitch (#871, step 2a). The entry's clock is cut into bursts of
+ * `steps` texture steps, an eighth of a second each, and a burst either
+ * glitches or holds still: Frequency is the chance that one glitches,
+ * decided per burst by a hash, so the moments look irregular but are the
+ * same on every render. Through a glitching burst, red moves left and
+ * blue right by `offset` of the frame width at Intensity 100, about 38 px
+ * of a 1080p frame, times a size of its own between `least` and 1, so one
+ * burst is a twitch and the next a lurch.
+ */
+export const GLITCH = { steps: 3, offset: 0.02, least: 0.4 }
+
+/**
+ * How large Glitch's burst at `time` is, for a Frequency of `chance`
+ * (0 to 1): 0 for a burst that holds still, else between `GLITCH.least`
+ * and 1. A pure function of the entry's time, from the hash the textures
+ * use, at cells no texture reaches (x = −500), so the bursts are
+ * independent of every grain, scratch and band.
+ */
+export function glitchBurst(time: number, chance: number): number {
+  const burst = Math.floor(textureStep(time) / GLITCH.steps)
+  if (textureHash(burst, -500, -1) >= chance) return 0
+  return GLITCH.least + (1 - GLITCH.least) * textureHash(burst, -500, -2)
+}
+
+/**
  * Old film's brightness at `time` for a flicker of `depth` (#870): a
  * multiplier in [1 − depth, 1 + depth], one value per texture step, from
  * the same hash the grain uses at a cell no grain tile reaches (x = −1),
@@ -184,6 +209,31 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
     params: [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' }],
     look: (params, weight) => ({
       filters: [{ kind: 'channel-offset', offset: CHROMATIC_ABERRATION.offset * (params.amount / 100) * weight }],
+      layers: [],
+    }),
+  },
+  // Short bursts of a broken signal (#871, step 2a): at irregular moments,
+  // an eighth of a second at a time, the picture's red and blue jump
+  // apart, by a different amount each burst. Intensity is how far, in
+  // percent; Frequency is the chance, in percent, that a burst glitches.
+  // The moments come from the entry's time (`glitchBurst`), so the preview
+  // and the export glitch at the same instants. The channel split is
+  // #977's filter, as Chromatic aberration's is; the slice displacement
+  // #871 also names is a later step.
+  glitch: {
+    id: 'glitch',
+    name: 'Glitch',
+    params: [
+      { key: 'intensity', label: 'Intensity', min: 0, max: 100, default: 50, unit: '%' },
+      { key: 'frequency', label: 'Frequency', min: 0, max: 100, default: 30, unit: '%' },
+    ],
+    look: (params, weight, time = 0) => ({
+      filters: [
+        {
+          kind: 'channel-offset',
+          offset: GLITCH.offset * (params.intensity / 100) * weight * glitchBurst(time, params.frequency / 100),
+        },
+      ],
       layers: [],
     }),
   },

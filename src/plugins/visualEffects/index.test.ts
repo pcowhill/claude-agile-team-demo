@@ -4,11 +4,13 @@ import { builtInPlugins } from '../catalog'
 import { VISUAL_EFFECT_IDS, isVisualEffect } from '../visualEffectsIds'
 import {
   CHROMATIC_ABERRATION,
+  GLITCH,
   GRAIN_REFERENCE_WIDTH,
   OLD_FILM,
   VHS,
   VIGNETTE_INNER,
   activate,
+  glitchBurst,
   oldFilmBrightness,
   visualEffectDefinitions,
 } from './index'
@@ -26,7 +28,7 @@ describe('Visual effects plugin (#862)', () => {
     deactivate = null
   })
 
-  it('registers Vignette, Blur, Film grain, Old film, VHS and Chromatic aberration in the ids module\'s order, and unregisters them', () => {
+  it('registers Vignette, Blur, Film grain, Old film, VHS, Chromatic aberration and Glitch in the ids module\'s order, and unregisters them', () => {
     expect(VISUAL_EFFECT_IDS.some((id) => pictureEffectRegistry.has(id))).toBe(false)
     deactivate = activate()
     expect(pictureEffectRegistry.list().map(({ id, name }) => [id, name])).toEqual([
@@ -36,6 +38,7 @@ describe('Visual effects plugin (#862)', () => {
       ['old-film', 'Old film'],
       ['vhs', 'VHS'],
       ['chromatic-aberration', 'Chromatic aberration'],
+      ['glitch', 'Glitch'],
     ])
     deactivate()
     deactivate = null
@@ -53,6 +56,10 @@ describe('Visual effects plugin (#862)', () => {
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' }],
+      [
+        { key: 'intensity', label: 'Intensity', min: 0, max: 100, default: 50, unit: '%' },
+        { key: 'frequency', label: 'Frequency', min: 0, max: 100, default: 30, unit: '%' },
+      ],
     ])
   })
 
@@ -82,6 +89,7 @@ describe('Visual effects plugin (#862)', () => {
       { amount: 70 },
       { amount: 70 },
       { amount: 30 },
+      { intensity: 50, frequency: 30 },
     ])
   })
 
@@ -222,6 +230,61 @@ describe('Visual effects plugin (#862)', () => {
     expect(aberration.look({ amount: 30 }, 1, 0)).toEqual(aberration.look({ amount: 30 }, 1, 7.3))
   })
 
+  it('Glitch splits red and blue in the bursts its Frequency picks, by Intensity and the burst\'s own size, scaled by the weight (#871)', () => {
+    const glitch = visualEffectDefinitions[6]
+    const offsetAt = (params: { intensity: number; frequency: number }, weight: number, time: number) => {
+      const { filters, layers } = glitch.look(params, weight, time)
+      expect(layers).toEqual([])
+      expect(filters).toHaveLength(1)
+      const [filter] = filters
+      if (filter.kind !== 'channel-offset') throw new Error(`expected a channel offset, got ${filter.kind}`)
+      return filter.offset
+    }
+    const burstLength = GLITCH.steps / PICTURE_TEXTURE_RATE
+    const bursts = Array.from({ length: 400 }, (_, burst) => (burst + 0.5) * burstLength)
+    const sizes = (chance: number) => bursts.map((time) => glitchBurst(time, chance))
+
+    // Same input, same output: the bursts are a pure function of the time.
+    expect(sizes(0.3)).toEqual(sizes(0.3))
+    // Frequency is the share of bursts that glitch: none at 0, every one at 1,
+    // and about that share in between, each burst holding its size.
+    expect(sizes(0).every((size) => size === 0)).toBe(true)
+    expect(sizes(1).every((size) => size >= GLITCH.least && size <= 1)).toBe(true)
+    for (const chance of [0.1, 0.3, 0.6]) {
+      const share = sizes(chance).filter((size) => size > 0).length / bursts.length
+      expect(Math.abs(share - chance), `share at ${chance}`).toBeLessThan(0.07)
+    }
+    // A burst that glitches at one Frequency glitches at every higher one, the same size.
+    sizes(0.3).forEach((size, burst) => {
+      if (size > 0) expect(sizes(0.6)[burst]).toBe(size)
+    })
+    // The sizes vary from burst to burst: not one jump repeated.
+    expect(new Set(sizes(1).map((size) => size.toFixed(3))).size).toBeGreaterThan(100)
+    // A burst holds still through its steps and changes at the next burst.
+    const firstStep = 0.1 / PICTURE_TEXTURE_RATE
+    for (let burst = 0; burst < 40; burst++) {
+      const start = burst * burstLength + firstStep
+      for (let step = 1; step < GLITCH.steps; step++) {
+        expect(glitchBurst(start + step / PICTURE_TEXTURE_RATE, 1)).toBe(glitchBurst(start, 1))
+      }
+    }
+    expect(new Set(bursts.slice(0, 40).map((time) => glitchBurst(time, 1))).size).toBeGreaterThan(30)
+
+    // The look: Intensity percent of the full split, times the burst's size and the weight.
+    const glitching = bursts.find((time) => glitchBurst(time, 0.3) > 0.9)!
+    const quiet = bursts.find((time) => glitchBurst(time, 0.3) === 0)!
+    const size = glitchBurst(glitching, 0.3)
+    expect(offsetAt({ intensity: 100, frequency: 30 }, 1, glitching)).toBeCloseTo(GLITCH.offset * size, 12)
+    expect(offsetAt({ intensity: 50, frequency: 30 }, 0.5, glitching)).toBeCloseTo((GLITCH.offset * size) / 4, 12)
+    // Nothing at Intensity 0, at weight 0, at Frequency 0, or in a quiet burst.
+    expect(offsetAt({ intensity: 0, frequency: 30 }, 1, glitching)).toBe(0)
+    expect(offsetAt({ intensity: 100, frequency: 30 }, 0, glitching)).toBe(0)
+    expect(offsetAt({ intensity: 100, frequency: 0 }, 1, glitching)).toBe(0)
+    expect(offsetAt({ intensity: 100, frequency: 30 }, 1, quiet)).toBe(0)
+    // Intensity 100 at full weight in the largest burst is the whole split, about 38 px of a 1080p frame.
+    expect(GLITCH.offset * 1920).toBeCloseTo(38.4)
+  })
+
   it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'visual-effects')
     const count = plugin?.projectUses?.count
@@ -241,6 +304,7 @@ describe('Visual effects plugin (#862)', () => {
     expect(count(library, asTimeline(timelineWith('old-film')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('vhs')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('chromatic-aberration')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('glitch')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('vignette', 'from-elsewhere', 'blur')))).toEqual({
       count: 2,
       what: '2 picture effects',

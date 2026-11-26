@@ -288,14 +288,17 @@ async function populatedWithEffects(page: Page) {
   await chooseEffect(page, ENTRY, 'Zoom')
   await chooseEffect(page, ENTRY, 'Vignette')
   await chooseEffect(page, ENTRY, 'Blur')
-  // Film grain's row (#870) has two parameter fields, the widest row.
+  // Film grain's row (#870) has two parameter fields.
   await chooseEffect(page, ENTRY, 'Film grain')
   // VHS's row (#870) has one field, as Old film's does; its name is the
   // one initialism among the rows' labels.
   await chooseEffect(page, ENTRY, 'VHS')
   // Chromatic aberration's row (#871) carries the longest effect name.
   await chooseEffect(page, ENTRY, 'Chromatic aberration')
-  await expect(page.getByTestId('picture-effect-row')).toHaveCount(5)
+  // Glitch's row (#871) has two parameter fields with the longest labels,
+  // intensity and frequency: now the widest row.
+  await chooseEffect(page, ENTRY, 'Glitch')
+  await expect(page.getByTestId('picture-effect-row')).toHaveCount(6)
 }
 
 test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
@@ -313,7 +316,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     expect(await effectItems(page, 'Color slate at position 2')).toEqual(['Zoom'])
 
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch'])
 
     // Choosing one adds its row with the defaults, and the preview draws it
     // inside the window: a vignette from 0 s to 2 s at Strength 60 %.
@@ -347,6 +350,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
       'Old film',
       'VHS',
       'Chromatic aberration',
+      'Glitch',
     ])
   })
 
@@ -616,7 +620,7 @@ test.describe('Film grain (#870)', () => {
       .setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: await makePattern(page) }])
     await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
     await setVisualEffects(page, true)
-    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration'])
+    expect(await effectItems(page, ENTRY)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch'])
     await chooseEffect(page, ENTRY, 'Film grain')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 amount of ${ENTRY} (percent)` })).toHaveValue('30')
     await expect(page.getByRole('spinbutton', { name: `Film grain 1 size of ${ENTRY}` })).toHaveValue('3')
@@ -1034,7 +1038,7 @@ test.describe('Old film (#870)', () => {
     await page.getByRole('button', { name: `Add ${OLD_FILM_STILL} to timeline` }).click()
     await setVisualEffects(page, true)
     const entry = `${OLD_FILM_STILL} at position 1`
-    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration'])
+    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch'])
     await chooseEffect(page, entry, 'Old film')
     await expect(page.getByRole('spinbutton', { name: `Old film 1 amount of ${entry} (percent)` })).toHaveValue('70')
     await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
@@ -1767,7 +1771,7 @@ test.describe('VHS (#870)', () => {
     await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
     await setVisualEffects(page, true)
     const entry = `${STILL} at position 1`
-    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration'])
+    expect(await effectItems(page, entry)).toEqual(['Zoom', 'Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch'])
     await chooseEffect(page, entry, 'VHS')
     await expect(page.getByRole('spinbutton', { name: `VHS 1 amount of ${entry} (percent)` })).toHaveValue('70')
     await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')

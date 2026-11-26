@@ -215,6 +215,14 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Freeze frame — split & hold** — Frame ▾. [Editing video › Freeze frame](editing-video.md#freeze-frame)
 - **Full screen** — the preview's View ▾, below the layouts; the composed picture alone, filling the screen. [Preview and playback › Full screen](preview-and-playback.md#full-screen)
 
+## G
+
+- **Glitch** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; the picture's red and blue jumping apart in short bursts at irregular moments, for a stretch of the entry. [Editing video › Glitch](editing-video.md#glitch) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **Glitch end** — Glitch on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › Glitch](editing-video.md#glitch)
+- **Glitch frequency** — Glitch on an expanded sequence entry; 0 to 100 %, the chance that each eighth of a second glitches. [Editing video › Glitch](editing-video.md#glitch)
+- **Glitch intensity** — Glitch on an expanded sequence entry; 0 to 100 %, how far the red and blue jump apart. [Editing video › Glitch](editing-video.md#glitch)
+- **Glitch start** — Glitch on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › Glitch](editing-video.md#glitch)
+
 ## H
 
 - **Head size** — an arrow in an expanded shape group row, while it has a head; Small, Medium or Large. Also the shape editor's style bar, for the selected shapes. [Shapes and annotations › Arrows and lines](shapes-and-annotations.md#arrows-and-lines) · [Shapes and annotations › Styling and ordering shapes in the editor](shapes-and-annotations.md#styling-and-ordering-shapes-in-the-editor)
@@ -334,6 +342,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove blur** — a blur on an expanded sequence entry; takes it away. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Remove chromatic aberration** — Chromatic aberration on an expanded sequence entry; takes it away. [Editing video › Chromatic aberration](editing-video.md#chromatic-aberration)
 - **Remove film grain** — film grain on an expanded sequence entry; takes it away. [Editing video › Film grain](editing-video.md#film-grain)
+- **Remove glitch** — Glitch on an expanded sequence entry; takes it away. [Editing video › Glitch](editing-video.md#glitch)
 - **Remove move** — a Move on an expanded overlay; takes it away. [Editing video › Overlay move](editing-video.md#overlay-move)
 - **Remove old film** — old film on an expanded sequence entry; takes it away. [Editing video › Old film](editing-video.md#old-film)
 - **Remove pause** — a pause on an expanded video entry or video overlay; takes it away. [Editing video › Speed segments and pauses](editing-video.md#speed-segments-and-pauses)
