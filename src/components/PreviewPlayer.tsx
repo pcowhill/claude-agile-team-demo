@@ -101,6 +101,7 @@ import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
 import { channelOffsetFilterUrl, previewChannelShift } from '../lib/channelOffsetFilter'
+import { previewSlices, slicesFilterUrl } from '../lib/slicesFilter'
 import { NO_PICTURE_LOOK, pictureEffectRegistry, textureTile, textureTileKey, vignetteStops } from '../lib/pictureEffect'
 import type { PictureLook, TextureLayer } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
@@ -429,8 +430,13 @@ function withColorFilter(
  */
 interface PreviewFilterMedia {
   framePx: number
+  /** The frame's height in CSS px, for slices' bands (#871). */
+  frameHeightPx: number
   orientation?: Orientation
   cropScale?: number
+  /** The crop's translate, in % of the element's box, for slices' bands (#871). */
+  cropTranslateX?: number
+  cropTranslateY?: number
 }
 
 /**
@@ -455,13 +461,38 @@ function withPictureFilters(
   // px on the screen, and `previewChannelShift` turns that back through
   // the element's own transform. Until the frame is measured it draws
   // none. Making the filter is idempotent, so a render may do it.
-  const functions = pictureFilterFunctions(look.filters, 100, 'cqw', zoom.scale, (offset) =>
-    media.framePx > 0 && typeof document !== 'undefined'
-      ? channelOffsetFilterUrl(
-          document,
-          previewChannelShift((offset * media.framePx) / zoom.scale, media.orientation, media.cropScale),
-        )
-      : null,
+  //
+  // Slices (#871) are the same, their bands taken back from the frame
+  // through the card's zoom and the element's own transform into its px.
+  const functions = pictureFilterFunctions(
+    look.filters,
+    100,
+    'cqw',
+    zoom.scale,
+    (offset) =>
+      media.framePx > 0 && typeof document !== 'undefined'
+        ? channelOffsetFilterUrl(
+            document,
+            previewChannelShift((offset * media.framePx) / zoom.scale, media.orientation, media.cropScale),
+          )
+        : null,
+    (bands) =>
+      media.framePx > 0 && typeof document !== 'undefined'
+        ? slicesFilterUrl(
+            document,
+            previewSlices(bands, {
+              frameWidth: media.framePx,
+              frameHeight: media.frameHeightPx,
+              zoom,
+              orientation: media.orientation,
+              crop: {
+                scale: media.cropScale ?? 1,
+                translateX: media.cropTranslateX ?? 0,
+                translateY: media.cropTranslateY ?? 0,
+              },
+            }),
+          )
+        : null,
   ).join(' ')
   if (functions === '') return style
   const previous = style?.filter
@@ -2962,12 +2993,18 @@ export function PreviewPlayer({
   }
   // What a channel offset (#870) on this entry's media element needs: the
   // frame's width, and the element's orientation and crop scale.
-  const filterMedia = (entry: TimelineEntry | undefined): PreviewFilterMedia => ({
-    framePx,
-    orientation: entry?.orientation,
-    cropScale:
-      cropPlacementFor(entry?.crop, entry?.orientation, previewAspect, sourceAspectOf(entry?.url))?.scale ?? 1,
-  })
+  // Slices (#871) need the frame's height and the crop's translate too.
+  const filterMedia = (entry: TimelineEntry | undefined): PreviewFilterMedia => {
+    const placement = cropPlacementFor(entry?.crop, entry?.orientation, previewAspect, sourceAspectOf(entry?.url))
+    return {
+      framePx,
+      frameHeightPx: previewAspect > 0 ? framePx / previewAspect : 0,
+      orientation: entry?.orientation,
+      cropScale: placement?.scale ?? 1,
+      cropTranslateX: placement?.translateX ?? 0,
+      cropTranslateY: placement?.translateY ?? 0,
+    }
+  }
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only

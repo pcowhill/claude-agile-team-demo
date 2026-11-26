@@ -58,6 +58,7 @@ import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import { channelOffsetFilterUrl } from './channelOffsetFilter'
+import { exportSlices, slicesFilterUrl } from './slicesFilter'
 import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
 import { textureTile, textureTileKey, vignetteStops } from './pictureEffect'
 import type { PictureFilter, PictureLayer, TextureLayer } from './pictureEffect'
@@ -655,28 +656,35 @@ export function withLayerColorFilter(
  * `filter` the context carries (the entry's colour adjustments, set by
  * `withLayerColorFilter`), and puts that filter back afterwards. The same
  * functions, in the same order, as the preview's CSS `filter` on the media
- * element. A blur's radius is `radius * frameWidth` px; `scale` is the
- * transition's scale of the card (cross-zoom, #181), which the preview's
- * card transform applies to its blur too, and a channel offset's shift
- * (#870) is `offset * frameWidth * scale` px the same way. No filters, or
- * only a shift that rounds to nothing, draws with the context untouched.
+ * element. `card` is the frame-shaped card after the transition's scale
+ * and offset (cross-zoom and push, #181), where the preview's card lies
+ * once its transform applies to its filter too: a blur's radius is
+ * `radius * card.width` px, a channel offset's shift (#870) `offset *
+ * card.width` px, and slices' bands (#871) shares of the card's height
+ * and width. No filters, or only shifts that round to nothing, draws
+ * with the context untouched.
  */
 export function withPictureFilters(
   context: CanvasRenderingContext2D,
   filters: readonly PictureFilter[],
-  frameWidth: number,
-  scale: number,
+  card: { y: number; width: number; height: number },
   draw: () => void,
 ): void {
   if (filters.length === 0) {
     draw()
     return
   }
-  // A channel offset (#870) is an SVG filter in the page, its shift in
-  // canvas px, horizontal on the frame however the source was turned: the
-  // canvas filters what was drawn, after the draw's own transform.
-  const functions = pictureFilterFunctions(filters, frameWidth * scale, 'px', 1, (offset) =>
-    typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * frameWidth * scale, dy: 0 }),
+  // A channel offset (#870) and slices (#871) are SVG filters in the page,
+  // in canvas px, horizontal on the frame however the source was turned:
+  // the canvas filters what was drawn, after the draw's own transform.
+  const functions = pictureFilterFunctions(
+    filters,
+    card.width,
+    'px',
+    1,
+    (offset) =>
+      typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * card.width, dy: 0 }),
+    (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, card))),
   ).join(' ')
   if (functions === '') {
     draw()
@@ -1449,6 +1457,15 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
     // the same outermost scale the preview's transform applies. Scale 1 (all
     // other types) leaves the rect untouched.
     const dest = scaleRectAboutCenter(zoomed, spec?.outgoingScale ?? 1, width, height)
+    // The outgoing card (#862): the frame after the transition's scale and
+    // offset, where the preview's card lies once its transform applies. Its
+    // picture effect's filters size from it, and its layers draw over it.
+    const scaledCard = scaleRectAboutCenter({ x: 0, y: 0, width, height }, spec?.outgoingScale ?? 1, width, height)
+    const outgoingCard = {
+      ...scaledCard,
+      x: scaledCard.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
+      y: scaledCard.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
+    }
     context.globalAlpha = spec?.outgoingAlpha ?? 1
     // The entry's background fill (#260) draws under its fitted media,
     // outside the color filter below — the preview's base-layer filter
@@ -1481,7 +1498,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           height: dest.height,
         },
         (drawRect) => {
-          withPictureFilters(context, outgoingLook.filters, width, spec?.outgoingScale ?? 1, () => {
+          withPictureFilters(context, outgoingLook.filters, outgoingCard, () => {
             drawLayerSource(
               context,
               layer.source,
@@ -1538,22 +1555,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
       // preview's darkened card at the same opacity; a lightening (grain's
       // white cells, #870) must be dimmed by the opacity too, which
       // `drawPictureLayers` does when told it.
-      const outgoingCard = scaleRectAboutCenter(
-        { x: 0, y: 0, width, height },
-        spec?.outgoingScale ?? 1,
-        width,
-        height,
-      )
-      drawPictureLayers(
-        context,
-        outgoingLook.layers,
-        {
-          ...outgoingCard,
-          x: outgoingCard.x + (spec?.outgoingOffsetXFraction ?? 0) * width,
-          y: outgoingCard.y + (spec?.outgoingOffsetYFraction ?? 0) * height,
-        },
-        spec?.outgoingAlpha ?? 1,
-      )
+      drawPictureLayers(context, outgoingLook.layers, outgoingCard, spec?.outgoingAlpha ?? 1)
     }
     if (overlay !== null && spec !== null) {
       // The incoming entry's orientation (#233) and crop (#256), exactly as
@@ -1585,6 +1587,13 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         width,
         height,
       )
+      // The card once its offset applies too (#862): where its picture
+      // effect's filters size from and its layers draw.
+      const incomingCard = {
+        ...card,
+        x: card.x + spec.incomingOffsetXFraction * width,
+        y: card.y + spec.incomingOffsetYFraction * height,
+      }
       context.globalAlpha = spec.incomingAlpha
       // `lighter` sums the two layers, making the crossfade a true dissolve
       // over the black stage (see transitionLayerSpec).
@@ -1739,7 +1748,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             height: incomingDest.height,
           },
           (drawRect) => {
-            withPictureFilters(context, incomingLook.filters, width, incomingScale, () => {
+            withPictureFilters(context, incomingLook.filters, incomingCard, () => {
               drawLayerSource(
                 context,
                 overlay.layer.source,
@@ -1776,11 +1785,7 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         )
       })
       if (incomingLook.layers.length > 0) {
-        drawPictureLayers(context, incomingLook.layers, {
-          ...card,
-          x: card.x + spec.incomingOffsetXFraction * width,
-          y: card.y + spec.incomingOffsetYFraction * height,
-        })
+        drawPictureLayers(context, incomingLook.layers, incomingCard)
       }
       if (under !== null) {
         // The composed card, set aside in turn; then what was under it put

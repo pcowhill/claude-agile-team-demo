@@ -1,5 +1,12 @@
 import { NO_PICTURE_LOOK, pictureEffectParamsFor, pictureEffectRegistry } from './pictureEffect'
-import type { PictureEffect, PictureEffectRegistry, PictureFilter, PictureLayer, PictureLook } from './pictureEffect'
+import type {
+  PictureEffect,
+  PictureEffectRegistry,
+  PictureFilter,
+  PictureLayer,
+  PictureLook,
+  SliceBand,
+} from './pictureEffect'
 import { effectiveDuration, pictureEffectsForEntry, pictureEffectsOf } from './timeline'
 import type { TimelineState } from './timeline'
 
@@ -122,6 +129,11 @@ export function timelineHasPictureFilters(
  * making the filter it names (`channelOffsetFilterUrl`), or null to draw
  * none; each renderer knows its own pixels and transform. Without it, a
  * channel offset adds nothing.
+ *
+ * Slices (#871) are the same: an SVG filter whose bands are in the
+ * filtered element's own pixels, so `slices` turns the bands into that
+ * reference (`slicesFilterUrl`), or null to draw none. Without it, or with
+ * no bands, slices add nothing.
  */
 export function pictureFilterFunctions(
   filters: readonly PictureFilter[],
@@ -129,6 +141,7 @@ export function pictureFilterFunctions(
   unit: 'px' | 'cqw',
   scale = 1,
   channelOffset?: (offset: number) => string | null,
+  slices?: (bands: readonly SliceBand[]) => string | null,
 ): string[] {
   const number = (value: number) => Number(value.toFixed(4))
   return filters.flatMap((filter) => {
@@ -141,6 +154,10 @@ export function pictureFilterFunctions(
         return [`brightness(${number(Math.max(filter.amount, 0))})`]
       case 'channel-offset': {
         const reference = filter.offset > 0 ? (channelOffset?.(filter.offset) ?? null) : null
+        return reference === null ? [] : [reference]
+      }
+      case 'slices': {
+        const reference = filter.bands.length > 0 ? (slices?.(filter.bands) ?? null) : null
         return reference === null ? [] : [reference]
       }
     }

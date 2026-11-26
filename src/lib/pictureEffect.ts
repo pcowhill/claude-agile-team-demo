@@ -134,6 +134,14 @@ export interface PictureEffectParam {
  *   in a canvas, in Chromium and in Firefox. The shift is horizontal on
  *   the screen, whatever the clip's orientation.
  *
+ * - `slices` (#871, step 2b(i)): horizontal bands of the picture moved
+ *   sideways, the tear of a glitch. Each `SliceBand` is a share of the
+ *   frame's height and moves by a share of its width. Like a channel
+ *   offset, it is an SVG `<filter>` both renderers reference by
+ *   `url(#id)` (`slicesFilter.ts`), and the bands are horizontal on the
+ *   screen whatever the clip's orientation. At the frame's edge, where
+ *   nothing moved into a band, the picture shows as it was.
+ *
  * Sepia and brightness are pointwise colour matrices, defined alike for
  * CSS and the canvas `filter` (Filter Effects), and have no size, so
  * neither depends on the frame's width or a zoom's scale as a blur does.
@@ -143,6 +151,19 @@ export type PictureFilter =
   | { kind: 'sepia'; amount: number }
   | { kind: 'brightness'; amount: number }
   | { kind: 'channel-offset'; offset: number }
+  | { kind: 'slices'; bands: readonly SliceBand[] }
+
+/**
+ * One band of a `slices` filter (#871): the rows from `top` to
+ * `top + height`, each a fraction of the frame's height from its top edge,
+ * moved right by `shift`, a fraction of the frame's width (negative moves
+ * it left). Bands that cross draw the later one on top.
+ */
+export interface SliceBand {
+  top: number
+  height: number
+  shift: number
+}
 
 /**
  * A layer a look draws over the entry's picture as framed: over the whole

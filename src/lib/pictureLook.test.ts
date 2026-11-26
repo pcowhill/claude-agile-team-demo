@@ -258,6 +258,31 @@ describe('pictureFilterFunctions', () => {
     expect(pictureFilterFunctions([{ kind: 'channel-offset', offset: 0 }], 1920, 'px', 1, reference)).toEqual([])
     expect(asked).toEqual([0.003])
   })
+
+  it('hands slices to the renderer as the bands themselves, in their place, and drops them when it draws none (#871)', () => {
+    const bands = [{ top: 0.2, height: 0.1, shift: -0.02 }]
+    const filters = [
+      { kind: 'sepia', amount: 0.5 },
+      { kind: 'slices', bands },
+      { kind: 'blur', radius: 0.01 },
+    ] as const
+    const asked: (readonly unknown[])[] = []
+    const reference = (given: readonly unknown[]) => {
+      asked.push(given)
+      return 'url(#slices)'
+    }
+    expect(pictureFilterFunctions(filters, 1920, 'px', 1, undefined, reference)).toEqual([
+      'sepia(0.5)',
+      'url(#slices)',
+      'blur(19.2px)',
+    ])
+    expect(asked).toEqual([bands])
+    expect(pictureFilterFunctions(filters, 1920, 'px', 1, undefined, () => null)).toEqual(['sepia(0.5)', 'blur(19.2px)'])
+    // No renderer to resolve them, or no bands, adds nothing.
+    expect(pictureFilterFunctions(filters, 1920, 'px')).toEqual(['sepia(0.5)', 'blur(19.2px)'])
+    expect(pictureFilterFunctions([{ kind: 'slices', bands: [] }], 1920, 'px', 1, undefined, reference)).toEqual([])
+    expect(asked).toHaveLength(1)
+  })
 })
 
 describe('vignetteStops', () => {
