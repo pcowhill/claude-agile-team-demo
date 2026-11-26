@@ -1970,12 +1970,33 @@ const TRACKING_FADE_TOLERANCE = 0.15
  * band's whole roll. As for the grain (WEBM_STEPS), a recorded frame late
  * or dropped can skip a step, so the test asks for half of them, each
  * within 1 row of the preview's band, where the neighbouring steps' bands
- * are 2 rows away. Measured at 960 × 540: run alone, every step had an
- * exported frame within 0.1 rows; run beside the other VHS tests on three
- * workers, 9 of 12 did in each of two runs, and the rest were 1.9 to 2.0
- * rows off, the neighbouring step's band, so no frame put a band anywhere
- * else.
+ * are 2 rows away. Measured at 480 × 270 (`TRACKING_EXPORT_FRAME`) with
+ * `--repeat-each=6 --workers=4`: 10 to 12 of 12 steps matched in each
+ * Chromium run and 9 to 10 in each Firefox run, and every miss was 1.9 to
+ * 2.0 rows off, the neighbouring step's band, so no frame put a band
+ * anywhere else.
  */
+/**
+ * The WebM test's still, and so the size the export composes and records
+ * at (#176): 480 × 270, one pixel per tracking tile row (#991).
+ *
+ * The export records in real time. When a frame takes longer to compose
+ * than the recording's 1/30 s, the recording repeats the last frame. At
+ * 960 × 540, under `--repeat-each=6 --workers=4` in a 4-core session
+ * container, that held one frame for up to 12 frames in Chromium and 19 in
+ * Firefox. A held frame skipped band steps, carried burst 2's band past its
+ * end, and once left the file 3.81 s long with no frame of burst 7's
+ * band. Chromium failed 3 of 6 runs and Firefox 6 of 6.
+ *
+ * At 480 × 270, both passed 6 of 6. The longest held frame was 3 to 4
+ * frames, and every file ran 3.89 s to 4.06 s. 640 × 360 kept up too, but its
+ * 2-row strips are 2.67 px tall, so they straddle pixel rows. Its unbanded
+ * frames peaked at 14.7 against `TRACKING_WEBM_SEEN`'s 15, and steps read
+ * up to 0.76 rows off. At 480 × 270 a strip is exactly 2 px. Unbanded
+ * frames peaked at 3.2 to 5 and banded ones at 40.4 or more, as at
+ * 960 × 540.
+ */
+const TRACKING_EXPORT_FRAME = { width: 480, height: 270 }
 const TRACKING_WEBM_STEPS = Array.from({ length: 12 }, (_, index) => 24 + index)
 const TRACKING_WEBM_STEPS_MATCHED = 6
 /**
@@ -2206,11 +2227,11 @@ test.describe("VHS's tracking band (#870)", () => {
 
   test('the export rolls the preview\'s band down its burst, and shows it in no other burst', async ({ page }, testInfo) => {
     test.setTimeout(180_000)
-    // A 960 × 540 still, so the export is 960 × 540, as the grain's WebM
-    // test is: a 1080p recording in a session container held each band
-    // position for about 0.15 s, four positions over the burst's twelve
-    // steps, where 960 × 540 keeps up (see TRACKING_WEBM_STEPS).
-    await openTrackingProject(page, 128, 960, 540)
+    // A 480 × 270 still, so the export composes every frame it records
+    // (see TRACKING_EXPORT_FRAME). A 1080p recording held each band
+    // position for about 0.15 s, and 960 × 540 still fell behind under load
+    // (#991).
+    await openTrackingProject(page, 128, TRACKING_EXPORT_FRAME.width, TRACKING_EXPORT_FRAME.height)
     const steps: { step: number; centre: number }[] = []
     for (const step of TRACKING_WEBM_STEPS) {
       await seekToTrackingStep(page, step)
