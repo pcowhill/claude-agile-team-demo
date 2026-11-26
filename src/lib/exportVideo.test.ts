@@ -40,6 +40,7 @@ import {
   timelineHasColorAdjustments,
   untilCurrentData,
   withLayerColorFilter,
+  withFilterFunctions,
   withLayerOrientation,
   zoomRect,
   zoomRectWithin,
@@ -883,6 +884,43 @@ describe('fitRect', () => {
 
   it('falls back to the full target for degenerate source dimensions', () => {
     expect(fitRect(0, 0, 640, 360)).toEqual({ x: 0, y: 0, width: 640, height: 360 })
+  })
+})
+
+describe('withFilterFunctions (#871)', () => {
+  // The filter string a draw onto the card carries: the context's own
+  // (colour adjustments, or none), then the look's functions sized by the
+  // card. The preview's pixelate canvas (#871, step 3b(ii)) builds its
+  // scratch's filter with it, as the export's pixelate scratch does.
+  const card = { y: 0, width: 1920, height: 1080 }
+
+  it('leaves the previous filter alone when the look writes no function', () => {
+    expect(withFilterFunctions('none', [], card)).toBe('none')
+    expect(withFilterFunctions('brightness(1.2)', [], card)).toBe('brightness(1.2)')
+    // Pixelate is drawn by downscaling, so it writes nothing either.
+    expect(withFilterFunctions('none', [{ kind: 'pixelate', block: 15 / 1920 }], card)).toBe('none')
+  })
+
+  it("replaces none, and appends after a colour adjustment, sizing a blur by the card's width", () => {
+    const blur = [{ kind: 'blur', radius: 0.01 }] as const
+    expect(withFilterFunctions('none', blur, card)).toBe('blur(19.2px)')
+    expect(withFilterFunctions('', blur, card)).toBe('blur(19.2px)')
+    expect(withFilterFunctions('brightness(1.2)', blur, card)).toBe('brightness(1.2) blur(19.2px)')
+    expect(withFilterFunctions('none', blur, { ...card, width: 128 })).toBe('blur(1.28px)')
+  })
+
+  it("keeps the look's other functions beside a pixelate, in order", () => {
+    expect(
+      withFilterFunctions(
+        'none',
+        [
+          { kind: 'sepia', amount: 0.5 },
+          { kind: 'pixelate', block: 0.01 },
+          { kind: 'brightness', amount: 0.5 },
+        ],
+        card,
+      ),
+    ).toBe('sepia(0.5) brightness(0.5)')
   })
 })
 
