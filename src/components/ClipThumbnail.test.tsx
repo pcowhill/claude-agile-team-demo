@@ -22,7 +22,7 @@ describe('ClipThumbnail (#193)', () => {
     expect(image).toHaveAttribute('alt', '')
   })
 
-  it('renders nothing while capturing and for clips that cannot be captured', async () => {
+  it('holds the thumbnail\'s box while capturing, and renders nothing for clips that cannot be captured (#967)', async () => {
     const { rerender } = render(
       <ClipThumbnail
         url="blob:pending"
@@ -32,6 +32,11 @@ describe('ClipThumbnail (#193)', () => {
       />,
     )
     expect(screen.queryByTestId('thumb')).not.toBeInTheDocument()
+    // The same class as the image, so the same 64 × 36 box: the row keeps
+    // its height while the frame is captured.
+    const pending = screen.getByTestId('thumb-pending')
+    expect(pending).toHaveClass('clip-thumbnail')
+    expect(pending).toHaveAttribute('aria-hidden', 'true')
 
     rerender(
       <ClipThumbnail
@@ -41,7 +46,8 @@ describe('ClipThumbnail (#193)', () => {
         thumbnailFor={resolved(null)}
       />,
     )
-    await waitFor(() => expect(screen.queryByTestId('thumb')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByTestId('thumb-pending')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('thumb')).not.toBeInTheDocument()
   })
 
   it('re-captures when the in-point changes and never shows the stale frame meanwhile', async () => {
@@ -62,12 +68,14 @@ describe('ClipThumbnail (#193)', () => {
     rerender(
       <ClipThumbnail url="blob:clip" inPoint={2} data-testid="thumb" thumbnailFor={thumbnailFor} />,
     )
-    // The re-trim resets the row to no-thumbnail rather than keeping the old
-    // frame; the new capture fills it in when it lands.
+    // The re-trim replaces the old frame with the empty box rather than
+    // keeping it; the new capture fills the box in when it lands.
     expect(screen.queryByTestId('thumb')).not.toBeInTheDocument()
+    expect(screen.getByTestId('thumb-pending')).toHaveClass('clip-thumbnail')
     release('data:retrimmed-frame')
     const image = await screen.findByTestId('thumb')
     expect(image).toHaveAttribute('src', 'data:retrimmed-frame')
+    expect(screen.queryByTestId('thumb-pending')).not.toBeInTheDocument()
     expect(captures).toEqual([0, 2])
   })
 })

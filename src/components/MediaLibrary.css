@@ -385,8 +385,9 @@
 }
 
 /* The placeholder mark sits under the picture: visible while a capture or
-   decode is pending, and left standing when one fails, since both
-   ClipThumbnail and AudioWaveform render nothing in that case. */
+   decode is pending, and left standing when one fails. AudioWaveform renders
+   nothing in either case, and ClipThumbnail renders nothing once a capture
+   has failed; its pending box is hidden in a card (below). */
 .clip-card-glyph {
   position: absolute;
   inset: 0;
@@ -401,8 +402,9 @@
 /* Once a picture has actually rendered, the mark beneath it goes away: a
    waveform's fill is semi-transparent, so leaving the glyph under it showed
    a note through the middle of the wave. `:has()` keeps this in CSS —
-   ClipThumbnail and AudioWaveform render nothing until they resolve, so
-   their mere presence is the signal, and React needs to know nothing about
+   neither renders an img or an svg until it resolves (ClipThumbnail's
+   pending box is a span), so their mere presence is the signal, and React
+   needs to know nothing about
    whether a capture succeeded. A browser without `:has()` degrades to the
    glyph showing through, which is cosmetic. */
 .clip-card-picture:has(img, svg) .clip-card-glyph {
@@ -424,6 +426,14 @@
   display: block;
   border-radius: 0;
   object-fit: cover;
+}
+
+/* ClipThumbnail's pending box holds a timeline row's height while a frame
+   is captured (#967). A card's square is sized by the card, not by its
+   picture, so here the box would only paint #111 over the kind's glyph,
+   which is the placeholder #311 asks for while the capture runs. */
+.clip-card-picture .clip-thumbnail-pending {
+  display: none;
 }
 
 .clip-card-body {

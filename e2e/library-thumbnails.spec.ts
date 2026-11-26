@@ -265,6 +265,48 @@ test('a card\'s checkbox comes first in the DOM and still sits over the picture 
   }
 })
 
+test('while a video card\'s frame is captured, its glyph shows, not the timeline\'s pending box (#967)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('./')
+  const video = await recordWebm(page)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'first.webm', mimeType: 'video/webm', buffer: video }])
+  await chooseView(page, 'Thumbnails')
+  await expect(page.getByTestId('clip-card-thumbnail-0')).toBeVisible()
+
+  // Every frame from the second import until its capture lands: what is
+  // painted at the centre of the new card's picture. ClipThumbnail holds a
+  // timeline row's place with an empty #111 box while it captures (#967);
+  // in a card that box covered the glyph #311 made the placeholder.
+  await page.evaluate(() => {
+    const samples: { captured: boolean; top: string }[] = []
+    const record = () => {
+      const picture = document.querySelectorAll('.clip-card-picture')[1]
+      if (picture !== undefined) {
+        const { x, y, width, height } = picture.getBoundingClientRect()
+        const top = document.elementFromPoint(x + width / 2, y + height / 2)
+        samples.push({ captured: picture.querySelector('img') !== null, top: top?.className ?? '' })
+      }
+      requestAnimationFrame(record)
+    }
+    ;(window as unknown as { cardSamples: typeof samples }).cardSamples = samples
+    record()
+  })
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'second.webm', mimeType: 'video/webm', buffer: video }])
+  await expect(page.getByTestId('clip-card-thumbnail-1')).toBeVisible()
+
+  type Sample = { captured: boolean; top: string }
+  const samples = await page.evaluate(() =>
+    (window as unknown as { cardSamples: Sample[] }).cardSamples.slice(),
+  )
+  const pending = samples.filter((sample) => !sample.captured)
+  // The capture was seen in progress...
+  expect(pending.length).toBeGreaterThan(0)
+  // ...and on every such frame the glyph was what showed.
+  expect([...new Set(pending.map((sample) => sample.top))]).toEqual(['clip-card-glyph'])
+})
+
 test('the grid inherits the library\'s bounded height and internal scrolling (#308)', async ({
   page,
 }) => {

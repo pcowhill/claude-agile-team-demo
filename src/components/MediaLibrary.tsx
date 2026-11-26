@@ -501,10 +501,12 @@ export function MediaLibrary({
 
   /**
    * A card's square picture (#311): the media itself where the browser can
-   * show it, drawn over a per-kind glyph. `ClipThumbnail` (#193) and
-   * `AudioWaveform` (#191) both render nothing until they resolve and
-   * nothing at all when they fail, which is what makes the glyph beneath
-   * them the placeholder the issue asks for — no extra failure plumbing.
+   * show it, drawn over a per-kind glyph. `AudioWaveform` (#191) renders
+   * nothing until it resolves and nothing at all when it fails, and
+   * `ClipThumbnail` (#193) renders nothing when it fails and, until it
+   * resolves, a pending box that MediaLibrary.css hides in a card (#967).
+   * That is what makes the glyph beneath them the placeholder the issue
+   * asks for — no extra failure plumbing.
    * A video reuses the capture cache at `(url, 0)`, shared with every
    * untrimmed timeline entry made from the same clip.
    */
