@@ -1542,7 +1542,9 @@ const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
  * 49: lines 18.2 and 17.9 in the preview against 15.9 and 15.7 in the
  * saved frame, grey 105.4 and 105.7 in both (within 0.02), an edge of 3.50
  * against 3.48 before the colour offset and 6.20 against 6.16 with it,
- * and a fringe of 8.04 against 8.00.
+ * and a fringe of 8.04 against 8.00. Firefox, in CI run 45739047158, read
+ * the same lines and grey, an edge of 5.15 against 4.96, and a fringe of
+ * 6.10 against 6.00.
  * - Grey: the lines' mean alpha is 0.4 × 0.875 / 2 = 0.175, so 128 falls
  *   to about 105.6. The renderers must agree within 1.5 of that.
  * - Lines: the amplitude depends on how each renderer smooths a 2 px line
@@ -1553,12 +1555,20 @@ const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
  *   to 3.9 px between its quarters, and the colour offset spreads the
  *   three channels' edges further; the renderers must agree within 0.6.
  * - Fringe: `VHS.offset` is 0.2 % of the frame's width, 3.84 px of 1920,
- *   so red and blue sit 7.68 px apart. Each renderer's SVG filter rounds
- *   the shift to 0.1 px and then, as read, lands each channel on a whole
- *   pixel of its own frame (3.8 px became 4 in both), up to half a pixel
- *   for each of the two channels: a bound of 1.2 px of a 1080p frame,
- *   which covers that pixel at the preview's 1910 px. The renderers must
- *   agree within 0.6, as the edge does.
+ *   so red and blue sit 7.68 px apart. Both renderers round the shift to
+ *   0.1 px, 3.8 px of the saved frame and of the preview's 1910 device px
+ *   alike. The browser then lands each channel on a whole device pixel,
+ *   and the two browsers land it differently: Chromium rounds, so 3.8
+ *   became 4 and the fringe read 8.04 and 8.00; Firefox truncates, so 3.8
+ *   became 3 and the fringe read 6.10 and 6.00 (CI run 45739047158; the
+ *   channel-offset spec's saved frame shows the same, 57.6 px drawn as 58
+ *   in Chromium and 57 in Firefox). So each channel lands up to 1.1 px
+ *   short of the exact shift (a whole pixel truncated, and the 0.1 px
+ *   rounding) or 0.6 px past it, and the fringe, two channels, up to 2.2
+ *   px narrower or 1.2 px wider: bounds of 2.3 and 1.2 px of a 1080p
+ *   frame, which cover that at the preview's 1888 to 1910 device px.
+ *   Within one browser the renderers land alike, so they must agree
+ *   within 0.6, as the edge does.
  */
 const VHS_LINES_SEEN = 8
 const VHS_LINES_TOLERANCE = 0.35
@@ -1568,7 +1578,8 @@ const VHS_SHARP = 1.5
 const VHS_SOFT = 2.5
 const VHS_EDGE_TOLERANCE = 0.6
 const VHS_FRINGE = 2 * 0.002 * 1920
-const VHS_FRINGE_TOLERANCE = 1.2
+const VHS_FRINGE_NARROWER = 2.3
+const VHS_FRINGE_WIDER = 1.2
 const VHS_FRINGE_AGREE = 0.6
 /** The grey half, where an exported frame's mean is read: inside the window the lines darken it, outside it is the still's 128. */
 const VHS_GREY_BAND = { grey: { x: 0.05, y: 0.1, width: 0.4, height: 0.8 } }
@@ -1807,8 +1818,11 @@ test.describe('VHS (#870)', () => {
           VHS_GREY_DARKENED,
         )
         expect(measure.edge, `step ${step}, ${name}: a softened edge`).toBeGreaterThan(VHS_SOFT)
-        expect(Math.abs(measure.fringe - VHS_FRINGE), `step ${step}, ${name}: red left and blue right`).toBeLessThan(
-          VHS_FRINGE_TOLERANCE,
+        expect(measure.fringe, `step ${step}, ${name}: red left and blue right`).toBeGreaterThan(
+          VHS_FRINGE - VHS_FRINGE_NARROWER,
+        )
+        expect(measure.fringe, `step ${step}, ${name}: red left and blue right`).toBeLessThan(
+          VHS_FRINGE + VHS_FRINGE_WIDER,
         )
       }
       expect(Math.abs(preview.fringe - saved.fringe), `step ${step}: fringe, preview vs saved`).toBeLessThan(
