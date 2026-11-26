@@ -4677,7 +4677,7 @@ describe('picture effects on a sequence entry (#862)', () => {
     await userEvent.tab()
   }
 
-  it('+ Effect ▾ gains Vignette, Blur, Film grain, Old film and VHS only while the Visual effects plugin is registered', async () => {
+  it('+ Effect ▾ gains Vignette, Blur, Film grain, Old film, VHS and Chromatic aberration only while the Visual effects plugin is registered', async () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
@@ -4698,6 +4698,7 @@ describe('picture effects on a sequence entry (#862)', () => {
         'Film grain',
         'Old film',
         'VHS',
+        'Chromatic aberration',
       ])
       await closeEffectMenu(POSITION)
     } finally {

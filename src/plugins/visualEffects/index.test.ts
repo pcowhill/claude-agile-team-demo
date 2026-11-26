@@ -3,6 +3,7 @@ import { PICTURE_TEXTURE_RATE, pictureEffectParamsFor, pictureEffectRegistry } f
 import { builtInPlugins } from '../catalog'
 import { VISUAL_EFFECT_IDS, isVisualEffect } from '../visualEffectsIds'
 import {
+  CHROMATIC_ABERRATION,
   GRAIN_REFERENCE_WIDTH,
   OLD_FILM,
   VHS,
@@ -25,7 +26,7 @@ describe('Visual effects plugin (#862)', () => {
     deactivate = null
   })
 
-  it('registers Vignette, Blur, Film grain, Old film and VHS in the ids module\'s order, and unregisters them', () => {
+  it('registers Vignette, Blur, Film grain, Old film, VHS and Chromatic aberration in the ids module\'s order, and unregisters them', () => {
     expect(VISUAL_EFFECT_IDS.some((id) => pictureEffectRegistry.has(id))).toBe(false)
     deactivate = activate()
     expect(pictureEffectRegistry.list().map(({ id, name }) => [id, name])).toEqual([
@@ -34,6 +35,7 @@ describe('Visual effects plugin (#862)', () => {
       ['film-grain', 'Film grain'],
       ['old-film', 'Old film'],
       ['vhs', 'VHS'],
+      ['chromatic-aberration', 'Chromatic aberration'],
     ])
     deactivate()
     deactivate = null
@@ -50,6 +52,7 @@ describe('Visual effects plugin (#862)', () => {
       ],
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
       [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 70, unit: '%' }],
+      [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' }],
     ])
   })
 
@@ -78,6 +81,7 @@ describe('Visual effects plugin (#862)', () => {
       { amount: 30, size: 3 },
       { amount: 70 },
       { amount: 70 },
+      { amount: 30 },
     ])
   })
 
@@ -183,6 +187,32 @@ describe('Visual effects plugin (#862)', () => {
     expect(seedsAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).toEqual([51, 51])
   })
 
+  it('Chromatic aberration is a channel offset of Amount percent of its full split, scaled by the weight (#871)', () => {
+    const aberration = visualEffectDefinitions[5]
+    const offsetOf = (amount: number, weight: number) => {
+      const { filters, layers } = aberration.look({ amount }, weight, 2.1)
+      expect(layers).toEqual([])
+      expect(filters).toHaveLength(1)
+      const [filter] = filters
+      if (filter.kind !== 'channel-offset') throw new Error(`expected a channel offset, got ${filter.kind}`)
+      return filter.offset
+    }
+    // Amount 100 at full weight is the whole split, about 19 px of a 1080p frame.
+    expect(offsetOf(100, 1)).toBe(CHROMATIC_ABERRATION.offset)
+    expect(CHROMATIC_ABERRATION.offset * 1920).toBeCloseTo(19.2)
+    // Zero at Amount 0 and at weight 0: the picture untouched.
+    expect(offsetOf(0, 1)).toBe(0)
+    expect(offsetOf(100, 0)).toBe(0)
+    // It grows with Amount, and the weight scales it as Amount does.
+    const amounts = [0, 10, 30, 50, 100]
+    const offsets = amounts.map((amount) => offsetOf(amount, 1))
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
+    expect(new Set(offsets).size).toBe(amounts.length)
+    expect(offsetOf(50, 0.5)).toBeCloseTo(CHROMATIC_ABERRATION.offset / 4, 12)
+    // No texture: the same at any time.
+    expect(aberration.look({ amount: 30 }, 1, 0)).toEqual(aberration.look({ amount: 30 }, 1, 7.3))
+  })
+
   it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'visual-effects')
     const count = plugin?.projectUses?.count
@@ -201,6 +231,7 @@ describe('Visual effects plugin (#862)', () => {
     expect(count(library, asTimeline(timelineWith('film-grain')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('old-film')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('vhs')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('chromatic-aberration')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('vignette', 'from-elsewhere', 'blur')))).toEqual({
       count: 2,
       what: '2 picture effects',

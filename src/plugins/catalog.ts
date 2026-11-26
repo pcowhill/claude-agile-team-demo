@@ -85,8 +85,9 @@ export const builtInPlugins: readonly PluginSpec[] = [
     description:
       'Adds picture effects for a stretch of a clip: Vignette darkens the edges of the frame, ' +
       'Blur softens the whole picture, Film grain adds moving grain, Old film ages it with ' +
-      'sepia, flicker, scratches and dust, and VHS gives it the soft blur, scanlines and ' +
-      'rolling band of a tape. Each eases in and out.',
+      'sepia, flicker, scratches and dust, VHS gives it the soft blur, scanlines and rolling ' +
+      'band of a tape, and Chromatic aberration splits its red and blue apart at every edge. ' +
+      'Each eases in and out.',
     version: '1.0.0',
     load: () => import('./visualEffects/index'),
     // Picture effects live in the timeline, so a project carrying one of

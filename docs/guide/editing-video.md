@@ -250,6 +250,16 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Old film](#old-film)
 
+## Chromatic aberration
+
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Chromatic aberration**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+
+**What it does.** Splits the picture's colours apart for a stretch of the entry, as a cheap lens does: its red moves to the left and its blue to the right, so every edge carries a reddish fringe on one side and a bluish one on the other.
+
+**Details.** The row has the stretch, *from* and *to* in seconds into the entry, and one setting, *amount*, 0 to 100 %, how far the colours move. At 100 % the red moves about 19 pixels of a 1080p frame to the left and the blue as far to the right; a new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 30 %, about 6 pixels. The green stays where it is, and a flat area keeps its colour: the fringes show only where the picture changes. The split is the same across the whole frame, sideways on the screen whichever way the clip is turned by its [orientation](#orientation), and it keeps its share of the frame at any size of the picture, so the preview and the exported file show the same fringes. A browser whose canvas cannot apply filters refuses to export a timeline with Chromatic aberration, as it does for a Blur, rather than writing a file without it. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, eases in and out, is named *Chromatic aberration 1*, *Chromatic aberration 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [VHS](#vhs)
+
 ## Colour adjustments
 
 **Where to find it.** An expanded video or image row › **Picture ▸** › **Color**.
