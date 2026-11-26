@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
 import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
@@ -92,6 +94,63 @@ test('a video entry gains a captured thumbnail that re-captures on a new in-poin
     expect(retrimmedSrc).toMatch(/^data:image\/jpeg/)
     expect(retrimmedSrc).not.toBe(initialSrc)
   }).toPass()
+})
+
+test('a re-capture holds the thumbnail\'s place: the row and the timeline above it never move (#967)', async ({
+  page,
+}) => {
+  await page.goto('./')
+  const buffer = await readFile(join('e2e', 'fixtures', 'trim-clip.webm'))
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'trim-clip.webm', mimeType: 'video/webm', buffer }])
+  await page.getByRole('button', { name: 'Add trim-clip.webm to timeline' }).click()
+  await expect(page.getByTestId('timeline-entry-thumbnail-0')).toBeVisible()
+
+  // Every frame from the re-trim until the new frame lands: the row's main
+  // line height, the Undo button's top, and what the thumbnail's place holds.
+  // While a capture ran, the row used to render no thumbnail at all: its
+  // main line was 12px shorter until the frame landed, and the Undo button
+  // moved under a click begun just before (#967, Firefox).
+  await page.evaluate(() => {
+    const samples: { height: number; undoTop: number; holds: string }[] = []
+    const record = () => {
+      const main = document.querySelector('.timeline-entry-main')!
+      const undo = document.querySelector('[aria-label="Undo last timeline edit"]')!
+      const holds = document.querySelector('[data-testid="timeline-entry-thumbnail-0"]')
+        ? 'image'
+        : document.querySelector('[data-testid="timeline-entry-thumbnail-0-pending"]')
+          ? 'pending'
+          : 'nothing'
+      samples.push({ height: main.getBoundingClientRect().height, undoTop: undo.getBoundingClientRect().top, holds })
+      requestAnimationFrame(record)
+    }
+    ;(window as unknown as { thumbnailSamples: typeof samples }).thumbnailSamples = samples
+    record()
+  })
+  const inPoint = page.getByRole('spinbutton', { name: 'Trim in point of trim-clip.webm at position 1 in seconds' })
+  await inPoint.fill('2')
+  await inPoint.blur()
+
+  // Read in one page read: the samples up to a frame that holds the image
+  // again after one that did not, i.e. the re-capture has landed.
+  type Sample = { height: number; undoTop: number; holds: string }
+  const read = () =>
+    page.evaluate(() => (window as unknown as { thumbnailSamples: Sample[] }).thumbnailSamples.slice())
+  await expect
+    .poll(async () => {
+      const samples = await read()
+      const away = samples.findIndex((sample) => sample.holds !== 'image')
+      return away >= 0 && samples.slice(away).some((sample) => sample.holds === 'image')
+    })
+    .toBe(true)
+  const samples = await read()
+  const heights = samples.map((sample) => sample.height)
+  const undoTops = samples.map((sample) => sample.undoTop)
+  // Sub-pixel tolerance: the same box laid out twice can differ in the last
+  // fraction of a pixel; the defect moved them by 12px.
+  expect(Math.max(...heights) - Math.min(...heights), `row heights ${[...new Set(heights)].join(', ')}`).toBeLessThan(0.5)
+  expect(Math.max(...undoTops) - Math.min(...undoTops), `Undo tops ${[...new Set(undoTops)].join(', ')}`).toBeLessThan(0.5)
+  // The re-capture was seen in progress, held by the empty box.
+  expect(samples.some((sample) => sample.holds === 'pending')).toBe(true)
 })
 
 test('image entries show the image itself; slates show their color swatch', async ({ page }) => {
