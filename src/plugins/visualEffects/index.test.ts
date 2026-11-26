@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { PICTURE_TEXTURE_RATE, pictureEffectParamsFor, pictureEffectRegistry } from '../../lib/pictureEffect'
+import { PICTURE_TEXTURE_RATE, pictureEffectParamsFor, pictureEffectRegistry, pixelateBlock, pixelateGrid } from '../../lib/pictureEffect'
 import { builtInPlugins } from '../catalog'
 import { VISUAL_EFFECT_IDS, isVisualEffect } from '../visualEffectsIds'
 import {
@@ -7,6 +7,7 @@ import {
   GLITCH,
   GRAIN_REFERENCE_WIDTH,
   OLD_FILM,
+  PIXELATE_REFERENCE_WIDTH,
   VHS,
   VIGNETTE_INNER,
   activate,
@@ -29,7 +30,7 @@ describe('Visual effects plugin (#862)', () => {
     deactivate = null
   })
 
-  it('registers Vignette, Blur, Film grain, Old film, VHS, Chromatic aberration and Glitch in the ids module\'s order, and unregisters them', () => {
+  it('registers Vignette, Blur, Film grain, Old film, VHS, Chromatic aberration, Glitch and Pixelate in the ids module\'s order, and unregisters them', () => {
     expect(VISUAL_EFFECT_IDS.some((id) => pictureEffectRegistry.has(id))).toBe(false)
     deactivate = activate()
     expect(pictureEffectRegistry.list().map(({ id, name }) => [id, name])).toEqual([
@@ -40,6 +41,7 @@ describe('Visual effects plugin (#862)', () => {
       ['vhs', 'VHS'],
       ['chromatic-aberration', 'Chromatic aberration'],
       ['glitch', 'Glitch'],
+      ['pixelate', 'Pixelate'],
     ])
     deactivate()
     deactivate = null
@@ -61,6 +63,7 @@ describe('Visual effects plugin (#862)', () => {
         { key: 'intensity', label: 'Intensity', min: 0, max: 100, default: 50, unit: '%' },
         { key: 'frequency', label: 'Frequency', min: 0, max: 100, default: 30, unit: '%' },
       ],
+      [{ key: 'block', label: 'Block size', min: 5, max: 200, default: 20, unit: 'px' }],
     ])
   })
 
@@ -91,6 +94,7 @@ describe('Visual effects plugin (#862)', () => {
       { amount: 70 },
       { amount: 30 },
       { intensity: 50, frequency: 30 },
+      { block: 20 },
     ])
   })
 
@@ -356,6 +360,49 @@ describe('Visual effects plugin (#862)', () => {
     expect(GLITCH.tear * 1920).toBeCloseTo(96)
   })
 
+  it('Pixelate is a pixelate filter of Block size pixels of a 1080p frame, scaled by the weight (#871, step 3c)', () => {
+    const pixelate = visualEffectDefinitions[7]
+    const blockOf = (block: number, weight: number) => {
+      const { filters, layers } = pixelate.look({ block }, weight, 2.1)
+      expect(layers).toEqual([])
+      expect(filters).toHaveLength(1)
+      const [filter] = filters
+      if (filter.kind !== 'pixelate') throw new Error(`expected a pixelate filter, got ${filter.kind}`)
+      return filter.block
+    }
+    expect(PIXELATE_REFERENCE_WIDTH).toBe(1920)
+    expect(blockOf(20, 1)).toBe(20 / 1920)
+    expect(blockOf(20, 0.5)).toBe(10 / 1920)
+    expect(blockOf(200, 0)).toBe(0)
+    // No texture: the same at any time.
+    expect(pixelate.look({ block: 20 }, 1, 0)).toEqual(pixelate.look({ block: 20 }, 1, 7.3))
+  })
+
+  it("Pixelate's block grid: whole blocks of Block size on a 1080p frame, the same grid at any frame size, none at weight 0 (#871, step 3c)", () => {
+    const pixelate = visualEffectDefinitions[7]
+    const gridOf = (block: number, weight: number, width: number, height: number) =>
+      pixelateGrid(pixelateBlock(pixelate.look({ block }, weight, 0).filters) ?? 0, width, height)
+    // The default, 20 px: 96 × 54 blocks of a 1920 × 1080 frame, exactly.
+    expect(gridOf(20, 1, 1920, 1080)).toEqual({ columns: 96, rows: 54 })
+    // A block that does not divide the frame rounds to whole blocks that
+    // stretch to fill it: 50 px gives 38.4 → 38 columns and 21.6 → 22 rows.
+    expect(gridOf(50, 1, 1920, 1080)).toEqual({ columns: 38, rows: 22 })
+    // The range's ends: 5 px, 384 × 216, and 200 px, 9.6 → 10 columns and 5.4 → 5 rows.
+    expect(gridOf(5, 1, 1920, 1080)).toEqual({ columns: 384, rows: 216 })
+    expect(gridOf(200, 1, 1920, 1080)).toEqual({ columns: 10, rows: 5 })
+    // The grid is a share of the frame: a 960 × 540 preview, or a 4K export, draws the same one.
+    expect(gridOf(20, 1, 960, 540)).toEqual({ columns: 96, rows: 54 })
+    expect(gridOf(20, 1, 3840, 2160)).toEqual({ columns: 96, rows: 54 })
+    // The block is a share of the frame's width, so a portrait 1080 × 1920
+    // frame also has 96 columns, of 11.25 px, and 1920 / 11.25 = 170.7 → 171 rows.
+    expect(gridOf(20, 1, 1080, 1920)).toEqual({ columns: 96, rows: 171 })
+    // Easing in, the blocks grow from nothing: at weight 0 no grid at all,
+    // and at a small weight a block narrower than a pixel draws nothing.
+    expect(gridOf(20, 0, 1920, 1080)).toBeNull()
+    expect(gridOf(20, 0.04, 1920, 1080)).toBeNull()
+    expect(gridOf(20, 0.5, 1920, 1080)).toEqual({ columns: 192, rows: 108 })
+  })
+
   it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {
     const plugin = builtInPlugins.find((spec) => spec.id === 'visual-effects')
     const count = plugin?.projectUses?.count
@@ -376,6 +423,7 @@ describe('Visual effects plugin (#862)', () => {
     expect(count(library, asTimeline(timelineWith('vhs')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('chromatic-aberration')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('glitch')))).toEqual(one)
+    expect(count(library, asTimeline(timelineWith('pixelate')))).toEqual(one)
     expect(count(library, asTimeline(timelineWith('vignette', 'from-elsewhere', 'blur')))).toEqual({
       count: 2,
       what: '2 picture effects',

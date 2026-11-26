@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
 import { openPicture } from './pictureDisclosure'
+import { ADD_SLATE, chooseFromAddMenu } from './timelineMenu'
 import { chooseEffect } from './timelineRowMenu'
 import type { PictureFilter } from '../src/lib/pictureEffect'
 
@@ -11,11 +13,11 @@ import type { PictureFilter } from '../src/lib/pictureEffect'
  * of columns × rows and stretched back over the card with smoothing off,
  * so every block is one colour. The export draws it (step 3b(i)) and so
  * does the preview's canvas (step 3b(ii)), which is read against saved
- * frames block by block. No effect the app ships uses the kind yet
- * (Pixelate adopts it in step 3c). The spec registers a test-only
+ * frames block by block. The filter's own describes register a test-only
  * definition into the running app's registry through the dev server's own
- * module URL, as `slices.spec.ts` does, and adds it from + Effect ▾ like
- * any other.
+ * module URL, as `slices.spec.ts` does, and add it from + Effect ▾ like
+ * any other; the Visual effects plugin's Pixelate (step 3c), which ships
+ * the kind with a Block size, has a describe of its own.
  *
  * The source is #871's step 3a picture: red ramps across, green down, and
  * blue is a diagonal ripple, so every block has a colour of its own and a
@@ -267,8 +269,10 @@ async function previewBlocks(
 
 /**
  * A channel difference allowed between the preview's block and the saved
- * frame's: the preview downscales the element straight into the grid, the
- * export its full-size card, so the two bilinear averages differ slightly.
+ * frame's. Both fill their grid through the export's own `pixelatedCard`
+ * (#990), so they average the same pixels the same way and read 0 in both
+ * browsers; the allowance is for colour handling between the preview's
+ * canvas, the screenshot and the saved PNG.
  */
 const PREVIEW_LEVELS = 4
 
@@ -395,6 +399,209 @@ test.describe('Pixelate picture filter in the preview (#871, step 3b(ii))', () =
     console.log(`[${testInfo.project.name}] pixelate preview, with brightness 0.5: ${JSON.stringify(darkened)}`)
     expect(darkened.uniform, 'blocks of one colour').toBe(darkened.blocks)
     expect(darkened.matching, `blocks within ${PREVIEW_LEVELS} levels of the saved frame's`).toBe(darkened.blocks)
+  })
+})
+
+/**
+ * The Visual effects plugin's Pixelate (#871, step 3c), added from
+ * + Effect ▾ onto the ramp for 4 s: its default window is 0–2 s.
+ */
+async function setupPixelate(page: Page): Promise<Buffer> {
+  await page.goto('./')
+  await chooseFromFileMenu(page, 'Plugins…')
+  const dialog = page.getByRole('dialog', { name: 'Plugins' })
+  await page.getByRole('button', { name: 'Enable Visual effects' }).click()
+  await expect(page.getByRole('button', { name: 'Disable Visual effects' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  const ramp = await makeRamp(page)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: ramp }])
+  await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
+  const duration = page.getByRole('spinbutton', { name: `Duration of ${POSITION} in seconds` })
+  await duration.fill('4')
+  await duration.blur()
+  await expect(page.getByTestId('timeline-total')).toHaveText('0:04')
+  await chooseEffect(page, POSITION, 'Pixelate')
+  return ramp
+}
+
+const BLOCK_SIZE = `Pixelate 1 block size of ${POSITION} in pixels`
+
+async function setBlockSize(page: Page, size: number) {
+  const field = page.getByRole('spinbutton', { name: BLOCK_SIZE })
+  await field.fill(String(size))
+  await field.blur()
+  await expect(field).toHaveValue(String(size))
+}
+
+test.describe('Pixelate, the Visual effects plugin\'s effect (#871, step 3c)', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } })
+
+  test('+ Effect ▾ adds it at Block size 20: the preview and a saved frame draw the same 96 × 54 blocks, 38 × 22 at 50, and neither pixelates after the window', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000)
+    const ramp = await setupPixelate(page)
+    await expect(page.getByRole('spinbutton', { name: BLOCK_SIZE })).toHaveValue('20')
+    await expect(page.getByRole('spinbutton', { name: `Pixelate 1 end of ${POSITION} in seconds` })).toHaveValue('2')
+
+    // The default: 20 px blocks of a 1920 frame, 96 × 54 exactly. 1 s is
+    // inside the window, at full weight.
+    const grid20 = { columns: 96, rows: 54 }
+    const saved20 = await readBlocks(page, await savedFrameAt(page, 1, 'Block size 20'), ramp, grid20)
+    const preview20 = await previewAgainstSaved(page, 1, grid20, 'Block size 20')
+    await page
+      .getByTestId('preview-frame')
+      .screenshot({ path: testInfo.outputPath('pixelate-block-size-20.png') })
+
+    // 50 px does not divide the frame: 38.4 × 21.6 round to 38 × 22.
+    await setBlockSize(page, 50)
+    const grid50 = { columns: 38, rows: 22 }
+    const saved50 = await readBlocks(page, await savedFrameAt(page, 1, 'Block size 50'), ramp, grid50)
+    const preview50 = await previewAgainstSaved(page, 1, grid50, 'Block size 50')
+
+    // After the window: the plain picture in both.
+    const savedAfter = await readBlocks(page, await savedFrameAt(page, 3, 'after the window'), ramp, grid20)
+    await expect(page.getByTestId('preview-pixelate')).toHaveCount(0)
+    await expect(page.getByTestId('preview-image')).toHaveCSS('opacity', '1')
+    console.log(
+      `[${testInfo.project.name}] pixelate effect: ${JSON.stringify({ saved20, preview20, saved50, preview50, savedAfter })}`,
+    )
+
+    for (const [label, reading] of Object.entries({ saved20, saved50 })) {
+      expect(reading.uniform, `${label}: blocks of one colour`).toBe(reading.blocks)
+      expect(reading.matching, `${label}: blocks within ${LEVELS} levels of the page's downscale`).toBe(reading.blocks)
+    }
+    for (const [label, reading] of Object.entries({ preview20, preview50 })) {
+      expect(reading.uniform, `${label}: blocks of one colour`).toBe(reading.blocks)
+      expect(reading.matching, `${label}: blocks within ${PREVIEW_LEVELS} levels of the saved frame's`).toBe(
+        reading.blocks,
+      )
+    }
+    // After the window the ripple runs through every block: none is one colour.
+    expect(savedAfter.uniform, 'saved frame after the window: blocks of one colour').toBe(0)
+  })
+
+  test('pushed out by a transition, the preview\'s blocks ride the outgoing card as the saved frame\'s do', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000)
+    await setupPixelate(page)
+    await setBlockSize(page, 60)
+    // The still for 2 s, its Pixelate to its end, then a 0.5 s push into a
+    // red slate: the push runs over 1.5–2 s of the sequence.
+    const duration = page.getByRole('spinbutton', { name: `Duration of ${POSITION} in seconds` })
+    await duration.fill('2')
+    await duration.blur()
+    await expect(page.getByRole('spinbutton', { name: `Pixelate 1 end of ${POSITION} in seconds` })).toHaveValue('2')
+    await chooseFromAddMenu(page, ADD_SLATE)
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    await page.getByRole('combobox', { name: 'Transition type between position 1 and 2' }).selectOption('push-from-right')
+    const transition = page.getByRole('spinbutton', { name: 'Transition duration between position 1 and 2 in seconds' })
+    await transition.fill('0.5')
+    await transition.blur()
+
+    const frame = page.getByTestId('preview-frame')
+    for (const seconds of [1.6, 1.75, 1.9]) {
+      const saved = await savedFrameAt(page, seconds, `push at ${seconds} s`)
+      await expect(page.getByTestId('preview-pixelate')).toHaveAttribute('data-grid', '32x18')
+      // The preview against the saved frame, sampled every 7 px of the
+      // saved frame and read at the same share of the preview's box, polled
+      // until the canvas has painted.
+      let reading: { samples: number; compared: number; close: number; worst: number; red: number } | undefined
+      await expect
+        .poll(
+          async () => {
+            const box = (await frame.boundingBox())!
+            const clip = {
+              x: Math.floor(box.x),
+              y: Math.floor(box.y),
+              width: Math.ceil(box.x + box.width) - Math.floor(box.x),
+              height: Math.ceil(box.y + box.height) - Math.floor(box.y),
+            }
+            const png = await page.screenshot({ clip })
+            reading = await page.evaluate(
+              async ({ png, saved, box }) => {
+                const pixels = async (base64: string) => {
+                  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+                  const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+                  const canvas = document.createElement('canvas')
+                  canvas.width = bitmap.width
+                  canvas.height = bitmap.height
+                  const ctx = canvas.getContext('2d')!
+                  ctx.drawImage(bitmap, 0, 0)
+                  const image = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+                  return { data: image.data, width: image.width, height: image.height }
+                }
+                const shown = await pixels(png)
+                const want = await pixels(saved)
+                // A sample within a preview pixel of a block edge can land on
+                // either side of it, because the preview's edges sit within
+                // a device pixel of the saved frame's and no closer (step
+                // 3a). Next to the ripple's blue, the two sides differ by up
+                // to 254 levels, and the sampling grid puts a whole column of
+                // samples on one edge whenever an edge falls on it, so those
+                // samples are skipped rather than allowed for: a sample is
+                // compared only when the saved frame is the same colour
+                // `reach` pixels either side of it, both ways, which is more
+                // than a preview pixel of the saved frame.
+                const reach = Math.ceil(want.width / box.width) + 1
+                const value = (x: number, y: number, channel: number) => want.data[(y * want.width + x) * 4 + channel]
+                const same = (x: number, y: number, ox: number, oy: number) => {
+                  for (let channel = 0; channel < 3; channel++) {
+                    if (Math.abs(value(x, y, channel) - value(x + ox, y + oy, channel)) > 8) return false
+                  }
+                  return true
+                }
+                let samples = 0
+                let compared = 0
+                let close = 0
+                let worst = 0
+                let red = 0
+                for (let y = 10; y < want.height - 10; y += 7) {
+                  for (let x = 10; x < want.width - 10; x += 7) {
+                    const from = (y * want.width + x) * 4
+                    samples += 1
+                    if (want.data[from] === 255 && want.data[from + 1] === 0 && want.data[from + 2] === 0) red += 1
+                    if (!same(x, y, -reach, 0) || !same(x, y, reach, 0) || !same(x, y, 0, -reach) || !same(x, y, 0, reach)) {
+                      continue
+                    }
+                    const px = Math.floor(box.x + ((x + 0.5) * box.width) / want.width)
+                    const py = Math.floor(box.y + ((y + 0.5) * box.height) / want.height)
+                    const at = (py * shown.width + px) * 4
+                    let off = 0
+                    for (let channel = 0; channel < 3; channel++) {
+                      off = Math.max(off, Math.abs(shown.data[at + channel] - want.data[from + channel]))
+                    }
+                    compared += 1
+                    if (off <= 8) close += 1
+                    if (off > worst) worst = off
+                  }
+                }
+                return { samples, compared, close, worst, red: red / samples }
+              },
+              {
+                png: png.toString('base64'),
+                saved: saved.toString('base64'),
+                box: { x: box.x - clip.x, y: box.y - clip.y, width: box.width, height: box.height },
+              },
+            )
+            return reading.close / reading.compared
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0.995)
+        .catch(() => undefined)
+      console.log(`[${testInfo.project.name}] pixelate mid-push at ${seconds} s: ${JSON.stringify(reading)}`)
+      // The push is under way in the saved frame: the red slate fills a
+      // growing share of it, from the right.
+      expect(reading!.red, `push at ${seconds} s: the slate's share of the saved frame`).toBeGreaterThan(0.1)
+      expect(reading!.red, `push at ${seconds} s: the slate's share of the saved frame`).toBeLessThan(0.9)
+      // Most samples lie inside a block, away from its edges, and are compared.
+      expect(reading!.compared / reading!.samples, `push at ${seconds} s: samples compared`).toBeGreaterThan(0.6)
+      expect(reading!.close / reading!.compared, `push at ${seconds} s: compared samples within 8 levels`).toBeGreaterThan(
+        0.995,
+      )
+    }
   })
 })
 
