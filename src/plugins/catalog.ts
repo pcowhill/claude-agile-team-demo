@@ -1,5 +1,5 @@
 import type { PluginSpec, PluginUseCount } from '../lib/plugins'
-import { pictureEffectsOf, textsOf, transitionsOf } from '../lib/timeline'
+import { everyPictureEffectOf, textsOf, transitionsOf } from '../lib/timeline'
 import { isFontPackFont } from './fontPackIds'
 import { isPatternTransition } from './patternTransitionsIds'
 import { isShapedWipeTransition } from './shapedWipesIds'
@@ -93,11 +93,12 @@ export const builtInPlugins: readonly PluginSpec[] = [
     load: () => import('./visualEffects/index'),
     // Picture effects live in the timeline, so a project carrying one of
     // this plugin's depends on it (#862), as with the transition packs.
-    // Each effect of the plugin's types is one use (#953).
+    // Each effect of the plugin's types is one use (#953), on an entry or
+    // an overlay (#872).
     projectUses: {
       count: (_library, timeline) =>
         countOf(
-          pictureEffectsOf(timeline).filter((effect) => isVisualEffect(effect.type)).length,
+          everyPictureEffectOf(timeline).filter((effect) => isVisualEffect(effect.type)).length,
           'picture effect',
           'picture effects',
         ),

@@ -26,7 +26,8 @@
  *   `splitZoomAt` (one whose ramp contains the point stays whole with the
  *   first part, the razor's fallback). Redactions and spotlights are in the
  *   clip's own source seconds, so both parts keep every one; those outside
- *   a part's trim never show.
+ *   a part's trim never show. Moves (#834) and picture effects (#872) are
+ *   in on-screen time, so they divide where the first part ends.
  *
  * An image overlay has no source to cut, so it is never split.
  */
@@ -35,6 +36,7 @@ import type { OverlayRemap, VideoOverlay } from './videoOverlay'
 import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
 import { splitZoomAt } from './ripple'
 import { splitMovesAt } from './overlayMove'
+import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
 
 /**
  * Whether a track or overlay can split at `atSourceTime`: strictly inside
@@ -151,6 +153,14 @@ export function splitVideoOverlay(
     const moves = splitMovesAt(overlay, overlayOutputDuration(first))
     first = withList(first, 'moves', moves.before)
     second = withList({ ...second, ...moves.afterRect }, 'moves', moves.after)
+  }
+  // Picture effects (#872) are keyed to on-screen time too: divided at the
+  // same instant (`splitOverlayPictureEffectsAt`), one spanning it becoming
+  // one in each part.
+  if (overlay.pictureEffects !== undefined) {
+    const effects = splitOverlayPictureEffectsAt(overlay.pictureEffects, overlayOutputDuration(first))
+    first = withList(first, 'pictureEffects', effects.before)
+    second = withList(second, 'pictureEffects', effects.after)
   }
   return [first, second]
 }

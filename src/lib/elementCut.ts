@@ -27,7 +27,8 @@
  *   contains a clamp has no exact form there, so it is kept whole on the
  *   head's side, as the razor keeps it. Redactions and spotlights are in the
  *   clip's own source seconds, so both parts keep every one; those outside
- *   a part's trim never show.
+ *   a part's trim never show. Moves (#834) and picture effects (#872) are
+ *   in on-screen time, so they are divided at the clamps' output instants.
  *
  * Refused (null) on the Cut window's own rule (`cutClampsRefusal`): a clamp
  * on In or Out, which is a trim, or the clamps inverted or equal. An image
@@ -41,6 +42,7 @@ import type { CutClamps } from './cutWindow'
 import { outputTimeAtSource } from './remap'
 import { splitRemapsAtOutput, splitZoomAt } from './ripple'
 import { splitMovesAt } from './overlayMove'
+import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
 
 /** The element without the given optional key: zero is stored as no key. */
 function without<T extends object>(element: T, key: keyof T): T {
@@ -134,13 +136,22 @@ export function cutVideoOverlay(
   // Moves (#834) are keyed to on-screen time: the head keeps those before
   // Cut from's output instant, and the tail those after Cut to's, from the
   // placement the overlay had there.
+  const length = overlayOutputDuration(overlay)
+  const atFrom = Math.min(remaps.length === 0 ? from : outputTimeAtSource(trimmedLength, remaps, from), length)
+  const atTo = Math.min(remaps.length === 0 ? to : outputTimeAtSource(trimmedLength, remaps, to), length)
   if (overlay.moves !== undefined) {
-    const length = overlayOutputDuration(overlay)
-    const atFrom = remaps.length === 0 ? from : outputTimeAtSource(trimmedLength, remaps, from)
-    const atTo = remaps.length === 0 ? to : outputTimeAtSource(trimmedLength, remaps, to)
-    head = withList(head, 'moves', splitMovesAt(overlay, Math.min(atFrom, length)).before)
-    const later = splitMovesAt(overlay, Math.min(atTo, length))
+    head = withList(head, 'moves', splitMovesAt(overlay, atFrom).before)
+    const later = splitMovesAt(overlay, atTo)
     tail = withList({ ...tail, ...later.afterRect }, 'moves', later.after)
+  }
+  // Picture effects (#872) are keyed to on-screen time as Moves are: the
+  // head keeps what lies before Cut from's output instant, and the tail
+  // what lies after Cut to's, re-anchored to its own appearance. An effect
+  // spanning the cut keeps a part on each side, and one wholly inside the
+  // cut goes with it.
+  if (overlay.pictureEffects !== undefined) {
+    head = withList(head, 'pictureEffects', splitOverlayPictureEffectsAt(overlay.pictureEffects, atFrom).before)
+    tail = withList(tail, 'pictureEffects', splitOverlayPictureEffectsAt(overlay.pictureEffects, atTo).after)
   }
   return [head, tail]
 }

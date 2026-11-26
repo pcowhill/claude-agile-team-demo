@@ -217,6 +217,32 @@ describe('timelineHasPictureFilters', () => {
       timelineHasPictureFilters(stateWith(effect({ type: 'pixelate' }), effect({ id: 'p2', type: 'soften' })), withPixelate),
     ).toBe(true)
   })
+
+  it('counts an overlay\'s effects as an entry\'s (#872)', () => {
+    const onOverlay = (type: string): TimelineState => ({
+      entries: [entry],
+      zooms: [],
+      videoOverlays: [
+        {
+          id: 'pip',
+          clipId: 'c2',
+          name: 'pip.mp4',
+          duration: 10,
+          url: 'blob:pip',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 10,
+          x: 0,
+          y: 0,
+          width: 0.5,
+          height: 0.5,
+          pictureEffects: [{ id: 'o1', type, start: 1, end: 3, params: { amount: 0.02 } }],
+        },
+      ],
+    })
+    expect(timelineHasPictureFilters(onOverlay('soften'), registry())).toBe(true)
+    expect(timelineHasPictureFilters(onOverlay('dim'), registry())).toBe(false)
+  })
 })
 
 describe('pictureFilterFunctions', () => {

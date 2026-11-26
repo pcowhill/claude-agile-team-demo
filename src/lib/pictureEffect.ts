@@ -49,6 +49,25 @@ export interface PictureEffect extends PictureEffectSpec {
 }
 
 /**
+ * A picture effect owned by a video or image overlay (#872). Held on the
+ * overlay itself (`VideoOverlay.pictureEffects`), as its Moves and zooms
+ * are, so removing or duplicating the overlay takes its effects along and
+ * no `entryId` is needed.
+ *
+ * **Time base.** Unlike an entry's effect, `start` and `end` are seconds
+ * since the overlay **appears**, its on-screen time from `offset`, the
+ * Move's time base (#834): an effect belongs to what is on screen, so the
+ * overlay's own speed segments and pauses never change when it shows. The
+ * window lies within `overlayOutputDuration`.
+ */
+export interface OverlayPictureEffect extends PictureEffectSpec {
+  /** Unique within its overlay: the handle update and remove act on. */
+  id: string
+  /** The registry id of the effect's definition, as `PictureEffect.type`. */
+  type: string
+}
+
+/**
  * Whether a spec is acceptable input at all: a finite, non-empty window
  * and finite parameter values under non-empty keys. Rejected rather than
  * clamped, like an invalid zoom or remap spec.

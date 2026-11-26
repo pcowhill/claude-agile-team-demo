@@ -30,7 +30,7 @@ import {
   pictureEffectsOf,
   shapeGroupsOf,
 } from './timeline'
-import type { PictureEffect } from './pictureEffect'
+import type { OverlayPictureEffect, PictureEffect } from './pictureEffect'
 import type { Shape, ShapeGroup, ShapeStyle } from './shapes'
 import {
   ARROW_HEAD_SIZES,
@@ -152,7 +152,9 @@ import { MAX_VOLUME } from './volume'
  *                           shadow?: { color, opacity, blur,
  *                                      offsetX, offsetY },      // (#698)
  *                           moves?: [{ id, start, glide,
- *                                      x, y, width, height }] }] // (#834)
+ *                                      x, y, width, height }], // (#834)
+ *                           pictureEffects?: [{ id, type, start, end,
+ *                                               params: { [key]: number } }] }] // (#872)
  *     }
  *   }
  *
@@ -308,7 +310,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 34
+export const PROJECT_SCHEMA_VERSION = 35
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -439,6 +441,14 @@ export const OVERLAY_MOVES_SCHEMA_VERSION = 33
  * bytes.
  */
 export const PICTURE_EFFECTS_SCHEMA_VERSION = 34
+/**
+ * The version a picture effect on an overlay forces (#872). A build from
+ * 34 understands entry effects but would ignore the overlay's key and show
+ * the overlay's picture unaffected, so a file holding one refuses it by
+ * version; a file whose overlays carry none keeps its version and its
+ * bytes.
+ */
+export const OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION = 35
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -830,6 +840,10 @@ export async function serializeProject(
   // The reducer never stores an empty list; length-based all the same, so a
   // foreign state carrying one writes the bytes of a state that never did.
   const hasPictureEffects = pictureEffectsOf(timeline).length > 0
+  // Length-based, like the overlay's Moves: written only while one exists.
+  const hasOverlayPictureEffects = videoOverlaysOf(timeline).some(
+    (overlay) => (overlay.pictureEffects?.length ?? 0) > 0,
+  )
   // Length-based, like the overlay's zooms: written only while one exists.
   const hasOverlayMoves = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.moves?.length ?? 0) > 0,
@@ -914,7 +928,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasPictureEffects
+    schemaVersion: hasOverlayPictureEffects
+      ? OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION
+      : hasPictureEffects
       ? PICTURE_EFFECTS_SCHEMA_VERSION
       : hasOverlayMoves
       ? OVERLAY_MOVES_SCHEMA_VERSION
@@ -1222,7 +1238,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow, moves }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow, moves, pictureEffects }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1330,6 +1346,19 @@ export async function serializeProject(
                         y,
                         width,
                         height,
+                      })),
+                    }),
+                // The overlay's picture effects (#872), written only while
+                // any exist, with an entry effect's fields less `entryId`.
+                ...(pictureEffects === undefined || pictureEffects.length === 0
+                  ? {}
+                  : {
+                      pictureEffects: pictureEffects.map(({ id, type, start, end, params }) => ({
+                        id,
+                        type,
+                        start,
+                        end,
+                        params: { ...params },
                       })),
                     }),
               }),
@@ -1865,6 +1894,53 @@ function asOverlayShadow(value: unknown, path: string): OverlayShadow {
 }
 
 /**
+ * A picture effect's type, window and parameters as stored (#862), the
+ * fields an entry's effect (`timeline.pictureEffects`) and an overlay's
+ * (#872) share: a non-empty type, a non-empty window starting at or after
+ * 0, and finite parameter values under non-empty keys. Fitting the window
+ * into its owner is open-time normalization's.
+ */
+function asPictureEffectBody(
+  raw: Record<string, unknown>,
+  path: string,
+): { type: string; start: number; end: number; params: Record<string, number> } {
+  const type = asString(raw.type, `${path}.type`)
+  const start = asNonNegative(raw.start, `${path}.start`)
+  const end = asFinite(raw.end, `${path}.end`)
+  if (start >= end) throw new Error(`${path} window is empty (start must be less than end)`)
+  const paramsRaw = asRecord(raw.params, `${path}.params`)
+  const params = Object.fromEntries(
+    Object.entries(paramsRaw).map(([key, param]) => {
+      // The reducer refuses an empty key (`isValidPictureEffectSpec`);
+      // so does the parser, so an opened file holds only what an edit
+      // could have stored (#914's review).
+      if (key === '') throw new Error(`${path}.params has an empty key`)
+      return [key, asFinite(param, `${path}.params.${key}`)]
+    }),
+  )
+  return { type, start, end, params }
+}
+
+/**
+ * An overlay's picture effects (#872) as stored: an entry effect's fields
+ * less `entryId` (`asPictureEffectBody`), with ids unique within the
+ * overlay. Whether a type is a known effect is the open flow's question,
+ * as for an entry's.
+ */
+function asOverlayPictureEffects(value: unknown, path: string): OverlayPictureEffect[] {
+  const ids = new Set<string>()
+  return asArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const raw = asRecord(item, itemPath)
+    const id = asString(raw.id, `${itemPath}.id`)
+    const { type, start, end, params } = asPictureEffectBody(raw, itemPath)
+    if (ids.has(id)) throw new Error(`${itemPath}.id "${id}" is duplicated`)
+    ids.add(id)
+    return { id, type, start, end, params }
+  })
+}
+
+/**
  * An overlay's Moves (#834) as stored: a non-negative start and glide, and a
  * destination held to the overlay's own rectangle rules (a size within
  * (0, 1], the rectangle on the frame), with ids unique within the overlay.
@@ -2285,20 +2361,7 @@ function validateProject(document: Record<string, unknown>): Project {
       if (!entryIds.has(entryId)) {
         throw new Error(`${path}.entryId "${entryId}" does not match any timeline entry`)
       }
-      const type = asString(raw.type, `${path}.type`)
-      const start = asNonNegative(raw.start, `${path}.start`)
-      const end = asFinite(raw.end, `${path}.end`)
-      if (start >= end) throw new Error(`${path} window is empty (start must be less than end)`)
-      const paramsRaw = asRecord(raw.params, `${path}.params`)
-      const params = Object.fromEntries(
-        Object.entries(paramsRaw).map(([key, param]) => {
-          // The reducer refuses an empty key (`isValidPictureEffectSpec`);
-          // so does the parser, so an opened file holds only what an edit
-          // could have stored (#914's review).
-          if (key === '') throw new Error(`${path}.params has an empty key`)
-          return [key, asFinite(param, `${path}.params.${key}`)]
-        }),
-      )
+      const { type, start, end, params } = asPictureEffectBody(raw, path)
       if (pictureEffectIds.has(id)) throw new Error(`${path}.id "${id}" is duplicated`)
       pictureEffectIds.add(id)
       return { id, entryId, type, start, end, params }
@@ -2812,6 +2875,13 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.moves !== undefined) {
         const overlayMoves = asOverlayMoves(raw.moves, `${path}.moves`)
         if (overlayMoves.length > 0) overlay.moves = overlayMoves
+      }
+      // The overlay's picture effects (#872), video or image: structure
+      // only; fitting each window into the overlay's on-screen window is
+      // open-time normalization's, as for its Moves.
+      if (raw.pictureEffects !== undefined) {
+        const effects = asOverlayPictureEffects(raw.pictureEffects, `${path}.pictureEffects`)
+        if (effects.length > 0) overlay.pictureEffects = effects
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

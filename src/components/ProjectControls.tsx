@@ -10,7 +10,7 @@ import { probeMediaFile } from '../lib/probeMedia'
 import { deserializeProject } from '../lib/projectFile'
 import type { ClipMedia, DeserializeResult, Project } from '../lib/projectFile'
 import { serializeProject } from '../lib/projectFile'
-import { emptyTimeline } from '../lib/timeline'
+import { emptyTimeline, everyPictureEffectOf } from '../lib/timeline'
 import type { TimelineState } from '../lib/timeline'
 import { unregisteredTransitionTypes } from '../lib/transitionRender'
 import { unregisteredTextFonts } from '../lib/textOverlay'
@@ -465,8 +465,9 @@ export function ProjectControls({
     }
     // Picture effects likewise (#862): every definition comes from a plugin,
     // so only after the gate can an unknown type be told from a known one.
+    // An overlay's effects (#872) are checked with the entries'.
     const unknownEffects = unregisteredPictureEffectTypes(
-      (result.project.timeline.pictureEffects ?? []).map((effect) => effect.type),
+      everyPictureEffectOf(result.project.timeline).map((effect) => effect.type),
     )
     if (unknownEffects.length > 0) {
       setOpenError(
