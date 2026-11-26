@@ -8,6 +8,7 @@ import { NO_PICTURE_LOOK, pictureEffectRegistry } from './pictureEffect'
 import type { OverlayPictureEffect, PictureEffect, PictureEffectDefinition } from './pictureEffect'
 import type { OverlayMove } from './overlayMove'
 import { overlayPlacementOf } from './videoOverlay'
+import { emptyTimelineHistory, timelineHistoryReducer } from './history'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
   clipId: 'clip-a',
@@ -63,7 +64,7 @@ describe('trimEffectsPreview: a zoom (#709)', () => {
     expect(preview.warnings).toEqual([{ id: 'z1', kind: 'zoom', name: 'Zoom 1', outcome: 'removes' }])
     expect(trimWarningText(preview.warnings)).toBe('Trimming here removes Zoom 1.')
     const after = zoomsForEntry(applied(withZoom(), 0, 3.5), 'e1')[0]
-    // Kept, so an un-trim restores it, but nothing of it plays.
+    // Kept at length zero, so its row stays, but nothing of it plays.
     expect(after.start).toBe(3.5)
     expect(zoomWindowDuration(after)).toBe(0)
     expect(preview.marks).toEqual([])
@@ -398,6 +399,77 @@ describe('trimEffectsPreview: picture effects (#862)', () => {
   it('names an effect whose plugin is disabled as the row does, "(unavailable)"', () => {
     const preview = trimEffectsPreview(withEffects(effect('b1', 1, 4, 'blur')), 'e1', { inPoint: 0, outPoint: 3 })
     expect(trimWarningText(preview.warnings)).toBe('Trimming here shortens blur 1 (unavailable).')
+  })
+})
+
+/**
+ * What *removes* leaves behind (#1013): the effect is kept at length zero
+ * where the trim ended, and moving the trim back out does not lengthen it
+ * again. The guide and the module comment say so; Undo is what restores it.
+ */
+describe('a removed effect stays at length zero when the trim moves back out; Undo restores it (#1013)', () => {
+  const vignette: PictureEffect = { id: 'v1', entryId: 'e1', type: 'vignette', start: 7, end: 9, params: { strength: 60 } }
+  const late: TimelineState = {
+    entries: [entry({ id: 'e1' })],
+    zooms: [{ ...zoom, start: 7, rampIn: 1, hold: 0.5, rampOut: 0.5 }],
+    remaps: [{ id: 's1', entryId: 'e1', kind: 'speed', start: 7, end: 9, factor: 2 }],
+    pictureEffects: [vignette],
+  }
+
+  it('an entry\'s zoom, speed segment and picture effect, trimmed to Out 5 and back to 10', () => {
+    expect(trimWarningText(trimEffectsPreview(late, 'e1', { inPoint: 0, outPoint: 5 }).warnings)).toBe(
+      'Trimming here removes Zoom 1, removes Speed segment 1 and removes vignette 1 (unavailable).',
+    )
+    const back = applied(applied(late, 0, 5), 0, 10)
+    expect(back.entries[0]).toMatchObject({ inPoint: 0, outPoint: 10 })
+    const zoomBack = zoomsForEntry(back, 'e1')[0]
+    expect(zoomBack.start).toBe(5)
+    expect(zoomWindowDuration(zoomBack)).toBe(0)
+    expect(remapsForEntry(back, 'e1')[0]).toMatchObject({ start: 5, end: 5 })
+    expect(back.pictureEffects?.[0]).toMatchObject({ start: 5, end: 5 })
+    // The trim back out warns of nothing: there is nothing left to cut.
+    expect(trimEffectsPreview(applied(late, 0, 5), 'e1', { inPoint: 0, outPoint: 10 }).warnings).toEqual([])
+  })
+
+  it('an overlay\'s Move, trimmed to Out 5 and back to 10', () => {
+    const withMove: TimelineState = {
+      entries: [entry({ id: 'e1' })],
+      videoOverlays: [
+        {
+          id: 'o1',
+          clipId: 'clip-o',
+          name: 'pip.webm',
+          duration: 10,
+          url: 'blob:clip-o',
+          offset: 0,
+          inPoint: 0,
+          outPoint: 10,
+          x: 0.6,
+          y: 0.6,
+          width: 0.3,
+          height: 0.3,
+          moves: [{ id: 'm1', start: 6, glide: 1, x: 0.1, y: 0.1, width: 0.3, height: 0.3 }],
+        },
+      ],
+    }
+    const retrim = (state: TimelineState, outPoint: number) => {
+      const stored = videoOverlaysOf(state)[0]
+      return timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: stored.id,
+        placement: { ...overlayPlacementOf(stored), inPoint: 0, outPoint },
+      })
+    }
+    const back = retrim(retrim(withMove, 5), 10)
+    expect(videoOverlaysOf(back)[0].moves).toEqual([expect.objectContaining({ id: 'm1', start: 5, glide: 0 })])
+  })
+
+  it('Undo of the trim restores every window as it was', () => {
+    const before = { ...emptyTimelineHistory, present: late }
+    const trimmed = timelineHistoryReducer(before, { type: 'entry-trimmed', id: 'e1', inPoint: 0, outPoint: 5 })
+    expect(remapsForEntry(trimmed.present, 'e1')[0]).toMatchObject({ start: 5, end: 5 })
+    const undone = timelineHistoryReducer(trimmed, { type: 'edit-undone' })
+    expect(undone.present).toBe(late)
   })
 })
 

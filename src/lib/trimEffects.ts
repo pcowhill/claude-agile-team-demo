@@ -12,9 +12,11 @@
  * **Effects ride with In.** A zoom's `start`, a speed segment's window and a
  * pause's `at` are seconds into the entry's *trimmed* range, not into the
  * source. On a retrim the reducer re-sweeps them against the new length:
- * - what no longer fits **collapses to zero length**, and is kept so that
- *   un-trimming restores it — nothing of it plays, so the window says it
- *   *removes* it;
+ * - what no longer fits **collapses to zero length** at the new end —
+ *   nothing of it plays, so the window says it *removes* it. It is kept,
+ *   so its row stays, but a later retrim back out does not lengthen it
+ *   again: the sweep only ever clamps. Undo of the trim restores it
+ *   (#1013);
  * - what still has some length but less is *shortened*;
  * - a pause keeps its hold, and when the trim's end passes it, it is
  *   pulled back to the end — *moves*.
