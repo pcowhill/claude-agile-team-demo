@@ -84,9 +84,10 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
  * set by the entry's earlier effects, mirroring `clampZoom`: the window
  * starts no earlier than `floor` and never leaves [0, trimmedLength]. A
  * speed segment squeezed against the end collapses to zero width (kept, not
- * dropped — a later un-trim restores it, exactly as a collapsed zoom phase
- * is restored); a pause always keeps its hold, freezing whatever frame it
- * lands on. Returns the same object when nothing changes, so no-op edits
+ * dropped, as a collapsed zoom is: its row stays to be lengthened again,
+ * though a later retrim back out does not lengthen it, and Undo is what
+ * restores it, #1013); a pause always keeps its hold, freezing whatever
+ * frame it lands on. Returns the same object when nothing changes, so no-op edits
  * are cheap to detect.
  */
 export function clampRemap<T extends RemapSpec>(effect: T, trimmedLength: number, floor = 0): T {

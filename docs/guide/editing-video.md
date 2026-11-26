@@ -39,7 +39,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
   - **Marks.** The entry's [zooms](#zooms), [speed segments and pauses](#speed-segments-and-pauses), and its [vignettes and blurs](#vignette-and-blur), sit along the foot of the strip where they will be after Apply. A zoom is a purple bar, a speed segment a green bar, a vignette or blur a blue bar, and a pause an orange tick; point at one to see its name. They are placed in seconds into the kept part, as their fields are, so they move with the In clamp.
   - **The warning line** under the strip names each effect the clamps as they stand would cut into:
     - *shortens Zoom 1*: part of it is left.
-    - *removes Speed segment 1*: none of it plays. It is kept at length zero, so trimming back out restores it.
+    - *removes Speed segment 1*: none of it plays. It is kept at length zero where the trim now ends, so its row stays and you can set its times again in its fields. Moving the trim back out later does not lengthen it; **Undo** of the trim restores it as it was.
     - *moves Pause 1 to the new end*: the pause still holds, on the new last frame.
 
     It changes as you drag and goes when the clamps move back.
