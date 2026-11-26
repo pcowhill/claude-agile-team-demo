@@ -5,10 +5,12 @@ import {
   PICTURE_EFFECT_EASE_SECONDS,
   pictureEffectWeight,
   pictureFilterFunctions,
+  overlayPictureLookAt,
   pictureLookAt,
   timelineHasPictureFilters,
 } from './pictureLook'
 import type { TimelineEntry, TimelineState } from './timeline'
+import type { VideoOverlay } from './videoOverlay'
 
 /**
  * The picture-effect resolver (#862): the one rule both renderers draw
@@ -190,6 +192,74 @@ describe('pictureLookAt', () => {
     }
     expect(pictureLookAt(other, 0, at(3), registry())).toBe(NO_PICTURE_LOOK)
     expect(pictureLookAt(other, 1, at(3), registry()).layers).toHaveLength(1)
+  })
+})
+
+describe('overlayPictureLookAt (#872)', () => {
+  // On screen from sequence 4 for 8 s (trim [2, 10]): on-screen time is
+  // sequence time − 4, whatever the source clock reads.
+  const overlay = (fields: Partial<VideoOverlay> = {}): Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint' | 'remaps' | 'pictureEffects'> => ({
+    offset: 4,
+    inPoint: 2,
+    outPoint: 10,
+    pictureEffects: [{ id: 'v', type: 'dim', start: 2, end: 5, params: { strength: 0.8 } }],
+    ...fields,
+  })
+
+  it('is NO_PICTURE_LOOK itself with no effects, an empty list, or outside every window', () => {
+    expect(overlayPictureLookAt(overlay({ pictureEffects: undefined }), 7, 5, registry())).toBe(NO_PICTURE_LOOK)
+    expect(overlayPictureLookAt(overlay({ pictureEffects: [] }), 7, 5, registry())).toBe(NO_PICTURE_LOOK)
+    // Sequence 5.5 is on-screen 1.5: before the window [2, 5].
+    expect(overlayPictureLookAt(overlay(), 5.5, 3.5, registry())).toBe(NO_PICTURE_LOOK)
+  })
+
+  it('reads the window in on-screen time from the offset, not on the source clock', () => {
+    // Sequence 7.5 is on-screen 3.5, inside [2, 5], whatever source time is passed.
+    expect(overlayPictureLookAt(overlay(), 7.5, 0, registry())).toEqual({
+      filters: [],
+      layers: [{ kind: 'vignette', strength: 0.8, inner: 0.5 }],
+    })
+    // Source time 5.5 would be inside the window on an entry's clock; sequence 5 is on-screen 1.
+    expect(overlayPictureLookAt(overlay(), 5, 5.5, registry())).toBe(NO_PICTURE_LOOK)
+  })
+
+  it('eases an inner edge, and not an edge on the overlay\'s own first or last on-screen instant', () => {
+    const half = PICTURE_EFFECT_EASE_SECONDS / 2
+    // Inner start at on-screen 2: half-way up the ease, smoothstep(0.5) = 0.5.
+    expect(overlayPictureLookAt(overlay(), 4 + 2 + half, 0, registry()).layers[0]).toMatchObject({
+      strength: expect.closeTo(0.4, 10),
+    })
+    // A window from 0 to the end (8 s on screen) is at full weight at both ends.
+    const whole = overlay({ pictureEffects: [{ id: 'v', type: 'dim', start: 0, end: 8, params: { strength: 0.8 } }] })
+    expect(overlayPictureLookAt(whole, 4 + half, 0, registry()).layers[0]).toMatchObject({ strength: 0.8 })
+    expect(overlayPictureLookAt(whole, 12 - half, 0, registry()).layers[0]).toMatchObject({ strength: 0.8 })
+  })
+
+  it('measures the window against the remapped on-screen length', () => {
+    // A 2× segment over source 0..4 of the trim: the 8 s trim shows for 6 s.
+    const remaps = [{ id: 'r', kind: 'speed' as const, start: 0, end: 4, factor: 2 }]
+    const sped = overlay({ remaps, pictureEffects: [{ id: 'v', type: 'dim', start: 3, end: 6, params: { strength: 0.8 } }] })
+    // 6 is the overlay's last on-screen instant, so the end does not ease.
+    expect(overlayPictureLookAt(sped, 4 + 6 - PICTURE_EFFECT_EASE_SECONDS / 2, 0, registry()).layers[0]).toMatchObject({
+      strength: 0.8,
+    })
+  })
+
+  it('passes the overlay\'s source time to the rule, the clock a texture steps on, and renders an unknown type as nothing', () => {
+    const seen: (number | undefined)[] = []
+    const timed = new PictureEffectRegistry()
+    timed.register({
+      ...dim,
+      look: (params, weight, time) => {
+        seen.push(time)
+        return dim.look(params, weight)
+      },
+    })
+    overlayPictureLookAt(overlay(), 7.5, 9.25, timed)
+    expect(seen).toEqual([9.25])
+    expect(
+      overlayPictureLookAt(overlay({ pictureEffects: [{ id: 'x', type: 'from-a-disabled-plugin', start: 0, end: 8, params: {} }] }), 7, 5, registry()),
+    ).toBe(NO_PICTURE_LOOK)
   })
 })
 
