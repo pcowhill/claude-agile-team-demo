@@ -41,10 +41,13 @@ export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3, 
  * VHS (#870, step 2b(i)) at Amount 100 and full weight: its soft blur's
  * radius as a fraction of the frame width (about 3 px of a 1080p frame,
  * a tape's lost sharpness rather than Blur's deliberate haze), the
- * darkest scanline's alpha, and the tracking band's brightest cell's
- * alpha. Amount scales them all together.
+ * darkest scanline's alpha, the tracking band's brightest cell's alpha,
+ * and how far its colour offset (step 2b(ii)3) moves red left and blue
+ * right, as a fraction of the frame width (about 4 px of a 1080p frame,
+ * a fringe that reads as a tape's colour bleed without doubling the
+ * picture). Amount scales them all together.
  */
-export const VHS = { blur: 0.0015, scanlines: 0.4, tracking: 0.5 }
+export const VHS = { blur: 0.0015, scanlines: 0.4, tracking: 0.5, offset: 0.002 }
 
 /**
  * How far Chromatic aberration (#871) moves the picture's red left and its
@@ -148,8 +151,11 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
   // A worn videotape look (#870, step 2b(i)): a soft blur and thin dark
   // scanlines across the picture, whose darkness shimmers 24 times a
   // second of the entry's clock, and now and then a light, noisy tracking
-  // band that rolls down the frame for half a second. Amount is the
-  // strength of them all, in percent. The colour offset is a later step.
+  // band that rolls down the frame for half a second, and a colour offset
+  // (step 2b(ii)3): red moved left and blue right, so edges carry the
+  // fringes of a tape's colour bleed. The offset comes before the blur,
+  // which softens the fringes as it softens the picture. Amount is the
+  // strength of them all, in percent.
   vhs: {
     id: 'vhs',
     name: 'VHS',
@@ -157,7 +163,10 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
     look: (params, weight, time = 0) => {
       const strength = (params.amount / 100) * weight
       return {
-        filters: [{ kind: 'blur', radius: VHS.blur * strength }],
+        filters: [
+          { kind: 'channel-offset', offset: VHS.offset * strength },
+          { kind: 'blur', radius: VHS.blur * strength },
+        ],
         layers: [
           { kind: 'scanlines', amount: VHS.scanlines * strength, seed: textureStep(time) },
           { kind: 'tracking', amount: VHS.tracking * strength, seed: textureStep(time) },

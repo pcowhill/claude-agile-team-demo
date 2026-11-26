@@ -438,8 +438,8 @@ This list is checked against the running editor in CI: a control the app shows a
 
 ## V
 
-- **VHS** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a soft blur, thin dark scanlines and, now and then, a rolling tracking band over the picture for a stretch of the entry. [Editing video › VHS](editing-video.md#vhs) · [Plugins › Visual effects](plugins.md#visual-effects)
-- **VHS amount** — VHS on an expanded sequence entry; 0 to 100 %, how soft the picture, how dark its scanlines and how bright its tracking band are. [Editing video › VHS](editing-video.md#vhs)
+- **VHS** — + Effect ▾ on a sequence entry, with the Visual effects plugin on; a soft blur, colour fringes, thin dark scanlines and, now and then, a rolling tracking band over the picture for a stretch of the entry. [Editing video › VHS](editing-video.md#vhs) · [Plugins › Visual effects](plugins.md#visual-effects)
+- **VHS amount** — VHS on an expanded sequence entry; 0 to 100 %, how soft the picture, how wide its colour fringes, how dark its scanlines and how bright its tracking band are. [Editing video › VHS](editing-video.md#vhs)
 - **VHS end** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs to. [Editing video › VHS](editing-video.md#vhs)
 - **VHS start** — VHS on an expanded sequence entry; the second of the entry's trimmed range its stretch runs from. [Editing video › VHS](editing-video.md#vhs)
 - **View** — the media library header; the layout and sorting menu. [Media library › View ▾](media-library.md#view-layout-and-sorting)
