@@ -155,6 +155,19 @@ does. Do not write ADRs for trivial or easily reversed choices.
   reviewers and to CI, so one unstaged file makes a sincere claim false —
   #330 reported a passing suite its branch could not have run, and CI
   failed on the file that was never committed (#335).
+- **A failure written off as "fails on `main` too" names its issue.** When
+  the evidence puts a failure down to `main` rather than to the change,
+  it links the issue that tracks it. If none exists, the session files
+  one before opening the PR, with the command it ran on `main` and the
+  output. Running the test on `main` is already what sessions do; the
+  issue is what makes the result outlast the PR. #886 is the worked
+  example: `e2e/visual-editor-load-failure.spec.ts:221` fails in every
+  session container's local Chromium run and passes CI, and #880's and
+  #883's PRs each explained it away in a paragraph before the session
+  implementing #861 (#889) filed it. Until then every full-suite report
+  carried a "1 failed" that each reader had to take on trust or
+  re-derive, which wears down the honest-evidence invariant and would
+  hide a new failure in the same spec (#887).
 - **Evidence for a criterion is measured at the parameters the criterion
   names.** A criterion that says 30 s, 1280×720, a screen recording, or ten
   repeats is asking for that measurement because the number depends on it.
