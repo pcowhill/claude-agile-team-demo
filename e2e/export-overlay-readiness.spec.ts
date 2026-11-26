@@ -188,6 +188,10 @@ test('an overlay layer stays in the export while its element cannot supply a fra
           })
         })
       }
+      // Rewind only: nothing is drawn after this seek. Every frame is drawn
+      // inside a requestVideoFrameCallback during play() below, so each draw
+      // is of a frame already presented, not the pre-#276 draw straight after
+      // `seeked` (#997).
       await new Promise<void>((resolve) => {
         video.onseeked = () => resolve()
         video.currentTime = 0

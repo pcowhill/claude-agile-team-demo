@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { presentedExportedFrame } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { confirmDisableIfAsked } from './pluginConfirm'
 
@@ -210,65 +211,34 @@ test('a pack transition exports: the box carries the incoming clip over the outg
   // lesson: sample by the file's own timeline, not nominal seconds). At any
   // progress in the middle half the box covers the centre and no corner:
   // centre = incoming blue, corner = outgoing green.
-  const probed = await page.evaluate(async (base64: string) => {
+  // Read once presented (`presentedExportedFrame`, #276): drawing straight
+  // after `seeked` can read an all-black frame under load (#997, as #921
+  // and #957 found in sibling specs).
+  const frame = await presentedExportedFrame(page, exported, { fractionOfDuration: 0.5 })
+  const sampled = await page.evaluate(async (base64: string) => {
     const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-    const video = document.createElement('video')
-    video.muted = true
-    try {
-      await new Promise<void>((resolve, reject) => {
-        video.onerror = () => reject(new Error('exported file failed to decode'))
-        video.onloadedmetadata = () => {
-          if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-          else {
-            video.ondurationchange = () => {
-              if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-            }
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-        }
-        video.src = url
-      })
-      // Firefox drops a seek issued before the first frame has loaded: at
-      // readyState 1 the assignment can be lost with no seeking event, leaving
-      // currentTime at 0 (#615). Seek only once loadeddata has fired.
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        await new Promise<void>((resolve, reject) => {
-          video.addEventListener('loadeddata', () => resolve(), { once: true })
-          video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
-            once: true,
-          })
-        })
-      }
-      const duration = video.duration
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve()
-        video.currentTime = duration / 2
-      })
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(video, 0, 0)
-      const sample = (xFraction: number, yFraction: number) => {
-        const data = ctx.getImageData(
-          Math.floor(canvas.width * xFraction),
-          Math.floor(canvas.height * yFraction),
-          1,
-          1,
-        ).data
-        return { r: data[0], g: data[1], b: data[2] }
-      }
-      return {
-        duration,
-        centre: sample(0.5, 0.5),
-        topLeft: sample(0.03, 0.03),
-        bottomRight: sample(0.97, 0.97),
-      }
-    } finally {
-      URL.revokeObjectURL(url)
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const sample = (xFraction: number, yFraction: number) => {
+      const data = ctx.getImageData(
+        Math.floor(canvas.width * xFraction),
+        Math.floor(canvas.height * yFraction),
+        1,
+        1,
+      ).data
+      return { r: data[0], g: data[1], b: data[2] }
     }
-  }, exported.toString('base64'))
+    return {
+      centre: sample(0.5, 0.5),
+      topLeft: sample(0.03, 0.03),
+      bottomRight: sample(0.97, 0.97),
+    }
+  }, frame.png.toString('base64'))
+  const probed = { duration: frame.duration, ...sampled }
 
   // Real-time recording of a 1s sequence: overhead above, epsilon below.
   expect(probed.duration).toBeGreaterThan(0.6)

@@ -295,6 +295,10 @@ test('the base layer never records a black frame while its element is seeking (#
           })
         })
       }
+      // Rewind only: nothing is drawn after this seek. Every frame is drawn
+      // inside a requestVideoFrameCallback during play() below, so each draw
+      // is of a frame already presented, not the pre-#276 draw straight after
+      // `seeked` (#997).
       await new Promise<void>((resolve) => {
         video.onseeked = () => resolve()
         video.currentTime = 0
