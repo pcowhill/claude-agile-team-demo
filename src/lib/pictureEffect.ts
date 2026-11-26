@@ -142,6 +142,18 @@ export interface PictureEffectParam {
  *   screen whatever the clip's orientation. At the frame's edge, where
  *   nothing moved into a band, the picture shows as it was.
  *
+ * - `pixelate` (#871, step 3b): the picture drawn in square-ish blocks of
+ *   one colour each, `block` a **fraction of the frame width** as a blur's
+ *   radius is. No filter function draws it, and #871's measurement found
+ *   an SVG filter for it about 228 ms a 1080p frame in Chromium, so it is
+ *   drawn by downscaling instead: the picture, with every other filter of
+ *   the look already applied, is drawn into a `pixelateGrid` of
+ *   columns × rows and stretched back over the card with smoothing off.
+ *   It therefore applies **after** the look's other filters, wherever it
+ *   sits in the list, and several pixelate filters draw as the largest.
+ *   Like the others it touches the source pixels only: redactions,
+ *   spotlights and layers stay sharp.
+ *
  * Sepia and brightness are pointwise colour matrices, defined alike for
  * CSS and the canvas `filter` (Filter Effects), and have no size, so
  * neither depends on the frame's width or a zoom's scale as a blur does.
@@ -152,6 +164,49 @@ export type PictureFilter =
   | { kind: 'brightness'; amount: number }
   | { kind: 'channel-offset'; offset: number }
   | { kind: 'slices'; bands: readonly SliceBand[] }
+  | { kind: 'pixelate'; block: number }
+
+/**
+ * The low-resolution grid a `pixelate` filter (#871) draws a card through:
+ * `columns` × `rows` blocks, each one pixel of the downscaled buffer,
+ * stretched back over the card. `block` is a fraction of the frame width
+ * and `width` × `height` the card's size in the pixels drawn.
+ *
+ * A width that is not a whole number of blocks has a stated rule: the
+ * count is **rounded** to the nearest whole block (at least one), and the
+ * blocks stretch to fill the card exactly, each `width / columns` wide and
+ * `height / rows` tall. So no partial block sits at an edge, every block
+ * is within half a block's share of square, and the grid depends only on
+ * `block` and the card's aspect, not on its size: a preview and a 1080p
+ * export draw the same grid.
+ *
+ * Null when the filter draws nothing: a block that is not positive, or
+ * one no wider than a pixel of the card (as many columns as pixels).
+ */
+export function pixelateGrid(
+  block: number,
+  width: number,
+  height: number,
+): { columns: number; rows: number } | null {
+  if (!(block > 0) || !(width > 0) || !(height > 0)) return null
+  const columns = Math.max(1, Math.round(1 / block))
+  if (columns >= width) return null
+  const rows = Math.max(1, Math.round(height / (block * width)))
+  return { columns, rows }
+}
+
+/**
+ * The block a look's pixelate filters draw at: the largest, since a
+ * coarser grid drawn over a finer one is the coarser one. Undefined when
+ * the look has none.
+ */
+export function pixelateBlock(filters: readonly PictureFilter[]): number | undefined {
+  let largest: number | undefined
+  for (const filter of filters) {
+    if (filter.kind === 'pixelate' && (largest === undefined || filter.block > largest)) largest = filter.block
+  }
+  return largest
+}
 
 /**
  * One band of a `slices` filter (#871): the rows from `top` to

@@ -202,6 +202,21 @@ describe('timelineHasPictureFilters', () => {
       false,
     )
   })
+
+  it('does not count a pixelate filter, which is drawn without canvas filter support (#871)', () => {
+    const pixelate: PictureEffectDefinition = {
+      id: 'pixelate',
+      name: 'Pixelate',
+      params: [],
+      look: () => ({ filters: [{ kind: 'pixelate', block: 0.01 }], layers: [] }),
+    }
+    const withPixelate = registry()
+    withPixelate.register(pixelate)
+    expect(timelineHasPictureFilters(stateWith(effect({ type: 'pixelate' })), withPixelate)).toBe(false)
+    expect(
+      timelineHasPictureFilters(stateWith(effect({ type: 'pixelate' }), effect({ id: 'p2', type: 'soften' })), withPixelate),
+    ).toBe(true)
+  })
 })
 
 describe('pictureFilterFunctions', () => {
@@ -282,6 +297,17 @@ describe('pictureFilterFunctions', () => {
     expect(pictureFilterFunctions(filters, 1920, 'px')).toEqual(['sepia(0.5)', 'blur(19.2px)'])
     expect(pictureFilterFunctions([{ kind: 'slices', bands: [] }], 1920, 'px', 1, undefined, reference)).toEqual([])
     expect(asked).toHaveLength(1)
+  })
+
+  it('writes nothing for a pixelate filter, which a renderer draws by downscaling (#871)', () => {
+    const filters = [
+      { kind: 'sepia', amount: 0.5 },
+      { kind: 'pixelate', block: 0.01 },
+      { kind: 'blur', radius: 0.01 },
+    ] as const
+    expect(pictureFilterFunctions(filters, 1920, 'px')).toEqual(['sepia(0.5)', 'blur(19.2px)'])
+    expect(pictureFilterFunctions(filters, 100, 'cqw', 2)).toEqual(['sepia(0.5)', 'blur(0.5cqw)'])
+    expect(pictureFilterFunctions([{ kind: 'pixelate', block: 0.01 }], 1920, 'px')).toEqual([])
   })
 })
 
