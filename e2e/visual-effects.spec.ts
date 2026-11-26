@@ -1503,7 +1503,8 @@ test.describe("Old film's scratches and dust (#870)", () => {
 
 /**
  * VHS (#870, step 2b(i)): a soft blur and thin dark scanlines, whose
- * darkness shimmers 24 times a second of the entry's clock.
+ * darkness shimmers 24 times a second of the entry's clock, and a colour
+ * offset (step 2b(ii)3) that moves red left and blue right.
  *
  * The still is 1920 × 1080, so a 1080p frame holds a scanline period in
  * 4 px: its left half mid-grey, where the lines are measured, and its
@@ -1517,7 +1518,10 @@ test.describe("Old film's scratches and dust (#870)", () => {
  * - `grey`: the grey half's mean brightness, which the lines darken.
  * - `edge`: the edge's width, from three quarters to one quarter of the
  *   way from white to black, in px of a 1080p frame: about 1 when sharp,
- *   and the blur widens it.
+ *   and the blur and the colour offset widen it.
+ * - `fringe`: how far blue's edge sits right of red's, each read where
+ *   its own channel falls halfway from white to black, in px of a 1080p
+ *   frame: 0 without the offset, twice the offset with it.
  *
  * VHS also draws a tracking band in some half-second bursts (step 2b(i)b,
  * tested in its own describe below). Steps 48 and 49 lie in burst 4,
@@ -1533,10 +1537,14 @@ const VHS_EDGE = 0.75
 const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
 /**
  * The bounds, from local Chromium measurements on this spec before they
- * were set. Outside the window both renderers read lines 0, grey 128 and
- * an edge of 0.5 px. At Amount 100 inside it, steps 48 and 49: lines 18.2
- * and 17.9 in the preview against 15.9 and 15.7 in the saved frame, grey
- * 105.4 and 105.7 in both (within 0.02), and an edge of 3.50 against 3.48.
+ * were set. Outside the window both renderers read lines 0, grey 128, an
+ * edge of 0.5 px and a fringe of 0. At Amount 100 inside it, steps 48 and
+ * 49: lines 18.2 and 17.9 in the preview against 15.9 and 15.7 in the
+ * saved frame, grey 105.4 and 105.7 in both (within 0.02), an edge of 3.50
+ * against 3.48 before the colour offset and 6.20 against 6.16 with it,
+ * and a fringe of 8.04 against 8.00. Firefox, in CI run 45739047158, read
+ * the same lines and grey, an edge of 5.15 against 4.96, and a fringe of
+ * 6.10 against 6.00.
  * - Grey: the lines' mean alpha is 0.4 × 0.875 / 2 = 0.175, so 128 falls
  *   to about 105.6. The renderers must agree within 1.5 of that.
  * - Lines: the amplitude depends on how each renderer smooths a 2 px line
@@ -1544,7 +1552,23 @@ const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
  *   saved frame 1920), so the bound is a share, 35 %, where Chromium
  *   differs by 14 %. Without the lines the amplitude is 0.
  * - Edge: Gaussian blur of 0.15 % of 1920 px, 2.9 px, widens a sharp edge
- *   to 3.9 px between its quarters; the renderers must agree within 0.6.
+ *   to 3.9 px between its quarters, and the colour offset spreads the
+ *   three channels' edges further; the renderers must agree within 0.6.
+ * - Fringe: `VHS.offset` is 0.2 % of the frame's width, 3.84 px of 1920,
+ *   so red and blue sit 7.68 px apart. Both renderers round the shift to
+ *   0.1 px, 3.8 px of the saved frame and of the preview's 1910 device px
+ *   alike. The browser then lands each channel on a whole device pixel,
+ *   and the two browsers land it differently: Chromium rounds, so 3.8
+ *   became 4 and the fringe read 8.04 and 8.00; Firefox truncates, so 3.8
+ *   became 3 and the fringe read 6.10 and 6.00 (CI run 45739047158; the
+ *   channel-offset spec's saved frame shows the same, 57.6 px drawn as 58
+ *   in Chromium and 57 in Firefox). So each channel lands up to 1.1 px
+ *   short of the exact shift (a whole pixel truncated, and the 0.1 px
+ *   rounding) or 0.6 px past it, and the fringe, two channels, up to 2.2
+ *   px narrower or 1.2 px wider: bounds of 2.3 and 1.2 px of a 1080p
+ *   frame, which cover that at the preview's 1888 to 1910 device px.
+ *   Within one browser the renderers land alike, so they must agree
+ *   within 0.6, as the edge does.
  */
 const VHS_LINES_SEEN = 8
 const VHS_LINES_TOLERANCE = 0.35
@@ -1553,6 +1577,10 @@ const VHS_GREY_TOLERANCE = 1.5
 const VHS_SHARP = 1.5
 const VHS_SOFT = 2.5
 const VHS_EDGE_TOLERANCE = 0.6
+const VHS_FRINGE = 2 * 0.002 * 1920
+const VHS_FRINGE_NARROWER = 2.3
+const VHS_FRINGE_WIDER = 1.2
+const VHS_FRINGE_AGREE = 0.6
 /** The grey half, where an exported frame's mean is read: inside the window the lines darken it, outside it is the still's 128. */
 const VHS_GREY_BAND = { grey: { x: 0.05, y: 0.1, width: 0.4, height: 0.8 } }
 
@@ -1577,9 +1605,9 @@ async function makeVhsStill(page: Page): Promise<Buffer> {
   return Buffer.from(base64, 'base64')
 }
 
-type VhsMeasure = { lines: number; grey: number; edge: number }
+type VhsMeasure = { lines: number; grey: number; edge: number; fringe: number }
 
-/** `lines`, `grey` and `edge` (see above) of a PNG of the composed frame, at its own size. */
+/** `lines`, `grey`, `edge` and `fringe` (see above) of a PNG of the composed frame, at its own size. */
 async function vhsOfPng(page: Page, png: Buffer): Promise<VhsMeasure> {
   return await page.evaluate(
     async ({ base64, edgeAt }) => {
@@ -1596,6 +1624,8 @@ async function vhsOfPng(page: Page, png: Buffer): Promise<VhsMeasure> {
         const index = (y * width + x) * 4
         return (data[index] + data[index + 1] + data[index + 2]) / 3
       }
+      /** One channel's value: 0 red, 2 blue. */
+      const channelAt = (x: number, y: number, channel: number) => data[(y * width + x) * 4 + channel]
       // The grey half's row profile, inset from the frame's edges and the
       // half's own edge so the blur's soft borders stay out of it.
       const x0 = Math.round(0.05 * width)
@@ -1641,7 +1671,24 @@ async function vhsOfPng(page: Page, png: Buffer): Promise<VhsMeasure> {
         return index - 1 + (columns[index - 1] - level) / (columns[index - 1] - columns[index])
       }
       const edge = ((crossing(low + 0.25 * (high - low)) - crossing(low + 0.75 * (high - low))) * 1920) / width
-      return { lines, grey, edge }
+      // The fringe: how far blue's edge sits right of red's, each where its
+      // own column profile falls halfway from white to black, in px of a
+      // 1080p frame. A blur widens each channel's edge about its middle, so
+      // it leaves the halfway points where the offset put them.
+      const halfway = (channel: number) => {
+        const profile: number[] = []
+        for (let x = from; x <= to; x++) {
+          let sum = 0
+          for (let y = y0; y < y1; y++) sum += channelAt(x, y, channel)
+          profile.push(sum / (y1 - y0))
+        }
+        const level = (Math.max(...profile) + Math.min(...profile)) / 2
+        const index = profile.findIndex((value) => value <= level)
+        if (index <= 0) return from + index
+        return from + index - 1 + (profile[index - 1] - level) / (profile[index - 1] - profile[index])
+      }
+      const fringe = ((halfway(2) - halfway(0)) * 1920) / width
+      return { lines, grey, edge, fringe }
     },
     { base64: png.toString('base64'), edgeAt: VHS_EDGE },
   )
@@ -1733,7 +1780,7 @@ test.describe('VHS (#870)', () => {
     await test.info().attach('VHS at its default, on the colour bars', { body: shot, contentType: 'image/png' })
   })
 
-  test('the preview and a saved frame draw the same scanlines and softening for the same instant, and none outside the window', async ({
+  test('the preview and a saved frame draw the same scanlines, softening and colour fringe for the same instant, and none outside the window', async ({
     page,
   }, testInfo) => {
     test.setTimeout(180_000)
@@ -1755,6 +1802,7 @@ test.describe('VHS (#870)', () => {
       expect(measure.lines, `${name}: no scanlines`).toBeLessThan(1)
       expect(Math.abs(measure.grey - VHS_STILL_GREY), `${name}: the still's grey`).toBeLessThan(1)
       expect(measure.edge, `${name}: a sharp edge`).toBeLessThan(VHS_SHARP)
+      expect(Math.abs(measure.fringe), `${name}: no colour fringe`).toBeLessThan(0.5)
     }
     // Inside it, at the same instant, the two renderers agree.
     for (const [step, preview, saved] of [
@@ -1770,7 +1818,16 @@ test.describe('VHS (#870)', () => {
           VHS_GREY_DARKENED,
         )
         expect(measure.edge, `step ${step}, ${name}: a softened edge`).toBeGreaterThan(VHS_SOFT)
+        expect(measure.fringe, `step ${step}, ${name}: red left and blue right`).toBeGreaterThan(
+          VHS_FRINGE - VHS_FRINGE_NARROWER,
+        )
+        expect(measure.fringe, `step ${step}, ${name}: red left and blue right`).toBeLessThan(
+          VHS_FRINGE + VHS_FRINGE_WIDER,
+        )
       }
+      expect(Math.abs(preview.fringe - saved.fringe), `step ${step}: fringe, preview vs saved`).toBeLessThan(
+        VHS_FRINGE_AGREE,
+      )
       expect(Math.abs(preview.lines - saved.lines) / saved.lines, `step ${step}: lines, preview vs saved`).toBeLessThan(
         VHS_LINES_TOLERANCE,
       )

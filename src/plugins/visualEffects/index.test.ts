@@ -152,10 +152,13 @@ describe('Visual effects plugin (#862)', () => {
     expect(brightnessAt(2.1 + 1 / PICTURE_TEXTURE_RATE)).not.toBe(brightnessAt(2.1))
   })
 
-  it('VHS is a soft blur, scanlines and a tracking band, all scaled by Amount and the weight, their step from the time (#870)', () => {
+  it('VHS is a colour offset, a soft blur, scanlines and a tracking band, all scaled by Amount and the weight, their step from the time (#870)', () => {
     const vhs = visualEffectDefinitions[4]
     expect(vhs.look({ amount: 100 }, 1, 2.1)).toEqual({
-      filters: [{ kind: 'blur', radius: VHS.blur }],
+      filters: [
+        { kind: 'channel-offset', offset: VHS.offset },
+        { kind: 'blur', radius: VHS.blur },
+      ],
       layers: [
         { kind: 'scanlines', amount: VHS.scanlines, seed: 50 },
         { kind: 'tracking', amount: VHS.tracking, seed: 50 },
@@ -163,15 +166,21 @@ describe('Visual effects plugin (#862)', () => {
     })
     // Half the Amount at half the weight is a quarter of each.
     expect(vhs.look({ amount: 50 }, 0.5, 2.1)).toEqual({
-      filters: [{ kind: 'blur', radius: VHS.blur / 4 }],
+      filters: [
+        { kind: 'channel-offset', offset: VHS.offset / 4 },
+        { kind: 'blur', radius: VHS.blur / 4 },
+      ],
       layers: [
         { kind: 'scanlines', amount: VHS.scanlines / 4, seed: 50 },
         { kind: 'tracking', amount: VHS.tracking / 4, seed: 50 },
       ],
     })
-    // Weight 0 changes nothing: a blur of no radius, lines and a band of no strength.
+    // Weight 0 changes nothing: no offset, a blur of no radius, lines and a band of no strength.
     expect(vhs.look({ amount: 100 }, 0, 2.1)).toEqual({
-      filters: [{ kind: 'blur', radius: 0 }],
+      filters: [
+        { kind: 'channel-offset', offset: 0 },
+        { kind: 'blur', radius: 0 },
+      ],
       layers: [
         { kind: 'scanlines', amount: 0, seed: 50 },
         { kind: 'tracking', amount: 0, seed: 50 },
