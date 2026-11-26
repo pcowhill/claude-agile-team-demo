@@ -114,22 +114,35 @@ export function timelineHasPictureFilters(
  * such as the preview's zoom. Sepia and brightness (#870) have no size, so
  * neither the width nor the scale touches them. Empty for a look with no
  * filters.
+ *
+ * A channel offset (#870) has no filter function of its own: it is an SVG
+ * filter referenced by `url(#id)`, whose shift is in the filtered
+ * element's own pixels, which a `cqw` cannot give. So `channelOffset`
+ * turns the offset (a fraction of the frame width) into that reference,
+ * making the filter it names (`channelOffsetFilterUrl`), or null to draw
+ * none; each renderer knows its own pixels and transform. Without it, a
+ * channel offset adds nothing.
  */
 export function pictureFilterFunctions(
   filters: readonly PictureFilter[],
   frameWidth: number,
   unit: 'px' | 'cqw',
   scale = 1,
+  channelOffset?: (offset: number) => string | null,
 ): string[] {
   const number = (value: number) => Number(value.toFixed(4))
-  return filters.map((filter) => {
+  return filters.flatMap((filter) => {
     switch (filter.kind) {
       case 'blur':
-        return `blur(${number((filter.radius * frameWidth) / scale)}${unit})`
+        return [`blur(${number((filter.radius * frameWidth) / scale)}${unit})`]
       case 'sepia':
-        return `sepia(${number(Math.min(Math.max(filter.amount, 0), 1))})`
+        return [`sepia(${number(Math.min(Math.max(filter.amount, 0), 1))})`]
       case 'brightness':
-        return `brightness(${number(Math.max(filter.amount, 0))})`
+        return [`brightness(${number(Math.max(filter.amount, 0))})`]
+      case 'channel-offset': {
+        const reference = filter.offset > 0 ? (channelOffset?.(filter.offset) ?? null) : null
+        return reference === null ? [] : [reference]
+      }
     }
   })
 }

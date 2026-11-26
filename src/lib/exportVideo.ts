@@ -57,6 +57,7 @@ import { transitionLayerSpec, transitionRegistry, windRevealPolygons } from './t
 import { canvasFrameSize } from './frameSize'
 import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
+import { channelOffsetFilterUrl } from './channelOffsetFilter'
 import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
 import { textureTile, textureTileKey, vignetteStops } from './pictureEffect'
 import type { PictureFilter, PictureLayer, TextureLayer } from './pictureEffect'
@@ -656,8 +657,9 @@ export function withLayerColorFilter(
  * functions, in the same order, as the preview's CSS `filter` on the media
  * element. A blur's radius is `radius * frameWidth` px; `scale` is the
  * transition's scale of the card (cross-zoom, #181), which the preview's
- * card transform applies to its blur too. No filters draws with the
- * context untouched.
+ * card transform applies to its blur too, and a channel offset's shift
+ * (#870) is `offset * frameWidth * scale` px the same way. No filters, or
+ * only a shift that rounds to nothing, draws with the context untouched.
  */
 export function withPictureFilters(
   context: CanvasRenderingContext2D,
@@ -670,8 +672,17 @@ export function withPictureFilters(
     draw()
     return
   }
+  // A channel offset (#870) is an SVG filter in the page, its shift in
+  // canvas px, horizontal on the frame however the source was turned: the
+  // canvas filters what was drawn, after the draw's own transform.
+  const functions = pictureFilterFunctions(filters, frameWidth * scale, 'px', 1, (offset) =>
+    typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * frameWidth * scale, dy: 0 }),
+  ).join(' ')
+  if (functions === '') {
+    draw()
+    return
+  }
   const previous = context.filter
-  const functions = pictureFilterFunctions(filters, frameWidth * scale, 'px').join(' ')
   context.filter = previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
   try {
     draw()

@@ -124,6 +124,16 @@ export interface PictureEffectParam {
  * - `brightness` (#870): CSS's `brightness(amount)`, a multiplier, 1 the
  *   picture unchanged.
  *
+ * - `channel-offset` (#870, step 2b(ii)2): the picture's red moved left
+ *   and its blue moved right, each by `offset`, a **fraction of the frame
+ *   width** as a blur's radius is, green kept, the three screened back
+ *   together: the colour fringes of a VHS tape or a cheap lens. Neither
+ *   CSS nor the canvas has a filter function for it, so both renderers
+ *   reference one SVG `<filter>` by `url(#id)` (`channelOffsetFilter.ts`),
+ *   which #870's measurement found drawing to the pixel alike in CSS and
+ *   in a canvas, in Chromium and in Firefox. The shift is horizontal on
+ *   the screen, whatever the clip's orientation.
+ *
  * Sepia and brightness are pointwise colour matrices, defined alike for
  * CSS and the canvas `filter` (Filter Effects), and have no size, so
  * neither depends on the frame's width or a zoom's scale as a blur does.
@@ -132,6 +142,7 @@ export type PictureFilter =
   | { kind: 'blur'; radius: number }
   | { kind: 'sepia'; amount: number }
   | { kind: 'brightness'; amount: number }
+  | { kind: 'channel-offset'; offset: number }
 
 /**
  * A layer a look draws over the entry's picture as framed: over the whole
