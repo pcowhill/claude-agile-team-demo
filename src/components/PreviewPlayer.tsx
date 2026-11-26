@@ -75,7 +75,10 @@ import {
   drawOverlayShadow,
   fitRect,
   overlayPictureRect,
+  pixelatedCard,
+  withFilterFunctions,
   withLayerOrientation,
+  zoomRect,
 } from '../lib/exportVideo'
 import type { OverlayBorder } from '../lib/overlayBorder'
 import type { OverlayShadow } from '../lib/overlayShadow'
@@ -102,7 +105,15 @@ import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
 import { channelOffsetFilterUrl, previewChannelShift } from '../lib/channelOffsetFilter'
 import { previewSlices, slicesFilterUrl } from '../lib/slicesFilter'
-import { NO_PICTURE_LOOK, pictureEffectRegistry, textureTile, textureTileKey, vignetteStops } from '../lib/pictureEffect'
+import {
+  NO_PICTURE_LOOK,
+  pictureEffectRegistry,
+  pixelateBlock,
+  pixelateGrid,
+  textureTile,
+  textureTileKey,
+  vignetteStops,
+} from '../lib/pictureEffect'
 import type { PictureLook, TextureLayer } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
 import { formatDuration } from '../lib/mediaLibrary'
@@ -437,6 +448,12 @@ interface PreviewFilterMedia {
   /** The crop's translate, in % of the element's box, for slices' bands (#871). */
   cropTranslateX?: number
   cropTranslateY?: number
+  /**
+   * Whether a media element draws the picture, with the output frame's
+   * size (#871): a pixelating look hides it under `PixelateLayer`'s
+   * canvas. A slate has none, and a flat colour pixelates to itself.
+   */
+  pixelate?: { frame: SourceDimensions }
 }
 
 /**
@@ -456,6 +473,15 @@ function withPictureFilters(
   media: PreviewFilterMedia,
 ): CSSProperties | undefined {
   if (look.filters.length === 0) return style
+  // Pixelate (#871): `PixelateLayer`'s canvas draws the picture, with the
+  // colour adjustments and every other filter, so the element is hidden
+  // under it and filters nothing. It still plays, and the canvas and the
+  // region overlays sample it.
+  if (media.pixelate !== undefined && previewPixelateGrid(look, media.pixelate.frame) !== null) {
+    const hidden: CSSProperties = { ...style, opacity: 0 }
+    delete hidden.filter
+    return hidden
+  }
   // A channel offset (#870) is an SVG filter whose shift is in the
   // element's own CSS px: the frame's measured width turns the offset into
   // px on the screen, and `previewChannelShift` turns that back through
@@ -583,6 +609,133 @@ function TextureLayerCanvas({ layer, aspect }: { layer: TextureLayer; aspect: nu
       height={tile.height}
       data-testid={`preview-picture-${layer.kind}`}
       data-seed={layer.seed}
+    />
+  )
+}
+
+/**
+ * The grid a look pixelates the output `frame` into (#871), the export's
+ * card at scale 1, or null when it does not pixelate.
+ */
+function previewPixelateGrid(look: PictureLook, frame: SourceDimensions): { columns: number; rows: number } | null {
+  const block = pixelateBlock(look.filters)
+  return block === undefined ? null : pixelateGrid(block, frame.width, frame.height)
+}
+
+/**
+ * Pixelate (#871, step 3b(ii)) in the preview: a canvas over the hidden
+ * media element whose buffer is the export's grid, `pixelateGrid`'s
+ * columns × rows, one pixel per block, stretched over the frame by CSS
+ * with `image-rendering: pixelated`. #871's step 3a measured that stretch
+ * against the export's: every block one colour, its edges within a device
+ * pixel of the export's. (A downscaled copy scaled up by a CSS transform
+ * was measured not to pixelate at all.)
+ *
+ * The grid is filled by the export's own `pixelatedCard`, on a rAF loop
+ * as `RegionOverlay` draws: the media element is composed into a scratch
+ * the size of the output `frame` through the export's rules (`fitRect`,
+ * `zoomRect`, `withLayerOrientation`, `drawLayerSource`), under the
+ * colour adjustments and the look's other filters at the frame's own
+ * size, then downscaled into the grid. So each block averages the same
+ * pixels the same way as a saved frame's. A downscale straight from the
+ * element into the grid was measured to differ from it by up to 42
+ * levels at 50 px blocks (107 of 832 blocks within 4), where a bilinear
+ * downscale samples sparsely.
+ *
+ * The blocks are a share of the frame, as the export's are: the canvas is
+ * placed at the zoom's visible region in the card, like `PictureLayers`,
+ * so the card's zoom transform lays it over the frame, and the zoom is
+ * drawn into the scratch. A transition's transform carries it with the
+ * card. Redactions, spotlights and layers are the card's later children,
+ * so they stay sharp above it, as in the export.
+ */
+function PixelateLayer({
+  sourceRef,
+  crop,
+  orientation,
+  colorAdjustments,
+  look,
+  zoom,
+  frame,
+  testId,
+}: {
+  sourceRef: RefObject<HTMLVideoElement | HTMLImageElement | null>
+  crop: Crop | undefined
+  orientation: Orientation | undefined
+  colorAdjustments: ColorAdjustments | undefined
+  look: PictureLook
+  zoom: ZoomState
+  /** The output frame's size: the export's card, which the scratch matches. */
+  frame: SourceDimensions
+  testId: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const grid = previewPixelateGrid(look, frame)
+  // The loop reads the current values without re-subscribing every frame:
+  // the look and the zoom are rebuilt on every render.
+  const drawRef = useRef({ crop, orientation, colorAdjustments, look, zoom, frame, grid })
+  drawRef.current = { crop, orientation, colorAdjustments, look, zoom, frame, grid }
+  const active = grid !== null
+  useEffect(() => {
+    if (!active) return
+    let paintFrame = 0
+    const paint = () => {
+      paintFrame = requestAnimationFrame(paint)
+      const canvas = canvasRef.current
+      const source = sourceRef.current
+      const { crop, orientation, colorAdjustments, look, zoom, frame, grid } = drawRef.current
+      if (canvas === null || source === null || grid === null) return
+      const isVideo = source instanceof HTMLVideoElement
+      if (isVideo && source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+      if (!isVideo && !source.complete) return
+      const sourceWidth = isVideo ? source.videoWidth : source.naturalWidth
+      const sourceHeight = isVideo ? source.videoHeight : source.naturalHeight
+      if (sourceWidth <= 0 || sourceHeight <= 0 || frame.width <= 0 || frame.height <= 0) return
+      const card = { width: frame.width, height: frame.height }
+      const dims = orientedDimensions(
+        croppedDimensions({ width: sourceWidth, height: sourceHeight }, crop),
+        orientation,
+      )
+      const rect = fitRect(dims.width, dims.height, card.width, card.height)
+      const dest = zoom.scale === 1 ? rect : zoomRect(rect, zoom, card.width, card.height)
+      const small = pixelatedCard(
+        card,
+        grid,
+        { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+        withFilterFunctions(colorFilterFor(colorAdjustments), look.filters, { y: 0, ...card }),
+        { enabled: true, quality: 'low' },
+        (target) => {
+          withLayerOrientation(target, orientation, dest, (drawRect) => {
+            drawLayerSource(target, source, crop, sourceWidth, sourceHeight, drawRect)
+          })
+        },
+      )
+      if (small === null) return
+      if (canvas.width !== grid.columns) canvas.width = grid.columns
+      if (canvas.height !== grid.rows) canvas.height = grid.rows
+      const context = canvas.getContext('2d')
+      if (context === null) return
+      context.clearRect(0, 0, grid.columns, grid.rows)
+      context.drawImage(small, 0, 0)
+    }
+    paintFrame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(paintFrame)
+  }, [sourceRef, active])
+  if (grid === null) return null
+  const size = 100 / zoom.scale
+  return (
+    <canvas
+      ref={canvasRef}
+      className="preview-pixelate"
+      data-testid={testId}
+      data-grid={`${grid.columns}x${grid.rows}`}
+      aria-hidden="true"
+      style={{
+        left: `${(zoom.centerX - 0.5 / zoom.scale) * 100}%`,
+        top: `${(zoom.centerY - 0.5 / zoom.scale) * 100}%`,
+        width: `${size}%`,
+        height: `${size}%`,
+      }}
     />
   )
 }
@@ -3003,6 +3156,7 @@ export function PreviewPlayer({
       cropScale: placement?.scale ?? 1,
       cropTranslateX: placement?.translateX ?? 0,
       cropTranslateY: placement?.translateY ?? 0,
+      ...(entry === undefined ? {} : { pixelate: { frame } }),
     }
   }
 
@@ -3045,6 +3199,7 @@ export function PreviewPlayer({
           card: { className: 'preview-video preview-video-idle' },
           media: {},
           backdrop: null,
+          pixelate: null,
           redactions: null,
           layers: null,
         }
@@ -3076,6 +3231,19 @@ export function PreviewPlayer({
           <PictureLayers look={primaryLook} zoom={primaryZoom} aspect={previewAspect} testId="preview-picture-layers" />
         ),
         backdrop: entryBackdrop(location?.entry, slotVideoRef),
+        pixelate:
+          location === null ? null : (
+            <PixelateLayer
+              sourceRef={slotVideoRef}
+              crop={location.entry.crop}
+              orientation={location.entry.orientation}
+              colorAdjustments={location.entry.colorAdjustments}
+              look={primaryLook}
+              zoom={primaryZoom}
+              frame={frame}
+              testId="preview-pixelate"
+            />
+          ),
         redactions:
           location === null ? null : (
             <RegionOverlay
@@ -3125,6 +3293,18 @@ export function PreviewPlayer({
         />
       ) : null,
       backdrop: videoOverlap ? entryBackdrop(overlap.entry, slotVideoRef) : null,
+      pixelate: videoOverlap ? (
+        <PixelateLayer
+          sourceRef={slotVideoRef}
+          crop={overlap.entry.crop}
+          orientation={overlap.entry.orientation}
+          colorAdjustments={overlap.entry.colorAdjustments}
+          look={incomingLook}
+          zoom={incomingZoom}
+          frame={frame}
+          testId="preview-pixelate-incoming"
+        />
+      ) : null,
       redactions:
         videoOverlap ? (
           <RegionOverlay
@@ -3195,12 +3375,14 @@ export function PreviewPlayer({
               <div {...slotA.card}>
                 {slotA.backdrop}
                 <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
+                {slotA.pixelate}
                 {slotA.redactions}
                 {slotA.layers}
               </div>
               <div {...slotB.card}>
                 {slotB.backdrop}
                 <video ref={videoBRef} playsInline preload="auto" className="preview-media" {...slotB.media} />
+                {slotB.pixelate}
                 {slotB.redactions}
                 {slotB.layers}
               </div>
@@ -3255,6 +3437,16 @@ export function PreviewPlayer({
                         primaryZoom,
                         filterMedia(location.entry),
                       )}
+                    />
+                    <PixelateLayer
+                      sourceRef={stillImageRef}
+                      crop={location.entry.crop}
+                      orientation={location.entry.orientation}
+                      colorAdjustments={location.entry.colorAdjustments}
+                      look={primaryLook}
+                      zoom={primaryZoom}
+                      frame={frame}
+                      testId="preview-pixelate"
                     />
                     <RegionOverlay
                       sourceRef={stillImageRef}
@@ -3319,6 +3511,16 @@ export function PreviewPlayer({
                         incomingZoom,
                         filterMedia(overlap.entry),
                       )}
+                    />
+                    <PixelateLayer
+                      sourceRef={stillIncomingImageRef}
+                      crop={overlap.entry.crop}
+                      orientation={overlap.entry.orientation}
+                      colorAdjustments={overlap.entry.colorAdjustments}
+                      look={incomingLook}
+                      zoom={incomingZoom}
+                      frame={frame}
+                      testId="preview-pixelate-incoming"
                     />
                     <PictureLayers
                       look={incomingLook}

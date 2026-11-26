@@ -414,9 +414,18 @@ extension point is built until a concrete plugin needs it**.
       a canvas whose buffer is the same grid, stretched by CSS
       `image-rendering: pixelated`, which #871's step 3a measured within
       a device pixel of the export) draws the same grid at any size.
+      The preview fills that buffer through the export's own
+      `pixelatedCard`: the element composed into a scratch the size of
+      the output frame, then downscaled. So both renderers average the
+      same pixels the same way, which is the parity: a bilinear
+      downscale samples sparsely, and a downscale straight from the
+      element into the grid read up to 42 levels off a saved frame's
+      blocks at 50 px blocks.
       - **Rejected:** the SVG filter, for its cost; a downscaled copy
         scaled up by a CSS transform in the preview, which both browsers
-        rasterize from the full-resolution source and so never pixelate.
+        rasterize from the full-resolution source and so never pixelate;
+        a preview that downscales the element straight into the grid,
+        for the parity above.
   - **Rejected:** a rule returning a CSS string, which the canvas could
     take for a blur but not for a vignette or grain, and drawing with
     per-plugin code in each renderer, which is what the shared rule

@@ -138,6 +138,18 @@
   pointer-events: none;
 }
 
+/* Pixelate (#871): a canvas one pixel per block, over the hidden media
+   element and under its redactions. Like the layers below it is placed
+   inline at the zoom's visible region, so it covers the frame-shaped card,
+   and it stretches with nearest-neighbour sampling, so each block is one
+   colour on the screen (`PixelateLayer` in PreviewPlayer.tsx). */
+.preview-pixelate {
+  position: absolute;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
 /* Picture-effect layers (#862), such as a vignette: the card's last child,
    above the media and its redactions. Unlike them it is placed inline at
    the zoom's visible region rather than at inset 0, so once the card's

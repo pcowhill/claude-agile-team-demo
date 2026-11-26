@@ -686,38 +686,59 @@ export function withPictureFilters(
   }
   const block = pixelateBlock(filters)
   const grid = block === undefined ? null : pixelateGrid(block, card.width, card.height)
-  // A channel offset (#870) and slices (#871) are SVG filters in the page,
-  // in canvas px, horizontal on the frame however the source was turned:
-  // the canvas filters what was drawn, after the draw's own transform.
-  // Into a pixelate scratch, the card's top-left is the scratch's origin.
-  const functionsFor = (place: { y: number; width: number; height: number }) =>
-    pictureFilterFunctions(
-      filters,
-      place.width,
-      'px',
-      1,
-      (offset) =>
-        typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * place.width, dy: 0 }),
-      (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, place))),
-    ).join(' ')
-  const withFunctions = (previous: string, functions: string) =>
-    functions === '' ? previous : previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
   if (grid !== null && typeof document !== 'undefined') {
-    drawPixelated(context, card, grid, withFunctions(context.filter, functionsFor({ ...card, y: 0 })), draw)
-    return
-  }
-  const functions = functionsFor(card)
-  if (functions === '') {
-    draw(context)
+    // Into a pixelate scratch, the card's top-left is the scratch's origin.
+    drawPixelated(context, card, grid, withFilterFunctions(context.filter, filters, { ...card, y: 0 }), draw)
     return
   }
   const previous = context.filter
-  context.filter = withFunctions(previous, functions)
+  const filter = withFilterFunctions(previous, filters, card)
+  if (filter === previous) {
+    draw(context)
+    return
+  }
+  context.filter = filter
   try {
     draw(context)
   } finally {
     context.filter = previous
   }
+}
+
+/**
+ * A look's filter functions (#862) for a canvas draw onto `card`, joined.
+ * A channel offset (#870) and slices (#871) are SVG filters in the page,
+ * in canvas px, horizontal on the frame however the source was turned:
+ * the canvas filters what was drawn, after the draw's own transform.
+ * Pixelate (#871) writes nothing: it is drawn by downscaling.
+ */
+function cardFilterFunctions(
+  filters: readonly PictureFilter[],
+  card: { y: number; width: number; height: number },
+): string {
+  return pictureFilterFunctions(
+    filters,
+    card.width,
+    'px',
+    1,
+    (offset) =>
+      typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * card.width, dy: 0 }),
+    (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, card))),
+  ).join(' ')
+}
+
+/**
+ * `previous` (a context's `filter`: the colour adjustments, or `none`)
+ * with a look's filter functions for `card` appended, as
+ * `withPictureFilters` sets it.
+ */
+export function withFilterFunctions(
+  previous: string,
+  filters: readonly PictureFilter[],
+  card: { y: number; width: number; height: number },
+): string {
+  const functions = cardFilterFunctions(filters, card)
+  return functions === '' ? previous : previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
 }
 
 /**
@@ -756,39 +777,67 @@ function drawPixelated(
   filter: string,
   draw: (target: CanvasRenderingContext2D) => void,
 ): void {
-  const cardWidth = Math.max(1, Math.ceil(card.width))
-  const cardHeight = Math.max(1, Math.ceil(card.height))
-  const full = sizedScratch('card', cardWidth, cardHeight)
-  const small = full === null ? null : sizedScratch('grid', grid.columns, grid.rows)
-  if (full === null || small === null) {
+  const transform = context.getTransform()
+  const small = pixelatedCard(
+    card,
+    grid,
+    {
+      a: transform.a,
+      b: transform.b,
+      c: transform.c,
+      d: transform.d,
+      e: transform.e - card.x,
+      f: transform.f - card.y,
+    },
+    filter,
+    { enabled: context.imageSmoothingEnabled, quality: context.imageSmoothingQuality },
+    draw,
+  )
+  if (small === null) {
     draw(context)
     return
   }
-  const transform = context.getTransform()
-  full.setTransform(
-    transform.a,
-    transform.b,
-    transform.c,
-    transform.d,
-    transform.e - card.x,
-    transform.f - card.y,
-  )
-  full.imageSmoothingEnabled = context.imageSmoothingEnabled
-  full.imageSmoothingQuality = context.imageSmoothingQuality
-  full.filter = filter === '' ? 'none' : filter
-  draw(full)
-  full.filter = 'none'
-  small.imageSmoothingEnabled = true
-  small.drawImage(full.canvas, 0, 0, card.width, card.height, 0, 0, grid.columns, grid.rows)
   context.save()
   try {
     context.setTransform(1, 0, 0, 1, 0, 0)
     context.filter = 'none'
     context.imageSmoothingEnabled = false
-    context.drawImage(small.canvas, card.x, card.y, card.width, card.height)
+    context.drawImage(small, card.x, card.y, card.width, card.height)
   } finally {
     context.restore()
   }
+}
+
+/**
+ * The pixelate draw's first two steps (#871), shared by the export's
+ * `drawPixelated` and the preview's pixelate canvas so that both average
+ * the same pixels the same way: `draw` draws the source into a scratch
+ * `card` in size, under `transform` (the card's top-left at its origin),
+ * `filter` and the given smoothing, and that scratch is downscaled into
+ * `grid`'s columns × rows with smoothing on. Returns the grid's canvas,
+ * one pixel per block, valid until the next call; null without a 2D
+ * context.
+ */
+export function pixelatedCard(
+  card: { width: number; height: number },
+  grid: { columns: number; rows: number },
+  transform: { a: number; b: number; c: number; d: number; e: number; f: number },
+  filter: string,
+  smoothing: { enabled: boolean; quality: ImageSmoothingQuality },
+  draw: (target: CanvasRenderingContext2D) => void,
+): HTMLCanvasElement | null {
+  const full = sizedScratch('card', Math.max(1, Math.ceil(card.width)), Math.max(1, Math.ceil(card.height)))
+  const small = full === null ? null : sizedScratch('grid', grid.columns, grid.rows)
+  if (full === null || small === null) return null
+  full.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f)
+  full.imageSmoothingEnabled = smoothing.enabled
+  full.imageSmoothingQuality = smoothing.quality
+  full.filter = filter === '' ? 'none' : filter
+  draw(full)
+  full.filter = 'none'
+  small.imageSmoothingEnabled = true
+  small.drawImage(full.canvas, 0, 0, card.width, card.height, 0, 0, grid.columns, grid.rows)
+  return small.canvas
 }
 
 /**
