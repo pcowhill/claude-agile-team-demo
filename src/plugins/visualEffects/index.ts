@@ -1,5 +1,5 @@
 import { pictureEffectRegistry, textureHash, textureStep } from '../../lib/pictureEffect'
-import type { PictureEffectDefinition } from '../../lib/pictureEffect'
+import type { PictureEffectDefinition, SliceBand } from '../../lib/pictureEffect'
 import type { VisualEffectId } from '../visualEffectsIds'
 import { VISUAL_EFFECT_IDS } from '../visualEffectsIds'
 
@@ -69,8 +69,14 @@ export const CHROMATIC_ABERRATION = { offset: 0.01 }
  * blue right by `offset` of the frame width at Intensity 100, about 38 px
  * of a 1080p frame, times a size of its own between `least` and 1, so one
  * burst is a twitch and the next a lurch.
+ *
+ * The same burst also tears the picture (step 2b(ii)): `bands` horizontal
+ * bands, each `thinnest` to `thickest` of the frame's height, at heights
+ * of their own, moved sideways by up to `tear` of the frame width at
+ * Intensity 100 in a burst of size 1 (about 96 px of a 1080p frame), each
+ * at least `least` of that, left or right as its own hash says.
  */
-export const GLITCH = { steps: 3, offset: 0.02, least: 0.4 }
+export const GLITCH = { steps: 3, offset: 0.02, least: 0.4, bands: 3, tear: 0.05, thinnest: 0.02, thickest: 0.1 }
 
 /**
  * How large Glitch's burst at `time` is, for a Frequency of `chance`
@@ -83,6 +89,29 @@ export function glitchBurst(time: number, chance: number): number {
   const burst = Math.floor(textureStep(time) / GLITCH.steps)
   if (textureHash(burst, -500, -1) >= chance) return 0
   return GLITCH.least + (1 - GLITCH.least) * textureHash(burst, -500, -2)
+}
+
+/**
+ * The bands Glitch's burst at `time` tears (#871, step 2b(ii)), before
+ * Intensity, the burst's size and the weight scale their shifts: each a
+ * `SliceBand` whose shift is between `GLITCH.least` and 1 of `GLITCH.tear`,
+ * left or right. A pure function of the burst, from the hash at cells no
+ * texture reaches (x = −501), so the bands hold still through the burst,
+ * are the same on every render, and differ from one burst to the next.
+ * Bands may cross; the later one lies on top, as the filter draws them.
+ */
+export function glitchBands(time: number): SliceBand[] {
+  const burst = Math.floor(textureStep(time) / GLITCH.steps)
+  return Array.from({ length: GLITCH.bands }, (_, band) => {
+    const hash = (part: number) => textureHash(burst, -501, band * 4 + part)
+    const height = GLITCH.thinnest + (GLITCH.thickest - GLITCH.thinnest) * hash(0)
+    const direction = hash(2) < 0.5 ? -1 : 1
+    return {
+      top: (1 - height) * hash(1),
+      height,
+      shift: direction * GLITCH.tear * (GLITCH.least + (1 - GLITCH.least) * hash(3)),
+    }
+  })
 }
 
 /**
@@ -213,13 +242,14 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
     }),
   },
   // Short bursts of a broken signal (#871, step 2a): at irregular moments,
-  // an eighth of a second at a time, the picture's red and blue jump
-  // apart, by a different amount each burst. Intensity is how far, in
-  // percent; Frequency is the chance, in percent, that a burst glitches.
-  // The moments come from the entry's time (`glitchBurst`), so the preview
-  // and the export glitch at the same instants. The channel split is
-  // #977's filter, as Chromatic aberration's is; the slice displacement
-  // #871 also names is a later step.
+  // an eighth of a second at a time, bands of the picture tear sideways
+  // and its red and blue jump apart, by a different amount each burst.
+  // Intensity is how far, in percent; Frequency is the chance, in percent,
+  // that a burst glitches. The moments come from the entry's time
+  // (`glitchBurst`, `glitchBands`), so the preview and the export glitch at
+  // the same instants. The tear is #984's `slices` filter (step 2b(ii)),
+  // drawn first, so the channel split, #977's filter as Chromatic
+  // aberration's is, splits the torn picture.
   glitch: {
     id: 'glitch',
     name: 'Glitch',
@@ -227,15 +257,19 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
       { key: 'intensity', label: 'Intensity', min: 0, max: 100, default: 50, unit: '%' },
       { key: 'frequency', label: 'Frequency', min: 0, max: 100, default: 30, unit: '%' },
     ],
-    look: (params, weight, time = 0) => ({
-      filters: [
-        {
-          kind: 'channel-offset',
-          offset: GLITCH.offset * (params.intensity / 100) * weight * glitchBurst(time, params.frequency / 100),
-        },
-      ],
-      layers: [],
-    }),
+    look: (params, weight, time = 0) => {
+      const strength = (params.intensity / 100) * weight * glitchBurst(time, params.frequency / 100)
+      return {
+        filters: [
+          {
+            kind: 'slices',
+            bands: strength > 0 ? glitchBands(time).map((band) => ({ ...band, shift: band.shift * strength })) : [],
+          },
+          { kind: 'channel-offset', offset: GLITCH.offset * strength },
+        ],
+        layers: [],
+      }
+    },
   },
 }
 

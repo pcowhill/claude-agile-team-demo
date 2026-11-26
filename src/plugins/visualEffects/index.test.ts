@@ -10,6 +10,7 @@ import {
   VHS,
   VIGNETTE_INNER,
   activate,
+  glitchBands,
   glitchBurst,
   oldFilmBrightness,
   visualEffectDefinitions,
@@ -235,8 +236,9 @@ describe('Visual effects plugin (#862)', () => {
     const offsetAt = (params: { intensity: number; frequency: number }, weight: number, time: number) => {
       const { filters, layers } = glitch.look(params, weight, time)
       expect(layers).toEqual([])
-      expect(filters).toHaveLength(1)
-      const [filter] = filters
+      // The tear first, then the split (step 2b(ii)), so the split splits the torn picture.
+      expect(filters.map((filter) => filter.kind)).toEqual(['slices', 'channel-offset'])
+      const filter = filters[1]
       if (filter.kind !== 'channel-offset') throw new Error(`expected a channel offset, got ${filter.kind}`)
       return filter.offset
     }
@@ -283,6 +285,75 @@ describe('Visual effects plugin (#862)', () => {
     expect(offsetAt({ intensity: 100, frequency: 30 }, 1, quiet)).toBe(0)
     // Intensity 100 at full weight in the largest burst is the whole split, about 38 px of a 1080p frame.
     expect(GLITCH.offset * 1920).toBeCloseTo(38.4)
+  })
+
+  it('Glitch tears bands of the picture sideways in the same bursts, by Intensity and the burst\'s own size, scaled by the weight (#871, step 2b(ii))', () => {
+    const glitch = visualEffectDefinitions[6]
+    const bandsAt = (params: { intensity: number; frequency: number }, weight: number, time: number) => {
+      const filter = glitch.look(params, weight, time).filters[0]
+      if (filter.kind !== 'slices') throw new Error(`expected slices, got ${filter.kind}`)
+      return filter.bands
+    }
+    const burstLength = GLITCH.steps / PICTURE_TEXTURE_RATE
+    const bursts = Array.from({ length: 400 }, (_, burst) => (burst + 0.5) * burstLength)
+
+    // Each burst's bands: inside the frame, of a height in range, shifted
+    // left or right by between `least` and all of the tear.
+    for (const time of bursts) {
+      const bands = glitchBands(time)
+      expect(bands).toHaveLength(GLITCH.bands)
+      for (const band of bands) {
+        expect(band.top).toBeGreaterThanOrEqual(0)
+        expect(band.top + band.height).toBeLessThanOrEqual(1)
+        expect(band.height).toBeGreaterThanOrEqual(GLITCH.thinnest)
+        expect(band.height).toBeLessThanOrEqual(GLITCH.thickest)
+        expect(Math.abs(band.shift)).toBeGreaterThanOrEqual(GLITCH.least * GLITCH.tear - 1e-12)
+        expect(Math.abs(band.shift)).toBeLessThanOrEqual(GLITCH.tear)
+      }
+    }
+    // A pure function of the time, holding still through a burst's steps
+    // and changing at the next burst.
+    expect(bursts.map(glitchBands)).toEqual(bursts.map(glitchBands))
+    const firstStep = 0.1 / PICTURE_TEXTURE_RATE
+    for (let burst = 0; burst < 40; burst++) {
+      const start = burst * burstLength + firstStep
+      for (let step = 1; step < GLITCH.steps; step++) {
+        expect(glitchBands(start + step / PICTURE_TEXTURE_RATE)).toEqual(glitchBands(start))
+      }
+    }
+    const tops = bursts.map((time) => glitchBands(time)[0].top.toFixed(4))
+    expect(new Set(tops).size).toBeGreaterThan(380)
+    // Both directions, and the whole frame's height, are used.
+    const all = bursts.flatMap(glitchBands)
+    const left = all.filter((band) => band.shift < 0).length / all.length
+    expect(Math.abs(left - 0.5)).toBeLessThan(0.07)
+    expect(Math.min(...all.map((band) => band.top))).toBeLessThan(0.02)
+    expect(Math.max(...all.map((band) => band.top + band.height))).toBeGreaterThan(0.98)
+
+    // The look: the burst's bands, their shifts times Intensity percent,
+    // the burst's size and the weight, the split's own factor.
+    const glitching = bursts.find((time) => glitchBurst(time, 0.3) > 0.9)!
+    const quiet = bursts.find((time) => glitchBurst(time, 0.3) === 0)!
+    const size = glitchBurst(glitching, 0.3)
+    const expected = (factor: number) =>
+      glitchBands(glitching).map((band) => ({ ...band, shift: band.shift * factor }))
+    const close = (actual: readonly { top: number; height: number; shift: number }[], factor: number) => {
+      expect(actual).toHaveLength(GLITCH.bands)
+      expected(factor).forEach((band, index) => {
+        expect(actual[index].top).toBe(band.top)
+        expect(actual[index].height).toBe(band.height)
+        expect(actual[index].shift).toBeCloseTo(band.shift, 12)
+      })
+    }
+    close(bandsAt({ intensity: 100, frequency: 30 }, 1, glitching), size)
+    close(bandsAt({ intensity: 50, frequency: 30 }, 0.5, glitching), size / 4)
+    // No bands at Intensity 0, at weight 0, at Frequency 0, or in a quiet burst.
+    expect(bandsAt({ intensity: 0, frequency: 30 }, 1, glitching)).toEqual([])
+    expect(bandsAt({ intensity: 100, frequency: 30 }, 0, glitching)).toEqual([])
+    expect(bandsAt({ intensity: 100, frequency: 0 }, 1, glitching)).toEqual([])
+    expect(bandsAt({ intensity: 100, frequency: 30 }, 1, quiet)).toEqual([])
+    // The largest tear, at Intensity 100 in a burst of size 1, is about 96 px of a 1080p frame.
+    expect(GLITCH.tear * 1920).toBeCloseTo(96)
   })
 
   it('counts each of its picture effects in a project as one use, and nothing else (#953)', () => {

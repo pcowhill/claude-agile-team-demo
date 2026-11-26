@@ -6,9 +6,10 @@ import { chooseFromFrameMenu } from './frameMenu'
 import { chooseEffect } from './timelineRowMenu'
 
 /**
- * Glitch (#871, step 2a): the Visual effects plugin's bursts of a channel
- * split, through #977's `channel-offset` filter, at the moments its
- * Frequency picks from the entry's time (`glitchBurst`). The shared
+ * Glitch (#871, steps 2a and 2b(ii)): the Visual effects plugin's bursts
+ * of a tear and a channel split, through the `slices` filter and #977's
+ * `channel-offset` filter, at the moments its Frequency picks from the
+ * entry's time (`glitchBurst`, `glitchBands`). The shared
  * measuring follows `chromatic-aberration.spec.ts`: a white square on
  * black, so each channel's lit extent says where that channel landed, read
  * in the preview and in a saved frame (the export's composer) as fractions
@@ -21,6 +22,15 @@ import { chooseEffect } from './timelineRowMenu'
  * - 1.30 s is step 31, burst 10, which holds still at 30 % and glitches
  *   at 100 % with size 0.514.
  * Both lie before the window's ease begins at 1.7 s, so at full weight.
+ *
+ * The split is read on rows of the square that no band of either burst
+ * covers (`SPLIT_ROWS`). Burst 12's bands all lie below the square, so its
+ * tear moves nothing measured. Burst 10's first and third bands cross the
+ * square (`glitchBands(1.3)`: rows 0.357–0.455 moved right by 0.0438 and
+ * rows 0.592–0.623 moved left by 0.0486, of the full tear at size 1), so
+ * at Frequency 100 the square's edges on those rows move by those shifts
+ * times the burst's size: the tear, read in green, which the split leaves
+ * where it is.
  */
 
 const STILL = 'square.png'
@@ -30,6 +40,13 @@ const SOURCE = { width: 1920, height: 1080, square: { x: 800, y: 300, size: 400 
 const FULL_SPLIT = 0.02
 const GLITCHING = { time: 1.55, size: 0.982 }
 const QUIET = { time: 1.3, sizeAtFull: 0.514 }
+/** Rows of the square, as fractions of the frame's height, inside no band of either burst. */
+const SPLIT_ROWS: [number, number] = [0.29, 0.34]
+/** Rows inside burst 10's two bands that cross the square, and each band's shift at size 1 and Intensity 100. */
+const TEAR = {
+  a: { rows: [0.39, 0.42] as [number, number], shift: 0.04376 },
+  b: { rows: [0.6, 0.615] as [number, number], shift: -0.04862 },
+}
 /**
  * How far a channel's edge may sit from where the split puts it, in pixels
  * of the image measured: `chromatic-aberration.spec.ts`'s tolerance, for
@@ -39,8 +56,15 @@ const QUIET = { time: 1.3, sizeAtFull: 0.514 }
  */
 const TOLERANCE_PX = 2
 
-/** Each channel's lit extent along x, as fractions of the image's width, and that width in px. */
-type Extents = Record<'r' | 'g' | 'b', [number, number]> & { width: number }
+/**
+ * Each channel's lit extent along x on `SPLIT_ROWS`, as fractions of the
+ * image's width, and that width in px; and green's extent on each of
+ * `TEAR`'s rows.
+ */
+type Extents = Record<'r' | 'g' | 'b', [number, number]> & {
+  width: number
+  tear: Record<keyof typeof TEAR, [number, number]>
+}
 
 async function makeSquare(page: Page): Promise<Buffer> {
   const base64 = await page.evaluate((source) => {
@@ -57,33 +81,44 @@ async function makeSquare(page: Page): Promise<Buffer> {
   return Buffer.from(base64, 'base64')
 }
 
-/** Each channel's first and last lit column (over 128) anywhere in a PNG, as fractions of its width. */
+/**
+ * Each channel's first and last lit column (over 128) on `SPLIT_ROWS` of a
+ * PNG, and green's on each of `TEAR`'s rows, as fractions of its width.
+ */
 async function extentsOfPng(page: Page, png: Buffer): Promise<Extents> {
-  return await page.evaluate(async (base64) => {
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')!
-    ctx.drawImage(bitmap, 0, 0)
-    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const out = { width } as Record<'r' | 'g' | 'b', [number, number]> & { width: number }
-    ;(['r', 'g', 'b'] as const).forEach((name, channel) => {
-      let first = width
-      let last = -1
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          if (data[(y * width + x) * 4 + channel] > 128) {
-            if (x < first) first = x
-            if (x > last) last = x
+  return await page.evaluate(
+    async ({ base64, splitRows, tearRows }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const extent = (channel: number, rows: [number, number]): [number, number] => {
+        let first = width
+        let last = -1
+        for (let y = Math.round(rows[0] * height); y <= Math.round(rows[1] * height); y++) {
+          for (let x = 0; x < width; x++) {
+            if (data[(y * width + x) * 4 + channel] > 128) {
+              if (x < first) first = x
+              if (x > last) last = x
+            }
           }
         }
+        return [(first + 0.5) / width, (last + 0.5) / width]
       }
-      out[name] = [(first + 0.5) / width, (last + 0.5) / width]
-    })
-    return out
-  }, png.toString('base64'))
+      return {
+        width,
+        r: extent(0, splitRows),
+        g: extent(1, splitRows),
+        b: extent(2, splitRows),
+        tear: { a: extent(1, tearRows.a), b: extent(1, tearRows.b) },
+      }
+    },
+    { base64: png.toString('base64'), splitRows: SPLIT_ROWS, tearRows: { a: TEAR.a.rows, b: TEAR.b.rows } },
+  )
 }
 
 /** Enables Visual effects, adds the square for 4 s, and adds Glitch from + Effect ▾. */
@@ -166,12 +201,38 @@ function expectPreviewMatchesSaved(preview: Extents, saved: Extents, label: stri
   // Green is the source's own square in both: nothing else moved.
   expect(Math.abs(preview.g[0] - saved.g[0]), `${label}: green, preview vs saved`).toBeLessThan(tolerance(preview))
   expect(Math.abs(preview.g[1] - saved.g[1]), `${label}: green, preview vs saved`).toBeLessThan(tolerance(preview))
+  // The torn rows landed alike too.
+  for (const band of ['a', 'b'] as const) {
+    for (const edge of [0, 1] as const) {
+      expect(
+        Math.abs(preview.tear[band][edge] - saved.tear[band][edge]),
+        `${label}: band ${band}'s edge ${edge}, preview vs saved`,
+      ).toBeLessThan(tolerance(preview))
+    }
+  }
+}
+
+/**
+ * On each of `TEAR`'s rows, green's edges moved from the unbanded rows'
+ * by that band's shift times `factor` (Intensity's share times the
+ * burst's size), both edges; 0 is no tear.
+ */
+function expectTear(extents: Extents, factor: number, label: string) {
+  const within = tolerance(extents)
+  for (const band of ['a', 'b'] as const) {
+    for (const edge of [0, 1] as const) {
+      expect(
+        Math.abs(extents.tear[band][edge] - extents.g[edge] - TEAR[band].shift * factor),
+        `${label}: band ${band}'s edge ${edge}`,
+      ).toBeLessThan(within)
+    }
+  }
 }
 
 test.describe('Glitch (#871)', () => {
   test.use({ viewport: { width: 1920, height: 1080 } })
 
-  test('+ Effect ▾ adds it at Intensity 50 and Frequency 30; the preview and a saved frame split red and blue alike in a glitching burst, not in a quiet one, and not outside the window', async ({
+  test('+ Effect ▾ adds it at Intensity 50 and Frequency 30; the preview and a saved frame tear and split the picture alike in a glitching burst, not in a quiet one, and not outside the window', async ({
     page,
   }, testInfo) => {
     test.setTimeout(180_000)
@@ -193,7 +254,8 @@ test.describe('Glitch (#871)', () => {
     // Intensity 100 doubles the glitching burst's split.
     await setParam(page, 'intensity', 100)
     const intense = await measure('glitching burst at Intensity 100', GLITCHING.time, true)
-    // Frequency 100 makes the quiet burst glitch, at its own size; Frequency 0 stills the glitching one.
+    // Frequency 100 makes the quiet burst glitch, at its own size, tearing
+    // the square with two of its bands; Frequency 0 stills the glitching one.
     await setParam(page, 'frequency', 100)
     const everyBurst = await measure('quiet burst at Frequency 100', QUIET.time, true)
     await setParam(page, 'frequency', 0)
@@ -213,9 +275,18 @@ test.describe('Glitch (#871)', () => {
     expectSplit(everyBurst.preview, FULL_SPLIT * QUIET.sizeAtFull, 'preview, quiet burst at Frequency 100')
     expectSplit(everyBurst.saved, FULL_SPLIT * QUIET.sizeAtFull, 'saved frame, quiet burst at Frequency 100')
     expectPreviewMatchesSaved(everyBurst.preview, everyBurst.saved, 'quiet burst at Frequency 100')
+    expectTear(everyBurst.preview, QUIET.sizeAtFull, 'preview, quiet burst at Frequency 100')
+    expectTear(everyBurst.saved, QUIET.sizeAtFull, 'saved frame, quiet burst at Frequency 100')
+    // Burst 12's bands lie below the square, so its rows read untorn.
+    for (const [name, { preview, saved }] of Object.entries({ glitching, intense })) {
+      expectTear(preview, 0, `preview, ${name}`)
+      expectTear(saved, 0, `saved frame, ${name}`)
+    }
     for (const [name, { preview, saved }] of Object.entries({ quiet, never, after })) {
       expectSplit(preview, 0, `preview, ${name}`)
       expectSplit(saved, 0, `saved frame, ${name}`)
+      expectTear(preview, 0, `preview, ${name}`)
+      expectTear(saved, 0, `saved frame, ${name}`)
     }
   })
 })
