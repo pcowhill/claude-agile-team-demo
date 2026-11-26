@@ -77,6 +77,24 @@ worse than no test, because it manufactures false confidence.
     and named the fix (stop the take at `0:02`). At 19:15 it closed by
     count. It failed again at 19:59 and 20:05, and the fix shipped as #813
     under a new issue, #812.
+  - **A failure reproduced on demand ends the watch too** (#1003). The
+    count is for a failure that "will not fail again on demand". When a
+    session makes the watched test fail with a command it states, that
+    premise is gone, even before anyone has explained the failure. The
+    command may be a local repeat, a loaded multi-spec run, or #779's
+    dispatched run. The session that reproduces it:
+    - comments the command and how many of how many runs failed;
+    - removes `flake-watch` and keeps `bug`;
+    - names the measurement that would find the cause.
+
+    From there the issue is measured as the next bullet describes, and it
+    is never closed by count. #989 is the worked example. It was filed at
+    07:10 on 2026-11-26. At 09:37 a session reproduced it in 2 of 4 runs
+    of a stated multi-spec command and named the measurement for its load
+    hypothesis. The count kept advancing anyway and closed the issue at
+    13:53, with nobody having taken that measurement. At 15:49 the test
+    failed all three attempts on #1000's head, which held that PR's merge
+    for a re-run.
   - **A watch that recurs after closing by count is measured, not counted
     out again** (#968). The five-run count is how a *first* sighting
     expires. A recurrence after that close is direct evidence the count was
