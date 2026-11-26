@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { presentedExportedFrame } from './decodedFrame'
 import { chooseFromFileMenu } from './fileMenu'
 import { confirmDisableIfAsked } from './pluginConfirm'
 
@@ -233,66 +234,10 @@ async function exportMidpoint(page: Page, points: Point[]) {
   // near progress 0.5 even if load stretched the real-time recording
   // uniformly (#370: sample by the file's own timeline, not nominal
   // seconds). Every claim below holds well either side of 0.5.
-  return await page.evaluate(
-    async ({ base64, points }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        await new Promise<void>((resolve, reject) => {
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-            else {
-              video.ondurationchange = () => {
-                if (Number.isFinite(video.duration) && video.duration > 0) resolve()
-              }
-              video.currentTime = Number.MAX_SAFE_INTEGER
-            }
-          }
-          video.src = url
-        })
-        // Firefox drops a seek issued before the first frame has loaded
-        // (#615): seek only once loadeddata has fired.
-        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          await new Promise<void>((resolve, reject) => {
-            video.addEventListener('loadeddata', () => resolve(), { once: true })
-            video.addEventListener(
-              'error',
-              () => reject(new Error('exported file failed to decode')),
-              { once: true },
-            )
-          })
-        }
-        const duration = video.duration
-        await new Promise<void>((resolve) => {
-          video.onseeked = () => resolve()
-          video.currentTime = duration / 2
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(video, 0, 0)
-        return {
-          duration,
-          samples: points.map(({ x, y }) => {
-            const data = ctx.getImageData(
-              Math.floor(canvas.width * x),
-              Math.floor(canvas.height * y),
-              1,
-              1,
-            ).data
-            return { r: data[0], g: data[1], b: data[2] }
-          }),
-        }
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    },
-    { base64: exported.toString('base64'), points },
-  )
+  // Read once presented (`presentedExportedFrame`, #276): drawing straight
+  // after `seeked` read blue 0 at the centre once in CI (#961).
+  const frame = await presentedExportedFrame(page, exported, { fractionOfDuration: 0.5 })
+  return { duration: frame.duration, samples: await samplePng(page, frame.png, points) }
 }
 
 test('the pattern transitions join the type picker when enabled and leave it stock when disabled', async ({

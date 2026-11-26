@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { presentedExportedFrame } from './decodedFrame'
 import { ADD_SLATE, ADD_TEXT, chooseFromAddMenu } from './timelineMenu'
 
 type Page = import('@playwright/test').Page
@@ -25,71 +26,35 @@ async function exportOnce(page: Page): Promise<Buffer> {
 /**
  * Decodes the exported WebM, seeks to `fromEndSeconds` before its end, and
  * counts the frame's whitish pixels (all three channels bright) — text-white
- * against the slate's red, which never brightens green or blue.
+ * against the slate's red, which never brightens green or blue. The frame
+ * is read once it has been presented (`presentedExportedFrame`, #276):
+ * drawing straight after `seeked` read an all-black frame under load, a
+ * whitish count of exactly 0 (#921, as #374 found in export-settings).
  */
 async function countWhitishPixels(
   page: Page,
   webm: Buffer,
   fromEndSeconds: number,
 ): Promise<{ whitish: number; total: number; duration: number }> {
-  return await page.evaluate(
-    async ({ base64, fromEndSeconds }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }))
-      const video = document.createElement('video')
-      video.muted = true
-      try {
-        const duration = await new Promise<number>((resolve, reject) => {
-          video.onerror = () => reject(new Error('exported file failed to decode'))
-          video.onloadedmetadata = () => {
-            if (Number.isFinite(video.duration) && video.duration > 0) {
-              resolve(video.duration)
-              return
-            }
-            // MediaRecorder WebMs may report Infinity until forced to scan.
-            video.ondurationchange = () => {
-              if (Number.isFinite(video.duration) && video.duration > 0) {
-                resolve(video.duration)
-              }
-            }
-            video.currentTime = Number.MAX_SAFE_INTEGER
-          }
-          video.src = url
-        })
-        // Firefox drops a seek issued before the first frame has loaded: at
-        // readyState 1 the assignment can be lost with no seeking event, leaving
-        // currentTime at 0 (#615). Seek only once loadeddata has fired.
-        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          await new Promise<void>((resolve, reject) => {
-            video.addEventListener('loadeddata', () => resolve(), { once: true })
-            video.addEventListener('error', () => reject(new Error('exported file failed to decode')), {
-              once: true,
-            })
-          })
-        }
-        await new Promise<void>((resolve) => {
-          video.onseeked = () => resolve()
-          video.currentTime = Math.max(0, duration - fromEndSeconds)
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const context = canvas.getContext('2d')!
-        context.drawImage(video, 0, 0)
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
-        let whitish = 0
-        for (let index = 0; index < pixels.length; index += 4) {
-          if (pixels[index] > 150 && pixels[index + 1] > 150 && pixels[index + 2] > 150) {
-            whitish++
-          }
-        }
-        return { whitish, total: pixels.length / 4, duration }
-      } finally {
-        URL.revokeObjectURL(url)
+  const frame = await presentedExportedFrame(page, webm, { fromEndSeconds })
+  const counted = await page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d')!
+    context.drawImage(bitmap, 0, 0)
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    let whitish = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 150 && pixels[index + 1] > 150 && pixels[index + 2] > 150) {
+        whitish++
       }
-    },
-    { base64: webm.toString('base64'), fromEndSeconds },
-  )
+    }
+    return { whitish, total: pixels.length / 4 }
+  }, frame.png.toString('base64'))
+  return { ...counted, duration: frame.duration }
 }
 
 test('an exported file shows the text overlay during its window only', async ({ page }) => {
