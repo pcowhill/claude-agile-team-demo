@@ -31,6 +31,7 @@ const FRAME = { width: 640, height: 360 }
 const CARD = { x: 0.62, y: 0.62, width: 0.35, height: 0.35 }
 const BLUR_NAME = 'Test overlay blur'
 const VIGNETTE_NAME = 'Test overlay vignette'
+const PIXELATE_NAME = 'Test overlay pixelate'
 
 type Region = { x: number; y: number; width: number; height: number }
 
@@ -60,10 +61,13 @@ async function makePng(page: Page, fill: { square: number } | { color: string })
   return Buffer.from(base64, 'base64')
 }
 
-/** Registers the two test effects: a blur of 0.03 of the card's width, and a strong vignette. */
+/**
+ * Registers the test effects: a blur of 0.03 of the card's width, a strong
+ * vignette, and a pixelate in blocks of 0.05 of the card's width.
+ */
 async function registerTestEffects(page: Page) {
   await page.evaluate(
-    async ({ blurName, vignetteName }) => {
+    async ({ blurName, vignetteName, pixelateName }) => {
       const url = new URL('src/lib/pictureEffect.ts', document.baseURI).href
       const module = (await import(/* @vite-ignore */ url)) as typeof import('../src/lib/pictureEffect')
       module.pictureEffectRegistry.register({
@@ -78,8 +82,14 @@ async function registerTestEffects(page: Page) {
         params: [],
         look: (_params, weight) => ({ filters: [], layers: [{ kind: 'vignette', strength: 0.9 * weight, inner: 0.2 }] }),
       })
+      module.pictureEffectRegistry.register({
+        id: 'test-overlay-pixelate',
+        name: pixelateName,
+        params: [],
+        look: () => ({ filters: [{ kind: 'pixelate', block: 0.05 }], layers: [] }),
+      })
     },
-    { blurName: BLUR_NAME, vignetteName: VIGNETTE_NAME },
+    { blurName: BLUR_NAME, vignetteName: VIGNETTE_NAME, pixelateName: PIXELATE_NAME },
   )
 }
 
@@ -238,6 +248,86 @@ test('a blur on an overlay softens its picture and not the frame around it', asy
   expect(Math.abs(blurred.beside.mean - sharp.beside.mean)).toBeLessThan(2)
   expect(Math.abs(blurred.edge.contrast - sharp.edge.contrast)).toBeLessThan(sharp.edge.contrast * 0.02 + 0.5)
   expect(Math.abs(blurred.edge.mean - sharp.edge.mean)).toBeLessThan(2)
+})
+
+/**
+ * The setup of #999: `overlay` over a white base, placed (0.62, 0.35) to
+ * (0.97, 0.95), 224×216 px, so its 224×126 picture is letterboxed with
+ * gutters above and below. A zoom of 2 about the centre, over the whole
+ * window, magnifies the picture to 448×252, which fills the rectangle,
+ * gutters included. The test pixelate (blocks of 0.05 of the 224 px
+ * outline, about 11 px) runs over 0–2 s of its 5 s on screen. Returns the
+ * saved frames' regions with the pixelate on (1 s) and over (3 s).
+ */
+async function zoomedPixelate(page: Page, overlay: { name: string; png: Buffer }) {
+  await openWithOverlayFields(page, { name: 'white.png', png: await makePng(page, { color: '#fff' }) }, overlay, {
+    y: 0.35,
+    height: 0.6,
+    zooms: [{ id: 'z', start: 0, rampIn: 0, hold: 5, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+    pictureEffects: [{ id: 'p', type: 'test-overlay-pixelate', start: 0, end: 2, params: {} }],
+  })
+  const regions = {
+    // Above the unzoomed picture (which starts at y 0.475), inside the
+    // rectangle: a letterbox gutter that the zoomed picture fills. #999's
+    // strip.
+    gutter: { x: 0.65, y: 0.37, width: 0.28, height: 0.07 },
+    // Inside the unzoomed picture's outline.
+    outline: { x: 0.65, y: 0.55, width: 0.28, height: 0.2 },
+  }
+  const pixelated = await measure(page, await savedFrameAt(page, 1, 'pixelate on'), regions)
+  const plain = await measure(page, await savedFrameAt(page, 3, 'pixelate over'), regions)
+  return { pixelated, plain }
+}
+
+test('a pixelate on a zoomed, letterboxed overlay keeps its picture in the gutters (#999)', async ({ page }) => {
+  test.setTimeout(90_000)
+  const { pixelated, plain } = await zoomedPixelate(page, {
+    name: 'green.png',
+    png: await makePng(page, { color: '#00c800' }),
+  })
+  console.log(`overlay pixelate, zoomed, green: ${JSON.stringify({ pixelated, plain })}`)
+  // Unpixelated, the zoomed green fills the gutter. Pixelated, it still
+  // does, within a few levels, where the base's white (255) showed before.
+  for (const region of ['gutter', 'outline'] as const) {
+    expect(plain[region].mean, `${region}: unpixelated`).toBeGreaterThan(190)
+    expect(Math.abs(pixelated[region].mean - plain[region].mean), `${region}: pixelated`).toBeLessThan(3)
+  }
+})
+
+test('a pixelate on a zoomed, letterboxed overlay draws blocks in the gutters too (#999)', async ({ page }) => {
+  test.setTimeout(90_000)
+  // Green and black stripes 4 px wide, about 2.8 px in the saved frame once
+  // placed and zoomed: sharp unpixelated, flat blocks pixelated.
+  const stripes = Buffer.from(
+    await page.evaluate((frame) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = frame.width
+      canvas.height = frame.height
+      const ctx = canvas.getContext('2d')!
+      for (let x = 0; x < frame.width; x += 4) {
+        ctx.fillStyle = (x / 4) % 2 === 0 ? '#00c800' : '#000'
+        ctx.fillRect(x, 0, 4, frame.height)
+      }
+      return canvas.toDataURL('image/png').split(',')[1]
+    }, FRAME),
+    'base64',
+  )
+  const { pixelated, plain } = await zoomedPixelate(page, { name: 'stripes.png', png: stripes })
+  console.log(`overlay pixelate, zoomed, stripes: ${JSON.stringify({ pixelated, plain })}`)
+  for (const region of ['gutter', 'outline'] as const) {
+    // Unpixelated, the zoomed stripes fill both regions: sharp, and darker
+    // on average than the white base.
+    expect(plain[region].contrast, `${region}: sharp stripes`).toBeGreaterThan(40)
+    expect(plain[region].mean, `${region}: the stripes, not the base`).toBeLessThan(150)
+    // Pixelated, the stripes are averaged away into blocks.
+    expect(pixelated[region].contrast, `${region}: blocks`).toBeLessThan(plain[region].contrast * 0.3)
+  }
+  // The gutter's blocks are the outline's: the same picture under the same
+  // downscale reads the same. (Against the unpixelated mean it reads about
+  // 11 lower, in the outline as in the gutter, so that difference is the
+  // downscale's averaging of fine stripes, not where it draws.)
+  expect(pixelated.gutter.mean, 'gutter: not the base').toBeLessThan(150)
+  expect(Math.abs(pixelated.gutter.mean - pixelated.outline.mean), 'gutter against outline').toBeLessThan(3)
 })
 
 test('a vignette on a circle-masked overlay darkens inside the circle only', async ({ page }) => {
