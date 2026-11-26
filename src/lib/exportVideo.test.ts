@@ -29,7 +29,9 @@ import {
   resolveExportRange,
   overlayDestRect,
   overlayPictureRect,
+  overlayPixelateArea,
   pickExportMimeType,
+  pixelateAreaGrid,
   recorderStream,
   syncAudioTwin,
   syncOverlayReplay,
@@ -3399,6 +3401,34 @@ describe('the export loads the fonts its text uses before it draws (#859)', () =
     })
     await expect(exported).rejects.toThrow('stopped at the first element')
     expect(load).not.toHaveBeenCalled()
+  })
+})
+
+describe('an overlay pixelate area and its grid (#999, #872)', () => {
+  // #999's placement in a 640 × 360 frame: a 224 × 216 rectangle with the
+  // 224 × 126 picture letterboxed in it.
+  const placed = { x: 396.8, y: 126, width: 224, height: 216 }
+  const outline = { x: 396.8, y: 171, width: 224, height: 126 }
+  const pixelate = [{ kind: 'pixelate' as const, block: 0.05 }]
+
+  it('is the outline itself unzoomed, and the zoomed picture inside the rectangle zoomed', () => {
+    const unzoomed = { scale: 1, centerX: 0.5, centerY: 0.5 }
+    expect(overlayPixelateArea(outline, outline, placed, unzoomed)).toBe(outline)
+    const zoom = { scale: 2, centerX: 0.5, centerY: 0.5 }
+    const dest = zoomRectWithin(outline, zoom, placed)
+    const area = overlayPixelateArea(outline, dest, placed, zoom)
+    for (const key of ['x', 'y', 'width', 'height'] as const) expect(area[key]).toBeCloseTo(placed[key], 9)
+  })
+
+  it("keeps the outline's block over a larger area: 20 columns over 224 px either way, and rows from the area's height", () => {
+    expect(pixelateAreaGrid(pixelate, outline, outline)).toEqual({ columns: 20, rows: 11 })
+    expect(pixelateAreaGrid(pixelate, outline, placed)).toEqual({ columns: 20, rows: 19 })
+    // A narrower area than the outline: the block is a larger share of it.
+    expect(pixelateAreaGrid(pixelate, outline, { width: 112, height: 216 })).toEqual({ columns: 10, rows: 19 })
+  })
+
+  it('is null for a look that does not pixelate', () => {
+    expect(pixelateAreaGrid([{ kind: 'blur', radius: 0.01 }], outline, placed)).toBeNull()
   })
 })
 
