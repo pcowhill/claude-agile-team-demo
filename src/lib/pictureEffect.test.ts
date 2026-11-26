@@ -5,6 +5,8 @@ import {
   PICTURE_TEXTURE_RATE,
   PictureEffectRegistry,
   clampPictureEffect,
+  pixelateBlock,
+  pixelateGrid,
   DUST_COLUMNS,
   DUST_LIGHT_SHARE,
   MAX_DUST,
@@ -600,6 +602,65 @@ describe("VHS's tracking band (#870, step 2b(i)b)", () => {
     expect(textureTileKey(tracking(31), 16 / 9)).not.toBe(key)
     expect(textureTileKey(tracking(30, 0.3), 16 / 9)).not.toBe(key)
     expect(textureTileKey({ kind: 'scanlines', amount: 0.5, seed: 30 }, 16 / 9)).not.toBe(key)
+  })
+})
+
+describe('pixelateGrid and pixelateBlock (#871, step 3b)', () => {
+  it('is one buffer pixel per block, a block being a fraction of the frame width', () => {
+    // 15 px blocks of a 1920×1080 frame: 128 × 72, every block 15 px square.
+    expect(pixelateGrid(15 / 1920, 1920, 1080)).toEqual({ columns: 128, rows: 72 })
+    // 24 px blocks: 80 × 45.
+    expect(pixelateGrid(24 / 1920, 1920, 1080)).toEqual({ columns: 80, rows: 45 })
+  })
+
+  it('depends on the block and the aspect only, so a preview and an export draw the same grid', () => {
+    const block = 15 / 1920
+    expect(pixelateGrid(block, 955, 955 * (9 / 16))).toEqual({ columns: 128, rows: 72 })
+    expect(pixelateGrid(block, 3840, 2160)).toEqual({ columns: 128, rows: 72 })
+  })
+
+  it('rounds a width that is not a whole number of blocks, so the blocks stretch to fill the card', () => {
+    // 1920 / 50 = 38.4 columns and 1080 / 50 = 21.6 rows: 38 × 22 blocks,
+    // each 1920 / 38 ≈ 50.5 px wide and 1080 / 22 ≈ 49.1 px tall.
+    const grid = pixelateGrid(50 / 1920, 1920, 1080)!
+    expect(grid).toEqual({ columns: 38, rows: 22 })
+    expect(1920 / grid.columns).toBeCloseTo(50.53, 2)
+    expect(1080 / grid.rows).toBeCloseTo(49.09, 2)
+    // A portrait card rounds its rows the same way: 1080 / 50 = 21.6 columns, 1920 / 50 = 38.4 rows.
+    expect(pixelateGrid(50 / 1080, 1080, 1920)).toEqual({ columns: 22, rows: 38 })
+  })
+
+  it('keeps at least one block each way, however large the block', () => {
+    expect(pixelateGrid(1, 1920, 1080)).toEqual({ columns: 1, rows: 1 })
+    expect(pixelateGrid(5, 1920, 1080)).toEqual({ columns: 1, rows: 1 })
+    // A very wide card still has one row.
+    expect(pixelateGrid(0.5, 1920, 100)).toEqual({ columns: 2, rows: 1 })
+  })
+
+  it('is null when it would draw nothing', () => {
+    expect(pixelateGrid(0, 1920, 1080)).toBeNull()
+    expect(pixelateGrid(-0.01, 1920, 1080)).toBeNull()
+    expect(pixelateGrid(Number.NaN, 1920, 1080)).toBeNull()
+    // A block no wider than a pixel of the card.
+    expect(pixelateGrid(1 / 1920, 1920, 1080)).toBeNull()
+    expect(pixelateGrid(1 / 4000, 1920, 1080)).toBeNull()
+    expect(pixelateGrid(2 / 1920, 1920, 1080)).toEqual({ columns: 960, rows: 540 })
+    // An empty card.
+    expect(pixelateGrid(0.01, 0, 1080)).toBeNull()
+    expect(pixelateGrid(0.01, 1920, 0)).toBeNull()
+  })
+
+  it('pixelateBlock is the largest block of a look, or undefined without one', () => {
+    expect(pixelateBlock([])).toBeUndefined()
+    expect(pixelateBlock([{ kind: 'blur', radius: 0.01 }])).toBeUndefined()
+    expect(
+      pixelateBlock([
+        { kind: 'pixelate', block: 0.01 },
+        { kind: 'sepia', amount: 1 },
+        { kind: 'pixelate', block: 0.03 },
+        { kind: 'pixelate', block: 0.02 },
+      ]),
+    ).toBe(0.03)
   })
 })
 

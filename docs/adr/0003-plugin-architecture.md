@@ -398,6 +398,25 @@ extension point is built until a concrete plugin needs it**.
       colour bleed and #871's chromatic aberration) would be a new
       `PictureFilter` kind the same way. The contract grows by kinds, not
       by mechanisms.
+    - **Pixelate, the one filter that is a mechanism (#871, step 3b).**
+      `{ kind: 'pixelate', block }` is a `PictureFilter` kind, a block
+      being a fraction of the frame width, but no filter function draws
+      it. #871's measurement found an SVG filter that does
+      (`feTile` + `feMorphology`) exact only for an odd block and 228 ms
+      a 1080p frame in Chromium, against 0.9 ms for a downscale. So the
+      export draws the source, with its transform and the look's other
+      filters, into a card-sized scratch, downscales that into
+      `pixelateGrid`'s columns × rows, and stretches it back over the
+      card with smoothing off. Pixelate therefore applies after the
+      look's other filters wherever it sits in the list, and the largest
+      of several wins. The grid rounds to whole blocks and depends only
+      on the block and the card's aspect, so the preview (step 3b(ii),
+      a canvas whose buffer is the same grid, stretched by CSS
+      `image-rendering: pixelated`, which #871's step 3a measured within
+      a device pixel of the export) draws the same grid at any size.
+      - **Rejected:** the SVG filter, for its cost; a downscaled copy
+        scaled up by a CSS transform in the preview, which both browsers
+        rasterize from the full-resolution source and so never pixelate.
   - **Rejected:** a rule returning a CSS string, which the canvas could
     take for a blur but not for a vignette or grain, and drawing with
     per-plugin code in each renderer, which is what the shared rule

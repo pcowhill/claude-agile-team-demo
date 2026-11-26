@@ -60,7 +60,7 @@ import { overlayZoomAt, zoomAt } from './zoom'
 import { channelOffsetFilterUrl } from './channelOffsetFilter'
 import { exportSlices, slicesFilterUrl } from './slicesFilter'
 import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
-import { textureTile, textureTileKey, vignetteStops } from './pictureEffect'
+import { pixelateBlock, pixelateGrid, textureTile, textureTileKey, vignetteStops } from './pictureEffect'
 import type { PictureFilter, PictureLayer, TextureLayer } from './pictureEffect'
 import type { ZoomState } from './zoom'
 import { rateControlledCandidates, recorderOptions, sizeLimitBitrates } from './sizeLimit'
@@ -663,39 +663,131 @@ export function withLayerColorFilter(
  * card.width` px, and slices' bands (#871) shares of the card's height
  * and width. No filters, or only shifts that round to nothing, draws
  * with the context untouched.
+ *
+ * `draw` draws the source onto the context it is given, which is
+ * `context` itself unless the look pixelates (#871, step 3b). Then the
+ * source is drawn, with the context's transform and every other filter,
+ * into a scratch the size of the card; that is downscaled into
+ * `pixelateGrid`'s columns × rows; and the small buffer is drawn back over
+ * the card with smoothing off, at the context's alpha, blend and clip. So
+ * every block is one colour, and pixelate applies after the look's other
+ * filters. What the caller draws after `draw` (redactions, spotlights,
+ * layers) stays sharp, as it does under a blur.
  */
 export function withPictureFilters(
   context: CanvasRenderingContext2D,
   filters: readonly PictureFilter[],
-  card: { y: number; width: number; height: number },
-  draw: () => void,
+  card: { x: number; y: number; width: number; height: number },
+  draw: (target: CanvasRenderingContext2D) => void,
 ): void {
   if (filters.length === 0) {
-    draw()
+    draw(context)
     return
   }
+  const block = pixelateBlock(filters)
+  const grid = block === undefined ? null : pixelateGrid(block, card.width, card.height)
   // A channel offset (#870) and slices (#871) are SVG filters in the page,
   // in canvas px, horizontal on the frame however the source was turned:
   // the canvas filters what was drawn, after the draw's own transform.
-  const functions = pictureFilterFunctions(
-    filters,
-    card.width,
-    'px',
-    1,
-    (offset) =>
-      typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * card.width, dy: 0 }),
-    (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, card))),
-  ).join(' ')
+  // Into a pixelate scratch, the card's top-left is the scratch's origin.
+  const functionsFor = (place: { y: number; width: number; height: number }) =>
+    pictureFilterFunctions(
+      filters,
+      place.width,
+      'px',
+      1,
+      (offset) =>
+        typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * place.width, dy: 0 }),
+      (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, place))),
+    ).join(' ')
+  const withFunctions = (previous: string, functions: string) =>
+    functions === '' ? previous : previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
+  if (grid !== null && typeof document !== 'undefined') {
+    drawPixelated(context, card, grid, withFunctions(context.filter, functionsFor({ ...card, y: 0 })), draw)
+    return
+  }
+  const functions = functionsFor(card)
   if (functions === '') {
-    draw()
+    draw(context)
     return
   }
   const previous = context.filter
-  context.filter = previous === 'none' || previous === '' ? functions : `${previous} ${functions}`
+  context.filter = withFunctions(previous, functions)
   try {
-    draw()
+    draw(context)
   } finally {
     context.filter = previous
+  }
+}
+
+/**
+ * The pixelate draw's two scratch canvases (#871): the card at full size,
+ * then its `pixelateGrid` buffer. Kept between frames, as the texture
+ * tiles are, and resized only when the card or the grid changes.
+ */
+const pixelateScratch: { card?: HTMLCanvasElement; grid?: HTMLCanvasElement } = {}
+
+function sizedScratch(slot: 'card' | 'grid', width: number, height: number): CanvasRenderingContext2D | null {
+  const canvas = pixelateScratch[slot] ?? document.createElement('canvas')
+  pixelateScratch[slot] = canvas
+  if (canvas.width !== width) canvas.width = width
+  if (canvas.height !== height) canvas.height = height
+  const scratch = canvas.getContext('2d')
+  if (scratch === null) return null
+  scratch.setTransform(1, 0, 0, 1, 0, 0)
+  scratch.clearRect(0, 0, width, height)
+  return scratch
+}
+
+/**
+ * Draws `draw`'s source pixelated (#871, step 3b) over `card`: into a
+ * card-sized scratch under the context's transform moved to the card's
+ * corner and under `filter`, then down into the `grid` buffer with
+ * smoothing on, then back over the card with smoothing off. A card that
+ * reaches past the frame (a push, a cross-zoom) is drawn whole, so its
+ * edge blocks average only its own picture. Where the picture does not
+ * cover the card (a letterboxed source), the blocks along its edge are
+ * partly transparent, as the downscale averages them with nothing.
+ */
+function drawPixelated(
+  context: CanvasRenderingContext2D,
+  card: { x: number; y: number; width: number; height: number },
+  grid: { columns: number; rows: number },
+  filter: string,
+  draw: (target: CanvasRenderingContext2D) => void,
+): void {
+  const cardWidth = Math.max(1, Math.ceil(card.width))
+  const cardHeight = Math.max(1, Math.ceil(card.height))
+  const full = sizedScratch('card', cardWidth, cardHeight)
+  const small = full === null ? null : sizedScratch('grid', grid.columns, grid.rows)
+  if (full === null || small === null) {
+    draw(context)
+    return
+  }
+  const transform = context.getTransform()
+  full.setTransform(
+    transform.a,
+    transform.b,
+    transform.c,
+    transform.d,
+    transform.e - card.x,
+    transform.f - card.y,
+  )
+  full.imageSmoothingEnabled = context.imageSmoothingEnabled
+  full.imageSmoothingQuality = context.imageSmoothingQuality
+  full.filter = filter === '' ? 'none' : filter
+  draw(full)
+  full.filter = 'none'
+  small.imageSmoothingEnabled = true
+  small.drawImage(full.canvas, 0, 0, card.width, card.height, 0, 0, grid.columns, grid.rows)
+  context.save()
+  try {
+    context.setTransform(1, 0, 0, 1, 0, 0)
+    context.filter = 'none'
+    context.imageSmoothingEnabled = false
+    context.drawImage(small.canvas, card.x, card.y, card.width, card.height)
+  } finally {
+    context.restore()
   }
 }
 
@@ -1498,9 +1590,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
           height: dest.height,
         },
         (drawRect) => {
-          withPictureFilters(context, outgoingLook.filters, outgoingCard, () => {
+          withPictureFilters(context, outgoingLook.filters, outgoingCard, (target) => {
             drawLayerSource(
-              context,
+              target,
               layer.source,
               outgoingCrop,
               layer.sourceWidth,
@@ -1748,9 +1840,9 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
             height: incomingDest.height,
           },
           (drawRect) => {
-            withPictureFilters(context, incomingLook.filters, incomingCard, () => {
+            withPictureFilters(context, incomingLook.filters, incomingCard, (target) => {
               drawLayerSource(
-                context,
+                target,
                 overlay.layer.source,
                 incomingCrop,
                 overlay.layer.sourceWidth,

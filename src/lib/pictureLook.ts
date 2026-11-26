@@ -97,7 +97,9 @@ export function pictureLookAt(
  * Whether any picture effect on the timeline needs canvas `filter` support
  * to export: a registered effect whose look at full weight has a filter.
  * The export refuses up front without that support, as it does for colour
- * adjustments (#195), rather than writing a file missing the blur.
+ * adjustments (#195), rather than writing a file missing the blur. A
+ * pixelate filter (#871) does not count: it is drawn by downscaling, which
+ * needs no canvas `filter`.
  */
 export function timelineHasPictureFilters(
   state: TimelineState,
@@ -107,7 +109,9 @@ export function timelineHasPictureFilters(
     const definition = registry.find(effect.type)
     return (
       definition !== undefined &&
-      definition.look(pictureEffectParamsFor(definition, effect.params), 1, effect.start).filters.length > 0
+      definition
+        .look(pictureEffectParamsFor(definition, effect.params), 1, effect.start)
+        .filters.some((filter) => filter.kind !== 'pixelate')
     )
   })
 }
@@ -134,6 +138,9 @@ export function timelineHasPictureFilters(
  * filtered element's own pixels, so `slices` turns the bands into that
  * reference (`slicesFilterUrl`), or null to draw none. Without it, or with
  * no bands, slices add nothing.
+ *
+ * Pixelate (#871) adds nothing here either: no filter function draws it,
+ * so a renderer draws it by downscaling (`pixelateGrid`).
  */
 export function pictureFilterFunctions(
   filters: readonly PictureFilter[],
@@ -160,6 +167,10 @@ export function pictureFilterFunctions(
         const reference = filter.bands.length > 0 ? (slices?.(filter.bands) ?? null) : null
         return reference === null ? [] : [reference]
       }
+      case 'pixelate':
+        // Drawn by downscaling, not a filter function (#871): the export's
+        // `withPictureFilters` does it around the source draw.
+        return []
     }
   })
 }
