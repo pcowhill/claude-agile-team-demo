@@ -74,11 +74,13 @@ import {
   drawOverlayBorder,
   drawOverlayShadow,
   fitRect,
+  intersectRects,
   overlayPictureRect,
   pixelatedCard,
   withFilterFunctions,
   withLayerOrientation,
   zoomRect,
+  zoomRectWithin,
 } from '../lib/exportVideo'
 import type { OverlayBorder } from '../lib/overlayBorder'
 import type { OverlayShadow } from '../lib/overlayShadow'
@@ -102,7 +104,7 @@ import type {
 import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
-import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
+import { overlayPictureLookAt, pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
 import { channelOffsetFilterUrl, previewChannelShift } from '../lib/channelOffsetFilter'
 import { previewSlices, slicesFilterUrl } from '../lib/slicesFilter'
 import {
@@ -1091,6 +1093,78 @@ function overlayOutline(
     width: picture.width / frame.width,
     height: picture.height / frame.height,
   }
+}
+
+/**
+ * `style` with a look's filter functions appended to its CSS `filter`,
+ * after the colour adjustments, the order the export's canvas `filter`
+ * uses. An empty string adds nothing, so an effect-free overlay keeps its
+ * exact style object.
+ */
+function withLookFilter(style: CSSProperties | undefined, filter: string): CSSProperties | undefined {
+  if (filter === '') return style
+  const previous = style?.filter
+  return { ...style, filter: previous === undefined || previous === 'none' ? filter : `${previous} ${filter}` }
+}
+
+/**
+ * How the preview draws a video or image overlay's picture effects (#872,
+ * step 3a), the export's overlay path (`drawFrame`) in CSS:
+ * - `filter`: the look's filter functions for the media element. Their
+ *   card is the outline, so a blur's radius is a fraction of the outline's
+ *   width, in the frame's `cqw` (the frame is the size container). It is
+ *   divided by the overlay's zoom and by the crop's scale, the two
+ *   transforms that magnify the element after its filter, so it reads as
+ *   the export's blur of its already-placed draw. Channel offset, slices
+ *   and pixelate are not drawn here yet (step 3b): they write nothing.
+ * - `clipPath`: while a filter writes anything, the card is cut to what of
+ *   the picture shows (the outline, or zoomed, the zoomed picture inside
+ *   the rectangle), the export's `intersectRects(dest, placed)` clip. So a
+ *   blur's spread never reaches the frame around the overlay. The caller
+ *   uses a shape mask's clip-path instead when there is one, which already
+ *   insets to the outline.
+ * - `layersBox`: where the look's layers go, the outline in the card's own
+ *   percentages, with `outlineAspect` for a texture's tile.
+ * An effect-free look gives none of them, so the overlay renders as before.
+ */
+function overlayLookStyles(
+  look: PictureLook,
+  placed: { x: number; y: number; width: number; height: number },
+  outline: { x: number; y: number; width: number; height: number },
+  zoom: ZoomState,
+  cropScale: number,
+  frameAspect: number,
+): { filter: string; clipPath?: string; layersBox?: CSSProperties; outlineAspect: number } {
+  const outlineAspect = outline.height > 0 ? frameAspect * (outline.width / outline.height) : 1
+  const filter =
+    look.filters.length === 0
+      ? ''
+      : pictureFilterFunctions(look.filters, outline.width * 100, 'cqw', zoom.scale * cropScale).join(' ')
+  const inCard = (rect: { x: number; y: number; width: number; height: number }) => ({
+    left: ((rect.x - placed.x) / placed.width) * 100,
+    top: ((rect.y - placed.y) / placed.height) * 100,
+    width: (rect.width / placed.width) * 100,
+    height: (rect.height / placed.height) * 100,
+  })
+  const usable = placed.width > 0 && placed.height > 0
+  let clipPath: string | undefined
+  if (filter !== '' && usable) {
+    const visible = inCard(intersectRects(zoomRectWithin(outline, zoom, placed), placed))
+    clipPath = `inset(${styleNumber(visible.top)}% ${styleNumber(100 - visible.left - visible.width)}% ${styleNumber(
+      100 - visible.top - visible.height,
+    )}% ${styleNumber(visible.left)}%)`
+  }
+  let layersBox: CSSProperties | undefined
+  if (look.layers.length > 0 && usable) {
+    const box = inCard(outline)
+    layersBox = {
+      left: `${styleNumber(box.left)}%`,
+      top: `${styleNumber(box.top)}%`,
+      width: `${styleNumber(box.width)}%`,
+      height: `${styleNumber(box.height)}%`,
+    }
+  }
+  return { filter, clipPath, layersBox, outlineAspect }
 }
 
 /**
@@ -3582,6 +3656,20 @@ export function PreviewPlayer({
                 // `zoomRectWithin`: the picture and its regions magnify
                 // inside the card, which clips them while it zooms.
                 const overlayZoom = overlayZoomAt(overlay, overlayTime)
+                // The overlay's picture effects (#872), read in its on-screen
+                // time, as the export reads them (`overlayPictureLookAt`).
+                // Their card is the outline: `overlayLookStyles` says how
+                // the preview draws them on it.
+                const look = overlayPictureLookAt(overlay, Math.min(sequenceTime, total), overlayTime)
+                const lookStyles = overlayLookStyles(
+                  look,
+                  overlay,
+                  outline,
+                  overlayZoom,
+                  cropPlacementFor(overlay.crop, overlay.orientation, cardAspect, sourceAspectOf(overlay.url))?.scale ?? 1,
+                  previewAspect,
+                )
+                const cardClipPath = clipPath ?? lookStyles.clipPath
                 const border = overlay.border
                 const shadow = overlay.shadow
                 return (
@@ -3606,7 +3694,7 @@ export function PreviewPlayer({
                       top: `${overlay.y * 100}%`,
                       width: `${overlay.width * 100}%`,
                       height: `${overlay.height * 100}%`,
-                      ...(clipPath === undefined ? {} : { clipPath }),
+                      ...(cardClipPath === undefined ? {} : { clipPath: cardClipPath }),
                       ...(overlayZoom.scale === 1 ? {} : { overflow: 'hidden' }),
                     }}
                   >
@@ -3630,14 +3718,17 @@ export function PreviewPlayer({
                           alt=""
                           className="preview-media"
                           data-testid={`preview-overlay-${index}`}
-                          style={withColorFilter(
-                            croppedOrientedMediaStyle(
-                              overlay.crop,
-                              overlay.orientation,
-                              cardAspect,
-                              sourceAspectOf(overlay.url),
+                          style={withLookFilter(
+                            withColorFilter(
+                              croppedOrientedMediaStyle(
+                                overlay.crop,
+                                overlay.orientation,
+                                cardAspect,
+                                sourceAspectOf(overlay.url),
+                              ),
+                              overlay.colorAdjustments,
                             ),
-                            overlay.colorAdjustments,
+                            lookStyles.filter,
                           )}
                         />
                       ) : (
@@ -3651,14 +3742,17 @@ export function PreviewPlayer({
                           playsInline
                           className="preview-media"
                           data-testid={`preview-overlay-${index}`}
-                          style={withColorFilter(
-                            croppedOrientedMediaStyle(
-                              overlay.crop,
-                              overlay.orientation,
-                              cardAspect,
-                              sourceAspectOf(overlay.url),
+                          style={withLookFilter(
+                            withColorFilter(
+                              croppedOrientedMediaStyle(
+                                overlay.crop,
+                                overlay.orientation,
+                                cardAspect,
+                                sourceAspectOf(overlay.url),
+                              ),
+                              overlay.colorAdjustments,
                             ),
-                            overlay.colorAdjustments,
+                            lookStyles.filter,
                           )}
                         />
                       )}
@@ -3672,6 +3766,25 @@ export function PreviewPlayer({
                         testId={`preview-overlay-redactions-${index}`}
                       />
                     </div>
+                    {/* The look's layers (#872) over the outline, outside the
+                        zoom (they stay on the outline while the picture
+                        magnifies, as an entry's stay on its card) and inside
+                        the card, so its shape mask cuts them with the
+                        picture. After the regions, as the export draws them. */}
+                    {lookStyles.layersBox !== undefined && (
+                      <div
+                        className="preview-overlay-look"
+                        data-testid={`preview-overlay-look-${index}`}
+                        style={lookStyles.layersBox}
+                      >
+                        <PictureLayers
+                          look={look}
+                          zoom={IDENTITY_ZOOM}
+                          aspect={lookStyles.outlineAspect}
+                          testId={`preview-overlay-picture-layers-${index}`}
+                        />
+                      </div>
+                    )}
                   </div>
                   </Fragment>
                 )

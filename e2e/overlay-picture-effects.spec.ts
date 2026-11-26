@@ -7,9 +7,9 @@ import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
 
 /**
- * Picture effects on overlays in the export (#872, step 2): a saved frame
- * (the export's own frame composer) draws an overlay's effects on the
- * overlay's own picture and nowhere else.
+ * Picture effects on overlays (#872): a saved frame (the export's own frame
+ * composer, step 2) and the preview (step 3a) draw an overlay's effects on
+ * the overlay's own picture and nowhere else.
  *
  * Nothing in the app can put an effect on an overlay yet: step 4 adds the
  * + Effect ▾ entry. So this spec saves the project, writes the effects
@@ -150,6 +150,22 @@ async function savedFrameAt(page: Page, seconds: number, label: string): Promise
 }
 
 /**
+ * The preview's frame at `seconds`, once the overlay's media element carries
+ * the look's filter (`filter` matches it) or none, attached to the report.
+ */
+async function previewAt(page: Page, seconds: number, filter: RegExp | 'none', label: string): Promise<Buffer> {
+  await page.getByRole('slider', { name: 'Seek within sequence' }).fill(String(seconds))
+  const overlay = page.getByTestId('preview-overlay-0')
+  await expect.poll(() => overlay.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true)
+  await expect(page.getByTestId('preview-image')).toBeVisible()
+  if (filter === 'none') await expect(overlay).toHaveCSS('filter', 'none')
+  else await expect(overlay).toHaveCSS('filter', filter)
+  const png = await page.getByTestId('preview-frame').screenshot()
+  await test.info().attach(`preview (${label})`, { body: png, contentType: 'image/png' })
+  return png
+}
+
+/**
  * Per region of a PNG (frame fractions): the mean green, and the mean
  * absolute difference between horizontally adjacent pixels' green — how
  * sharp the pattern in it is.
@@ -218,26 +234,48 @@ test('a blur on an overlay softens its picture and not the frame around it', asy
     inside: { x: CARD.x + 0.05, y: CARD.y + 0.05, width: CARD.width - 0.1, height: CARD.height - 0.1 },
     outside: { x: 0.05, y: 0.05, width: 0.5, height: 0.5 },
     beside: { x: CARD.x - 0.1, y: CARD.y + 0.05, width: 0.08, height: CARD.height - 0.1 },
-    // A 6 px strip of the base ending 1 px short of the overlay's left edge,
-    // where an unclipped blur's spread would land.
-    edge: { x: CARD.x - 7 / FRAME.width, y: CARD.y + 0.05, width: 6 / FRAME.width, height: CARD.height - 0.1 },
+    // A 6 px strip of the base ending 4 px short of the overlay's left edge,
+    // where an unclipped blur's spread (0.03 of the overlay's 224 px, so
+    // 6.7 px) would land. The 4 px keep it clear of the overlay's own
+    // antialiased edge in the preview too, which shows the 640 px frame at
+    // about 290 px, so a frame pixel there is under half a screen pixel.
+    edge: { x: CARD.x - 10 / FRAME.width, y: CARD.y + 0.05, width: 6 / FRAME.width, height: CARD.height - 0.1 },
   }
   const blurred = await measure(page, await savedFrameAt(page, 1, 'blur on'), regions)
   // At 3 s the window (0–2 s) is over: the same overlay, unblurred.
   const sharp = await measure(page, await savedFrameAt(page, 3, 'blur over'), regions)
-  console.log(`overlay blur: ${JSON.stringify({ blurred, sharp })}`)
+  // The preview (step 3a), at the same two instants.
+  const previewBlurred = await measure(page, await previewAt(page, 1, /blur\(/, 'blur on'), regions)
+  const previewSharp = await measure(page, await previewAt(page, 3, 'none', 'blur over'), regions)
+  console.log(`overlay blur: ${JSON.stringify({ blurred, sharp, previewBlurred, previewSharp })}`)
 
   expect(blurred.width).toBe(FRAME.width)
-  // The overlay's checkerboard loses most of its edge contrast.
-  expect(sharp.inside.contrast).toBeGreaterThan(10)
-  expect(blurred.inside.contrast).toBeLessThan(sharp.inside.contrast * 0.5)
-  // The base's does not move, far from the overlay or right beside it: the
-  // blur is clipped to the overlay's picture.
-  expect(Math.abs(blurred.outside.contrast - sharp.outside.contrast)).toBeLessThan(sharp.outside.contrast * 0.02)
-  expect(Math.abs(blurred.beside.contrast - sharp.beside.contrast)).toBeLessThan(sharp.beside.contrast * 0.02)
-  expect(Math.abs(blurred.beside.mean - sharp.beside.mean)).toBeLessThan(2)
-  expect(Math.abs(blurred.edge.contrast - sharp.edge.contrast)).toBeLessThan(sharp.edge.contrast * 0.02 + 0.5)
-  expect(Math.abs(blurred.edge.mean - sharp.edge.mean)).toBeLessThan(2)
+  for (const [label, on, off] of [
+    ['saved frame', blurred, sharp],
+    ['preview', previewBlurred, previewSharp],
+  ] as const) {
+    // The overlay's checkerboard loses most of its edge contrast.
+    expect(off.inside.contrast, `${label}: sharp inside`).toBeGreaterThan(10)
+    expect(on.inside.contrast, `${label}: blurred inside`).toBeLessThan(off.inside.contrast * 0.5)
+    // The base's does not move, far from the overlay or right beside it:
+    // the blur is clipped to the overlay's picture.
+    expect(Math.abs(on.outside.contrast - off.outside.contrast), `${label}: outside`).toBeLessThan(
+      off.outside.contrast * 0.02,
+    )
+    expect(Math.abs(on.beside.contrast - off.beside.contrast), `${label}: beside`).toBeLessThan(
+      off.beside.contrast * 0.02,
+    )
+    expect(Math.abs(on.beside.mean - off.beside.mean), `${label}: beside mean`).toBeLessThan(2)
+    expect(Math.abs(on.edge.contrast - off.edge.contrast), `${label}: edge strip`).toBeLessThan(
+      off.edge.contrast * 0.02 + 0.5,
+    )
+    expect(Math.abs(on.edge.mean - off.edge.mean), `${label}: edge strip mean`).toBeLessThan(2)
+  }
+  // The preview's blur is the export's: the share of the overlay's contrast
+  // it keeps agrees within 0.1 (each share is measured at its own scale).
+  expect(
+    Math.abs(previewBlurred.inside.contrast / previewSharp.inside.contrast - blurred.inside.contrast / sharp.inside.contrast),
+  ).toBeLessThan(0.1)
 })
 
 test('a vignette on a circle-masked overlay darkens inside the circle only', async ({ page }) => {
@@ -262,12 +300,30 @@ test('a vignette on a circle-masked overlay darkens inside the circle only', asy
     base: { x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
   }
   const frame = await measure(page, await savedFrameAt(page, 1, 'vignette in a circle'), regions)
-  console.log(`overlay vignette: ${JSON.stringify(frame)}`)
+  // The vignette writes no filter, so the overlay's element carries none.
+  const preview = await measure(page, await previewAt(page, 1, 'none', 'vignette in a circle'), regions)
+  console.log(`overlay vignette: ${JSON.stringify({ frame, preview })}`)
 
-  // The overlay's green centre is near its own colour; its rim is darker.
-  expect(frame.centre.mean).toBeGreaterThan(150)
-  expect(frame.rim.mean).toBeLessThan(frame.centre.mean - 40)
-  // Outside the circle, inside the rectangle: the white base, undarkened.
-  expect(frame.base.mean).toBeGreaterThan(250)
-  expect(frame.corner.mean).toBeGreaterThan(frame.base.mean - 3)
+  for (const [label, measured] of [
+    ['saved frame', frame],
+    ['preview', preview],
+  ] as const) {
+    // The overlay's green centre is near its own colour; its rim is darker.
+    expect(measured.centre.mean, `${label}: centre`).toBeGreaterThan(150)
+    expect(measured.rim.mean, `${label}: rim`).toBeLessThan(measured.centre.mean - 40)
+    // Outside the circle, inside the rectangle: the white base, undarkened.
+    expect(measured.base.mean, `${label}: base`).toBeGreaterThan(250)
+    expect(measured.corner.mean, `${label}: corner`).toBeGreaterThan(measured.base.mean - 3)
+  }
+  // The preview's vignette is the export's: the rim within 12 levels.
+  expect(Math.abs(preview.rim.mean - frame.rim.mean)).toBeLessThan(12)
+  // Geometry: the layers' box is the outline. This overlay's picture fills
+  // its rectangle, so that is the card's box, within half a pixel.
+  const look = await page.getByTestId('preview-overlay-picture-layers-0').boundingBox()
+  const card = await page.getByTestId('preview-overlay-card-0').boundingBox()
+  expect(look).not.toBeNull()
+  expect(card).not.toBeNull()
+  for (const key of ['x', 'y', 'width', 'height'] as const) {
+    expect(Math.abs(look![key] - card![key]), `layers box ${key}`).toBeLessThan(0.5)
+  }
 })
