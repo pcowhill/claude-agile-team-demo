@@ -15,7 +15,7 @@
 | `tech-debt` | Necessary engineering improvement without direct feature value. |
 | `blocked` | Cannot proceed; a comment must say what blocks it and link the blocker. |
 | `process` | Changes to how the AI team works (rules, CI strategy, workflow). See `process-improvement.md`. |
-| `flake-watch` | With `bug`: a flaky test seen once and not reproduced, watched for recurrence. Closed after five clean CI runs of its job (#588). See `quality-and-ci.md`. |
+| `flake-watch` | With `bug`: a flaky test seen once and not reproduced, watched for recurrence. Closed after five clean CI runs of its job (#588), unless it recurred after an earlier close, which is measured instead (#968). See `quality-and-ci.md`. |
 
 Keep the taxonomy small. Add a new label only for a clear, durable purpose,
 and document it in this table in the same PR. Do not create priority labels —
