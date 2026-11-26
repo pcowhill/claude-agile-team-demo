@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { chooseClipAction } from './clipMenu'
+import { chooseFromFileMenu } from './fileMenu'
 import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
 import { chooseEffect } from './timelineRowMenu'
 
@@ -14,6 +15,8 @@ type Locator = import('@playwright/test').Locator
  * - the overlay's own zoom is marked;
  * - the warning says what Apply then does to that zoom, through the
  *   overlay row's own fields;
+ * - it names the overlay's picture effects and Moves too, which are windows
+ *   in its time on screen and so are warned of but not marked (#1008);
  * - the row's Trim… and the window fit at 1280×720 and 360px, on a populated
  *   project (a sequence entry and an overlay carrying a zoom).
  *
@@ -95,6 +98,53 @@ test('an overlay’s Trim window marks its own zoom, warns before Out cuts into 
   await page.getByRole('button', { name: 'Undo last timeline edit' }).click()
   await expect(outField).toHaveValue(outBefore)
   await expect(zoomField(page, 'ramp-out')).toHaveValue('0.5')
+})
+
+test('an overlay’s Trim window names the picture effect and the Move that Out cuts into, and Apply then does exactly that (#1008)', async ({
+  page,
+}) => {
+  await page.goto('./')
+  const buffer = await readFile(join('e2e', 'fixtures', CLIP))
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: CLIP, mimeType: 'video/webm', buffer }])
+  await page.getByRole('button', { name: `Add ${CLIP} to timeline` }).click()
+  await chooseClipAction(page, CLIP, 'Add as overlay')
+  await chooseFromFileMenu(page, 'Plugins…')
+  const plugins = page.getByRole('dialog', { name: 'Plugins' })
+  await page.getByRole('button', { name: 'Enable Visual effects' }).click()
+  await expect(page.getByRole('button', { name: 'Disable Visual effects' })).toBeVisible()
+  await plugins.getByRole('button', { name: 'Close' }).click()
+  // Vignette 1 on screen from 1 s to 4 s; Move 1 starting at 4.5 s.
+  await chooseEffect(page, OVERLAY, 'Vignette')
+  const vignetteEnd = page.getByRole('spinbutton', { name: `Vignette 1 end of ${OVERLAY} in seconds` })
+  await fill(vignetteEnd, '4')
+  await fill(page.getByRole('spinbutton', { name: `Vignette 1 start of ${OVERLAY} in seconds` }), '1')
+  await chooseEffect(page, OVERLAY, 'Move')
+  const moveStart = page.getByRole('spinbutton', { name: `Move 1 start of ${OVERLAY} in seconds` })
+  await fill(page.getByRole('spinbutton', { name: `Move 1 glide of ${OVERLAY} in seconds` }), '0.5')
+  await fill(moveStart, '4.5')
+
+  const dialog = await openTrim(page)
+  const warning = dialog.getByTestId('trim-warning')
+  await expect(warning).toHaveText('')
+  // Neither is marked: the strip is the source, and these are on-screen windows.
+  await expect(dialog.getByTestId('trim-effect-mark')).toHaveCount(0)
+
+  // Out at 3 s leaves 3 s on screen: the vignette loses its last second,
+  // and the Move would start after the overlay has gone.
+  const out = dialog.getByRole('spinbutton', { name: 'Out point to apply in seconds' })
+  await out.fill('3')
+  await out.blur()
+  await expect(dialog.getByTestId('trim-clamp-out')).toHaveAttribute('aria-valuenow', '3')
+  await expect(warning).toHaveText('Trimming here shortens Vignette 1 and removes Move 1.')
+
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(vignetteEnd).toHaveValue('3')
+  await expect(moveStart).toHaveValue('3')
+
+  await page.getByRole('button', { name: 'Undo last timeline edit' }).click()
+  await expect(vignetteEnd).toHaveValue('4')
+  await expect(moveStart).toHaveValue('4.5')
 })
 
 for (const viewport of [

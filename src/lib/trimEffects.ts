@@ -23,6 +23,15 @@
  * the end as surely as moving Out.
  *
  * Times returned are in **source seconds**, the strip's own units.
+ *
+ * **An overlay's on-screen lists.** A video overlay's Moves (#834) and
+ * picture effects (#872) are windows in its *on-screen* time, seconds since
+ * it appears, not seconds into its trim. A trim that shortens the overlay's
+ * time on screen clamps them against the new on-screen length (#1008).
+ * They are warned of, by the same rule, but not marked on the strip: the
+ * strip is in source seconds, and an on-screen window maps onto it only
+ * through the overlay's speed segments and pauses, where a window over a
+ * pause is many seconds on screen and one instant of source.
  */
 
 import { remapEnd, remapStart, sourceTimeAtOutput } from './remap'
@@ -40,12 +49,18 @@ import {
 } from './timeline'
 import type { TimelineState, ZoomSpec } from './timeline'
 import type { TrimRange } from './trim'
-import { isImageOverlay, overlayPlacementOf } from './videoOverlay'
+import { isImageOverlay, overlayOutputDuration, overlayPlacementOf } from './videoOverlay'
+import type { VideoOverlay } from './videoOverlay'
 import { pictureEffectNames } from './pictureEffect'
 import type { PictureEffect } from './pictureEffect'
+import type { OverlayMove } from './overlayMove'
 
-/** `picture-effect` is a Vignette, Blur or other registered picture effect (#862), whatever its type. */
-export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect'
+/**
+ * `picture-effect` is a Vignette, Blur or other registered picture effect
+ * (#862), whatever its type. `move` is an overlay's Move (#834), which is
+ * only ever warned of, never marked (see "An overlay's on-screen lists").
+ */
+export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect' | 'move'
 
 /**
  * What the row calls each remap kind. A `Record` over the union, so a new
@@ -60,7 +75,7 @@ const REMAP_NAMES: Record<RemapSpec['kind'], string> = {
 export interface TrimEffectMark {
   id: string
   kind: TrimEffectKind
-  /** The row's own name for it: "Zoom 1", "Speed segment 2", "Pause 1". */
+  /** The row's own name for it: "Zoom 1", "Speed segment 2", "Pause 1", "Move 1". */
   name: string
   /** Source seconds. A pause occupies one instant: `start === end`. */
   start: number
@@ -201,6 +216,77 @@ function comparedEffects(
   return { marks, warnings }
 }
 
+/** One on-screen window of an overlay (#1008), and whether it still shows at all. */
+interface OnScreen {
+  id: string
+  kind: 'move' | 'picture-effect'
+  name: string
+  /** Seconds since the overlay appears. */
+  start: number
+  end: number
+  /** Clamped against the end of the overlay's time on screen, so it never shows. */
+  collapsed: boolean
+}
+
+/**
+ * An overlay's Moves and picture effects, named as their rows name them, in
+ * on-screen seconds against its on-screen `length`.
+ *
+ * A Move's window is its glide, `start` to `start + glide`. One that starts
+ * at or past the end of the overlay's time on screen is collapsed: the
+ * overlay is gone before it moves, so it never reaches that destination. A
+ * picture effect is collapsed when its window has no length left, as an
+ * entry's is.
+ */
+function onScreenEffects(overlay: VideoOverlay): OnScreen[] {
+  const length = overlayOutputDuration(overlay)
+  // The Move rows are numbered in the normalized list's order (`MoveFieldsRow`).
+  const moves = (overlay.moves ?? []).map((move: OverlayMove, index) => ({
+    id: move.id,
+    kind: 'move' as const,
+    name: `Move ${index + 1}`,
+    start: move.start,
+    end: move.start + move.glide,
+    collapsed: move.start >= length - EPSILON,
+  }))
+  const effects = overlay.pictureEffects ?? []
+  const names = pictureEffectNames(effects)
+  const pictures = effects.map((effect) => ({
+    id: effect.id,
+    kind: 'picture-effect' as const,
+    name: names.get(effect.id) ?? effect.type,
+    start: effect.start,
+    end: effect.end,
+    collapsed: effect.end - effect.start <= EPSILON,
+  }))
+  return [...moves, ...pictures]
+}
+
+/**
+ * The warnings for an overlay's on-screen windows (#1008), in on-screen
+ * order. A window the trim collapses is *removed*. One whose end the trim
+ * pulls back is *shortened*: for a Move, its glide is cut, so the box
+ * reaches its destination only as the overlay leaves. A trim only ever
+ * shortens the time on screen, so nothing is moved without being one of
+ * those. A window already collapsed before the trim is not warned of.
+ */
+function comparedOnScreen(before: readonly OnScreen[], after: readonly OnScreen[]): TrimEffectWarning[] {
+  const was = new Map(before.map((window) => [window.id, window]))
+  const warnings: TrimEffectWarning[] = []
+  for (const window of [...after].sort((a, b) => a.start - b.start)) {
+    const previous = was.get(window.id)
+    if (previous === undefined || previous.collapsed) continue
+    const outcome: TrimEffectOutcome | null = window.collapsed
+      ? 'removes'
+      : window.end < previous.end - EPSILON
+        ? 'shortens'
+        : null
+    // Named as the row names it now, before Apply: that is what the user reads.
+    if (outcome !== null) warnings.push({ id: window.id, kind: window.kind, name: previous.name, outcome })
+  }
+  return warnings
+}
+
 /**
  * The Trim window's view of `range` for the entry `entryId` (#709): marks,
  * warnings and transition spans, all from the state `entry-trimmed` would
@@ -275,9 +361,10 @@ export function trimEffectsPreview(
  * (#711): `trimEffectsPreview`'s rule, with the overlay's own action and
  * lists. The candidate is the `video-overlay-updated` Apply dispatches —
  * the overlay's placement with the new In and Out — and the overlay's own
- * zooms and speed segments and pauses are compared before and after. An
- * overlay sits on no boundary, so there are no transition spans. An image
- * overlay has no source to trim, and shows nothing.
+ * zooms and speed segments and pauses are compared before and after, then
+ * its Moves and picture effects (#1008), which are warned of after them but
+ * not marked. An overlay sits on no boundary, so there are no transition
+ * spans. An image overlay has no source to trim, and shows nothing.
  */
 export function overlayTrimEffectsPreview(
   state: TimelineState,
@@ -304,7 +391,8 @@ export function overlayTrimEffectsPreview(
     placedEffects(overlay.zooms ?? [], overlay.remaps ?? []),
     overlay.inPoint,
   )
-  return { marks, warnings, transitions: [] }
+  const onScreen = comparedOnScreen(onScreenEffects(current), onScreenEffects(overlay))
+  return { marks, warnings: [...warnings, ...onScreen], transitions: [] }
 }
 
 /**

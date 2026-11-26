@@ -5,7 +5,8 @@ import { remapsForEntry, timelineReducer, videoOverlaysOf, zoomWindowDuration, z
 import { overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
 import type { VideoOverlay } from './videoOverlay'
 import { NO_PICTURE_LOOK, pictureEffectRegistry } from './pictureEffect'
-import type { PictureEffect, PictureEffectDefinition } from './pictureEffect'
+import type { OverlayPictureEffect, PictureEffect, PictureEffectDefinition } from './pictureEffect'
+import type { OverlayMove } from './overlayMove'
 import { overlayPlacementOf } from './videoOverlay'
 
 const entry = (overrides: Partial<TimelineEntry> & { id: string }): TimelineEntry => ({
@@ -239,6 +240,109 @@ describe('overlayTrimEffectsPreview: a video overlay’s own effects (#711)', ()
       marks: [],
       warnings: [],
       transitions: [],
+    })
+  })
+
+  describe('its Moves and picture effects, in on-screen time (#1008)', () => {
+    const vignette: PictureEffectDefinition = {
+      id: 'vignette',
+      name: 'Vignette',
+      params: [{ key: 'strength', label: 'Strength', min: 0, max: 100, default: 60 }],
+      look: () => NO_PICTURE_LOOK,
+    }
+    const look = (id: string, start: number, end: number): OverlayPictureEffect => ({
+      id,
+      type: 'vignette',
+      start,
+      end,
+      params: { strength: 60 },
+    })
+    const move = (id: string, start: number, glide: number): OverlayMove => ({
+      id,
+      start,
+      glide,
+      x: 0.1,
+      y: 0.1,
+      width: 0.3,
+      height: 0.3,
+    })
+
+    it('a picture effect: "shortens" and "removes" by the row\'s name, with no mark, and the reducer agrees', () => {
+      pictureEffectRegistry.register(vignette)
+      try {
+        const state = withOverlay({ pictureEffects: [look('v1', 2, 6), look('v2', 7, 9)] })
+        const preview = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 5 })
+        expect(preview.warnings).toEqual([
+          { id: 'v1', kind: 'picture-effect', name: 'Vignette 1', outcome: 'shortens' },
+          { id: 'v2', kind: 'picture-effect', name: 'Vignette 2', outcome: 'removes' },
+        ])
+        expect(trimWarningText(preview.warnings)).toBe('Trimming here shortens Vignette 1 and removes Vignette 2.')
+        // On-screen windows are not drawn on the source strip.
+        expect(preview.marks).toEqual([])
+        expect(appliedOverlay(state, 0, 5).pictureEffects?.map(({ id, start, end }) => [id, start, end])).toEqual([
+          ['v1', 2, 5],
+          ['v2', 5, 5],
+        ])
+        // Moving In shortens the time on screen too: 7 s left, so only v2 is cut.
+        const fromIn = overlayTrimEffectsPreview(state, 'o1', { inPoint: 3, outPoint: 10 })
+        expect(trimWarningText(fromIn.warnings)).toBe('Trimming here removes Vignette 2.')
+        expect(overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 9.5 }).warnings).toEqual([])
+      } finally {
+        pictureEffectRegistry.unregister('vignette')
+      }
+    })
+
+    it('a picture effect is measured on screen: through a 2× speed segment, Out at 8 leaves 6 s on screen', () => {
+      // Source 0 → 4 at 2× plays in 2 s, so the whole overlay is 8 s on
+      // screen and Out at 8 leaves 2 + 4 = 6. Read in source seconds, the
+      // effect's 5 → 7 window would still fit before 8.
+      const state = withOverlay({
+        remaps: [{ id: 'os1', kind: 'speed', start: 0, end: 4, factor: 2 }],
+        pictureEffects: [look('v1', 5, 7)],
+      })
+      const preview = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 8 })
+      expect(preview.warnings).toEqual([
+        { id: 'v1', kind: 'picture-effect', name: 'vignette 1 (unavailable)', outcome: 'shortens' },
+      ])
+      expect(appliedOverlay(state, 0, 8).pictureEffects?.map(({ start, end }) => [start, end])).toEqual([[5, 6]])
+    })
+
+    it('a Move: "shortens" when Out cuts its glide, "removes" when it starts at or past the new end', () => {
+      const state = withOverlay({ moves: [move('m1', 1, 2), move('m2', 6, 1)] })
+      const cutsSecond = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 5 })
+      expect(cutsSecond.warnings).toEqual([{ id: 'm2', kind: 'move', name: 'Move 2', outcome: 'removes' }])
+      expect(cutsSecond.marks).toEqual([])
+
+      const cutsBoth = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 2 })
+      expect(trimWarningText(cutsBoth.warnings)).toBe('Trimming here shortens Move 1 and removes Move 2.')
+      // The reducer agrees: Move 1 glides 1 s and ends with the overlay; Move 2 sits on the end.
+      expect(appliedOverlay(state, 0, 2).moves?.map(({ id, start, glide }) => [id, start, glide])).toEqual([
+        ['m1', 1, 1],
+        ['m2', 2, 0],
+      ])
+      expect(overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 7 }).warnings).toEqual([])
+    })
+
+    it('a jump (no glide) is removed once the new end reaches its start; one already on the end is not warned of', () => {
+      const jump = withOverlay({ moves: [move('m1', 3, 0)] })
+      expect(overlayTrimEffectsPreview(jump, 'o1', { inPoint: 0, outPoint: 3.5 }).warnings).toEqual([])
+      expect(overlayTrimEffectsPreview(jump, 'o1', { inPoint: 0, outPoint: 3 }).warnings).toEqual([
+        { id: 'm1', kind: 'move', name: 'Move 1', outcome: 'removes' },
+      ])
+      const onTheEnd = withOverlay({ moves: [move('m1', 10, 0)] })
+      expect(overlayTrimEffectsPreview(onTheEnd, 'o1', { inPoint: 0, outPoint: 8 }).warnings).toEqual([])
+    })
+
+    it('lists the zooms, speed segments and pauses first, then the on-screen windows in on-screen order', () => {
+      const state = withOverlay({
+        zooms: [overlayZoom],
+        moves: [move('m1', 4.5, 1)],
+        pictureEffects: [look('v1', 3, 4)],
+      })
+      const preview = overlayTrimEffectsPreview(state, 'o1', { inPoint: 0, outPoint: 3.5 })
+      expect(trimWarningText(preview.warnings)).toBe(
+        'Trimming here removes Zoom 1, shortens vignette 1 (unavailable) and removes Move 1.',
+      )
     })
   })
 
