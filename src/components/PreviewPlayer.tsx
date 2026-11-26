@@ -100,6 +100,7 @@ import { canvasFrameSize, frameAspect } from '../lib/frameSize'
 import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
+import { channelOffsetFilterUrl, previewChannelShift } from '../lib/channelOffsetFilter'
 import { NO_PICTURE_LOOK, pictureEffectRegistry, textureTile, textureTileKey, vignetteStops } from '../lib/pictureEffect'
 import type { PictureLook, TextureLayer } from '../lib/pictureEffect'
 import type { ZoomState } from '../lib/zoom'
@@ -421,6 +422,18 @@ function withColorFilter(
 }
 
 /**
+ * What a picture effect's channel offset (#870) needs to know about the
+ * element it filters: the frame's width in CSS px, and the element's own
+ * orientation and crop scale, which its transform applies after the
+ * filter. A slate has neither.
+ */
+interface PreviewFilterMedia {
+  framePx: number
+  orientation?: Orientation
+  cropScale?: number
+}
+
+/**
  * Composes a layer's styles with its entry's picture-effect filters (#862):
  * the look's filter functions appended to the element's CSS `filter`, after
  * its colour adjustments, the order the export's canvas `filter` uses. A
@@ -434,9 +447,23 @@ function withPictureFilters(
   style: CSSProperties | undefined,
   look: PictureLook,
   zoom: ZoomState,
+  media: PreviewFilterMedia,
 ): CSSProperties | undefined {
   if (look.filters.length === 0) return style
-  const functions = pictureFilterFunctions(look.filters, 100, 'cqw', zoom.scale).join(' ')
+  // A channel offset (#870) is an SVG filter whose shift is in the
+  // element's own CSS px: the frame's measured width turns the offset into
+  // px on the screen, and `previewChannelShift` turns that back through
+  // the element's own transform. Until the frame is measured it draws
+  // none. Making the filter is idempotent, so a render may do it.
+  const functions = pictureFilterFunctions(look.filters, 100, 'cqw', zoom.scale, (offset) =>
+    media.framePx > 0 && typeof document !== 'undefined'
+      ? channelOffsetFilterUrl(
+          document,
+          previewChannelShift((offset * media.framePx) / zoom.scale, media.orientation, media.cropScale),
+        )
+      : null,
+  ).join(' ')
+  if (functions === '') return style
   const previous = style?.filter
   return { ...style, filter: previous === undefined || previous === 'none' ? functions : `${previous} ${functions}` }
 }
@@ -573,6 +600,25 @@ function orientedMediaStyle(
 const styleNumber = (value: number) => String(Math.round(value * 10000) / 10000)
 
 /**
+ * The crop's placement in the media element's box (#255): the card, or
+ * the transposed card a quarter turn swaps to. Undefined for no crop, or
+ * until the source's dimensions are probed.
+ */
+function cropPlacementFor(
+  crop: Crop | undefined,
+  orientation: Orientation | undefined,
+  cardAspect: number,
+  sourceAspect: number | undefined,
+): ReturnType<typeof cropMediaPlacement> {
+  if (crop === undefined) return undefined
+  const swapped =
+    (orientation?.rotation === 90 || orientation?.rotation === 270) &&
+    Number.isFinite(cardAspect) &&
+    cardAspect > 0
+  return cropMediaPlacement(crop, sourceAspect, swapped ? 1 / cardAspect : cardAspect)
+}
+
+/**
  * The media element's styles for its crop (#255) composed with its
  * orientation (#232): the orientation style is untouched (crop-free layers
  * keep byte-identical styles), and a crop appends the shared placement
@@ -592,12 +638,7 @@ function croppedOrientedMediaStyle(
   sourceAspect: number | undefined,
 ): CSSProperties | undefined {
   const base = orientedMediaStyle(orientation, cardAspect)
-  if (crop === undefined) return base
-  const swapped =
-    (orientation?.rotation === 90 || orientation?.rotation === 270) &&
-    Number.isFinite(cardAspect) &&
-    cardAspect > 0
-  const placement = cropMediaPlacement(crop, sourceAspect, swapped ? 1 / cardAspect : cardAspect)
+  const placement = cropPlacementFor(crop, orientation, cardAspect, sourceAspect)
   if (placement === undefined) return base
   const cropTransform = `translate(${styleNumber(placement.translateX)}%, ${styleNumber(placement.translateY)}%) scale(${styleNumber(placement.scale)})`
   return {
@@ -1459,6 +1500,21 @@ export function PreviewPlayer({
   const empty = timeline.entries.length === 0
   // Whether a library clip is being auditioned in place of the sequence (#403).
   const sourceMode = sourceClip !== null
+
+  // The frame's width in CSS px (#870): a channel offset's SVG filter
+  // shifts in px, which the frame's cq units that size a blur cannot give.
+  // Measured as laid out, so a layout change or a resize re-measures it.
+  const [frameElement, setFrameElement] = useState<HTMLDivElement | null>(null)
+  const [framePx, setFramePx] = useState(0)
+  useEffect(() => {
+    if (frameElement === null) return
+    const measure = () => setFramePx(frameElement.getBoundingClientRect().width)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(frameElement)
+    return () => observer.disconnect()
+  }, [frameElement])
   const audioTracks = audioTracksOf(timeline)
   // One <audio> element per track, keyed by track id (#103). A ref map, not
   // state: the rAF loop reads it every frame.
@@ -2832,6 +2888,14 @@ export function PreviewPlayer({
     const dims = sourceDims.get(url)
     return dims === undefined || dims.height <= 0 ? undefined : dims.width / dims.height
   }
+  // What a channel offset (#870) on this entry's media element needs: the
+  // frame's width, and the element's orientation and crop scale.
+  const filterMedia = (entry: TimelineEntry | undefined): PreviewFilterMedia => ({
+    framePx,
+    orientation: entry?.orientation,
+    cropScale:
+      cropPlacementFor(entry?.crop, entry?.orientation, previewAspect, sourceAspectOf(entry?.url))?.scale ?? 1,
+  })
 
   // Each element's zoom (#64) at its entry's current source time: the
   // primary element renders `location`'s entry, the incoming element (only
@@ -2896,6 +2960,7 @@ export function PreviewPlayer({
             ),
             primaryLook,
             primaryZoom,
+            filterMedia(location?.entry),
           ),
         },
         layers: (
@@ -2937,6 +3002,7 @@ export function PreviewPlayer({
               ),
               incomingLook,
               incomingZoom,
+              filterMedia(overlap.entry),
             )
           : undefined,
         'data-testid': videoOverlap ? 'preview-video-incoming' : undefined,
@@ -3013,7 +3079,7 @@ export function PreviewPlayer({
             className={previewStageClass(layout)}
             style={{ '--preview-aspect': String(previewAspect) } as CSSProperties}
           >
-            <div className="preview-frame" data-testid="preview-frame">
+            <div className="preview-frame" data-testid="preview-frame" ref={setFrameElement}>
               <div {...slotA.card}>
                 {slotA.backdrop}
                 <video ref={videoARef} playsInline preload="auto" className="preview-media" {...slotA.media} />
@@ -3043,6 +3109,7 @@ export function PreviewPlayer({
                     },
                     primaryLook,
                     primaryZoom,
+                    filterMedia(undefined),
                   )}
                 >
                   <PictureLayers look={primaryLook} zoom={primaryZoom} aspect={previewAspect} testId="preview-picture-layers" />
@@ -3074,6 +3141,7 @@ export function PreviewPlayer({
                         ),
                         primaryLook,
                         primaryZoom,
+                        filterMedia(location.entry),
                       )}
                     />
                     <RegionOverlay
@@ -3100,6 +3168,7 @@ export function PreviewPlayer({
                     },
                     incomingLook,
                     incomingZoom,
+                    filterMedia(undefined),
                   )}
                 >
                   <PictureLayers
@@ -3136,6 +3205,7 @@ export function PreviewPlayer({
                         ),
                         incomingLook,
                         incomingZoom,
+                        filterMedia(overlap.entry),
                       )}
                     />
                     <PictureLayers
