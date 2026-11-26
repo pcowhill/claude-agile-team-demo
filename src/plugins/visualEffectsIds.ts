@@ -8,7 +8,7 @@
  *
  * Ids are recorded in project files; never reuse one for a different effect.
  */
-export const VISUAL_EFFECT_IDS = ['vignette', 'blur', 'film-grain', 'old-film', 'vhs'] as const
+export const VISUAL_EFFECT_IDS = ['vignette', 'blur', 'film-grain', 'old-film', 'vhs', 'chromatic-aberration'] as const
 
 export type VisualEffectId = (typeof VISUAL_EFFECT_IDS)[number]
 

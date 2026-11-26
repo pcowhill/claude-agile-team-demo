@@ -50,6 +50,17 @@ export const OLD_FILM = { sepia: 0.85, flicker: 0.08, grain: 0.2, grainSize: 3, 
 export const VHS = { blur: 0.0015, scanlines: 0.4, tracking: 0.5, offset: 0.002 }
 
 /**
+ * How far Chromatic aberration (#871) moves the picture's red left and its
+ * blue right at Amount 100 and full weight, as a fraction of the frame
+ * width: about 19 px of a 1080p frame, a strong colour split, so that the
+ * default 30 % (about 6 px) reads as a cheap lens's fringes and the top of
+ * the range as a stylised RGB split. The split is the same everywhere in
+ * the frame: #977's `channel-offset` kind, which neither CSS nor the
+ * canvas could turn into a radial one that grows toward the edges.
+ */
+export const CHROMATIC_ABERRATION = { offset: 0.01 }
+
+/**
  * Old film's brightness at `time` for a flicker of `depth` (#870): a
  * multiplier in [1 − depth, 1 + depth], one value per texture step, from
  * the same hash the grain uses at a cell no grain tile reaches (x = −1),
@@ -162,6 +173,19 @@ const DEFINITIONS: Record<VisualEffectId, PictureEffectDefinition> = {
         ],
       }
     },
+  },
+  // Colour fringes at every edge (#871): red moved left and blue right,
+  // green kept, as a lens that focuses the colours apart. Amount is the
+  // split in percent of CHROMATIC_ABERRATION.offset. Drawn through #977's
+  // one SVG filter, so the preview and the export shift alike.
+  'chromatic-aberration': {
+    id: 'chromatic-aberration',
+    name: 'Chromatic aberration',
+    params: [{ key: 'amount', label: 'Amount', min: 0, max: 100, default: 30, unit: '%' }],
+    look: (params, weight) => ({
+      filters: [{ kind: 'channel-offset', offset: CHROMATIC_ABERRATION.offset * (params.amount / 100) * weight }],
+      layers: [],
+    }),
   },
 }
 
