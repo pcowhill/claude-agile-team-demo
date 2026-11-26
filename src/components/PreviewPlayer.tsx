@@ -106,7 +106,7 @@ import type { SourceDimensions } from '../lib/frameSize'
 import { IDENTITY_ZOOM, overlayZoomAt, zoomAt } from '../lib/zoom'
 import { overlayPictureLookAt, pictureFilterFunctions, pictureLookAt } from '../lib/pictureLook'
 import { channelOffsetFilterUrl, previewChannelShift } from '../lib/channelOffsetFilter'
-import { previewSlices, slicesFilterUrl } from '../lib/slicesFilter'
+import { bandsWithin, previewSlices, slicesFilterUrl } from '../lib/slicesFilter'
 import {
   NO_PICTURE_LOOK,
   pictureEffectRegistry,
@@ -1108,6 +1108,20 @@ function withLookFilter(style: CSSProperties | undefined, filter: string): CSSPr
 }
 
 /**
+ * What an overlay's channel offset and slices (#872, step 3b) need to
+ * reach its media element's own px: the frame's measured width and its
+ * aspect, and the element's orientation and crop placement, the
+ * transforms it applies after its filter. The crop is the identity until
+ * the source is probed or when there is none.
+ */
+interface OverlayFilterMedia {
+  framePx: number
+  frameAspect: number
+  orientation?: Orientation
+  crop: { scale: number; translateX: number; translateY: number }
+}
+
+/**
  * How the preview draws a video or image overlay's picture effects (#872,
  * step 3a), the export's overlay path (`drawFrame`) in CSS:
  * - `filter`: the look's filter functions for the media element. Their
@@ -1115,8 +1129,15 @@ function withLookFilter(style: CSSProperties | undefined, filter: string): CSSPr
  *   width, in the frame's `cqw` (the frame is the size container). It is
  *   divided by the overlay's zoom and by the crop's scale, the two
  *   transforms that magnify the element after its filter, so it reads as
- *   the export's blur of its already-placed draw. Channel offset, slices
- *   and pixelate are not drawn here yet (step 3b): they write nothing.
+ *   the export's blur of its already-placed draw. A channel offset
+ *   (step 3b) is the outline's share in screen px, turned back through
+ *   the zoom, the orientation and the crop by `previewChannelShift`, as
+ *   an entry's is through its own. Slices' bands are a share of the
+ *   outline too: `bandsWithin` re-expresses them as a share of the placed
+ *   rectangle, the box the media element fills, and `previewSlices` takes
+ *   them back through the same transforms. Both wait for the frame to be
+ *   measured, as an entry's do. Pixelate is not drawn here yet (step
+ *   3b(ii)): it writes nothing.
  * - `clipPath`: while a filter writes anything, the card is cut to what of
  *   the picture shows (the outline, or zoomed, the zoomed picture inside
  *   the rectangle), the export's `intersectRects(dest, placed)` clip. So a
@@ -1132,14 +1153,41 @@ function overlayLookStyles(
   placed: { x: number; y: number; width: number; height: number },
   outline: { x: number; y: number; width: number; height: number },
   zoom: ZoomState,
-  cropScale: number,
-  frameAspect: number,
+  media: OverlayFilterMedia,
 ): { filter: string; clipPath?: string; layersBox?: CSSProperties; outlineAspect: number } {
+  const { framePx, frameAspect, orientation, crop } = media
   const outlineAspect = outline.height > 0 ? frameAspect * (outline.width / outline.height) : 1
+  const frameHeightPx = frameAspect > 0 ? framePx / frameAspect : 0
+  const measured = framePx > 0 && frameHeightPx > 0 && typeof document !== 'undefined'
   const filter =
     look.filters.length === 0
       ? ''
-      : pictureFilterFunctions(look.filters, outline.width * 100, 'cqw', zoom.scale * cropScale).join(' ')
+      : pictureFilterFunctions(
+          look.filters,
+          outline.width * 100,
+          'cqw',
+          zoom.scale * crop.scale,
+          (offset) =>
+            measured
+              ? channelOffsetFilterUrl(
+                  document,
+                  previewChannelShift((offset * outline.width * framePx) / zoom.scale, orientation, crop.scale),
+                )
+              : null,
+          (bands) =>
+            measured && placed.width > 0 && placed.height > 0
+              ? slicesFilterUrl(
+                  document,
+                  previewSlices(bandsWithin(bands, outline, placed), {
+                    frameWidth: placed.width * framePx,
+                    frameHeight: placed.height * frameHeightPx,
+                    zoom,
+                    orientation,
+                    crop,
+                  }),
+                )
+              : null,
+        ).join(' ')
   const inCard = (rect: { x: number; y: number; width: number; height: number }) => ({
     left: ((rect.x - placed.x) / placed.width) * 100,
     top: ((rect.y - placed.y) / placed.height) * 100,
@@ -3661,14 +3709,22 @@ export function PreviewPlayer({
                 // Their card is the outline: `overlayLookStyles` says how
                 // the preview draws them on it.
                 const look = overlayPictureLookAt(overlay, Math.min(sequenceTime, total), overlayTime)
-                const lookStyles = overlayLookStyles(
-                  look,
-                  overlay,
-                  outline,
-                  overlayZoom,
-                  cropPlacementFor(overlay.crop, overlay.orientation, cardAspect, sourceAspectOf(overlay.url))?.scale ?? 1,
-                  previewAspect,
+                const overlayCrop = cropPlacementFor(
+                  overlay.crop,
+                  overlay.orientation,
+                  cardAspect,
+                  sourceAspectOf(overlay.url),
                 )
+                const lookStyles = overlayLookStyles(look, overlay, outline, overlayZoom, {
+                  framePx,
+                  frameAspect: previewAspect,
+                  orientation: overlay.orientation,
+                  crop: {
+                    scale: overlayCrop?.scale ?? 1,
+                    translateX: overlayCrop?.translateX ?? 0,
+                    translateY: overlayCrop?.translateY ?? 0,
+                  },
+                })
                 const cardClipPath = clipPath ?? lookStyles.clipPath
                 const border = overlay.border
                 const shadow = overlay.shadow
