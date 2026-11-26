@@ -16,6 +16,7 @@ import type { LibraryClip } from './mediaLibrary'
 import type { ZoomSpec } from './timeline'
 import type { RemapSpec } from './remap'
 import type { OverlayMove } from './overlayMove'
+import type { OverlayPictureEffect } from './pictureEffect'
 import { remappedDuration, remapSpecsEqual, sweptRemaps } from './remap'
 import { clampVolume } from './volume'
 
@@ -222,6 +223,18 @@ export interface VideoOverlay {
    * glide inside the on-screen window, and every destination on the frame.
    */
   moves?: OverlayMove[]
+  /**
+   * Picture effects on the overlay's own picture (#872), the Visual effects
+   * plugin's, with an entry's fields less its `entryId`. Each window is
+   * seconds since the overlay appears (its on-screen time from `offset`, as
+   * a Move's is), not its source clock, so speed segments and pauses never
+   * change when an effect shows. Held on the overlay, like its Moves, so
+   * removing or duplicating it takes them along. Absent means none;
+   * normalization (`withOverlayPictureEffectsClamped`) clamps every window
+   * into the on-screen window and keeps the list sorted by start. Windows
+   * may overlap, as an entry's do.
+   */
+  pictureEffects?: OverlayPictureEffect[]
 }
 
 /** One speed segment or pause on an overlay (#700): an entry's spec plus its handle. */

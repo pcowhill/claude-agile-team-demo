@@ -38,6 +38,7 @@ import fixtureV31DrawOnReferencesBase64 from './fixtures/project-v31-draw-on-ref
 import fixtureV32BoostedVolumeReferencesBase64 from './fixtures/project-v32-boosted-volume-references.bvep.base64?raw'
 import fixtureV33OverlayMovesReferencesBase64 from './fixtures/project-v33-overlay-moves-references.bvep.base64?raw'
 import fixtureV34PictureEffectsReferencesBase64 from './fixtures/project-v34-picture-effects-references.bvep.base64?raw'
+import fixtureV35OverlayPictureEffectsReferencesBase64 from './fixtures/project-v35-overlay-picture-effects-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -65,6 +66,7 @@ import {
   OVERLAY_REMAPS_SCHEMA_VERSION,
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   OVERLAY_MOVES_SCHEMA_VERSION,
+  OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION,
   PICTURE_EFFECTS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
@@ -84,7 +86,7 @@ import {
   serializeProject,
 } from './projectFile'
 import type { ClipMedia, Project } from './projectFile'
-import type { PictureEffect } from './pictureEffect'
+import type { OverlayPictureEffect, PictureEffect } from './pictureEffect'
 
 /** Gzips a JSON document the way the serializer does, to craft bad files. */
 async function gzipJson(document: unknown): Promise<Uint8Array<ArrayBuffer>> {
@@ -1177,8 +1179,9 @@ describe('project file versioning', () => {
     // (#698); version 30 added numbered badges in shape groups (#689);
     // version 31 added a shape group's Draw on entrance (#690); version 32
     // a Volume above 1 (#751); version 33 an overlay's Moves (#834);
-    // version 34 picture effects on entries (#862).
-    expect(PROJECT_SCHEMA_VERSION).toBe(34)
+    // version 34 picture effects on entries (#862); version 35 picture
+    // effects on overlays (#872).
+    expect(PROJECT_SCHEMA_VERSION).toBe(35)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -5592,6 +5595,107 @@ describe('picture effects in project files (#862, schema version 34)', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.pictureEffects).toEqual(effects)
+  })
+})
+
+// Picture effects on overlays (#872, schema version 35): an effect on any
+// overlay forces 35; a file whose overlays carry none keeps its version and
+// its bytes. The parser checks structure only, as for an entry's effects.
+describe('overlay picture effects in project files (#872, schema version 35)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+  }
+  const overlayEffects: OverlayPictureEffect[] = [
+    { id: 'p1', type: 'blur', start: 0.25, end: 2, params: { amount: 40 } },
+    { id: 'p2', type: 'vignette', start: 1, end: 2.5, params: { strength: 60 } },
+  ]
+  const effectTimeline = (pictureEffects: OverlayPictureEffect[] | undefined): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', ...(pictureEffects === undefined ? {} : { pictureEffects }) }],
+  })
+  const withOverlayEffects = (value: unknown) => ({
+    ...validDocument(),
+    schemaVersion: OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION,
+    timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, pictureEffects: value }] },
+  })
+
+  it('round-trips an overlay\'s picture effects at version 35, types it does not know included', async () => {
+    expect(OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION).toBe(35)
+    const unknown: OverlayPictureEffect[] = [...overlayEffects, { id: 'p3', type: 'from-a-newer-plugin', start: 0, end: 1, params: {} }]
+    const bytes = await serializeProject(library, effectTimeline(unknown))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.pictureEffects).toEqual(unknown)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, pictureEffects: unknown }] },
+      },
+    })
+  })
+
+  it('forces 35 over an entry effect\'s 34', async () => {
+    const both: TimelineState = {
+      ...effectTimeline(overlayEffects),
+      pictureEffects: [{ id: 'q', entryId: 'e1', type: 'blur', start: 0, end: 1, params: { amount: 20 } }],
+    }
+    expect((await gunzipJson(await serializeProject(library, both))).schemaVersion).toBe(35)
+  })
+
+  it('writes an effect-free overlay with no key, byte-identical to a file written without the field', async () => {
+    const bytes = await serializeProject(library, effectTimeline(undefined))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBeLessThan(OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect('pictureEffects' in written).toBe(false)
+    const emptied = await serializeProject(library, effectTimeline([]))
+    expect(Array.from(emptied)).toEqual(Array.from(bytes))
+  })
+
+  it('refuses a malformed overlay picture effect by path', async () => {
+    const path = 'timeline.videoOverlays[0].pictureEffects'
+    await expectRefusal(await gzipJson(withOverlayEffects([{ ...overlayEffects[0], id: '' }])), `${path}[0].id must be a non-empty string`)
+    await expectRefusal(await gzipJson(withOverlayEffects([{ ...overlayEffects[0], type: '' }])), `${path}[0].type must be a non-empty string`)
+    await expectRefusal(await gzipJson(withOverlayEffects([{ ...overlayEffects[0], start: -1 }])), `${path}[0].start must not be negative`)
+    await expectRefusal(await gzipJson(withOverlayEffects([{ ...overlayEffects[0], start: 2, end: 2 }])), `${path}[0] window is empty`)
+    await expectRefusal(
+      await gzipJson(withOverlayEffects([{ ...overlayEffects[0], params: { amount: 'lots' } }])),
+      `${path}[0].params.amount must be a finite number`,
+    )
+    await expectRefusal(await gzipJson(withOverlayEffects([{ ...overlayEffects[0], params: { '': 1 } }])), `${path}[0].params has an empty key`)
+    await expectRefusal(
+      await gzipJson(withOverlayEffects([overlayEffects[0], { ...overlayEffects[1], id: 'p1' }])),
+      `${path}[1].id "p1" is duplicated`,
+    )
+    await expectRefusal(await gzipJson(withOverlayEffects({ p1: overlayEffects[0] })), `${path} must be an array`)
+  })
+
+  it('opens a window past the overlay and leaves the clamp to normalization', async () => {
+    const long = { ...overlayEffects[0], end: 99 }
+    const result = await deserializeProject(await gzipJson(withOverlayEffects([long])))
+    expect(result.ok && result.project.timeline.videoOverlays?.[0].pictureEffects).toEqual([long])
+  })
+
+  it('deserializes the committed v35 overlay-picture-effects fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV35OverlayPictureEffectsReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, pictureEffects: overlayEffects }])
   })
 })
 

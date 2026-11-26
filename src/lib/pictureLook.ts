@@ -7,7 +7,7 @@ import type {
   PictureLook,
   SliceBand,
 } from './pictureEffect'
-import { effectiveDuration, pictureEffectsForEntry, pictureEffectsOf } from './timeline'
+import { effectiveDuration, everyPictureEffectOf, pictureEffectsForEntry } from './timeline'
 import type { TimelineState } from './timeline'
 
 /**
@@ -99,13 +99,14 @@ export function pictureLookAt(
  * The export refuses up front without that support, as it does for colour
  * adjustments (#195), rather than writing a file missing the blur. A
  * pixelate filter (#871) does not count: it is drawn by downscaling, which
- * needs no canvas `filter`.
+ * needs no canvas `filter`. An overlay's effects (#872) count as an
+ * entry's do.
  */
 export function timelineHasPictureFilters(
   state: TimelineState,
   registry: PictureEffectRegistry = pictureEffectRegistry,
 ): boolean {
-  return pictureEffectsOf(state).some((effect) => {
+  return everyPictureEffectOf(state).some((effect) => {
     const definition = registry.find(effect.type)
     return (
       definition !== undefined &&

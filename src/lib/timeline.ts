@@ -58,13 +58,15 @@ import { rippleCut, splitZoomAt } from './ripple'
 import { splitAudioTrack, splitVideoOverlay } from './elementSplit'
 import { cutAudioTrack, cutVideoOverlay } from './elementCut'
 import type { OverlayMove, OverlayMoveSpec } from './overlayMove'
-import type { PictureEffect, PictureEffectSpec } from './pictureEffect'
+import type { OverlayPictureEffect, PictureEffect, PictureEffectSpec } from './pictureEffect'
 import {
   clampPictureEffect,
   isValidPictureEffectSpec,
+  pictureEffectSpecsEqual,
   pictureEffectsEqual,
 } from './pictureEffect'
 import { isValidMoveSpec, moveSpecsEqual, withOverlayMovesClamped } from './overlayMove'
+import { withOverlayPictureEffectsClamped } from './overlayPictureEffect'
 import type { SubtitleStyle, TextOverlay, TextOverlaySpec } from './textOverlay'
 import type { ShapeGroup, ShapeGroupSpec } from './shapes'
 import { clampShapeGroup, isValidShapeGroupSpec, shapeGroupsEqual } from './shapes'
@@ -929,6 +931,15 @@ export type TimelineAction =
   | { type: 'video-overlay-move-added'; overlayId: string; move: OverlayMove }
   | { type: 'video-overlay-move-updated'; overlayId: string; id: string; move: OverlayMoveSpec }
   | { type: 'video-overlay-move-removed'; overlayId: string; id: string }
+  /**
+   * Picture effects on an overlay (#872), video or image: an entry's
+   * picture-effect actions, addressed by the overlay. An add whose window
+   * clamps to nothing is vetoed, and an update that clamps back to what is
+   * stored is a no-op. Each is one undo step.
+   */
+  | { type: 'video-overlay-picture-effect-added'; overlayId: string; effect: OverlayPictureEffect }
+  | { type: 'video-overlay-picture-effect-updated'; overlayId: string; id: string; effect: PictureEffectSpec }
+  | { type: 'video-overlay-picture-effect-removed'; overlayId: string; id: string }
   | { type: 'audio-track-added'; track: AudioTrack }
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
@@ -1172,6 +1183,26 @@ export function audioTracksOf(state: TimelineState): AudioTrack[] {
 /** The state's zooms, tolerating pre-zoom states. */
 export function zoomsOf(state: TimelineState): ZoomEffect[] {
   return state.zooms ?? []
+}
+
+/**
+ * Every picture effect in the state, entries' (#862) and overlays' (#872),
+ * entries' first. The type, window and parameters only: an entry's window
+ * is in its trimmed source seconds and an overlay's in its on-screen
+ * seconds, so a reader that places an effect in time asks its owner
+ * (`pictureEffectsForEntry`, `VideoOverlay.pictureEffects`). This is for
+ * readers that ask *which* effects a project holds: the plugin's use count,
+ * the open flow's unknown-type check, and the export's filter-support gate.
+ * Structural, so the open flow can ask it of a parsed project's timeline.
+ */
+export function everyPictureEffectOf(state: {
+  pictureEffects?: readonly PictureEffect[]
+  videoOverlays?: readonly { pictureEffects?: readonly OverlayPictureEffect[] }[]
+}): Pick<PictureEffect, 'type' | 'start' | 'end' | 'params'>[] {
+  return [
+    ...(state.pictureEffects ?? []),
+    ...(state.videoOverlays ?? []).flatMap((overlay) => overlay.pictureEffects ?? []),
+  ]
 }
 
 /** The state's time-remap effects (#138), tolerating pre-remap states. */
@@ -1825,12 +1856,15 @@ function withEffects({
     // own ranges clamp. The key exists only while overlays do.
     // Each overlay's own zooms (#699) clamp against its trimmed window after
     // the window itself clamps, as an entry's do against its trim; its Moves
-    // (#834) against its on-screen window, which the remaps just settled.
+    // (#834) and picture effects (#872) against its on-screen window, which
+    // the remaps just settled.
     ...(videoOverlays.length === 0
       ? {}
       : {
           videoOverlays: videoOverlays.map((overlay) =>
-            withOverlayMovesClamped(withOverlayZoomsClamped(clampVideoOverlay(overlay))),
+            withOverlayPictureEffectsClamped(
+              withOverlayMovesClamped(withOverlayZoomsClamped(clampVideoOverlay(overlay))),
+            ),
           ),
         }),
     // Audio tracks are deliberately untouched by video edits: offsets are
@@ -3480,6 +3514,76 @@ function reduceTimelineCollections(
       const next = { ...overlay }
       if (remaining.length === 0) delete next.moves
       else next.moves = remaining
+      overlays[index] = next
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
+    }
+    case 'video-overlay-picture-effect-added': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const effect = action.effect
+      const existing = overlay.pictureEffects ?? []
+      // Ids are the handle updates and removals act on — never two alike
+      // within the overlay.
+      if (typeof effect.id !== 'string' || effect.id === '') return state
+      if (existing.some((stored) => stored.id === effect.id)) return state
+      if (typeof effect.type !== 'string' || effect.type === '') return state
+      if (!isValidPictureEffectSpec(effect)) return state
+      const added: OverlayPictureEffect = {
+        id: effect.id,
+        type: effect.type,
+        start: effect.start,
+        end: effect.end,
+        params: { ...effect.params },
+      }
+      const overlays = [...videoOverlays]
+      overlays[index] = { ...overlay, pictureEffects: [...existing, added] }
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
+      const applied = next.videoOverlays?.[index].pictureEffects?.find((stored) => stored.id === effect.id)
+      // A window that starts at or past the overlay's end clamps to
+      // nothing: veto the add, as an entry's effect with no room is vetoed.
+      if (applied === undefined || applied.end <= applied.start) return state
+      return next
+    }
+    case 'video-overlay-picture-effect-updated': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const stored = overlay.pictureEffects?.find((effect) => effect.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidPictureEffectSpec(action.effect)) return state
+      const candidate: OverlayPictureEffect = {
+        id: stored.id,
+        type: stored.type,
+        start: action.effect.start,
+        end: action.effect.end,
+        params: { ...action.effect.params },
+      }
+      const overlays = [...videoOverlays]
+      overlays[index] = {
+        ...overlay,
+        pictureEffects: (overlay.pictureEffects ?? []).map((effect) => (effect.id === action.id ? candidate : effect)),
+      }
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
+      const applied = next.videoOverlays?.[index].pictureEffects?.find((effect) => effect.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference
+      // (edits stop preview playback). Effects do not sweep, so no sibling
+      // can have moved.
+      if (pictureEffectSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'video-overlay-picture-effect-removed': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const remaining = (overlay.pictureEffects ?? []).filter((effect) => effect.id !== action.id)
+      if (remaining.length === (overlay.pictureEffects ?? []).length) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all, so an effect-free overlay saves as before.
+      const next = { ...overlay }
+      if (remaining.length === 0) delete next.pictureEffects
+      else next.pictureEffects = remaining
       overlays[index] = next
       return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }

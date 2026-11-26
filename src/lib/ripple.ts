@@ -47,6 +47,7 @@ import type { AudioTrack, ChapterMarker, ZoomSpec } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
 import { splitMovesAt } from './overlayMove'
+import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
 
 const EPSILON = RANGE_CUT_EPSILON
 
@@ -225,9 +226,37 @@ function withList<T extends object, K extends keyof T>(element: T, key: K, list:
  * An image overlay's window is its duration, and its zooms, redactions and
  * spotlights are seconds into that window, so a head cut shifts them all
  * earlier by `head`. A tail cut leaves them; normalization clamps the zooms.
+ *
+ * Either kind's Moves (#834) and picture effects (#872) are in on-screen
+ * time, and are divided at the cut's on-screen instant.
  */
 function shortenOverlay(overlay: VideoOverlay, start: number, head: number, tail: number): VideoOverlay {
-  return withMovesShortened(overlay, shortenOverlayWindow(overlay, start, head, tail), head, tail)
+  return withPictureEffectsShortened(
+    overlay,
+    withMovesShortened(overlay, shortenOverlayWindow(overlay, start, head, tail), head, tail),
+    head,
+    tail,
+  )
+}
+
+/**
+ * The shortened overlay's picture effects (#872), which are keyed to its
+ * on-screen time as its Moves are: a tail cut keeps what lies before the
+ * new end, and a head cut what lies after the cut, shifted earlier by
+ * `head` — `splitOverlayPictureEffectsAt`, as Split… and Cut… divide them.
+ */
+function withPictureEffectsShortened(
+  overlay: VideoOverlay,
+  next: VideoOverlay,
+  head: number,
+  tail: number,
+): VideoOverlay {
+  if (overlay.pictureEffects === undefined) return next
+  if (tail > 0) {
+    const { before } = splitOverlayPictureEffectsAt(overlay.pictureEffects, overlayOutputDuration(overlay) - tail)
+    return withList(next, 'pictureEffects', before)
+  }
+  return withList(next, 'pictureEffects', splitOverlayPictureEffectsAt(overlay.pictureEffects, head).after)
 }
 
 /**
@@ -251,7 +280,7 @@ function withMovesShortened(
   return withList({ ...next, ...afterRect }, 'moves', after)
 }
 
-/** `shortenOverlay`'s window, picture and effects, Moves aside. */
+/** `shortenOverlay`'s window, picture and effects, Moves and picture effects aside. */
 function shortenOverlayWindow(
   overlay: VideoOverlay,
   start: number,

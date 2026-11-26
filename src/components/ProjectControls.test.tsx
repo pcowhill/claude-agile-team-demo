@@ -1065,6 +1065,54 @@ describe('New Project and Open Project (#77)', () => {
       expect(onProjectReplaced).not.toHaveBeenCalled()
     })
 
+    it('refuses a file whose overlay carries an unknown picture effect, as an entry\'s would (#872)', async () => {
+      const { runtime } = fixtureRuntime()
+      const { port } = stubPort()
+      const onProjectReplaced = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ProjectControls
+          library={library}
+          timeline={timeline}
+          dirty={false}
+          onSaved={vi.fn()}
+          onProjectReplaced={onProjectReplaced}
+          port={port}
+          plugins={runtime}
+        />,
+      )
+      const overlayLibrary = {
+        clips: [{ id: 'c2', name: 'pip.mp4', duration: 10, url: 'blob:pip', kind: 'video' as const }],
+        failures: [],
+      }
+      const withOverlayEffect: TimelineState = {
+        ...effectTimeline('swirl'),
+        pictureEffects: [],
+        videoOverlays: [
+          {
+            id: 'o1',
+            clipId: 'c2',
+            name: 'pip.mp4',
+            duration: 10,
+            url: 'blob:pip',
+            offset: 0,
+            inPoint: 0,
+            outPoint: 4,
+            x: 0,
+            y: 0,
+            width: 0.5,
+            height: 0.5,
+            pictureEffects: [{ id: 'q1', type: 'swirl', start: 1, end: 3, params: {} }],
+          },
+        ],
+      }
+      await uploadProjectFile(user, await serializeProject(overlayLibrary, withOverlayEffect))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('unknown picture effect')
+      expect(alert).toHaveTextContent('"swirl"')
+      expect(onProjectReplaced).not.toHaveBeenCalled()
+    })
+
     it('opens a file whose picture effect a plugin the gate enables provides (#862)', async () => {
       const { runtime } = fixtureRuntime({
         load: () =>

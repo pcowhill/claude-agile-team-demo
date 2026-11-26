@@ -413,7 +413,7 @@ describe('Visual effects plugin (#862)', () => {
     })
     const library = { clips: [], failures: [] }
     // The count reads only picture effects; the fixture carries what
-    // `pictureEffectsOf` needs and nothing else.
+    // `everyPictureEffectOf` needs and nothing else.
     const asTimeline = (value: unknown) => value as Parameters<typeof count>[1]
     const one = { count: 1, what: '1 picture effect' }
     expect(count(library, asTimeline(timelineWith('vignette')))).toEqual(one)
@@ -429,6 +429,15 @@ describe('Visual effects plugin (#862)', () => {
       what: '2 picture effects',
     })
     expect(count(library, asTimeline(timelineWith('from-elsewhere')))).toEqual({ count: 0, what: '' })
+    // An overlay's effects (#872) are uses too, beside the entries'.
+    const onOverlay = (...types: string[]) => ({
+      videoOverlays: [{ id: 'o', pictureEffects: types.map((type, index) => ({ id: `q${index}`, type, start: 0, end: 1, params: {} })) }],
+    })
+    expect(count(library, asTimeline({ ...timelineWith('vignette'), ...onOverlay('blur', 'from-elsewhere', 'glitch') }))).toEqual({
+      count: 3,
+      what: '3 picture effects',
+    })
+    expect(count(library, asTimeline({ entries: [], ...onOverlay('pixelate') }))).toEqual(one)
     expect(count(library, asTimeline({ entries: [] }))).toEqual({ count: 0, what: '' })
     expect(isVisualEffect('box-open')).toBe(false)
   })
