@@ -584,6 +584,13 @@
   inset: 0;
 }
 
+/* The box an overlay's picture-effect layers (#872) fill: the outline,
+   placed in the card by inline percentages, above the zoom box. */
+.preview-overlay-look {
+  position: absolute;
+  pointer-events: none;
+}
+
 /* Outside its window the element stays mounted (its source stays loaded for
    an instant re-entry) but shows nothing. */
 .preview-overlay-hidden {

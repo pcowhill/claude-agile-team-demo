@@ -5,6 +5,7 @@ import type { TimelineState } from '../lib/timeline'
 import type { LibraryClip } from '../lib/mediaLibrary'
 import { snapshotTimelineFrame } from '../lib/frameSnapshot'
 import { automaticExportFrame } from '../lib/exportSettings'
+import { pictureEffectRegistry } from '../lib/pictureEffect'
 import { chooseFromFrameMenu, frameMenuItem, openFrameMenu } from '../test/frameMenu'
 
 // The frame capture behind Save frame and Freeze frame (#237/#379) draws on
@@ -3910,6 +3911,107 @@ describe("Cut out marked range's confirmation (#824)", () => {
     fireEvent.click(frameMenuItem('preview-cut-range'))
     expect(confirmation()).toBeNull()
     expect(onCutRange).toHaveBeenCalledWith(8, 13)
+  })
+})
+
+describe("an overlay's picture effects in the preview (#872, step 3a)", () => {
+  // A 10 s base entry with a still overlay on screen over sequence [2, 5).
+  // Its effects' windows are in on-screen seconds: [0, 1) is sequence [2, 3).
+  const baseEntry = {
+    id: 'e1', clipId: 'c1', name: 'first.webm', duration: 10, url: 'blob:first', inPoint: 0, outPoint: 10,
+  }
+  const logo = {
+    id: 'i1', kind: 'image' as const, clipId: 'c2', name: 'logo.png', duration: 3, url: 'blob:logo',
+    offset: 2, inPoint: 0, outPoint: 3, x: 0.6, y: 0.55, width: 0.35, height: 0.4,
+  }
+  // Test definitions, removed after each test: a blur of 0.03 of the
+  // card's width, and a vignette.
+  const soften = {
+    id: 'test-preview-overlay-soften',
+    name: 'Test soften',
+    params: [],
+    look: (_params: Record<string, number>, weight: number) => ({
+      filters: [{ kind: 'blur' as const, radius: 0.03 * weight }],
+      layers: [],
+    }),
+  }
+  const dim = {
+    id: 'test-preview-overlay-dim',
+    name: 'Test dim',
+    params: [],
+    look: (_params: Record<string, number>, weight: number) => ({
+      filters: [],
+      layers: [{ kind: 'vignette' as const, strength: 0.8 * weight, inner: 0.5 }],
+    }),
+  }
+  beforeEach(() => {
+    pictureEffectRegistry.register(soften)
+    pictureEffectRegistry.register(dim)
+  })
+  afterEach(() => {
+    pictureEffectRegistry.unregister(soften.id)
+    pictureEffectRegistry.unregister(dim.id)
+  })
+  const effect = (type: string, start = 0, end = 1) => ({ id: type, type, start, end, params: {} })
+  const seekTo = (value: string) =>
+    fireEvent.change(screen.getByRole('slider', { name: 'Seek within sequence' }), { target: { value } })
+  const media = () => screen.getByTestId('preview-overlay-0')
+  const card = () => screen.getByTestId('preview-overlay-card-0')
+  const overlay = (fields: Record<string, unknown>): TimelineState => ({
+    entries: [baseEntry],
+    videoOverlays: [{ ...logo, ...fields }],
+  })
+
+  it('a blur filters the media in its on-screen window, sized from the outline, with the card clipped to it', () => {
+    render(<PreviewPlayer timeline={overlay({ pictureEffects: [effect(soften.id)] })} />)
+    seekTo('2.5')
+    // 0.03 of the outline's width, 35% of the frame: 1.05 cqw (not 3 cqw,
+    // a blur of the frame's width). Until the source is probed the outline
+    // is the placed rectangle, so the clip is the whole card.
+    expect(media().style.filter).toBe('blur(1.05cqw)')
+    expect(card().style.clipPath).toBe('inset(0% 0% 0% 0%)')
+    // After its window, the overlay renders as an effect-free one does.
+    seekTo('3.5')
+    expect(media().style.filter).toBe('')
+    expect(card().style.clipPath).toBe('')
+  })
+
+  it("a blur goes after the overlay's colour adjustments and is divided by its zoom", () => {
+    render(
+      <PreviewPlayer
+        timeline={overlay({
+          colorAdjustments: { saturation: 0 },
+          zooms: [{ id: 'z', start: 0, rampIn: 0, hold: 3, rampOut: 0, scale: 2, centerX: 0.5, centerY: 0.5 }],
+          pictureEffects: [effect(soften.id)],
+        })}
+      />,
+    )
+    seekTo('2.5')
+    // The zoom's transform magnifies the filtered element again, so the
+    // radius is halved to read as the export's blur of its zoomed draw.
+    expect(media().style.filter).toBe('saturate(0%) blur(0.525cqw)')
+  })
+
+  it("a shape mask's clip-path stays the card's clip under a blur", () => {
+    render(
+      <PreviewPlayer timeline={overlay({ shapeMask: { kind: 'ellipse' }, pictureEffects: [effect(soften.id)] })} />,
+    )
+    seekTo('2.5')
+    expect(card().style.clipPath).toMatch(/^ellipse\(/)
+  })
+
+  it('a vignette is a layer box over the outline inside the card, with no filter and no clip', () => {
+    render(<PreviewPlayer timeline={overlay({ pictureEffects: [effect(dim.id)] })} />)
+    expect(screen.queryByTestId('preview-overlay-look-0')).toBeNull()
+    seekTo('2.5')
+    const box = screen.getByTestId('preview-overlay-look-0')
+    expect(card()).toContainElement(box)
+    expect([box.style.left, box.style.top, box.style.width, box.style.height]).toEqual(['0%', '0%', '100%', '100%'])
+    expect(screen.getByTestId('preview-overlay-picture-layers-0').children).toHaveLength(1)
+    expect(media().style.filter).toBe('')
+    expect(card().style.clipPath).toBe('')
+    seekTo('3.5')
+    expect(screen.queryByTestId('preview-overlay-look-0')).toBeNull()
   })
 })
 
