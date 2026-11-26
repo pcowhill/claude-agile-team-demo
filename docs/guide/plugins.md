@@ -66,7 +66,7 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 ## Visual effects
 
-**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*; once enabled, **Vignette**, **Blur**, **Film grain**, **Old film**, **VHS**, **Chromatic aberration**, **Glitch** and **Pixelate** in an expanded sequence entry's **+ Effect ▾**.
+**Where to find it.** **File ▾** › **Plugins…** › *Visual effects*; once enabled, **Vignette**, **Blur**, **Film grain**, **Old film**, **VHS**, **Chromatic aberration**, **Glitch** and **Pixelate** in the **+ Effect ▾** of an expanded sequence entry, video overlay or image overlay.
 
 **What it does.** Draws picture effects on a stretch of a clip: a **Vignette** that darkens the edges of the frame, a **Blur** over the whole picture, **Film grain**, moving noise over it, **Old film**, a sepia tone with a flicker, grain, scratches and dust, **VHS**, a soft picture with colour fringes at its edges, thin dark lines across it and, now and then, a band of noise rolling down it, **Chromatic aberration**, the picture's red and blue split apart into fringes at every edge, **Glitch**, bands of the picture tearing sideways and the same split jumping in and out in short bursts, and **Pixelate**, the picture drawn in large square blocks of one colour each.
 
@@ -82,9 +82,11 @@ The three irises and the hands of the two sweeps keep their shape on any frame, 
 
 Effects belong to the clip's picture as you frame it: a zoom moves inside the vignette, which stays on the frame's edges, and a transition carries the effect with the clip. A blur softens the clip's own picture, not its redactions or spotlights, and, like any blur, it also softens the picture's outer edge into the frame's black. The preview and every export draw an effect through the same rule.
 
+On a video or image overlay, an effect covers the overlay's own picture, inside its shape mask, and not the frame around it: a Vignette darkens the overlay's edges, and every size is a share of the overlay's picture rather than of the frame. Its stretch is in seconds after the overlay appears. [Visual effects on an overlay](editing-video.md#visual-effects-on-an-overlay) has the details.
+
 Each effect is added from **+ Effect ▾** and set on its own row, its stretch and its settings: [Vignette and blur](editing-video.md#vignette-and-blur), [Film grain](editing-video.md#film-grain), [Old film](editing-video.md#old-film), [VHS](editing-video.md#vhs), [Chromatic aberration](editing-video.md#chromatic-aberration), [Glitch](editing-video.md#glitch) and [Pixelate](editing-video.md#pixelate) have the fields. Because an effect is part of the arrangement, a project that uses one *depends on the plugin*: the file records it, and opening the file asks to enable the plugin (below). Disabling the plugin never removes an effect: it stays in the project, its row is named *(unavailable)*, and the picture shows without it until the plugin is enabled again.
 
-**Related.** [Vignette and blur](editing-video.md#vignette-and-blur) · [Film grain](editing-video.md#film-grain) · [Old film](editing-video.md#old-film) · [VHS](editing-video.md#vhs) · [Chromatic aberration](editing-video.md#chromatic-aberration) · [Glitch](editing-video.md#glitch) · [Pixelate](editing-video.md#pixelate) · [Projects that need a plugin](#projects-that-need-a-plugin)
+**Related.** [Vignette and blur](editing-video.md#vignette-and-blur) · [Film grain](editing-video.md#film-grain) · [Old film](editing-video.md#old-film) · [VHS](editing-video.md#vhs) · [Chromatic aberration](editing-video.md#chromatic-aberration) · [Glitch](editing-video.md#glitch) · [Pixelate](editing-video.md#pixelate) · [Visual effects on an overlay](editing-video.md#visual-effects-on-an-overlay) · [Projects that need a plugin](#projects-that-need-a-plugin)
 
 ## More export formats
 
