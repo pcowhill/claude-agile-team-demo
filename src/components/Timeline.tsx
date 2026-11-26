@@ -88,7 +88,7 @@ import {
   pictureEffectParamsFor,
   pictureEffectRegistry,
 } from '../lib/pictureEffect'
-import type { PictureEffect, PictureEffectSpec } from '../lib/pictureEffect'
+import type { OverlayPictureEffect, PictureEffectSpec } from '../lib/pictureEffect'
 import { defaultPauseFor, defaultSpeedFor } from '../lib/remap'
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -428,6 +428,18 @@ interface TimelineProps {
   onAddVideoOverlayMove?: (overlayId: string, move: OverlayMoveSpec) => void
   onUpdateVideoOverlayMove?: (overlayId: string, id: string, move: OverlayMoveSpec) => void
   onRemoveVideoOverlayMove?: (overlayId: string, id: string) => void
+  /**
+   * Picture effects on a video or image overlay (#872, step 4), as an
+   * entry's (`onAddPictureEffect`): + Effect ▾ adds one of a registered type
+   * with its default window and parameters (the caller mints the id), a
+   * field commit replaces its window and parameters, ✕ removes it. The
+   * window is in seconds since the overlay appears, as a Move's is.
+   * Without `onAddVideoOverlayPictureEffect` the overlay's + Effect ▾ offers
+   * none, and without the other two its rows are not drawn.
+   */
+  onAddVideoOverlayPictureEffect?: (overlayId: string, type: string, spec: PictureEffectSpec) => void
+  onUpdateVideoOverlayPictureEffect?: (overlayId: string, id: string, spec: PictureEffectSpec) => void
+  onRemoveVideoOverlayPictureEffect?: (overlayId: string, id: string) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -2296,19 +2308,24 @@ const PARAM_FIELD_UNITS: Record<string, FieldUnit> = { '%': '%', px: 'px', '×':
 const PARAM_LABEL_SUFFIXES: Record<string, string> = { '%': ' (percent)', px: ' in pixels' }
 
 interface PictureEffectRowsProps {
-  /** The accessible name of the row's owner (a sequence entry). */
+  /** The accessible name of the row's owner (a sequence entry, or a video or image overlay, #872). */
   position: string
-  /** The entry's picture effects, normalized: sorted by window start. */
-  effects: readonly PictureEffect[]
-  /** The entry's trimmed source length: the window fields' upper bound. */
+  /** The owner's picture effects, normalized: sorted by window start. */
+  effects: readonly OverlayPictureEffect[]
+  /**
+   * The window fields' upper bound: an entry's trimmed source length, or
+   * an overlay's on-screen length (`overlayOutputDuration`), since an
+   * overlay's windows are seconds since it appears (#872).
+   */
   trimmed: number
   onUpdate: (id: string, spec: PictureEffectSpec) => void
   onRemove: (id: string) => void
 }
 
 /**
- * The rows of an entry's picture effects (#862): one per effect, in window
- * order, each with its Start and End on the entry's own time, a field per
+ * The rows of an entry's or an overlay's picture effects (#862, #872): one
+ * per effect, in window order, each with its Start and End on the owner's
+ * own time (an entry's trimmed source, an overlay's time on screen), a field per
  * parameter its definition declares, and ✕, shaped like the speed segment
  * rows above. An effect whose type no registered definition covers (its
  * plugin disabled) keeps its row, named "(unavailable)": its window can
@@ -2874,6 +2891,9 @@ export function Timeline({
   onAddVideoOverlayMove,
   onUpdateVideoOverlayMove,
   onRemoveVideoOverlayMove,
+  onAddVideoOverlayPictureEffect,
+  onUpdateVideoOverlayPictureEffect,
+  onRemoveVideoOverlayPictureEffect,
   onUpdateVideoOverlayRemap,
   onRemoveVideoOverlayRemap,
   onSetEntryBackgroundFill,
@@ -5148,14 +5168,29 @@ export function Timeline({
                       onRemove={(id) => onRemoveVideoOverlayRemap?.(overlay.id, id)}
                     />
                   )}
+                  {onUpdateVideoOverlayPictureEffect && onRemoveVideoOverlayPictureEffect && (
+                    // Picture effects (#872), last, in the entry's rows: on a
+                    // video or an image overlay alike, since they change the
+                    // picture, not its timing. Times are seconds since the
+                    // overlay appears, bounded by its time on screen, as a
+                    // Move's are.
+                    <PictureEffectRows
+                      position={position}
+                      effects={overlay.pictureEffects ?? []}
+                      trimmed={outputLength}
+                      onUpdate={(id, spec) => onUpdateVideoOverlayPictureEffect(overlay.id, id, spec)}
+                      onRemove={(id) => onRemoveVideoOverlayPictureEffect(overlay.id, id)}
+                    />
+                  )}
                   {/* + Effect ▾ (#699): the entry's menu, offering what an
                       overlay can carry — Zoom, enabled while the overlay's
                       window has room for one (`defaultZoomFor`, the entry's
                       rule), and on a video overlay Speed segment and Pause
                       (#700), under the entry's rules (`defaultSpeedFor`,
                       `defaultPauseFor`). A still overlay has no time to
-                      remap, so its menu offers Zoom alone, as a still
-                      entry's does. */}
+                      remap, so its menu offers no remap items, as a still
+                      entry's does. Move (#834) and the registered picture
+                      effects (#872) follow on both. */}
                   {(() => {
                     const addableZoom = defaultZoomFor(overlay.zooms ?? [], trimmedLength)
                     const items: MenuItem[] = [
@@ -5199,6 +5234,30 @@ export function Timeline({
                       onSelect: () =>
                         addableMove !== null && onAddVideoOverlayMove?.(overlay.id, addableMove),
                     })
+                    if (onAddVideoOverlayPictureEffect) {
+                      // One item per registered picture effect (#872), after
+                      // Move, in registration order, as on an entry: the
+                      // default window placed in the overlay's time on
+                      // screen, where its effects' windows lie.
+                      const overlayEffects = overlay.pictureEffects ?? []
+                      for (const definition of pictureEffectRegistry.list()) {
+                        const addable = defaultPictureEffectWindow(
+                          overlayEffects.filter((effect) => effect.type === definition.id),
+                          outputLength,
+                        )
+                        items.push({
+                          kind: 'action',
+                          label: definition.name,
+                          disabled: addable === null,
+                          onSelect: () =>
+                            addable !== null &&
+                            onAddVideoOverlayPictureEffect(overlay.id, definition.id, {
+                              ...addable,
+                              params: pictureEffectParamsFor(definition),
+                            }),
+                        })
+                      }
+                    }
                     return (
                       <div className="timeline-entry-effects">
                         <Menu

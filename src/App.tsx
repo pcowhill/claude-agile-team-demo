@@ -955,6 +955,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             onRemoveVideoOverlayMove={(overlayId, id) =>
               dispatchTimeline({ type: 'video-overlay-move-removed', overlayId, id })
             }
+            onAddVideoOverlayPictureEffect={(overlayId, type, spec) =>
+              dispatchTimeline({
+                type: 'video-overlay-picture-effect-added',
+                overlayId,
+                effect: { ...spec, id: crypto.randomUUID(), type },
+              })
+            }
+            onUpdateVideoOverlayPictureEffect={(overlayId, id, effect) =>
+              dispatchTimeline({ type: 'video-overlay-picture-effect-updated', overlayId, id, effect })
+            }
+            onRemoveVideoOverlayPictureEffect={(overlayId, id) =>
+              dispatchTimeline({ type: 'video-overlay-picture-effect-removed', overlayId, id })
+            }
             onSetAudioTrackVolume={(id, volume) =>
               dispatchTimeline({ type: 'audio-track-volume-set', id, volume })
             }

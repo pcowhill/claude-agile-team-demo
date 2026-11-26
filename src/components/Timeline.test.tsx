@@ -4788,6 +4788,113 @@ describe('picture effects on a sequence entry (#862)', () => {
   })
 })
 
+describe('picture effects on an overlay row (#872, step 4)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const EFFECTS = ['Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch', 'Pixelate']
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const setField = async (name: string, value: string) => {
+    await userEvent.clear(field(name))
+    await userEvent.type(field(name), value)
+    await userEvent.tab()
+  }
+  const addOverlay = async (seconds: number) => {
+    await importClip('cam.mp4', seconds)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+  }
+  const withVisualEffects = async (body: () => Promise<void>) => {
+    render(<App />)
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    try {
+      await body()
+    } finally {
+      act(() => deactivate())
+    }
+  }
+
+  it("lists the plugin's effects after Move on a video overlay, and only while the plugin is registered", async () => {
+    render(<App />)
+    await addOverlay(8)
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
+    await closeEffectMenu(OVERLAY)
+    let deactivate: () => void = () => {}
+    act(() => {
+      deactivate = activateVisualEffects()
+    })
+    try {
+      expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move', ...EFFECTS])
+      await closeEffectMenu(OVERLAY)
+    } finally {
+      act(() => deactivate())
+    }
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
+  })
+
+  it('lists them after Move on an image overlay too', async () => {
+    await withVisualEffects(async () => {
+      probeMock.mockResolvedValueOnce({ duration: 0, url: 'blob:logo.png', kind: 'image', width: 640, height: 480 })
+      await userEvent.upload(
+        screen.getByTestId('clip-file-input'),
+        new File(['content'], 'logo.png', { type: 'image/png' }),
+      )
+      await screen.findByText('logo.png')
+      await chooseClipAction('logo.png', 'Add as overlay')
+      expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM, 'Move', ...EFFECTS])
+    })
+  })
+
+  it('adds an effect with its default window and parameters, edits, undoes and removes it', async () => {
+    await withVisualEffects(async () => {
+      await addOverlay(8)
+      await chooseEffect(OVERLAY, 'Vignette')
+      expect(field(`Vignette 1 start of ${OVERLAY} in seconds`)).toHaveValue(0)
+      expect(field(`Vignette 1 end of ${OVERLAY} in seconds`)).toHaveValue(2)
+      expect(field(`Vignette 1 strength of ${OVERLAY} (percent)`)).toHaveValue(60)
+      // A second vignette goes after the first; a blur may overlap them.
+      await chooseEffect(OVERLAY, 'Vignette')
+      expect(field(`Vignette 2 start of ${OVERLAY} in seconds`)).toHaveValue(2)
+      await chooseEffect(OVERLAY, 'Blur')
+      expect(field(`Blur 1 start of ${OVERLAY} in seconds`)).toHaveValue(0)
+      expect(screen.getAllByTestId('picture-effect-row')).toHaveLength(3)
+
+      await setField(`Vignette 1 end of ${OVERLAY} in seconds`, '1.5')
+      expect(field(`Vignette 1 end of ${OVERLAY} in seconds`)).toHaveValue(1.5)
+      // Held to the definition's range, as on an entry: 150 % is 100 %.
+      await setField(`Vignette 1 strength of ${OVERLAY} (percent)`, '150')
+      expect(field(`Vignette 1 strength of ${OVERLAY} (percent)`)).toHaveValue(100)
+      await userEvent.keyboard('{Control>}z{/Control}')
+      expect(field(`Vignette 1 strength of ${OVERLAY} (percent)`)).toHaveValue(60)
+
+      await userEvent.click(screen.getByRole('button', { name: `Remove vignette 2 from ${OVERLAY}` }))
+      expect(screen.queryByRole('spinbutton', { name: `Vignette 2 start of ${OVERLAY} in seconds` })).toBeNull()
+      await userEvent.keyboard('{Control>}z{/Control}')
+      expect(field(`Vignette 2 start of ${OVERLAY} in seconds`)).toHaveValue(2)
+    })
+  })
+
+  it("places the window in the overlay's time on screen, not its source time", async () => {
+    await withVisualEffects(async () => {
+      // A 2 s overlay: the first vignette's default 2 s window fills it.
+      await addOverlay(2)
+      await chooseEffect(OVERLAY, 'Vignette')
+      expect(await effectItem(OVERLAY, 'Vignette')).toBeDisabled()
+      await closeEffectMenu(OVERLAY)
+      // At 0.5× over its whole source the overlay shows for 4 s, so there
+      // is room for a second vignette after the first, though the source
+      // is still 2 s long.
+      await chooseEffect(OVERLAY, ADD_SPEED)
+      expect(field(`Speed segment 1 factor of ${OVERLAY}`)).toHaveValue(0.5)
+      expect(await effectItem(OVERLAY, 'Vignette')).toBeEnabled()
+      await closeEffectMenu(OVERLAY)
+      await chooseEffect(OVERLAY, 'Vignette')
+      expect(field(`Vignette 2 start of ${OVERLAY} in seconds`)).toHaveValue(2)
+      expect(field(`Vignette 2 end of ${OVERLAY} in seconds`)).toHaveValue(4)
+    })
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({

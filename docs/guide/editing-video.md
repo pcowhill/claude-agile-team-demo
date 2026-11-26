@@ -1,6 +1,6 @@
 # Editing video
 
-What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Cut…](#cut), [Split at playhead](#split-at-playhead) and [Split…](#split), [Cut out marked range](#cut-out-marked-range), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), [overlay move](#overlay-move), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF and WebP plugin formats and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
+What the controls on a timeline row do to the picture and its timing: [trimming](#trimming) and [the Trim window](#the-trim-window), [Cut…](#cut), [Split at playhead](#split-at-playhead) and [Split…](#split), [Cut out marked range](#cut-out-marked-range), [Freeze frame](#freeze-frame), [transitions](#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom), [speed segments and pauses](#speed-segments-and-pauses), [zooms](#zooms), [colour adjustments](#colour-adjustments), [orientation](#orientation), [crop](#crop), [background fill](#background-fill), [shape mask](#shape-mask), [overlay border](#overlay-border), [overlay shadow](#overlay-shadow), [overlay move](#overlay-move), [visual effects on an overlay](#visual-effects-on-an-overlay), and [the slider beside each number](#the-slider-beside-each-number). Every one of them renders live in the preview, saves with the project, and renders identically in the exported file — the video formats, the GIF and WebP plugin formats and frame snapshots draw through one shared rule. Where a row's controls live is on [Timeline](timeline.md); dragging a value on a picture instead of typing it is on [Visual editors](visual-editors.md).
 
 ## Trimming
 
@@ -131,6 +131,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
   - Both keep every setting: volume, mute and ducking on a track; placement, colour, orientation, crop, shape mask, border, shadow, redactions and spotlights on an overlay.
   - The first keeps the fade-in and the second the fade-out, so the join plays straight through. A fade that runs across the point cannot be divided, so it is shortened to fit its part and ramps faster.
   - An overlay's speed segments, pauses and zooms are cut as an entry's are.
+  - An overlay's [visual effects](#visual-effects-on-an-overlay) stay where they were in the video, as its Moves do. One running across the point is divided there.
   - An overlay's [Moves](#overlay-move) stay where they were in the video. The second part starts where the overlay was at the point, so a split between Moves changes nothing you can see. A Move gliding across the point is divided there, and each part glides its own share. The overlay passes the point in the same place and ends where it did, though each share eases in and out over its own length.
   - The second is listed right after the first, so an overlay's place in the stacking order does not change.
   - A track's window has no picture, as its [Trim window](#the-trim-window) has none: the strip is its waveform, **▶ Play** plays the sound, and there are no frame buttons.
@@ -210,11 +211,11 @@ The item is disabled, and X does nothing, without a marked range; while either m
 
 ## Vignette and blur
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Vignette** or **Blur**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Vignette** or **Blur**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Darkens the edges of the frame (Vignette) or blurs the whole picture (Blur) for a stretch of the entry.
 
-**Details.** Each effect's row has its stretch, *from* and *to* in seconds into the entry, and one setting: a Vignette's *strength*, 0 to 100 %, and a Blur's *amount*, 0 to 5 % of the frame's width. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at its default setting, starting where the entry's earlier effects of the same kind leave room, fitted into the room the entry has; the item is greyed once that kind covers the whole entry. A vignette and a blur may overlap, and stack. Each eases in and out at the ends of its stretch, and ✕ removes it. Rows are named by kind and numbered in time order, *Vignette 1*, *Blur 1*. Every entry offers them, a still or a slate as well as a clip. How each effect looks, how it eases and how it rides a zoom or a transition is on [Plugins › Visual effects](plugins.md#visual-effects).
+**Details.** Each effect's row has its stretch, *from* and *to* in seconds into the entry, and one setting: a Vignette's *strength*, 0 to 100 %, and a Blur's *amount*, 0 to 5 % of the frame's width. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at its default setting, starting where the entry's earlier effects of the same kind leave room, fitted into the room the entry has; the item is greyed once that kind covers the whole entry. A vignette and a blur may overlap, and stack. Each eases in and out at the ends of its stretch, and ✕ removes it. Rows are named by kind and numbered in time order, *Vignette 1*, *Blur 1*. Every entry offers them, a still or a slate as well as a clip, and so does a video or image overlay, on its own picture ([Visual effects on an overlay](#visual-effects-on-an-overlay)). How each effect looks, how it eases and how it rides a zoom or a transition is on [Plugins › Visual effects](plugins.md#visual-effects).
 
 With the plugin disabled, the items leave the menu, and an effect already on an entry stays with its row named *(unavailable)*, *vignette 1 (unavailable)*: its stretch can still be moved and ✕ still removes it, and the picture shows without it until the plugin is enabled again. A [Trim](#the-trim-window) that cuts into an effect says so on its warning line, as it does for a zoom, and a [split](#split-at-playhead) or [cut](#cut-out-marked-range) divides an effect across it as it divides a speed segment.
 
@@ -222,7 +223,7 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## Film grain
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Film grain**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Film grain**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Lays fine, moving noise over the picture for a stretch of the entry, like the grain of film.
 
@@ -232,7 +233,7 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## Old film
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Old film**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Old film**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Makes a stretch of the entry look like old film: a sepia tone, a brightness that flickers slightly, a fine grain, and now and then a thin light scratch down the picture and a few specks of dust.
 
@@ -242,7 +243,7 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## VHS
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **VHS**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **VHS**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Makes a stretch of the entry look like a worn videotape: the picture goes slightly soft, its colours bleed into thin fringes at the edges, thin dark lines run across it, and now and then a light, noisy band rolls down it, as when a tape mistracks.
 
@@ -252,7 +253,7 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## Chromatic aberration
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Chromatic aberration**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Chromatic aberration**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Splits the picture's colours apart for a stretch of the entry, as a cheap lens does: its red moves to the left and its blue to the right, so every edge carries a reddish fringe on one side and a bluish one on the other.
 
@@ -262,7 +263,7 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## Glitch
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Glitch**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Glitch**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Makes a stretch of the entry look like a broken digital signal: now and then, for an eighth of a second, a few horizontal bands of the picture tear sideways and its red and blue jump apart, so every edge flashes a reddish fringe on one side and a bluish one on the other, then everything snaps back.
 
@@ -272,13 +273,31 @@ With the plugin disabled, the items leave the menu, and an effect already on an 
 
 ## Pixelate
 
-**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Pixelate**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled.
+**Where to find it.** An expanded sequence entry › **+ Effect ▾** › **Pixelate**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. An overlay offers it too: see [Visual effects on an overlay](#visual-effects-on-an-overlay).
 
 **What it does.** Draws a stretch of the entry in large square blocks, each one colour, the average of the picture it covers, as a censored face or a retro game is drawn.
 
 **Details.** The row has the stretch, *from* and *to* in seconds into the entry, and one setting, *block size*, 5 to 200 pixels: a block's width in pixels of a 1080p frame. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s at 20 pixels, which divides a 1920 × 1080 frame into 96 × 54 blocks. The blocks keep their share of the frame at any size of the picture, so the preview shows the same grid of blocks, in the same colours, as the exported file. A size that does not divide the frame is rounded to whole blocks that stretch to fill it, so no part-block sits at an edge: 50 pixels gives 38 × 22 blocks. As it eases in at the start of its stretch, the blocks grow out of the full-detail picture, and they shrink back as it eases out. The blocks sit on the frame: a [zoom](#zooms) magnifies the picture under them, not the blocks, and whichever way the clip is turned by its [orientation](#orientation), their rows and columns stay level on the screen. The blocks are drawn from the picture after its [colour adjustments](#colour-adjustments) and after the effects that change the picture itself on the same stretch: a Blur, Chromatic aberration, Glitch, Old film's tone and flicker, and VHS's softness and colour offset all show in the blocks' colours. What other effects draw over the picture stays sharp on top of the blocks: a Vignette, and the grain, scratches, dust, lines and band of Film grain, Old film and VHS. So do [redactions](#redact-a-region) and [spotlights](#spotlight-a-region). Unlike a Blur, Pixelate needs no canvas filters, so a browser that cannot apply them still exports it. Everything else works as for [Vignette and blur](#vignette-and-blur): it stacks with the other effects, is named *Pixelate 1*, *Pixelate 2* in time order, ✕ removes it, and Trim, split and cut treat it the same way.
 
 **Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Glitch](#glitch) · [Vignette and blur](#vignette-and-blur)
+
+## Visual effects on an overlay
+
+**Where to find it.** An expanded video or image overlay › **+ Effect ▾** › **Vignette**, **Blur**, **Film grain**, **Old film**, **VHS**, **Chromatic aberration**, **Glitch** or **Pixelate**, once the [Visual effects](plugins.md#visual-effects) plugin is enabled. They follow **Move** in the menu.
+
+**What it does.** Puts a visual effect on a stretch of an overlay's own picture, a webcam bubble or a logo for example, and nowhere else: the picture under and around the overlay is untouched. A Vignette darkens the edges of the overlay's picture, not the frame's.
+
+**Details.**
+
+- **The rows.** Each effect has the row it has on a sequence entry, with the same settings, defaults, names and ✕: see [Vignette and blur](#vignette-and-blur), [Film grain](#film-grain), [Old film](#old-film), [VHS](#vhs), [Chromatic aberration](#chromatic-aberration), [Glitch](#glitch) and [Pixelate](#pixelate). Video overlays and image overlays both offer them.
+- **The stretch.** *from* and *to* are seconds after the overlay appears, as a [Move's](#overlay-move) *at* is. They run up to the overlay's time on screen, so an overlay slowed by a speed segment has room for longer effects than its clip's length. A new one runs for {{DEFAULT_PICTURE_EFFECT}} s, starting where the overlay's earlier effects of the same kind leave room. The item is greyed once that kind covers the overlay's whole time on screen.
+- **What it covers.** The effect covers the picture the overlay shows, inside its [shape mask](#shape-mask): a Vignette on a circle darkens inside the circle only. Its [border](#overlay-border) and [shadow](#overlay-shadow) are drawn as they are, without the effect. A Blur, Chromatic aberration or Glitch never spreads past the picture onto the frame around it. As on an entry, [redactions](#redact-a-region) and [spotlights](#spotlight-a-region) stay sharp above it.
+- **Sizes.** Every size an effect has is a share of the overlay's picture rather than of the frame. A Blur's *amount* is a share of the picture's width. A size given in pixels of a 1080p frame, such as a Pixelate block or a grain, is measured as if the overlay's picture were that frame. So a Pixelate at the default 20 divides an overlay 96 blocks across, as it divides the frame.
+- **With a zoom.** A [zoom](#zooms) on the overlay magnifies the picture under the effect, not the effect itself. A Pixelate's blocks keep their size, and they also cover the zoomed picture where it spreads into the empty sides of the overlay's rectangle.
+- **Editing elsewhere.** [Split…](#split), [Cut…](#cut) and [Cut out marked range](#cut-out-marked-range) keep each effect at its moment in the video, as they keep a Move. An effect running across the cut is divided there into two of the same kind and settings, which meet at full strength. Changing the overlay's In, Out or *Shows for* fits its effects into what is left. The Trim window's warning line does not name them.
+- **Duplicating, undo and saving.** [Duplicate](timeline.md#duplicate) copies the effects with the overlay, and removing the overlay removes them. Copy settings does not carry them. Adding, editing and removing an effect is one undo step each. The effects save with the project, and the preview and every export draw them through one rule.
+
+**Related.** [+ Effect ▾](timeline.md#effect) · [Plugins › Visual effects](plugins.md#visual-effects) · [Overlay move](#overlay-move) · [Shape mask](#shape-mask)
 
 ## Colour adjustments
 

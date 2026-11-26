@@ -2,9 +2,12 @@ import { readFile } from 'node:fs/promises'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { join } from 'node:path'
 import { chooseClipAction } from './clipMenu'
 import { chooseFromFileMenu } from './fileMenu'
 import { chooseFromFrameMenu } from './frameMenu'
+import { expectNoHorizontalScroll, expectNoWrap, expectWithin } from './layout'
+import { chooseEffect, openEffectMenu } from './timelineRowMenu'
 
 /**
  * Picture effects on overlays (#872): a saved frame (the export's own frame
@@ -12,14 +15,14 @@ import { chooseFromFrameMenu } from './frameMenu'
  * step 3b(i)) draw an overlay's effects on the overlay's own picture and
  * nowhere else.
  *
- * Nothing in the app can put an effect on an overlay yet: step 4 adds the
- * + Effect ▾ entry. So this spec saves the project, writes the effects
- * into the saved file's overlay (the `pictureEffects` key step 1 added,
- * schema 35), and opens that file, as a hand-made project would arrive.
- * The effect types are test-only definitions registered into the running
- * app's registry through the dev server's module URL, as
- * `channel-offset.spec.ts` does, so the spec does not depend on the
- * Visual effects plugin's own numbers.
+ * The rendering tests save the project, write the effects into the saved
+ * file's overlay (the `pictureEffects` key step 1 added, schema 35), and
+ * open that file, as a hand-made project would arrive. The effect types
+ * are test-only definitions registered into the running app's registry
+ * through the dev server's module URL, as `channel-offset.spec.ts` does,
+ * so those tests do not depend on the Visual effects plugin's own
+ * numbers. The UI tests (step 4) add the plugin's real effects through
+ * the overlay's + Effect ▾.
  *
  * The overlay is an image overlay. Its draw shares every line of the
  * effect path with a video overlay's (`paintOverlay` in `exportVideo.ts`);
@@ -757,6 +760,109 @@ async function overlayPixelateAgainstSaved(
   await test.info().attach(`preview (${label})`, { body: await frame.screenshot(), contentType: 'image/png' })
   return reading!
 }
+
+/** Enables the Visual effects plugin in the manager, as `visual-effects.spec.ts` does. */
+async function enableVisualEffects(page: Page) {
+  await chooseFromFileMenu(page, 'Plugins…')
+  const dialog = page.getByRole('dialog', { name: 'Plugins' })
+  await expect(dialog).toBeVisible()
+  await page.getByRole('button', { name: 'Enable Visual effects' }).click()
+  await expect(page.getByRole('button', { name: 'Disable Visual effects' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close' }).click()
+}
+
+/** The Visual effects plugin's effects, in + Effect ▾'s order. */
+const PLUGIN_EFFECTS = ['Vignette', 'Blur', 'Film grain', 'Old film', 'VHS', 'Chromatic aberration', 'Glitch', 'Pixelate']
+const IMAGE_OVERLAY = 'overlay logo.png at position 1'
+const VIDEO_OVERLAY = 'overlay trim-clip.webm at position 2'
+
+/**
+ * A populated timeline for the overlay rows' geometry (#872, step 4): two
+ * stills in the sequence, an image overlay carrying a zoom, a Move and
+ * every one of the plugin's effects, and a video overlay carrying a
+ * vignette and a blur, so the effect rows sit among the other rows they
+ * will sit among in use.
+ */
+async function populatedWithOverlayEffects(page: Page) {
+  await page.goto('./')
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'pattern.png', mimeType: 'image/png', buffer: await makePng(page, { square: 40 }) },
+    { name: 'white.png', mimeType: 'image/png', buffer: await makePng(page, { color: '#fff' }) },
+    { name: 'logo.png', mimeType: 'image/png', buffer: await makePng(page, { square: 20 }) },
+  ])
+  await page.getByRole('button', { name: 'Add pattern.png to timeline' }).click()
+  await page.getByRole('button', { name: 'Add white.png to timeline' }).click()
+  await chooseClipAction(page, 'logo.png', 'Add as overlay')
+  await page.getByTestId('clip-file-input').setInputFiles(join('e2e', 'fixtures', 'trim-clip.webm'))
+  await chooseClipAction(page, 'trim-clip.webm', 'Add as overlay')
+  await enableVisualEffects(page)
+  await chooseEffect(page, IMAGE_OVERLAY, 'Zoom')
+  await chooseEffect(page, IMAGE_OVERLAY, 'Move')
+  for (const name of PLUGIN_EFFECTS) await chooseEffect(page, IMAGE_OVERLAY, name)
+  await chooseEffect(page, VIDEO_OVERLAY, 'Vignette')
+  await chooseEffect(page, VIDEO_OVERLAY, 'Blur')
+  await expect(page.getByTestId('picture-effect-row')).toHaveCount(PLUGIN_EFFECTS.length + 2)
+}
+
+test.describe("Picture effects in an overlay's + Effect ▾ and its row (#872, step 4)", () => {
+  test("+ Effect ▾ on a video and an image overlay lists the plugin's effects after Move, and the preview draws one added there", async ({
+    page,
+  }) => {
+    await populatedWithOverlayEffects(page)
+    const items = async (position: string) => {
+      const menu = await openEffectMenu(page, position)
+      const labels = (await menu.getByRole('menuitem').allTextContents()).map((label) => label.trim())
+      await page.keyboard.press('Escape')
+      await expect(menu).toBeHidden()
+      return labels
+    }
+    expect(await items(IMAGE_OVERLAY)).toEqual(['Zoom', 'Move', ...PLUGIN_EFFECTS])
+    expect(await items(VIDEO_OVERLAY)).toEqual(['Zoom', 'Speed segment', 'Pause', 'Move', ...PLUGIN_EFFECTS])
+    // The video overlay's Blur, added through the menu, from 0 s to 2 s on
+    // screen: inside its window the preview filters the overlay's element,
+    // and the image overlay's vignette box is drawn.
+    await expect(
+      page.getByRole('spinbutton', { name: `Blur 1 end of ${VIDEO_OVERLAY} in seconds` }),
+    ).toHaveValue('2')
+    await page.getByRole('slider', { name: 'Seek within sequence' }).fill('1')
+    await expect(page.getByTestId('preview-overlay-1')).toHaveCSS('filter', /blur\(/)
+    await expect(page.getByTestId('preview-overlay-look-0')).toHaveCount(1)
+    // The guide's statement: a Pixelate at the default 20 divides an
+    // overlay 96 blocks across, as it divides the frame (and 54 down on
+    // this 16:9 picture).
+    await expect(page.getByTestId('preview-overlay-pixelate-0')).toHaveAttribute('data-grid', '96x54')
+  })
+
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 360, height: 640 },
+  ]) {
+    test(`the effect rows stay inside the overlay's row, their labels and fields on one line, at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      test.setTimeout(90_000)
+      await page.setViewportSize(viewport)
+      await populatedWithOverlayEffects(page)
+      const rows = page.getByTestId('picture-effect-row')
+      // The editor column, as the entry rows' test measures: a row too wide
+      // for the column would widen the timeline panel with it.
+      const column = page.locator('main')
+      for (const row of await rows.all()) {
+        await row.scrollIntoViewIfNeeded()
+        const overlayRow = row.locator('xpath=ancestor::li[contains(@class, "video-overlay")][1]')
+        await expect(overlayRow).toHaveCount(1)
+        const name = ((await row.locator(':scope > span').first().textContent()) ?? 'row').replace(/ from$/, '')
+        await expectWithin(row, overlayRow, { axis: 'x', what: `the ${name} row at ${viewport.width}px` })
+        await expectWithin(row, column, { axis: 'x', what: `the ${name} row at ${viewport.width}px` })
+        await expectNoWrap(row.locator(':scope > span'), `${name}'s labels and labelled fields`)
+      }
+      await expectNoHorizontalScroll(page, `with the overlay effect rows at ${viewport.width}px`)
+      const overlayRow = rows.first().locator('xpath=ancestor::li[contains(@class, "video-overlay")][1]')
+      const shot = await overlayRow.screenshot({ path: testInfo.outputPath(`overlay-effect-rows-${viewport.width}.png`) })
+      await testInfo.attach(`overlay effect rows at ${viewport.width}px`, { body: shot, contentType: 'image/png' })
+    })
+  }
+})
 
 test.describe('Pixelate on an overlay in the preview (#872, step 3b(ii))', () => {
   // A large preview, as pixelate.spec.ts's preview tests use, so a block
