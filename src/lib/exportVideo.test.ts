@@ -59,6 +59,7 @@ import { CANVAS_PRESETS, FALLBACK_FRAME, outputFrameSize, presetFrame } from './
 import { locateInSequence } from './playback'
 import { sourceTimeAtOutput } from './remap'
 import { overlayRectAt } from './overlayMove'
+import { pictureEffectRegistry } from './pictureEffect'
 import {
   DEFAULT_TEXT,
   FontRegistry,
@@ -1891,6 +1892,8 @@ function fakeComposerContext(filterSupported = true) {
     stroke: () =>
       ops.push(`strokePath(${context.strokeStyle}, ${num(context.lineWidth)}, ${context.lineJoin})`),
     clip: () => {},
+    // A vignette layer's gradient (#872's overlay tests): its fill reads "radial".
+    createRadialGradient: () => ({ addColorStop: () => {}, toString: () => 'radial' }),
     drawImage: (source: unknown, ...args: number[]) =>
       ops.push(
         `draw(${(source as { tag?: string }).tag ?? 'source'}, [${args
@@ -2471,6 +2474,129 @@ describe('frame composition of overlay shape masks (#267)', () => {
       expect(buffers[2].ops).toContain(
         'draw(buffer-1, [170, 80, 60, 65, -471, 80, 60, 65], none) shadow(rgba(255, 0, 0, 1), 0, 650, 9)',
       )
+    })
+  })
+
+  describe('an overlay\'s picture effects (#872) draw on its own picture', () => {
+    // Test definitions in the app's registry, removed after each test: a
+    // blur of 0.05 of the card's width, and a vignette.
+    const soften = {
+      id: 'test-overlay-soften',
+      name: 'Test soften',
+      params: [],
+      look: (_params: Record<string, number>, weight: number) => ({
+        filters: [{ kind: 'blur' as const, radius: 0.05 * weight }],
+        layers: [],
+      }),
+    }
+    const dim = {
+      id: 'test-overlay-dim',
+      name: 'Test dim',
+      params: [],
+      look: (_params: Record<string, number>, weight: number) => ({
+        filters: [],
+        layers: [{ kind: 'vignette' as const, strength: 0.8 * weight, inner: 0.5 }],
+      }),
+    }
+    afterEach(() => {
+      pictureEffectRegistry.unregister(soften.id)
+      pictureEffectRegistry.unregister(dim.id)
+    })
+    /** The composer, with the main context's clip rectangles and gradients recorded too. */
+    const recorded = (layer: VideoOverlay) => {
+      const result = composerFor(layer)
+      const record = (context: CanvasRenderingContext2D, ops: string[]) => {
+        Object.assign(context, {
+          rect: (x: number, y: number, w: number, h: number) => ops.push(`rect(${x}, ${y}, ${w}, ${h})`),
+          clip: () => ops.push('clip'),
+        })
+      }
+      record(result.main.context, result.main.ops)
+      return result
+    }
+    const effect = (type: string, start = 0, end = 10) => ({ id: type, type, start, end, params: {} })
+
+    it('a blur filters the picture draw, sized from the outline and clipped to it', () => {
+      pictureEffectRegistry.register(soften)
+      const { composer, main } = recorded(overlayFor({ pictureEffects: [effect(soften.id)] }))
+      composer.drawFrame(baseLayer, 0, 0)
+      // 0.05 of the 80 px outline is 4 px — not of the 320 px frame, which
+      // would be 16. The clip is the outline (160, 90, 80, 45), so the
+      // blur's spread never reaches the frame around the overlay.
+      expect(main.ops.slice(2)).toEqual([
+        'save',
+        'rect(160, 90, 80, 45)',
+        'clip',
+        'draw(over-element, [160, 90, 80, 45], blur(4px))',
+        'restore',
+      ])
+    })
+
+    it('outside its on-screen window an effect draws nothing, byte-identical to none', () => {
+      pictureEffectRegistry.register(soften)
+      // On screen 0..10: a window of 6..9 is not live at sequence time 0.
+      const { composer, main } = recorded(overlayFor({ pictureEffects: [effect(soften.id, 6, 9)] }))
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(main.ops.slice(2)).toEqual(['draw(over-element, [160, 90, 80, 45], none)'])
+    })
+
+    it('an unregistered type draws nothing', () => {
+      const { composer, main } = recorded(overlayFor({ pictureEffects: [effect('from-a-disabled-plugin')] }))
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(main.ops.slice(2)).toEqual(['draw(over-element, [160, 90, 80, 45], none)'])
+    })
+
+    it('a vignette covers the outline after the picture, not the frame', () => {
+      pictureEffectRegistry.register(dim)
+      const { composer, main } = recorded(overlayFor({ pictureEffects: [effect(dim.id)] }))
+      composer.drawFrame(baseLayer, 0, 0)
+      // The gradient's ellipse is centred on the outline (200, 112.5) in a
+      // space squashed to its 80×45 aspect, and fills just its box.
+      expect(main.ops.slice(2)).toEqual([
+        'draw(over-element, [160, 90, 80, 45], none)',
+        'save',
+        'translate(200, 112.5)',
+        'scale(1, 0.5625)',
+        'fill(radial, -40, -40, 80, 80)',
+        'restore',
+      ])
+    })
+
+    it('with a shape mask, the vignette is drawn in the scratch before the mask cuts both', () => {
+      pictureEffectRegistry.register(dim)
+      const { composer, main, buffers } = recorded(
+        overlayFor({ shapeMask: { kind: 'ellipse' }, pictureEffects: [effect(dim.id)] }),
+      )
+      composer.drawFrame(baseLayer, 0, 0)
+      expect(main.ops.slice(2)).toEqual(['draw(buffer-1, [0, 0], none)'])
+      // The picture, then the vignette over its outline, then the ellipse
+      // cut: the darkening stays inside the circle.
+      expect(buffers[1].ops).toEqual([
+        'clear(0, 0, 320, 180)',
+        'draw(over-element, [160, 90, 80, 45], none)',
+        'save',
+        'translate(200, 112.5)',
+        'scale(1, 0.5625)',
+        'fill(radial, -40, -40, 80, 80)',
+        'restore',
+        'ellipse(200, 112.5, 40, 22.5)',
+        'fillPath(#fff, destination-in)',
+      ])
+    })
+
+    it('a cropped overlay\'s effects size from and cover the cropped picture', () => {
+      pictureEffectRegistry.register(soften)
+      pictureEffectRegistry.register(dim)
+      const crop = { left: 0.25, right: 0.25, top: 0, bottom: 0 }
+      const { composer, main } = recorded(
+        overlayFor({ crop, pictureEffects: [effect(soften.id), effect(dim.id)] }),
+      )
+      composer.drawFrame(baseLayer, 0, 0)
+      // The picture is 40×45 at (180, 90) between the gutters: 0.05 of 40 is 2 px.
+      expect(main.ops).toContain('rect(180, 90, 40, 45)')
+      expect(main.ops.some((op) => op.endsWith('blur(2px))'))).toBe(true)
+      expect(main.ops).toContain('translate(200, 112.5)')
+      expect(main.ops).toContain('fill(radial, -20, -20, 40, 40)')
     })
   })
 })

@@ -59,7 +59,7 @@ import type { SourceDimensions } from './frameSize'
 import { overlayZoomAt, zoomAt } from './zoom'
 import { channelOffsetFilterUrl } from './channelOffsetFilter'
 import { exportSlices, slicesFilterUrl } from './slicesFilter'
-import { pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
+import { overlayPictureLookAt, pictureFilterFunctions, pictureLookAt, timelineHasPictureFilters } from './pictureLook'
 import { pixelateBlock, pixelateGrid, textureTile, textureTileKey, vignetteStops } from './pictureEffect'
 import type { PictureFilter, PictureLayer, TextureLayer } from './pictureEffect'
 import type { ZoomState } from './zoom'
@@ -392,6 +392,19 @@ export function drawOverlayBorder(
   scratch.fill()
   scratch.globalCompositeOperation = 'source-over'
   context.drawImage(scratchBuffer.canvas, 0, 0)
+}
+
+/**
+ * The overlap of two rectangles (#872): where an overlay's zoomed picture
+ * and its placed rectangle both are, the part of the picture that shows.
+ * Empty (zero size, at the first's corner) when they do not meet.
+ */
+export function intersectRects(a: FitRect, b: FitRect): FitRect {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  const right = Math.min(a.x + a.width, b.x + b.width)
+  const bottom = Math.min(a.y + a.height, b.y + b.height)
+  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : { x: a.x, y: a.y, width: 0, height: 0 }
 }
 
 /** A full-frame scratch canvas and its context, as the overlay draws take them. */
@@ -2013,19 +2026,31 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // follow a zoomed sequence entry. Identity returns `dest` itself.
         const layerZoom = overlayZoomAt(layer, layerTime)
         const dest = zoomRectWithin(outline, layerZoom, placed)
+        // The overlay's picture effects (#872), read in its on-screen time
+        // (`overlayPictureLookAt`). Their card is the outline, the overlay's
+        // own picture: a blur's radius and a channel offset's shift size
+        // from its width, and a vignette or grain covers it, never the
+        // frame around it. An effect-free overlay gets `NO_PICTURE_LOOK`
+        // and draws exactly as before.
+        const look = overlayPictureLookAt(layer, sequenceTime, layerTime)
         // The overlay's own color adjustments (#195), independent of the
         // base layers' — exactly the preview's per-element filter (#192).
         const paintPicture = (target: CanvasRenderingContext2D) => {
           withLayerColorFilter(target, layer.colorAdjustments, () => {
             withLayerOrientation(target, layer.orientation, dest, (drawRect) => {
-              drawLayerSource(
-                target,
-                picture.source,
-                layer.crop,
-                picture.width,
-                picture.height,
-                drawRect,
-              )
+              // The look's filters (#872) on the source draw alone, as on a
+              // sequence entry: the redactions and spotlights drawn after
+              // it stay sharp under a blur.
+              withPictureFilters(target, look.filters, outline, (filtered) => {
+                drawLayerSource(
+                  filtered,
+                  picture.source,
+                  layer.crop,
+                  picture.width,
+                  picture.height,
+                  drawRect,
+                )
+              })
               // The overlay's own source clock — the same one that decided
               // it is on screen at all (`videoOverlayPlaybackAt`), so a
               // window is read identically here and in the preview.
@@ -2058,17 +2083,31 @@ export function createFrameComposer(options: FrameComposerOptions): FrameCompose
         // A zoomed picture is larger than its rectangle, so it is clipped to
         // it (#699); an unzoomed one never is, so its draw calls — and the
         // output of every zoom-free project — stay exactly as they were.
+        //
+        // A filtered picture (#872) is clipped to what of it shows — the
+        // outline, or, zoomed, the zoomed picture inside the rectangle — so
+        // a blur's spread, a channel offset's fringe or a slice's shift
+        // never reaches the frame around the overlay: the effect covers the
+        // overlay's own picture and nothing else.
+        const filterClip = look.filters.length > 0 ? intersectRects(dest, placed) : null
         const paintOverlay = (target: CanvasRenderingContext2D) => {
-          if (layerZoom.scale === 1) {
+          if (layerZoom.scale === 1 && filterClip === null) {
             paintPicture(target)
-            return
+          } else {
+            const clip = filterClip ?? placed
+            target.save()
+            target.beginPath()
+            target.rect(clip.x, clip.y, clip.width, clip.height)
+            target.clip()
+            paintPicture(target)
+            target.restore()
           }
-          target.save()
-          target.beginPath()
-          target.rect(placed.x, placed.y, placed.width, placed.height)
-          target.clip()
-          paintPicture(target)
-          target.restore()
+          // The look's layers (#872) over the outline, after the picture
+          // and its regions, as an entry's go over its card. Drawn source-
+          // over onto the same target, so with a shape mask they are cut
+          // with the picture, and a vignette darkens the overlay's edges —
+          // inside its circle, say — never the frame's.
+          if (look.layers.length > 0) drawPictureLayers(target, look.layers, outline)
         }
         // The drop shadow (#698) goes first, under the border and the
         // picture; it lies only outside the bordered silhouette, so neither

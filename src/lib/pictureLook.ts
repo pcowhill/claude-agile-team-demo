@@ -9,6 +9,8 @@ import type {
 } from './pictureEffect'
 import { effectiveDuration, everyPictureEffectOf, pictureEffectsForEntry } from './timeline'
 import type { TimelineState } from './timeline'
+import type { VideoOverlay } from './videoOverlay'
+import { overlayOutputDuration } from './videoOverlay'
 
 /**
  * Resolving an entry's picture effects (#862) at an instant: the one place
@@ -76,9 +78,46 @@ export function pictureLookAt(
   const entry = state.entries[entryIndex]
   if (entry === undefined) return NO_PICTURE_LOOK
   const effects = pictureEffectsForEntry(state, entry.id)
+  return lookOf(effects, sourceTime - entry.inPoint, effectiveDuration(entry), sourceTime, registry)
+}
+
+/**
+ * The look of a video or image overlay's own picture (#872) at sequence
+ * time `sequenceTime`: `pictureLookAt`'s rule over the overlay's effects
+ * (`VideoOverlay.pictureEffects`), whose windows are in its **on-screen**
+ * seconds. So the weight is read at `sequenceTime − offset` against
+ * `overlayOutputDuration`, and an edge lying on the overlay's own first or
+ * last on-screen instant does not ease, which is what lets the two halves
+ * Split…, Cut… and a ripple cut leave render as the one effect did.
+ * `sourceTime` is the overlay's own source clock at that instant
+ * (`videoOverlayPlaybackAt`), the clock a generated texture steps on, as
+ * an entry's steps on its source clock. An overlay with no effect gets
+ * `NO_PICTURE_LOOK` itself.
+ */
+export function overlayPictureLookAt(
+  overlay: Pick<VideoOverlay, 'offset' | 'inPoint' | 'outPoint' | 'remaps' | 'pictureEffects'>,
+  sequenceTime: number,
+  sourceTime: number,
+  registry: PictureEffectRegistry = pictureEffectRegistry,
+): PictureLook {
+  const effects = overlay.pictureEffects
+  if (effects === undefined || effects.length === 0) return NO_PICTURE_LOOK
+  return lookOf(effects, sequenceTime - overlay.offset, overlayOutputDuration(overlay), sourceTime, registry)
+}
+
+/**
+ * Effects composed at `offset` seconds into their owner's window of
+ * `length`: every effect whose window holds the instant, in stored (start)
+ * order, each through its definition at its eased weight and at `clock`.
+ */
+function lookOf(
+  effects: readonly Pick<PictureEffect, 'type' | 'start' | 'end' | 'params'>[],
+  offset: number,
+  length: number,
+  clock: number,
+  registry: PictureEffectRegistry,
+): PictureLook {
   if (effects.length === 0) return NO_PICTURE_LOOK
-  const offset = sourceTime - entry.inPoint
-  const length = effectiveDuration(entry)
   const filters: PictureFilter[] = []
   const layers: PictureLayer[] = []
   for (const effect of effects) {
@@ -86,7 +125,7 @@ export function pictureLookAt(
     if (weight <= 0) continue
     const definition = registry.find(effect.type)
     if (definition === undefined) continue
-    const look = definition.look(pictureEffectParamsFor(definition, effect.params), weight, sourceTime)
+    const look = definition.look(pictureEffectParamsFor(definition, effect.params), weight, clock)
     filters.push(...look.filters)
     layers.push(...look.layers)
   }
