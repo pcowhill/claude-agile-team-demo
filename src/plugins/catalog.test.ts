@@ -4,6 +4,26 @@ import type { PluginStorage } from '../lib/plugins'
 import { emptyLibrary } from '../lib/mediaLibrary'
 import type { TimelineState } from '../lib/timeline'
 import { builtInPlugins } from './catalog'
+import { visualEffectDefinitions } from './visualEffects/index'
+
+/**
+ * What the Plugins dialog says Visual effects adds (#959): every effect
+ * the plugin registers, by its menu name and in the menu's order, so an
+ * effect added later cannot leave the description behind it again.
+ */
+describe('the Visual effects description (#959)', () => {
+  it("names every effect the plugin registers, in the menu's order", () => {
+    const description = builtInPlugins.find((spec) => spec.id === 'visual-effects')!.description
+    const names = visualEffectDefinitions.map((definition) => definition.name)
+    expect(names.length).toBeGreaterThan(0)
+    const positions = names.map((name) => description.indexOf(name))
+    expect(
+      names.filter((_, index) => positions[index] < 0),
+      'effects the description does not name',
+    ).toEqual([])
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+})
 
 /**
  * The catalog's use counts are the one source for two answers (#953): the
