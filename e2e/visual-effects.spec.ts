@@ -1516,11 +1516,12 @@ test.describe("Old film's scratches and dust (#870)", () => {
  * darkness shimmers 24 times a second of the entry's clock, and a colour
  * offset (step 2b(ii)3) that moves red left and blue right.
  *
- * The still is 1920 × 1080, so a 1080p frame holds a scanline period in
- * 4 px: its left half mid-grey, where the lines are measured, and its
- * right half white up to three quarters across and black after, a sharp
- * edge for the blur. Three measures, each read the same way from the
- * preview's screenshot and from a frame of the export's composer:
+ * The still is 1920 × 1080 (`VHS_FRAME`), so a 1080p frame holds a
+ * scanline period in 4 px: its left half mid-grey, where the lines are
+ * measured, and its right half white up to three quarters across and
+ * black after, a sharp edge for the blur. Three measures, each read the
+ * same way from the preview's screenshot and from a frame of the export's
+ * composer:
  * - `lines`: the strength of the scanlines, the amplitude of the grey
  *   half's row profile at the lines' period, 4 px of a 1080p frame,
  *   whatever size the frame is drawn at. Without the lines it is the
@@ -1538,12 +1539,29 @@ test.describe("Old film's scratches and dust (#870)", () => {
  * which has none, so these measures read the lines and the blur alone.
  * Burst 2 has one, at 1 s to 1.5 s, inside the window's ease in. At full
  * weight it would lift the export test's grey half by about 1.6 (a band
- * 29 lighter over 48 of the half's 864 rows), against the lines' 22
- * darker, and the ease scales both alike, so its one darkened stretch is
- * unchanged.
+ * 29 lighter over 48 of a 1080p half's 864 rows, the same share at any
+ * size), against the lines' 22 darker, and the ease scales both alike, so
+ * its one darkened stretch is unchanged.
+ *
+ * The export test records a 640 × 360 frame (`VHS_EXPORT_FRAME`), not a
+ * 1080p one (#989). The export records in real time, and in a session
+ * container a 1080p VHS frame took 0.2 to 0.6 s to compose (#989's
+ * measurement), so the recording repeated one frame for many frames, up
+ * to 47 under four workers. One frame drawn in
+ * the ease in could then cover the test's whole full-weight stretch, 0.4 s
+ * wide, and read too light. With `--repeat-each=6 --workers=4`, 1080p
+ * failed 2 of 6 with runs of 11 to 47 identical frames; 640 × 360 passed
+ * 6 of 6, longest run 5 frames, and read the same grey at full weight
+ * (105.6 to 106.3, against 1080p's 105.6). The grey half's mean is a
+ * share of the frame and does not depend on its size, so the test's
+ * bounds are unchanged.
  */
 const VHS_STILL_GREY = 128
 const VHS_EDGE = 0.75
+/** The preview and saved-frame test's still, and so its frame: 1080p, the size its fringe and edge bounds are in. */
+const VHS_FRAME = { width: 1920, height: 1080 }
+/** The export test's still: small enough for the export to compose every frame it records (#989, above). */
+const VHS_EXPORT_FRAME = { width: 640, height: 360 }
 const VHS_WINDOW = { start: 1, end: 3, amount: 100 }
 /**
  * The bounds, from local Chromium measurements on this spec before they
@@ -1594,23 +1612,29 @@ const VHS_FRINGE_AGREE = 0.6
 /** The grey half, where an exported frame's mean is read: inside the window the lines darken it, outside it is the still's 128. */
 const VHS_GREY_BAND = { grey: { x: 0.05, y: 0.1, width: 0.4, height: 0.8 } }
 
-/** The VHS still: the left half grey, the right half white then black from `VHS_EDGE`. */
-async function makeVhsStill(page: Page): Promise<Buffer> {
+/**
+ * The VHS still: the left half grey, the right half white then black from
+ * `VHS_EDGE`. 1920 × 1080 unless `size` says otherwise: the sequence
+ * composes at its first still's size (#176), so the still sets the size of
+ * the frame the export draws.
+ */
+async function makeVhsStill(page: Page, size: { width: number; height: number } = VHS_FRAME): Promise<Buffer> {
   const base64 = await page.evaluate(
-    ({ grey, edge }) => {
+    ({ grey, edge, size }) => {
+      const { width, height } = size
       const canvas = document.createElement('canvas')
-      canvas.width = 1920
-      canvas.height = 1080
+      canvas.width = width
+      canvas.height = height
       const ctx = canvas.getContext('2d')!
       ctx.fillStyle = `rgb(${grey}, ${grey}, ${grey})`
-      ctx.fillRect(0, 0, 960, 1080)
+      ctx.fillRect(0, 0, width / 2, height)
       ctx.fillStyle = '#fff'
-      ctx.fillRect(960, 0, 1920 * edge - 960, 1080)
+      ctx.fillRect(width / 2, 0, width * edge - width / 2, height)
       ctx.fillStyle = '#000'
-      ctx.fillRect(1920 * edge, 0, 1920 * (1 - edge), 1080)
+      ctx.fillRect(width * edge, 0, width * (1 - edge), height)
       return canvas.toDataURL('image/png').split(',')[1]
     },
-    { grey: VHS_STILL_GREY, edge: VHS_EDGE },
+    { grey: VHS_STILL_GREY, edge: VHS_EDGE, size },
   )
   return Buffer.from(base64, 'base64')
 }
@@ -1704,10 +1728,10 @@ async function vhsOfPng(page: Page, png: Buffer): Promise<VhsMeasure> {
   )
 }
 
-/** Builds the 4 s VHS still with VHS from 1 s to 3 s at Amount 100, and opens that project. */
-async function openVhsProject(page: Page) {
+/** Builds the 4 s VHS still (`size`, 1080p by default) with VHS from 1 s to 3 s at Amount 100, and opens that project. */
+async function openVhsProject(page: Page, size: { width: number; height: number } = VHS_FRAME) {
   await gotoForSaving(page)
-  const still = await makeVhsStill(page)
+  const still = await makeVhsStill(page, size)
   await page.getByTestId('clip-file-input').setInputFiles([{ name: STILL, mimeType: 'image/png', buffer: still }])
   await page.getByRole('button', { name: `Add ${STILL} to timeline` }).click()
   const duration = page.getByRole('spinbutton', { name: `Duration of ${STILL} at position 1 in seconds` })
@@ -1852,7 +1876,7 @@ test.describe('VHS (#870)', () => {
 
   test('the export darkens with scanlines only inside the window', async ({ page }, testInfo) => {
     test.setTimeout(180_000)
-    await openVhsProject(page)
+    await openVhsProject(page, VHS_EXPORT_FRAME)
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'Export Project…' }).click()
     await page.getByRole('button', { name: 'Export', exact: true }).click()
