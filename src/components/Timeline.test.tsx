@@ -4368,7 +4368,7 @@ describe('zooms on an overlay row (#699)', () => {
   it('offers + Effect ▾ › Zoom, and adding one shows its fields', async () => {
     await addOverlay(8)
     // Move (#834) comes last, after the effects an entry has too.
-    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE, 'Move'])
     await closeEffectMenu(OVERLAY)
     await chooseEffect(OVERLAY, ADD_ZOOM)
     expect(screen.getByRole('spinbutton', { name: `Zoom 1 scale of ${OVERLAY}` })).toHaveValue(2)
@@ -4449,7 +4449,8 @@ describe('speed segments and pauses on an overlay row (#700)', () => {
     )
     await screen.findByText('logo.png')
     await chooseClipAction('logo.png', 'Add as overlay')
-    // No Speed segment or Pause; Move (#834) places the still, not its time.
+    // No Speed segment, Pause or Volume change (#1027): a still has no time
+    // and no sound. Move (#834) places the still, not its time.
     expect(await effectMenuItems('overlay logo.png at position 1')).toEqual([ADD_ZOOM, 'Move'])
   })
 })
@@ -4819,19 +4820,19 @@ describe('picture effects on an overlay row (#872, step 4)', () => {
   it("lists the plugin's effects after Move on a video overlay, and only while the plugin is registered", async () => {
     render(<App />)
     await addOverlay(8)
-    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE, 'Move'])
     await closeEffectMenu(OVERLAY)
     let deactivate: () => void = () => {}
     act(() => {
       deactivate = activateVisualEffects()
     })
     try {
-      expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move', ...EFFECTS])
+      expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE, 'Move', ...EFFECTS])
       await closeEffectMenu(OVERLAY)
     } finally {
       act(() => deactivate())
     }
-    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, 'Move'])
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE, 'Move'])
   })
 
   it('lists them after Move on an image overlay too', async () => {
@@ -5045,6 +5046,75 @@ describe('volume changes on a video entry row (#1026, step 2b(i))', () => {
     await closeEffectMenu('logo.png at position 1')
     expect(await effectMenuItems('Color slate at position 2')).toEqual([ADD_ZOOM])
     await closeEffectMenu('Color slate at position 2')
+  })
+})
+
+describe('volume changes on a video overlay row (#1027, step 1b)', () => {
+  const OVERLAY = 'overlay cam.mp4 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const start = (n: number) => field(`Volume change ${n} start of ${OVERLAY} in seconds`)
+  const length = (n: number) => field(`Volume change ${n} length of ${OVERLAY} in seconds`)
+  const level = (n: number) => field(`Volume change ${n} level of ${OVERLAY} (0 to 4)`)
+  const undo = () => userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+  const withOverlay = async (seconds: number) => {
+    render(<App />)
+    await importClip('cam.mp4', seconds)
+    await chooseClipAction('cam.mp4', 'Add as overlay')
+  }
+
+  it('+ Effect ▾ on a video overlay offers Volume change after Pause, which adds 2 s at Level 0.5 after the last change', async () => {
+    await withOverlay(10)
+    expect(await effectMenuItems(OVERLAY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE, 'Move'])
+    await closeEffectMenu(OVERLAY)
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    expect(start(1)).toHaveValue(0)
+    expect(length(1)).toHaveValue(2)
+    expect(level(1)).toHaveValue(0.5)
+    expect(screen.getByRole('slider', { name: `Volume change 1 level of ${OVERLAY} (0 to 4) slider` })).toHaveValue('0.5')
+    expect(level(1)).toHaveAttribute('max', '4')
+    expect(screen.getAllByTestId('video-overlay-volume-change')).toHaveLength(1)
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    expect(start(2)).toHaveValue(2)
+    expect(length(2)).toHaveValue(2)
+  })
+
+  it('greys Volume change once the overlay has no room left after its last change', async () => {
+    await withOverlay(3)
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    expect(length(2)).toHaveValue(1)
+    expect(await effectItem(OVERLAY, ADD_VOLUME_CHANGE)).toBeDisabled()
+  })
+
+  it('edits each field as one undo step, clamps to the overlay’s trimmed range, and removes a change', async () => {
+    await withOverlay(10)
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    await userEvent.clear(level(1))
+    await userEvent.type(level(1), '1.6{Enter}')
+    expect(level(1)).toHaveValue(1.6)
+    await userEvent.clear(start(1))
+    await userEvent.type(start(1), '3{Enter}')
+    expect(start(1)).toHaveValue(3)
+    // Longer than the room left in the overlay: clamped to its Out, and shown.
+    await userEvent.clear(length(1))
+    await userEvent.type(length(1), '20{Enter}')
+    expect(length(1)).toHaveValue(7)
+
+    await undo()
+    expect(length(1)).toHaveValue(2)
+    await undo()
+    expect(start(1)).toHaveValue(0)
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
+    await undo()
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+
+    await chooseEffect(OVERLAY, ADD_VOLUME_CHANGE)
+    await userEvent.click(screen.getByRole('button', { name: `Remove volume change 1 from ${OVERLAY}` }))
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
   })
 })
 

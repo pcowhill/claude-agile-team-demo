@@ -817,7 +817,7 @@ test.describe("Picture effects in an overlay's + Effect ▾ and its row (#872, s
       return labels
     }
     expect(await items(IMAGE_OVERLAY)).toEqual(['Zoom', 'Move', ...PLUGIN_EFFECTS])
-    expect(await items(VIDEO_OVERLAY)).toEqual(['Zoom', 'Speed segment', 'Pause', 'Move', ...PLUGIN_EFFECTS])
+    expect(await items(VIDEO_OVERLAY)).toEqual(['Zoom', 'Speed segment', 'Pause', 'Volume change', 'Move', ...PLUGIN_EFFECTS])
     // The video overlay's Blur, added through the menu, from 0 s to 2 s on
     // screen: inside its window the preview filters the overlay's element,
     // and the image overlay's vignette box is drawn.

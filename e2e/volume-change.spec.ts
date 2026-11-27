@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
 import { sineWav } from './sineWav'
+import { chooseClipAction } from './clipMenu'
 import { chooseEffect } from './timelineRowMenu'
 
 /**
@@ -23,6 +24,11 @@ import { chooseEffect } from './timelineRowMenu'
  * item, its rows, its undo steps, and the gain the preview plays the
  * entry's own element at. Step 2b(ii) adds the entry's Trim window and its
  * export, on a clip recorded with a tone.
+ *
+ * #1027's step 1b adds it on a video overlay: its + Effect ▾ item, its rows,
+ * its undo steps, and the gain the preview plays the overlay's own element
+ * at, including behind a speed segment, where the change stays on the
+ * source seconds it was set on.
  */
 
 const TRACK = 'audio track tone.wav at position 1'
@@ -483,6 +489,163 @@ for (const [width, height] of [
     }
     await expectNoHorizontalScroll(page, 'an entry with two volume changes')
     await entryRow.screenshot({ path: testInfo.outputPath(`entry-volume-change-${width}.png`) })
+  })
+}
+
+/** The video overlay `clipAndOverlay` adds (#1027, step 1b). */
+const OVERLAY = 'overlay clip.webm at position 1'
+
+const overlayChangeField = (page: Page, n: number, what: 'start' | 'length' | 'level') =>
+  page.getByRole('spinbutton', {
+    name:
+      what === 'level'
+        ? `Volume change ${n} level of ${OVERLAY} (0 to 4)`
+        : `Volume change ${n} ${what} of ${OVERLAY} in seconds`,
+    exact: true,
+  })
+
+/** Populated: `clipAndTone`'s clip and track, and the clip again as an overlay from 0 s. */
+async function clipAndOverlay(page: Page) {
+  await clipAndTone(page)
+  await chooseClipAction(page, 'clip.webm', 'Add as overlay')
+  await expect(page.getByTestId('preview-overlay-0')).toBeAttached()
+}
+
+test("the preview plays a video overlay's volume change at its level, on its ramp, away from it, and on its source seconds behind a speed segment (#1027)", async ({
+  page,
+  browserName,
+}) => {
+  test.setTimeout(60_000)
+  await clipAndOverlay(page)
+  await chooseEffect(page, OVERLAY, 'Volume change')
+  // The default (#1025): 2 s at Level 0.5 from the start of the trimmed range.
+  await expect(overlayChangeField(page, 1, 'start')).toHaveValue('0')
+  await expect(overlayChangeField(page, 1, 'length')).toHaveValue('2')
+  await expect(overlayChangeField(page, 1, 'level')).toHaveValue('0.5')
+  // 1 s to 2 s into the overlay (which appears at 0 s), at Level 0.25.
+  await setField(overlayChangeField(page, 1, 'start'), '1')
+  await setField(overlayChangeField(page, 1, 'length'), '1')
+  await setField(overlayChangeField(page, 1, 'level'), '0.25')
+
+  const element = page.getByTestId('preview-overlay-0')
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  const expectGains = async (gains: readonly (readonly [string, number])[], where: string) => {
+    for (const [time, gain] of gains) {
+      await seek.fill(time)
+      await expect
+        .poll(() => element.evaluate((video: HTMLVideoElement) => video.volume), {
+          message: `the overlay's element volume at ${time} s, ${where}`,
+        })
+        .toBeCloseTo(gain, 3)
+    }
+  }
+  // The track's rule, worked out here rather than read from gain.ts: the
+  // level from start to start + length, a linear 0.25 s ramp either side,
+  // 1 beyond. At 0.9 s the ramp in is 0.1 s from the change: 0.25 + 0.75 × 0.4.
+  await expectGains(
+    [
+      ['0.5', 1],
+      ['0.9', 0.55],
+      ['1.5', 0.25],
+      ['2.1', 0.55],
+      ['3', 1],
+    ],
+    'with no speed segment',
+  )
+
+  // A speed segment before the change: the default, source 0 to 2 s at 0.5×,
+  // so source s < 2 shows 2 × s seconds after the overlay appears. The change,
+  // now source 1 to 1.5 s, plays from 2 s to 3 s on screen. Unmapped, 2.5 s
+  // would be source 2.5 (full volume) and 1.9 s source 1.9 (also full).
+  await chooseEffect(page, OVERLAY, 'Speed segment')
+  await expect(
+    page.getByRole('spinbutton', { name: `Speed segment 1 factor of ${OVERLAY}`, exact: true }),
+  ).toHaveValue('0.5')
+  await setField(overlayChangeField(page, 1, 'length'), '0.5')
+  await expectGains(
+    [
+      // Source 0.5: before the ramp in, which starts at 0.75.
+      ['1', 1],
+      // Source 0.95, 0.05 s before the change: 0.25 + 0.75 × 0.2.
+      ['1.9', 0.4],
+      // Source 1.25, inside the change.
+      ['2.5', 0.25],
+      // Source 1.8, past the ramp out, which ends at 1.75.
+      ['3.6', 1],
+    ],
+    'behind a 0.5× speed segment',
+  )
+
+  // Above 1: Volume 1 × Level 2 is a gain of 2. The element holds 1 and,
+  // where the preview routes (#692; not Firefox, #611), its boost the rest.
+  await setField(overlayChangeField(page, 1, 'level'), '2')
+  await seek.fill('2.5')
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  await expect.poll(() => element.evaluate((video: HTMLVideoElement) => video.paused)).toBe(false)
+  await expect.poll(() => element.evaluate((video: HTMLVideoElement) => video.volume)).toBe(1)
+  if (browserName !== 'firefox') await expect(element).toHaveAttribute('data-boost', '2')
+  await page.getByRole('button', { name: 'Pause preview' }).click()
+})
+
+test("a video overlay's volume change is one undo step to add, to edit and to remove (#1027)", async ({ page }) => {
+  test.setTimeout(60_000)
+  await clipAndOverlay(page)
+  const rows = page.getByTestId('video-overlay-volume-change')
+  await chooseEffect(page, OVERLAY, 'Volume change')
+  await expect(rows).toHaveCount(1)
+  await setField(overlayChangeField(page, 1, 'level'), '0.25')
+  await page.getByRole('button', { name: `Remove volume change 1 from ${OVERLAY}`, exact: true }).click()
+  await expect(rows).toHaveCount(0)
+
+  // Undo walks back one action at a time: the removal, the edit, the add.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  await page.keyboard.press('Control+z')
+  await expect(rows).toHaveCount(1)
+  await expect(overlayChangeField(page, 1, 'level')).toHaveValue('0.25')
+  await page.keyboard.press('Control+z')
+  await expect(overlayChangeField(page, 1, 'level')).toHaveValue('0.5')
+  await page.keyboard.press('Control+z')
+  await expect(rows).toHaveCount(0)
+})
+
+for (const [width, height] of [
+  [1280, 720],
+  [360, 800],
+] as const) {
+  test(`a video overlay's volume change rows lie inside the overlay's row, and the page does not scroll sideways, at ${width}×${height} (#1027)`, async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(60_000)
+    await page.setViewportSize({ width, height })
+    // Populated (development.md): the overlay also carries a zoom and a
+    // speed segment, so its change rows sit among the rows they follow.
+    await clipAndOverlay(page)
+    await chooseEffect(page, OVERLAY, 'Zoom')
+    await chooseEffect(page, OVERLAY, 'Speed segment')
+    await chooseEffect(page, OVERLAY, 'Volume change')
+    await chooseEffect(page, OVERLAY, 'Volume change')
+    const rows = page.getByTestId('video-overlay-volume-change')
+    await expect(rows).toHaveCount(2)
+    const overlayRow = rows.first().locator('xpath=ancestor::li[1]')
+    for (let index = 0; index < 2; index++) {
+      const row = rows.nth(index)
+      const n = index + 1
+      await expectWithin(row, overlayRow, { axis: 'x', what: `volume change ${n}'s row` })
+      for (const [what, control] of [
+        ['start', overlayChangeField(page, n, 'start')],
+        ['length', overlayChangeField(page, n, 'length')],
+        ['level', overlayChangeField(page, n, 'level')],
+        [
+          'level slider',
+          page.getByRole('slider', { name: `Volume change ${n} level of ${OVERLAY} (0 to 4) slider`, exact: true }),
+        ],
+        ['remove button', page.getByRole('button', { name: `Remove volume change ${n} from ${OVERLAY}`, exact: true })],
+      ] as const) {
+        await expectWithin(control, row, { axis: 'x', what: `volume change ${n}'s ${what}` })
+      }
+    }
+    await expectNoHorizontalScroll(page, 'an overlay with two volume changes')
+    await overlayRow.screenshot({ path: testInfo.outputPath(`overlay-volume-change-${width}.png`) })
   })
 }
 
