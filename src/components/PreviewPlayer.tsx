@@ -484,6 +484,21 @@ function screenDensity(): number {
 }
 
 /**
+ * Device px on the screen per px of a filtered media element (#1021): the
+ * screen's density times the scales between the element and the screen,
+ * the card's zoom and the element's own crop. A browser rasterizes the
+ * element's filter at the size it is shown, so a slices filter's band
+ * edges and shifts land on whole device px only when they are rounded at
+ * this ratio. Measured on #1021's PR: at a 2x zoom, a band shift rounded
+ * to whole element px drew 26 px on the screen in Chromium, where the
+ * exact 26.97 px drew 27 before.
+ */
+function filterRasterDensity(zoomScale: number, cropScale: number): number {
+  const scale = (zoomScale > 0 ? zoomScale : 1) * (cropScale > 0 ? cropScale : 1)
+  return screenDensity() * scale
+}
+
+/**
  * Composes a layer's styles with its entry's picture-effect filters (#862):
  * the look's filter functions appended to the element's CSS `filter`, after
  * its colour adjustments, the order the export's canvas `filter` uses. A
@@ -517,7 +532,8 @@ function withPictureFilters(
   //
   // Slices (#871) are the same, their bands taken back from the frame
   // through the card's zoom and the element's own transform into its px,
-  // and their edges and shifts rounded to whole device px (#1021).
+  // and their edges and shifts rounded to whole device px of the screen,
+  // through the zoom's and the crop's scales (#1021).
   const functions = pictureFilterFunctions(
     look.filters,
     100,
@@ -546,7 +562,7 @@ function withPictureFilters(
                 translateY: media.cropTranslateY ?? 0,
               },
             }),
-            screenDensity(),
+            filterRasterDensity(zoom.scale, media.cropScale ?? 1),
           )
         : null,
   ).join(' ')
@@ -1366,7 +1382,7 @@ function overlayLookStyles(
                     orientation,
                     crop,
                   }),
-                  screenDensity(),
+                  filterRasterDensity(zoom.scale, crop.scale),
                 )
               : null,
         ).join(' ')
