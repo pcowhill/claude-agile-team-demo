@@ -451,6 +451,15 @@ interface TimelineProps {
   onAddVideoOverlayPictureEffect?: (overlayId: string, type: string, spec: PictureEffectSpec) => void
   onUpdateVideoOverlayPictureEffect?: (overlayId: string, id: string, spec: PictureEffectSpec) => void
   onRemoveVideoOverlayPictureEffect?: (overlayId: string, id: string) => void
+  /**
+   * A video overlay's volume changes (#1027), as an entry's (#1026): + Effect
+   * ▾ › Volume change adds one, and each change's row edits or removes it.
+   * Without `onAddVideoOverlayVolumeChange` an overlay's + Effect ▾ offers no
+   * Volume change; an image overlay's never does, since it has no sound.
+   */
+  onAddVideoOverlayVolumeChange?: (overlayId: string, change: VolumeChangeSpec) => void
+  onUpdateVideoOverlayVolumeChange?: (overlayId: string, id: string, change: VolumeChangeSpec) => void
+  onRemoveVideoOverlayVolumeChange?: (overlayId: string, id: string) => void
   /** Sets a video/image entry's background fill whole (#259);
    * `{ kind: 'none' }` resets. */
   onSetEntryBackgroundFill: (id: string, fill: BackgroundFillInput) => void
@@ -759,8 +768,8 @@ function MoveFieldsRow({
 }
 
 /**
- * One volume change's fields on an audio track's row (#1025) or a video
- * entry's (#1026), in the zoom rows' pattern: when it starts and how long
+ * One volume change's fields on an audio track's row (#1025), a video
+ * entry's (#1026) or a video overlay's (#1027), in the zoom rows' pattern: when it starts and how long
  * it lasts (seconds into the element's trimmed range), and its Level, in
  * the Volume field's units and with the Volume field's slider and mark at 1.
  */
@@ -778,7 +787,10 @@ function VolumeChangeFieldsRow({
   position: string
   /** The element's trimmed length: the time fields' upper bound. */
   maxStart: number
-  /** Which element's row this is, for tests: `audio-track-volume-change` or `entry-volume-change`. */
+  /**
+   * Which element's row this is, for tests: `audio-track-volume-change`,
+   * `entry-volume-change` or `video-overlay-volume-change`.
+   */
   testId: string
   onUpdate: (spec: VolumeChangeSpec) => void
   onRemove: () => void
@@ -2995,6 +3007,9 @@ export function Timeline({
   onAddEntryVolumeChange,
   onUpdateEntryVolumeChange,
   onRemoveEntryVolumeChange,
+  onAddVideoOverlayVolumeChange,
+  onUpdateVideoOverlayVolumeChange,
+  onRemoveVideoOverlayVolumeChange,
 }: TimelineProps) {
   const { entries } = timeline
   // The transition picker's options live in the registry (#199), which an
@@ -5351,6 +5366,24 @@ export function Timeline({
                       onRemove={(id) => onRemoveVideoOverlayPictureEffect(overlay.id, id)}
                     />
                   )}
+                  {/* Volume changes (#1027), last, in the entry's rows
+                      (#1026): numbered in time order, the order the
+                      normalized overlay stores them in, with times in
+                      seconds into its trimmed range, the base its zooms
+                      use. An image overlay carries none: it has no sound. */}
+                  {!isImage &&
+                    (overlay.volumeChanges ?? []).map((change, changeIndex) => (
+                      <VolumeChangeFieldsRow
+                        key={change.id}
+                        change={change}
+                        changeIndex={changeIndex}
+                        position={position}
+                        maxStart={trimmedLength}
+                        testId="video-overlay-volume-change"
+                        onUpdate={(spec) => onUpdateVideoOverlayVolumeChange?.(overlay.id, change.id, spec)}
+                        onRemove={() => onRemoveVideoOverlayVolumeChange?.(overlay.id, change.id)}
+                      />
+                    ))}
                   {/* + Effect ▾ (#699): the entry's menu, offering what an
                       overlay can carry — Zoom, enabled while the overlay's
                       window has room for one (`defaultZoomFor`, the entry's
@@ -5358,8 +5391,10 @@ export function Timeline({
                       (#700), under the entry's rules (`defaultSpeedFor`,
                       `defaultPauseFor`). A still overlay has no time to
                       remap, so its menu offers no remap items, as a still
-                      entry's does. Move (#834) and the registered picture
-                      effects (#872) follow on both. */}
+                      entry's does. A video overlay's Volume change (#1027)
+                      follows its remap items, as on an entry. Move (#834)
+                      and the registered picture effects (#872) follow on
+                      both. */}
                   {(() => {
                     const addableZoom = defaultZoomFor(overlay.zooms ?? [], trimmedLength)
                     const items: MenuItem[] = [
@@ -5391,6 +5426,20 @@ export function Timeline({
                             addablePause !== null && onAddVideoOverlayRemap?.(overlay.id, addablePause),
                         },
                       )
+                      if (onAddVideoOverlayVolumeChange !== undefined) {
+                        // Volume change (#1027), after the remap items, as on
+                        // an entry (#1026): the track's default (#1025), 2 s
+                        // at Level 0.5 after the last change, greyed when no
+                        // room is left in the overlay's trimmed range.
+                        const addableChange = defaultVolumeChangeFor(overlay.volumeChanges, trimmedLength)
+                        items.push({
+                          kind: 'action',
+                          label: 'Volume change',
+                          disabled: addableChange === null,
+                          onSelect: () =>
+                            addableChange !== null && onAddVideoOverlayVolumeChange(overlay.id, addableChange),
+                        })
+                      }
                     }
                     // Move (#834), last, on a video or an image overlay: a glide
                     // after the last Move, to where the overlay already is,

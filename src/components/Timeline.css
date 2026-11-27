@@ -716,8 +716,9 @@
 }
 
 /* The track's gain row (#104): volume and fade-in/fade-out durations. A
-   volume change's row, on a track (#1025) or a video entry (#1026), is the
-   same shape: a Level beside its slider, and two times. */
+   volume change's row, on a track (#1025), a video entry (#1026) or a video
+   overlay (#1027), is the same shape: a Level beside its slider, and two
+   times. */
 .audio-track-gain,
 .volume-change-row {
   display: flex;
