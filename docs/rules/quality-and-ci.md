@@ -42,7 +42,12 @@ worse than no test, because it manufactures false confidence.
   (customer-directed, #588). A failure seen once that will not fail again
   on demand is filed as a `bug` labeled `flake-watch`, naming the test and
   the CI **job** that runs it — `Build, lint, typecheck, test` for a unit
-  test, `Browser tests (Playwright)` for an e2e spec. A session that
+  test, and for an e2e spec the job of the browser it failed in,
+  `Browser tests (Chromium)` or `Browser tests (Firefox)`. The two browsers
+  run as separate jobs (#1047), so a watched spec counts only its own
+  browser's runs; an issue filed before the split under
+  `Browser tests (Playwright)` counts the job of the browser its failure
+  output names. A session that
   orients and finds an open `flake-watch` issue counts its runs (backlog
   hygiene, priority 7 in `operating-model.md`):
   - **What counts:** runs of the watched job in `ci.yml`, on any branch
