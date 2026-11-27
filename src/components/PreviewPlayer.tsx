@@ -475,7 +475,8 @@ function hiddenUnderPixelate(style: CSSProperties | undefined): CSSProperties {
 
 /**
  * Device px per CSS px, which the preview's channel offset rounds its
- * shift to (#980). 1 where there is no window, as in a test without one.
+ * shift to (#980), and its slices their band edges and shifts (#1021). 1
+ * where there is no window, as in a test without one.
  */
 function screenDensity(): number {
   const ratio = typeof window === 'undefined' ? 1 : window.devicePixelRatio
@@ -515,7 +516,8 @@ function withPictureFilters(
   // render may do it.
   //
   // Slices (#871) are the same, their bands taken back from the frame
-  // through the card's zoom and the element's own transform into its px.
+  // through the card's zoom and the element's own transform into its px,
+  // and their edges and shifts rounded to whole device px (#1021).
   const functions = pictureFilterFunctions(
     look.filters,
     100,
@@ -544,6 +546,7 @@ function withPictureFilters(
                 translateY: media.cropTranslateY ?? 0,
               },
             }),
+            screenDensity(),
           )
         : null,
   ).join(' ')
@@ -1363,6 +1366,7 @@ function overlayLookStyles(
                     orientation,
                     crop,
                   }),
+                  screenDensity(),
                 )
               : null,
         ).join(' ')

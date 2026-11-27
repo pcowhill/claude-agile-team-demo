@@ -40,11 +40,78 @@ function filterOf(url: string | null): Element {
   return filter
 }
 
-describe('roundedSlices', () => {
-  it('rounds every number to 0.1 px and drops a band with no size or no shift', () => {
+describe('roundedSlices: whole device px, which Chromium and Firefox draw alike (#1021)', () => {
+  /**
+   * The device px a browser lands a written number on: Chromium rounds,
+   * Firefox truncates toward zero (#980's CI run 45739047158). The written
+   * value is read as a 32-bit float, as an SVG attribute is, and multiplied
+   * by the ratio in 32 bits.
+   */
+  const landed = (px: number, ratio: number) => {
+    const device = Math.fround(Math.fround(px) * Math.fround(ratio))
+    return { chromium: Math.round(device), firefox: Math.trunc(device) }
+  }
+
+  it('rounds edges and shifts to whole canvas px at a ratio of 1, and drops a band with no size or no shift', () => {
     expect(
-      roundedSlices([band(10.04, 20.06, 5.56), band(30, 0.04, 9), band(40, 10, 0.04), band(50, 10, -0.06, 'x')]),
-    ).toEqual([band(10, 20.1, 5.6), band(50, 10, -0.1, 'x')])
+      roundedSlices([band(10.4, 20.2, 5.56), band(30, 0.4, 9), band(40, 10, 0.4), band(50, 10, -0.6, 'x')]),
+    ).toEqual([band(10, 21, 6), band(50, 10, -1, 'x')])
+  })
+
+  it("rounds slices.spec.ts's saved-frame shift of −57.6 px to −58, which both browsers draw", () => {
+    // Band B: −0.03 of the 1920 px frame. Chromium drew it at −58 px and
+    // Firefox at −57 px (CI run 45759165071).
+    const [drawn] = roundedSlices([band(561.6, 54, -0.03 * 1920)])
+    expect(drawn).toEqual(band(562, 54, -58))
+    expect(landed(drawn.dx, 1)).toEqual({ chromium: -58, firefox: -58 })
+  })
+
+  it("rounds each edge rather than the size, so a band's end lands on a whole device px too", () => {
+    // 10.4 to 30.6 is 10 to 31: 21 px, where rounding 20.2 on its own gives 20.
+    expect(roundedSlices([band(10.4, 20.2, 5)])).toEqual([band(10, 21, 5)])
+  })
+
+  it('rounds to whole device px at a ratio of 2: a preview on a high-density screen', () => {
+    expect(roundedSlices([band(10.2, 20.1, 1.91)], 2)).toEqual([band(10, 20.5, 2)])
+    expect(roundedSlices([band(0, 10, 0.2)], 2)).toEqual([])
+  })
+
+  it('rounds to whole device px at a ratio of 1.25, where a whole CSS px would not be', () => {
+    // Start 10 CSS px is 12.5 device px, rounded to 13: 10.4 px. End 30 CSS px
+    // is 37.5, rounded to 38: 25 device px of size, 20 px. Shift 3 CSS px is
+    // 3.75, rounded to 4: 3.2 px.
+    expect(roundedSlices([band(10, 20, 3)], 1.25)).toEqual([band(10.4, 20, 3.2)])
+  })
+
+  it('lands every edge and shift on the same whole device px in both browsers, at ratios 1, 1.25 and 2', () => {
+    for (const ratio of [1, 1.25, 2]) {
+      for (let tenths = -300; tenths <= 300; tenths += 3) {
+        const exact = tenths / 10
+        const [drawn] = roundedSlices([band(Math.abs(exact), 40.3, exact)], ratio)
+        const at = `${exact} px at ${ratio}`
+        const shift = Math.sign(exact) * Math.round(Math.abs(exact) * ratio)
+        const start = Math.round(Math.abs(exact) * ratio)
+        if (shift === 0) {
+          expect(drawn, at).toBeUndefined()
+          continue
+        }
+        expect(landed(drawn.dx, ratio), at).toEqual({ chromium: shift, firefox: shift })
+        expect(landed(drawn.start, ratio), at).toEqual({ chromium: start, firefox: start })
+        const end = Math.round((Math.abs(exact) + 40.3) * ratio)
+        expect(landed(drawn.size, ratio), at).toEqual({ chromium: end - start, firefox: end - start })
+      }
+    }
+  })
+
+  it('nudges a written number up where its 4-decimal form would fall short as a 32-bit float', () => {
+    // 2 device px at 1.5 is 1.3333… px. Written as 1.3333, it reads as
+    // 1.99995 device px, which Firefox would truncate to 1.
+    expect(Math.trunc(Math.fround(Math.fround(1.3333) * Math.fround(1.5)))).toBe(1)
+    const [drawn] = roundedSlices([band(2 / 1.5, 2 / 1.5, 2 / 1.5)], 1.5)
+    expect(drawn).toEqual(band(1.3334, 1.3334, 1.3334))
+    expect(landed(drawn.dx, 1.5)).toEqual({ chromium: 2, firefox: 2 })
+    expect(landed(drawn.start, 1.5)).toEqual({ chromium: 2, firefox: 2 })
+    expect(landed(drawn.size, 1.5)).toEqual({ chromium: 2, firefox: 2 })
   })
 })
 
@@ -66,6 +133,17 @@ describe('slicesFilterUrl', () => {
     expect(slicesFilterUrl(document, [])).toBeNull()
     expect(slicesFilterUrl(document, [band(10, 20, 0.01), band(10, 0, 30)])).toBeNull()
     expect(document.getElementById(SLICES_FILTERS_ID)).toBeNull()
+  })
+
+  it('writes the bands in the px of the ratio they were rounded at', () => {
+    // At 2 device px per px, 0.4 px of shift is a whole device px: 0.5 px.
+    const filter = filterOf(slicesFilterUrl(document, [band(10.2, 20.1, 0.4)], 2))
+    const offset = filter.querySelector('feOffset')!
+    expect([offset.getAttribute('y'), offset.getAttribute('height'), offset.getAttribute('dx')]).toEqual([
+      '10',
+      '20.5',
+      '0.5',
+    ])
   })
 
   it('offsets the source in each band, cut to the band, and merges the bands over the source in order', () => {

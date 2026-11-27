@@ -1,3 +1,4 @@
+import { deviceRounded, usableRatio, wholeDevicePx } from './devicePixels'
 import { orientationTransform } from './orientation'
 import type { Orientation } from './orientation'
 import type { SliceBand } from './pictureEffect'
@@ -22,13 +23,15 @@ import type { ZoomState } from './zoom'
  *
  * A filter's bands are fixed in its markup, so each distinct set is its
  * own `<filter>`, made on first use and kept in one hidden `<svg>`. Every
- * number is rounded to `SLICES_STEP_PX`. A zoom animating the preview's
- * mapping can still make a new set each frame, so the `<svg>` keeps the
- * `SLICES_FILTER_LIMIT` most recently used and drops the oldest.
+ * band's edges and shift are rounded to whole pixels of the surface it is
+ * drawn on (#1021, as #980 did for the channel offset; `devicePixels.ts`):
+ * canvas px for the export, device px for the preview. Chromium rounds a
+ * fractional shift and Firefox truncates it, so a band shifted −57.6 px
+ * landed at −58 px in one and −57 px in the other (CI run 45759165071). A
+ * zoom animating the preview's mapping can still make a new set each
+ * frame, so the `<svg>` keeps the `SLICES_FILTER_LIMIT` most recently used
+ * and drops the oldest.
  */
-
-/** The rounding of a band's edges and shift, in px: below anything a viewer could see. */
-export const SLICES_STEP_PX = 0.1
 
 /** How many filters the hidden `<svg>` keeps, the most recently used. */
 export const SLICES_FILTER_LIMIT = 256
@@ -53,25 +56,26 @@ export interface DrawnSlice {
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-/** `value` rounded to the step, with no negative zero. */
-function rounded(value: number): number {
-  const steps = Math.round(value / SLICES_STEP_PX)
-  return steps === 0 ? 0 : Number((steps * SLICES_STEP_PX).toFixed(1))
-}
-
 /**
- * The slices as their filter draws them: each number rounded to the step,
- * and a slice that rounds to no size or no shift dropped, since it draws
- * the picture unchanged.
+ * The slices as their filter draws them, at `ratio` device px per px of
+ * the filtered box: 1 for the export's canvas, `devicePixelRatio` for the
+ * preview's element. Each band's two edges are rounded to whole device px,
+ * so its size is the whole device px between them rather than a size
+ * rounded on its own, and its shift is rounded the same way. A slice that
+ * rounds to no size or no shift is dropped, since it draws the picture
+ * unchanged.
  */
-export function roundedSlices(slices: readonly DrawnSlice[]): DrawnSlice[] {
+export function roundedSlices(slices: readonly DrawnSlice[], ratio = 1): DrawnSlice[] {
+  const scale = usableRatio(ratio)
   return slices.flatMap((slice) => {
+    const start = wholeDevicePx(slice.start, scale)
+    const size = wholeDevicePx(slice.start + slice.size, scale) - start
     const drawn = {
       axis: slice.axis,
-      start: rounded(slice.start),
-      size: rounded(slice.size),
-      dx: rounded(slice.dx),
-      dy: rounded(slice.dy),
+      start: deviceRounded(start / scale, scale),
+      size: deviceRounded(size / scale, scale),
+      dx: deviceRounded(slice.dx, scale),
+      dy: deviceRounded(slice.dy, scale),
     }
     return drawn.size > 0 && (drawn.dx !== 0 || drawn.dy !== 0) ? [drawn] : []
   })
@@ -154,17 +158,18 @@ function filtersSvg(doc: Document): Element {
 
 /**
  * The `url(#id)` filter function for `slices`, in the filtered box's own
- * px, making its `<filter>` in `doc` first when it is not there yet. Null
- * when every slice rounds to nothing, which draws the picture unchanged,
- * so a caller adds no function at all.
+ * px, making its `<filter>` in `doc` first when it is not there yet.
+ * `ratio` is the device px per px of the filtered box (`roundedSlices`).
+ * Null when every slice rounds to nothing, which draws the picture
+ * unchanged, so a caller adds no function at all.
  *
  * A filter used again moves to the end of the `<svg>`, and a new one past
  * `SLICES_FILTER_LIMIT` drops the first, the least recently used. Every
  * render that draws a filter asks for it here, so a filter in use is never
  * the oldest.
  */
-export function slicesFilterUrl(doc: Document, slices: readonly DrawnSlice[]): string | null {
-  const drawn = roundedSlices(slices)
+export function slicesFilterUrl(doc: Document, slices: readonly DrawnSlice[], ratio = 1): string | null {
+  const drawn = roundedSlices(slices, ratio)
   if (drawn.length === 0) return null
   const key = slicesKey(drawn)
   const svg = filtersSvg(doc)

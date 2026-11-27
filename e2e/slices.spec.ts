@@ -39,7 +39,8 @@ const BANDS = [
 const ROWS = { a: 0.445, b: 0.545, between: 0.495 }
 /**
  * How far an edge may sit from where the band puts it, in pixels of the
- * image measured: for the 0.1 px rounding of the filter's numbers, the
+ * image measured: for the rounding of the filter's numbers to whole device
+ * px (#1021), the
  * image's own pixel grid, and the threshold crossing landing on either
  * side of an edge pixel.
  */
