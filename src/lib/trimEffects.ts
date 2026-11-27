@@ -200,7 +200,11 @@ function outcomeOf(before: Placed, after: Placed): TrimEffectOutcome | null {
   }
   const had = before.end - before.start
   const has = after.end - after.start
-  if (had > EPSILON && has <= EPSILON) return 'removes'
+  // Already at length zero (#1013): an earlier trim removed it, and it plays
+  // nothing wherever the sweep now puts it, so there is nothing to warn of
+  // (#1031). A pause is the one kind with no length that still plays, above.
+  if (had <= EPSILON) return null
+  if (has <= EPSILON) return 'removes'
   if (has < had - EPSILON) return 'shortens'
   return Math.abs(after.start - before.start) > EPSILON ? 'moves' : null
 }
