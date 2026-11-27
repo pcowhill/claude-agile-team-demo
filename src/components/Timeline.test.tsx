@@ -4895,6 +4895,76 @@ describe('picture effects on an overlay row (#872, step 4)', () => {
   })
 })
 
+describe('volume changes on an audio track row (#1025, step 1b)', () => {
+  const TRACK = 'audio track music.mp3 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const start = (n: number) => field(`Volume change ${n} start of ${TRACK} in seconds`)
+  const length = (n: number) => field(`Volume change ${n} length of ${TRACK} in seconds`)
+  const level = (n: number) => field(`Volume change ${n} level of ${TRACK} (0 to 4)`)
+  const undo = () => userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+  const withTrack = async (seconds: number) => {
+    render(<App />)
+    await importAudioClip('music.mp3', seconds)
+    await userEvent.click(screen.getByRole('button', { name: 'Add music.mp3 to timeline' }))
+  }
+
+  it('+ Effect ▾ on a track offers Volume change, which adds 2 s at Level 0.5 after the last change', async () => {
+    await withTrack(10)
+    expect(await effectMenuItems(TRACK)).toEqual(['Volume change'])
+    await chooseEffect(TRACK, 'Volume change')
+    expect(start(1)).toHaveValue(0)
+    expect(length(1)).toHaveValue(2)
+    expect(level(1)).toHaveValue(0.5)
+    // The Level carries the Volume field's slider, its range and its step.
+    expect(screen.getByRole('slider', { name: `Volume change 1 level of ${TRACK} (0 to 4) slider` })).toHaveValue('0.5')
+    expect(level(1)).toHaveAttribute('max', '4')
+    expect(level(1)).toHaveAttribute('step', '0.05')
+    await chooseEffect(TRACK, 'Volume change')
+    expect(start(2)).toHaveValue(2)
+    expect(length(2)).toHaveValue(2)
+  })
+
+  it('greys Volume change once the track has no room left after its last change', async () => {
+    await withTrack(3)
+    await chooseEffect(TRACK, 'Volume change')
+    // 2 s of a 3 s track; the next takes the last 1 s.
+    await chooseEffect(TRACK, 'Volume change')
+    expect(length(2)).toHaveValue(1)
+    expect(await effectItem(TRACK, 'Volume change')).toBeDisabled()
+  })
+
+  it('edits each field as one undo step, clamps to the track, and removes a change', async () => {
+    await withTrack(10)
+    await chooseEffect(TRACK, 'Volume change')
+    await userEvent.clear(level(1))
+    await userEvent.type(level(1), '0.2{Enter}')
+    expect(level(1)).toHaveValue(0.2)
+    await userEvent.clear(start(1))
+    await userEvent.type(start(1), '3{Enter}')
+    expect(start(1)).toHaveValue(3)
+    // Longer than the room left in the track: clamped to its end, and shown.
+    await userEvent.clear(length(1))
+    await userEvent.type(length(1), '20{Enter}')
+    expect(length(1)).toHaveValue(7)
+
+    await undo()
+    expect(length(1)).toHaveValue(2)
+    await undo()
+    expect(start(1)).toHaveValue(0)
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
+    await undo()
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+
+    await chooseEffect(TRACK, 'Volume change')
+    await userEvent.click(screen.getByRole('button', { name: `Remove volume change 1 from ${TRACK}` }))
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
+  })
+})
+
 describe('a still overlay offers no Audio group in the paste checklist (#332)', () => {
   const importImage = async (name: string) => {
     probeMock.mockResolvedValueOnce({

@@ -209,6 +209,11 @@ const SHAPE_RULES: { pattern: RegExp; replacement: string; why: string }[] = [
     why: "a Visual effects row's fields name which of an entry's vignettes, blurs, film grains, old films, VHS effects, chromatic aberrations, glitches or pixelates they edit (#862, #870, #871), a position in a list, as the zoom's do. Both cases, because Remove says it in lower case, except VHS, an initialism, which keeps its capitals",
   },
   {
+    pattern: /\b([Vv])olume change \d+/g,
+    replacement: '$1olume change',
+    why: "a track's volume change fields name which of its changes they edit (#1025), a position in a list, as the zoom's do. Both cases, because Remove says it in lower case",
+  },
+  {
     pattern: /\b([Pp])ause \d+/g,
     replacement: '$1ause',
     why: "as the speed segment above (#525). Safe beside Pause and Pause recording, which carry no number: the digit is what this matches",
@@ -1144,6 +1149,18 @@ test('every control in the app has a Feature Index entry (#485)', async ({ page 
     }),
     'the placement editor of an overlay with a Move',
   )
+
+  // ── A volume change on the audio track (#1025) ──────────────────────
+  //
+  // + Effect ▾ › Volume change's fields exist only once a change does, as
+  // a Move's do.
+  await chooseEffect(page, 'audio track tone.wav at position 1', 'Volume change')
+  await expect(
+    timeline.getByRole('spinbutton', {
+      name: 'Volume change 1 level of audio track tone.wav at position 1 (0 to 4)',
+    }),
+  ).toBeVisible()
+  await record('an audio track with a volume change', timeline)
 
   // ── The recording dialog (#507) ─────────────────────────────────────
   //

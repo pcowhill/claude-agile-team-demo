@@ -125,6 +125,12 @@ export const GUIDE_CONSTANT_NAMES = [
   'SUBTITLE_DEFAULT_Y_PERCENT',
   /** How long ducking ramps down before, and back up after, a ducking track's window, in seconds (#241). */
   'DUCK_RAMP_SECONDS',
+  /** How long a volume change ramps before and after its stretch, in seconds (#1025). */
+  'VOLUME_CHANGE_RAMP_SECONDS',
+  /** How long a volume change added from + Effect ▾ lasts, in seconds, when there is room (#1025). */
+  'DEFAULT_VOLUME_CHANGE_LENGTH',
+  /** The Level a volume change added from + Effect ▾ starts at (#1025). */
+  'DEFAULT_VOLUME_CHANGE_LEVEL',
   /** How close, in pixels of slider travel, a released seek must land to a cut to snap onto it (#391). */
   'SNAP_PIXELS',
   /** The export's automatic frame rate, in frames per second (#179). */

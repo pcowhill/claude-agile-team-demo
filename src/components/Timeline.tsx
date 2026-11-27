@@ -20,6 +20,8 @@ import {
   COLOR_ADJUSTMENT_MIN,
 } from '../lib/colorAdjustments'
 import { MAX_VOLUME } from '../lib/volume'
+import type { VolumeChange, VolumeChangeSpec } from '../lib/volumeChange'
+import { defaultVolumeChangeFor } from '../lib/volumeChange'
 import type { Orientation } from '../lib/orientation'
 import type { Crop } from '../lib/crop'
 import type { CropSubject } from '../lib/frameEditor'
@@ -450,6 +452,14 @@ interface TimelineProps {
    * the track's stored level (or the shared default when none is stored).
    */
   onSetAudioTrackDuck: (id: string, duck: boolean, duckLevel?: number) => void
+  /**
+   * A track's volume changes (#1025): + Effect ▾ › Volume change adds one,
+   * and each change's row edits or removes it. Without
+   * `onAddAudioTrackVolumeChange` a track's row has no + Effect ▾.
+   */
+  onAddAudioTrackVolumeChange?: (trackId: string, change: VolumeChangeSpec) => void
+  onUpdateAudioTrackVolumeChange?: (trackId: string, id: string, change: VolumeChangeSpec) => void
+  onRemoveAudioTrackVolumeChange?: (trackId: string, id: string) => void
 }
 
 /** A stored overlay re-expressed as the spec `onUpdateText` takes (no id). */
@@ -731,6 +741,73 @@ function MoveFieldsRow({
       <button
         type="button"
         aria-label={`Remove move ${moveIndex + 1} from ${position}`}
+        onClick={onRemove}
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
+/**
+ * One volume change's fields on an audio track's row (#1025), in the zoom
+ * rows' pattern: when it starts and how long it lasts (seconds into the
+ * track's trimmed range), and its Level, in the Volume field's units and
+ * with the Volume field's slider and mark at 1.
+ */
+function VolumeChangeFieldsRow({
+  change,
+  changeIndex,
+  position,
+  maxStart,
+  onUpdate,
+  onRemove,
+}: {
+  change: VolumeChange
+  changeIndex: number
+  position: string
+  /** The track's trimmed length: the time fields' upper bound. */
+  maxStart: number
+  onUpdate: (spec: VolumeChangeSpec) => void
+  onRemove: () => void
+}) {
+  const changeName = `Volume change ${changeIndex + 1}`
+  const { start, length, level } = change
+  const set = (next: Partial<VolumeChangeSpec>) => onUpdate({ start, length, level, ...next })
+  return (
+    <div className="audio-track-volume-change" data-testid="audio-track-volume-change">
+      <LabelledField text={`${changeName} at`}>
+        <SecondsField
+          label={`${changeName} start of ${position} in seconds`}
+          value={start}
+          max={maxStart}
+          onCommit={(value) => set({ start: value })}
+          unit="s"
+        />
+      </LabelledField>
+      <LabelledField text="length">
+        <SecondsField
+          label={`${changeName} length of ${position} in seconds`}
+          value={length}
+          max={maxStart}
+          onCommit={(value) => set({ length: value })}
+          unit="s"
+        />
+      </LabelledField>
+      <LabelledField text="level">
+        <SecondsField
+          label={`${changeName} level of ${position} (0 to ${MAX_VOLUME})`}
+          value={level}
+          max={MAX_VOLUME}
+          mark={1}
+          step={0.05}
+          slider
+          onCommit={(value) => set({ level: value })}
+        />
+      </LabelledField>
+      <button
+        type="button"
+        aria-label={`Remove volume change ${changeIndex + 1} from ${position}`}
         onClick={onRemove}
       >
         ✕
@@ -2900,6 +2977,9 @@ export function Timeline({
   onSetAudioTrackVolume,
   onSetAudioTrackFades,
   onSetAudioTrackDuck,
+  onAddAudioTrackVolumeChange,
+  onUpdateAudioTrackVolumeChange,
+  onRemoveAudioTrackVolumeChange,
 }: TimelineProps) {
   const { entries } = timeline
   // The transition picker's options live in the registry (#199), which an
@@ -4591,6 +4671,47 @@ export function Timeline({
                       </>
                     )}
                   </div>
+                  {/* Volume changes (#1025), after the gain row, in the zoom
+                      rows' idiom: numbered in time order, the order the
+                      normalized track stores them in. Times are seconds into
+                      the track's trimmed range. */}
+                  {(track.volumeChanges ?? []).map((change, changeIndex) => (
+                    <VolumeChangeFieldsRow
+                      key={change.id}
+                      change={change}
+                      changeIndex={changeIndex}
+                      position={position}
+                      maxStart={trimmedLength}
+                      onUpdate={(spec) => onUpdateAudioTrackVolumeChange?.(track.id, change.id, spec)}
+                      onRemove={() => onRemoveAudioTrackVolumeChange?.(track.id, change.id)}
+                    />
+                  ))}
+                  {/* + Effect ▾ (#1025): a track's menu holds one item,
+                      Volume change, enabled while the track's window has
+                      room after its last change (`defaultVolumeChangeFor`). */}
+                  {onAddAudioTrackVolumeChange !== undefined &&
+                    (() => {
+                      const addable = defaultVolumeChangeFor(track.volumeChanges, trimmedLength)
+                      return (
+                        <div className="timeline-entry-effects">
+                          <Menu
+                            label="+ Effect"
+                            ariaLabel={`+ Effect on ${position}`}
+                            menuLabel={`+ Effect on ${position}`}
+                            triggerClassName="timeline-effect-add"
+                            items={[
+                              {
+                                kind: 'action',
+                                label: 'Volume change',
+                                disabled: addable === null,
+                                onSelect: () =>
+                                  addable !== null && onAddAudioTrackVolumeChange(track.id, addable),
+                              },
+                            ]}
+                          />
+                        </div>
+                      )
+                    })()}
                     </>
                   )}
                 </li>
