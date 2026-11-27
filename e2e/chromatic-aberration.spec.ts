@@ -26,9 +26,9 @@ const SOURCE = { width: 1920, height: 1080, square: { x: 800, y: 300, size: 400 
 const FULL_SPLIT = 0.01
 /**
  * How far a channel's edge may sit from where the split puts it, in pixels
- * of the image measured. Both renderers round the shift to 0.1 px; the
- * browser then lands the channel on a whole pixel, Chromium rounding and
- * Firefox truncating (#980), so up to 1.1 px short or 0.6 px past; and the
+ * of the image measured. Both renderers round the shift to whole pixels of
+ * the surface they draw on (#980), which Chromium and Firefox land alike,
+ * so a channel sits within half a pixel of the exact shift; and the
  * threshold crossing can fall on either side of an edge pixel. As in
  * `channel-offset.spec.ts`, whose numbers in both browsers fit it.
  */

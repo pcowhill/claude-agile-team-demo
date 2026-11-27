@@ -50,9 +50,8 @@ const TEAR = {
 /**
  * How far a channel's edge may sit from where the split puts it, in pixels
  * of the image measured: `chromatic-aberration.spec.ts`'s tolerance, for
- * its reason (each renderer rounds the shift to 0.1 px, then lands the
- * channel on a whole pixel, Chromium rounding and Firefox truncating,
- * #980).
+ * its reason (each renderer rounds the shift to whole pixels of the
+ * surface it draws on, which Chromium and Firefox land alike, #980).
  */
 const TOLERANCE_PX = 2
 

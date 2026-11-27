@@ -13,12 +13,15 @@ import type { Orientation } from './orientation'
  *
  * A filter's shift is fixed in its markup, so each distinct shift is its
  * own `<filter>`, made on first use and kept in one hidden `<svg>` in the
- * document. Shifts are rounded to `CHANNEL_OFFSET_STEP_PX`, which bounds
- * how many a zoom animating the preview's scale can make.
+ * document. Each shift is rounded to whole pixels of the surface it is
+ * drawn on (#980): canvas px for the export, device px for the preview.
+ * The browsers land a fractional shift differently: Chromium rounds it to
+ * the nearest device pixel, and Firefox truncates it toward zero. 3.8 px
+ * was drawn as 4 px in Chromium and 3 px in Firefox (CI run 45739047158),
+ * which made a VHS fringe a quarter narrower in Firefox. A whole number of
+ * device px is drawn alike by both. That rounding also bounds how many
+ * filters a zoom animating the preview's scale can make.
  */
-
-/** The rounding of a shift, in px: below anything a viewer could see. */
-export const CHANNEL_OFFSET_STEP_PX = 0.1
 
 /** The id of the hidden `<svg>` that holds the filters. */
 export const CHANNEL_OFFSET_FILTERS_ID = 'picture-channel-offset-filters'
@@ -34,15 +37,34 @@ export interface ChannelShift {
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-/** `value` rounded to the step, with no negative zero. */
-function rounded(value: number): number {
-  const steps = Math.round(value / CHANNEL_OFFSET_STEP_PX)
-  return steps === 0 ? 0 : Number((steps * CHANNEL_OFFSET_STEP_PX).toFixed(1))
+/**
+ * `value`, in px, rounded to a whole number of device pixels at `ratio`
+ * device px per px, with no negative zero. It is written back in px, to at
+ * most 4 decimals. The result is nudged up by 0.0001 px steps until it
+ * holds at least that number of device px, even read as a 32-bit float.
+ * Firefox truncates, so a 5.6 that reads as 5.5999999 at a ratio of 1.25
+ * would land 6 device px instead of 7.
+ */
+function deviceRounded(value: number, ratio: number): number {
+  const whole = Math.round(Math.abs(value) * ratio)
+  if (whole === 0) return 0
+  const reaches = (px: number) =>
+    px * ratio >= whole && Math.fround(Math.fround(px) * Math.fround(ratio)) >= whole
+  let px = Number((whole / ratio).toFixed(4))
+  while (!reaches(px)) px = Number((px + 0.0001).toFixed(4))
+  return Math.sign(value) * px
 }
 
-/** The shift as its filter draws it: each component rounded to the step. */
-export function roundedChannelShift(shift: ChannelShift): ChannelShift {
-  return { dx: rounded(shift.dx), dy: rounded(shift.dy) }
+/**
+ * The shift as its filter draws it: each component rounded to whole
+ * device pixels, at `ratio` device px per px of the filtered element. The
+ * ratio is 1 for the export's canvas, and `devicePixelRatio` for the
+ * preview's element, whose filter is drawn in its own CSS px at the
+ * screen's density.
+ */
+export function roundedChannelShift(shift: ChannelShift, ratio = 1): ChannelShift {
+  const scale = ratio > 0 && Number.isFinite(ratio) ? ratio : 1
+  return { dx: deviceRounded(shift.dx, scale), dy: deviceRounded(shift.dy, scale) }
 }
 
 /**
@@ -89,14 +111,15 @@ function buildFilter(doc: Document, id: string, shift: ChannelShift): SVGFilterE
 
 /**
  * The `url(#id)` filter function for `shift`, making its `<filter>` in
- * `doc` first when it is not there yet. Null for a shift that rounds to
- * nothing, which draws as the picture unchanged, so a caller adds no
- * function at all. The `<svg>` is sized to nothing and positioned out of
- * the flow rather than hidden with `display: none`, the shape #870's
- * measurement took.
+ * `doc` first when it is not there yet. `ratio` is the device px per px of
+ * the filtered element (`roundedChannelShift`). Null for a shift that
+ * rounds to nothing, which draws as the picture unchanged, so a caller
+ * adds no function at all. The `<svg>` is sized to nothing and positioned
+ * out of the flow rather than hidden with `display: none`, the shape
+ * #870's measurement took.
  */
-export function channelOffsetFilterUrl(doc: Document, shift: ChannelShift): string | null {
-  const drawn = roundedChannelShift(shift)
+export function channelOffsetFilterUrl(doc: Document, shift: ChannelShift, ratio = 1): string | null {
+  const drawn = roundedChannelShift(shift, ratio)
   if (drawn.dx === 0 && drawn.dy === 0) return null
   const id = channelOffsetFilterId(drawn)
   if (doc.getElementById(id) === null) {
