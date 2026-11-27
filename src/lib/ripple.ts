@@ -48,6 +48,7 @@ import type { VideoOverlay } from './videoOverlay'
 import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
 import { splitMovesAt } from './overlayMove'
 import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
+import { splitVolumeChangesAt } from './volumeChange'
 
 const EPSILON = RANGE_CUT_EPSILON
 
@@ -351,15 +352,19 @@ export function rippleCut(
         return [{ ...track, offset: cut.start }]
       case 'remove':
         return []
-      case 'shorten':
-        return [
-          {
-            ...track,
-            offset: cut.start,
-            inPoint: track.inPoint + cut.head,
-            outPoint: track.outPoint - cut.tail,
-          },
-        ]
+      case 'shorten': {
+        const next = {
+          ...track,
+          offset: cut.start,
+          inPoint: track.inPoint + cut.head,
+          outPoint: track.outPoint - cut.tail,
+        }
+        // Volume changes (#1025) are seconds into the trimmed range: a head
+        // cut moves In later, so they shift earlier with the sound. A tail
+        // cut leaves them, and normalization clamps them to the new end.
+        if (cut.head === 0 || track.volumeChanges === undefined) return [next]
+        return [withList(next, 'volumeChanges', splitVolumeChangesAt(track.volumeChanges, cut.head).after)]
+      }
     }
   })
 
