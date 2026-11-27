@@ -47,18 +47,34 @@ jobs:
         run: npm run check:bundle
 
   e2e:
-    name: Browser tests (Playwright)
+    # One job per browser, run side by side (#1047). Until then both suites
+    # ran one after the other in one job, `Browser tests (Playwright)`, and
+    # on #1044's run that was Chromium 19 m and then Firefox 27 m: every PR's
+    # merge waited out the sum. The `main` ruleset requires no status check
+    # by name (#1047 read it), and deploy.yml follows the CI workflow's
+    # conclusion, not job names, so the split needs no change elsewhere. The
+    # flake-watch rule names these jobs (docs/rules/quality-and-ci.md).
+    name: Browser tests (${{ matrix.name }})
     runs-on: ubuntu-latest
-    # Both browsers' suites run here (#586): Firefox is part of this required
-    # job rather than a job of its own, so it gates merges without a change
-    # to branch protection. The browser install has hung silently for over an
-    # hour before (#68), hence a bound at all. The bound must cover the worst
-    # case the step caps below allow, or a slow mirror that the retry does
-    # get through still cancels the job (#714, run 44343576004): the apt
-    # steps' caps on the cache-miss path are 2 + 4 + 8 + 6 + 2 + 2 = 24
-    # minutes, the two suites took 9.2 + 10.8 = 20 minutes on 2026-11-19
-    # (run 44429434748), and setup about one more. 45 minutes; 55 leaves
-    # room for the suites to grow.
+    strategy:
+      # A failure in one browser does not cancel the other, so one run
+      # still reports both, as the Firefox step's `!cancelled()` did when
+      # they shared a job.
+      fail-fast: false
+      matrix:
+        include:
+          - project: chromium
+            name: Chromium
+          - project: firefox
+            name: Firefox
+    # The browser install has hung silently for over an hour before (#68),
+    # hence a bound at all. The bound must cover the worst case the step
+    # caps below allow, or a slow mirror that the retry does get through
+    # still cancels the job (#714, run 44343576004): the apt steps' caps on
+    # the cache-miss path are 2 + 4 + 8 + 6 + 2 + 2 = 24 minutes, the slower
+    # suite, Firefox, took 26.8 minutes on #1044's run (job 140507830639),
+    # and setup about one more: 52 minutes. Each leg now carries one suite
+    # rather than both, which is what brings the worst case back under 55.
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +91,10 @@ jobs:
         id: playwright-version
         run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
 
+      # Both legs use this one key and install both browsers on a miss, so the
+      # key is the one main already holds and the split costs no miss (#1047).
+      # On a miss both legs try to save it; the second is told the key exists,
+      # which actions/cache reports as a warning, not a failure.
       - name: Cache Playwright browser
         id: playwright-cache
         uses: actions/cache@v4
@@ -188,11 +208,6 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium firefox
 
-      # Two steps rather than one `playwright test` over both projects, so the
-      # job's log shows each browser's duration and summary separately.
-      - name: Browser tests (Chromium)
-        run: npm run test:e2e -- --project=chromium
-
       # Firefox needs an audio output it can open (#600). Without one,
       # `AudioContext.resume()` never settles: an export waits out #596's
       # bound and runs without sound, and every audio-asserting spec fails.
@@ -208,9 +223,13 @@ jobs:
       # 6 minutes: the 4 this step had before #643, plus the 2-minute wait.
       # PulseAudio is among the cached packages (#714), so on the cache path
       # it is already installed and apt is not run at all.
+      # Only the Firefox leg runs it (#1047). The Chromium leg's outcome for
+      # it is then `skipped`, so the collect step below never runs there, and
+      # only the Firefox leg can save the apt cache: the set it saves still
+      # holds PulseAudio, and the two legs never race to save one key.
       - name: Audio output for Firefox (PulseAudio null sink)
         id: audio-output
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.project == 'firefox' }}
         timeout-minutes: 6
         run: |
           .github/scripts/settle-dpkg.sh 120
@@ -248,14 +267,16 @@ jobs:
           path: ~/apt-debs
           key: ${{ steps.apt-cache.outputs.cache-primary-key }}
 
-      - name: Browser tests (Firefox)
-        # Run even when Chromium's step failed, so one run reports both.
-        if: ${{ !cancelled() }}
-        run: npm run test:e2e -- --project=firefox
+      # The leg's one suite. It used to be two steps, Chromium's here before
+      # the PulseAudio step and Firefox's here, in one job (#586); with a job
+      # per browser the job's log is already one browser's (#1047).
+      - name: Browser tests
+        run: npm run test:e2e -- --project=${{ matrix.project }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          # One name per leg: two legs uploading one name would collide.
+          name: playwright-report-${{ matrix.project }}
           path: playwright-report
           retention-days: 7
