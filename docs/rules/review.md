@@ -49,7 +49,11 @@ Evaluate against:
   assumes the narrow shape — per-kind lists, `switch` statements missing the
   new case, predicates keyed on the collection rather than on the element.
   Grep the collection's and the type's names across `src/`, and read what
-  turns up against the new kind.
+  turns up against the new kind. A change to what a shared component or
+  function renders or returns in a state its callers can see (pending,
+  empty, failed) is the same case: grep its name across `src/` and read
+  each caller against the new output (#1019; #1016 is the worked example
+  in `development.md`, "Pull Requests").
 - architecture and fit with existing code
 - maintainability and readability
 - tests: do they exist, pass, and provide real evidence of correctness?
