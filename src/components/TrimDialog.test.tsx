@@ -81,8 +81,10 @@ describe('the Trim window on an audio track (#711)', () => {
     expect(within(window).queryByTestId('trim-frames')).toBeNull()
     expect(within(window).queryByRole('button', { name: 'Back one frame' })).toBeNull()
     expect(within(window).queryByRole('button', { name: 'Forward one frame' })).toBeNull()
-    // A track has no effects to mark, so no warning line.
-    expect(within(window).queryByTestId('trim-warning')).toBeNull()
+    // A track's volume changes are its effects (#1025): the warning line is
+    // there, empty while nothing is cut, and a change-free track has no marks.
+    expect(within(window).getByTestId('trim-warning')).toBeEmptyDOMElement()
+    expect(within(window).queryByTestId('trim-effect-mark')).toBeNull()
     expect(within(window).getByRole('button', { name: 'Play trim' })).toBeInTheDocument()
   })
 
