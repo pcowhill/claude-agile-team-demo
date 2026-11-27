@@ -18,6 +18,10 @@ import { chooseEffect } from './timelineRowMenu'
  * Step 1b(ii) adds the Trim window's warning for a track's changes, and the
  * export's evidence: the decoded level of the exported mix inside a change
  * against outside it, in `duck-audio.spec.ts`'s idiom.
+ *
+ * #1026's step 2b(i) adds the same change on a video entry: its + Effect ▾
+ * item, its rows, its undo steps, and the gain the preview plays the
+ * entry's own element at.
  */
 
 const TRACK = 'audio track tone.wav at position 1'
@@ -234,6 +238,133 @@ test('the export plays a volume change at its level: 0.25 is −12 dB against th
   expect(outside).toBeGreaterThan(0.05)
   expect(Math.abs(db - 20 * Math.log10(0.25))).toBeLessThanOrEqual(LEVEL_TOLERANCE_DB)
 })
+
+/** The video entry `clipAndTone` adds (#1026, step 2b(i)). */
+const ENTRY = 'clip.webm at position 1'
+
+const entryChangeField = (page: Page, n: number, what: 'start' | 'length' | 'level') =>
+  page.getByRole('spinbutton', {
+    name:
+      what === 'level'
+        ? `Volume change ${n} level of ${ENTRY} (0 to 4)`
+        : `Volume change ${n} ${what} of ${ENTRY} in seconds`,
+    exact: true,
+  })
+
+test("the preview plays a video entry's volume change at its level, on its ramp, and at full volume away from it (#1026)", async ({
+  page,
+  browserName,
+}) => {
+  test.setTimeout(60_000)
+  await clipAndTone(page)
+  await chooseEffect(page, ENTRY, 'Volume change')
+  // The default (#1025): 2 s at Level 0.5 from the start of the trimmed range.
+  await expect(entryChangeField(page, 1, 'start')).toHaveValue('0')
+  await expect(entryChangeField(page, 1, 'length')).toHaveValue('2')
+  await expect(entryChangeField(page, 1, 'level')).toHaveValue('0.5')
+  // 1 s to 2 s into the entry (which starts the sequence), at Level 0.25.
+  await setField(entryChangeField(page, 1, 'start'), '1')
+  await setField(entryChangeField(page, 1, 'length'), '1')
+  await setField(entryChangeField(page, 1, 'level'), '0.25')
+
+  const video = page.getByTestId('preview-video')
+  const seek = page.getByRole('slider', { name: 'Seek within sequence' })
+  // The track's rule, worked out here rather than read from gain.ts: the
+  // level from start to start + length, a linear 0.25 s ramp either side,
+  // 1 beyond. At 0.9 s the ramp in is 0.1 s from the change: 0.25 + 0.75 × 0.4.
+  for (const [time, gain] of [
+    ['0.5', 1],
+    ['0.9', 0.55],
+    ['1.5', 0.25],
+    ['2.1', 0.55],
+    ['3', 1],
+  ] as const) {
+    await seek.fill(time)
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.volume), {
+        message: `the entry's element volume at ${time} s`,
+      })
+      .toBeCloseTo(gain, 3)
+  }
+
+  // Volume multiplies: at Volume 0.5 the change plays at 0.125.
+  await setField(page.getByRole('spinbutton', { name: `Volume of ${ENTRY} (0 to 4)`, exact: true }), '0.5')
+  await seek.fill('1.5')
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.volume)).toBeCloseTo(0.125, 3)
+
+  // Above 1: Volume 1 × Level 2 is a gain of 2. The element holds 1 and,
+  // where the preview routes (#692; not Firefox, #611), its boost the rest.
+  await setField(page.getByRole('spinbutton', { name: `Volume of ${ENTRY} (0 to 4)`, exact: true }), '1')
+  await setField(entryChangeField(page, 1, 'level'), '2')
+  await seek.fill('1.5')
+  await page.getByRole('button', { name: 'Play preview' }).click()
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false)
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.volume)).toBe(1)
+  if (browserName !== 'firefox') await expect(video).toHaveAttribute('data-boost', '2')
+  await page.getByRole('button', { name: 'Pause preview' }).click()
+})
+
+test("a video entry's volume change is one undo step to add, to edit and to remove (#1026)", async ({ page }) => {
+  test.setTimeout(60_000)
+  await clipAndTone(page)
+  const rows = page.getByTestId('entry-volume-change')
+  await chooseEffect(page, ENTRY, 'Volume change')
+  await expect(rows).toHaveCount(1)
+  await setField(entryChangeField(page, 1, 'level'), '0.25')
+  await page.getByRole('button', { name: `Remove volume change 1 from ${ENTRY}`, exact: true }).click()
+  await expect(rows).toHaveCount(0)
+
+  // Undo walks back one action at a time: the removal, the edit, the add.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  await page.keyboard.press('Control+z')
+  await expect(rows).toHaveCount(1)
+  await expect(entryChangeField(page, 1, 'level')).toHaveValue('0.25')
+  await page.keyboard.press('Control+z')
+  await expect(entryChangeField(page, 1, 'level')).toHaveValue('0.5')
+  await page.keyboard.press('Control+z')
+  await expect(rows).toHaveCount(0)
+})
+
+for (const [width, height] of [
+  [1280, 720],
+  [360, 800],
+] as const) {
+  test(`a video entry's volume change rows lie inside the entry's row, and the page does not scroll sideways, at ${width}×${height} (#1026)`, async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(60_000)
+    await page.setViewportSize({ width, height })
+    // Populated (development.md): the entry also carries a zoom and a
+    // speed segment, so its change rows sit among the rows they follow.
+    await clipAndTone(page)
+    await chooseEffect(page, ENTRY, 'Zoom')
+    await chooseEffect(page, ENTRY, 'Speed segment')
+    await chooseEffect(page, ENTRY, 'Volume change')
+    await chooseEffect(page, ENTRY, 'Volume change')
+    const rows = page.getByTestId('entry-volume-change')
+    await expect(rows).toHaveCount(2)
+    const entryRow = rows.first().locator('xpath=ancestor::li[1]')
+    for (let index = 0; index < 2; index++) {
+      const row = rows.nth(index)
+      const n = index + 1
+      await expectWithin(row, entryRow, { axis: 'x', what: `volume change ${n}'s row` })
+      for (const [what, control] of [
+        ['start', entryChangeField(page, n, 'start')],
+        ['length', entryChangeField(page, n, 'length')],
+        ['level', entryChangeField(page, n, 'level')],
+        [
+          'level slider',
+          page.getByRole('slider', { name: `Volume change ${n} level of ${ENTRY} (0 to 4) slider`, exact: true }),
+        ],
+        ['remove button', page.getByRole('button', { name: `Remove volume change ${n} from ${ENTRY}`, exact: true })],
+      ] as const) {
+        await expectWithin(control, row, { axis: 'x', what: `volume change ${n}'s ${what}` })
+      }
+    }
+    await expectNoHorizontalScroll(page, 'an entry with two volume changes')
+    await entryRow.screenshot({ path: testInfo.outputPath(`entry-volume-change-${width}.png`) })
+  })
+}
 
 for (const [width, height] of [
   [1280, 720],

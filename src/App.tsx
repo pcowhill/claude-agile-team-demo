@@ -820,6 +820,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
               dispatchTimeline({ type: 'picture-effect-updated', id, effect })
             }
             onRemovePictureEffect={(id) => dispatchTimeline({ type: 'picture-effect-removed', id })}
+            onAddEntryVolumeChange={(entryId, change) =>
+              dispatchTimeline({
+                type: 'entry-volume-change-added',
+                entryId,
+                change: { ...change, id: crypto.randomUUID() },
+              })
+            }
+            onUpdateEntryVolumeChange={(entryId, id, change) =>
+              dispatchTimeline({ type: 'entry-volume-change-updated', entryId, id, change })
+            }
+            onRemoveEntryVolumeChange={(entryId, id) =>
+              dispatchTimeline({ type: 'entry-volume-change-removed', entryId, id })
+            }
             onAddText={() =>
               dispatchTimeline({
                 type: 'text-added',

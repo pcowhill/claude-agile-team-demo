@@ -18,6 +18,7 @@ import {
 } from '../test/pictureDisclosure'
 import {
   ADD_PAUSE,
+  ADD_VOLUME_CHANGE,
   ADD_SPEED,
   ADD_ZOOM,
   COPY_SETTINGS,
@@ -3570,12 +3571,12 @@ describe("a timeline row's ⋯ menu and + Effect ▾ (#419)", () => {
     expect(rowMenuTrigger('a.mp4 at position 1')).toHaveFocus()
   })
 
-  it('offers Zoom · Speed segment · Pause under one + Effect ▾, and adds a zoom by keyboard', async () => {
+  it('offers Zoom · Speed segment · Pause · Volume change under one + Effect ▾, and adds a zoom by keyboard', async () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
 
-    expect(await effectMenuItems('a.mp4 at position 1')).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    expect(await effectMenuItems('a.mp4 at position 1')).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE])
     await closeEffectMenu('a.mp4 at position 1')
 
     effectMenuTrigger('a.mp4 at position 1').focus()
@@ -4681,7 +4682,7 @@ describe('picture effects on a sequence entry (#862)', () => {
     render(<App />)
     await importClip('a.mp4', 10)
     await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
-    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE])
     await closeEffectMenu(POSITION)
 
     let deactivate: () => void = () => {}
@@ -4693,6 +4694,7 @@ describe('picture effects on a sequence entry (#862)', () => {
         ADD_ZOOM,
         ADD_SPEED,
         ADD_PAUSE,
+        ADD_VOLUME_CHANGE,
         'Vignette',
         'Blur',
         'Film grain',
@@ -4706,7 +4708,7 @@ describe('picture effects on a sequence entry (#862)', () => {
     } finally {
       act(() => deactivate())
     }
-    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE])
+    expect(await effectMenuItems(POSITION)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE])
     await closeEffectMenu(POSITION)
   })
 
@@ -4962,6 +4964,87 @@ describe('volume changes on an audio track row (#1025, step 1b)', () => {
     expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
     await undo()
     expect(level(1)).toHaveValue(0.5)
+  })
+})
+
+describe('volume changes on a video entry row (#1026, step 2b(i))', () => {
+  const ENTRY = 'a.mp4 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name })
+  const start = (n: number) => field(`Volume change ${n} start of ${ENTRY} in seconds`)
+  const length = (n: number) => field(`Volume change ${n} length of ${ENTRY} in seconds`)
+  const level = (n: number) => field(`Volume change ${n} level of ${ENTRY} (0 to 4)`)
+  const undo = () => userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+  const withEntry = async (seconds: number) => {
+    render(<App />)
+    await importClip('a.mp4', seconds)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+  }
+
+  it('+ Effect ▾ on a video entry offers Volume change after Pause, which adds 2 s at Level 0.5 after the last change', async () => {
+    await withEntry(10)
+    expect(await effectMenuItems(ENTRY)).toEqual([ADD_ZOOM, ADD_SPEED, ADD_PAUSE, ADD_VOLUME_CHANGE])
+    await closeEffectMenu(ENTRY)
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    expect(start(1)).toHaveValue(0)
+    expect(length(1)).toHaveValue(2)
+    expect(level(1)).toHaveValue(0.5)
+    expect(screen.getByRole('slider', { name: `Volume change 1 level of ${ENTRY} (0 to 4) slider` })).toHaveValue('0.5')
+    expect(level(1)).toHaveAttribute('max', '4')
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    expect(start(2)).toHaveValue(2)
+    expect(length(2)).toHaveValue(2)
+  })
+
+  it('greys Volume change once the entry has no room left after its last change', async () => {
+    await withEntry(3)
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    expect(length(2)).toHaveValue(1)
+    expect(await effectItem(ENTRY, ADD_VOLUME_CHANGE)).toBeDisabled()
+  })
+
+  it('edits each field as one undo step, clamps to the entry’s trimmed range, and removes a change', async () => {
+    await withEntry(10)
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    await userEvent.clear(level(1))
+    await userEvent.type(level(1), '1.6{Enter}')
+    expect(level(1)).toHaveValue(1.6)
+    await userEvent.clear(start(1))
+    await userEvent.type(start(1), '3{Enter}')
+    expect(start(1)).toHaveValue(3)
+    // Longer than the room left in the entry: clamped to its Out, and shown.
+    await userEvent.clear(length(1))
+    await userEvent.type(length(1), '20{Enter}')
+    expect(length(1)).toHaveValue(7)
+
+    await undo()
+    expect(length(1)).toHaveValue(2)
+    await undo()
+    expect(start(1)).toHaveValue(0)
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
+    await undo()
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+
+    await chooseEffect(ENTRY, ADD_VOLUME_CHANGE)
+    await userEvent.click(screen.getByRole('button', { name: `Remove volume change 1 from ${ENTRY}` }))
+    expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
+    await undo()
+    expect(level(1)).toHaveValue(0.5)
+  })
+
+  it('is not offered on a still or a slate, which have no sound', async () => {
+    render(<App />)
+    probeMock.mockResolvedValueOnce({ duration: 0, url: 'blob:logo.png', kind: 'image', width: 640, height: 480 })
+    await userEvent.upload(screen.getByTestId('clip-file-input'), new File(['content'], 'logo.png', { type: 'image/png' }))
+    await screen.findByText('logo.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Add logo.png to timeline' }))
+    await chooseFromAddMenu(ADD_SLATE)
+    expect(await effectMenuItems('logo.png at position 1')).toEqual([ADD_ZOOM])
+    await closeEffectMenu('logo.png at position 1')
+    expect(await effectMenuItems('Color slate at position 2')).toEqual([ADD_ZOOM])
+    await closeEffectMenu('Color slate at position 2')
   })
 })
 

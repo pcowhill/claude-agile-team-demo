@@ -42,6 +42,8 @@ export const REMOVE = 'Remove'
 export const ADD_ZOOM = 'Zoom'
 export const ADD_SPEED = 'Speed segment'
 export const ADD_PAUSE = 'Pause'
+/** On a video entry only (#1026), and on an audio track, whose menu holds it alone (#1025). */
+export const ADD_VOLUME_CHANGE = 'Volume change'
 
 const rowMenuName = (position: string) => `More actions for ${position}`
 const effectMenuName = (position: string) => `+ Effect on ${position}`

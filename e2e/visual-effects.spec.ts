@@ -258,8 +258,12 @@ const describe = (samples: Samples) =>
 
 /** The pattern still's row on the timeline. */
 const ENTRY = POSITION
-/** The expected + Effect ▾ items without the plugin: today's three (#419). */
-const BUILT_IN_EFFECTS = ['Zoom', 'Speed segment', 'Pause']
+/**
+ * The expected + Effect ▾ items on a video clip without the plugin: the
+ * three of #419, then Volume change (#1026), which a still's and a slate's
+ * menus do not offer.
+ */
+const BUILT_IN_EFFECTS = ['Zoom', 'Speed segment', 'Pause', 'Volume change']
 
 /** + Effect ▾'s item labels on `position`, read from the open menu, which is then closed. */
 async function effectItems(page: Page, position: string): Promise<string[]> {
@@ -336,7 +340,7 @@ test.describe('Visual effects in + Effect ▾ and the entry row (#862)', () => {
     await expect(page.getByTestId('preview-picture-layers')).toHaveCount(0)
   })
 
-  test('+ Effect ▾ on a video clip lists the built-in three, then Vignette and Blur after them', async ({ page }) => {
+  test('+ Effect ▾ on a video clip lists the built-in items, then Vignette and Blur after them', async ({ page }) => {
     // The clip-kind counterpart of the still above: the remap items stay,
     // and the plugin's items follow them.
     await page.goto('./')
