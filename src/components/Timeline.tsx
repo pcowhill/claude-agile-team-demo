@@ -186,7 +186,7 @@ import type { CutClamps } from '../lib/cutWindow'
 import { entryCutRefusal, entryCutSpan } from '../lib/cutWindow'
 import { rippleSummary } from '../lib/ripple'
 import { entrySplitRefusal } from '../lib/playback'
-import { overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
+import { audioTrackTrimEffectsPreview, overlayTrimEffectsPreview, trimEffectsPreview } from '../lib/trimEffects'
 import { DEFAULT_SETTINGS } from '../lib/settings'
 import {
   formatMinutesField,
@@ -4538,6 +4538,7 @@ export function Timeline({
                             onTrimAudioTrack(track.id, inPoint, outPoint)
                           }}
                           onClose={() => setTrimmingId(null)}
+                          effectsFor={(range) => audioTrackTrimEffectsPreview(timeline, track.id, range)}
                         />
                       )}
                       {/* Cut… (#828): the Cut window with no picture, as

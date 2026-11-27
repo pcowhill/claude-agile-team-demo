@@ -34,11 +34,17 @@
  * strip is in source seconds, and an on-screen window maps onto it only
  * through the overlay's speed segments and pauses, where a window over a
  * pause is many seconds on screen and one instant of source.
+ *
+ * **An audio track's volume changes** (#1025) are windows in seconds into
+ * the track's trimmed range, as a zoom's are, so they ride with In and are
+ * both warned of and marked by the same rule. A track has no other effects
+ * and sits on no boundary.
  */
 
 import { remapEnd, remapStart, sourceTimeAtOutput } from './remap'
 import type { RemapSpec } from './remap'
 import {
+  audioTracksOf,
   boundaryTransitions,
   effectiveDuration,
   entryOutputDuration,
@@ -56,13 +62,15 @@ import type { VideoOverlay } from './videoOverlay'
 import { pictureEffectNames } from './pictureEffect'
 import type { PictureEffect } from './pictureEffect'
 import type { OverlayMove } from './overlayMove'
+import type { VolumeChange } from './volumeChange'
 
 /**
  * `picture-effect` is a Vignette, Blur or other registered picture effect
  * (#862), whatever its type. `move` is an overlay's Move (#834), which is
  * only ever warned of, never marked (see "An overlay's on-screen lists").
+ * `volume-change` is an audio track's volume change (#1025).
  */
-export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect' | 'move'
+export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect' | 'move' | 'volume-change'
 
 /**
  * What the row calls each remap kind. A `Record` over the union, so a new
@@ -77,7 +85,7 @@ const REMAP_NAMES: Record<RemapSpec['kind'], string> = {
 export interface TrimEffectMark {
   id: string
   kind: TrimEffectKind
-  /** The row's own name for it: "Zoom 1", "Speed segment 2", "Pause 1", "Move 1". */
+  /** The row's own name for it: "Zoom 1", "Speed segment 2", "Pause 1", "Move 1", "Volume change 1". */
   name: string
   /** Source seconds. A pause occupies one instant: `start === end`. */
   start: number
@@ -168,6 +176,21 @@ function placedEffects(
     end: effect.end,
   }))
   return [...zoomPlaced, ...remapPlaced, ...picturePlaced]
+}
+
+/**
+ * A track's volume changes (#1025), named as their rows name them: numbered
+ * in the normalized list's order (`VolumeChangeFieldsRow`). Their windows
+ * clamp and collapse on a retrim as a zoom's do, so the same outcomes apply.
+ */
+function placedVolumeChanges(changes: readonly VolumeChange[]): Placed[] {
+  return changes.map((change, index) => ({
+    id: change.id,
+    kind: 'volume-change' as const,
+    name: `Volume change ${index + 1}`,
+    start: change.start,
+    end: change.start + change.length,
+  }))
 }
 
 /** What the sweep did to one effect, or null when it left it whole and in place. */
@@ -395,6 +418,43 @@ export function overlayTrimEffectsPreview(
   )
   const onScreen = comparedOnScreen(onScreenEffects(current), onScreenEffects(overlay))
   return { marks, warnings: [...warnings, ...onScreen], transitions: [] }
+}
+
+/**
+ * The Trim window's view of `range` for the **audio track** `trackId`
+ * (#1025): `trimEffectsPreview`'s rule, with the `audio-track-trimmed` Apply
+ * dispatches and the track's volume changes, compared before and after and
+ * marked on the strip. A track sits on no boundary, so there are no
+ * transition spans. A track that is not in `state`, or a trim the reducer
+ * refuses, shows nothing.
+ */
+export function audioTrackTrimEffectsPreview(
+  state: TimelineState,
+  trackId: string,
+  range: TrimRange,
+): TrimEffectsPreview {
+  const current = audioTracksOf(state).find((track) => track.id === trackId)
+  if (current === undefined) return EMPTY
+  const unchanged = range.inPoint === current.inPoint && range.outPoint === current.outPoint
+  const trimmed = unchanged
+    ? state
+    : timelineReducer(state, {
+        type: 'audio-track-trimmed',
+        id: trackId,
+        inPoint: range.inPoint,
+        outPoint: range.outPoint,
+      })
+  // A refused trim: as for an entry, show nothing rather than the current
+  // trim's changes against clamps somewhere else.
+  if (trimmed === state && !unchanged) return EMPTY
+  const track = audioTracksOf(trimmed).find((candidate) => candidate.id === trackId)
+  if (track === undefined) return EMPTY
+  const { marks, warnings } = comparedEffects(
+    placedVolumeChanges(current.volumeChanges ?? []),
+    placedVolumeChanges(track.volumeChanges ?? []),
+    track.inPoint,
+  )
+  return { marks, warnings, transitions: [] }
 }
 
 /**

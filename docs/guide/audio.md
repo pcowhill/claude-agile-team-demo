@@ -89,7 +89,7 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 - **Undo.** Adding, editing a field and removing are one undo step each.
 - **When the track is edited.**
   - A change's time counts from the track's **In**. Moving the track with **Starts at** moves its changes with it. Changing **In** keeps each change the same time after the new In, as a zoom on a sequence entry does, so it lands on a different moment of the sound.
-  - [Trimming](editing-video.md#trimming) the track shorter shrinks a change that no longer fits to nothing, without removing it. Undo brings it back.
+  - [Trimming](editing-video.md#trimming) the track shorter shrinks a change that no longer fits to nothing, without removing it. Undo brings it back. The [Trim window](editing-video.md#the-trim-window) marks each change on its strip and says before you apply which ones the trim would shorten or remove.
   - [Split…](editing-video.md#split) divides the changes between the two tracks, and a change across the split point becomes one in each at the same level. A split less than {{VOLUME_CHANGE_RAMP_SECONDS}} s from a change's start or end cuts that change's ramp. The track on that side of the split plays at full volume up to the split point, rather than partway down the ramp.
   - [Cut…](editing-video.md#cut) and [Cut out marked range](editing-video.md#cut-out-marked-range) take a change, or the part of one, out with the sound they remove.
   - [Duplicate](timeline.md#duplicate) copies the changes.

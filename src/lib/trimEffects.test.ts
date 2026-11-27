@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { RemapEffect, RemapSpec } from './remap'
-import type { TimelineEntry, TimelineState, ZoomEffect } from './timeline'
-import { remapsForEntry, timelineReducer, videoOverlaysOf, zoomWindowDuration, zoomsForEntry } from './timeline'
-import { overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
+import type { AudioTrack, TimelineEntry, TimelineState, ZoomEffect } from './timeline'
+import {
+  audioTracksOf,
+  remapsForEntry,
+  timelineReducer,
+  videoOverlaysOf,
+  zoomWindowDuration,
+  zoomsForEntry,
+} from './timeline'
+import { audioTrackTrimEffectsPreview, overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
 import type { VideoOverlay } from './videoOverlay'
 import { NO_PICTURE_LOOK, pictureEffectRegistry } from './pictureEffect'
 import type { OverlayPictureEffect, PictureEffect, PictureEffectDefinition } from './pictureEffect'
@@ -470,6 +477,92 @@ describe('a removed effect stays at length zero when the trim moves back out; Un
     expect(remapsForEntry(trimmed.present, 'e1')[0]).toMatchObject({ start: 5, end: 5 })
     const undone = timelineHistoryReducer(trimmed, { type: 'edit-undone' })
     expect(undone.present).toBe(late)
+  })
+})
+
+describe('audioTrackTrimEffectsPreview: an audio track’s volume changes (#1025)', () => {
+  // A 10 s track at sequence 1, untrimmed, with Volume change 1 at 2 to 4 s
+  // into it and Volume change 2 at 6 to 8 s.
+  const track: AudioTrack = {
+    id: 't1',
+    clipId: 'clip-m',
+    name: 'music.wav',
+    duration: 10,
+    url: 'blob:clip-m',
+    offset: 1,
+    inPoint: 0,
+    outPoint: 10,
+    volumeChanges: [
+      { id: 'v1', start: 2, length: 2, level: 0.5 },
+      { id: 'v2', start: 6, length: 2, level: 0.2 },
+    ],
+  }
+  const state: TimelineState = { entries: [], audioTracks: [track] }
+  const preview = (inPoint: number, outPoint: number) =>
+    audioTrackTrimEffectsPreview(state, 't1', { inPoint, outPoint })
+  const marksOf = (inPoint: number, outPoint: number) =>
+    preview(inPoint, outPoint).marks.map(({ kind, name, start, end }) => [kind, name, start, end])
+  const trimmedTo = (inPoint: number, outPoint: number) =>
+    audioTracksOf(timelineReducer(state, { type: 'audio-track-trimmed', id: 't1', inPoint, outPoint }))[0]
+
+  it('marks each change on the strip in source seconds, and warns of nothing at the current trim', () => {
+    expect(marksOf(0, 10)).toEqual([
+      ['volume-change', 'Volume change 1', 2, 4],
+      ['volume-change', 'Volume change 2', 6, 8],
+    ])
+    expect(preview(0, 10).warnings).toEqual([])
+    expect(preview(0, 10).transitions).toEqual([])
+  })
+
+  it('names a change an Out inside it would shorten, and one it would pass would remove', () => {
+    expect(trimWarningText(preview(0, 7).warnings)).toBe('Trimming here shortens Volume change 2.')
+    expect(marksOf(0, 7)).toEqual([
+      ['volume-change', 'Volume change 1', 2, 4],
+      ['volume-change', 'Volume change 2', 6, 7],
+    ])
+    // Out at 5 is before Volume change 2 starts: it collapses to nothing, and
+    // a collapsed change has no mark.
+    expect(trimWarningText(preview(0, 5).warnings)).toBe('Trimming here removes Volume change 2.')
+    expect(marksOf(0, 5)).toEqual([['volume-change', 'Volume change 1', 2, 4]])
+    expect(trimWarningText(preview(0, 3).warnings)).toBe(
+      'Trimming here shortens Volume change 1 and removes Volume change 2.',
+    )
+  })
+
+  it('moves the changes with In, so moving In alone can cut into the last one', () => {
+    // In at 3: the window is 7 s long. Volume change 1 keeps 2 to 4 s into
+    // the trim, which is source 5 to 7, and Volume change 2 is cut to 6 to 7.
+    expect(trimWarningText(preview(3, 10).warnings)).toBe('Trimming here shortens Volume change 2.')
+    expect(marksOf(3, 10)).toEqual([
+      ['volume-change', 'Volume change 1', 5, 7],
+      ['volume-change', 'Volume change 2', 9, 10],
+    ])
+  })
+
+  it('says what Apply then does', () => {
+    expect(trimmedTo(3, 10).volumeChanges).toEqual([
+      { id: 'v1', start: 2, length: 2, level: 0.5 },
+      { id: 'v2', start: 6, length: 1, level: 0.2 },
+    ])
+    expect(trimmedTo(0, 5).volumeChanges).toEqual([
+      { id: 'v1', start: 2, length: 2, level: 0.5 },
+      { id: 'v2', start: 5, length: 0, level: 0.2 },
+    ])
+  })
+
+  it('shows nothing for a refused trim or an unknown track, and nothing to warn of on a change-free track', () => {
+    expect(preview(6, 6)).toEqual({ marks: [], warnings: [], transitions: [] })
+    expect(audioTrackTrimEffectsPreview(state, 'nope', { inPoint: 0, outPoint: 5 })).toEqual({
+      marks: [],
+      warnings: [],
+      transitions: [],
+    })
+    const plain: TimelineState = { entries: [], audioTracks: [{ ...track, volumeChanges: undefined }] }
+    expect(audioTrackTrimEffectsPreview(plain, 't1', { inPoint: 0, outPoint: 3 })).toEqual({
+      marks: [],
+      warnings: [],
+      transitions: [],
+    })
   })
 })
 

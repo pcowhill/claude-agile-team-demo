@@ -69,7 +69,8 @@ interface TrimDialogProps {
    * its zooms, speed segments and pauses as marks, a warning naming each
    * one the trim would cut into, and the span a transition at either end
    * would cover. The timeline answers it with the reducer's own rule
-   * (`trimEffectsPreview`); absent, the strip shows none of them.
+   * (`trimEffectsPreview`, or for an overlay or an audio track's volume
+   * changes, #1025, its counterpart); absent, the strip shows none of them.
    */
   effectsFor?: (range: TrimRange) => TrimEffectsPreview
 }

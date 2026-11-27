@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
@@ -12,8 +13,11 @@ import { chooseEffect } from './timelineRowMenu'
  * `volume-boost.spec.ts` reads it: below 1 the element's `volume` is the
  * whole of the gain. The expected values are worked out here from the rule
  * #1025 states, not read from `audioTrackGainAt`, so the spec is a second
- * reading of the rule rather than a copy of it. The export's evidence is
- * step 1b(ii)'s.
+ * reading of the rule rather than a copy of it.
+ *
+ * Step 1b(ii) adds the Trim window's warning for a track's changes, and the
+ * export's evidence: the decoded level of the exported mix inside a change
+ * against outside it, in `duck-audio.spec.ts`'s idiom.
  */
 
 const TRACK = 'audio track tone.wav at position 1'
@@ -119,6 +123,116 @@ test('the preview plays a volume change at its level, on its ramp, and at full v
   await expect
     .poll(() => element.evaluate((audio: HTMLAudioElement) => audio.volume))
     .toBeCloseTo(0.125, 3)
+})
+
+/** Types an Out for the Trim window to apply, as its own footer field does. */
+async function setTrimOut(dialog: Locator, seconds: string) {
+  const out = dialog.getByRole('spinbutton', { name: 'Out point to apply in seconds' })
+  await out.fill(seconds)
+  await out.blur()
+  await expect(dialog.getByTestId('trim-clamp-out')).toHaveAttribute('aria-valuenow', seconds)
+}
+
+test("the Trim window marks a track's volume changes and names the ones a trim would cut into; Apply does that (#1025)", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000)
+  await clipAndTone(page)
+  // Volume change 1 at 0 to 2 s and Volume change 2 at 2 to 4 s: the
+  // defaults, one after the other, on the 4 s track.
+  await chooseEffect(page, TRACK, 'Volume change')
+  await chooseEffect(page, TRACK, 'Volume change')
+  await expect(changeField(page, 2, 'start')).toHaveValue('2')
+
+  await page.getByRole('button', { name: `Trim ${TRACK} in the Trim window` }).click()
+  const dialog = page.getByRole('dialog', { name: `Trim ${TRACK}` })
+  await expect(dialog).toBeVisible()
+  const warning = dialog.getByTestId('trim-warning')
+  const marks = dialog.getByTestId('trim-effect-mark')
+  const strip = dialog.getByTestId('trim-strip')
+
+  // Untrimmed: both changes marked, inside the strip, and nothing cut.
+  await expect(marks).toHaveCount(2)
+  for (let index = 0; index < 2; index++) {
+    await expect(marks.nth(index)).toHaveAttribute('data-kind', 'volume-change')
+    await expect(marks.nth(index)).toHaveAttribute('title', `Volume change ${index + 1}`)
+    await expectWithin(marks.nth(index), strip, { what: `volume change ${index + 1}'s mark` })
+  }
+  await expect(warning).toHaveText('')
+
+  await setTrimOut(dialog, '3')
+  await expect(warning).toHaveText('Trimming here shortens Volume change 2.')
+  await setTrimOut(dialog, '1.5')
+  await expect(warning).toHaveText('Trimming here shortens Volume change 1 and removes Volume change 2.')
+  // A change cut to nothing has no mark.
+  await expect(marks).toHaveCount(1)
+  await expectWithin(marks, strip, { what: "volume change 1's mark, shortened" })
+  await dialog.screenshot({ path: testInfo.outputPath('trim-window-volume-change.png') })
+
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(changeField(page, 1, 'length')).toHaveValue('1.5')
+  // Removed is kept at length zero at the new end, as an entry's effects are.
+  await expect(changeField(page, 2, 'start')).toHaveValue('1.5')
+  await expect(changeField(page, 2, 'length')).toHaveValue('0')
+})
+
+/** Decodes the exported audio and reports the loudest sample in a window. */
+async function peakIn(page: Page, media: Buffer, fromSeconds: number, toSeconds: number): Promise<number> {
+  return await page.evaluate(
+    async ({ base64, fromSeconds, toSeconds }) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const context = new AudioContext()
+      try {
+        const buffer = await context.decodeAudioData(bytes.buffer)
+        const samples = buffer.getChannelData(0)
+        const start = Math.max(0, Math.floor(fromSeconds * buffer.sampleRate))
+        const end = Math.min(samples.length, Math.ceil(toSeconds * buffer.sampleRate))
+        let peak = 0
+        for (let index = start; index < end; index++) peak = Math.max(peak, Math.abs(samples[index]))
+        return peak
+      } finally {
+        await context.close()
+      }
+    },
+    { base64: media.toString('base64'), fromSeconds, toSeconds },
+  )
+}
+
+/**
+ * How far the exported level inside the change may sit from the Level asked
+ * for, in dB. The two windows measure the same sine through the same codec,
+ * so what is left is the codec's own error on a peak. 1 dB is a ratio of
+ * 0.223 to 0.281 around 0.25; a Level of 0.3 (−10.5 dB) falls outside it.
+ */
+const LEVEL_TOLERANCE_DB = 1
+
+test('the export plays a volume change at its level: 0.25 is −12 dB against the track outside it (#1025)', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await clipAndTone(page)
+  // A click gives the page the user activation an AudioContext needs.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  await chooseEffect(page, TRACK, 'Volume change')
+  // 1.5 s to 3 s into the track, at Level 0.25. Its ramps run 1.25 to 1.5 s
+  // and 3 to 3.25 s, so [1.9, 2.6] is well inside and [0.3, 1.0] well clear.
+  await setField(changeField(page, 1, 'start'), '1.5')
+  await setField(changeField(page, 1, 'length'), '1.5')
+  await setField(changeField(page, 1, 'level'), '0.25')
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exported = await readFile(await (await downloadPromise).path())
+
+  const outside = await peakIn(page, exported, 0.3, 1.0)
+  const inside = await peakIn(page, exported, 1.9, 2.6)
+  const db = 20 * Math.log10(inside / outside)
+  console.log(`volume change export: outside ${outside.toFixed(4)}, inside ${inside.toFixed(4)}, ${db.toFixed(2)} dB`)
+  // Loud enough outside to be the tone, not codec noise.
+  expect(outside).toBeGreaterThan(0.05)
+  expect(Math.abs(db - 20 * Math.log10(0.25))).toBeLessThanOrEqual(LEVEL_TOLERANCE_DB)
 })
 
 for (const [width, height] of [
