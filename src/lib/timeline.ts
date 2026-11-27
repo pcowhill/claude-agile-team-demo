@@ -86,6 +86,8 @@ import {
 import type { CopiedSettings, SettingsElementKind } from './settingsClipboard'
 import type { CanvasPreset } from './frameSize'
 import { clampVolume } from './volume'
+import type { VolumeChange, VolumeChangeSpec } from './volumeChange'
+import { isValidVolumeChangeSpec, volumeChangeSpecsEqual, withVolumeChangesClamped } from './volumeChange'
 import { isCanvasPreset } from './frameSize'
 import type {
   ImageOverlayPlacement,
@@ -289,6 +291,13 @@ export interface AudioTrack {
    * like every optional gain field, so duck-free projects are unchanged.
    */
   duckLevel?: number
+  /**
+   * Volume changes (#1025): stretches of the track turned down or up, with
+   * ramps either side, in seconds into its trimmed range (`volumeChange.ts`).
+   * Absent when there are none, so change-free projects are unchanged.
+   * Normalization keeps them sorted, disjoint and inside the trim.
+   */
+  volumeChanges?: VolumeChange[]
 }
 
 /**
@@ -1066,6 +1075,15 @@ export type TimelineAction =
     }
   | { type: 'audio-track-fades-set'; id: string; fadeIn: number; fadeOut: number }
   | { type: 'audio-track-duck-set'; id: string; duck: boolean; duckLevel?: number }
+  /**
+   * A track's volume changes (#1025), the overlay Move actions' rules
+   * addressed by the track: an add is vetoed when the track's window has no
+   * room left, an update clamped back to what is stored is a no-op, and
+   * removing the last change removes the key. One undo step each.
+   */
+  | { type: 'audio-track-volume-change-added'; trackId: string; change: VolumeChange }
+  | { type: 'audio-track-volume-change-updated'; trackId: string; id: string; change: VolumeChangeSpec }
+  | { type: 'audio-track-volume-change-removed'; trackId: string; id: string }
 
 export function entryFromClip(
   clip: LibraryClip,
@@ -1871,8 +1889,9 @@ function withEffects({
     // absolute and never clamped to the sequence's (possibly new) length —
     // see the AudioTrack doc comment. Fades, though, depend only on the
     // track's own trim, so they are re-clamped here (a retrim shrinks them
-    // rather than leaving an envelope longer than the audio).
-    audioTracks: audioTracks.map(clampTrackFades),
+    // rather than leaving an envelope longer than the audio). So do its
+    // volume changes (#1025), which are seconds into its trimmed range.
+    audioTracks: audioTracks.map((track) => withVolumeChangesClamped(clampTrackFades(track))),
   }
 }
 
@@ -3983,6 +4002,62 @@ function reduceTimelineCollections(
       }
       const tracks = [...audioTracks]
       tracks[index] = candidate
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
+    }
+    case 'audio-track-volume-change-added': {
+      const index = audioTracks.findIndex((track) => track.id === action.trackId)
+      if (index === -1) return state
+      const track = audioTracks[index]
+      const existing = track.volumeChanges ?? []
+      // Ids are the handle updates and removals act on: never two alike.
+      if (typeof action.change.id !== 'string' || action.change.id === '') return state
+      if (existing.some((change) => change.id === action.change.id)) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const tracks = [...audioTracks]
+      tracks[index] = { ...track, volumeChanges: [...existing, action.change] }
+      const next = withEffects({ ...effectListsOf(state), audioTracks: tracks })
+      const applied = next.audioTracks?.[index].volumeChanges?.find((change) => change.id === action.change.id)
+      // No room left in the track's window: veto, as a zoom's add does.
+      if (applied === undefined || applied.length <= 0) return state
+      return next
+    }
+    case 'audio-track-volume-change-updated': {
+      const index = audioTracks.findIndex((track) => track.id === action.trackId)
+      if (index === -1) return state
+      const track = audioTracks[index]
+      const stored = track.volumeChanges?.find((change) => change.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const candidate: VolumeChange = {
+        id: stored.id,
+        start: action.change.start,
+        length: action.change.length,
+        level: action.change.level,
+      }
+      const tracks = [...audioTracks]
+      tracks[index] = {
+        ...track,
+        volumeChanges: (track.volumeChanges ?? []).map((change) => (change.id === action.id ? candidate : change)),
+      }
+      const next = withEffects({ ...effectListsOf(state), audioTracks: tracks })
+      const applied = next.audioTracks?.[index].volumeChanges?.find((change) => change.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference.
+      if (volumeChangeSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'audio-track-volume-change-removed': {
+      const index = audioTracks.findIndex((track) => track.id === action.trackId)
+      if (index === -1) return state
+      const track = audioTracks[index]
+      const remaining = (track.volumeChanges ?? []).filter((change) => change.id !== action.id)
+      if (remaining.length === (track.volumeChanges ?? []).length) return state
+      const tracks = [...audioTracks]
+      // None means no key at all, so a change-free track saves as before.
+      const next = { ...track }
+      if (remaining.length === 0) delete next.volumeChanges
+      else next.volumeChanges = remaining
+      tracks[index] = next
       return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
     case 'audio-track-duck-set': {

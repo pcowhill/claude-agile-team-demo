@@ -79,6 +79,7 @@ import { isValidBackgroundFillInput } from './backgroundFill'
 import type { CanvasPreset } from './frameSize'
 import { isCanvasPreset } from './frameSize'
 import { MAX_VOLUME } from './volume'
+import type { VolumeChange } from './volumeChange'
 
 /**
  * The project file format (#75): everything needed to reopen a project and
@@ -136,7 +137,9 @@ import { MAX_VOLUME } from './volume'
  *                                    lineStyle? }] }],           // (#689)
  *       "audioTracks": [{ id, clipId, name, duration, offset,
  *                         inPoint, outPoint, volume?, fadeIn?, fadeOut?,
- *                         duck?, duckLevel? }],                 // (#241)
+ *                         duck?, duckLevel?,                   // (#241)
+ *                         volumeChanges?: [{ id, start, length,
+ *                                            level }] }],       // (#1025)
  *       "videoOverlays": [{ id, clipId, name, duration, offset, inPoint,
  *                           outPoint, x, y, width, height, volume?, muted?,
  *                           fadeIn?, fadeOut?,                    // (#220)
@@ -310,7 +313,7 @@ import { MAX_VOLUME } from './volume'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 35
+export const PROJECT_SCHEMA_VERSION = 36
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -449,6 +452,13 @@ export const PICTURE_EFFECTS_SCHEMA_VERSION = 34
  * bytes.
  */
 export const OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION = 35
+/**
+ * The version an audio track's volume changes force (#1025). An earlier
+ * build would ignore the key and play the track at one level throughout,
+ * so a file holding one refuses it by version; a change-free file keeps its
+ * version and its bytes.
+ */
+export const VOLUME_CHANGES_SCHEMA_VERSION = 36
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -841,6 +851,8 @@ export async function serializeProject(
   // foreign state carrying one writes the bytes of a state that never did.
   const hasPictureEffects = pictureEffectsOf(timeline).length > 0
   // Length-based, like the overlay's Moves: written only while one exists.
+  const hasVolumeChanges = audioTracksOf(timeline).some((track) => (track.volumeChanges?.length ?? 0) > 0)
+  // Length-based, like the overlay's Moves: written only while one exists.
   const hasOverlayPictureEffects = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.pictureEffects?.length ?? 0) > 0,
   )
@@ -928,7 +940,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasOverlayPictureEffects
+    schemaVersion: hasVolumeChanges
+      ? VOLUME_CHANGES_SCHEMA_VERSION
+      : hasOverlayPictureEffects
       ? OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION
       : hasPictureEffects
       ? PICTURE_EFFECTS_SCHEMA_VERSION
@@ -1213,7 +1227,7 @@ export async function serializeProject(
             })),
           }),
       audioTracks: audioTracksOf(timeline).map(
-        ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel }) => ({
+        ({ id, clipId, name, duration, offset, inPoint, outPoint, volume, fadeIn, fadeOut, duck, duckLevel, volumeChanges }) => ({
           id,
           clipId,
           name,
@@ -1229,6 +1243,10 @@ export async function serializeProject(
           // schema version).
           ...(duck === true ? { duck } : {}),
           ...(duck === true && duckLevel !== undefined ? { duckLevel } : {}),
+          // Volume changes (#1025), written only while any exist.
+          ...(volumeChanges === undefined || volumeChanges.length === 0
+            ? {}
+            : { volumeChanges: volumeChanges.map(({ id, start, length, level }) => ({ id, start, length, level })) }),
         }),
       ),
       // Overlay video layers (#145) are written only while any exist, so
@@ -1937,6 +1955,28 @@ function asOverlayPictureEffects(value: unknown, path: string): OverlayPictureEf
     if (ids.has(id)) throw new Error(`${itemPath}.id "${id}" is duplicated`)
     ids.add(id)
     return { id, type, start, end, params }
+  })
+}
+
+/**
+ * An audio track's volume changes (#1025) as stored: a non-negative start
+ * and length, a level within the Volume range, and ids unique within the
+ * track.
+ */
+function asVolumeChanges(value: unknown, path: string): VolumeChange[] {
+  const ids = new Set<string>()
+  return asArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const raw = asRecord(item, itemPath)
+    const change: VolumeChange = {
+      id: asString(raw.id, `${itemPath}.id`),
+      start: asNonNegative(raw.start, `${itemPath}.start`),
+      length: asNonNegative(raw.length, `${itemPath}.length`),
+      level: asVolume(raw.level, `${itemPath}.level`),
+    }
+    if (ids.has(change.id)) throw new Error(`${itemPath}.id "${change.id}" is duplicated`)
+    ids.add(change.id)
+    return change
   })
 }
 
@@ -2716,6 +2756,12 @@ function validateProject(document: Record<string, unknown>): Project {
             track.duckLevel = asFraction(raw.duckLevel, `${path}.duckLevel`)
           }
         }
+      }
+      // Volume changes (#1025): structure and ranges only; fitting each one
+      // into the track's trim is open-time normalization's, as for fades.
+      if (raw.volumeChanges !== undefined) {
+        const changes = asVolumeChanges(raw.volumeChanges, `${path}.volumeChanges`)
+        if (changes.length > 0) track.volumeChanges = changes
       }
       if (trackIds.has(track.id)) {
         throw new Error(`${path}.id "${track.id}" is duplicated`)

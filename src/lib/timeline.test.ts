@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LibraryClip } from './mediaLibrary'
 import { MAX_OVERLAY_BORDER } from './overlayBorder'
 import { MAX_OVERLAY_SHADOW_BLUR, MAX_OVERLAY_SHADOW_OFFSET } from './overlayShadow'
-import type { TimelineAction, TimelineState, TimelineTransition, ZoomSpec, ChapterMarker } from './timeline'
+import type { AudioTrack, TimelineAction, TimelineState, TimelineTransition, ZoomSpec, ChapterMarker } from './timeline'
 import {
   audioTrackFromClip,
   audioTracksOf,
@@ -5648,6 +5648,131 @@ describe('picture effects on entries (#862)', () => {
     history = dispatch(history, { type: 'edit-redone' })
     history = dispatch(history, { type: 'edit-redone' })
     expect(windows(history.present, 'a')).toEqual([['p1', 1, 5]])
+  })
+})
+
+describe('volume changes on an audio track (#1025)', () => {
+  // A 30 s music clip trimmed to source 2..22: a 20 s window at sequence 1.
+  const music = (): AudioTrack => ({
+    ...audioTrackFromClip(clip({ id: 'c-m', kind: 'audio', name: 'm.mp3', duration: 30 }), 't1'),
+    offset: 1,
+    inPoint: 2,
+    outPoint: 22,
+  })
+  const withMusic = (base: TimelineState = emptyTimeline, track: AudioTrack = music()) =>
+    timelineReducer(base, { type: 'audio-track-added', track })
+  const add = (state: TimelineState, id: string, start: number, length: number, level: number) =>
+    timelineReducer(state, {
+      type: 'audio-track-volume-change-added',
+      trackId: 't1',
+      change: { id, start, length, level },
+    })
+  const changesOf = (state: TimelineState, trackId = 't1') =>
+    (audioTracksOf(state).find((track) => track.id === trackId)?.volumeChanges ?? []).map(
+      ({ id, start, length, level }) => [id, start, length, level],
+    )
+
+  it('adds a change, normalized against the track’s trimmed window, as one action', () => {
+    const state = add(add(withMusic(), 'v2', 10, 2, 1.6), 'v1', 3, 4, 0.2)
+    expect(changesOf(state)).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 10, 2, 1.6],
+    ])
+  })
+
+  it('refuses an add with a taken or empty id, a non-finite field, an unknown track, or no room left', () => {
+    const state = add(withMusic(), 'v1', 0, 20, 0.5)
+    expect(add(state, 'v1', 0, 1, 0.5)).toBe(state)
+    expect(add(state, '', 0, 1, 0.5)).toBe(state)
+    expect(add(withMusic(), 'v1', Number.NaN, 1, 0.5)).toEqual(withMusic())
+    expect(
+      timelineReducer(state, {
+        type: 'audio-track-volume-change-added',
+        trackId: 'nope',
+        change: { id: 'v9', start: 0, length: 1, level: 0.5 },
+      }),
+    ).toBe(state)
+    // The window is full: the new change would collapse to nothing.
+    expect(add(state, 'v2', 5, 1, 0.5)).toBe(state)
+  })
+
+  it('updates a change, clamping it, and an update clamped back to what is stored is a no-op', () => {
+    const state = add(withMusic(), 'v1', 3, 4, 0.2)
+    const update = (change: { start: number; length: number; level: number }) =>
+      timelineReducer(state, { type: 'audio-track-volume-change-updated', trackId: 't1', id: 'v1', change })
+    expect(changesOf(update({ start: 18, length: 9, level: 9 }))).toEqual([['v1', 18, 2, 4]])
+    expect(update({ start: 3, length: 4, level: 0.2 })).toBe(state)
+    expect(
+      timelineReducer(state, {
+        type: 'audio-track-volume-change-updated',
+        trackId: 't1',
+        id: 'nope',
+        change: { start: 1, length: 1, level: 1 },
+      }),
+    ).toBe(state)
+  })
+
+  it('removes a change, and removing the last one removes the key', () => {
+    const state = add(add(withMusic(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    const remove = (from: TimelineState, id: string) =>
+      timelineReducer(from, { type: 'audio-track-volume-change-removed', trackId: 't1', id })
+    expect(changesOf(remove(state, 'v1'))).toEqual([['v2', 10, 2, 0.5]])
+    expect(audioTracksOf(remove(remove(state, 'v1'), 'v2'))[0]).not.toHaveProperty('volumeChanges')
+    expect(remove(state, 'nope')).toBe(state)
+  })
+
+  it('a retrim that shortens the window past a change collapses it to zero length and keeps it', () => {
+    const state = add(withMusic(), 'v1', 15, 3, 0.2)
+    const trimmed = timelineReducer(state, { type: 'audio-track-trimmed', id: 't1', inPoint: 2, outPoint: 14 })
+    expect(changesOf(trimmed)).toEqual([['v1', 12, 0, 0.2]])
+  })
+
+  it('a change-free track keeps its shape through every edit', () => {
+    const trimmed = timelineReducer(withMusic(), { type: 'audio-track-trimmed', id: 't1', inPoint: 3, outPoint: 9 })
+    expect(audioTracksOf(trimmed)[0]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('Duplicate carries the changes', () => {
+    const state = add(withMusic(), 'v1', 3, 4, 0.2)
+    const duplicated = timelineReducer(state, { type: 'element-duplicated', kind: 'audio-track', id: 't1', newId: 'dup' })
+    expect(changesOf(duplicated, 'dup')).toEqual([['v1', 3, 4, 0.2]])
+  })
+
+  it('Split… divides them where the first part ends, a change across the point becoming two (#826)', () => {
+    const state = add(add(withMusic(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    // Source 7 is 5 s into the trimmed range, inside v1.
+    const split = timelineReducer(state, {
+      type: 'element-split',
+      kind: 'audio-track',
+      id: 't1',
+      atSourceTime: 7,
+      newId: 't2',
+    })
+    expect(changesOf(split, 't1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(split, 't2')).toEqual([
+      ['v1', 0, 2, 0.2],
+      ['v2', 5, 2, 0.5],
+    ])
+  })
+
+  it('Cut… divides them between the head and the tail and drops the part inside the cut (#828)', () => {
+    const state = add(add(withMusic(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    // Cut source 7..13: trimmed-range seconds 5..11, through the end of v1 and into v2.
+    const cut = timelineReducer(state, { type: 'element-cut', kind: 'audio-track', id: 't1', from: 7, to: 13, newId: 't2' })
+    expect(changesOf(cut, 't1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(cut, 't2')).toEqual([['v2', 0, 1, 0.5]])
+  })
+
+  it('Cut out marked range moves the changes with a track it shortens at the head (#823)', () => {
+    // A 20 s sequence; the track's window is sequence 1..21. Cutting 0..3
+    // takes the track's first 2 s: its In moves 2 s later, so a change 5 s
+    // in is 3 s in afterwards, still on the same sound.
+    const base = stateOf(['a', 20])
+    const state = add(withMusic(base), 'v1', 5, 2, 0.2)
+    const cut = timelineReducer(state, { type: 'range-cut', from: 0, to: 3, newEntryIds: ['mid', 'tail'] })
+    const track = audioTracksOf(cut)[0]
+    expect([track.offset, track.inPoint]).toEqual([0, 4])
+    expect(changesOf(cut)).toEqual([['v1', 3, 2, 0.2]])
   })
 })
 

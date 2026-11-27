@@ -15,6 +15,9 @@
  *   on a track; placement, colour, orientation, crop, mask, border, shadow,
  *   volume and mute on an overlay. The spread carries them, as Duplicate's
  *   does (#314), so a setting added later is copied without being named.
+ * - **A track's volume changes** (#1025) divide at the split point: one
+ *   across it becomes one in each part at the same level, and since a ramp
+ *   at a window's edge is not heard, the join plays on as the original did.
  * - **Fades stay on the outer edges.** The first part keeps the fade-in and
  *   the second the fade-out, so the join plays on as the original did. A
  *   fade that runs across the split point cannot be divided (a fade always
@@ -37,6 +40,7 @@ import { isImageOverlay, overlayOutputDuration } from './videoOverlay'
 import { splitZoomAt } from './ripple'
 import { splitMovesAt } from './overlayMove'
 import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
+import { splitVolumeChangesAt } from './volumeChange'
 
 /**
  * Whether a track or overlay can split at `atSourceTime`: strictly inside
@@ -76,10 +80,17 @@ export function splitAudioTrack(
 ): [AudioTrack, AudioTrack] | null {
   if (!canSplitElementAt(track, atSourceTime)) return null
   const firstLength = atSourceTime - track.inPoint
-  const first = without({ ...track, outPoint: atSourceTime }, 'fadeOut')
-  const second = without(
-    { ...track, id: newId, inPoint: atSourceTime, offset: track.offset + firstLength },
-    'fadeIn',
+  // Volume changes (#1025) are seconds into the trimmed range: divided there.
+  const changes = splitVolumeChangesAt(track.volumeChanges, firstLength)
+  const first = withList(
+    without({ ...track, outPoint: atSourceTime }, 'fadeOut'),
+    'volumeChanges',
+    track.volumeChanges === undefined ? undefined : changes.before,
+  )
+  const second = withList(
+    without({ ...track, id: newId, inPoint: atSourceTime, offset: track.offset + firstLength }, 'fadeIn'),
+    'volumeChanges',
+    track.volumeChanges === undefined ? undefined : changes.after,
   )
   return [first, second]
 }

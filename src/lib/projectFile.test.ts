@@ -39,6 +39,7 @@ import fixtureV32BoostedVolumeReferencesBase64 from './fixtures/project-v32-boos
 import fixtureV33OverlayMovesReferencesBase64 from './fixtures/project-v33-overlay-moves-references.bvep.base64?raw'
 import fixtureV34PictureEffectsReferencesBase64 from './fixtures/project-v34-picture-effects-references.bvep.base64?raw'
 import fixtureV35OverlayPictureEffectsReferencesBase64 from './fixtures/project-v35-overlay-picture-effects-references.bvep.base64?raw'
+import fixtureV36VolumeChangesReferencesBase64 from './fixtures/project-v36-volume-changes-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -67,6 +68,7 @@ import {
   OVERLAY_SHADOWS_SCHEMA_VERSION,
   OVERLAY_MOVES_SCHEMA_VERSION,
   OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION,
+  VOLUME_CHANGES_SCHEMA_VERSION,
   PICTURE_EFFECTS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
@@ -1180,8 +1182,9 @@ describe('project file versioning', () => {
     // version 31 added a shape group's Draw on entrance (#690); version 32
     // a Volume above 1 (#751); version 33 an overlay's Moves (#834);
     // version 34 picture effects on entries (#862); version 35 picture
-    // effects on overlays (#872).
-    expect(PROJECT_SCHEMA_VERSION).toBe(35)
+    // effects on overlays (#872); version 36 an audio track's volume
+    // changes (#1025).
+    expect(PROJECT_SCHEMA_VERSION).toBe(36)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -5696,6 +5699,72 @@ describe('overlay picture effects in project files (#872, schema version 35)', (
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, pictureEffects: overlayEffects }])
+  })
+})
+
+describe('volume changes in project files (#1025, schema version 36)', () => {
+  const musicLibrary: MediaLibraryState = {
+    clips: [...library.clips, { id: 'c3', name: 'music.webm', duration: 30, url: 'blob:session/c3', kind: 'audio' }],
+    failures: [],
+  }
+  const changes = [
+    { id: 'v1', start: 2, length: 4, level: 0.2 },
+    { id: 'v2', start: 10, length: 1.5, level: 1.6 },
+  ]
+  const stored = {
+    id: 'a1', clipId: 'c3', name: 'music.webm', duration: 30, offset: 0, inPoint: 1, outPoint: 21, volume: 0.8,
+  }
+  const withChanges = (list?: typeof changes): TimelineState => ({
+    ...timeline,
+    audioTracks: [{ ...stored, url: 'blob:session/c3', ...(list === undefined ? {} : { volumeChanges: list }) }],
+  })
+
+  it('writes version 36 exactly when a track carries a change, and round-trips them', async () => {
+    const bytes = await serializeProject(musicLibrary, withChanges(changes))
+    expect((await gunzipJson(bytes)).schemaVersion).toBe(VOLUME_CHANGES_SCHEMA_VERSION)
+    const result = await deserializeProject(bytes)
+    expect(result.ok && result.project.timeline.audioTracks).toEqual([{ ...stored, volumeChanges: changes }])
+  })
+
+  it('a change-free project keeps its version and its bytes, with no volumeChanges key', async () => {
+    const without = await serializeProject(musicLibrary, withChanges())
+    expect((await gunzipJson(without)).schemaVersion).toBeLessThan(VOLUME_CHANGES_SCHEMA_VERSION)
+    expect(JSON.stringify(await gunzipJson(without))).not.toContain('volumeChanges')
+    // An empty list a foreign state carries writes the same bytes as none.
+    expect(await serializeProject(musicLibrary, withChanges([]))).toEqual(without)
+  })
+
+  it('refuses a malformed change by its path', async () => {
+    const document = validDocument()
+    ;(document as Record<string, unknown>).schemaVersion = VOLUME_CHANGES_SCHEMA_VERSION
+    ;(document.clips as unknown as Record<string, unknown>[]).push({ id: 'c3', name: 'music.webm', duration: 30, kind: 'audio' })
+    const withTrackChanges = (volumeChanges: unknown) => {
+      const copy = structuredClone(document)
+      ;(copy.timeline as { audioTracks?: unknown[] }).audioTracks = [{ ...stored, volumeChanges }]
+      return copy
+    }
+    const path = 'timeline.audioTracks[0].volumeChanges'
+    await expectRefusal(await gzipJson(withTrackChanges([{ ...changes[0], level: 5 }])), `${path}[0].level`)
+    await expectRefusal(await gzipJson(withTrackChanges([{ ...changes[0], start: -1 }])), `${path}[0].start`)
+    await expectRefusal(await gzipJson(withTrackChanges([{ ...changes[0], length: 'long' }])), `${path}[0].length`)
+    await expectRefusal(
+      await gzipJson(withTrackChanges([changes[0], { ...changes[1], id: 'v1' }])),
+      `${path}[1].id "v1" is duplicated`,
+    )
+    await expectRefusal(await gzipJson(withTrackChanges({ v1: changes[0] })), `${path} must be an array`)
+  })
+
+  it('deserializes the committed v36 volume-changes fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV36VolumeChangesReferencesBase64.trim()), (char) => char.charCodeAt(0))
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.audioTracks).toEqual([
+      {
+        id: 'a1', clipId: 'c3', name: 'music.webm', duration: 30, offset: 0, inPoint: 1, outPoint: 21, volume: 0.8,
+        volumeChanges: changes,
+      },
+    ])
   })
 })
 

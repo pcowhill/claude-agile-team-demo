@@ -2811,9 +2811,10 @@ export interface TrackReplayElement {
  * Aligns one audio track's replay element with the export clock (#105) —
  * the export-side counterpart of the preview's per-frame track sync (#103),
  * driven from the same shared helpers so the two renders cannot drift: the
- * element's volume is set to `audioTrackGainAt` (volume × fade envelope, 0
- * outside the window) every call, which is what renders fades as continuous
- * ramps in the recording, and `audioTrackPlaybackAt` decides playing state
+ * element's volume is set to `audioTrackGainAt` (volume × volume changes ×
+ * fade envelope, 0 outside the window, #1025) every call, which is what
+ * renders fades and a change's ramps as continuous ramps in the recording,
+ * and `audioTrackPlaybackAt` decides playing state
  * and source position. Elements are cued exactly when their window starts;
  * while playing they keep their own clock unless it drifts audibly.
  * `duckFactor` is the shared duck factor at this instant (#241) — 1 when no

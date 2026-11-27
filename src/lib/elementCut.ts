@@ -43,6 +43,7 @@ import { outputTimeAtSource } from './remap'
 import { splitRemapsAtOutput, splitZoomAt } from './ripple'
 import { splitMovesAt } from './overlayMove'
 import { splitOverlayPictureEffectsAt } from './overlayPictureEffect'
+import { splitVolumeChangesAt } from './volumeChange'
 
 /** The element without the given optional key: zero is stored as no key. */
 function without<T extends object>(element: T, key: keyof T): T {
@@ -66,15 +67,25 @@ export function cutAudioTrack(
 ): [AudioTrack, AudioTrack] | null {
   if (!Number.isFinite(clamps.from) || !Number.isFinite(clamps.to)) return null
   if (cutClampsRefusal(track, clamps) !== null) return null
-  const head = without({ ...track, outPoint: clamps.from }, 'fadeOut')
-  const tail = without(
-    {
-      ...track,
-      id: newId,
-      inPoint: clamps.to,
-      offset: track.offset + (clamps.from - track.inPoint),
-    },
-    'fadeIn',
+  // Volume changes (#1025) are seconds into the trimmed range: the head
+  // keeps what lies before *Cut from*, and the tail what lies after *Cut to*,
+  // shifted to its own In. The part of a change inside the cut goes with it.
+  const kept = track.volumeChanges === undefined ? undefined : splitVolumeChangesAt(track.volumeChanges, clamps.from - track.inPoint).before
+  const tailChanges =
+    track.volumeChanges === undefined ? undefined : splitVolumeChangesAt(track.volumeChanges, clamps.to - track.inPoint).after
+  const head = withList(without({ ...track, outPoint: clamps.from }, 'fadeOut'), 'volumeChanges', kept)
+  const tail = withList(
+    without(
+      {
+        ...track,
+        id: newId,
+        inPoint: clamps.to,
+        offset: track.offset + (clamps.from - track.inPoint),
+      },
+      'fadeIn',
+    ),
+    'volumeChanges',
+    tailChanges,
   )
   return [head, tail]
 }

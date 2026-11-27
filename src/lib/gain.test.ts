@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import gainsBefore692 from './fixtures/gains-before-692.json'
 import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
+import { VOLUME_CHANGE_RAMP_SECONDS } from './volumeChange'
+import { MAX_VOLUME } from './volume'
 import {
   DEFAULT_DUCK_LEVEL,
   DUCK_RAMP_SECONDS,
@@ -161,6 +163,42 @@ describe('audioTrackGainAt (#104)', () => {
 
   it('composes volume with the fade envelope', () => {
     expect(audioTrackGainAt(track({ volume: 0.5, fadeIn: 2 }), 6)).toBe(0.25)
+  })
+})
+
+describe('audioTrackGainAt with volume changes (#1025)', () => {
+  // Window [5, 17); a change 3 s into the trimmed range is at sequence 8.
+  const changed = (level: number, overrides: Partial<AudioTrack> = {}) =>
+    track({ volumeChanges: [{ id: 'v1', start: 3, length: 4, level }], ...overrides })
+
+  it('plays the level inside the change, full volume away from it, and ramps between', () => {
+    expect(audioTrackGainAt(changed(0.2), 6)).toBe(1)
+    expect(audioTrackGainAt(changed(0.2), 8)).toBe(0.2)
+    expect(audioTrackGainAt(changed(0.2), 10)).toBe(0.2)
+    expect(audioTrackGainAt(changed(0.2), 8 - VOLUME_CHANGE_RAMP_SECONDS / 2)).toBeCloseTo(0.6, 12)
+    expect(audioTrackGainAt(changed(0.2), 13)).toBe(1)
+  })
+
+  it('multiplies with the track Volume and the fades', () => {
+    expect(audioTrackGainAt(changed(0.5, { volume: 0.8 }), 9)).toBeCloseTo(0.4, 12)
+    // fadeOut 12 over the 12 s window: at sequence 9, 8 s from the end, the ramp reads 8 / 12.
+    expect(audioTrackGainAt(changed(0.5, { fadeOut: 12 }), 9)).toBeCloseTo(0.5 * (8 / 12), 12)
+  })
+
+  it('clamps Volume × level to MAX_VOLUME', () => {
+    expect(audioTrackGainAt(changed(MAX_VOLUME, { volume: 2 }), 9)).toBe(MAX_VOLUME)
+  })
+
+  it('multiplies with ducking, as fades do: 0.5 under a duck to 0.3 plays at 0.15', () => {
+    const music = changed(0.5)
+    const voice: AudioTrack = { ...track({ id: 'voice', duck: true, duckLevel: 0.3 }), offset: 7, inPoint: 0, outPoint: 5 }
+    const windows = duckWindows({ entries: [], transitions: [], zooms: [], audioTracks: [music, voice] })
+    const gain = audioTrackGainAt(music, 9) * trackDuckFactorAt(music, windows, 9)
+    expect(gain).toBeCloseTo(0.15, 12)
+  })
+
+  it('leaves a change-free track exactly as before', () => {
+    expect(audioTrackGainAt(track({ volume: 0.7, fadeIn: 2 }), 6)).toBe(0.35)
   })
 })
 

@@ -3,10 +3,11 @@ import type { VideoOverlay } from './videoOverlay'
 import { overlayOutputDuration } from './videoOverlay'
 import { audioTracksOf, effectiveDuration } from './timeline'
 import { clampVolume } from './volume'
+import { changedVolumeAt } from './volumeChange'
 
 /**
  * Effective audio gain (#104): the single source of truth composing volume,
- * mute, fade envelopes, and transition ramps into the gain a media element
+ * volume changes (#1025), mute, fade envelopes, and transition ramps into the gain a media element
  * plays at. Preview and export (#105) both call these — the same idiom as
  * `TRANSITION_TYPES` — so the two renders cannot drift.
  *
@@ -92,13 +93,19 @@ export function videoOverlayGainAt(overlay: VideoOverlay, sequenceTime: number):
 /**
  * Gain of an audio track at one timeline position: 0 outside the track's
  * audible window `[offset, offset + trimmedLength)`, otherwise its volume
- * scaled by the fade envelope (`fadeRampAt`, #104).
+ * with its volume changes applied (`changedVolumeAt`, #1025: one more
+ * factor, the product clamped to `MAX_VOLUME`) scaled by the fade envelope
+ * (`fadeRampAt`, #104). A track's seconds into its window are seconds into
+ * its trimmed range, the changes' time base, since a track has no remaps.
  */
 export function audioTrackGainAt(track: AudioTrack, sequenceTime: number): number {
   const length = effectiveDuration(track)
   const into = sequenceTime - track.offset
   if (into < 0 || into >= length) return 0
-  return clampVolume(track.volume ?? 1) * fadeRampAt(track.fadeIn, track.fadeOut, into, length)
+  return (
+    changedVolumeAt(track.volume ?? 1, track.volumeChanges, into) *
+    fadeRampAt(track.fadeIn, track.fadeOut, into, length)
+  )
 }
 
 /**
