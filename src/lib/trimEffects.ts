@@ -480,6 +480,50 @@ export function audioTrackTrimEffectsPreview(
 }
 
 /**
+ * The lane each kind's bar sits in on the strip, counted up from the foot
+ * (#1038). Before #1038 the zoom, speed segment and picture effect bars
+ * shared the foot, and one drawn later covered another over the same
+ * seconds. Volume changes keep the lane #1026 gave them, just above the
+ * zooms. A pause is a tick standing up from the foot, so it has lane 0 and
+ * ends just below the speed segments' lane. The lanes are fixed per kind
+ * rather than packed, so a bar never jumps lanes while a clamp is dragged
+ * and another effect collapses.
+ */
+const MARK_LANE: Record<Exclude<TrimEffectKind, 'move'>, number> = {
+  zoom: 0,
+  pause: 0,
+  'volume-change': 1,
+  speed: 2,
+  'picture-effect': 3,
+}
+
+/**
+ * Each mark's lane on the strip (#1038), by id. Zooms, speed segments and
+ * volume changes are each kept disjoint by normalization, so one lane per
+ * kind holds them. Picture effects of different types may overlap
+ * (`pictureEffect.ts`), so one that overlaps an earlier picture effect in
+ * the lowest picture lane takes the next lane up, and so on. Marks that only
+ * touch, one ending where the next starts, share a lane.
+ */
+export function trimMarkLanes(marks: readonly TrimEffectMark[]): Map<string, number> {
+  const lanes = new Map<string, number>()
+  // The end of the last picture effect in each picture lane, lowest first.
+  const pictureEnds: number[] = []
+  for (const mark of [...marks].sort((a, b) => a.start - b.start)) {
+    if (mark.kind === 'move') continue
+    if (mark.kind !== 'picture-effect') {
+      lanes.set(mark.id, MARK_LANE[mark.kind])
+      continue
+    }
+    let lane = pictureEnds.findIndex((end) => end <= mark.start + EPSILON)
+    if (lane === -1) lane = pictureEnds.length
+    pictureEnds[lane] = mark.end
+    lanes.set(mark.id, MARK_LANE['picture-effect'] + lane)
+  }
+  return lanes
+}
+
+/**
  * The warning line's sentence (#709): "Trimming here shortens Zoom 1 and
  * removes Speed segment 2." Null when the trim cuts into nothing.
  */

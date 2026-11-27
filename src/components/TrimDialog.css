@@ -141,12 +141,18 @@
   pointer-events: none;
 }
 
-/* An effect's mark (#709): a bar along the strip's foot for a zoom or a
-   speed segment, a tick standing up from it for a pause. Each takes
-   pointer events only for its tooltip; a press still reaches the strip. */
+/* An effect's mark (#709): a bar for a zoom, a speed segment, a picture
+   effect or a volume change, a tick standing up from the foot for a pause.
+   Each takes pointer events only for its tooltip; a press still reaches the
+   strip.
+   Each kind's bar has a lane of its own, counted up from the foot
+   (`trimMarkLanes`, #1038): zooms 0, volume changes 1, speed segments 2,
+   picture effects 3 and up. On one shared foot, a bar drawn later covered
+   another kind's over the same seconds, and only the top one could be
+   pointed at. A lane is the bar's height plus a 2px gap. */
 .trim-effect-mark {
   position: absolute;
-  bottom: 2px;
+  bottom: calc(2px + var(--trim-mark-lane, 0) * (0.45rem + 2px));
   height: 0.45rem;
   min-width: 2px;
   border-radius: 2px;
@@ -166,12 +172,9 @@
 }
 
 /* A volume change, on an audio track (#1025), a video entry (#1026) or a
-   video overlay (#1027). It has a lane of its own just above the foot: an
-   entry's or an overlay's changes often span the same seconds as its zooms,
-   speed segments or picture effects, and on the foot a change's bar would
-   cover theirs (#1026). */
+   video overlay (#1027). Its lane, 1, is the one #1026 gave it, just above
+   the zooms'. */
 .trim-effect-volume-change {
-  bottom: calc(4px + 0.45rem);
   background: #ff7eb6;
 }
 
