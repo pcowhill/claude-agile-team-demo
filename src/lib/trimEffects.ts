@@ -1,7 +1,7 @@
 /**
  * What a trim in the Trim window would do to the entry's effects (#709,
  * from the approved design #703 §3): where its zooms, speed segments,
- * pauses, picture effects (#862) and volume changes (#1026) would sit,
+ * pauses, picture effects (#862) and volume changes (#1026, #1027) would sit,
  * which of them the clamps as they stand would cut into, and which source
  * span a transition at either end would cover.
  *
@@ -36,11 +36,14 @@
  * through the overlay's speed segments and pauses, where a window over a
  * pause is many seconds on screen and one instant of source.
  *
- * **Volume changes** (#1025 on an audio track, #1026 on a video entry) are
- * windows in seconds into the element's trimmed range, as a zoom's are, so
- * they ride with In and are both warned of and marked by the same rule. A
- * track has no other effects and sits on no boundary; an entry's changes
- * are compared beside its zooms, remaps and picture effects.
+ * **Volume changes** (#1025 on an audio track, #1026 on a video entry,
+ * #1027 on a video overlay) are windows in seconds into the element's
+ * trimmed range, as a zoom's are, so they ride with In and are both warned
+ * of and marked by the same rule. A track has no other effects and sits on
+ * no boundary; an entry's changes are compared beside its zooms, remaps and
+ * picture effects, and an overlay's beside its zooms and remaps. Unlike an
+ * overlay's Moves and picture effects they are in source seconds, so they
+ * are marked on the strip.
  */
 
 import { remapEnd, remapStart, sourceTimeAtOutput } from './remap'
@@ -70,8 +73,8 @@ import type { VolumeChange } from './volumeChange'
  * `picture-effect` is a Vignette, Blur or other registered picture effect
  * (#862), whatever its type. `move` is an overlay's Move (#834), which is
  * only ever warned of, never marked (see "An overlay's on-screen lists").
- * `volume-change` is an audio track's (#1025) or a video entry's (#1026)
- * volume change.
+ * `volume-change` is an audio track's (#1025), a video entry's (#1026) or a
+ * video overlay's (#1027) volume change.
  */
 export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect' | 'move' | 'volume-change'
 
@@ -182,7 +185,7 @@ function placedEffects(
 }
 
 /**
- * An element's volume changes (#1025, #1026), named as their rows name them: numbered
+ * An element's volume changes (#1025, #1026, #1027), named as their rows name them: numbered
  * in the normalized list's order (`VolumeChangeFieldsRow`). Their windows
  * clamp and collapse on a retrim as a zoom's do, so the same outcomes apply.
  */
@@ -402,9 +405,9 @@ export function trimEffectsPreview(
  * (#711): `trimEffectsPreview`'s rule, with the overlay's own action and
  * lists. The candidate is the `video-overlay-updated` Apply dispatches —
  * the overlay's placement with the new In and Out — and the overlay's own
- * zooms and speed segments and pauses are compared before and after, then
- * its Moves and picture effects (#1008), which are warned of after them but
- * not marked. An overlay sits on no boundary, so there are no transition
+ * zooms and speed segments and pauses are compared before and after, with
+ * its volume changes (#1027) after them, then its Moves and picture effects
+ * (#1008), which are warned of after them but not marked. An overlay sits on no boundary, so there are no transition
  * spans. An image overlay has no source to trim, and shows nothing.
  */
 export function overlayTrimEffectsPreview(
@@ -427,9 +430,12 @@ export function overlayTrimEffectsPreview(
   if (trimmed === state && !unchanged) return EMPTY
   const overlay = videoOverlaysOf(trimmed).find((candidate) => candidate.id === overlayId)
   if (overlay === undefined) return EMPTY
+  // The overlay's own volume changes (#1027) are in seconds into its
+  // trimmed range, as its zooms are, and the same `video-overlay-updated`
+  // sweeps them, so they are compared, and marked, beside them.
   const { marks, warnings } = comparedEffects(
-    placedEffects(current.zooms ?? [], current.remaps ?? []),
-    placedEffects(overlay.zooms ?? [], overlay.remaps ?? []),
+    [...placedEffects(current.zooms ?? [], current.remaps ?? []), ...placedVolumeChanges(current.volumeChanges ?? [])],
+    [...placedEffects(overlay.zooms ?? [], overlay.remaps ?? []), ...placedVolumeChanges(overlay.volumeChanges ?? [])],
     overlay.inPoint,
   )
   const onScreen = comparedOnScreen(onScreenEffects(current), onScreenEffects(overlay))

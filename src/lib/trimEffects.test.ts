@@ -251,6 +251,94 @@ describe('overlayTrimEffectsPreview: a video overlay’s own effects (#711)', ()
     })
   })
 
+  describe('its volume changes (#1027)', () => {
+    // The 10 s overlay, untrimmed, with Zoom 1 at 4 to 8 s, Volume change 1
+    // at 1 to 3 s into it and Volume change 2 at 6 to 8 s: the entry case
+    // (#1026) on the overlay's own clock.
+    const changes = [
+      { id: 'v1', start: 1, length: 2, level: 0.5 },
+      { id: 'v2', start: 6, length: 2, level: 0.2 },
+    ]
+    const state = withOverlay({ zooms: [overlayZoom], volumeChanges: changes })
+    const preview = (inPoint: number, outPoint: number) => overlayTrimEffectsPreview(state, 'o1', { inPoint, outPoint })
+    const marksOf = (inPoint: number, outPoint: number) =>
+      preview(inPoint, outPoint).marks.map(({ kind, name, start, end }) => [kind, name, start, end])
+
+    it('marks each change on the strip in source seconds beside the zoom, and warns of nothing at the current trim', () => {
+      expect(marksOf(0, 10)).toEqual([
+        ['volume-change', 'Volume change 1', 1, 3],
+        ['zoom', 'Zoom 1', 4, 8],
+        ['volume-change', 'Volume change 2', 6, 8],
+      ])
+      expect(preview(0, 10).warnings).toEqual([])
+    })
+
+    it('names the changes and the zoom an Out would cut into, in strip order', () => {
+      expect(trimWarningText(preview(0, 7).warnings)).toBe('Trimming here shortens Zoom 1 and shortens Volume change 2.')
+      // Out at 5 is before Volume change 2 starts: it collapses, and has no mark.
+      expect(trimWarningText(preview(0, 5).warnings)).toBe('Trimming here shortens Zoom 1 and removes Volume change 2.')
+      expect(marksOf(0, 5)).toEqual([
+        ['volume-change', 'Volume change 1', 1, 3],
+        ['zoom', 'Zoom 1', 4, 5],
+      ])
+      expect(trimWarningText(preview(0, 2).warnings)).toBe(
+        'Trimming here shortens Volume change 1, removes Zoom 1 and removes Volume change 2.',
+      )
+    })
+
+    it('moves the changes with In, so moving In alone can cut into the last one', () => {
+      // In at 3: 7 s are left. Volume change 1 keeps 1 to 3 s into the trim,
+      // which is source 4 to 6, and Volume change 2 is cut to 6 to 7.
+      expect(preview(3, 10).warnings.filter(({ kind }) => kind === 'volume-change')).toEqual([
+        { id: 'v2', kind: 'volume-change', name: 'Volume change 2', outcome: 'shortens' },
+      ])
+      expect(marksOf(3, 10).filter(([kind]) => kind === 'volume-change')).toEqual([
+        ['volume-change', 'Volume change 1', 4, 6],
+        ['volume-change', 'Volume change 2', 9, 10],
+      ])
+    })
+
+    it('says what Apply then does', () => {
+      expect(appliedOverlay(state, 0, 5).volumeChanges).toEqual([
+        { id: 'v1', start: 1, length: 2, level: 0.5 },
+        { id: 'v2', start: 5, length: 0, level: 0.2 },
+      ])
+      expect(appliedOverlay(state, 3, 10).volumeChanges).toEqual([
+        { id: 'v1', start: 1, length: 2, level: 0.5 },
+        { id: 'v2', start: 6, length: 1, level: 0.2 },
+      ])
+    })
+
+    it('is not warned of once already at length zero (#1031), and is warned of before a Move', () => {
+      const collapsed = withOverlay({
+        volumeChanges: [
+          { id: 'v1', start: 1, length: 2, level: 0.5 },
+          { id: 'v2', start: 5, length: 0, level: 0.2 },
+        ],
+      })
+      expect(trimWarningText(overlayTrimEffectsPreview(collapsed, 'o1', { inPoint: 0, outPoint: 2 }).warnings)).toBe(
+        'Trimming here shortens Volume change 1.',
+      )
+      // A Move is an on-screen window: it is named after the source-seconds
+      // effects, the change among them, as the zooms are (#1008).
+      const withMove = withOverlay({
+        volumeChanges: [{ id: 'v1', start: 1, length: 2, level: 0.5 }],
+        moves: [{ id: 'm1', start: 3, glide: 1, x: 0.1, y: 0.1, width: 0.3, height: 0.3 }],
+      })
+      expect(trimWarningText(overlayTrimEffectsPreview(withMove, 'o1', { inPoint: 0, outPoint: 2 }).warnings)).toBe(
+        'Trimming here shortens Volume change 1 and removes Move 1.',
+      )
+    })
+
+    it('leaves a change-free overlay as it was: no volume-change marks or warnings', () => {
+      expect(
+        overlayTrimEffectsPreview(withOverlay({ zooms: [overlayZoom] }), 'o1', { inPoint: 0, outPoint: 5 }).marks.map(
+          ({ kind }) => kind,
+        ),
+      ).toEqual(['zoom'])
+    })
+  })
+
   describe('its Moves and picture effects, in on-screen time (#1008)', () => {
     const vignette: PictureEffectDefinition = {
       id: 'vignette',
