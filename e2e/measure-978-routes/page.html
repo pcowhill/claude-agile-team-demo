@@ -1,0 +1,83 @@
+<!doctype html><meta charset="utf-8">
+<style>
+html,body{margin:0;background:#111}
+#box{position:relative;width:1203px;height:677px;overflow:hidden;background:#000;margin:40px}
+#box video,#box canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.copy{position:absolute;inset:0;isolation:isolate;mix-blend-mode:screen}
+.tint{position:absolute;inset:0;mix-blend-mode:multiply}
+#stack{position:absolute;inset:0;isolation:isolate;background:#000}
+</style>
+<svg width="0" height="0" style="position:absolute">
+<filter id="off" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
+<feOffset in="red" dx="-2" dy="0" result="red-moved"/>
+<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green"/>
+<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue"/>
+<feOffset in="blue" dx="2" dy="0" result="blue-moved"/>
+<feBlend in="red-moved" in2="green" mode="screen" result="red-green"/>
+<feBlend in="red-green" in2="blue-moved" mode="screen"/>
+</filter></svg>
+<div id="box"></div>
+<script>
+const params = new URLSearchParams(location.search)
+const route = params.get('route'), blur = params.get('blur') === '1', src = params.get('src'), dx = 2
+const box = document.getElementById('box')
+const BLUR = 'blur(1.805px)'
+const mk = () => { const v = document.createElement('video'); v.src = src; v.muted = true; v.playsInline = true; v.preload = 'auto'; return v }
+let videos = [], counted
+if (route === 'plain' || route === 'svg') {
+  const v = mk(); box.append(v); videos = [v]; counted = v
+  if (route === 'svg') v.style.filter = 'url(#off)' + (blur ? ' ' + BLUR : '')
+  else if (blur) v.style.filter = BLUR
+} else if (route === 'copies') {
+  const stack = document.createElement('div'); stack.id = 'stack'; box.append(stack)
+  ;[['#f00', -dx], ['#0f0', 0], ['#00f', dx]].forEach(([colour, shift]) => {
+    const c = document.createElement('div'); c.className = 'copy'
+    const v = mk(); v.style.transform = `translateX(${shift}px)`
+    const t = document.createElement('div'); t.className = 'tint'; t.style.background = colour
+    c.append(v, t); stack.append(c); videos.push(v)
+  })
+  counted = videos[1]
+  if (blur) stack.style.filter = BLUR
+} else if (route === 'webgl') {
+  const v = mk(); v.style.opacity = '0'; box.append(v); videos = [v]; counted = v
+  const canvas = document.createElement('canvas'); box.append(canvas)
+  const dpr = devicePixelRatio; canvas.width = Math.round(1203 * dpr); canvas.height = Math.round(677 * dpr)
+  if (blur) canvas.style.filter = BLUR
+  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: false })
+  window.glInfo = gl ? (gl.getExtension('WEBGL_debug_renderer_info') ? gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL) : 'gl') : 'none'
+  const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = vec2(p.x*0.5+0.5, 0.5-p.y*0.5); gl_Position = vec4(p,0.,1.); }'
+  const fs = 'precision mediump float; varying vec2 uv; uniform sampler2D t; uniform float d; void main(){ float r = texture2D(t, uv + vec2(d,0.)).r; float g = texture2D(t, uv).g; float b = texture2D(t, uv - vec2(d,0.)).b; gl_FragColor = vec4(r,g,b,1.); }'
+  const sh = (type, text) => { const s = gl.createShader(type); gl.shaderSource(s, text); gl.compileShader(s); return s }
+  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog)
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW)
+  const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.uniform1f(gl.getUniformLocation(prog, 'd'), dx / 1203)
+  gl.viewport(0, 0, canvas.width, canvas.height)
+  window.draws = 0
+  const draw = () => { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); window.draws++; v.requestVideoFrameCallback(draw) }
+  v.requestVideoFrameCallback(draw)
+}
+window.ready = Promise.all(videos.map((v) => new Promise((r) => v.readyState >= 3 ? r() : v.addEventListener('canplaythrough', r, { once: true }))))
+window.measure = async () => {
+  await window.ready
+  videos.forEach((v) => { v.currentTime = 0.2 })
+  await new Promise((r) => setTimeout(r, 500))
+  await Promise.all(videos.map((v) => v.play()))
+  await new Promise((r) => setTimeout(r, 300))
+  const v = counted, t0 = v.currentTime, d0 = window.draws ?? 0
+  let frames = 0, rafs = 0, last = performance.now(), longest = 0, done = false
+  const onFrame = () => { frames++; if (!done) v.requestVideoFrameCallback(onFrame) }
+  v.requestVideoFrameCallback(onFrame)
+  const onRaf = (now) => { rafs++; longest = Math.max(longest, now - last); last = now; if (!done) requestAnimationFrame(onRaf) }
+  requestAnimationFrame(onRaf)
+  await new Promise((r) => setTimeout(r, 3000))
+  done = true
+  const drift = videos.length > 1 ? Math.max(...videos.map((x) => x.currentTime)) - Math.min(...videos.map((x) => x.currentTime)) : 0
+  videos.forEach((x) => x.pause())
+  return { fps: frames / 3, raf: rafs / 3, longest: Math.round(longest), advanced: +(v.currentTime - t0).toFixed(2), draws: ((window.draws ?? 0) - d0) / 3, drift: +drift.toFixed(3), gl: window.glInfo }
+}
+</script>
