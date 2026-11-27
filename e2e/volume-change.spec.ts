@@ -28,7 +28,8 @@ import { chooseEffect } from './timelineRowMenu'
  * #1027's step 1b adds it on a video overlay: its + Effect ▾ item, its rows,
  * its undo steps, and the gain the preview plays the overlay's own element
  * at, including behind a speed segment, where the change stays on the
- * source seconds it was set on.
+ * source seconds it was set on. Step 1c adds the overlay's Trim window and
+ * its export, on an overlay recorded with a tone.
  */
 
 const TRACK = 'audio track tone.wav at position 1'
@@ -648,6 +649,111 @@ for (const [width, height] of [
     await overlayRow.screenshot({ path: testInfo.outputPath(`overlay-volume-change-${width}.png`) })
   })
 }
+
+test("the Trim window marks a video overlay's volume changes beside its zoom and names the ones a trim would cut into; Apply does that (#1027)", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000)
+  await clipAndOverlay(page)
+  // Populated: a zoom (0 to 2 s by default), then Volume change 1 at 0 to
+  // 2 s and Volume change 2 from 2 s to the end of the 4 s overlay.
+  await chooseEffect(page, OVERLAY, 'Zoom')
+  await chooseEffect(page, OVERLAY, 'Volume change')
+  await chooseEffect(page, OVERLAY, 'Volume change')
+  await expect(overlayChangeField(page, 2, 'start')).toHaveValue('2')
+
+  await page.getByRole('button', { name: `Trim ${OVERLAY} in the Trim window` }).click()
+  const dialog = page.getByRole('dialog', { name: `Trim ${OVERLAY}` })
+  await expect(dialog).toBeVisible()
+  const warning = dialog.getByTestId('trim-warning')
+  const strip = dialog.getByTestId('trim-strip')
+  const changeMarks = dialog.locator('[data-testid="trim-effect-mark"][data-kind="volume-change"]')
+
+  // Untrimmed: both changes marked beside the zoom, inside the strip, and nothing cut.
+  await expect(dialog.locator('[data-testid="trim-effect-mark"][data-kind="zoom"]')).toHaveCount(1)
+  await expect(changeMarks).toHaveCount(2)
+  for (let index = 0; index < 2; index++) {
+    await expect(changeMarks.nth(index)).toHaveAttribute('title', `Volume change ${index + 1}`)
+    await expectWithin(changeMarks.nth(index), strip, { what: `volume change ${index + 1}'s mark` })
+  }
+  await expect(warning).toHaveText('')
+  // Zoom 1 and Volume change 1 span the same seconds, 0 to 2: the change's
+  // lane (#1026) keeps its bar off the zoom's on an overlay's strip too,
+  // read in one page read.
+  const lanes = await dialog.evaluate((element) => {
+    const box = (kind: string) =>
+      element.querySelector(`[data-testid="trim-effect-mark"][data-kind="${kind}"]`)!.getBoundingClientRect()
+    return { zoomTop: box('zoom').top, changeBottom: box('volume-change').bottom }
+  })
+  expect(
+    lanes.changeBottom,
+    `Volume change 1's mark (bottom ${lanes.changeBottom}px) overlaps Zoom 1's (top ${lanes.zoomTop}px)`,
+  ).toBeLessThanOrEqual(lanes.zoomTop)
+
+  await setTrimOut(dialog, '3')
+  await expect(warning).toHaveText('Trimming here shortens Volume change 2.')
+  await setTrimOut(dialog, '1.5')
+  await expect(warning).toHaveText('Trimming here shortens Zoom 1, shortens Volume change 1 and removes Volume change 2.')
+  // A change cut to nothing has no mark.
+  await expect(changeMarks).toHaveCount(1)
+  await expectWithin(changeMarks, strip, { what: "volume change 1's mark, shortened" })
+  await dialog.screenshot({ path: testInfo.outputPath('trim-window-overlay-volume-change.png') })
+
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(overlayChangeField(page, 1, 'length')).toHaveValue('1.5')
+  // Removed is kept at length zero at the new end, as the overlay's other effects are.
+  await expect(overlayChangeField(page, 2, 'start')).toHaveValue('1.5')
+  await expect(overlayChangeField(page, 2, 'length')).toHaveValue('0')
+})
+
+test("the export plays a video overlay's volume change at its level: 0.25 is −12 dB against the overlay's sound outside it (#1027)", async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await page.goto('./')
+  // A click gives the page the user activation an AudioContext needs.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  // A silent entry under an overlay recorded with the tone, so the mix is
+  // the overlay's own sound: no track beside it.
+  const silent = await recordWebm(page, 4000, false)
+  const toned = await recordWebm(page, 4000, true)
+  await page.getByTestId('clip-file-input').setInputFiles([
+    { name: 'clip.webm', mimeType: 'video/webm', buffer: silent },
+    { name: 'cam.webm', mimeType: 'video/webm', buffer: toned },
+  ])
+  await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await chooseClipAction(page, 'cam.webm', 'Add as overlay')
+  const cam = 'overlay cam.webm at position 1'
+  const field = (what: 'start' | 'length' | 'level') =>
+    page.getByRole('spinbutton', {
+      name: what === 'level' ? `Volume change 1 level of ${cam} (0 to 4)` : `Volume change 1 ${what} of ${cam} in seconds`,
+      exact: true,
+    })
+  await chooseEffect(page, cam, 'Volume change')
+  // 1.5 s to 3 s into the overlay, which appears at 0 s, at Level 0.25. Its
+  // ramps run 1.25 to 1.5 s and 3 to 3.25 s, so [1.9, 2.6] is well inside
+  // and [0.5, 1.0] well clear, and late enough for the tone to have begun.
+  await setField(field('start'), '1.5')
+  await setField(field('length'), '1.5')
+  await setField(field('level'), '0.25')
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exported = await readFile(await (await downloadPromise).path())
+
+  const outside = await peakIn(page, exported, 0.5, 1.0)
+  const inside = await peakIn(page, exported, 1.9, 2.6)
+  const db = 20 * Math.log10(inside / outside)
+  console.log(
+    `overlay volume change export: outside ${outside.toFixed(4)}, inside ${inside.toFixed(4)}, ${db.toFixed(2)} dB`,
+  )
+  // Loud enough outside to be the tone, not codec noise.
+  expect(outside).toBeGreaterThan(0.05)
+  expect(Math.abs(db - 20 * Math.log10(0.25))).toBeLessThanOrEqual(LEVEL_TOLERANCE_DB)
+})
 
 for (const [width, height] of [
   [1280, 720],

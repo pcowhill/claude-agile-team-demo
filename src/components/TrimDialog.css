@@ -165,10 +165,11 @@
   background: #6fb7ff;
 }
 
-/* A volume change, on an audio track (#1025) or a video entry (#1026). It
-   has a lane of its own just above the foot: an entry's changes often span
-   the same seconds as its zooms, speed segments or picture effects, and on
-   the foot a change's bar would cover theirs (#1026). */
+/* A volume change, on an audio track (#1025), a video entry (#1026) or a
+   video overlay (#1027). It has a lane of its own just above the foot: an
+   entry's or an overlay's changes often span the same seconds as its zooms,
+   speed segments or picture effects, and on the foot a change's bar would
+   cover theirs (#1026). */
 .trim-effect-volume-change {
   bottom: calc(4px + 0.45rem);
   background: #ff7eb6;
