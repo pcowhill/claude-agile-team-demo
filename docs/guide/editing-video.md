@@ -107,7 +107,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 
 **What it does.** Cuts the sequence entry under the playhead into two entries, each trimmable and removable on its own.
 
-**Details.** An untouched split plays and exports exactly like the original. Effects follow the cut: speed segments and pauses split exactly where the razor falls, and a zoom moves to the half that shows it or splits with it. The item is disabled at entry boundaries and inside a transition's overlap, where there is nothing to split. To pick the moment on one clip instead of moving the playhead to it, use [Split…](#split) on the clip's row.
+**Details.** An untouched split plays and exports exactly like the original. Effects follow the cut: speed segments and pauses split exactly where the razor falls, and a zoom moves to the half that shows it or splits with it. A [volume change](audio.md#volume-change) is divided the same way, one across the cut becoming one in each half at the same level. The item is disabled at entry boundaries and inside a transition's overlap, where there is nothing to split. To pick the moment on one clip instead of moving the playhead to it, use [Split…](#split) on the clip's row.
 
 **Related.** [Split…](#split) · [Trimming](#trimming) · [Cut out marked range](#cut-out-marked-range) · [Freeze frame](#freeze-frame)
 
@@ -147,7 +147,7 @@ What the controls on a timeline row do to the picture and its timing: [trimming]
 **Details.** Set the in mark where a fumble starts and the out mark where it ends, then cut: the marked time is gone in one step. To mark the part on one clip's own strip instead, while watching it, use [Cut…](#cut) on the clip's row: it applies this same cut.
 
 - **It works across cuts.** An entry the range starts or ends inside is cut there exactly as [Split at playhead](#split-at-playhead) cuts, and an entry lying wholly inside the range is removed. A mark exactly on a cut needs no split.
-- **Effects follow the razor.** Speed segments, pauses and zooms inside the range go with it; one across a mark is cut there, or kept, as Split at playhead would. A mark inside a pause keeps the part of its hold on the kept side, so exactly the marked time is removed.
+- **Effects follow the razor.** Speed segments, pauses, zooms and an entry's [volume changes](audio.md#volume-change) inside the range go with it; one across a mark is cut there, or kept, as Split at playhead would. A mark inside a pause keeps the part of its hold on the kept side, so exactly the marked time is removed.
 - **Transitions.** A transition on a cut inside the range goes with it, and the two sides meet at a hard cut. Transitions elsewhere stay.
 - **Everything placed by its own start time moves with the picture.** Audio tracks, video and image overlays, text and subtitles, shape groups and chapter markers follow what they were placed against:
   - one that starts at or after the out mark moves earlier by the range's length;

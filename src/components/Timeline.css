@@ -666,7 +666,7 @@
 .timeline-entry-audio input[type='range'],
 .timeline-entry-color input[type='range'],
 .audio-track-gain input[type='range'],
-.audio-track-volume-change input[type='range'],
+.volume-change-row input[type='range'],
 .video-overlay-controls input[type='range'] {
   width: 5rem;
   /* The rows are 0.8rem text; a full-size thumb would set each row's line
@@ -716,10 +716,10 @@
 }
 
 /* The track's gain row (#104): volume and fade-in/fade-out durations. A
-   volume change's row (#1025) is the same shape: a Level beside its slider,
-   and two times. */
+   volume change's row, on a track (#1025) or a video entry (#1026), is the
+   same shape: a Level beside its slider, and two times. */
 .audio-track-gain,
-.audio-track-volume-change {
+.volume-change-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -737,7 +737,7 @@
    sequence entry's own Mute checkbox was unaffected, which is what made
    this one look wrong beside it. */
 .audio-track-gain input[type='number'],
-.audio-track-volume-change input[type='number'] {
+.volume-change-row input[type='number'] {
   width: 4.5rem;
   padding: 0.15rem 0.3rem;
   border: 1px solid #2c2c2c;

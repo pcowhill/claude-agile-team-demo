@@ -341,6 +341,15 @@ interface TimelineProps {
   onAddPictureEffect?: (entryId: string, type: string, spec: PictureEffectSpec) => void
   onUpdatePictureEffect?: (id: string, spec: PictureEffectSpec) => void
   onRemovePictureEffect?: (id: string) => void
+  /**
+   * A video entry's volume changes (#1026), as a track's (#1025): + Effect ▾
+   * › Volume change adds one, and each change's row edits or removes it.
+   * Without `onAddEntryVolumeChange` an entry's + Effect ▾ offers no Volume
+   * change; a still's or a slate's never does, since it has no sound.
+   */
+  onAddEntryVolumeChange?: (entryId: string, change: VolumeChangeSpec) => void
+  onUpdateEntryVolumeChange?: (entryId: string, id: string, change: VolumeChangeSpec) => void
+  onRemoveEntryVolumeChange?: (entryId: string, id: string) => void
   /** Adds a text overlay with the default spec (#139); the id is the caller's to mint. */
   onAddText: () => void
   /**
@@ -750,24 +759,27 @@ function MoveFieldsRow({
 }
 
 /**
- * One volume change's fields on an audio track's row (#1025), in the zoom
- * rows' pattern: when it starts and how long it lasts (seconds into the
- * track's trimmed range), and its Level, in the Volume field's units and
- * with the Volume field's slider and mark at 1.
+ * One volume change's fields on an audio track's row (#1025) or a video
+ * entry's (#1026), in the zoom rows' pattern: when it starts and how long
+ * it lasts (seconds into the element's trimmed range), and its Level, in
+ * the Volume field's units and with the Volume field's slider and mark at 1.
  */
 function VolumeChangeFieldsRow({
   change,
   changeIndex,
   position,
   maxStart,
+  testId,
   onUpdate,
   onRemove,
 }: {
   change: VolumeChange
   changeIndex: number
   position: string
-  /** The track's trimmed length: the time fields' upper bound. */
+  /** The element's trimmed length: the time fields' upper bound. */
   maxStart: number
+  /** Which element's row this is, for tests: `audio-track-volume-change` or `entry-volume-change`. */
+  testId: string
   onUpdate: (spec: VolumeChangeSpec) => void
   onRemove: () => void
 }) {
@@ -775,7 +787,7 @@ function VolumeChangeFieldsRow({
   const { start, length, level } = change
   const set = (next: Partial<VolumeChangeSpec>) => onUpdate({ start, length, level, ...next })
   return (
-    <div className="audio-track-volume-change" data-testid="audio-track-volume-change">
+    <div className="volume-change-row" data-testid={testId}>
       <LabelledField text={`${changeName} at`}>
         <SecondsField
           label={`${changeName} start of ${position} in seconds`}
@@ -2980,6 +2992,9 @@ export function Timeline({
   onAddAudioTrackVolumeChange,
   onUpdateAudioTrackVolumeChange,
   onRemoveAudioTrackVolumeChange,
+  onAddEntryVolumeChange,
+  onUpdateEntryVolumeChange,
+  onRemoveEntryVolumeChange,
 }: TimelineProps) {
   const { entries } = timeline
   // The transition picker's options live in the registry (#199), which an
@@ -4270,6 +4285,24 @@ export function Timeline({
                     onRemove={onRemovePictureEffect}
                   />
                 )}
+                {/* Volume changes (#1026), after the zoom, remap and
+                    picture-effect rows, in the track's row idiom (#1025):
+                    numbered in time order, the order the normalized entry
+                    stores them in, with times in seconds into its trimmed
+                    range. A still or a slate carries none. */}
+                {!isStillEntry(entry) &&
+                  (entry.volumeChanges ?? []).map((change, changeIndex) => (
+                    <VolumeChangeFieldsRow
+                      key={change.id}
+                      change={change}
+                      changeIndex={changeIndex}
+                      position={position}
+                      maxStart={effectiveDuration(entry)}
+                      testId="entry-volume-change"
+                      onUpdate={(spec) => onUpdateEntryVolumeChange?.(entry.id, change.id, spec)}
+                      onRemove={() => onRemoveEntryVolumeChange?.(entry.id, change.id)}
+                    />
+                  ))}
                 {/* + Effect ▾ (#419, from the approved redesign #401 /
                     feedback #395): the three things an expanded entry can
                     grow — a zoom (#129), a speed segment and a pause (#141)
@@ -4313,6 +4346,19 @@ export function Timeline({
                         onSelect: () => addablePause !== null && onAddRemap(entry.id, addablePause),
                       },
                     )
+                    if (onAddEntryVolumeChange !== undefined) {
+                      // Volume change (#1026), after the remap items: the
+                      // track's default (#1025), 2 s at Level 0.5 after the
+                      // last change, greyed when no room is left.
+                      const addableChange = defaultVolumeChangeFor(entry.volumeChanges, trimmed)
+                      items.push({
+                        kind: 'action',
+                        label: 'Volume change',
+                        disabled: addableChange === null,
+                        onSelect: () =>
+                          addableChange !== null && onAddEntryVolumeChange(entry.id, addableChange),
+                      })
+                    }
                   }
                   if (onAddPictureEffect) {
                     // One item per registered picture effect (#862), after
@@ -4683,6 +4729,7 @@ export function Timeline({
                       changeIndex={changeIndex}
                       position={position}
                       maxStart={trimmedLength}
+                      testId="audio-track-volume-change"
                       onUpdate={(spec) => onUpdateAudioTrackVolumeChange?.(track.id, change.id, spec)}
                       onRemove={() => onRemoveAudioTrackVolumeChange?.(track.id, change.id)}
                     />
