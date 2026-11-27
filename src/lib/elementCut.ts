@@ -25,7 +25,9 @@
  *   since the frame it holds is kept. A speed segment across a clamp is cut
  *   there. A zoom is split by `splitZoomAt` at each clamp; one whose ramp
  *   contains a clamp has no exact form there, so it is kept whole on the
- *   head's side, as the razor keeps it. Redactions and spotlights are in the
+ *   head's side, as the razor keeps it. Volume changes (#1027) are in the
+ *   zooms' seconds and are divided at the clamps as a track's are, the part
+ *   inside the cut going with it. Redactions and spotlights are in the
  *   clip's own source seconds, so both parts keep every one; those outside
  *   a part's trim never show. Moves (#834) and picture effects (#872) are
  *   in on-screen time, so they are divided at the clamps' output instants.
@@ -144,6 +146,14 @@ export function cutVideoOverlay(
       return after === null ? [] : [after]
     }),
   )
+  // Volume changes (#1027) are seconds into the trimmed range, as the zooms
+  // are: the head keeps what lies before *Cut from*, the tail what lies
+  // after *Cut to*, from its own In, as a track's (#1025). The part of a
+  // change inside the cut goes with it.
+  if (overlay.volumeChanges !== undefined) {
+    head = withList(head, 'volumeChanges', splitVolumeChangesAt(overlay.volumeChanges, from).before)
+    tail = withList(tail, 'volumeChanges', splitVolumeChangesAt(overlay.volumeChanges, to).after)
+  }
   // Moves (#834) are keyed to on-screen time: the head keeps those before
   // Cut from's output instant, and the tail those after Cut to's, from the
   // placement the overlay had there.

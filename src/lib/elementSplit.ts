@@ -29,7 +29,8 @@
  *   segment containing the point becomes two with the same factor, a pause
  *   at the point stays with the first part, and a zoom moves or splits by
  *   `splitZoomAt` (one whose ramp contains the point stays whole with the
- *   first part, the razor's fallback). Redactions and spotlights are in the
+ *   first part, the razor's fallback). Its volume changes (#1027) divide
+ *   at the same point as a track's do. Redactions and spotlights are in the
  *   clip's own source seconds, so both parts keep every one; those outside
  *   a part's trim never show. Moves (#834) and picture effects (#872) are
  *   in on-screen time, so they divide where the first part ends.
@@ -160,6 +161,13 @@ export function splitVideoOverlay(
     'zooms',
     zooms?.flatMap(({ after }) => (after === null ? [] : [after])),
   )
+  // Volume changes (#1027) are seconds into the trimmed range, as the
+  // zooms are: divided at the same point, as a track's are (#1025).
+  if (overlay.volumeChanges !== undefined) {
+    const changes = splitVolumeChangesAt(overlay.volumeChanges, at)
+    first = withList(first, 'volumeChanges', changes.before)
+    second = withList(second, 'volumeChanges', changes.after)
+  }
   // Moves (#834) are keyed to on-screen time: divided where the first part
   // ends, the second taking the placement the overlay had there as its own.
   if (overlay.moves !== undefined) {
