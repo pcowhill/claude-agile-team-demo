@@ -271,7 +271,8 @@ jobs:
       # the PulseAudio step and Firefox's here, in one job (#586); with a job
       # per browser the job's log is already one browser's (#1047).
       - name: Browser tests
-        run: npm run test:e2e -- --project=${{ matrix.project }}
+        # MEASUREMENT ONLY (#1022): this branch is never merged.
+        run: npm run test:e2e -- --project=${{ matrix.project }} e2e/visual-effects.spec.ts -g "the export draws the preview" --repeat-each=12 --workers=2 --retries=0
 
       - uses: actions/upload-artifact@v4
         if: failure()

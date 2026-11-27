@@ -736,7 +736,25 @@ test.describe('Film grain (#870)', () => {
     })
     const bound = encoding + GRAIN_WEBM_ALLOWANCE
     const matched = matches.filter((match) => match.best < bound)
+    // #1022's measurement: inside the grained stretch, the longest run of
+    // scan samples showing one recorded frame (each within 0.5 of the
+    // previous), in seconds, and how many distinct frames the stretch holds.
+    // At 30 frames a second on the 1/60 s grid a frame fills about 2 samples.
+    let longestHeld = 0
+    let held = 1
+    let distinct = first >= 0 ? 1 : 0
+    for (let index = first + 1; first >= 0 && index <= last; index++) {
+      if (gridDistance(grids[index], grids[index - 1]) < 0.5) held += 1
+      else {
+        held = 1
+        distinct += 1
+      }
+      longestHeld = Math.max(longestHeld, held)
+    }
     const report = {
+      longestHeldSamples: longestHeld,
+      longestHeldSeconds: Number((longestHeld / 60).toFixed(3)),
+      distinctGrained: distinct,
       size: `${scan.width}x${scan.height}`,
       duration: scan.duration,
       frames: grids.length,
