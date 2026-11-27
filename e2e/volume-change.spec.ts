@@ -21,19 +21,41 @@ import { chooseEffect } from './timelineRowMenu'
  *
  * #1026's step 2b(i) adds the same change on a video entry: its + Effect ▾
  * item, its rows, its undo steps, and the gain the preview plays the
- * entry's own element at.
+ * entry's own element at. Step 2b(ii) adds the entry's Trim window and its
+ * export, on a clip recorded with a tone.
  */
 
 const TRACK = 'audio track tone.wav at position 1'
 
-/** A silent WebM recorded in the page: the sequence the track plays beside. */
-async function silentWebm(page: Page, durationMs: number): Promise<Buffer> {
-  const base64 = await page.evaluate(async (duration) => {
+/**
+ * A WebM recorded in the page: silent, as the sequence the track plays
+ * beside, or with a 440 Hz tone at 0.5 (`export-audio-mix.spec.ts`'s
+ * recorder) for a video entry whose own sound is measured (#1026). A tone
+ * needs the page's user activation for its AudioContext.
+ */
+async function recordWebm(page: Page, durationMs: number, withTone: boolean): Promise<Buffer> {
+  const base64 = await page.evaluate(async ({ duration, withTone }) => {
     const canvas = document.createElement('canvas')
     canvas.width = 320
     canvas.height = 180
     const ctx = canvas.getContext('2d')!
-    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' })
+    const stream = canvas.captureStream(30)
+    let audio: AudioContext | null = null
+    if (withTone) {
+      audio = new AudioContext()
+      if (audio.state === 'suspended') await audio.resume()
+      if (audio.state !== 'running') throw new Error(`AudioContext did not start (state: ${audio.state})`)
+      const destination = audio.createMediaStreamDestination()
+      const gain = audio.createGain()
+      gain.gain.value = 0.5
+      const oscillator = audio.createOscillator()
+      oscillator.frequency.value = 440
+      oscillator.connect(gain)
+      gain.connect(destination)
+      oscillator.start()
+      stream.addTrack(destination.stream.getAudioTracks()[0])
+    }
+    const recorder = new MediaRecorder(stream, { mimeType: withTone ? 'video/webm;codecs=vp8,opus' : 'video/webm' })
     const chunks: Blob[] = []
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data)
@@ -54,18 +76,19 @@ async function silentWebm(page: Page, durationMs: number): Promise<Buffer> {
     })
     recorder.stop()
     await stopped
+    await audio?.close()
     const bytes = new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer())
     let binary = ''
     for (const byte of bytes) binary += String.fromCharCode(byte)
     return btoa(binary)
-  }, durationMs)
+  }, { duration: durationMs, withTone })
   return Buffer.from(base64, 'base64')
 }
 
 /** Populated (`development.md`): a clip in the sequence and a 4 s tone track beside it. */
 async function clipAndTone(page: Page) {
   await page.goto('./')
-  const webm = await silentWebm(page, 4000)
+  const webm = await recordWebm(page, 4000, false)
   await page.getByTestId('clip-file-input').setInputFiles([
     { name: 'clip.webm', mimeType: 'video/webm', buffer: webm },
     { name: 'tone.wav', mimeType: 'audio/wav', buffer: sineWav(4) },
@@ -323,6 +346,103 @@ test("a video entry's volume change is one undo step to add, to edit and to remo
   await expect(entryChangeField(page, 1, 'level')).toHaveValue('0.5')
   await page.keyboard.press('Control+z')
   await expect(rows).toHaveCount(0)
+})
+
+test("the Trim window marks a video entry's volume changes beside its zoom and names the ones a trim would cut into; Apply does that (#1026)", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000)
+  await clipAndTone(page)
+  // Populated: a zoom (0 to 2 s by default), then Volume change 1 at 0 to
+  // 2 s and Volume change 2 from 2 s to the end of the 4 s clip.
+  await chooseEffect(page, ENTRY, 'Zoom')
+  await chooseEffect(page, ENTRY, 'Volume change')
+  await chooseEffect(page, ENTRY, 'Volume change')
+  await expect(entryChangeField(page, 2, 'start')).toHaveValue('2')
+
+  await page.getByRole('button', { name: `Trim ${ENTRY} in the Trim window` }).click()
+  const dialog = page.getByRole('dialog', { name: `Trim ${ENTRY}` })
+  await expect(dialog).toBeVisible()
+  const warning = dialog.getByTestId('trim-warning')
+  const strip = dialog.getByTestId('trim-strip')
+  const changeMarks = dialog.locator('[data-testid="trim-effect-mark"][data-kind="volume-change"]')
+
+  // Untrimmed: both changes marked beside the zoom, inside the strip, and nothing cut.
+  await expect(dialog.locator('[data-testid="trim-effect-mark"][data-kind="zoom"]')).toHaveCount(1)
+  await expect(changeMarks).toHaveCount(2)
+  for (let index = 0; index < 2; index++) {
+    await expect(changeMarks.nth(index)).toHaveAttribute('title', `Volume change ${index + 1}`)
+    await expectWithin(changeMarks.nth(index), strip, { what: `volume change ${index + 1}'s mark` })
+  }
+  await expect(warning).toHaveText('')
+  // Zoom 1 and Volume change 1 span the same seconds, 0 to 2. The change's
+  // bar has a lane of its own above the foot, so it never covers the zoom's:
+  // read in one page read, the change's bottom edge is at or above the
+  // zoom's top edge.
+  const lanes = await dialog.evaluate((element) => {
+    const box = (kind: string) =>
+      element.querySelector(`[data-testid="trim-effect-mark"][data-kind="${kind}"]`)!.getBoundingClientRect()
+    const zoomBox = box('zoom')
+    const changeBox = box('volume-change')
+    return { zoomTop: zoomBox.top, changeBottom: changeBox.bottom }
+  })
+  expect(
+    lanes.changeBottom,
+    `Volume change 1's mark (bottom ${lanes.changeBottom}px) overlaps Zoom 1's (top ${lanes.zoomTop}px)`,
+  ).toBeLessThanOrEqual(lanes.zoomTop)
+
+  await setTrimOut(dialog, '3')
+  await expect(warning).toHaveText('Trimming here shortens Volume change 2.')
+  await setTrimOut(dialog, '1.5')
+  await expect(warning).toHaveText('Trimming here shortens Zoom 1, shortens Volume change 1 and removes Volume change 2.')
+  // A change cut to nothing has no mark.
+  await expect(changeMarks).toHaveCount(1)
+  await expectWithin(changeMarks, strip, { what: "volume change 1's mark, shortened" })
+  await dialog.screenshot({ path: testInfo.outputPath('trim-window-entry-volume-change.png') })
+
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(entryChangeField(page, 1, 'length')).toHaveValue('1.5')
+  // Removed is kept at length zero at the new end, as the entry's other effects are.
+  await expect(entryChangeField(page, 2, 'start')).toHaveValue('1.5')
+  await expect(entryChangeField(page, 2, 'length')).toHaveValue('0')
+})
+
+test("the export plays a video entry's volume change at its level: 0.25 is −12 dB against the clip's sound outside it (#1026)", async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await page.goto('./')
+  // A click gives the page the user activation an AudioContext needs.
+  await page.getByRole('heading', { name: 'Browser Video Editor' }).click()
+  // The entry alone, so the mix is its own sound: no track beside it.
+  const webm = await recordWebm(page, 4000, true)
+  await page.getByTestId('clip-file-input').setInputFiles([{ name: 'clip.webm', mimeType: 'video/webm', buffer: webm }])
+  await expect(page.getByRole('list', { name: 'Imported clips' }).getByRole('listitem')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Add clip.webm to timeline' }).click()
+  await chooseEffect(page, ENTRY, 'Volume change')
+  // 1.5 s to 3 s into the entry, which starts the sequence, at Level 0.25.
+  // Its ramps run 1.25 to 1.5 s and 3 to 3.25 s, so [1.9, 2.6] is well
+  // inside and [0.5, 1.0] well clear, and late enough for the recording's
+  // tone to have begun.
+  await setField(entryChangeField(page, 1, 'start'), '1.5')
+  await setField(entryChangeField(page, 1, 'length'), '1.5')
+  await setField(entryChangeField(page, 1, 'level'), '0.25')
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Project…' }).click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exported = await readFile(await (await downloadPromise).path())
+
+  const outside = await peakIn(page, exported, 0.5, 1.0)
+  const inside = await peakIn(page, exported, 1.9, 2.6)
+  const db = 20 * Math.log10(inside / outside)
+  console.log(
+    `entry volume change export: outside ${outside.toFixed(4)}, inside ${inside.toFixed(4)}, ${db.toFixed(2)} dB`,
+  )
+  // Loud enough outside to be the tone, not codec noise.
+  expect(outside).toBeGreaterThan(0.05)
+  expect(Math.abs(db - 20 * Math.log10(0.25))).toBeLessThanOrEqual(LEVEL_TOLERANCE_DB)
 })
 
 for (const [width, height] of [

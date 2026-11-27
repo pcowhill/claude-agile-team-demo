@@ -602,6 +602,88 @@ describe('audioTrackTrimEffectsPreview: an audio track’s volume changes (#1025
   })
 })
 
+describe('trimEffectsPreview: a video entry’s volume changes (#1026)', () => {
+  // The 10 s entry, untrimmed, with Zoom 1 at 4 to 8 s, Volume change 1 at
+  // 1 to 3 s into it and Volume change 2 at 6 to 8 s.
+  const changes = [
+    { id: 'v1', start: 1, length: 2, level: 0.5 },
+    { id: 'v2', start: 6, length: 2, level: 0.2 },
+  ]
+  const state: TimelineState = { entries: [entry({ id: 'e1', volumeChanges: changes })], zooms: [zoom] }
+  const preview = (inPoint: number, outPoint: number) => trimEffectsPreview(state, 'e1', { inPoint, outPoint })
+  const marksOf = (inPoint: number, outPoint: number) =>
+    preview(inPoint, outPoint).marks.map(({ kind, name, start, end }) => [kind, name, start, end])
+
+  it('marks each change on the strip in source seconds beside the zoom, and warns of nothing at the current trim', () => {
+    expect(marksOf(0, 10)).toEqual([
+      ['volume-change', 'Volume change 1', 1, 3],
+      ['zoom', 'Zoom 1', 4, 8],
+      ['volume-change', 'Volume change 2', 6, 8],
+    ])
+    expect(preview(0, 10).warnings).toEqual([])
+  })
+
+  it('names the changes and the zoom an Out would cut into, in strip order', () => {
+    expect(trimWarningText(preview(0, 7).warnings)).toBe('Trimming here shortens Zoom 1 and shortens Volume change 2.')
+    // Out at 5 is before Volume change 2 starts: it collapses, and has no mark.
+    expect(trimWarningText(preview(0, 5).warnings)).toBe('Trimming here shortens Zoom 1 and removes Volume change 2.')
+    expect(marksOf(0, 5)).toEqual([
+      ['volume-change', 'Volume change 1', 1, 3],
+      ['zoom', 'Zoom 1', 4, 5],
+    ])
+    expect(trimWarningText(preview(0, 2).warnings)).toBe(
+      'Trimming here shortens Volume change 1, removes Zoom 1 and removes Volume change 2.',
+    )
+  })
+
+  it('moves the changes with In, so moving In alone can cut into the last one', () => {
+    // In at 3: 7 s are left. Volume change 1 keeps 1 to 3 s into the trim,
+    // which is source 4 to 6, and Volume change 2 is cut to 6 to 7.
+    const moved = preview(3, 10)
+    expect(moved.warnings.filter(({ kind }) => kind === 'volume-change')).toEqual([
+      { id: 'v2', kind: 'volume-change', name: 'Volume change 2', outcome: 'shortens' },
+    ])
+    expect(marksOf(3, 10).filter(([kind]) => kind === 'volume-change')).toEqual([
+      ['volume-change', 'Volume change 1', 4, 6],
+      ['volume-change', 'Volume change 2', 9, 10],
+    ])
+  })
+
+  it('says what Apply then does', () => {
+    expect(applied(state, 0, 5).entries[0].volumeChanges).toEqual([
+      { id: 'v1', start: 1, length: 2, level: 0.5 },
+      { id: 'v2', start: 5, length: 0, level: 0.2 },
+    ])
+    expect(applied(state, 3, 10).entries[0].volumeChanges).toEqual([
+      { id: 'v1', start: 1, length: 2, level: 0.5 },
+      { id: 'v2', start: 6, length: 1, level: 0.2 },
+    ])
+  })
+
+  it('does not warn of a change already at length zero when the trim\'s end passes it (#1031)', () => {
+    const collapsed: TimelineState = {
+      entries: [
+        entry({
+          id: 'e1',
+          volumeChanges: [
+            { id: 'v1', start: 1, length: 2, level: 0.5 },
+            { id: 'v2', start: 5, length: 0, level: 0.2 },
+          ],
+        }),
+      ],
+    }
+    expect(trimWarningText(trimEffectsPreview(collapsed, 'e1', { inPoint: 0, outPoint: 2 }).warnings)).toBe(
+      'Trimming here shortens Volume change 1.',
+    )
+  })
+
+  it('leaves a change-free entry as it was: no volume-change marks or warnings', () => {
+    expect(trimEffectsPreview(withZoom(), 'e1', { inPoint: 0, outPoint: 5 }).marks.map(({ kind }) => kind)).toEqual([
+      'zoom',
+    ])
+  })
+})
+
 describe('trimEffectsPreview: transition spans (#709)', () => {
   const crossfade = (duration: number) => ({ beforeId: 'e1', afterId: 'e2', type: 'crossfade' as const, duration })
   const pair = (overrides: Partial<TimelineState> = {}): TimelineState => ({
