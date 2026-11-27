@@ -1,4 +1,6 @@
 import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
+import type { RemapEffect } from './remap'
+import { sourceTimeAtOutput } from './remap'
 import type { VideoOverlay } from './videoOverlay'
 import { overlayOutputDuration } from './videoOverlay'
 import { audioTracksOf, effectiveDuration } from './timeline'
@@ -61,16 +63,41 @@ export function videoEntryGain(entry: TimelineEntry, transitionRamp = 1): number
  * seconds into the entry (#141) — the presentation window fades are
  * measured in, so a speed segment never stretches an audible ramp. Ramps
  * multiply: a fade inside a transition overlap rides the crossfade.
+ *
+ * The entry's volume changes (#1026) are one more factor, the track's rule
+ * (`changedVolumeAt`, #1025: Volume × Level clamped to `MAX_VOLUME`). They
+ * are in seconds into the entry's trimmed *source* range, so `remaps` (the
+ * timeline's, as `entryOutputDuration` takes them) maps `outputInto` back
+ * through the entry's speed segments and pauses: a change stays on the
+ * sound it was set on, and a 2× segment over it plays its ramps at 2×, as
+ * it plays the sound. `remaps` is required, not defaulted, so no renderer
+ * can compose an entry's gain without the changes by leaving it out.
  */
 export function videoEntryGainAt(
   entry: TimelineEntry,
+  remaps: readonly RemapEffect[],
   outputInto: number,
   outputLength: number,
   transitionRamp = 1,
 ): number {
-  return (
-    videoEntryGain(entry, transitionRamp) *
-    fadeRampAt(entry.fadeIn, entry.fadeOut, outputInto, outputLength)
+  if (entry.muted) return 0
+  const volume =
+    entry.volumeChanges === undefined
+      ? clampVolume(entry.volume ?? 1)
+      : changedVolumeAt(entry.volume ?? 1, entry.volumeChanges, entryTrimInto(entry, remaps, outputInto))
+  return volume * clamp01(transitionRamp) * fadeRampAt(entry.fadeIn, entry.fadeOut, outputInto, outputLength)
+}
+
+/**
+ * Seconds into the entry's trimmed source range at `outputInto` output
+ * seconds into it (#1026): the inverse of its speed segments and pauses
+ * (`sourceTimeAtOutput`), the base its volume changes are in.
+ */
+function entryTrimInto(entry: TimelineEntry, remaps: readonly RemapEffect[], outputInto: number): number {
+  return sourceTimeAtOutput(
+    effectiveDuration(entry),
+    remaps.filter((remap) => remap.entryId === entry.id),
+    outputInto,
   )
 }
 

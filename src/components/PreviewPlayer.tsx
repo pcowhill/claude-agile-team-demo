@@ -2361,7 +2361,7 @@ export function PreviewPlayer({
         if (!isStillEntry(location.entry)) {
           playGain(
             primary,
-            videoEntryGainAt(location.entry, outputInto, outputLength, 1 - overlap.progress) * duck,
+            videoEntryGainAt(location.entry, remapsOf(timeline), outputInto, outputLength, 1 - overlap.progress) * duck,
           )
         }
         setEngaged(location.index)
@@ -2375,6 +2375,7 @@ export function PreviewPlayer({
             secondary,
             videoEntryGainAt(
               overlap.entry,
+              remapsOf(timeline),
               overlap.progress * duration,
               entryOutputDuration(overlap.entry, remapsOf(timeline)),
               overlap.progress,
@@ -2397,7 +2398,7 @@ export function PreviewPlayer({
         }
       } else {
         if (!isStillEntry(location.entry)) {
-          playGain(primary, videoEntryGainAt(location.entry, outputInto, outputLength) * duck)
+          playGain(primary, videoEntryGainAt(location.entry, remapsOf(timeline), outputInto, outputLength) * duck)
         }
         if (engagedForRef.current !== null) {
           setEngaged(null)
@@ -2498,7 +2499,7 @@ export function PreviewPlayer({
       incoming.playbackRate = playedRate(cue.rate)
       playGain(
         incoming,
-        videoEntryGainAt(cue.entry, cue.outputInto, entryOutputDuration(cue.entry, remapsOf(timeline))) *
+        videoEntryGainAt(cue.entry, remapsOf(timeline), cue.outputInto, entryOutputDuration(cue.entry, remapsOf(timeline))) *
         duckFactorAt(ducking, target),
       )
       incoming.play().catch(() => {})
@@ -2667,7 +2668,7 @@ export function PreviewPlayer({
         // the outgoing element is paused, its volume set when next cued.
         playGain(
           incoming,
-          videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
+          videoEntryGainAt(next, remapsOf(timeline), overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
           duckFactorAt(ducking, entryStartTime(timeline, index + 1) + overlap.duration),
         )
         setEngaged(null)
@@ -2710,7 +2711,7 @@ export function PreviewPlayer({
         if (!isStillEntry(next)) {
           playGain(
             video,
-            videoEntryGainAt(next, 0, entryOutputDuration(next, remapsOf(timeline))) *
+            videoEntryGainAt(next, remapsOf(timeline), 0, entryOutputDuration(next, remapsOf(timeline))) *
             duckFactorAt(ducking, time),
           )
         }
@@ -2764,7 +2765,7 @@ export function PreviewPlayer({
       // audio tracks' do. Inside a transition overlap the branch below
       // re-sets it with the crossfade ramp.
       const duck = duckFactorAt(ducking, time)
-      if (!still) playGain(video, videoEntryGainAt(entry, outputInto, outDuration) * duck)
+      if (!still) playGain(video, videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration) * duck)
       if (next && overlap) {
         // The overlap plays out in output seconds (#141): it starts where
         // the entry's remaining *output* equals the transition's duration —
@@ -2778,7 +2779,7 @@ export function PreviewPlayer({
             // the outgoing side has audio to ramp.
             if (engagedForRef.current !== index) setEngaged(index)
             if (!still) {
-              playGain(video, videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck)
+              playGain(video, videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration, 1 - progress) * duck)
             }
           } else {
             const secondary = secondaryVideo()
@@ -2820,12 +2821,13 @@ export function PreviewPlayer({
                 }
               }
               if (!still) {
-                playGain(video, videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck)
+                playGain(video, videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration, 1 - progress) * duck)
               }
               playGain(
                 secondary,
                 videoEntryGainAt(
                   next,
+                  remapsOf(timeline),
                   outputInto - overlapStartOut,
                   entryOutputDuration(next, remapsOf(timeline)),
                   progress,

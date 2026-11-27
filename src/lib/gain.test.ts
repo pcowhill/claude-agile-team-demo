@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import gainsBefore692 from './fixtures/gains-before-692.json'
-import type { AudioTrack, TimelineEntry, TimelineState } from './timeline'
+import type { AudioTrack, RemapEffect, TimelineEntry, TimelineState } from './timeline'
 import type { VideoOverlay } from './videoOverlay'
 import { VOLUME_CHANGE_RAMP_SECONDS } from './volumeChange'
 import { MAX_VOLUME } from './volume'
@@ -76,11 +76,11 @@ describe('videoEntryGain (#104)', () => {
 describe('Volume above 1 (#692)', () => {
   it('composes a volume of 2 with a fade at its midpoint to 1, and with mute to 0', () => {
     // Fade-in of 2 s: one second in, the envelope is 0.5.
-    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), 1, 10)).toBe(1)
-    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2, muted: true }), 1, 10)).toBe(0)
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), [], 1, 10)).toBe(1)
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2, muted: true }), [], 1, 10)).toBe(0)
     expect(audioTrackGainAt(track({ volume: 2, fadeIn: 2 }), 6)).toBe(1)
     // Past the fade it is the whole 2, and a transition ramp still scales it.
-    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), 5, 10)).toBe(2)
+    expect(videoEntryGainAt(entry({ volume: 2, fadeIn: 2 }), [], 5, 10)).toBe(2)
     expect(videoEntryGain(entry({ volume: 2 }), 0.25)).toBe(0.5)
   })
 
@@ -96,7 +96,7 @@ describe('Volume above 1 (#692)', () => {
       for (const muted of [undefined, true]) {
         for (const fades of [{}, { fadeIn: 2, fadeOut: 3 }]) {
           for (const [into, ramp] of [[0, 1], [1, 1], [5, 0.4], [8.5, 1], [10, 1]] as const) {
-            actual.push(videoEntryGainAt({ ...base, volume, muted, ...fades }, into, 10, ramp))
+            actual.push(videoEntryGainAt({ ...base, volume, muted, ...fades }, [], into, 10, ramp))
           }
           for (const t of [0, 1.5, 4, 9.9]) {
             const overlay = { ...base, offset: 0, x: 0, y: 0, width: 1, height: 1, volume, muted, ...fades }
@@ -232,23 +232,81 @@ describe('fadeRampAt (#220)', () => {
 
 describe('videoEntryGainAt (#220)', () => {
   it('reduces to videoEntryGain for a fade-free entry', () => {
-    expect(videoEntryGainAt(entry(), 3, 10)).toBe(1)
-    expect(videoEntryGainAt(entry({ volume: 0.5 }), 3, 10, 0.5)).toBe(0.25)
+    expect(videoEntryGainAt(entry(), [], 3, 10)).toBe(1)
+    expect(videoEntryGainAt(entry({ volume: 0.5 }), [], 3, 10, 0.5)).toBe(0.25)
   })
 
   it('applies the fade envelope over the output window', () => {
     const fading = entry({ fadeIn: 2, fadeOut: 2 })
-    expect(videoEntryGainAt(fading, 0, 10)).toBe(0)
-    expect(videoEntryGainAt(fading, 1, 10)).toBe(0.5)
-    expect(videoEntryGainAt(fading, 5, 10)).toBe(1)
-    expect(videoEntryGainAt(fading, 9, 10)).toBe(0.5)
-    expect(videoEntryGainAt(fading, 10, 10)).toBe(0)
+    expect(videoEntryGainAt(fading, [], 0, 10)).toBe(0)
+    expect(videoEntryGainAt(fading, [], 1, 10)).toBe(0.5)
+    expect(videoEntryGainAt(fading, [], 5, 10)).toBe(1)
+    expect(videoEntryGainAt(fading, [], 9, 10)).toBe(0.5)
+    expect(videoEntryGainAt(fading, [], 10, 10)).toBe(0)
   })
 
   it('mute wins over a fade, and ramps multiply', () => {
-    expect(videoEntryGainAt(entry({ muted: true, fadeIn: 2 }), 1, 10)).toBe(0)
+    expect(videoEntryGainAt(entry({ muted: true, fadeIn: 2 }), [], 1, 10)).toBe(0)
     // Mid fade-in (0.5) inside a transition ramp (0.5) at volume 0.5.
-    expect(videoEntryGainAt(entry({ volume: 0.5, fadeIn: 2 }), 1, 10, 0.5)).toBe(0.125)
+    expect(videoEntryGainAt(entry({ volume: 0.5, fadeIn: 2 }), [], 1, 10, 0.5)).toBe(0.125)
+  })
+})
+
+describe('videoEntryGainAt with volume changes (#1026)', () => {
+  // A 10 s entry with one change at 4 to 6 s into its trimmed range, at
+  // Level 0.25. Its ramps run 3.75 to 4 s and 6 to 6.25 s.
+  const changed = (overrides: Partial<TimelineEntry> = {}) =>
+    entry({ volumeChanges: [{ id: 'v1', start: 4, length: 2, level: 0.25 }], ...overrides })
+  const speed = (start: number, end: number, factor: number, entryId = 'e1'): RemapEffect => ({
+    id: `s-${entryId}-${start}`,
+    entryId,
+    kind: 'speed',
+    start,
+    end,
+    factor,
+  })
+
+  it('with no speed segments, plays the level inside the change, ramps either side, and full volume away', () => {
+    expect(videoEntryGainAt(changed(), [], 3, 10)).toBe(1)
+    expect(videoEntryGainAt(changed(), [], 3.875, 10)).toBeCloseTo(0.625, 12)
+    expect(videoEntryGainAt(changed(), [], 5, 10)).toBe(0.25)
+    expect(videoEntryGainAt(changed(), [], 6.125, 10)).toBeCloseTo(0.625, 12)
+    expect(videoEntryGainAt(changed(), [], 7, 10)).toBe(1)
+  })
+
+  it('keeps the change on the same source seconds behind a 2× speed segment before it', () => {
+    // Source 0 to 2 plays at 2× in output 0 to 1, so source s ≥ 2 is output s − 1.
+    const remaps = [speed(0, 2, 2)]
+    // Output 3.5 is source 4.5, inside the change; unmapped it would be 1.
+    expect(videoEntryGainAt(changed(), remaps, 3.5, 9)).toBe(0.25)
+    // Output 2.9 is source 3.9, 0.1 s before the change: 0.25 + 0.75 × 0.4.
+    expect(videoEntryGainAt(changed(), remaps, 2.9, 9)).toBeCloseTo(0.55, 12)
+    // Output 5.5 is source 6.5, past the ramp out.
+    expect(videoEntryGainAt(changed(), remaps, 5.5, 9)).toBe(1)
+  })
+
+  it('plays the ramps at the speed of a segment over the change, as it plays the sound', () => {
+    // Source 3 to 7 at 2× is output 3 to 5: the ramp in, 3.75 to 4 s of
+    // source, is output 3.375 to 3.5, and its midpoint reads 0.625.
+    const remaps = [speed(3, 7, 2)]
+    expect(videoEntryGainAt(changed(), remaps, 3.4375, 8)).toBeCloseTo(0.625, 12)
+    expect(videoEntryGainAt(changed(), remaps, 4, 8)).toBe(0.25)
+    expect(videoEntryGainAt(changed(), remaps, 5.25, 8)).toBe(1)
+  })
+
+  it('reads only its own entry’s speed segments', () => {
+    expect(videoEntryGainAt(changed(), [speed(0, 2, 2, 'other')], 3.5, 10)).toBe(1)
+  })
+
+  it('multiplies with the transition crossfade inside an overlap, and with the fades', () => {
+    expect(videoEntryGainAt(changed(), [], 5, 10, 0.4)).toBeCloseTo(0.1, 12)
+    expect(videoEntryGainAt(changed({ volume: 0.8, fadeOut: 10 }), [], 5, 10)).toBeCloseTo(0.25 * 0.8 * 0.5, 12)
+  })
+
+  it('stays silent when muted, and clamps Volume × Level to MAX_VOLUME', () => {
+    expect(videoEntryGainAt(changed({ muted: true }), [], 5, 10)).toBe(0)
+    const loud = entry({ volume: 2, volumeChanges: [{ id: 'v1', start: 4, length: 2, level: MAX_VOLUME }] })
+    expect(videoEntryGainAt(loud, [], 5, 10)).toBe(MAX_VOLUME)
   })
 })
 

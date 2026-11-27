@@ -102,7 +102,9 @@ import type { VolumeChange } from './volumeChange'
  *                     orientation?: { rotation?, flipH?, flipV? },   // (#232)
  *                     crop?: { left?, right?, top?, bottom? },       // (#255)
  *                     backgroundFill?: { kind: 'blur' } |
- *                                      { kind: 'color', color } }],  // (#259)
+ *                                      { kind: 'color', color },     // (#259)
+ *                     volumeChanges?: [{ id, start, length,
+ *                                        level }] }],             // (#1026)
  *       "transitions": [{ beforeId, afterId, type, duration }],
  *       "zooms": [{ id?, entryId, start, rampIn, hold, rampOut, scale,
  *                   centerX, centerY }],
@@ -313,7 +315,7 @@ import type { VolumeChange } from './volumeChange'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 36
+export const PROJECT_SCHEMA_VERSION = 37
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -459,6 +461,13 @@ export const OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION = 35
  * version and its bytes.
  */
 export const VOLUME_CHANGES_SCHEMA_VERSION = 36
+/**
+ * The version a video entry's volume changes force (#1026), for the
+ * track's reason: version 36 reads an entry's keys by name and would drop
+ * the list, playing the entry at one level throughout. A file without one
+ * keeps its version and its bytes.
+ */
+export const ENTRY_VOLUME_CHANGES_SCHEMA_VERSION = 37
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -852,6 +861,8 @@ export async function serializeProject(
   const hasPictureEffects = pictureEffectsOf(timeline).length > 0
   // Length-based, like the overlay's Moves: written only while one exists.
   const hasVolumeChanges = audioTracksOf(timeline).some((track) => (track.volumeChanges?.length ?? 0) > 0)
+  // The same on an entry (#1026), at its own version.
+  const hasEntryVolumeChanges = timeline.entries.some((entry) => (entry.volumeChanges?.length ?? 0) > 0)
   // Length-based, like the overlay's Moves: written only while one exists.
   const hasOverlayPictureEffects = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.pictureEffects?.length ?? 0) > 0,
@@ -940,7 +951,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasVolumeChanges
+    schemaVersion: hasEntryVolumeChanges
+      ? ENTRY_VOLUME_CHANGES_SCHEMA_VERSION
+      : hasVolumeChanges
       ? VOLUME_CHANGES_SCHEMA_VERSION
       : hasOverlayPictureEffects
       ? OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION
@@ -1050,7 +1063,7 @@ export async function serializeProject(
       // A slate (#143) writes its color and no clipId — it references
       // nothing; slateness is derived from `color` on open, never stored.
       entries: timeline.entries.map(
-        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill, redactions, spotlights }) => ({
+        ({ id, clipId, name, duration, inPoint, outPoint, kind, color, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, backgroundFill, redactions, spotlights, volumeChanges }) => ({
           id,
           ...(kind === 'slate' ? {} : { clipId }),
           name,
@@ -1097,6 +1110,11 @@ export async function serializeProject(
           ...(spotlights === undefined || spotlights.length === 0
             ? {}
             : { spotlights: spotlights.map(storedSpotlight) }),
+          // Volume changes (#1026), written only while any exist, as a
+          // track's are (#1025).
+          ...(volumeChanges === undefined || volumeChanges.length === 0
+            ? {}
+            : { volumeChanges: volumeChanges.map(({ id, start, length, level }) => ({ id, start, length, level })) }),
         }),
       ),
       transitions: transitionsOf(timeline).map(({ beforeId, afterId, type, duration }) => ({
@@ -2275,6 +2293,20 @@ function validateProject(document: Record<string, unknown>): Project {
       }
       const spotlights = asSpotlights(raw.spotlights, `${path}.spotlights`)
       if (spotlights !== undefined) entry.spotlights = spotlights
+    }
+    // Volume changes (#1026): structure and ranges only, as a track's
+    // (#1025); fitting each one into the entry's trim is open-time
+    // normalization's, which also drops a list found on an image.
+    if (raw.volumeChanges !== undefined) {
+      if (entry.kind === 'slate') {
+        // A flat colour has no sound: a slate with volume changes could
+        // only come from a foreign writer.
+        throw new Error(
+          `${path}.volumeChanges is set on a slate entry, but volume changes apply to video entries only`,
+        )
+      }
+      const changes = asVolumeChanges(raw.volumeChanges, `${path}.volumeChanges`)
+      if (changes.length > 0) entry.volumeChanges = changes
     }
     // Background fill (#259): absent in files saved before it, and on every
     // fill-free entry since, meaning none — today's black bars.

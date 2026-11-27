@@ -87,7 +87,12 @@ import type { CopiedSettings, SettingsElementKind } from './settingsClipboard'
 import type { CanvasPreset } from './frameSize'
 import { clampVolume } from './volume'
 import type { VolumeChange, VolumeChangeSpec } from './volumeChange'
-import { isValidVolumeChangeSpec, volumeChangeSpecsEqual, withVolumeChangesClamped } from './volumeChange'
+import {
+  isValidVolumeChangeSpec,
+  splitVolumeChangesAt,
+  volumeChangeSpecsEqual,
+  withVolumeChangesClamped,
+} from './volumeChange'
 import { isCanvasPreset } from './frameSize'
 import type {
   ImageOverlayPlacement,
@@ -235,6 +240,18 @@ export interface TimelineEntry {
    * pointing at, exactly as it has nothing to redact.
    */
   spotlights?: SpotlightRegion[]
+  /**
+   * Volume changes on a video entry's own sound (#1026): the audio track's
+   * list (#1025), in seconds into the entry's trimmed range, 0 at its In,
+   * the base its zooms and picture effects use. Held on the entry, as its
+   * redactions are, rather than in a state-level list keyed by entry id:
+   * the shared helpers in `volumeChange.ts` (the sweep, the split) already
+   * work on an element's own list, and the entry's spread carries it
+   * wherever the entry goes. Absent when there are none, so change-free
+   * states and files are unchanged. Stills and slates are soundless and
+   * carry none; normalization drops a list found on one.
+   */
+  volumeChanges?: VolumeChange[]
 }
 
 /**
@@ -1084,6 +1101,11 @@ export type TimelineAction =
   | { type: 'audio-track-volume-change-added'; trackId: string; change: VolumeChange }
   | { type: 'audio-track-volume-change-updated'; trackId: string; id: string; change: VolumeChangeSpec }
   | { type: 'audio-track-volume-change-removed'; trackId: string; id: string }
+  // Volume changes on a video entry (#1026): the track's three actions, on
+  // the entry's own list. A still or a slate is refused: it has no sound.
+  | { type: 'entry-volume-change-added'; entryId: string; change: VolumeChange }
+  | { type: 'entry-volume-change-updated'; entryId: string; id: string; change: VolumeChangeSpec }
+  | { type: 'entry-volume-change-removed'; entryId: string; id: string }
 
 export function entryFromClip(
   clip: LibraryClip,
@@ -1685,6 +1707,44 @@ function clampEntryFades(entry: TimelineEntry, remaps: readonly RemapEffect[]): 
 }
 
 /**
+ * The razor's two halves (#190) with the entry's volume changes (#1026)
+ * divided at `splitRel` seconds into its trimmed range, as Split… divides a
+ * track's (`splitVolumeChangesAt`): a change across the cut becomes one in
+ * each half at the same level. The spread gave both halves the whole list;
+ * this replaces it, and a half left with none carries no key.
+ */
+function withVolumeChangesSplit(
+  entry: TimelineEntry,
+  splitRel: number,
+  [first, second]: [TimelineEntry, TimelineEntry],
+): [TimelineEntry, TimelineEntry] {
+  if (entry.volumeChanges === undefined) return [first, second]
+  const { before, after } = splitVolumeChangesAt(entry.volumeChanges, splitRel)
+  const withChanges = (half: TimelineEntry, changes: VolumeChange[]): TimelineEntry => {
+    const next = { ...half }
+    delete next.volumeChanges
+    return changes.length === 0 ? next : { ...next, volumeChanges: changes }
+  }
+  return [withChanges(first, before), withChanges(second, after)]
+}
+
+/**
+ * An entry with its volume changes (#1026) normalized against its trimmed
+ * range, by the track's sweep (`withVolumeChangesClamped`). A still or a
+ * slate is soundless, so a list found on one is dropped. The same object
+ * when nothing moved, so a change-free entry keeps its reference.
+ */
+function clampEntryVolumeChanges(entry: TimelineEntry): TimelineEntry {
+  if (entry.volumeChanges === undefined) return entry
+  if (isStillEntry(entry)) {
+    const next = { ...entry }
+    delete next.volumeChanges
+    return next
+  }
+  return withVolumeChangesClamped(entry)
+}
+
+/**
  * The fields the visual settings groups live in — the shape a sequence entry
  * and a video overlay have in common (an overlay carries no background fill,
  * which is why the helper takes `holdsFill`).
@@ -1841,7 +1901,11 @@ function withEffects({
   // plays. Entry fades (#220) clamp against those output durations, so they
   // follow — a retrim or remap edit shrinks an envelope with its window.
   const normalizedRemapList = normalizedRemaps(entries, remaps)
-  const clampedEntries = entries.map((entry) => clampEntryFades(entry, normalizedRemapList))
+  // Volume changes (#1026) clamp against the trimmed *source* range, as
+  // zooms do below: their windows are seconds into it, not output seconds.
+  const clampedEntries = entries.map((entry) =>
+    clampEntryVolumeChanges(clampEntryFades(entry, normalizedRemapList)),
+  )
   const fadedEntries = clampedEntries.every((entry, index) => entry === entries[index])
     ? entries
     : clampedEntries
@@ -2458,10 +2522,10 @@ function reduceTimelineCollections(
               outPoint: entry.duration - splitRel,
             },
           ]
-        : [
+        : withVolumeChangesSplit(entry, splitRel, [
             { ...entry, outPoint: action.atSourceTime },
             { ...entry, id: action.newEntryId, inPoint: action.atSourceTime },
-          ]
+          ])
       const entries = [...state.entries.slice(0, index), ...halves, ...state.entries.slice(index + 1)]
       // The first half keeps the entry's id, so a transition *into* the entry
       // stays put; the boundary *out of* the entry now follows the second
@@ -4059,6 +4123,63 @@ function reduceTimelineCollections(
       else next.volumeChanges = remaining
       tracks[index] = next
       return withEffects({ ...effectListsOf(state), audioTracks: tracks })
+    }
+    case 'entry-volume-change-added': {
+      const index = state.entries.findIndex((entry) => entry.id === action.entryId)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      if (isStillEntry(entry)) return state
+      const existing = entry.volumeChanges ?? []
+      // Ids are the handle updates and removals act on: never two alike.
+      if (typeof action.change.id !== 'string' || action.change.id === '') return state
+      if (existing.some((change) => change.id === action.change.id)) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const entries = [...state.entries]
+      entries[index] = { ...entry, volumeChanges: [...existing, action.change] }
+      const next = withEffects({ ...effectListsOf(state), entries })
+      const applied = next.entries[index].volumeChanges?.find((change) => change.id === action.change.id)
+      // No room left in the entry's trimmed range: veto, as a zoom's add does.
+      if (applied === undefined || applied.length <= 0) return state
+      return next
+    }
+    case 'entry-volume-change-updated': {
+      const index = state.entries.findIndex((entry) => entry.id === action.entryId)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      const stored = entry.volumeChanges?.find((change) => change.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const candidate: VolumeChange = {
+        id: stored.id,
+        start: action.change.start,
+        length: action.change.length,
+        level: action.change.level,
+      }
+      const entries = [...state.entries]
+      entries[index] = {
+        ...entry,
+        volumeChanges: (entry.volumeChanges ?? []).map((change) => (change.id === action.id ? candidate : change)),
+      }
+      const next = withEffects({ ...effectListsOf(state), entries })
+      const applied = next.entries[index].volumeChanges?.find((change) => change.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference.
+      if (volumeChangeSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'entry-volume-change-removed': {
+      const index = state.entries.findIndex((entry) => entry.id === action.entryId)
+      if (index === -1) return state
+      const entry = state.entries[index]
+      const remaining = (entry.volumeChanges ?? []).filter((change) => change.id !== action.id)
+      if (remaining.length === (entry.volumeChanges ?? []).length) return state
+      const entries = [...state.entries]
+      // None means no key at all, so a change-free entry saves as before.
+      const next = { ...entry }
+      if (remaining.length === 0) delete next.volumeChanges
+      else next.volumeChanges = remaining
+      entries[index] = next
+      return withEffects({ ...effectListsOf(state), entries })
     }
     case 'audio-track-duck-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)

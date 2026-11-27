@@ -5651,6 +5651,130 @@ describe('picture effects on entries (#862)', () => {
   })
 })
 
+describe('volume changes on a video entry (#1026)', () => {
+  // A 30 s clip trimmed to source 2..22: a 20 s trimmed range.
+  const base = (): TimelineState => stateOf(['e1', 30, 2, 22], ['e2', 10])
+  const add = (state: TimelineState, id: string, start: number, length: number, level: number, entryId = 'e1') =>
+    timelineReducer(state, { type: 'entry-volume-change-added', entryId, change: { id, start, length, level } })
+  const changesOf = (state: TimelineState, entryId = 'e1') =>
+    (state.entries.find((entry) => entry.id === entryId)?.volumeChanges ?? []).map(({ id, start, length, level }) => [
+      id,
+      start,
+      length,
+      level,
+    ])
+
+  it('adds a change, normalized against the entry’s trimmed range, as one action', () => {
+    const state = add(add(base(), 'v2', 10, 2, 1.6), 'v1', 3, 4, 0.2)
+    expect(changesOf(state)).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 10, 2, 1.6],
+    ])
+    expect(state.entries[1]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('refuses an add with a taken or empty id, a non-finite field, an unknown entry, no room left, or on a still', () => {
+    const state = add(base(), 'v1', 0, 20, 0.5)
+    expect(add(state, 'v1', 0, 1, 0.5)).toBe(state)
+    expect(add(state, '', 0, 1, 0.5, 'e2')).toBe(state)
+    expect(add(state, 'v9', Number.NaN, 1, 0.5, 'e2')).toBe(state)
+    expect(add(state, 'v9', 0, 1, 0.5, 'nope')).toBe(state)
+    // The range is full: the new change would collapse to nothing.
+    expect(add(state, 'v2', 5, 1, 0.5)).toBe(state)
+    const still = timelineReducer(emptyTimeline, {
+      type: 'entry-added',
+      entry: entryFromClip(clip({ id: 'img-1', name: 'logo.png', duration: 0, kind: 'image' }), 'still'),
+    })
+    expect(add(still, 'v1', 0, 1, 0.5, 'still')).toBe(still)
+  })
+
+  it('updates a change, clamping it, and an update clamped back to what is stored is a no-op', () => {
+    const state = add(base(), 'v1', 3, 4, 0.2)
+    const update = (change: { start: number; length: number; level: number }, id = 'v1') =>
+      timelineReducer(state, { type: 'entry-volume-change-updated', entryId: 'e1', id, change })
+    expect(changesOf(update({ start: 18, length: 9, level: 9 }))).toEqual([['v1', 18, 2, 4]])
+    expect(update({ start: 3, length: 4, level: 0.2 })).toBe(state)
+    expect(update({ start: 1, length: 1, level: 1 }, 'nope')).toBe(state)
+  })
+
+  it('removes a change, and removing the last one removes the key', () => {
+    const state = add(add(base(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    const remove = (from: TimelineState, id: string) =>
+      timelineReducer(from, { type: 'entry-volume-change-removed', entryId: 'e1', id })
+    expect(changesOf(remove(state, 'v1'))).toEqual([['v2', 10, 2, 0.5]])
+    expect(remove(remove(state, 'v1'), 'v2').entries[0]).not.toHaveProperty('volumeChanges')
+    expect(remove(state, 'nope')).toBe(state)
+  })
+
+  it('a retrim keeps each change the same time after In, and collapses what no longer fits, keeping it (#1013)', () => {
+    const state = add(add(base(), 'v1', 3, 4, 0.2), 'v2', 15, 3, 0.5)
+    const trimmed = timelineReducer(state, { type: 'entry-trimmed', id: 'e1', inPoint: 5, outPoint: 21 })
+    // The range is now 16 s long: v1 keeps 3..7 after the new In, v2 (15..18) is cut to 15..16.
+    expect(changesOf(trimmed)).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 15, 1, 0.5],
+    ])
+    const shorter = timelineReducer(state, { type: 'entry-trimmed', id: 'e1', inPoint: 2, outPoint: 14 })
+    expect(changesOf(shorter)).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 12, 0, 0.5],
+    ])
+  })
+
+  it('a change-free entry keeps its shape through a retrim, and normalization drops a list found on a still', () => {
+    const trimmed = timelineReducer(base(), { type: 'entry-trimmed', id: 'e1', inPoint: 3, outPoint: 9 })
+    expect(trimmed.entries[0]).not.toHaveProperty('volumeChanges')
+    const opened = normalizedTimelineState(
+      [
+        {
+          ...entryFromClip(clip({ id: 'img-1', name: 'logo.png', duration: 0, kind: 'image' }), 'still'),
+          volumeChanges: [{ id: 'v1', start: 0, length: 1, level: 0.5 }],
+        },
+      ],
+      [],
+      [],
+    )
+    expect(opened.entries[0]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('removing the entry removes its changes, and Duplicate carries them', () => {
+    const state = add(base(), 'v1', 3, 4, 0.2)
+    expect(timelineReducer(state, { type: 'entry-removed', id: 'e1' }).entries.some((entry) => entry.volumeChanges)).toBe(
+      false,
+    )
+    const duplicated = timelineReducer(state, { type: 'element-duplicated', kind: 'entry', id: 'e1', newId: 'dup' })
+    expect(changesOf(duplicated, 'dup')).toEqual([['v1', 3, 4, 0.2]])
+  })
+
+  it('Split at playhead divides them where the first half ends, a change across the cut becoming two (#190)', () => {
+    const state = add(add(base(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    // Source 7 is 5 s into the trimmed range, inside v1.
+    const split = timelineReducer(state, { type: 'entry-split', id: 'e1', atSourceTime: 7, newEntryId: 'e1b' })
+    expect(changesOf(split, 'e1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(split, 'e1b')).toEqual([
+      ['v1', 0, 2, 0.2],
+      ['v2', 5, 2, 0.5],
+    ])
+    // A cut after every change leaves the second half with no key at all.
+    const late = timelineReducer(state, { type: 'entry-split', id: 'e1', atSourceTime: 20, newEntryId: 'e1b' })
+    expect(changesOf(late, 'e1')).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 10, 2, 0.5],
+    ])
+    expect(late.entries[1]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('Cut out marked range, and so the entry’s Cut…, cut them with the entry by the razor (#823, #827)', () => {
+    const state = add(add(base(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    // e1 plays sequence 0..20 as trimmed-range seconds 0..20. Cutting 5..11
+    // takes the end of v1 and the start of v2 out with the sound.
+    const cut = timelineReducer(state, { type: 'range-cut', from: 5, to: 11, newEntryIds: ['mid', 'tail'] })
+    expect(cut.entries.map((entry) => entry.id)).toEqual(['e1', 'tail', 'e2'])
+    expect(changesOf(cut, 'e1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(cut, 'tail')).toEqual([['v2', 0, 1, 0.5]])
+  })
+})
+
 describe('volume changes on an audio track (#1025)', () => {
   // A 30 s music clip trimmed to source 2..22: a 20 s window at sequence 1.
   const music = (): AudioTrack => ({
