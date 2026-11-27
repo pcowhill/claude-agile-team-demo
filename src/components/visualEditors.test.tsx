@@ -78,12 +78,71 @@ describe("the visual editors' lazy loader (#537, #568)", () => {
     expect(failed).toHaveTextContent('The crop editor could not load')
     expect(screen.queryByRole('dialog', { name: 'the loaded editor' })).toBeNull()
 
-    // The remedy is a reload, not a retry: a browser caches a module whose
-    // fetch failed, so re-importing the same specifier re-rejects without a
-    // request (measured in e2e/visual-editor-load-failure.spec.ts). That the
-    // button reloads is that spec's to prove — jsdom does not navigate.
+    // Two remedies (#993): Try again, which works where the browser fetches
+    // a failed module again, and Reload the page, which works everywhere
+    // (measured in e2e/visual-editor-load-failure.spec.ts). That the button
+    // reloads is that spec's to prove — jsdom does not navigate.
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Reload the page' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
+  it('Try again opens the editor when the load succeeds this time (#993)', async () => {
+    const { state, load } = flakyLoader()
+    const { Editor } = lazyEditor('crop', load)
+    render(<Editor onClose={vi.fn()} />)
+
+    await screen.findByRole('dialog', { name: 'The crop editor could not load' })
+    state.failing = false
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByRole('dialog', { name: 'the loaded editor' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'The crop editor could not load' })).toBeNull()
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('a Try again that fails too keeps the dialog, points at Reload, and gives ✕ focus back (#993)', async () => {
+    const { load } = flakyLoader()
+    const { Editor } = lazyEditor('crop', load)
+    render(<Editor onClose={vi.fn()} />)
+
+    const failed = await screen.findByRole('dialog', { name: 'The crop editor could not load' })
+    expect(failed).not.toHaveTextContent('still')
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    // The same dialog, a different sentence: the attempt was made and failed.
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'The crop editor still could not load. Reloading the page fetches it again.',
+      ),
+    )
+    expect(screen.queryByRole('dialog', { name: 'the loaded editor' })).toBeNull()
+    expect(load).toHaveBeenCalledTimes(2)
+    // Polled for the reason the focus test below gives: a passive effect.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close the crop editor' })).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+  })
+
+  it('keeps the dialog up while Try again runs, with the button disabled (#993)', async () => {
+    const { load } = flakyLoader()
+    const { Editor } = lazyEditor('crop', load)
+    render(<Editor onClose={vi.fn()} />)
+    await screen.findByRole('dialog', { name: 'The crop editor could not load' })
+
+    let settle: (component: ComponentType<Props>) => void = () => {}
+    load.mockImplementationOnce(
+      () =>
+        new Promise<ComponentType<Props>>((resolve) => {
+          settle = resolve
+        }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    // Nothing flashes away while the import runs, and a second press cannot
+    // start a second attempt.
+    expect(screen.getByRole('dialog', { name: 'The crop editor could not load' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeDisabled()
+
+    settle(loaded)
+    expect(await screen.findByRole('dialog', { name: 'the loaded editor' })).toBeInTheDocument()
   })
 
   it('renders the editor once its module is in hand', async () => {

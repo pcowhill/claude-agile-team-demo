@@ -342,7 +342,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Redaction region top** — a redaction region; its top edge, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redaction region width** — a redaction region; its width, in percent of the source frame. [Editing video › Redact a region](editing-video.md#redact-a-region)
 - **Redo** — the timeline header. [Undo and redo](undo-redo.md#undo-and-redo)
-- **Reload the page** — the panel shown when a visual editor could not load; fetches the app again, which is what brings the editor back. [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
+- **Reload the page** — the panel shown when a visual editor could not load; fetches the app again, which brings the editor back in every browser. [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **Remove** — a media library row's ⋯ menu, taking the clip off the shelf; a timeline row's ⋯ menu, taking the element off the timeline as the row's **✕** does; and a chapter marker's menu, taking the marker away. [Media library › Removing a clip](media-library.md#removing-a-clip) · [Timeline › The ⋯ menu](timeline.md#the-menu) · [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Remove blur** — a blur on an expanded sequence entry or overlay; takes it away. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Remove chromatic aberration** — Chromatic aberration on an expanded sequence entry or overlay; takes it away. [Editing video › Chromatic aberration](editing-video.md#chromatic-aberration)
@@ -445,6 +445,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Transition duration** — a transition control between two entries; how long the overlap lasts. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Transition type** — a transition control between two entries; which transition it is. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Trim…** — an expanded video sequence entry, video overlay or audio track, beside In and Out; opens the Trim window (for a track, with no picture: its waveform is the strip). Not on an image overlay. [Editing video › The Trim window](editing-video.md#the-trim-window)
+- **Try again** — the panel shown when a visual editor could not load; asks for the editor again without reloading, which opens it where the browser fetches it again and otherwise says to reload. [Visual editors › When an editor cannot load](visual-editors.md#when-an-editor-cannot-load)
 - **Type** — View ▾ › Sort by. [Media library › View ▾](media-library.md#view-layout-and-sorting)
 
 ## U

@@ -45,19 +45,23 @@ import './visualEditors.css'
  * padding and no width bound — which is what the first draft did, plausibly
  * enough that the screenshot did not give it away.
  *
- * **The remedy offered is a reload, not a retry, and that is not a
- * preference.** A browser's module map caches a module whose fetch failed,
- * so a second `import()` of the same specifier re-rejects *without issuing
- * a request*. Measured, because the obvious design was a Retry button:
- * `e2e/visual-editor-load-failure.spec.ts` counts the requests its route
- * sees, and with the block lifted before a second attempt the counter read
- * `aborted=1, continued=0` — the retry never reached the network, and the
- * failure dialog simply came back. Clearing `loading` above is still what
- * makes each attempt honest rather than silent; it just cannot defeat the
- * module map. A reload builds a new one, and for the stale-deploy case it
- * also fetches an `index.html` naming chunks that exist. Busting the cache
- * with a query instead would mean a runtime-built specifier, which is
- * exactly the static edge #537 removed.
+ * **Try again comes first, and Reload the page stays (#993).** Whether a
+ * second `import()` of the same specifier reaches the network depends on
+ * the browser. #568 measured that it does not: the module map caches a
+ * module whose fetch failed, so the import re-rejects *without issuing a
+ * request*, and the dialog offered only a reload. #886 then measured
+ * Chromium 158 re-requesting the module, and opening the editor, while
+ * Playwright's pinned Chromium (151) and Firefox 153 still answer from the
+ * failed entry. `e2e/visual-editor-load-failure.spec.ts` counts the requests
+ * its route sees in each. A page cannot know in advance which it is in, and
+ * trying costs nothing — a failed attempt only shows the dialog again — while
+ * a reload discards unsaved in-memory state. So **Try again** re-runs the
+ * import in place (clearing `loading` above is what makes it a real
+ * attempt), and a second failure keeps the dialog and says that reloading
+ * the page fetches the editor again: a reload builds a new module map, and
+ * for the stale-deploy case it also fetches an `index.html` naming chunks
+ * that exist. Busting the cache with a query instead would mean a
+ * runtime-built specifier, which is exactly the static edge #537 removed.
  */
 // eslint-disable-next-line react/only-export-components -- the factory that builds the editor components below; exported so visualEditors.test.tsx can drive it with a loader that fails, which no real chunk does in jsdom
 export function lazyEditor<P extends { onClose: () => void }>(
@@ -89,7 +93,18 @@ export function lazyEditor<P extends { onClose: () => void }>(
   function LazyEditor(props: P) {
     const [ready, setReady] = useState(Loaded !== null)
     const [failed, setFailed] = useState(false)
+    // Failed attempts so far: 1 once the dialog first shows, more after a
+    // Try again that failed too, which changes the sentence (#993).
+    const [failures, setFailures] = useState(0)
+    const [retrying, setRetrying] = useState(false)
     const closeRef = useRef<HTMLButtonElement>(null)
+    const mounted = useRef(true)
+    useEffect(() => {
+      mounted.current = true
+      return () => {
+        mounted.current = false
+      }
+    }, [])
     useEffect(() => {
       if (Loaded !== null) {
         setReady(true)
@@ -104,7 +119,10 @@ export function lazyEditor<P extends { onClose: () => void }>(
         () => {
           // Handled here rather than left to `void`, so a failed chunk is a
           // dialog and not an unhandled rejection in the console (#568).
-          if (!cancelled) setFailed(true)
+          if (!cancelled) {
+            setFailed(true)
+            setFailures((count) => count + 1)
+          }
         },
       )
       return () => {
@@ -116,9 +134,29 @@ export function lazyEditor<P extends { onClose: () => void }>(
     // reach: the handler below is on the dialog, so something inside it has to
     // hold focus for the key to arrive. ✕ rather than Reload the page, because
     // the reload is the one that discards unsaved in-memory state.
+    // After a Try again that failed as well, focus goes back to ✕ for the
+    // same reason: the pressed button was disabled while it tried, which
+    // drops focus out of the dialog and Escape with it (#993).
     useEffect(() => {
-      if (failed) closeRef.current?.focus()
-    }, [failed])
+      if (failed && !retrying) closeRef.current?.focus()
+    }, [failed, retrying, failures])
+
+    // Try again (#993): the same import, run again in place. The dialog
+    // stays up while it runs, so nothing flashes; the editor replaces it if
+    // the browser fetches the module this time.
+    const tryAgain = () => {
+      setRetrying(true)
+      preload().then(
+        () => {
+          if (mounted.current) setReady(true)
+        },
+        () => {
+          if (!mounted.current) return
+          setRetrying(false)
+          setFailures((count) => count + 1)
+        },
+      )
+    }
 
     const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.key !== 'Escape') return
@@ -141,8 +179,13 @@ export function lazyEditor<P extends { onClose: () => void }>(
       >
         <div className="visual-editor-failed-body">
           <span role="alert" className="visual-editor-failed-message">
-            The {name} editor could not load. Reloading the page fetches it again.
+            {failures > 1
+              ? `The ${name} editor still could not load. Reloading the page fetches it again.`
+              : `The ${name} editor could not load.`}
           </span>
+          <button type="button" onClick={tryAgain} disabled={retrying}>
+            Try again
+          </button>
           <button type="button" onClick={() => window.location.reload()}>
             Reload the page
           </button>
