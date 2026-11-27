@@ -1106,6 +1106,11 @@ export type TimelineAction =
   | { type: 'entry-volume-change-added'; entryId: string; change: VolumeChange }
   | { type: 'entry-volume-change-updated'; entryId: string; id: string; change: VolumeChangeSpec }
   | { type: 'entry-volume-change-removed'; entryId: string; id: string }
+  // Volume changes on a video overlay (#1027): the track's three actions, on
+  // the overlay's own list. An image overlay is refused: it has no sound.
+  | { type: 'video-overlay-volume-change-added'; overlayId: string; change: VolumeChange }
+  | { type: 'video-overlay-volume-change-updated'; overlayId: string; id: string; change: VolumeChangeSpec }
+  | { type: 'video-overlay-volume-change-removed'; overlayId: string; id: string }
 
 export function entryFromClip(
   clip: LibraryClip,
@@ -1936,8 +1941,10 @@ function withEffects({
     // deliberately untouched by video edits — sequence-anchored windows are
     // never re-anchored (see the TimelineState field comment). Only their
     // own ranges clamp. The key exists only while overlays do.
-    // Each overlay's own zooms (#699) clamp against its trimmed window after
-    // the window itself clamps, as an entry's do against its trim; its Moves
+    // Each overlay's own zooms (#699) and volume changes (#1027) clamp
+    // against its trimmed window after the window itself clamps, as an
+    // entry's do against its trim (an image overlay's changes are already
+    // dropped by `clampVideoOverlay`, a still having no sound); its Moves
     // (#834) and picture effects (#872) against its on-screen window, which
     // the remaps just settled.
     ...(videoOverlays.length === 0
@@ -1945,7 +1952,9 @@ function withEffects({
       : {
           videoOverlays: videoOverlays.map((overlay) =>
             withOverlayPictureEffectsClamped(
-              withOverlayMovesClamped(withOverlayZoomsClamped(clampVideoOverlay(overlay))),
+              withOverlayMovesClamped(
+                withOverlayZoomsClamped(withVolumeChangesClamped(clampVideoOverlay(overlay))),
+              ),
             ),
           ),
         }),
@@ -4180,6 +4189,63 @@ function reduceTimelineCollections(
       else next.volumeChanges = remaining
       entries[index] = next
       return withEffects({ ...effectListsOf(state), entries })
+    }
+    case 'video-overlay-volume-change-added': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      if (isImageOverlay(overlay)) return state
+      const existing = overlay.volumeChanges ?? []
+      // Ids are the handle updates and removals act on: never two alike.
+      if (typeof action.change.id !== 'string' || action.change.id === '') return state
+      if (existing.some((change) => change.id === action.change.id)) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const overlays = [...videoOverlays]
+      overlays[index] = { ...overlay, volumeChanges: [...existing, action.change] }
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
+      const applied = next.videoOverlays?.[index].volumeChanges?.find((change) => change.id === action.change.id)
+      // No room left in the overlay's trimmed range: veto, as a zoom's add does.
+      if (applied === undefined || applied.length <= 0) return state
+      return next
+    }
+    case 'video-overlay-volume-change-updated': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const stored = overlay.volumeChanges?.find((change) => change.id === action.id)
+      if (stored === undefined) return state
+      if (!isValidVolumeChangeSpec(action.change)) return state
+      const candidate: VolumeChange = {
+        id: stored.id,
+        start: action.change.start,
+        length: action.change.length,
+        level: action.change.level,
+      }
+      const overlays = [...videoOverlays]
+      overlays[index] = {
+        ...overlay,
+        volumeChanges: (overlay.volumeChanges ?? []).map((change) => (change.id === action.id ? candidate : change)),
+      }
+      const next = withEffects({ ...effectListsOf(state), videoOverlays: overlays })
+      const applied = next.videoOverlays?.[index].volumeChanges?.find((change) => change.id === action.id)
+      if (applied === undefined) return state
+      // Clamped back to what is stored: a no-op keeps the state reference.
+      if (volumeChangeSpecsEqual(stored, applied)) return state
+      return next
+    }
+    case 'video-overlay-volume-change-removed': {
+      const index = videoOverlays.findIndex((overlay) => overlay.id === action.overlayId)
+      if (index === -1) return state
+      const overlay = videoOverlays[index]
+      const remaining = (overlay.volumeChanges ?? []).filter((change) => change.id !== action.id)
+      if (remaining.length === (overlay.volumeChanges ?? []).length) return state
+      const overlays = [...videoOverlays]
+      // None means no key at all, so a change-free overlay saves as before.
+      const next = { ...overlay }
+      if (remaining.length === 0) delete next.volumeChanges
+      else next.volumeChanges = remaining
+      overlays[index] = next
+      return withEffects({ ...effectListsOf(state), videoOverlays: overlays })
     }
     case 'audio-track-duck-set': {
       const index = audioTracks.findIndex((track) => track.id === action.id)

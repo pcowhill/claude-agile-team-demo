@@ -159,7 +159,9 @@ import type { VolumeChange } from './volumeChange'
  *                           moves?: [{ id, start, glide,
  *                                      x, y, width, height }], // (#834)
  *                           pictureEffects?: [{ id, type, start, end,
- *                                               params: { [key]: number } }] }] // (#872)
+ *                                               params: { [key]: number } }], // (#872)
+ *                           volumeChanges?: [{ id, start, length,
+ *                                              level }] }]      // (#1027)
  *     }
  *   }
  *
@@ -315,7 +317,7 @@ import type { VolumeChange } from './volumeChange'
  */
 export const PROJECT_FORMAT = 'browser-video-editor-project'
 /** The newest schema version this build understands. */
-export const PROJECT_SCHEMA_VERSION = 37
+export const PROJECT_SCHEMA_VERSION = 38
 /** The version written for references-only files, openable by older builds. */
 export const REFERENCES_SCHEMA_VERSION = 1
 /** The version written when embedding media and the library has no images. */
@@ -468,6 +470,13 @@ export const VOLUME_CHANGES_SCHEMA_VERSION = 36
  * keeps its version and its bytes.
  */
 export const ENTRY_VOLUME_CHANGES_SCHEMA_VERSION = 37
+/**
+ * The version a video overlay's volume changes force (#1027), for the
+ * track's reason: version 37 reads an overlay's keys by name and would drop
+ * the list, playing the overlay at one level throughout. A file without one
+ * keeps its version and its bytes.
+ */
+export const OVERLAY_VOLUME_CHANGES_SCHEMA_VERSION = 38
 
 /**
  * A library clip as stored in a project file: metadata for re-linking, not
@@ -863,6 +872,10 @@ export async function serializeProject(
   const hasVolumeChanges = audioTracksOf(timeline).some((track) => (track.volumeChanges?.length ?? 0) > 0)
   // The same on an entry (#1026), at its own version.
   const hasEntryVolumeChanges = timeline.entries.some((entry) => (entry.volumeChanges?.length ?? 0) > 0)
+  // The same on a video overlay (#1027), at its own version.
+  const hasOverlayVolumeChanges = videoOverlaysOf(timeline).some(
+    (overlay) => (overlay.volumeChanges?.length ?? 0) > 0,
+  )
   // Length-based, like the overlay's Moves: written only while one exists.
   const hasOverlayPictureEffects = videoOverlaysOf(timeline).some(
     (overlay) => (overlay.pictureEffects?.length ?? 0) > 0,
@@ -951,7 +964,9 @@ export async function serializeProject(
   )
   const document = {
     format: PROJECT_FORMAT,
-    schemaVersion: hasEntryVolumeChanges
+    schemaVersion: hasOverlayVolumeChanges
+      ? OVERLAY_VOLUME_CHANGES_SCHEMA_VERSION
+      : hasEntryVolumeChanges
       ? ENTRY_VOLUME_CHANGES_SCHEMA_VERSION
       : hasVolumeChanges
       ? VOLUME_CHANGES_SCHEMA_VERSION
@@ -1274,7 +1289,7 @@ export async function serializeProject(
         ? {}
         : {
             videoOverlays: videoOverlaysOf(timeline).map(
-              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow, moves, pictureEffects }) => ({
+              ({ id, kind, clipId, name, duration, offset, inPoint, outPoint, x, y, width, height, volume, muted, fadeIn, fadeOut, colorAdjustments, orientation, crop, shapeMask, redactions, spotlights, zooms, border, remaps, shadow, moves, pictureEffects, volumeChanges }) => ({
                 id,
                 // Still overlays (#294) carry their kind; a video overlay
                 // writes no key at all, so overlay output that existed before
@@ -1395,6 +1410,18 @@ export async function serializeProject(
                         start,
                         end,
                         params: { ...params },
+                      })),
+                    }),
+                // Volume changes (#1027), written only while any exist, as
+                // a track's (#1025) and an entry's (#1026) are.
+                ...(volumeChanges === undefined || volumeChanges.length === 0
+                  ? {}
+                  : {
+                      volumeChanges: volumeChanges.map(({ id, start, length, level }) => ({
+                        id,
+                        start,
+                        length,
+                        level,
                       })),
                     }),
               }),
@@ -2960,6 +2987,14 @@ function validateProject(document: Record<string, unknown>): Project {
       if (raw.pictureEffects !== undefined) {
         const effects = asOverlayPictureEffects(raw.pictureEffects, `${path}.pictureEffects`)
         if (effects.length > 0) overlay.pictureEffects = effects
+      }
+      // Volume changes (#1027): structure and ranges only, as a track's
+      // (#1025); fitting each one into the overlay's trim is open-time
+      // normalization's. An image overlay carrying them was refused by
+      // name above (`IMAGE_OVERLAY_FORBIDDEN_FIELDS`): a still has no sound.
+      if (raw.volumeChanges !== undefined) {
+        const changes = asVolumeChanges(raw.volumeChanges, `${path}.volumeChanges`)
+        if (changes.length > 0) overlay.volumeChanges = changes
       }
       if (overlayIds.has(overlay.id)) {
         throw new Error(`${path}.id "${overlay.id}" is duplicated`)

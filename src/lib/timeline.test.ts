@@ -38,7 +38,7 @@ import {
 import type { PictureEffect, PictureEffectSpec } from './pictureEffect'
 import { emptyTimelineHistory, timelineHistoryReducer } from './history'
 import type { RemapEffect, RemapSpec, TextOverlay, TimelineEntry, VideoOverlay, ZoomEffect } from './timeline'
-import { overlayOutputDuration } from './videoOverlay'
+import { overlayOutputDuration, overlayPlacementOf } from './videoOverlay'
 import { audioTrackPlaybackAt, videoOverlayPlaybackAt } from './playback'
 import { remapPlaybackAt } from './remap'
 import { DEFAULT_SUBTITLE_STYLE, DEFAULT_TEXT, MAX_TEXT_SIZE, MIN_TEXT_SIZE } from './textOverlay'
@@ -5897,6 +5897,184 @@ describe('volume changes on an audio track (#1025)', () => {
     const track = audioTracksOf(cut)[0]
     expect([track.offset, track.inPoint]).toEqual([0, 4])
     expect(changesOf(cut)).toEqual([['v1', 3, 2, 0.2]])
+  })
+})
+
+describe('volume changes on a video overlay (#1027)', () => {
+  // A 30 s clip trimmed to source 2..22: a 20 s window at sequence 1.
+  const cam = (): VideoOverlay => ({
+    ...videoOverlayFromClip(clip({ id: 'c-cam', name: 'cam.webm', duration: 30 }), 'o1'),
+    offset: 1,
+    inPoint: 2,
+    outPoint: 22,
+  })
+  const withCam = (base: TimelineState = emptyTimeline, overlay: VideoOverlay = cam()) =>
+    timelineReducer(base, { type: 'video-overlay-added', overlay })
+  const add = (state: TimelineState, id: string, start: number, length: number, level: number, overlayId = 'o1') =>
+    timelineReducer(state, {
+      type: 'video-overlay-volume-change-added',
+      overlayId,
+      change: { id, start, length, level },
+    })
+  const changesOf = (state: TimelineState, overlayId = 'o1') =>
+    (videoOverlaysOf(state).find((overlay) => overlay.id === overlayId)?.volumeChanges ?? []).map(
+      ({ id, start, length, level }) => [id, start, length, level],
+    )
+  const image = (): VideoOverlay => ({
+    ...cam(),
+    id: 'i1',
+    kind: 'image',
+    clipId: 'c-logo',
+    name: 'logo.png',
+    duration: 5,
+    inPoint: 0,
+    outPoint: 5,
+  })
+
+  it('adds a change, normalized against the overlay’s trimmed range, as one action', () => {
+    const state = add(add(withCam(), 'v2', 10, 2, 1.6), 'v1', 3, 4, 0.2)
+    expect(changesOf(state)).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 10, 2, 1.6],
+    ])
+  })
+
+  it('refuses an add with a taken or empty id, a non-finite field, an unknown overlay, no room left, or on an image', () => {
+    const state = add(withCam(), 'v1', 0, 20, 0.5)
+    expect(add(state, 'v1', 0, 1, 0.5)).toBe(state)
+    expect(add(state, '', 0, 1, 0.5)).toBe(state)
+    expect(add(state, 'v9', Number.NaN, 1, 0.5)).toBe(state)
+    expect(add(state, 'v9', 0, 1, 0.5, 'nope')).toBe(state)
+    // The range is full: the new change would collapse to nothing.
+    expect(add(state, 'v2', 5, 1, 0.5)).toBe(state)
+    const still = withCam(emptyTimeline, image())
+    expect(add(still, 'v1', 0, 1, 0.5, 'i1')).toBe(still)
+  })
+
+  it('updates a change, clamping it, and an update clamped back to what is stored is a no-op', () => {
+    const state = add(withCam(), 'v1', 3, 4, 0.2)
+    const update = (change: { start: number; length: number; level: number }, id = 'v1') =>
+      timelineReducer(state, { type: 'video-overlay-volume-change-updated', overlayId: 'o1', id, change })
+    expect(changesOf(update({ start: 18, length: 9, level: 9 }))).toEqual([['v1', 18, 2, 4]])
+    expect(update({ start: 3, length: 4, level: 0.2 })).toBe(state)
+    expect(update({ start: 1, length: 1, level: 1 }, 'nope')).toBe(state)
+    expect(update({ start: Number.NaN, length: 1, level: 1 })).toBe(state)
+  })
+
+  it('removes a change, and removing the last one removes the key', () => {
+    const state = add(add(withCam(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    const remove = (from: TimelineState, id: string) =>
+      timelineReducer(from, { type: 'video-overlay-volume-change-removed', overlayId: 'o1', id })
+    expect(changesOf(remove(state, 'v1'))).toEqual([['v2', 10, 2, 0.5]])
+    expect(videoOverlaysOf(remove(remove(state, 'v1'), 'v2'))[0]).not.toHaveProperty('volumeChanges')
+    expect(remove(state, 'nope')).toBe(state)
+  })
+
+  it('a retrim keeps each change the same time after In, and collapses what no longer fits, keeping it (#1013)', () => {
+    const state = add(add(withCam(), 'v1', 3, 4, 0.2), 'v2', 15, 3, 0.5)
+    const retrim = (inPoint: number, outPoint: number) => {
+      const overlay = videoOverlaysOf(state)[0]
+      return timelineReducer(state, {
+        type: 'video-overlay-updated',
+        id: 'o1',
+        placement: { ...overlayPlacementOf(overlay), inPoint, outPoint },
+      })
+    }
+    // The range is now 16 s long: v1 keeps 3..7 after the new In, v2 (15..18) is cut to 15..16.
+    expect(changesOf(retrim(5, 21))).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 15, 1, 0.5],
+    ])
+    expect(changesOf(retrim(2, 14))).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 12, 0, 0.5],
+    ])
+  })
+
+  it('stay on their source seconds when a speed segment is added before them', () => {
+    const state = add(withCam(), 'v1', 10, 2, 0.2)
+    const sped = timelineReducer(state, {
+      type: 'video-overlay-remap-added',
+      overlayId: 'o1',
+      remap: { id: 's1', kind: 'speed', start: 0, end: 4, factor: 2 },
+    })
+    expect(videoOverlaysOf(sped)[0].remaps).toHaveLength(1)
+    expect(changesOf(sped)).toEqual([['v1', 10, 2, 0.2]])
+  })
+
+  it('a change-free overlay keeps its shape, and normalization drops a list found on an image overlay', () => {
+    const state = withCam()
+    expect(videoOverlaysOf(state)[0]).not.toHaveProperty('volumeChanges')
+    const opened = normalizedTimelineState([], [], [], [], [], [], [
+      { ...image(), volumeChanges: [{ id: 'v1', start: 0, length: 1, level: 0.5 }] },
+    ])
+    expect(videoOverlaysOf(opened)[0]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('removing the overlay removes its changes, and Duplicate carries them', () => {
+    const state = add(withCam(), 'v1', 3, 4, 0.2)
+    expect(videoOverlaysOf(timelineReducer(state, { type: 'video-overlay-removed', id: 'o1' }))).toEqual([])
+    const duplicated = timelineReducer(state, { type: 'element-duplicated', kind: 'video-overlay', id: 'o1', newId: 'dup' })
+    expect(changesOf(duplicated, 'dup')).toEqual([['v1', 3, 4, 0.2]])
+  })
+
+  it('Split… divides them at the split point on the overlay’s own clock, a change across it becoming two (#826)', () => {
+    const state = add(add(withCam(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5)
+    // Source 7 is 5 s into the trimmed range, inside v1.
+    const split = timelineReducer(state, { type: 'element-split', kind: 'video-overlay', id: 'o1', atSourceTime: 7, newId: 'o2' })
+    expect(changesOf(split, 'o1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(split, 'o2')).toEqual([
+      ['v1', 0, 2, 0.2],
+      ['v2', 5, 2, 0.5],
+    ])
+    // A split after every change leaves the second part with no key at all.
+    const late = timelineReducer(state, { type: 'element-split', kind: 'video-overlay', id: 'o1', atSourceTime: 20, newId: 'o2' })
+    expect(changesOf(late, 'o1')).toEqual([
+      ['v1', 3, 4, 0.2],
+      ['v2', 10, 2, 0.5],
+    ])
+    expect(videoOverlaysOf(late)[1]).not.toHaveProperty('volumeChanges')
+  })
+
+  it('Split… on an overlay with a speed segment divides them in source seconds, not on-screen ones', () => {
+    // 0..4 s of the trimmed range at 2× plays in 2 s on screen; a change at
+    // 6..8 s splits at source 9, 7 s into the range, whatever the screen says.
+    const state = timelineReducer(add(withCam(), 'v1', 6, 2, 0.2), {
+      type: 'video-overlay-remap-added',
+      overlayId: 'o1',
+      remap: { id: 's1', kind: 'speed', start: 0, end: 4, factor: 2 },
+    })
+    const split = timelineReducer(state, { type: 'element-split', kind: 'video-overlay', id: 'o1', atSourceTime: 9, newId: 'o2' })
+    expect(changesOf(split, 'o1')).toEqual([['v1', 6, 1, 0.2]])
+    expect(changesOf(split, 'o2')).toEqual([['v1', 0, 1, 0.2]])
+  })
+
+  it('Cut… divides them between the head and the tail and drops the part inside the cut (#828)', () => {
+    const state = add(add(add(withCam(), 'v1', 3, 4, 0.2), 'v2', 10, 2, 0.5), 'v3', 7.5, 1, 0.7)
+    // Cut source 7..13: trimmed-range seconds 5..11, through the end of v1,
+    // all of v3, and into v2.
+    const cut = timelineReducer(state, { type: 'element-cut', kind: 'video-overlay', id: 'o1', from: 7, to: 13, newId: 'o2' })
+    expect(changesOf(cut, 'o1')).toEqual([['v1', 3, 2, 0.2]])
+    expect(changesOf(cut, 'o2')).toEqual([['v2', 0, 1, 0.5]])
+  })
+
+  it('Cut out marked range moves the changes with an overlay it shortens at the head, and cuts them at the tail (#823)', () => {
+    // A 20 s sequence; the overlay's window is sequence 1..21. Cutting 0..3
+    // takes the overlay's first 2 s: its In moves 2 s later, so a change 5 s
+    // in is 3 s in afterwards, still on the same sound.
+    const base = stateOf(['a', 20])
+    const state = add(withCam(base), 'v1', 5, 2, 0.2)
+    const head = timelineReducer(state, { type: 'range-cut', from: 0, to: 3, newEntryIds: ['mid', 'tail'] })
+    const overlay = videoOverlaysOf(head)[0]
+    expect([overlay.offset, overlay.inPoint]).toEqual([0, 4])
+    expect(changesOf(head)).toEqual([['v1', 3, 2, 0.2]])
+    // On a 30 s sequence, cutting 7..25 takes the overlay's tail from 6 s
+    // in: the change at 5..7 keeps its first second, and v2 at 15..17 goes
+    // with the cut rather than staying at length zero.
+    const withLate = add(add(withCam(stateOf(['a', 30])), 'v1', 5, 2, 0.2), 'v2', 15, 2, 0.5)
+    const tail = timelineReducer(withLate, { type: 'range-cut', from: 7, to: 25, newEntryIds: ['mid', 'tail'] })
+    expect([videoOverlaysOf(tail)[0].inPoint, videoOverlaysOf(tail)[0].outPoint]).toEqual([2, 8])
+    expect(changesOf(tail)).toEqual([['v1', 5, 1, 0.2]])
   })
 })
 

@@ -351,6 +351,67 @@ describe('videoOverlayGainAt (#220)', () => {
   })
 })
 
+describe('videoOverlayGainAt with volume changes (#1027)', () => {
+  // Window [5, 17): offset 5, source [10, 22), trimmed length 12, with one
+  // change at 4 to 6 s into the trimmed range at Level 0.25. Its ramps run
+  // 3.75 to 4 s and 6 to 6.25 s of the overlay's own clock.
+  const overlay = (overrides: Partial<VideoOverlay> = {}): VideoOverlay => ({
+    id: 'o1',
+    clipId: 'c1',
+    name: 'clip.mp4',
+    duration: 30,
+    url: 'blob:clip',
+    offset: 5,
+    inPoint: 10,
+    outPoint: 22,
+    x: 0.62,
+    y: 0.62,
+    width: 0.35,
+    height: 0.35,
+    volumeChanges: [{ id: 'v1', start: 4, length: 2, level: 0.25 }],
+    ...overrides,
+  })
+
+  it('with no remaps, plays the level inside the change, ramps either side, and full volume away', () => {
+    expect(videoOverlayGainAt(overlay(), 8)).toBe(1)
+    expect(videoOverlayGainAt(overlay(), 8.875)).toBeCloseTo(0.625, 12)
+    expect(videoOverlayGainAt(overlay(), 10)).toBe(0.25)
+    expect(videoOverlayGainAt(overlay(), 11.125)).toBeCloseTo(0.625, 12)
+    expect(videoOverlayGainAt(overlay(), 12)).toBe(1)
+  })
+
+  it('keeps the change on the same source seconds behind a 2× speed segment before it', () => {
+    // Source 0 to 2 plays at 2× in 1 s on screen, so source s ≥ 2 shows
+    // s − 1 s after the overlay appears.
+    const sped = overlay({ remaps: [{ id: 's1', kind: 'speed', start: 0, end: 2, factor: 2 }] })
+    // 3.5 s on screen is source 4.5, inside the change; unmapped it would be 1.
+    expect(videoOverlayGainAt(sped, 8.5)).toBe(0.25)
+    // 2.9 s on screen is source 3.9, 0.1 s before the change: 0.25 + 0.75 × 0.4.
+    expect(videoOverlayGainAt(sped, 7.9)).toBeCloseTo(0.55, 12)
+    // 5.5 s on screen is source 6.5, past the ramp out; unmapped it would be 0.25.
+    expect(videoOverlayGainAt(sped, 10.5)).toBe(1)
+  })
+
+  it('keeps the change on the same source seconds behind a pause before it', () => {
+    // A 3 s pause at source 2: source s > 2 shows s + 3 s after the overlay appears.
+    const paused = overlay({ remaps: [{ id: 'p1', kind: 'pause', at: 2, hold: 3 }] })
+    // 7.5 s on screen is source 4.5, inside the change; unmapped it would be 1.
+    expect(videoOverlayGainAt(paused, 12.5)).toBe(0.25)
+    // 5 s on screen is the held source 2, well clear of the change; unmapped it would be 0.25.
+    expect(videoOverlayGainAt(paused, 10)).toBe(1)
+    // 6.875 s on screen is source 3.875, mid ramp.
+    expect(videoOverlayGainAt(paused, 11.875)).toBeCloseTo(0.625, 12)
+  })
+
+  it('multiplies with the fades, stays silent when muted, and clamps Volume × Level to MAX_VOLUME', () => {
+    // 5 s into the 12 s window, a 12 s fade-out is at 7/12.
+    expect(videoOverlayGainAt(overlay({ volume: 0.8, fadeOut: 12 }), 10)).toBeCloseTo(0.25 * 0.8 * (7 / 12), 12)
+    expect(videoOverlayGainAt(overlay({ muted: true }), 10)).toBe(0)
+    const loud = overlay({ volume: 2, volumeChanges: [{ id: 'v1', start: 4, length: 2, level: MAX_VOLUME }] })
+    expect(videoOverlayGainAt(loud, 10)).toBe(MAX_VOLUME)
+  })
+})
+
 describe('audio ducking (#241)', () => {
   // Minimal state carrying only what duckWindows reads: the audio tracks.
   const state = (tracks: AudioTrack[]): TimelineState => ({

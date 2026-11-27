@@ -103,18 +103,41 @@ function entryTrimInto(entry: TimelineEntry, remaps: readonly RemapEffect[], out
 
 /**
  * Gain of an overlay video layer's own audio at a sequence position (#220):
- * volume × mute (`videoEntryGain`, applied structurally as everywhere)
+ * volume × mute (composed as `videoEntryGain` composes an entry's)
  * scaled by the overlay's fade envelope over its window
  * `[offset, offset + length)` — the audio-track window shape the overlay
  * model shares (#145), where the length is the overlay's on-screen one,
  * after its speed segments and pauses (#700), as an entry's fades ramp over
  * its output duration.
+ *
+ * The overlay's volume changes (#1027) are one more factor, the track's
+ * rule (`changedVolumeAt`, #1025: Volume × Level clamped to `MAX_VOLUME`).
+ * They are in seconds into the overlay's trimmed *source* range, so the
+ * on-screen time is mapped back through the overlay's own speed segments
+ * and pauses (`overlayTrimInto`), as an entry's is (#1026): a change stays
+ * on the sound it was set on. The overlay carries its remaps itself, so no
+ * renderer has to pass them.
  */
 export function videoOverlayGainAt(overlay: VideoOverlay, sequenceTime: number): number {
-  return (
-    videoEntryGain(overlay) *
-    fadeRampAt(overlay.fadeIn, overlay.fadeOut, sequenceTime - overlay.offset, overlayOutputDuration(overlay))
-  )
+  if (overlay.muted) return 0
+  const into = sequenceTime - overlay.offset
+  const volume =
+    overlay.volumeChanges === undefined
+      ? clampVolume(overlay.volume ?? 1)
+      : changedVolumeAt(overlay.volume ?? 1, overlay.volumeChanges, overlayTrimInto(overlay, into))
+  return volume * fadeRampAt(overlay.fadeIn, overlay.fadeOut, into, overlayOutputDuration(overlay))
+}
+
+/**
+ * Seconds into the overlay's trimmed range at `onScreenInto` seconds since
+ * it appeared (#1027): the inverse of its own speed segments and pauses
+ * (`sourceTimeAtOutput`, as `entryTrimInto` maps an entry's), the base its
+ * volume changes are in. With no remaps the two clocks are the same.
+ */
+function overlayTrimInto(overlay: VideoOverlay, onScreenInto: number): number {
+  const remaps = overlay.remaps ?? []
+  if (remaps.length === 0) return onScreenInto
+  return sourceTimeAtOutput(overlay.outPoint - overlay.inPoint, remaps, onScreenInto)
 }
 
 /**

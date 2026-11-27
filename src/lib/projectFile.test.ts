@@ -41,6 +41,7 @@ import fixtureV34PictureEffectsReferencesBase64 from './fixtures/project-v34-pic
 import fixtureV35OverlayPictureEffectsReferencesBase64 from './fixtures/project-v35-overlay-picture-effects-references.bvep.base64?raw'
 import fixtureV36VolumeChangesReferencesBase64 from './fixtures/project-v36-volume-changes-references.bvep.base64?raw'
 import fixtureV37EntryVolumeChangesReferencesBase64 from './fixtures/project-v37-entry-volume-changes-references.bvep.base64?raw'
+import fixtureV38OverlayVolumeChangesReferencesBase64 from './fixtures/project-v38-overlay-volume-changes-references.bvep.base64?raw'
 import type { MediaLibraryState } from './mediaLibrary'
 import { timelineReducer } from './timeline'
 import type { TimelineState } from './timeline'
@@ -71,6 +72,7 @@ import {
   OVERLAY_PICTURE_EFFECTS_SCHEMA_VERSION,
   VOLUME_CHANGES_SCHEMA_VERSION,
   ENTRY_VOLUME_CHANGES_SCHEMA_VERSION,
+  OVERLAY_VOLUME_CHANGES_SCHEMA_VERSION,
   PICTURE_EFFECTS_SCHEMA_VERSION,
   BADGE_SHAPES_SCHEMA_VERSION,
   DRAW_ON_SCHEMA_VERSION,
@@ -1185,8 +1187,9 @@ describe('project file versioning', () => {
     // a Volume above 1 (#751); version 33 an overlay's Moves (#834);
     // version 34 picture effects on entries (#862); version 35 picture
     // effects on overlays (#872); version 36 an audio track's volume
-    // changes (#1025); version 37 a video entry's volume changes (#1026).
-    expect(PROJECT_SCHEMA_VERSION).toBe(37)
+    // changes (#1025); version 37 a video entry's volume changes (#1026);
+    // version 38 a video overlay's volume changes (#1027).
+    expect(PROJECT_SCHEMA_VERSION).toBe(38)
     expect(REFERENCES_SCHEMA_VERSION).toBe(1)
     expect(EMBEDDED_SCHEMA_VERSION).toBe(2)
     expect(IMAGES_SCHEMA_VERSION).toBe(3)
@@ -5840,6 +5843,86 @@ describe('volume changes on entries in project files (#1026, schema version 37)'
   })
 })
 
+describe('volume changes on overlays in project files (#1027, schema version 38)', () => {
+  const stored = {
+    id: 'v1',
+    clipId: 'c2',
+    name: 'city.webm',
+    duration: 4,
+    offset: 1.5,
+    inPoint: 0.5,
+    outPoint: 3,
+    x: 0.6,
+    y: 0.6,
+    width: 0.35,
+    height: 0.35,
+  }
+  const changes = [
+    { id: 'vc1', start: 0.25, length: 1, level: 0.25 },
+    { id: 'vc2', start: 1.5, length: 0.75, level: 1.6 },
+  ]
+  const withChanges = (list?: typeof changes): TimelineState => ({
+    ...timeline,
+    videoOverlays: [{ ...stored, url: 'blob:session/c2', ...(list === undefined ? {} : { volumeChanges: list }) }],
+  })
+
+  it('writes version 38 exactly when an overlay carries a change, over an entry\'s 37, and round-trips them', async () => {
+    const bytes = await serializeProject(library, withChanges(changes))
+    const document = await gunzipJson(bytes)
+    expect(document.schemaVersion).toBe(OVERLAY_VOLUME_CHANGES_SCHEMA_VERSION)
+    const written = ((document.timeline as Record<string, unknown>).videoOverlays as Record<string, unknown>[])[0]
+    expect(written.volumeChanges).toEqual(changes)
+    expect(await deserializeProject(bytes)).toEqual({
+      ok: true,
+      project: {
+        ...expectedProject,
+        timeline: { ...expectedProject.timeline, videoOverlays: [{ ...stored, volumeChanges: changes }] },
+      },
+    })
+    const both: TimelineState = {
+      ...withChanges(changes),
+      entries: timeline.entries.map((entry, index) =>
+        index === 0 ? { ...entry, volumeChanges: [{ id: 'e', start: 0, length: 1, level: 0.5 }] } : entry,
+      ),
+    }
+    expect((await gunzipJson(await serializeProject(library, both))).schemaVersion).toBe(38)
+  })
+
+  it('a change-free overlay keeps its version and its bytes, with no volumeChanges key', async () => {
+    const without = await serializeProject(library, withChanges())
+    expect((await gunzipJson(without)).schemaVersion).toBeLessThan(VOLUME_CHANGES_SCHEMA_VERSION)
+    expect(JSON.stringify(await gunzipJson(without))).not.toContain('volumeChanges')
+    // An empty list a foreign state carries writes the same bytes as none.
+    expect(await serializeProject(library, withChanges([]))).toEqual(without)
+  })
+
+  it('refuses a malformed change by its path', async () => {
+    const withOverlayChanges = (volumeChanges: unknown) => ({
+      ...validDocument(),
+      schemaVersion: OVERLAY_VOLUME_CHANGES_SCHEMA_VERSION,
+      timeline: { ...validDocument().timeline, videoOverlays: [{ ...stored, volumeChanges }] },
+    })
+    const path = 'timeline.videoOverlays[0].volumeChanges'
+    await expectRefusal(await gzipJson(withOverlayChanges([{ ...changes[0], level: 5 }])), `${path}[0].level`)
+    await expectRefusal(await gzipJson(withOverlayChanges([{ ...changes[0], start: -1 }])), `${path}[0].start`)
+    await expectRefusal(
+      await gzipJson(withOverlayChanges([changes[0], { ...changes[1], id: 'vc1' }])),
+      `${path}[1].id "vc1" is duplicated`,
+    )
+    await expectRefusal(await gzipJson(withOverlayChanges({ vc1: changes[0] })), `${path} must be an array`)
+  })
+
+  it('deserializes the committed v38 overlay-volume-changes fixture', async () => {
+    const bytes = Uint8Array.from(atob(fixtureV38OverlayVolumeChangesReferencesBase64.trim()), (char) =>
+      char.charCodeAt(0),
+    )
+    const result = await deserializeProject(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.project.timeline.videoOverlays).toEqual([{ ...stored, volumeChanges: changes }])
+  })
+})
+
 describe('image overlay layers in project files (#294, schema version 17)', () => {
   // The library needs an image to overlay; the base one carries video only.
   const overlayLibrary: MediaLibraryState = {
@@ -5924,6 +6007,8 @@ describe('image overlay layers in project files (#294, schema version 17)', () =
     // the half of it we like is how corruption hides.
     for (const [field, value] of [
       ['volume', 0.5], ['muted', true], ['fadeIn', 1], ['fadeOut', 1], ['duck', true], ['duckLevel', 0.2],
+      // Volume changes (#1027) shape a sound, which a still lacks.
+      ['volumeChanges', [{ id: 'v1', start: 0, length: 1, level: 0.5 }]],
     ] as const) {
       const document = documentWithImage()
       ;(document.timeline as { videoOverlays?: unknown }).videoOverlays = [{ ...stored, [field]: value }]

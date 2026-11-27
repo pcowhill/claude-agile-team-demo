@@ -220,7 +220,8 @@ function withList<T extends object, K extends keyof T>(element: T, key: K, list:
  * A video overlay is trimmed in source time: its own speed segments and
  * pauses (#700) are split at the cut's output instant so exactly the cut's
  * length goes, and its zooms (#699), keyed to seconds into the trimmed
- * range, are split by the razor's rule. Its redactions and spotlights are in
+ * range, are split by the razor's rule, and so are its volume changes
+ * (#1027), in the same seconds. Its redactions and spotlights are in
  * the clip's own source seconds, so moving In keeps them on the same
  * picture untouched.
  *
@@ -309,12 +310,20 @@ function shortenOverlayWindow(
     })
     let next: VideoOverlay = { ...overlay, offset: start, outPoint: overlay.inPoint + at }
     next = withList(next, 'remaps', overlay.remaps === undefined ? undefined : before)
-    return withList(next, 'zooms', zooms)
+    next = withList(next, 'zooms', zooms)
+    // Volume changes (#1027) are in the zooms' seconds: what lies past the
+    // new Out goes with the cut, as Cut… takes it.
+    if (overlay.volumeChanges === undefined) return next
+    return withList(next, 'volumeChanges', splitVolumeChangesAt(overlay.volumeChanges, at).before)
   }
   const { at, after } = splitRemapsAtOutput(trimmedLength, remaps, head)
   let next: VideoOverlay = { ...overlay, offset: start, inPoint: overlay.inPoint + at }
   next = withList(next, 'remaps', overlay.remaps === undefined ? undefined : after)
-  return withList(next, 'zooms', shiftedZooms(overlay.zooms, at))
+  next = withList(next, 'zooms', shiftedZooms(overlay.zooms, at))
+  // A head cut moves In later by `at` source seconds: the changes shift
+  // earlier with the sound, and what lay before the new In goes (#1027).
+  if (overlay.volumeChanges === undefined) return next
+  return withList(next, 'volumeChanges', splitVolumeChangesAt(overlay.volumeChanges, at).after)
 }
 
 /** Zooms after a head cut of `at` seconds: the razor's second half. */

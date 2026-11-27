@@ -17,6 +17,7 @@ import type { ZoomSpec } from './timeline'
 import type { RemapSpec } from './remap'
 import type { OverlayMove } from './overlayMove'
 import type { OverlayPictureEffect } from './pictureEffect'
+import type { VolumeChange } from './volumeChange'
 import { remappedDuration, remapSpecsEqual, sweptRemaps } from './remap'
 import { clampVolume } from './volume'
 
@@ -235,6 +236,18 @@ export interface VideoOverlay {
    * may overlap, as an entry's do.
    */
   pictureEffects?: OverlayPictureEffect[]
+  /**
+   * Volume changes on a video overlay's own sound (#1027): the audio
+   * track's list (#1025), in seconds into the overlay's trimmed range, 0 at
+   * its In, the base its zooms and speed segments use. They belong to the
+   * sound, not the frame, so unlike its Moves and picture effects they stay
+   * on the source seconds they were set on when a speed segment or pause is
+   * added before them. Held on the overlay, as its zooms are, so removing
+   * or duplicating it takes them along. Absent when there are none, so
+   * change-free states and files are unchanged. An image overlay is
+   * soundless and carries none (`IMAGE_OVERLAY_FORBIDDEN_FIELDS`).
+   */
+  volumeChanges?: VolumeChange[]
 }
 
 /** One speed segment or pause on an overlay (#700): an entry's spec plus its handle. */
@@ -318,6 +331,8 @@ export const IMAGE_OVERLAY_FORBIDDEN_FIELDS = [
   'fadeOut',
   'duck',
   'duckLevel',
+  // Volume changes (#1027) shape the overlay's sound, which a still lacks.
+  'volumeChanges',
 ] as const
 
 /**
