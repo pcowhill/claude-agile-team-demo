@@ -9,7 +9,14 @@ import {
   zoomWindowDuration,
   zoomsForEntry,
 } from './timeline'
-import { audioTrackTrimEffectsPreview, overlayTrimEffectsPreview, trimEffectsPreview, trimWarningText } from './trimEffects'
+import {
+  audioTrackTrimEffectsPreview,
+  overlayTrimEffectsPreview,
+  trimEffectsPreview,
+  trimMarkLanes,
+  trimWarningText,
+} from './trimEffects'
+import type { TrimEffectMark } from './trimEffects'
 import type { VideoOverlay } from './videoOverlay'
 import { NO_PICTURE_LOOK, pictureEffectRegistry } from './pictureEffect'
 import type { OverlayPictureEffect, PictureEffect, PictureEffectDefinition } from './pictureEffect'
@@ -769,6 +776,59 @@ describe('trimEffectsPreview: a video entry’s volume changes (#1026)', () => {
     expect(trimEffectsPreview(withZoom(), 'e1', { inPoint: 0, outPoint: 5 }).marks.map(({ kind }) => kind)).toEqual([
       'zoom',
     ])
+  })
+})
+
+describe('trimMarkLanes: each kind in a lane of its own, so no bar covers another (#1038)', () => {
+  const mark = (id: string, kind: TrimEffectMark['kind'], start: number, end: number): TrimEffectMark => ({
+    id,
+    kind,
+    name: id,
+    start,
+    end,
+  })
+  const lanesOf = (marks: TrimEffectMark[]) => Object.fromEntries(trimMarkLanes(marks))
+
+  it('puts a zoom, a volume change, a speed segment and a picture effect over the same seconds in four lanes', () => {
+    expect(
+      lanesOf([
+        mark('z', 'zoom', 0, 2),
+        mark('p', 'picture-effect', 0, 2),
+        mark('s', 'speed', 0, 2),
+        mark('v', 'volume-change', 0, 2),
+      ]),
+    ).toEqual({ z: 0, v: 1, s: 2, p: 3 })
+  })
+
+  it('keeps a pause on the foot, where its tick stands up from', () => {
+    expect(lanesOf([mark('pause', 'pause', 1, 1), mark('s', 'speed', 0, 3)])).toEqual({ pause: 0, s: 2 })
+  })
+
+  it('gives a lane by kind, not by what else is on the strip: a volume change alone is still in lane 1', () => {
+    // An audio track's strip carries only volume changes (#1025); they sit
+    // where they sat before #1038.
+    expect(lanesOf([mark('v1', 'volume-change', 0, 2), mark('v2', 'volume-change', 3, 4)])).toEqual({ v1: 1, v2: 1 })
+    expect(lanesOf([mark('s', 'speed', 0, 2)])).toEqual({ s: 2 })
+  })
+
+  it('stacks picture effects that overlap, and lets ones that only touch share a lane', () => {
+    // A vignette 0–4, a blur 1–3 inside it and grain 2–5 across both:
+    // three lanes. A fourth from 4 to 6 touches the vignette's end and
+    // takes its lane back.
+    expect(
+      lanesOf([
+        mark('vignette', 'picture-effect', 0, 4),
+        mark('blur', 'picture-effect', 1, 3),
+        mark('grain', 'picture-effect', 2, 5),
+        mark('slices', 'picture-effect', 4, 6),
+      ]),
+    ).toEqual({ vignette: 3, blur: 4, grain: 5, slices: 3 })
+    // Lane by start, whatever order the marks come in.
+    expect(lanesOf([mark('b', 'picture-effect', 1, 3), mark('a', 'picture-effect', 0, 2)])).toEqual({ a: 3, b: 4 })
+  })
+
+  it('gives a Move no lane: it is warned of, never marked', () => {
+    expect(lanesOf([mark('m', 'move', 0, 1)])).toEqual({})
   })
 })
 

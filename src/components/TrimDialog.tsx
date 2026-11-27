@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { targetEditsText } from '../lib/history'
 import { targetClaimsKeys } from '../lib/transport'
 import {
@@ -22,7 +22,7 @@ import {
   steppedTime,
 } from '../lib/timeFormat'
 import { trimFramesFor } from '../lib/trimFrames'
-import { trimWarningText } from '../lib/trimEffects'
+import { trimMarkLanes, trimWarningText } from '../lib/trimEffects'
 import type { TrimEffectsPreview } from '../lib/trimEffects'
 import { AudioWaveform } from './AudioWaveform'
 import { useTimeFormat } from './timeFormatContext'
@@ -342,6 +342,7 @@ export function TrimDialog({
   // small state; a drag renders no more often than the pointer moves.
   const effects = effectsFor?.(range) ?? null
   const warning = effects === null ? null : trimWarningText(effects.warnings)
+  const markLanes = trimMarkLanes(effects?.marks ?? [])
   const changed = range.inPoint !== entry.inPoint || range.outPoint !== entry.outPoint
 
   return (
@@ -455,7 +456,8 @@ export function TrimDialog({
               />
             ))}
             {/* The entry's effects where Apply would leave them (#709): a bar
-                for a zoom or a speed segment, a tick for a pause. */}
+                for a zoom or a speed segment, a tick for a pause, each kind
+                in its own lane up from the foot (#1038). */}
             {effects?.marks.map((mark) => (
               <div
                 key={mark.id}
@@ -466,7 +468,11 @@ export function TrimDialog({
                 style={
                   mark.kind === 'pause'
                     ? { left: percent(mark.start) }
-                    : { left: percent(mark.start), width: `calc(${percent(mark.end)} - ${percent(mark.start)})` }
+                    : ({
+                        left: percent(mark.start),
+                        width: `calc(${percent(mark.end)} - ${percent(mark.start)})`,
+                        '--trim-mark-lane': markLanes.get(mark.id) ?? 0,
+                      } as CSSProperties)
                 }
               />
             ))}

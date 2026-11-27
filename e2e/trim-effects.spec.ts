@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { expectNoHorizontalScroll, expectWithin } from './layout'
+import { chooseFromFileMenu } from './fileMenu'
 import { chooseEffect } from './timelineRowMenu'
 
 type Page = import('@playwright/test').Page
@@ -158,6 +159,62 @@ test("a transition at the entry's end shades the source span it covers, as wide 
   // No transition before position 1, so nothing is shaded at its start.
   await expect(dialog.getByTestId('trim-transition-start')).toHaveCount(0)
 })
+
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 360, height: 800 },
+]) {
+  test(`no mark covers another over the same seconds: each kind has its own lane, and overlapping picture effects stack, at ${viewport.width}×${viewport.height} (#1038)`, async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(60_000)
+    await page.setViewportSize(viewport)
+    await addClips(page, 2)
+    await chooseFromFileMenu(page, 'Plugins…')
+    const plugins = page.getByRole('dialog', { name: 'Plugins' })
+    await plugins.getByRole('button', { name: 'Enable Visual effects' }).click()
+    await expect(plugins.getByRole('button', { name: 'Disable Visual effects' })).toBeVisible()
+    await plugins.getByRole('button', { name: 'Close' }).click()
+    // Populated: two entries with a transition between them, and on the
+    // first a zoom, a speed segment, a vignette, a blur and a volume change,
+    // each added with its defaults, so all five start at the entry's start.
+    await page.getByRole('button', { name: 'Add transition between position 1 and 2' }).click()
+    for (const effect of ['Zoom', 'Speed segment', 'Vignette', 'Blur', 'Volume change']) {
+      await chooseEffect(page, ENTRY, effect)
+    }
+    const dialog = await openTrim(page)
+    const strip = dialog.getByTestId('trim-strip')
+    const marks = dialog.getByTestId('trim-effect-mark')
+    await expect(marks).toHaveCount(5)
+    for (const mark of await marks.all()) {
+      await expectWithin(mark, strip, { what: `the ${await mark.getAttribute('title')} mark` })
+    }
+
+    // Every mark's box, in one page read.
+    const boxes = await dialog.evaluate((element) =>
+      [...element.querySelectorAll('[data-testid="trim-effect-mark"]')].map((mark) => {
+        const { left, right, top, bottom } = mark.getBoundingClientRect()
+        return { name: mark.getAttribute('title') ?? '', left, right, top, bottom }
+      }),
+    )
+    // The marks do share seconds, so the check below is not vacuous: every
+    // pair's horizontal spans overlap.
+    for (const a of boxes) {
+      for (const b of boxes) {
+        if (a === b) continue
+        expect(Math.min(a.right, b.right) - Math.max(a.left, b.left), `${a.name} and ${b.name} share no seconds`).toBeGreaterThan(0)
+        // Boxes that share seconds must not share pixels vertically. Touching
+        // edges are allowed.
+        const sharedHeight = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        expect(
+          sharedHeight,
+          `${a.name} (top ${a.top}, bottom ${a.bottom}) covers ${b.name} (top ${b.top}, bottom ${b.bottom})`,
+        ).toBeLessThanOrEqual(0.5)
+      }
+    }
+    await dialog.screenshot({ path: testInfo.outputPath(`trim-mark-lanes-${viewport.width}.png`) })
+  })
+}
 
 for (const viewport of [
   { width: 1280, height: 720 },
