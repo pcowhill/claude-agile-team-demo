@@ -11,6 +11,8 @@ import {
   entryOutputDuration,
   remapsOf,
   emptyTimeline,
+  endWithVideoOutPoint,
+  END_WITH_VIDEO_FADE_OUT,
   entryFromClip,
   defaultZoomFor,
   DEFAULT_SLATE_COLOR,
@@ -6075,6 +6077,113 @@ describe('volume changes on a video overlay (#1027)', () => {
     const tail = timelineReducer(withLate, { type: 'range-cut', from: 7, to: 25, newEntryIds: ['mid', 'tail'] })
     expect([videoOverlaysOf(tail)[0].inPoint, videoOverlaysOf(tail)[0].outPoint]).toEqual([2, 8])
     expect(changesOf(tail)).toEqual([['v1', 5, 1, 0.2]])
+  })
+})
+
+describe('End with video on an audio track (#1040)', () => {
+  // Two 10 s entries joined by a 1 s crossfade: the sequence is 19 s, not
+  // the 20 s its trims add up to. The song is a 30 s clip from source 1,
+  // starting 2 s into the video, so untrimmed it runs to 2 + 29 = 31 s.
+  const sequence = (): TimelineState => ({ ...stateOf(['a'], ['b']), transitions: [crossfade('a', 'b', 1)] })
+  const song = (overrides: Partial<AudioTrack> = {}): AudioTrack => ({
+    ...audioTrackFromClip(clip({ id: 'c-m', kind: 'audio', name: 'm.mp3', duration: 30 }), 't1'),
+    offset: 2,
+    inPoint: 1,
+    ...overrides,
+  })
+  const withSong = (overrides: Partial<AudioTrack> = {}, base: TimelineState = sequence()) =>
+    timelineReducer(base, { type: 'audio-track-added', track: song(overrides) })
+  const ended = (state: TimelineState) => timelineReducer(state, { type: 'audio-track-ended-with-video', id: 't1' })
+  const trackOf = (state: TimelineState) => audioTracksOf(state)[0]
+
+  it('sets Out so the track ends where the sequence does, counting the transition’s overlap', () => {
+    const state = withSong()
+    expect(totalDuration(state)).toBe(19)
+    // In + (totalDuration − Starts at) = 1 + (19 − 2) = 18, not 1 + (20 − 2).
+    expect(endWithVideoOutPoint(state, 't1')).toBe(18)
+    const after = trackOf(ended(state))
+    expect(after).toMatchObject({ offset: 2, inPoint: 1, outPoint: 18 })
+    expect(after.offset + effectiveDuration(after)).toBe(totalDuration(state))
+  })
+
+  it('counts a speed segment on an entry too', () => {
+    // Source 0..4 of entry a at 0.5× plays in 8 s: the sequence is 23 s.
+    const slowed = { ...sequence(), remaps: [{ id: 'r1', entryId: 'a', kind: 'speed' as const, start: 0, end: 4, factor: 0.5 }] }
+    const state = withSong({}, slowed)
+    expect(totalDuration(state)).toBe(23)
+    expect(trackOf(ended(state)).outPoint).toBe(22)
+  })
+
+  it(`raises Fade out to ${END_WITH_VIDEO_FADE_OUT} s, keeps a longer one, and leaves Fade in alone`, () => {
+    expect(END_WITH_VIDEO_FADE_OUT).toBe(3)
+    expect(trackOf(ended(withSong())).fadeOut).toBe(3)
+    expect(trackOf(ended(withSong({ fadeIn: 2, fadeOut: 1 })))).toMatchObject({ fadeIn: 2, fadeOut: 3 })
+    expect(trackOf(ended(withSong({ fadeIn: 2, fadeOut: 5 })))).toMatchObject({ fadeIn: 2, fadeOut: 5 })
+  })
+
+  it('clamps Fade out by clampTrackFades when Fade in and 3 s do not fit the new length', () => {
+    // Starts at 17: the new length is 19 − 17 = 2 s. Fade in keeps its 1.5 s
+    // and Fade out absorbs the shortfall: 0.5 s, not 3.
+    const after = trackOf(ended(withSong({ offset: 17, fadeIn: 1.5 })))
+    expect(effectiveDuration(after)).toBe(2)
+    expect(after).toMatchObject({ fadeIn: 1.5, fadeOut: 0.5 })
+  })
+
+  it('is one undo step: a single Undo restores both the old Out and the old Fade out', () => {
+    let history = { ...emptyTimelineHistory, present: withSong({ fadeOut: 1 }) }
+    history = timelineHistoryReducer(history, { type: 'audio-track-ended-with-video', id: 't1' })
+    expect(trackOf(history.present)).toMatchObject({ outPoint: 18, fadeOut: 3 })
+    history = timelineHistoryReducer(history, { type: 'edit-undone' })
+    expect(trackOf(history.present)).toMatchObject({ outPoint: 30, fadeOut: 1 })
+  })
+
+  it('has nothing to do when the track already ends at or before the sequence’s end, or starts at or after it', () => {
+    // Ends exactly at 19: 2 + (18 − 1).
+    const atEnd = withSong({ outPoint: 18 })
+    // Ends at 10, well before.
+    const before = withSong({ outPoint: 9 })
+    // Starts at 19, where the sequence ends, and at 25, past it.
+    const startsAtEnd = withSong({ offset: 19 })
+    const startsAfter = withSong({ offset: 25 })
+    // An empty sequence: every track ends at or after its 0 s end.
+    const empty = withSong({}, emptyTimeline)
+    for (const state of [atEnd, before, startsAtEnd, startsAfter, empty]) {
+      expect(endWithVideoOutPoint(state, 't1')).toBeNull()
+      expect(ended(state)).toBe(state)
+    }
+    expect(endWithVideoOutPoint(withSong(), 'ghost')).toBeNull()
+    // Pressed twice, the second finds nothing left to trim.
+    const once = ended(withSong())
+    expect(ended(once)).toBe(once)
+  })
+
+  it('sweeps a volume change past the new Out as a trim does, and leaves Duck others on', () => {
+    // The new length is 17 s. Change 1 at 4..6 s into the track fits; change
+    // 3 at 15..18 s is shortened to 15..17; change 2 at 18..20 s starts past
+    // the new end and collapses to length zero at it, kept so its row stays
+    // (#1013).
+    let state = withSong({ duck: true })
+    for (const [id, start, length] of [
+      ['v1', 4, 2],
+      ['v3', 15, 3],
+      ['v2', 18, 2],
+    ] as const) {
+      state = timelineReducer(state, {
+        type: 'audio-track-volume-change-added',
+        trackId: 't1',
+        change: { id, start, length, level: 0.5 },
+      })
+    }
+    const after = trackOf(ended(state))
+    expect(after.duck).toBe(true)
+    expect(after.volumeChanges?.map(({ id, start, length }) => [id, start, length])).toEqual([
+      ['v1', 4, 2],
+      ['v3', 15, 2],
+      ['v2', 17, 0],
+    ])
+    // The same as Trim… with that Out.
+    const trimmed = timelineReducer(state, { type: 'audio-track-trimmed', id: 't1', inPoint: 1, outPoint: 18 })
+    expect(after.volumeChanges).toEqual(trackOf(trimmed).volumeChanges)
   })
 })
 

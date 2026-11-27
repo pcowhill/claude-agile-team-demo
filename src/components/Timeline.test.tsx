@@ -35,6 +35,7 @@ import {
   effectItem,
   effectMenuItems,
   effectMenuTrigger,
+  END_WITH_VIDEO,
   queryEffectMenuTrigger,
   queryRowMenuTrigger,
   queryEffectItem,
@@ -3483,10 +3484,17 @@ describe("a timeline row's ⋯ menu and + Effect ▾ (#419)", () => {
       REMOVE,
     ])
     await closeRowMenu('a.mp4 at position 1')
-    for (const position of ['audio track m.mp3 at position 1', 'overlay a.mp4 at position 1']) {
-      expect(await rowMenuItems(position)).toEqual([DUPLICATE, COPY_SETTINGS, RENAME, REMOVE])
-      await closeRowMenu(position)
-    }
+    // An audio track also opens on End with video (#1040), a group of its own.
+    expect(await rowMenuItems('audio track m.mp3 at position 1')).toEqual([
+      END_WITH_VIDEO,
+      DUPLICATE,
+      COPY_SETTINGS,
+      RENAME,
+      REMOVE,
+    ])
+    await closeRowMenu('audio track m.mp3 at position 1')
+    expect(await rowMenuItems('overlay a.mp4 at position 1')).toEqual([DUPLICATE, COPY_SETTINGS, RENAME, REMOVE])
+    await closeRowMenu('overlay a.mp4 at position 1')
     // A text overlay's row shows its content rather than a name: no Rename.
     expect(await rowMenuItems('text overlay at position 1')).toEqual([
       DUPLICATE,
@@ -5115,6 +5123,53 @@ describe('volume changes on a video overlay row (#1027, step 1b)', () => {
     expect(screen.queryByRole('spinbutton', { name: /^Volume change 1/ })).not.toBeInTheDocument()
     await undo()
     expect(level(1)).toHaveValue(0.5)
+  })
+})
+
+describe('End with video in an audio track’s ⋯ (#1040)', () => {
+  const TRACK = 'audio track m.mp3 at position 1'
+  const field = (name: string) => screen.getByRole('spinbutton', { name: `${name} of ${TRACK} in seconds` })
+  const undo = () => userEvent.click(screen.getByRole('button', { name: 'Undo last timeline edit' }))
+
+  /** A 10 s video and a song of `seconds`, both added from 0 s. */
+  const videoAndSong = async (seconds: number) => {
+    render(<App />)
+    await importClip('a.mp4', 10)
+    await importAudioClip('m.mp3', seconds)
+    await userEvent.click(screen.getByRole('button', { name: 'Add a.mp4 to timeline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add m.mp3 to timeline' }))
+  }
+
+  it('trims a song longer than the video to end with it, with a 3 s fade-out, as one undo step', async () => {
+    await videoAndSong(30)
+    expect(field('Trim out point')).toHaveValue(30)
+    expect(await queryRowAction(TRACK, END_WITH_VIDEO)).toBeEnabled()
+    await closeRowMenu(TRACK)
+    await chooseRowAction(TRACK, END_WITH_VIDEO)
+    expect(field('Trim out point')).toHaveValue(10)
+    expect(field('Fade-out')).toHaveValue(3)
+    // Nothing is left to trim, so it is greyed now.
+    expect(await queryRowAction(TRACK, END_WITH_VIDEO)).toBeDisabled()
+    await closeRowMenu(TRACK)
+    await undo()
+    expect(field('Trim out point')).toHaveValue(30)
+    expect(field('Fade-out')).toHaveValue(0)
+  })
+
+  it('is greyed for a song that already ends before the video does, and choosing it changes nothing', async () => {
+    await videoAndSong(8)
+    const item = await queryRowAction(TRACK, END_WITH_VIDEO)
+    expect(item).toBeDisabled()
+    await userEvent.click(item!)
+    expect(field('Trim out point')).toHaveValue(8)
+    expect(field('Fade-out')).toHaveValue(0)
+  })
+
+  it('is greyed for a song that starts after the video has ended', async () => {
+    await videoAndSong(30)
+    await userEvent.clear(field('Start time'))
+    await userEvent.type(field('Start time'), '12{Enter}')
+    expect(await queryRowAction(TRACK, END_WITH_VIDEO)).toBeDisabled()
   })
 })
 

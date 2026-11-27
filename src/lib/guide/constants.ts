@@ -88,7 +88,7 @@ import {
   MIN_TEXT_SIZE,
   TEXT_LINE_HEIGHT,
 } from '../textOverlay'
-import { DEFAULT_STILL_DURATION, DEFAULT_TRANSITION_DURATION, DEFAULT_ZOOM } from '../timeline'
+import { DEFAULT_STILL_DURATION, DEFAULT_TRANSITION_DURATION, DEFAULT_ZOOM, END_WITH_VIDEO_FADE_OUT } from '../timeline'
 import { LARGE_STEP_SECONDS, SNAP_PIXELS, STEP_SECONDS } from '../transport'
 import { DEFAULT_OVERLAY_RECT } from '../videoOverlay'
 import type { GuideConstants } from './constantNames'
@@ -174,6 +174,7 @@ export function guideConstants(settings: Pick<AppSettings, 'stepSeconds' | 'larg
     VOLUME_CHANGE_RAMP_SECONDS: String(VOLUME_CHANGE_RAMP_SECONDS),
     DEFAULT_VOLUME_CHANGE_LENGTH: String(DEFAULT_VOLUME_CHANGE_LENGTH),
     DEFAULT_VOLUME_CHANGE_LEVEL: String(DEFAULT_VOLUME_CHANGE_LEVEL),
+    END_WITH_VIDEO_FADE_OUT: String(END_WITH_VIDEO_FADE_OUT),
     SNAP_PIXELS: String(SNAP_PIXELS),
     EXPORT_FRAME_RATE: String(EXPORT_FRAME_RATE),
     MIN_EXPORT_DIMENSION: String(MIN_EXPORT_DIMENSION),

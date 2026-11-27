@@ -970,6 +970,13 @@ export type TimelineAction =
   | { type: 'audio-track-removed'; id: string }
   | { type: 'audio-track-retimed'; id: string; offset: number }
   | { type: 'audio-track-trimmed'; id: string; inPoint: number; outPoint: number }
+  /**
+   * End with video (#1040): the track's Out set so it ends where the
+   * sequence does, and its Fade out raised to at least
+   * `END_WITH_VIDEO_FADE_OUT`, as one action so one undo restores both. A
+   * no-op wherever `endWithVideoOutPoint` is null.
+   */
+  | { type: 'audio-track-ended-with-video'; id: string }
   | { type: 'entry-volume-set'; id: string; volume: number }
   | { type: 'entry-mute-set'; id: string; muted: boolean }
   | { type: 'entry-fades-set'; id: string; fadeIn: number; fadeOut: number }
@@ -3712,6 +3719,22 @@ function reduceTimelineCollections(
       tracks[index] = { ...track, inPoint, outPoint }
       return withEffects({ ...effectListsOf(state), audioTracks: tracks })
     }
+    case 'audio-track-ended-with-video': {
+      const outPoint = endWithVideoOutPoint(state, action.id)
+      if (outPoint === null) return state
+      const index = audioTracks.findIndex((track) => track.id === action.id)
+      const track = audioTracks[index]
+      const tracks = [...audioTracks]
+      // withEffects then normalizes the track as a trim does: clampTrackFades
+      // keeps Fade in and lets Fade out absorb any shortfall, and the volume
+      // changes are swept against the new length (#1013).
+      tracks[index] = {
+        ...track,
+        outPoint,
+        fadeOut: Math.max(END_WITH_VIDEO_FADE_OUT, track.fadeOut ?? 0),
+      }
+      return withEffects({ ...effectListsOf(state), audioTracks: tracks })
+    }
     case 'entry-volume-set': {
       const index = state.entries.findIndex((entry) => entry.id === action.id)
       if (index === -1) return state
@@ -4280,6 +4303,29 @@ function reduceTimelineCollections(
 /** The trimmed (playable) duration of one entry or audio track, in seconds. */
 export function effectiveDuration(entry: Pick<TimelineEntry, 'inPoint' | 'outPoint'>): number {
   return entry.outPoint - entry.inPoint
+}
+
+/** End with video's fade-out (#1040, from #1036): at least this many seconds. */
+export const END_WITH_VIDEO_FADE_OUT = 3
+
+/**
+ * Where **End with video** (#1040) puts the audio track `trackId`'s Out: the
+ * second of the clip that plays as the sequence ends,
+ * `In + (totalDuration − Starts at)`. `totalDuration` is what the preview and
+ * the export stop at, so transitions and speed segments count. Null when
+ * there is nothing to trim: no such track; the track already ends at or
+ * before the sequence's end (an empty sequence included); or it starts at
+ * or after that end, where no Out after In would do. "At" allows
+ * `MARKER_TIME_EPSILON`, so a track the action has just ended is not
+ * offered it again for a rounding error.
+ */
+export function endWithVideoOutPoint(state: TimelineState, trackId: string): number | null {
+  const track = audioTracksOf(state).find((candidate) => candidate.id === trackId)
+  if (track === undefined) return null
+  const end = totalDuration(state)
+  if (track.offset >= end) return null
+  if (track.offset + effectiveDuration(track) <= end + MARKER_TIME_EPSILON) return null
+  return track.inPoint + (end - track.offset)
 }
 
 /**

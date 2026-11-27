@@ -882,6 +882,7 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             onTrimAudioTrack={(id, inPoint, outPoint) =>
               dispatchTimeline({ type: 'audio-track-trimmed', id, inPoint, outPoint })
             }
+            onEndAudioTrackWithVideo={(id) => dispatchTimeline({ type: 'audio-track-ended-with-video', id })}
             onSetEntryVolume={(id, volume) =>
               dispatchTimeline({ type: 'entry-volume-set', id, volume })
             }

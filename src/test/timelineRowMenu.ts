@@ -37,6 +37,8 @@ export const RENAME = 'Rename…'
 export const MOVE_UP = 'Move up'
 export const MOVE_DOWN = 'Move down'
 export const REMOVE = 'Remove'
+/** On an audio track only (#1040), in a group of its own before Duplicate. */
+export const END_WITH_VIDEO = 'End with video'
 
 /** The + Effect ▾ items, likewise. */
 export const ADD_ZOOM = 'Zoom'

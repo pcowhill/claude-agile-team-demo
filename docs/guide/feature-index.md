@@ -177,6 +177,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Enable Title templates** — File ▾ › Plugins…. [Plugins › Title templates](plugins.md#title-templates)
 - **Enable Visual effects** — File ▾ › Plugins…. [Plugins › Visual effects](plugins.md#visual-effects)
 - **End card** — the Title template gallery; a closing line and an optional second line on a solid background, for 5 s. [Plugins › Title templates](plugins.md#title-templates)
+- **End with video** — an audio track's ⋯ menu; trims a track that runs past the video to end with it, with a {{END_WITH_VIDEO_FADE_OUT}} s fade-out. Greyed when there is nothing to trim. [Audio › End with video](audio.md#end-with-video)
 - **Entrance** — an expanded shape group row; *Fade* (the fade-in) or *Draw on*. [Shapes and annotations › Drawing the shapes on](shapes-and-annotations.md#drawing-the-shapes-on) · [Shapes and annotations › A group's timing and fades](shapes-and-annotations.md#a-group-s-timing-and-fades)
 - **Esc** — leaves the source preview, back to the sequence; closes the Trim window without applying, the Split window without splitting, and the Cut window without cutting. [Preview and playback › Keyboard control](preview-and-playback.md#keyboard-control) · [Editing video › The Trim window](editing-video.md#the-trim-window)
 - **Expanded** — the preview's View ▾; the preview as the page's full-width first row. [Preview and playback › The stage and the View ▾ menu](preview-and-playback.md#the-stage-and-the-view-menu)
