@@ -59,7 +59,7 @@ const realDialog = (page: Page) =>
 /**
  * Blocks the crop editor's own module, counting what the route sees: how
  * many requests were aborted, and how many were let through once `failing`
- * is lifted. `continued` is what the "why not a Retry" test reads.
+ * is lifted. `continued` is what the Try again test reads.
  */
 async function blockCropEditorModule(page: Page) {
   // Unhandled rejections are collected in the page rather than through
@@ -126,7 +126,7 @@ test('a visual editor whose chunk fails to load says so, instead of nothing (#56
   // regression to guard is the sentence forcing them out of the box rather
   // than wrapping — `.visual-editor-failed-message` gives the text `min-width: 0`
   // for exactly this, which is the shape that overflowed in #268.
-  for (const name of ['Reload the page', 'Close the crop editor']) {
+  for (const name of ['Try again', 'Reload the page', 'Close the crop editor']) {
     await expectWithin(failed.getByRole('button', { name }), failed, {
       what: `${name} in the failure dialog`,
     })
@@ -144,6 +144,46 @@ test('a visual editor whose chunk fails to load says so, instead of nothing (#56
   )
 
   await failed.screenshot({ path: testInfo.outputPath('visual-editor-load-failed.png') })
+
+  // Three buttons (#993) leave the message little room on a phone. At 360px
+  // with `min-width: 0` alone the sentence shrank to a column one word wide
+  // whose words ran under Try again; the body now wraps the buttons onto a
+  // line of their own instead. Measured on the text's own line boxes, since
+  // the span's box can stay clear of a button while its words overflow it.
+  for (const width of [360, 1280]) {
+    await page.setViewportSize({ width, height: 800 })
+    await failed.scrollIntoViewIfNeeded()
+    const overlaps = await failed.evaluate((dialog) => {
+      const message = dialog.querySelector('[role="alert"]')!
+      const range = document.createRange()
+      range.selectNodeContents(message)
+      const lines = [...range.getClientRects()]
+      const buttons = [...dialog.querySelectorAll('button')].map((button) => ({
+        name: button.getAttribute('aria-label') ?? button.textContent,
+        box: button.getBoundingClientRect(),
+      }))
+      // 0.5px either way: line boxes and buttons that only touch are fine.
+      return buttons.flatMap(({ name, box }) =>
+        lines.some(
+          (line) =>
+            line.left < box.right - 0.5 &&
+            line.right > box.left + 0.5 &&
+            line.top < box.bottom - 0.5 &&
+            line.bottom > box.top + 0.5,
+        )
+          ? [name]
+          : [],
+      )
+    })
+    expect(overlaps, `buttons the message's text runs under at ${width}px`).toEqual([])
+    for (const name of ['Try again', 'Reload the page', 'Close the crop editor']) {
+      await expectWithin(failed.getByRole('button', { name }), failed, {
+        what: `${name} in the failure dialog at ${width}px`,
+      })
+    }
+    await expectNoHorizontalScroll(page, `the crop editor failed to load, ${width}px`)
+    await failed.screenshot({ path: testInfo.outputPath(`visual-editor-load-failed-${width}.png`) })
+  }
 
   // A failed chunk is handled, not thrown at the page: the #568 shape left
   // an unhandled rejection as the only trace of itself.
@@ -175,10 +215,11 @@ test('reloading after a failed chunk is what brings the editor back (#568)', asy
   await adjustButton(page).click()
   await expect(failedDialog(page)).toBeVisible()
 
-  // The remedy the dialog offers, taken end to end: the block lifts (the
-  // connection came back, or the deploy settled), the button reloads, and
-  // the editor opens — the module map the reload discards is the whole
-  // difference from the "no Retry" test below.
+  // Reload the page, the remedy that works in every browser, taken end to
+  // end: the block lifts (the connection came back, or the deploy settled),
+  // the button reloads, and the editor opens — the module map the reload
+  // discards is the whole difference from the Try again test below, in a
+  // browser that caches the failure.
   state.failing = false
   await failedDialog(page).getByRole('button', { name: 'Reload the page' }).click()
 
@@ -218,59 +259,63 @@ test('Escape dismisses the failure panel, and ✕ holds focus — as the tooltip
   expect(state.aborted, 'the route actually blocked the editor module').toBeGreaterThan(0)
 })
 
-test('a second attempt without reloading never reaches the network — why there is no Retry (#568)', async ({
+test('Try again opens the editor where the browser fetches the module again, and points at Reload where it does not (#993)', async ({
   page,
 }, testInfo) => {
   const state = await blockCropEditorModule(page)
   await projectWithAnImage(page)
   await adjustButton(page).click()
-  await expect(failedDialog(page)).toBeVisible()
+  const failed = failedDialog(page)
+  await expect(failed).toBeVisible()
   const abortedOnce = state.aborted
 
-  // This is the measurement the loader's comment cites. A browser caches a
-  // module whose fetch failed, so importing the same specifier again
-  // re-rejects without issuing a request — which is why the loader clearing
-  // its own promise cache cannot produce a working Retry, and why the
-  // dialog offers a reload instead.
+  // The block lifts, as a connection coming back would, and Try again
+  // imports the same specifier a second time. Whether that import reaches
+  // the network is the browser's call, which is why the dialog offers both
+  // remedies rather than either one (#568, #886, #993).
   state.failing = false
-  await failedDialog(page).getByRole('button', { name: 'Close the crop editor' }).click()
-  await adjustButton(page).click()
+  await failed.getByRole('button', { name: 'Try again' }).click()
+  const stillFailed = failed.getByRole('alert').filter({ hasText: 'still could not load' })
+  await expect(realDialog(page).or(stillFailed)).toBeVisible()
 
   // **Which browser runs this decides what it can assert (#886).** The
-  // caching above is measured in the browsers CI runs: Playwright's pinned
+  // caching is measured in the browsers CI runs: Playwright's pinned
   // Chromium (151 at the time of #886) and Firefox 153 both answer the
   // second import from the failed entry, with no request. Chromium 158 does
   // not: it requests the module again, and the editor opens. Session
   // containers ship such a newer Chromium and not the pinned one, so
   // `tools/chromiumExecutable.ts` launches it, and `launchOptions
-  // .executablePath` is set only then. On that browser, this test checks
-  // that what the page shows agrees with what the browser did, and notes
-  // which it was, instead of asserting the pinned browsers' behaviour of a
-  // browser CI does not run. `npx playwright install chromium-headless-shell`
-  // installs the pinned build, which the resolver then prefers, and the
-  // strict assertions below run locally too.
+  // .executablePath` is set only then. On that browser this test asserts
+  // Try again's other outcome, the editor opening, and notes the browser.
+  // `npx playwright install chromium-headless-shell` installs the pinned
+  // build, which the resolver then prefers, and the strict assertions below
+  // run locally too.
   const substitute = testInfo.project.use.launchOptions?.executablePath !== undefined
-  if (substitute) {
-    await expect(failedDialog(page).or(realDialog(page))).toBeVisible()
-    if (state.continued > 0) {
-      await expect(realDialog(page)).toBeVisible()
-      await expect(failedDialog(page)).toHaveCount(0)
-      expect(state.aborted, 'the second attempt was let through, not blocked again').toBe(abortedOnce)
-      testInfo.annotations.push({
-        type: 'browser',
-        description: `${page.context().browser()?.version()} re-requested a module whose fetch had failed (#886)`,
-      })
-      return
-    }
+  if (substitute && state.continued > 0) {
+    await expect(realDialog(page)).toBeVisible()
+    await expect(realDialog(page).getByTestId('frame-editor-image')).toBeVisible()
+    await expect(failedDialog(page)).toHaveCount(0)
+    expect(state.aborted, 'the second attempt was let through, not blocked again').toBe(abortedOnce)
+    testInfo.annotations.push({
+      type: 'browser',
+      description: `${page.context().browser()?.version()} re-requested a module whose fetch had failed, and Try again opened the editor (#886, #993)`,
+    })
+    return
   }
 
-  await expect(failedDialog(page)).toBeVisible()
+  // A browser that caches the failure: the attempt never reaches the
+  // network, the dialog stays, and its sentence now points at the remedy
+  // that does work here.
+  await expect(stillFailed).toHaveText('The crop editor still could not load. Reloading the page fetches it again.')
   await expect(realDialog(page)).toHaveCount(0)
   expect(state.aborted, 'no further request was even attempted').toBe(abortedOnce)
   expect(state.continued, 'the module map answered from cache, not the network').toBe(0)
+  // Focus is back on ✕, so Escape still reaches the panel.
+  await expect(failed.getByRole('button', { name: 'Close the crop editor' })).toBeFocused()
+  await failed.screenshot({ path: testInfo.outputPath('visual-editor-try-again-failed.png') })
 
   // If this test ever fails in CI because the editor opened, Playwright's
   // pinned browser has stopped caching failed module fetches, as Chromium
-  // 158 already has (#886), and a Retry button becomes possible there:
-  // revisit the dialog in src/components/visualEditors.tsx.
+  // 158 already has (#886): Try again then works there, and the branch
+  // above becomes the one to assert in that browser.
 })

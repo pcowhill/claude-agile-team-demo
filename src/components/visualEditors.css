@@ -26,8 +26,14 @@
   max-width: 30rem;
 }
 
+/* Wraps (#993): with three buttons, a phone-width panel left the message a
+   column one word wide whose words ran under Try again. The message asks
+   for 12rem before it shares a line with the buttons, and on a narrower
+   panel the buttons move to a line of their own below it. At the panel's
+   30rem cap, 12rem plus the buttons still fits on one line. */
 .visual-editor-failed-body {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
@@ -41,7 +47,7 @@
    is how the export modal's format note overflowed (#268) and the cheat
    sheet wrapped mid-combo (#287). The box grows taller instead. */
 .visual-editor-failed-message {
-  flex: 1 1 auto;
+  flex: 1 1 12rem;
   min-width: 0;
   /* The only visual cue that this is a failure: the box is otherwise the
      same dark strip as an editor that opened. Warm enough to carry meaning,
