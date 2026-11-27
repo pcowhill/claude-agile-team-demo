@@ -17,7 +17,9 @@
  *   does (#314), so a setting added later is copied without being named.
  * - **A track's volume changes** (#1025) divide at the split point: one
  *   across it becomes one in each part at the same level, and since a ramp
- *   at a window's edge is not heard, the join plays on as the original did.
+ *   at a window's edge is not heard, the join plays on as the original did
+ *   across that change. A change whose ramp alone crosses the point loses
+ *   the ramp's far side (`splitVolumeChangesAt`).
  * - **Fades stay on the outer edges.** The first part keeps the fade-in and
  *   the second the fade-out, so the join plays on as the original did. A
  *   fade that runs across the split point cannot be divided (a fade always

@@ -977,6 +977,19 @@ function App({ probeMedia = probeMediaFile, savePort, layoutStorage }: AppProps)
             onSetAudioTrackDuck={(id, duck, duckLevel) =>
               dispatchTimeline({ type: 'audio-track-duck-set', id, duck, duckLevel })
             }
+            onAddAudioTrackVolumeChange={(trackId, change) =>
+              dispatchTimeline({
+                type: 'audio-track-volume-change-added',
+                trackId,
+                change: { ...change, id: crypto.randomUUID() },
+              })
+            }
+            onUpdateAudioTrackVolumeChange={(trackId, id, change) =>
+              dispatchTimeline({ type: 'audio-track-volume-change-updated', trackId, id, change })
+            }
+            onRemoveAudioTrackVolumeChange={(trackId, id) =>
+              dispatchTimeline({ type: 'audio-track-volume-change-removed', trackId, id })
+            }
           />
           </main>
           {guide.location !== null && (

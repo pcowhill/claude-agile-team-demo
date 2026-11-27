@@ -9,7 +9,7 @@ This list is checked against the running editor in CI: a control the app shows a
 ## Symbols and keys
 
 - **+ Add shape** — an expanded shape group row; adds a rectangle, an ellipse, an arrow or a numbered badge. [Shapes and annotations › The shapes in a group](shapes-and-annotations.md#the-shapes-in-a-group)
-- **+ Effect** — an expanded sequence entry or overlay, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
+- **+ Effect** — an expanded sequence entry, overlay or audio track, below its fields. [Timeline › + Effect ▾](timeline.md#effect)
 - **?** — shows the keyboard cheat sheet. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
 - **× (beside the playhead)** — the position readout, while the review speed is not 1×; how fast the preview is playing. [Preview and playback › Review speed](preview-and-playback.md#review-speed)
 - **← / →** — steps the playhead back and forward by the nudge size. [Keyboard shortcuts](keyboard-shortcuts.md#every-shortcut)
@@ -357,6 +357,7 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Remove transition** — the ✕ on a transition control between two entries. [Editing video › Transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom)
 - **Remove VHS** — VHS on an expanded sequence entry or overlay; takes it away. [Editing video › VHS](editing-video.md#vhs)
 - **Remove vignette** — a vignette on an expanded sequence entry or overlay; takes it away. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
+- **Remove volume change** — a volume change on an expanded audio track; takes it away. [Audio › Volume change](audio.md#volume-change)
 - **Remove zoom** — a zoom on an expanded sequence entry or overlay; takes it away. [Editing video › Zooms](editing-video.md#zooms)
 - **Rename…** — a media library row's ⋯ menu, a timeline row's ⋯ menu, and a chapter marker's menu. [Media library › Renaming a clip](media-library.md#renaming-a-clip) · [Timeline › Rename…](timeline.md#rename) · [Preview and playback › Chapter markers](preview-and-playback.md#chapter-markers)
 - **Reset color** — an expanded video or image row › Picture ▸. [Editing video › Colour adjustments](editing-video.md#colour-adjustments)
@@ -464,6 +465,10 @@ This list is checked against the running editor in CI: a control the app shows a
 - **Vignette strength** — a vignette on an expanded sequence entry or overlay; 0 to 100 %, how dark the frame's corners get. [Editing video › Vignette and blur](editing-video.md#vignette-and-blur)
 - **Visual editors** — Settings; switches the drag-to-adjust editors on and off. [Settings › Visual editors](settings.md#visual-editors)
 - **Volume** — an expanded video row or audio track; 0 to {{MAX_VOLUME}}, 1 being the source as recorded. [Audio › Volume and mute](audio.md#volume-and-mute)
+- **Volume change** — + Effect ▾ on an audio track; turns the track down or up for a stretch, with a ramp either side. [Audio › Volume change](audio.md#volume-change)
+- **Volume change length** — a volume change on an expanded audio track; how long it lasts, in seconds. [Audio › Volume change](audio.md#volume-change)
+- **Volume change level** — a volume change on an expanded audio track; the track's volume for the stretch, as a multiple of its own Volume, 0 to {{MAX_VOLUME}}. [Audio › Volume change](audio.md#volume-change)
+- **Volume change start** — a volume change on an expanded audio track; when it begins, in seconds into the track. [Audio › Volume change](audio.md#volume-change)
 
 ## W
 

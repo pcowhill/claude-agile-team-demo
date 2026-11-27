@@ -205,9 +205,14 @@ export function defaultVolumeChangeFor(
  *   shifted earlier by `at`, and the rest of one that contains it, from 0.
  *
  * A change across `at` becomes one in each part at the same level. Each
- * part's edge at `at` is a window edge, where no ramp is heard, so the two
- * parts play on as the one did. Ids are unique within an element, so both
- * parts keep the original's.
+ * part's edge at `at` is a window edge, where no ramp is heard, so across
+ * that change the two parts play on as the one did. A change that ends or
+ * starts within `VOLUME_CHANGE_RAMP_SECONDS` of `at` is different: the part
+ * of its ramp on the far side of `at` is not carried, so the part without
+ * the change plays at full volume up to the join, where the original was
+ * partway down the ramp (#1029's review measured 1.00 against 0.52 at
+ * Level 0.2). The guide says so (`audio.md`, *Volume change*). Ids are
+ * unique within an element, so both parts keep the original's.
  */
 export function splitVolumeChangesAt<T extends VolumeChange>(
   changes: readonly T[] | undefined,

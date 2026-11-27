@@ -1,6 +1,6 @@
 # Audio
 
-Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), [matching every source's level](#match-levels) in one step, one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
+Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), [matching every source's level](#match-levels) in one step, one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), a [volume change](#volume-change) turning a track down or up for a stretch, [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
 
 ## Audio tracks
 
@@ -70,6 +70,34 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **Related.** [Duck others](#duck-others)
 
+## Volume change
+
+**Where to find it.** An expanded audio track's row › **+ Effect ▾** › **Volume change**. Each change then has a row of its own under the track's audio fields.
+
+**What it does.** Turns the track down, or up, for a stretch of its time, with a smooth ramp either side. For example, background music drops while you talk over it and comes back afterwards, without splitting the track into pieces whose volumes jump.
+
+**Details.**
+
+- **The fields.** A change's row reads **Volume change 1 at**, **length** and **level**, then **✕**, which removes it.
+  - **at** is when the change begins, in seconds into the track. 0 is the first moment the track plays.
+  - **length** is how long it lasts, in seconds.
+  - **level** is the track's volume for that stretch, as a multiple of its own [Volume](#volume-and-mute), in the same units. 0 is silent, 1 is unchanged, 0.2 is a fifth as loud, and the most is {{MAX_VOLUME}}. The slider beside it is the Volume field's, with its mark at 1.
+- **The ramps.** The level holds from **at** to **at** + **length**. The sound slides to it over {{VOLUME_CHANGE_RAMP_SECONDS}} s just *before* the change and back over {{VOLUME_CHANGE_RAMP_SECONDS}} s just *after* it, as [Duck others](#duck-others) does. A change starting at 0 is at its level from the track's first moment, and one reaching the track's end stays there to the end. Two changes closer together than two ramps slide straight from one level to the next.
+- **Adding one.** **Volume change** adds a {{DEFAULT_VOLUME_CHANGE_LENGTH}} s change at level {{DEFAULT_VOLUME_CHANGE_LEVEL}}, starting where the track's last change ends. It is greyed once the track has no time left after its last change.
+- **Several on a track.** Changes are numbered in time order and never overlap. A start or a length that would run into the next change, or past the track's end, is pulled back, and the field shows where it landed.
+- **With the other settings.** The level multiplies with the track's Volume, its [fades](#fade-in-and-fade-out) and any [ducking](#duck-others). Level 0.5 under a duck to 0.3 plays at 0.15. A stretch is never louder than Volume {{MAX_VOLUME}} could make it.
+- **Undo.** Adding, editing a field and removing are one undo step each.
+- **When the track is edited.**
+  - A change's time counts from the track's **In**. Moving the track with **Starts at** moves its changes with it. Changing **In** keeps each change the same time after the new In, as a zoom on a sequence entry does, so it lands on a different moment of the sound.
+  - [Trimming](editing-video.md#trimming) the track shorter shrinks a change that no longer fits to nothing, without removing it. Undo brings it back.
+  - [Split…](editing-video.md#split) divides the changes between the two tracks, and a change across the split point becomes one in each at the same level. A split less than {{VOLUME_CHANGE_RAMP_SECONDS}} s from a change's start or end cuts that change's ramp. The track on that side of the split plays at full volume up to the split point, rather than partway down the ramp.
+  - [Cut…](editing-video.md#cut) and [Cut out marked range](editing-video.md#cut-out-marked-range) take a change, or the part of one, out with the sound they remove.
+  - [Duplicate](timeline.md#duplicate) copies the changes.
+  - [Copy settings](timeline.md#copy-settings-and-paste-settings) leaves them out, because they belong to that track's timing.
+- **Saving.** Volume changes save with the project. A project holding one opens only in a version of the editor that has them.
+
+**Related.** [Volume and mute](#volume-and-mute) · [Duck others](#duck-others) · [Fade-in and fade-out](#fade-in-and-fade-out) · [+ Effect ▾](timeline.md#effect)
+
 ## Extract audio
 
 **Where to find it.** Media library › a video clip's **⋯** › **Extract audio**.
@@ -86,7 +114,7 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **What it does.** Guarantees that what the preview plays is what the exported file contains.
 
-**Details.** One rule composes every source's volume, mute, fades, transition crossfade and ducking into the gain it plays at, and both the preview and the export read that rule — so the two cannot drift. Every export carries the mix: the video formats record it with the picture, and the two [*Audio only* formats](export.md#audio-only-webm-opus-and-mp3) — WebM/Opus and MP3 — record the mix alone. A soundless element — a still, a slate, an image overlay, or a clip whose sound the browser cannot decode — adds nothing to the mix. One exception, in Firefox only: the preview plays a [Volume above 1](#volume-and-mute) at 1, while the export raises it as asked.
+**Details.** One rule composes every source's volume, mute, fades, transition crossfade and ducking, and a track's [volume changes](#volume-change), into the gain it plays at, and both the preview and the export read that rule — so the two cannot drift. Every export carries the mix: the video formats record it with the picture, and the two [*Audio only* formats](export.md#audio-only-webm-opus-and-mp3) — WebM/Opus and MP3 — record the mix alone. A soundless element — a still, a slate, an image overlay, or a clip whose sound the browser cannot decode — adds nothing to the mix. One exception, in Firefox only: the preview plays a [Volume above 1](#volume-and-mute) at 1, while the export raises it as asked.
 
 **Related.** [Volume and mute](#volume-and-mute) · [The output frame](concepts.md#the-output-frame)
 
