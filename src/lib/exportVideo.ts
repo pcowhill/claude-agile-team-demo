@@ -3767,7 +3767,7 @@ export async function exportTimeline(
         // fade-in as a continuous ramp.
         setMediaGain(
           primary,
-          videoEntryGainAt(entry, startInto, outDuration) * duckFactorAt(ducking, startTime + startInto),
+          videoEntryGainAt(entry, remapsOf(timeline), startInto, outDuration) * duckFactorAt(ducking, startTime + startInto),
         )
         // The cue point is `startInto` output seconds into the entry.
         drawFrame(heldVideoFrame(primary), index, startTime + startInto)
@@ -3872,7 +3872,7 @@ export async function exportTimeline(
           // records as a continuous ramp, exactly as the preview renders it.
           // Inside a transition overlap the branches below re-set it with
           // the crossfade ramp.
-          if (!still) setMediaGain(primary, videoEntryGainAt(entry, outputInto, outDuration) * duck)
+          if (!still) setMediaGain(primary, videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration) * duck)
           let overlayFrame: OverlayFrame | null = null
           if (overlap !== undefined && next !== undefined && outputInto >= overlapStartOut) {
             const progress = Math.min((outputInto - overlapStartOut) / overlap.duration, 1)
@@ -3884,7 +3884,7 @@ export async function exportTimeline(
               if (!still) {
                 setMediaGain(
                   primary,
-                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck,
+                  videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration, 1 - progress) * duck,
                 )
               }
               overlayFrame = {
@@ -3939,13 +3939,14 @@ export async function exportTimeline(
                 if (!still) {
                   setMediaGain(
                   primary,
-                  videoEntryGainAt(entry, outputInto, outDuration, 1 - progress) * duck,
+                  videoEntryGainAt(entry, remapsOf(timeline), outputInto, outDuration, 1 - progress) * duck,
                 )
                 }
                 setMediaGain(
                   secondary,
                   videoEntryGainAt(
                     next,
+                    remapsOf(timeline),
                     outputInto - overlapStartOut,
                     entryOutputDuration(next, remapsOf(timeline)),
                     progress,
@@ -4044,7 +4045,7 @@ export async function exportTimeline(
         // paused outgoing element's volume is set again when it is next cued.
         setMediaGain(
           secondary,
-          videoEntryGainAt(next, overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
+          videoEntryGainAt(next, remapsOf(timeline), overlap.duration, entryOutputDuration(next, remapsOf(timeline))) *
             duckFactorAt(ducking, startTime + outDuration),
         )
         const incoming = secondary
