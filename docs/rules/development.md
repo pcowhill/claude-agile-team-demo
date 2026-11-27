@@ -144,6 +144,23 @@ does. Do not write ADRs for trivial or easily reversed choices.
   never ran that path, and the review found it with one grep (22 hits in
   5 files). That cost a changes-required round, a fix commit and one more
   reviewing session (#934).
+  **A changed state is the same case as a new kind** (#1019). A PR can
+  leave every kind alone and change what a shared component or function
+  renders or returns in a state its callers can see: pending, empty or
+  failed. That PR greps the component's or function's name across `src/`,
+  and the PR body gives the command, the hit count and what each caller
+  now gets. A grep for test ids or class names finds the elements, not
+  the callers, so it is not this grep. #1016 is the worked example. It
+  made `ClipThumbnail` render a 64×36 box while a capture runs, where it
+  had rendered nothing, so a timeline row keeps its height. Its author
+  grepped test ids and found only the timeline.
+  `git grep -n "ClipThumbnail" -- src` on its base, `cc08881`, returns 8
+  hits outside the component in 3 files, including the media library's
+  video card. The card's comments said ClipThumbnail renders nothing
+  until it resolves, and the card's glyph placeholder (#311) relied on
+  that. During a capture the card showed a black square. The
+  review found it with that grep, and the fix made the reviewer a
+  co-author, which cost one more reviewing session.
 - Never state that tests passed unless they were actually run (locally or in
   CI). Report failures honestly.
 - Reported evidence describes the **pushed** branch, not the working tree.
