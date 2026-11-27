@@ -191,7 +191,9 @@ test("every row's ⋯ repeats its ↑ ↓ ✕, and the longer menus stay usable 
     {
       position: 'audio track tone.wav at position 1',
       lane: 'Audio tracks',
-      items: ['Duplicate', 'Copy settings', 'Rename…', 'Remove'],
+      // End with video (#1040) opens it, greyed here: the 1 s tone ends
+      // long before the three slates do.
+      items: ['End with video', 'Duplicate', 'Copy settings', 'Rename…', 'Remove'],
     },
     {
       position: 'overlay logo.png at position 1',

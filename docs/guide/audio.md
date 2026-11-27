@@ -1,6 +1,6 @@
 # Audio
 
-Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), [matching every source's level](#match-levels) in one step, one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), a [volume change](#volume-change) turning a track, or a video's own sound, down or up for a stretch, [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
+Everything the video sounds like: the sequence's own sound, [audio tracks](#audio-tracks) placed beside it, a track that runs past the video trimmed to [end with it](#end-with-video), each source's [volume and mute](#volume-and-mute) and [fades](#fade-in-and-fade-out), [matching every source's level](#match-levels) in one step, one track [ducking the rest](#duck-others) to [its duck level](#the-duck-level), a [volume change](#volume-change) turning a track, or a video's own sound, down or up for a stretch, [extracting a video's sound](#extract-audio) into a clip of its own, and the [one mix](#one-mix-for-preview-and-export) the preview plays and the export records. The [waveforms](#waveforms) on the timeline's bars show where the sound is. Recording a voice-over is on [Recording](recording.md#microphone); the export's two audio-only formats are on the [Export page](export.md#audio-only-webm-opus-and-mp3).
 
 ## Audio tracks
 
@@ -8,9 +8,27 @@ Everything the video sounds like: the sequence's own sound, [audio tracks](#audi
 
 **What it does.** Plays a sound clip at a start time of your choosing, mixed with the sequence's own sound.
 
-**Details.** A track's row has **Starts at** — the second of the video it begins — and **In** and **Out**, its trim in seconds into the clip — **Trim…** beside them sets the two while you listen, in [the Trim window](editing-video.md#the-trim-window) with the track's waveform as its strip; **Cut…** after it removes a part from the middle of the track, marked on that waveform, and the later part closes up behind the earlier while everything else stays put ([Cut…](editing-video.md#cut)); and **Split…** splits the track into two that play on as one, at a moment picked on that waveform ([Split…](editing-video.md#split)) — then its [audio fields](#volume-and-mute). Tracks overlap freely and are independent of the sequence's cuts: moving an entry never moves a track. [Cut out marked range](editing-video.md#cut-out-marked-range) is the exception: it moves a track after the range earlier with the picture, and trims or removes one the range overlaps. Anything past the end of the sequence is cut off there, like every element. A track's ⋯ menu offers [Duplicate](timeline.md#duplicate) (the copy starts where the original ends), [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) (the *Audio* group), [Rename…](timeline.md#rename), and **Remove**, as the row's ✕ does.
+**Details.** A track's row has **Starts at** — the second of the video it begins — and **In** and **Out**, its trim in seconds into the clip — **Trim…** beside them sets the two while you listen, in [the Trim window](editing-video.md#the-trim-window) with the track's waveform as its strip; **Cut…** after it removes a part from the middle of the track, marked on that waveform, and the later part closes up behind the earlier while everything else stays put ([Cut…](editing-video.md#cut)); and **Split…** splits the track into two that play on as one, at a moment picked on that waveform ([Split…](editing-video.md#split)) — then its [audio fields](#volume-and-mute). Tracks overlap freely and are independent of the sequence's cuts: moving an entry never moves a track. [Cut out marked range](editing-video.md#cut-out-marked-range) is the exception: it moves a track after the range earlier with the picture, and trims or removes one the range overlaps. Anything past the end of the sequence is cut off there, like every element. A track's ⋯ menu offers [End with video](#end-with-video), [Duplicate](timeline.md#duplicate) (the copy starts where the original ends), [Copy settings and Paste settings](timeline.md#copy-settings-and-paste-settings) (the *Audio* group), [Rename…](timeline.md#rename), and **Remove**, as the row's ✕ does.
 
-**Related.** [The five sections](timeline.md#the-five-sections) · [Trimming](editing-video.md#trimming) · [Time on the timeline](concepts.md#time-on-the-timeline)
+**Related.** [The five sections](timeline.md#the-five-sections) · [Trimming](editing-video.md#trimming) · [Time on the timeline](concepts.md#time-on-the-timeline) · [End with video](#end-with-video)
+
+## End with video
+
+**Where to find it.** An audio track's **⋯** menu › **End with video**, first in the menu.
+
+**What it does.** Trims a song that runs past the end of the video so that it ends where the video ends, and fades it out, instead of being cut off at full volume on the last frame.
+
+**Details.**
+
+- **What it sets.** **Out** becomes the moment of the clip that plays as the video ends, so **Starts at** plus the trimmed length is the video's length. **Fade out** becomes {{END_WITH_VIDEO_FADE_OUT}} s, or stays as it is if it was already longer. **Fade in** and **Starts at** are left alone, and so is **In**.
+- **The video's length** is what the preview and the export stop at: [transitions](editing-video.md#transitions-crossfade-slides-wipes-pushes-fades-irises-and-cross-zoom) overlap and shorten it, and [speed segments](editing-video.md#speed-segments-and-pauses) lengthen or shorten it.
+- **A short track.** When **Fade in** and {{END_WITH_VIDEO_FADE_OUT}} s together are longer than what is left, **Fade in** keeps its value and **Fade out** takes the rest, as when you type the two yourself.
+- **It acts once.** The track is not pinned to the end of the video. If the video gets longer or shorter afterwards, choose **End with video** again.
+- **Greyed** when there is nothing to trim: the track already ends at or before the end of the video (an empty sequence included), or it starts at or after that end. A song shorter than the video is left as it is; nothing loops.
+- **Other settings follow the trim.** It is a trim, so the track's [volume changes](#volume-change) are fitted to the new length as [Trimming](editing-video.md#trimming) fits them: one past the new end shrinks to nothing, without being removed. [Duck others](#duck-others) stays as it was and ducks for the track's new, shorter time.
+- **Undo.** One undo step restores both the old **Out** and the old **Fade out**.
+
+**Related.** [Audio tracks](#audio-tracks) · [Fade-in and fade-out](#fade-in-and-fade-out) · [Trimming](editing-video.md#trimming) · [The ⋯ menu](timeline.md#the-menu)
 
 ## Volume and mute
 

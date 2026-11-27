@@ -64,6 +64,7 @@ The **thumbnail** on a video entry or video overlay is the first frame of its tr
 **Details.** The items, in order, each present only where it applies:
 
 - **Move up** and **Move down** (sequence entries) do what the row's **↑** and **↓** do, and are greyed out where they are: the first entry cannot move up, the last cannot move down.
+- **End with video** (audio tracks) trims a track that runs past the end of the video to end with it, with a fade-out ([End with video](audio.md#end-with-video)). It is greyed when there is nothing to trim.
 - **Duplicate**, **Copy settings** and **Paste settings** (shown while something is copied). Copy and Paste appear only on rows that hold a group the clipboard can carry.
 - **Rename…** on sequence entries, slates, audio tracks, overlays and shape groups.
 - **Remove** on every row: it asks the same confirmation as the row's **✕**, and removes the element the same way.

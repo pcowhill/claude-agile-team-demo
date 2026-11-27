@@ -79,6 +79,7 @@ import {
   shapeGroupsOf,
   textsOf,
   totalDuration,
+  endWithVideoOutPoint,
   videoOverlaysOf,
   zoomsForEntry,
 } from '../lib/timeline'
@@ -398,6 +399,12 @@ interface TimelineProps {
   onRemoveAudioTrack: (id: string) => void
   onRetimeAudioTrack: (id: string, offset: number) => void
   onTrimAudioTrack: (id: string, inPoint: number, outPoint: number) => void
+  /**
+   * The audio track ⋯ menu's End with video (#1040): trims the track to end
+   * where the sequence does, with a fade-out, as one undo step. Without it
+   * the menu offers no such item.
+   */
+  onEndAudioTrackWithVideo?: (id: string) => void
   onSetEntryVolume: (id: string, volume: number) => void
   onSetEntryMuted: (id: string, muted: boolean) => void
   onSetEntryFades: (id: string, fadeIn: number, fadeOut: number) => void
@@ -2969,6 +2976,7 @@ export function Timeline({
   onRemoveAudioTrack,
   onRetimeAudioTrack,
   onTrimAudioTrack,
+  onEndAudioTrackWithVideo,
   onSetEntryVolume,
   onSetEntryMuted,
   onSetEntryFades,
@@ -3525,8 +3533,14 @@ export function Timeline({
       renamable = true,
       removal,
       move,
+      timing = [],
     }: {
       renamable?: boolean
+      /**
+       * Items that edit the row's own timing, as a group of their own after
+       * ↑ ↓'s: an audio track's End with video (#1040).
+       */
+      timing?: MenuItem[]
       /** What the row's ✕ asks to confirm; the menu's Remove asks the same. */
       removal: PendingRemoval
       /** The row's ↑ ↓, where it has them: which way it can move, and how. */
@@ -3598,7 +3612,7 @@ export function Timeline({
     ]
     // Groups are joined only where both sides exist, so no menu opens on a
     // separator — a text overlay's opens on Duplicate.
-    const items = [order, copies, identity, remove]
+    const items = [order, timing, copies, identity, remove]
       .filter((group) => group.length > 0)
       .flatMap((group, index) =>
         index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
@@ -4526,7 +4540,23 @@ export function Timeline({
                     {nameCell(track.id, track.name, position)}
                     <span className="clip-duration">{formatDuration(trimmedLength)}</span>
                     <span className="timeline-row-actions">
-                      {rowActionsMenu('audio-track', track, position, { removal: trackRemoval })}
+                      {rowActionsMenu('audio-track', track, position, {
+                        removal: trackRemoval,
+                        // End with video (#1040): greyed wherever the reducer
+                        // would do nothing, by the same rule it reads.
+                        timing:
+                          onEndAudioTrackWithVideo === undefined
+                            ? []
+                            : [
+                                {
+                                  kind: 'action',
+                                  label: 'End with video',
+                                  title: 'Trim this track to end where the video ends, with a fade-out',
+                                  disabled: endWithVideoOutPoint(timeline, track.id) === null,
+                                  onSelect: () => onEndAudioTrackWithVideo(track.id),
+                                },
+                              ],
+                      })}
                       <button
                         type="button"
                         aria-label={`Remove ${position} from timeline`}

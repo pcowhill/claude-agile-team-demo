@@ -131,6 +131,8 @@ export const GUIDE_CONSTANT_NAMES = [
   'DEFAULT_VOLUME_CHANGE_LENGTH',
   /** The Level a volume change added from + Effect ▾ starts at (#1025). */
   'DEFAULT_VOLUME_CHANGE_LEVEL',
+  /** The fade-out an audio track's End with video gives it at least, in seconds (#1040). */
+  'END_WITH_VIDEO_FADE_OUT',
   /** How close, in pixels of slider travel, a released seek must land to a cut to snap onto it (#391). */
   'SNAP_PIXELS',
   /** The export's automatic frame rate, in frames per second (#179). */
