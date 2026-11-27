@@ -1,8 +1,9 @@
 /**
  * What a trim in the Trim window would do to the entry's effects (#709,
  * from the approved design #703 §3): where its zooms, speed segments,
- * pauses and picture effects (#862) would sit, which of them the clamps as they stand would cut into,
- * and which source span a transition at either end would cover.
+ * pauses, picture effects (#862) and volume changes (#1026) would sit,
+ * which of them the clamps as they stand would cut into, and which source
+ * span a transition at either end would cover.
  *
  * **One rule.** Nothing here re-derives the trim's consequences. The
  * candidate trim is run through `timelineReducer` as the `entry-trimmed`
@@ -35,10 +36,11 @@
  * through the overlay's speed segments and pauses, where a window over a
  * pause is many seconds on screen and one instant of source.
  *
- * **An audio track's volume changes** (#1025) are windows in seconds into
- * the track's trimmed range, as a zoom's are, so they ride with In and are
- * both warned of and marked by the same rule. A track has no other effects
- * and sits on no boundary.
+ * **Volume changes** (#1025 on an audio track, #1026 on a video entry) are
+ * windows in seconds into the element's trimmed range, as a zoom's are, so
+ * they ride with In and are both warned of and marked by the same rule. A
+ * track has no other effects and sits on no boundary; an entry's changes
+ * are compared beside its zooms, remaps and picture effects.
  */
 
 import { remapEnd, remapStart, sourceTimeAtOutput } from './remap'
@@ -68,7 +70,8 @@ import type { VolumeChange } from './volumeChange'
  * `picture-effect` is a Vignette, Blur or other registered picture effect
  * (#862), whatever its type. `move` is an overlay's Move (#834), which is
  * only ever warned of, never marked (see "An overlay's on-screen lists").
- * `volume-change` is an audio track's volume change (#1025).
+ * `volume-change` is an audio track's (#1025) or a video entry's (#1026)
+ * volume change.
  */
 export type TrimEffectKind = 'zoom' | RemapSpec['kind'] | 'picture-effect' | 'move' | 'volume-change'
 
@@ -179,7 +182,7 @@ function placedEffects(
 }
 
 /**
- * A track's volume changes (#1025), named as their rows name them: numbered
+ * An element's volume changes (#1025, #1026), named as their rows name them: numbered
  * in the normalized list's order (`VolumeChangeFieldsRow`). Their windows
  * clamp and collapse on a retrim as a zoom's do, so the same outcomes apply.
  */
@@ -348,13 +351,22 @@ export function trimEffectsPreview(
   }
 
   const remaps = remapsForEntry(trimmed, entryId)
+  // The entry's own volume changes (#1026) are swept by the same
+  // `entry-trimmed`, in the same seconds, so they join the comparison after
+  // the effects the row lists before them.
   const { marks, warnings } = comparedEffects(
-    placedEffects(
-      zoomsForEntry(state, entryId),
-      remapsForEntry(state, entryId),
-      pictureEffectsForEntry(state, entryId),
-    ),
-    placedEffects(zoomsForEntry(trimmed, entryId), remaps, pictureEffectsForEntry(trimmed, entryId)),
+    [
+      ...placedEffects(
+        zoomsForEntry(state, entryId),
+        remapsForEntry(state, entryId),
+        pictureEffectsForEntry(state, entryId),
+      ),
+      ...placedVolumeChanges(current.volumeChanges ?? []),
+    ],
+    [
+      ...placedEffects(zoomsForEntry(trimmed, entryId), remaps, pictureEffectsForEntry(trimmed, entryId)),
+      ...placedVolumeChanges(entry.volumeChanges ?? []),
+    ],
     entry.inPoint,
   )
 

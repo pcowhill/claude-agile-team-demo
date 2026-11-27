@@ -165,8 +165,12 @@
   background: #6fb7ff;
 }
 
-/* An audio track's volume change (#1025). */
+/* A volume change, on an audio track (#1025) or a video entry (#1026). It
+   has a lane of its own just above the foot: an entry's changes often span
+   the same seconds as its zooms, speed segments or picture effects, and on
+   the foot a change's bar would cover theirs (#1026). */
 .trim-effect-volume-change {
+  bottom: calc(4px + 0.45rem);
   background: #ff7eb6;
 }
 
