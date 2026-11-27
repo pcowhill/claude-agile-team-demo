@@ -778,8 +778,9 @@ function cardFilterFunctions(
     card.width,
     'px',
     1,
+    // The shift is rounded to whole canvas px, ratio 1 (#980).
     (offset) =>
-      typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * card.width, dy: 0 }),
+      typeof document === 'undefined' ? null : channelOffsetFilterUrl(document, { dx: offset * card.width, dy: 0 }, 1),
     (bands) => (typeof document === 'undefined' ? null : slicesFilterUrl(document, exportSlices(bands, card))),
   ).join(' ')
 }

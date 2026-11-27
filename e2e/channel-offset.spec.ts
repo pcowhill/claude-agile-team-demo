@@ -29,10 +29,10 @@ const OFFSET = 0.03
 const EFFECT_NAME = 'Test channel offset'
 /**
  * How far a channel's edge may sit from where the shift puts it, in pixels
- * of the image measured: for the shift's rounding to 0.1 px, the image's
- * own pixel grid, and the threshold crossing landing on either side of an
- * edge pixel. As a fraction of the image's width, it is wider for the
- * preview, the smaller image.
+ * of the image measured: for the shift's rounding to whole pixels (#980),
+ * the image's own pixel grid, and the threshold crossing landing on
+ * either side of an edge pixel. As a fraction of the image's width, it is
+ * wider for the preview, the smaller image.
  */
 const TOLERANCE_PX = 2
 
@@ -142,6 +142,19 @@ function shifts(extents: Extents) {
 
 const tolerance = (extents: Extents) => TOLERANCE_PX / extents.width
 
+/**
+ * Each channel's shift in whole pixels of the image measured, at both
+ * edges: red's negated, so every value is how far that edge moved its own
+ * way. An extent is a column's centre over the width, so the difference of
+ * two times the width is a whole number of columns.
+ */
+function shiftsInPx(extents: Extents): number[] {
+  const moved = shifts(extents)
+  return [-moved.redLeft, -moved.redRight, moved.blueLeft, moved.blueRight].map((value) =>
+    Math.round(value * extents.width),
+  )
+}
+
 function expectShifted(extents: Extents, label: string) {
   const moved = shifts(extents)
   const within = tolerance(extents)
@@ -169,6 +182,20 @@ test.describe('Channel offset picture filter (#870)', () => {
 
     expectShifted(preview, 'preview')
     expectShifted(saved, 'saved frame')
+    // Whole pixels (#980): the saved frame moves each channel by the exact
+    // shift rounded, 0.03 of 1920 px, 57.6, to 58, in Chromium and Firefox
+    // alike. Firefox used to truncate it to 57. The preview, at one device
+    // px per CSS px here, lands each channel within half a device pixel of
+    // its exact shift. The extra 0.1 is for the frame's measured width,
+    // which the shift is taken from, against the screenshot's whole px.
+    expect(shiftsInPx(saved), 'saved frame: each channel moved by the shift rounded').toEqual(
+      Array(4).fill(Math.round(OFFSET * saved.width)),
+    )
+    for (const [index, value] of shiftsInPx(preview).entries()) {
+      expect(Math.abs(value - OFFSET * preview.width), `preview: edge ${index} within half a device px`).toBeLessThan(
+        0.6,
+      )
+    }
     const previewShifts = shifts(preview)
     for (const [edge, value] of Object.entries(shifts(saved))) {
       expect(

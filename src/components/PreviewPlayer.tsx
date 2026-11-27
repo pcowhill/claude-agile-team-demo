@@ -474,6 +474,15 @@ function hiddenUnderPixelate(style: CSSProperties | undefined): CSSProperties {
 }
 
 /**
+ * Device px per CSS px, which the preview's channel offset rounds its
+ * shift to (#980). 1 where there is no window, as in a test without one.
+ */
+function screenDensity(): number {
+  const ratio = typeof window === 'undefined' ? 1 : window.devicePixelRatio
+  return ratio > 0 && Number.isFinite(ratio) ? ratio : 1
+}
+
+/**
  * Composes a layer's styles with its entry's picture-effect filters (#862):
  * the look's filter functions appended to the element's CSS `filter`, after
  * its colour adjustments, the order the export's canvas `filter` uses. A
@@ -500,8 +509,10 @@ function withPictureFilters(
   // A channel offset (#870) is an SVG filter whose shift is in the
   // element's own CSS px: the frame's measured width turns the offset into
   // px on the screen, and `previewChannelShift` turns that back through
-  // the element's own transform. Until the frame is measured it draws
-  // none. Making the filter is idempotent, so a render may do it.
+  // the element's own transform. The shift is then rounded to whole device
+  // px (#980), which Chromium and Firefox both draw as written. Until the
+  // frame is measured it draws none. Making the filter is idempotent, so a
+  // render may do it.
   //
   // Slices (#871) are the same, their bands taken back from the frame
   // through the card's zoom and the element's own transform into its px.
@@ -515,6 +526,7 @@ function withPictureFilters(
         ? channelOffsetFilterUrl(
             document,
             previewChannelShift((offset * media.framePx) / zoom.scale, media.orientation, media.cropScale),
+            screenDensity(),
           )
         : null,
     (bands) =>
@@ -1337,6 +1349,7 @@ function overlayLookStyles(
               ? channelOffsetFilterUrl(
                   document,
                   previewChannelShift((offset * outline.width * framePx) / zoom.scale, orientation, crop.scale),
+                  screenDensity(),
                 )
               : null,
           (bands) =>
