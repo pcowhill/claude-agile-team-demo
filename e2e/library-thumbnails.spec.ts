@@ -279,19 +279,33 @@ test('while a video card\'s frame is captured, its glyph shows, not the timeline
   // painted at the centre of the new card's picture. ClipThumbnail holds a
   // timeline row's place with an empty #111 box while it captures (#967);
   // in a card that box covered the glyph #311 made the placeholder.
+  //
+  // Sampled on every DOM change as well as every frame (#1053). The capture
+  // of this short clip lands 15 to 90 ms after the card appears, measured
+  // over 30 loaded runs, so its pending window can fall between two frames
+  // and a per-frame sampler alone saw no pending sample in 1 of 60 loaded
+  // runs. The card's first commit always renders the pending box, since
+  // the capture only starts in an effect after it, so the mutation that
+  // inserts the card is a pending sample every time. `elementFromPoint`
+  // there reads the same layout a paint would show: the #967 defect was
+  // stacking, and hit-testing sees stacking without waiting for a frame.
   await page.evaluate(() => {
     const samples: { captured: boolean; top: string }[] = []
-    const record = () => {
+    const sample = () => {
       const picture = document.querySelectorAll('.clip-card-picture')[1]
       if (picture !== undefined) {
         const { x, y, width, height } = picture.getBoundingClientRect()
         const top = document.elementFromPoint(x + width / 2, y + height / 2)
         samples.push({ captured: picture.querySelector('img') !== null, top: top?.className ?? '' })
       }
-      requestAnimationFrame(record)
     }
+    const everyFrame = () => {
+      sample()
+      requestAnimationFrame(everyFrame)
+    }
+    new MutationObserver(sample).observe(document.body, { subtree: true, childList: true })
     ;(window as unknown as { cardSamples: typeof samples }).cardSamples = samples
-    record()
+    everyFrame()
   })
   await page.getByTestId('clip-file-input').setInputFiles([{ name: 'second.webm', mimeType: 'video/webm', buffer: video }])
   await expect(page.getByTestId('clip-card-thumbnail-1')).toBeVisible()
