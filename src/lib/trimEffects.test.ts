@@ -438,6 +438,24 @@ describe('a removed effect stays at length zero when the trim moves back out; Un
     expect(trimEffectsPreview(applied(late, 0, 5), 'e1', { inPoint: 0, outPoint: 10 }).warnings).toEqual([])
   })
 
+  it('an effect already at length zero is not warned of when a later trim\'s end passes it (#1031)', () => {
+    // Out 5 collapsed all three to length zero at 5 s. Out 3 pulls them
+    // back to 3 s, which plays nothing more than before: no "moves".
+    const collapsed = applied(late, 0, 5)
+    const kinds = (state: TimelineState) => trimEffectsPreview(state, 'e1', { inPoint: 0, outPoint: 3 })
+    const zoomOnly: TimelineState = { entries: collapsed.entries, zooms: collapsed.zooms }
+    const speedOnly: TimelineState = { entries: collapsed.entries, remaps: collapsed.remaps }
+    const pictureOnly: TimelineState = { entries: collapsed.entries, pictureEffects: collapsed.pictureEffects }
+    expect(zoomWindowDuration(zoomsForEntry(zoomOnly, 'e1')[0])).toBe(0)
+    expect(kinds(zoomOnly).warnings).toEqual([])
+    expect(remapsForEntry(speedOnly, 'e1')[0]).toMatchObject({ start: 5, end: 5 })
+    expect(kinds(speedOnly).warnings).toEqual([])
+    expect(pictureOnly.pictureEffects?.[0]).toMatchObject({ start: 5, end: 5 })
+    expect(kinds(pictureOnly).warnings).toEqual([])
+    // Nor drawn, as before.
+    expect(kinds(collapsed).marks).toEqual([])
+  })
+
   it('an overlay\'s Move, trimmed to Out 5 and back to 10', () => {
     const withMove: TimelineState = {
       entries: [entry({ id: 'e1' })],
@@ -548,6 +566,24 @@ describe('audioTrackTrimEffectsPreview: an audio track’s volume changes (#1025
       { id: 'v1', start: 2, length: 2, level: 0.5 },
       { id: 'v2', start: 5, length: 0, level: 0.2 },
     ])
+  })
+
+  it('does not warn of a change already at length zero when the trim\'s end passes it (#1031)', () => {
+    // Volume change 2 was removed by an earlier trim: length zero at 5 s.
+    const collapsed: TimelineState = {
+      entries: [],
+      audioTracks: [
+        {
+          ...track,
+          volumeChanges: [
+            { id: 'v1', start: 2, length: 2, level: 0.5 },
+            { id: 'v2', start: 5, length: 0, level: 0.2 },
+          ],
+        },
+      ],
+    }
+    const warnings = audioTrackTrimEffectsPreview(collapsed, 't1', { inPoint: 0, outPoint: 3 }).warnings
+    expect(trimWarningText(warnings)).toBe('Trimming here shortens Volume change 1.')
   })
 
   it('shows nothing for a refused trim or an unknown track, and nothing to warn of on a change-free track', () => {
